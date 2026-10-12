@@ -112,13 +112,14 @@ export async function pin(target, name, expected) {
     .getByRole("menuitem", { name: "New message", exact: true })
     .click();
   await target
-    .locator(".new-conversation-dialog")
-    .getByLabel("Exact username", { exact: true })
+    .locator(".new-message-dialog")
+    .getByLabel("Search people or channels", { exact: true })
     .fill(name);
-  await target.getByRole("button", { name: "Open a DM", exact: true }).click();
   await target
-    .locator(".new-conversation-dialog")
-    .waitFor({ state: "detached" });
+    .locator(".new-message-dialog .conversation-spotlight-row")
+    .filter({ hasText: "@" + name })
+    .click();
+  await target.locator(".new-message-dialog").waitFor({ state: "detached" });
   await target
     .locator(".room-heading .room-title")
     .filter({ hasText: name })

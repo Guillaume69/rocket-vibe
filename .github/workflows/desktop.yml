@@ -260,6 +260,12 @@ jobs:
           $app = "$env:LOCALAPPDATA\Programs\rocket-vibe"
           $exe = "$app\bin\rocket-vibe-gtk.exe"
           if (-not (Test-Path $exe)) { throw "not installed at $exe" }
+          # The actual packaged Win32 Cairo renderer must keep speaking and
+          # button feedback when A8-mask CreateDIBSection fails. The hook only
+          # changes the helper's own import table, never another app process.
+          $shadowOut = "$env:RUNNER_TEMP\windows-cairo-shadow"
+          python scripts/windows-cairo-shadow-proof.py --dll-dir "$app\bin" --output-dir $shadowOut
+          if ($LASTEXITCODE -ne 0) { throw "Win32 Cairo zero-blur feedback regression failed" }
           # The voice sidecar beside the exe, where voice::available() looks.
           & "$app\bin\rv-voice.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "rv-voice.exe does not run from the install" }
@@ -421,6 +427,7 @@ jobs:
             ${{ runner.temp }}/gallery.png
             ${{ runner.temp }}/call.png
             ${{ runner.temp }}/player.png
+            ${{ runner.temp }}/windows-cairo-shadow/windows-zero-blur-feedback.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}

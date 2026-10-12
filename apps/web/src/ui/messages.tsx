@@ -28,6 +28,8 @@ import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
 import { SocialMessage } from "../social";
 import { useApp } from "./context";
 import { elementView, renderView } from "./portals";
+import { QuoteCard } from "./quote-card";
+import { metadataMarkdown } from "../markdown-text";
 
 export function Emoji({ code }: { code: string }) {
   const app = useApp();
@@ -690,12 +692,14 @@ export function MessageView({
           </div>
         )}
         {(message.quotes || []).map((quote, index) => (
-          <blockquote className="quote-card" key={index}>
-            <div className="quote-author">
-              {quote.excerpt?.author.display_name || ""}
-            </div>
-            <div>{quote.excerpt?.text || "…"}</div>
-          </blockquote>
+          <QuoteCard
+            key={index}
+            quote={quote}
+            text={(text) => <Markdown nodes={metadataMarkdown(text)} />}
+            image={(file) => (
+              <FileAttachment key={file.id} file={file} actions={actions} />
+            )}
+          />
         ))}
         {message.form ? (
           <WorkflowCard message={message} mine={mine} actions={actions} />

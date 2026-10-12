@@ -129,10 +129,86 @@ async fn run(window: Rc<AppWindow>, directory: PathBuf) {
         }
         if sent && texts.iter().any(|text| text.contains("Browser confirms GTK decryption")) {
             check("GTK receives encrypted browser acknowledgment", true, 1);
-            std::fs::write(directory.join("passed"), b"passed").unwrap();
+            std::fs::write(directory.join("round-trip-passed"), b"passed").unwrap();
+            history(window, directory, &fixture.room).await;
             return;
         }
         glib::timeout_future(Duration::from_millis(100)).await;
     }
     check("GTK encrypted interoperability round trip", false, sent);
+}
+
+/// A real browser seeds more than one private page after admission. Open the
+/// room afresh, then follow the same jump callback that search results use.
+async fn history(window: Rc<AppWindow>, directory: PathBuf, room: &str) {
+    let history = directory.join("history.json");
+    // The external browser performs 204 accepted encrypted writes through the
+    // real worker; slower CI machines can take longer than ten minutes.
+    for _ in 0..45000 {
+        if history.exists() {
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(history).expect("browser history fixture")).unwrap();
+    let oldest = value["oldest"].as_str().unwrap();
+    let newest = value["newest"].as_str().unwrap();
+    let id = value["id"].as_str().unwrap();
+    let count = value["count"].as_u64().unwrap();
+    assert!(count > 200);
+    let session = window.chat.native_session().unwrap();
+    // The identity comparison created this pair's ordinary DM. Opening it and
+    // returning uses real room navigation, dropping the previous private view.
+    let other = session.store.rooms().unwrap().into_iter().find(|r| r.id != room).expect("comparison DM");
+    window.chat.open_room(&other.id);
+    window.chat.open_room(room);
+    let mut latest = false;
+    for _ in 0..1200 {
+        let texts = window.chat.message_texts();
+        if texts.iter().any(|text| text == newest) {
+            assert!(!texts.iter().any(|text| text == oldest), "the oldest result is outside the latest 200 rows");
+            latest = true;
+            break;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    assert!(latest, "the latest private page loaded");
+    // Let the room's pending read completion settle before searching backwards.
+    glib::timeout_future(Duration::from_secs(2)).await;
+    window.chat.jump_to(id);
+    for _ in 0..1200 {
+        let texts = window.chat.message_texts();
+        if texts.iter().any(|text| text == oldest) && texts.iter().any(|text| text == newest) {
+            assert_eq!(texts.iter().filter(|text| text.as_str() == oldest).count(), 1);
+            assert_eq!(texts.iter().filter(|text| text.as_str() == newest).count(), 1);
+            let first = texts.iter().position(|text| text == oldest).unwrap();
+            let last = texts.iter().position(|text| text == newest).unwrap();
+            assert!(first < last, "older rows retain native sequence order");
+            let stored = session.store.messages(room, 1000).unwrap();
+            assert!(stored.iter().all(|row| !row.text.contains("Private history")));
+            assert!(!session.store.draft(room).unwrap().contains("Private GTK to browser"));
+            let database =
+                glib::user_data_dir().join("rocket-vibe-rs").join(rv_core::native::database_name(&session.info));
+            assert!(database.is_file(), "the actual ordinary session store exists");
+            let mut wal = database.as_os_str().to_os_string();
+            wal.push("-wal");
+            for file in [database, PathBuf::from(wal)] {
+                if file.is_file() {
+                    let bytes = std::fs::read(file).unwrap();
+                    for private in [b"Private history".as_slice(), b"Private GTK to browser".as_slice()] {
+                        assert!(
+                            !bytes.windows(private.len()).any(|window| window == private),
+                            "private timeline or draft text cannot enter ordinary SQLite or its WAL"
+                        );
+                    }
+                }
+            }
+            check("GTK opens an older private search result without dropping or duplicating newer rows", true, count);
+            std::fs::write(directory.join("passed"), b"passed").unwrap();
+            return;
+        }
+        glib::timeout_future(Duration::from_millis(100)).await;
+    }
+    check("GTK older private search result", false, count);
 }

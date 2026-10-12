@@ -22,6 +22,7 @@ const names = [
   "cryptoGroups",
   "cryptoConversations",
   "cryptoQuotes",
+  "cryptoQuoteReader",
   "cryptoWithdrawals",
   "cryptoRecovery",
   "cryptoHistory",

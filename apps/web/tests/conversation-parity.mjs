@@ -146,7 +146,7 @@ try {
     .click();
   const elsewhere = page.locator(".quote-room-picker");
   await elsewhere
-    .getByLabel("Search a room or a conversation")
+    .getByLabel("Search people or channels")
     .fill(destination.name);
   await elsewhere
     .locator(".spotlight-row")
@@ -218,7 +218,9 @@ try {
     .click();
   const calendar = page.locator(".time-picker-dialog");
   await calendar.waitFor();
-  assert.ok((await calendar.locator(".calendar-day").count()) >= 28);
+  assert.equal(await calendar.locator(".calendar-day").count(), 42);
+  assert.equal(await calendar.locator(".dialog-header").count(), 0);
+  assert.ok(await calendar.locator(".calendar-day.other-month").count());
   await calendar.getByLabel("Hour", { exact: true }).fill("24");
   assert.equal(
     await calendar
@@ -246,6 +248,18 @@ try {
     .getByRole("button", { name: "Pinned and starred", exact: true })
     .click();
   const marked = page.locator(".marked-dialog");
+  await marked.getByRole("tab", { name: "Pinned", exact: true }).waitFor();
+  assert.deepEqual(await marked.getByRole("tab").allTextContents(), [
+    "Pinned",
+    "My starred",
+  ]);
+  assert.equal(await marked.locator(".dialog-header h2").count(), 0);
+  assert.equal(
+    await marked.evaluate((node) =>
+      Math.round(node.getBoundingClientRect().height),
+    ),
+    560,
+  );
   await marked.locator('[data-id="' + first.id + '"]').waitFor();
   assert.equal(
     await marked.locator(".tile-message,.row-more,.message-gutter").count(),
@@ -520,9 +534,11 @@ try {
   await page
     .getByRole("menuitem", { name: "New message", exact: true })
     .click();
-  const newDm = page.locator(".new-conversation-dialog");
-  await newDm.getByLabel("Exact username", { exact: true }).fill(peerName);
-  await newDm.getByRole("button", { name: "Open a DM", exact: true }).click();
+  const newDm = page.locator(".new-message-dialog");
+  await newDm
+    .getByLabel("Search people or channels", { exact: true })
+    .fill(peerName);
+  await newDm.locator('[data-user="' + peer.user.id + '"]').click();
   await newDm.waitFor({ state: "detached" });
   await page.waitForURL("**/room/" + dm.id);
   await page.locator(".room-heading").click();

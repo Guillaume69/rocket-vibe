@@ -1,6 +1,7 @@
 //! "Nuit Étoilée", the Android app's theme, on top of libadwaita's dark style.
 
 use gtk::gdk;
+use gtk::prelude::*;
 
 const CSS: &str = r#"
 button.gif-choice { padding: 3px; border: 2px solid transparent; border-radius: 12px; background: #171529; }
@@ -454,6 +455,64 @@ button.send {
 }
 "#;
 
+// GTK's Cairo shadow blur allocates a Win32 A8 mask. If CreateDIBSection
+// fails, GTK 4.24 uses the failed context's absent user data as a Cairo context.
+// Keep the feedback as finite, unblurred rings only for that renderer/platform.
+// The main stylesheet remains the visual reference on all other renderers.
+const WINDOWS_CAIRO_CSS: &str = r#"
+window.windows-cairo-shadows .voice-avatar.speaking {
+  box-shadow: 0 0 0 1px rgba(62, 214, 127, 0.55);
+}
+window.windows-cairo-shadows .voice-card.speaking {
+  box-shadow: 0 0 0 1px #3ED67F, 0 0 0 2px rgba(62, 214, 127, 0.35);
+}
+window.windows-cairo-shadows button.cta {
+  box-shadow: 0 4px 0 1px rgba(255, 95, 162, 0.6);
+}
+window.windows-cairo-shadows button.cta:hover {
+  box-shadow: 0 4px 0 2px rgba(255, 95, 162, 0.8);
+}
+window.windows-cairo-shadows button.send {
+  box-shadow: 0 3px 0 1px rgba(255, 95, 162, 0.7);
+}
+window.windows-cairo-shadows button.jump-latest,
+window.windows-cairo-shadows button.new-pill {
+  box-shadow: 0 3px 0 1px rgba(0, 0, 0, 0.8);
+}
+window.windows-cairo-shadows .voice-avatar,
+window.windows-cairo-shadows .voice-card,
+window.windows-cairo-shadows button.cta,
+window.windows-cairo-shadows button.send,
+window.windows-cairo-shadows button.jump-latest,
+window.windows-cairo-shadows button.new-pill {
+  transition: border-color 150ms, opacity 150ms;
+}
+"#;
+
+pub(crate) fn needs_windows_cairo_shadows(windows: bool, renderer: &gtk::gsk::Renderer) -> bool {
+    windows && renderer.is::<gtk::gsk::CairoRenderer>()
+}
+
+pub(crate) fn apply_windows_cairo_shadows(window: &gtk::Window, windows: bool) -> bool {
+    let protected = window.renderer().is_some_and(|renderer| needs_windows_cairo_shadows(windows, &renderer));
+    if protected {
+        window.add_css_class("windows-cairo-shadows");
+    } else {
+        window.remove_css_class("windows-cairo-shadows");
+    }
+    protected
+}
+
+pub(crate) fn watch_window(window: &impl IsA<gtk::Window>) {
+    let window = window.as_ref();
+    // The renderer exists after realization. Re-evaluate if this native window
+    // is unrealized and presented again; no GL/Vulkan preference is changed.
+    window.connect_realize(|window| {
+        apply_windows_cairo_shadows(window, cfg!(windows));
+    });
+    window.connect_unrealize(|window| window.remove_css_class("windows-cairo-shadows"));
+}
+
 pub fn load() {
     crate::fonts::register();
     crate::fonts::register_packaged();
@@ -464,5 +523,12 @@ pub fn load() {
         &gdk::Display::default().expect("display"),
         &provider,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+    let fallback = gtk::CssProvider::new();
+    fallback.load_from_string(WINDOWS_CAIRO_CSS);
+    gtk::style_context_add_provider_for_display(
+        &gdk::Display::default().expect("display"),
+        &fallback,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
 }

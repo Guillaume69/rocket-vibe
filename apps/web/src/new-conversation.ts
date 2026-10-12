@@ -7,6 +7,184 @@ import { accountFence, entryRow, switchRow } from "./preferences-controls";
 import { nt } from "./native-i18n";
 import { t } from "./i18n";
 import { personalizedRoom } from "./room-state";
+import { icon } from "./icons";
+
+/** Native spotlight::open_chat: people first, then public channels. */
+export function gtkConversationSpotlight(app: App): void {
+  const [node, body] = dialog(nt("rooms.new"));
+  node.classList.add("new-message-dialog");
+  const valid = accountFence(app),
+    accountGeneration = app.generation;
+  const available = () =>
+    valid() && accountGeneration === app.generation && node.open;
+  const search = el("label", "conversation-spotlight-search"),
+    input = el("input"),
+    list = el("div", "conversation-spotlight-results"),
+    status = el("p", "conversation-spotlight-status dim");
+  input.type = "search";
+  input.placeholder = nt("spotlight.placeholder");
+  input.setAttribute("aria-label", nt("spotlight.placeholder"));
+  search.append(icon("search"), input);
+  status.hidden = true;
+  body.append(
+    search,
+    status,
+    list,
+    button(
+      nt("native.create"),
+      () => {
+        if (!available()) return;
+        node.close();
+        gtkNewConversation(app);
+      },
+      "conversation-spotlight-create",
+    ),
+  );
+  let sequence = 0,
+    busy = false,
+    timer: ReturnType<typeof setTimeout>;
+  const choose = async (
+    load: () => Promise<Room>,
+    known?: Room,
+    targetRoom?: string,
+  ) => {
+    if (!available() || busy) return;
+    busy = true;
+    const lifetime = targetRoom
+        ? app.model.roomLifetime(targetRoom)
+        : undefined,
+      membership = known?.read_state?.membership_version;
+    const current = () =>
+      available() &&
+      (!targetRoom ||
+        (lifetime === app.model.roomLifetime(targetRoom) &&
+          (!known ||
+            membership ===
+              app.model.rooms.get(targetRoom)?.read_state
+                ?.membership_version)));
+    try {
+      const receipt = await load();
+      if (!current()) return;
+      const room = await personalizedRoom(app, receipt, current);
+      if (!room || !current()) return;
+      app.model.rooms.set(room.id, room);
+      node.close();
+      await app.openRoom(room.id);
+    } finally {
+      busy = false;
+    }
+  };
+  const result = (
+    name: string,
+    detail: string,
+    action: () => Promise<void>,
+    tileName: string,
+    glyph?: string,
+  ) => {
+    const row = button("", action, "spotlight-row conversation-spotlight-row"),
+      names = el("span", "conversation-spotlight-names");
+    names.append(el("span", "room-name", name));
+    if (detail) names.append(el("span", "room-preview", detail));
+    row.append(tile(tileName, "message", glyph), names);
+    return row;
+  };
+  const refresh = async (reading: number, query: string) => {
+    if (!available() || reading !== sequence) return;
+    try {
+      const [users, rooms] = await Promise.all([
+        app.api.request<User[]>("/api/v1/users"),
+        app.info?.capabilities.room_discovery
+          ? app.api.request<PublicRoomPage>(
+              "/api/v1/rooms/public?q=" + segment(query),
+            )
+          : Promise.resolve({ rooms: [] }),
+      ]);
+      if (!available() || reading !== sequence) return;
+      list.replaceChildren();
+      const needle = query.toLowerCase();
+      for (const user of users
+        .filter(
+          (value) =>
+            value.id !== app.account?.session.user.id &&
+            (value.username + " " + value.display_name)
+              .toLowerCase()
+              .includes(needle),
+        )
+        .slice(0, 20)) {
+        const row = result(
+          user.display_name,
+          "@" + user.username,
+          () => {
+            const known = [...app.model.rooms.values()].find(
+              (room) =>
+                room.kind === "direct" &&
+                (app.live?.rooms.find((item) => item.room_id === room.id)
+                  ?.direct_peer?.id === user.id ||
+                  room.name === user.username),
+            );
+            return choose(
+              () =>
+                app.api.request<Room>("/api/v1/direct-messages", "POST", {
+                  user_id: user.id,
+                }),
+              known,
+              known?.id,
+            );
+          },
+          user.username,
+        );
+        row.dataset.user = user.id;
+        list.append(row);
+      }
+      for (const item of rooms.rooms) {
+        const row = result(
+          item.room.name,
+          item.joined ? "" : nt("spotlight.join"),
+          () =>
+            choose(
+              () =>
+                item.joined
+                  ? Promise.resolve(item.room)
+                  : app.api.request<Room>(
+                      "/api/v1/rooms/" + segment(item.room.id) + "/join",
+                      "POST",
+                      null,
+                    ),
+              app.model.rooms.get(item.room.id),
+              item.room.id,
+            ),
+          item.room.name,
+          "#",
+        );
+        row.dataset.room = item.room.id;
+        list.append(row);
+      }
+      status.textContent = nt("spotlight.none");
+      status.hidden = !!list.children.length;
+    } catch {
+      if (!available() || reading !== sequence) return;
+      list.replaceChildren();
+      status.textContent = nt("spotlight.failed");
+      status.hidden = false;
+    }
+  };
+  input.addEventListener("input", () => {
+    const reading = ++sequence,
+      query = input.value.trim();
+    clearTimeout(timer);
+    status.hidden = true;
+    if (!query) {
+      list.replaceChildren();
+      return;
+    }
+    timer = setTimeout(() => void refresh(reading, query), 300);
+  });
+  node.addEventListener("close", () => {
+    clearTimeout(timer);
+    sequence++;
+  });
+  input.focus();
+}
 
 /** The native GTK PreferencesDialog: direct message and room creation groups. */
 export function gtkNewConversation(app: App, createFirst = false): void {

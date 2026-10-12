@@ -5,6 +5,7 @@ import { join } from "node:path";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3418";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
 const password = "web-client-disposable-password";
+const username = process.env.RV_WEB_SOCIAL_USER || "socialweb";
 async function api(
   path,
   token,
@@ -24,7 +25,7 @@ async function api(
   return value;
 }
 const alice = await api("/api/v1/auth/login", null, {
-  username: "socialweb",
+  username,
   password,
 });
 const room = await api("/api/v1/rooms", alice.token, {
@@ -109,7 +110,7 @@ async function history() {
 }
 try {
   await page.goto(base);
-  await page.getByLabel("Username or email").fill("socialweb");
+  await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor();
@@ -118,12 +119,59 @@ try {
     .first()
     .click();
   await social().click();
-  await page.getByRole("menuitem", { name: "Quick poll", exact: true }).click();
+  const socialMenu = page.locator(".social-menu-dialog");
+  assert.equal(Math.round((await socialMenu.boundingBox()).width), 600);
+  assert.equal(Math.round((await socialMenu.boundingBox()).height), 220);
+  await socialMenu
+    .getByRole("button", { name: "Quick poll", exact: true })
+    .click();
   let dialog = page.locator("dialog[open]");
+  assert.equal(await dialog.locator("textarea").count(), 0);
+  assert.deepEqual(
+    await dialog.locator(".social-field span").allTextContents(),
+    [
+      "Title / question",
+      "Options separated by |",
+      "Optional closing time (YYYY-MM-DD HH:MM)",
+    ],
+  );
+  assert.equal(
+    Math.round(
+      (await dialog.getByLabel("Title / question").boundingBox()).height,
+    ),
+    34,
+  );
+  assert.equal(
+    await dialog
+      .getByLabel("Title / question")
+      .evaluate((node) => node === document.activeElement),
+    true,
+  );
   await dialog
-    .getByLabel("Question", { exact: true })
+    .getByLabel("Title / question", { exact: true })
     .fill("What should we play?");
-  await dialog.getByLabel("One option per line (2–10)").fill("Co-op\nRacing");
+  await dialog.getByLabel("Options separated by |").fill("Co-op | Racing");
+  let creationRequests = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname.endsWith("/social")
+    )
+      creationRequests++;
+  });
+  const closing = dialog.getByLabel("Optional closing time (YYYY-MM-DD HH:MM)");
+  await closing.fill("2027-02-30 20:00");
+  await dialog.getByRole("button", { name: "Post", exact: true }).click();
+  await dialog
+    .getByRole("status")
+    .getByText("Check the date and time.", { exact: true })
+    .waitFor();
+  assert.equal(
+    creationRequests,
+    0,
+    "invalid native date stays inline without a mutation",
+  );
+  await closing.fill("");
   await dialog.getByRole("button", { name: "Post", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   let card = page
@@ -134,7 +182,7 @@ try {
   await card.getByRole("button", { name: "Vote", exact: true }).click();
   await page.waitForFunction(() =>
     Array.from(document.querySelectorAll(".social-card")).some((c) =>
-      c.textContent.includes("1 participants"),
+      c.textContent.includes("Co-op · 1"),
     ),
   );
   let poll = (await history()).find((m) => m.social?.kind === "poll");
@@ -144,25 +192,46 @@ try {
     .click();
   await page.waitForFunction(() =>
     Array.from(document.querySelectorAll(".social-card")).some((c) =>
-      c.textContent.includes("0 participants"),
+      c.textContent.includes("Co-op · 0"),
     ),
   );
   await card.getByRole("button", { name: "Close poll", exact: true }).click();
   await card.getByText("Poll closed", { exact: true }).waitFor();
   console.log("PASS create poll, vote, clear and close against real server");
   await social().click();
-  await page.getByRole("menuitem", { name: "Game night", exact: true }).click();
+  await socialMenu
+    .getByRole("button", { name: "Game night", exact: true })
+    .click();
   dialog = page.locator("dialog[open]");
-  await dialog.getByLabel("Title", { exact: true }).fill("Friday co-op");
+  assert.deepEqual(
+    await dialog.locator(".social-field span").allTextContents(),
+    ["Title / question", "Details", "Date in your timezone (YYYY-MM-DD HH:MM)"],
+  );
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const pad = (number) => String(number).padStart(2, "0");
+  assert.equal(
+    await dialog
+      .getByLabel("Date in your timezone (YYYY-MM-DD HH:MM)")
+      .inputValue(),
+    `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())} 20:00`,
+  );
+  assert.equal(await dialog.getByRole("checkbox").count(), 0);
+  await dialog
+    .getByLabel("Title / question", { exact: true })
+    .fill("Friday co-op");
   const at = new Date(Date.now() + 86400000);
   await dialog
-    .getByLabel("Date and time in your timezone")
+    .getByLabel("Date in your timezone (YYYY-MM-DD HH:MM)")
     .fill(
       new Date(at - new Date().getTimezoneOffset() * 60000)
         .toISOString()
-        .slice(0, 16),
+        .slice(0, 16)
+        .replace("T", " "),
     );
-  await dialog.getByLabel("Game, server, details…").fill("Bring a controller");
+  await dialog
+    .getByLabel("Details", { exact: true })
+    .fill("Bring a controller");
   await dialog.getByRole("button", { name: "Post", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   const game = page.locator(".social-card").filter({ hasText: "Friday co-op" });
@@ -254,6 +323,20 @@ try {
   await dialog.waitFor({ state: "detached" });
   assert.equal(await input.evaluate((n) => n.value), "");
   await page.locator(".social-image img").waitFor();
+  const imageCard = page
+    .locator(".social-image")
+    .filter({ hasText: "Cat GIF" });
+  await imageCard.getByText("Cat GIF", { exact: true }).waitFor();
+  const saveCard = imageCard.getByRole("button", {
+    name: "Save to sticker shelf",
+    exact: true,
+  });
+  assert.equal(
+    await saveCard.evaluate((node) => node.getBoundingClientRect().height),
+    34,
+  );
+  await saveCard.click();
+  await imageCard.getByRole("button", { name: "Saved", exact: true }).waitFor();
   assert.equal(
     (await history()).filter((m) => m.social?.kind === "image").length,
     1,
@@ -265,7 +348,8 @@ try {
   await input.fill("a draft to keep");
   await social().click();
   await page
-    .getByRole("menuitem", { name: "GIF · Powered By GIPHY", exact: true })
+    .locator(".social-menu-dialog")
+    .getByRole("button", { name: "GIF · Powered By GIPHY", exact: true })
     .click();
   dialog = page.locator("dialog[open]");
   await dialog.getByLabel("Search GIFs", { exact: true }).fill("wave");
@@ -280,11 +364,12 @@ try {
     2,
   );
   console.log(
-    "PASS auto /giphy opening, live/debounced search, stale response, selection, cancel, Enter/Send, duplicate suppression and actual messages",
+    "PASS auto /giphy opening, live/debounced search, stale response, selection, cancel, Enter/Send, duplicate suppression, native image-card save receipt and actual messages",
   );
   await social().click();
   await page
-    .getByRole("menuitem", { name: "Sticker shelf", exact: true })
+    .locator(".social-menu-dialog")
+    .getByRole("button", { name: "Sticker shelf", exact: true })
     .click();
   dialog = page.locator("dialog[open]");
   await dialog.locator("img").waitFor();
@@ -298,14 +383,13 @@ try {
     .click();
   await social().click();
   await page
-    .getByRole("menuitem", { name: "Sticker shelf", exact: true })
+    .locator(".social-menu-dialog")
+    .getByRole("button", { name: "Sticker shelf", exact: true })
     .click();
   dialog = page.locator("dialog[open]");
   await dialog.locator("img").waitFor();
   await dialog.getByRole("button", { name: "Remove", exact: true }).click();
-  await dialog
-    .getByText("Add your images or save a GIF from search.")
-    .waitFor();
+  await dialog.getByText("No images. Search or add a link.").waitFor();
   await page.keyboard.press("Escape");
   assert.equal((await api("/api/v1/stickers", alice.token)).stickers.length, 0);
   await page.screenshot({

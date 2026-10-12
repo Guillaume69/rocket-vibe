@@ -63,6 +63,12 @@ async function latestCode(since) {
 }
 try {
   await page.goto(base);
+  if (process.env.RV_WEB_EXPECT_ENTRY)
+    assert.ok(
+      (
+        await page.locator('script[type="module"]').getAttribute("src")
+      ).endsWith(process.env.RV_WEB_EXPECT_ENTRY),
+    );
   await page.getByLabel("Username or email").fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
@@ -135,7 +141,7 @@ try {
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   const factor = page.locator(".factor-step");
   await factor.locator('input[autocomplete="one-time-code"]').fill("000000");
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await factor.locator(".login-error:not(:empty)").waitFor();
   assert.equal(await page.locator(".shell").count(), 0);
   await new Promise((resolve) =>
@@ -144,7 +150,7 @@ try {
   await factor
     .locator('input[autocomplete="one-time-code"]')
     .fill(totp(secret));
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await page.locator(".shell").waitFor();
   console.log(
     "PASS wrong second factor cannot sign in; correct TOTP resumes the account",
@@ -233,7 +239,7 @@ try {
   await factor
     .locator('input[autocomplete="one-time-code"]')
     .fill(await latestCode(loginStart));
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await page.locator(".shell").waitFor();
   console.log("PASS email second factor authenticates through TLS delivery");
   await openSecurity();
@@ -265,6 +271,11 @@ try {
   console.log("Security browser errors:", errors);
   await page.screenshot({
     path: "../../.cache/web-shots/security-failure.png",
+    mask: [
+      page.locator(
+        '.totp-secret,.totp-qr,.backup-codes,input[type="password"],input[autocomplete="one-time-code"]',
+      ),
+    ],
   });
   throw error;
 } finally {

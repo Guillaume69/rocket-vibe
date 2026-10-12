@@ -128,7 +128,7 @@ export async function botsPage(
   );
   if (!mine.bots.length) rows.append(actionRow(nt("bots.empty")));
   const show = (bot: Bot) =>
-    host.push(bot.user.display_name || bot.user.username, (p) =>
+    host.push("@" + bot.user.username, (p) =>
       botDetail(app, host, p, bot, reference, all),
     );
   for (const bot of mine.bots) {
@@ -234,9 +234,11 @@ async function botDetail(
       const file = picker.files?.[0];
       if (file) void apply(file).catch(toast);
     });
+    const removePhoto = button(nt("settings.photo_remove"), () => apply());
+    removePhoto.disabled = bot.avatar_file_id == null;
     photo.append(
       button(nt("settings.photo_change"), () => picker.click()),
-      button(nt("settings.photo_remove"), () => apply()),
+      removePhoto,
       picker,
     );
     const selected = [...bot.scopes];

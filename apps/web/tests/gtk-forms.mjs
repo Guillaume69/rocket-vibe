@@ -61,12 +61,21 @@ const settings = async (category = "My account") => {
     .getByRole("button", { name: category, exact: true })
     .click();
 };
-const newConversation = async () => {
+const spotlight = async () => {
   await page
     .getByRole("button", { name: "New conversation", exact: true })
     .click();
   await page
     .getByRole("menuitem", { name: "New message", exact: true })
+    .click();
+  const dialog = page.locator(".new-message-dialog");
+  await dialog.waitFor();
+  return dialog;
+};
+const newConversation = async () => {
+  const search = await spotlight();
+  await search
+    .getByRole("button", { name: "Create room", exact: true })
     .click();
   const dialog = page.locator(".new-conversation-dialog");
   await dialog.waitFor();
@@ -181,6 +190,148 @@ try {
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.locator(".status-dot.online").waitFor({ timeout: 45000 });
+  const directoryRequests = [];
+  page.on("request", (request) => {
+    if (
+      ["/api/v1/users", "/api/v1/rooms/public"].includes(
+        new URL(request.url()).pathname,
+      )
+    )
+      directoryRequests.push(request);
+  });
+  let search = await spotlight();
+  const query = search.getByLabel("Search people or channels", { exact: true });
+  assert.equal(
+    await query.evaluate((node) => node === document.activeElement),
+    true,
+  );
+  await page.waitForTimeout(350);
+  assert.equal(
+    directoryRequests.length,
+    0,
+    "empty spotlight does not list the whole directory",
+  );
+  const heldQuery = "gtk-absent-" + crypto.randomUUID();
+  let release, entered;
+  const barrier = new Promise((resolve) => (release = resolve)),
+    reached = new Promise((resolve) => (entered = resolve));
+  const heldRoute = "**/api/v1/rooms/public?q=" + heldQuery;
+  await page.route(heldRoute, async (route) => {
+    const response = await route.fetch();
+    entered();
+    await barrier;
+    await route.fulfill({ response });
+  });
+  await query.fill(heldQuery);
+  await reached;
+  await query.fill(peerName);
+  await search.locator('[data-user="' + peer.user.id + '"]').waitFor();
+  const returned = page.waitForResponse(
+    (response) => new URL(response.url()).searchParams.get("q") === heldQuery,
+  );
+  release();
+  await returned;
+  await page.unroute(heldRoute);
+  await search.locator('[data-user="' + peer.user.id + '"]').waitFor();
+  assert.equal(
+    await search.locator(".conversation-spotlight-status").isVisible(),
+    false,
+    "a delayed old empty answer cannot overwrite the current people result",
+  );
+  const beforeSearchCancel = creations.length;
+  await page.keyboard.press("Escape");
+  assert.equal(
+    await query.inputValue(),
+    "",
+    "Escape first clears the native search entry",
+  );
+  await page.keyboard.press("Escape");
+  await search.waitFor({ state: "detached" });
+  assert.equal(
+    creations.length,
+    beforeSearchCancel,
+    "search cancellation creates no room or direct message",
+  );
+  console.log(
+    "PASS GTK spotlight focuses search, leaves empty directory unread, fences delayed answers and cancels without mutations",
+  );
+
+  const publicRoom = await api("/api/v1/rooms", peer.token, {
+    name: peerName + " spotlight " + crypto.randomUUID().slice(0, 8),
+    private: false,
+    operation_id: crypto.randomUUID(),
+  });
+  search = await spotlight();
+  await search
+    .getByLabel("Search people or channels", { exact: true })
+    .fill(peerName);
+  const person = search.locator('[data-user="' + peer.user.id + '"]'),
+    channel = search.locator('[data-room="' + publicRoom.id + '"]');
+  await channel.waitFor();
+  assert.equal(
+    await person.evaluate(
+      (node) => node === node.parentElement.firstElementChild,
+    ),
+    true,
+    "native people results precede discovered channels",
+  );
+  assert.ok((await channel.textContent()).includes("Join"));
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    assert.equal(
+      await search.evaluate((node) =>
+        Math.round(node.getBoundingClientRect().height),
+      ),
+      480,
+    );
+    assert.equal(
+      await person.evaluate((node) =>
+        Math.round(node.getBoundingClientRect().height),
+      ),
+      55,
+    );
+    if (width === 390)
+      assert.equal(
+        await search.evaluate((node) =>
+          Math.round(node.getBoundingClientRect().bottom),
+        ),
+        800,
+      );
+  }
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-gtk-spotlight-narrow.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await channel.click();
+  await search.waitFor({ state: "detached" });
+  await page.waitForURL("**/room/" + publicRoom.id);
+  assert.ok(
+    (await api("/api/v1/rooms/" + publicRoom.id + "/read", me.token))
+      .membership_version,
+    "discovered channel opens only after real joining and personalized state",
+  );
+  search = await spotlight();
+  await search
+    .getByLabel("Search people or channels", { exact: true })
+    .fill(peerName);
+  await search.locator('[data-user="' + peer.user.id + '"]').click();
+  await search.waitFor({ state: "detached" });
+  const spotlightDirectId = new URL(page.url()).pathname.split("/").at(-1);
+  await page
+    .locator(
+      '.room-row.selected[data-room="' +
+        spotlightDirectId +
+        '"]:not(:disabled)',
+    )
+    .waitFor();
+  assert.equal(
+    (await api("/api/v1/rooms/" + spotlightDirectId, me.token)).room.kind,
+    "direct",
+  );
+  console.log(
+    "PASS GTK spotlight preserves native desktop/narrow geometry, people-first results and real public join/direct-message navigation",
+  );
+
   const before = creations.length;
   let dialog = await newConversation();
   const exact = dialog.getByLabel("Exact username", { exact: true }),

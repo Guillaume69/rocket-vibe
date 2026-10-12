@@ -8,6 +8,7 @@ import { CryptoIdentityAccess } from "./shared/cryptoIdentity";
 import { CryptoPeerAccess } from "./shared/cryptoPeers";
 import { CryptoGroupAccess } from "./shared/cryptoGroups";
 import { CryptoConversationAccess } from "./shared/cryptoConversations";
+import { ordinarySources } from "./quote-sources";
 export async function cryptoAccess(app: App, alive: () => boolean) {
   const account = app.account,
     generation = app.generation;
@@ -92,8 +93,14 @@ export async function cryptoAccess(app: App, alive: () => boolean) {
         room,
         thread,
         membership,
-        async (source) =>
-          app.model.rooms.get(source)?.read_state?.membership_version ?? null,
+        async (source) => {
+          if (!current()) throw new ApiError(0, "session_closed");
+          const value = app.model.rooms.get(source);
+          return value?.encrypted
+            ? (value.read_state?.membership_version ?? null)
+            : null;
+        },
+        (source, ids) => ordinarySources(app, current, source, ids),
       );
     },
     close: () => storage.close(),

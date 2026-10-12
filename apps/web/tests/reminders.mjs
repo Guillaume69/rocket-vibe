@@ -41,6 +41,8 @@ const page = await browser.newPage({
   locale: "en-US",
   viewport: { width: 1280, height: 800 },
 });
+const errors = [];
+page.on("pageerror", (error) => errors.push(error.message));
 try {
   await page.goto(base);
   await page.getByLabel("Username or email").fill(username);
@@ -54,14 +56,74 @@ try {
   await page.locator('[data-id="' + later.id + '"]').waitFor();
   await page.locator('[data-id="' + later.id + '"] .row-more').click();
   await page.getByRole("button", { name: "Remind me", exact: true }).click();
-  await page.getByRole("menuitem", { name: "In 1 hour", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Pick a time", exact: true })
+    .click();
+  let picker = page.locator(".time-picker-dialog");
+  await picker.waitFor();
+  assert.equal(await picker.locator(".dialog-header").count(), 0);
+  assert.equal(await picker.locator(".calendar-day").count(), 42);
+  const selected = await picker
+      .locator('.calendar-day[aria-pressed="true"]')
+      .getAttribute("aria-label"),
+    hour = await picker.getByLabel("Hour", { exact: true }).inputValue(),
+    minute = await picker.getByLabel("Minute", { exact: true }).inputValue();
+  await picker
+    .getByRole("button", { name: "Previous year", exact: true })
+    .click();
+  await picker.locator(".calendar-day:not(.other-month)").first().click();
+  assert.equal(
+    await picker
+      .getByRole("button", { name: "Remind me", exact: true })
+      .isEnabled(),
+    false,
+    "past dates cannot create a reminder",
+  );
+  await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+  const stored = () =>
+    page.evaluate(async () => {
+      const request = indexedDB.open("rocket-vibe-web");
+      const db = await new Promise((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const rows = await new Promise((resolve, reject) => {
+        const get = db
+          .transaction("reminders")
+          .objectStore("reminders")
+          .getAll();
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      return rows;
+    });
+  assert.equal((await stored()).length, 0, "Cancel persists no reminder");
+  await page.locator('[data-id="' + later.id + '"] .row-more').click();
+  await page.getByRole("button", { name: "Remind me", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Pick a time", exact: true })
+    .click();
+  picker = page.locator(".time-picker-dialog");
+  await picker.getByRole("button", { name: selected, exact: true }).click();
+  await picker.getByLabel("Hour", { exact: true }).fill(hour);
+  await picker.getByLabel("Minute", { exact: true }).fill(minute);
+  await picker.getByRole("button", { name: "Remind me", exact: true }).click();
   await page.getByText(/^Reminder set for /).waitFor();
+  const at = new Date(selected);
+  at.setHours(Number(hour), Number(minute), 0, 0);
+  const created = await stored();
+  assert.equal(created.length, 1);
+  assert.equal(created[0].message, later.id);
+  assert.equal(Date.parse(created[0].due), at.getTime());
   await page.locator('[data-id="' + later.id + '"] .row-more').click();
   await page
     .getByRole("button", { name: /^Cancel reminder \(/ })
     .waitFor({ timeout: 5000 });
   await page.keyboard.press("Escape");
-  console.log("PASS Remind me keeps it and the menu offers to cancel it");
+  console.log(
+    "PASS native reminder calendar rejects past dates, Cancel stores nothing, and the exact selected reminder persists with its cancel action",
+  );
   await page
     .getByRole("button", {
       name: "My account, settings and sign out",
@@ -130,6 +192,7 @@ try {
   );
   assert.equal(left, null, "a fired reminder is removed");
   console.log("PASS a due reminder fires on opening and leads to its message");
+  assert.deepEqual(errors, []);
 } catch (error) {
   await page.screenshot({
     path: "../../.cache/web-shots/reminders-failure.png",

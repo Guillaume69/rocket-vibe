@@ -48,6 +48,11 @@ page.on("websocket", (socket) => {
 });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
+const commandRuns = [];
+page.on("request", (request) => {
+  if (request.url().endsWith("/api/v1/commands/run"))
+    commandRuns.push(request.postDataJSON());
+});
 let bot, workflow;
 await mkdir("../../.cache/web-shots", { recursive: true });
 try {
@@ -124,9 +129,8 @@ try {
     .fill("Browser form end-to-end");
   const command = "hello-web-" + tag;
   await settings.getByLabel("Command name", { exact: true }).fill(command);
-  await settings.getByLabel("Add a step", { exact: true }).selectOption("form");
   await settings
-    .getByRole("button", { name: "Add a step", exact: true })
+    .getByRole("button", { name: "Ask a form", exact: true })
     .click();
   await settings
     .getByLabel("Form title", { exact: true })
@@ -138,10 +142,7 @@ try {
     .getByLabel("Options, separated by commas", { exact: true })
     .fill("Alpha, Beta");
   await settings
-    .getByLabel("Add a step", { exact: true })
-    .selectOption("message");
-  await settings
-    .getByRole("button", { name: "Add a step", exact: true })
+    .getByRole("button", { name: "Send a message", exact: true })
     .click();
   await settings
     .getByLabel("Text", { exact: true })
@@ -163,10 +164,49 @@ try {
   assert.equal(workflow.steps.length, 2);
   await settings.locator(".preferences-close").click();
   await page.locator(".room-row").filter({ hasText: room.name }).click();
+  await page.locator(".composer-input").first().fill("/");
+  const catalogue = await api(
+    "/api/v1/commands?room=" + room.id,
+    account.token,
+  );
+  await page.waitForFunction(
+    (count) =>
+      document.querySelectorAll(".command-options .completion-item").length ===
+      count,
+    catalogue.commands.length,
+  );
+  assert.ok(
+    catalogue.commands.length > 8,
+    "The complete native catalogue is reachable",
+  );
+  assert.equal(
+    await page.locator(".completion-title").textContent(),
+    "COMMANDS",
+  );
+  assert.equal(
+    await page.locator(".completion-keys").textContent(),
+    "Tab or Enter to complete",
+  );
+  const names = await page
+    .locator(".command-options .command-name strong")
+    .allTextContents();
+  assert.deepEqual(
+    names,
+    [...names].sort((a, b) => a.localeCompare(b)),
+  );
+  await page.locator(".composer-input").first().press("ArrowDown");
+  await page.locator(".composer-input").first().press("Tab");
+  assert.equal(
+    await page
+      .locator(".composer-input")
+      .first()
+      .evaluate((node) => node.value),
+    names[1] + " ",
+  );
   await page
     .locator(".composer-input")
     .first()
-    .fill("/" + command.slice(0, -2));
+    .fill("/" + command.toUpperCase().slice(0, -2));
   await page.locator(".completion-item").filter({ hasText: command }).waitFor();
   await page
     .locator(".composer-input")
@@ -232,18 +272,51 @@ try {
   console.log(
     "PASS hyphenated room command completion, workflow form, answer and templated continuation",
   );
-  await page.locator(".composer-input").first().fill("/invalid!command");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const runsBeforeLiteral = commandRuns.length;
+  for (const text of [
+    "/invalid!command",
+    "/usr/bin is a path",
+    "/unknown-" + tag,
+  ]) {
+    const sent = page.waitForResponse(
+      (r) => r.url().endsWith("/messages") && r.request().method() === "POST",
+    );
+    await page.locator(".composer-input").first().fill(text);
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    assert.ok((await sent).ok());
+    assert.ok(
+      (
+        await api("/api/v1/rooms/" + room.id + "/messages", account.token)
+      ).messages.some((m) => m.text === text),
+    );
+  }
+  assert.equal(commandRuns.length, runsBeforeLiteral);
+  const literal = (
+    await api("/api/v1/rooms/" + room.id + "/messages", account.token)
+  ).messages.find((m) => m.text === "/unknown-" + tag);
+  const row = page.locator('[data-id="' + literal.id + '"]');
+  await row.locator(".row-more").click();
   await page
-    .locator("#toasts")
-    .getByText("Invalid slash command", { exact: true })
-    .waitFor();
-  const messages = await api(
-    "/api/v1/rooms/" + room.id + "/messages",
-    account.token,
+    .locator(".actions-menu")
+    .getByRole("button", { name: "Reply", exact: true })
+    .click();
+  const quoted = page.waitForResponse(
+    (r) => r.url().endsWith("/messages") && r.request().method() === "POST",
   );
-  assert.ok(!messages.messages.some((m) => m.text === "/invalid!command"));
-  console.log("PASS invalid slash input cannot leak as a plaintext message");
+  const quotedText = "/" + command + " quoted text";
+  await page.locator(".composer-input").first().fill(quotedText);
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  assert.ok((await quoted).ok());
+  assert.equal(commandRuns.length, runsBeforeLiteral);
+  const quoteMessage = (
+    await api("/api/v1/rooms/" + room.id + "/messages", account.token)
+  ).messages.find((m) => m.text === quotedText);
+  assert.ok(
+    quoteMessage.quotes.some((q) => q.reference.message_id === literal.id),
+  );
+  console.log(
+    "PASS GTK literal slash paths, unknown names and quoted commands remain messages",
+  );
   await page.screenshot({
     path: "../../.cache/web-shots/web-workflow-form.png",
   });

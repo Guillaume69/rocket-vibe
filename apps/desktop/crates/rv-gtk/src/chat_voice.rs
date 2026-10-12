@@ -13,6 +13,10 @@ use rv_core::voice::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
+#[cfg(test)]
+#[path = "tests/windows_cairo.rs"]
+mod windows_cairo_tests;
+
 /// Someone in a room's voice session, as a row or a card shows them.
 #[derive(Debug, Clone, PartialEq)]
 struct Occupant {
@@ -1634,6 +1638,7 @@ impl ChatPage {
         ));
         window.add_controller(keys);
         window.set_child(Some(&overlay));
+        crate::style::watch_window(&window);
         let weak = Rc::downgrade(self);
         window.connect_close_request(move |_| {
             if let Some(this) = weak.upgrade() {

@@ -1,14 +1,22 @@
 import { accountCodeLogin } from "../account-code";
 import { useEffect, useRef, useState, type InputHTMLAttributes } from "react";
 import type { App } from "../app";
-import type { AuthenticationStep, Discovery, Session } from "../protocol";
+import type { AuthenticationStep, Discovery } from "../protocol";
 import { t, language, setLanguage } from "../i18n";
-import { operation, secret } from "../api";
-import { read, write } from "../store";
+import { operation } from "../api";
 import { nt } from "../native-i18n";
 import { toast } from "../dom";
 import { STARS } from "../design.generated";
 import { ActionButton, Brand, Symbol } from "./controls";
+import { factorAuthVault } from "../factor-auth-vault";
+import {
+  factorErrorKey,
+  loginErrorKey,
+  finishFactorAuth,
+  sendFactorAuthEmail,
+  type FactorAuthIntent,
+  type FactorAuthRemote,
+} from "../factor-auth";
 
 export function Field({
   label,
@@ -79,11 +87,13 @@ export function LoginScreen({ app }: { app: App }) {
     submitting.current = true;
     setPending(true);
     setError("");
+    let discovering = true;
     try {
       const info = await discover();
       if (!active.current) return;
       if (!info.protocol_versions.includes(1))
         throw new Error("Unsupported protocol");
+      discovering = false;
       if (mode === "login") {
         const step = await app.api.request<AuthenticationStep>(
           "/api/v1/auth/start",
@@ -93,7 +103,8 @@ export function LoginScreen({ app }: { app: App }) {
         );
         if (!active.current) return;
         setPassword("");
-        if (step.kind === "challenge") app.challenge(step.challenge, info);
+        if (step.kind === "challenge")
+          app.challenge(step.challenge, info, step.user);
         else await app.accept(step.session, info);
       } else {
         const step = await accountCodeLogin(
@@ -107,12 +118,13 @@ export function LoginScreen({ app }: { app: App }) {
         if (!active.current) return;
         setPassword("");
         setToken("");
-        if (step.kind === "challenge") app.challenge(step.challenge, info);
+        if (step.kind === "challenge")
+          app.challenge(step.challenge, info, step.user);
         else await app.accept(step.session, info);
       }
     } catch (reason) {
       if (active.current)
-        setError(reason instanceof Error ? reason.message : String(reason));
+        setError(nt(loginErrorKey(reason, mode, discovering)));
     } finally {
       submitting.current = false;
       if (active.current) setPending(false);
@@ -276,39 +288,73 @@ function FactorScreen({ app }: { app: App }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [intent, setIntent] = useState<FactorAuthIntent>();
   const running = useRef(false);
-  const current = () => app.loginChallenge === state;
+  const generation = useRef(app.generation).current;
+  const vault = useRef(factorAuthVault(app, state)).current;
+  const current = () => vault.valid();
+  const describe = (reason: unknown) => {
+    const key = factorErrorKey(reason);
+    return nt(key || "login.factor_unavailable");
+  };
+  const remote: FactorAuthRemote = {
+    read: () => vault.read(),
+    save: async (value) => {
+      await vault.save(value);
+      if (current()) setIntent(structuredClone(value));
+    },
+    request: async <T,>(path: string, input: unknown): Promise<T> => {
+      if (!current()) throw Error("authentication_view_closed");
+      const value = await app.api.request<T>(path, "POST", input, true);
+      if (!current()) throw Error("authentication_view_closed");
+      return value;
+    },
+  };
+  useEffect(() => {
+    void vault
+      .locked(async () => {
+        await vault.migrate();
+        const saved = await vault.read();
+        if (current()) setIntent(saved);
+      })
+      .catch((reason: unknown) => {
+        if (current()) setError(describe(reason));
+      });
+    return () => {
+      void vault.retire().catch(() => {});
+    };
+  }, [vault]);
   const submit = async () => {
     if (running.current) return;
     running.current = true;
     setPending(true);
     setError("");
     try {
-      const key = "factor:" + state.challenge.challenge_id;
-      let intent = await read<{ operation_id: string; next_token: string }>(
-        "operations",
-        key,
-      );
-      if (!current()) return;
-      if (!intent) {
-        intent = { operation_id: operation(), next_token: secret() };
-        await write("operations", key, intent);
-      }
-      if (!current()) return;
-      const session = await app.api.request<Session>(
-        "/api/v1/auth/factors/verify",
-        "POST",
-        { ...intent, challenge_id: state.challenge.challenge_id, method, code },
-        true,
+      const session = await vault.locked(() =>
+        finishFactorAuth(state.challenge, method, code, remote),
       );
       if (!current()) return;
       setCode("");
       await app.accept(session, state.info);
-      await write("operations", key);
+      await vault.retire();
     } catch (reason) {
-      if (current())
-        setError(reason instanceof Error ? reason.message : String(reason));
+      if (current()) setError(describe(reason));
+    } finally {
+      running.current = false;
+      if (current()) setPending(false);
+    }
+  };
+  const mail = async (resend: boolean) => {
+    if (running.current || !current()) return;
+    running.current = true;
+    setPending(true);
+    setError("");
+    try {
+      await vault.locked(() =>
+        sendFactorAuthEmail(state.challenge, resend, remote),
+      );
+    } catch (reason) {
+      if (current()) setError(describe(reason));
     } finally {
       running.current = false;
       if (current()) setPending(false);
@@ -327,7 +373,12 @@ function FactorScreen({ app }: { app: App }) {
         <ActionButton
           className="flat back-link"
           disabled={pending}
-          action={() => app.login()}
+          action={async () => {
+            if (!current()) return;
+            await vault.retire();
+            if (app.loginChallenge === state && app.generation === generation)
+              app.login();
+          }}
         >
           <span className="chevron">‹</span>
           {t("login")}
@@ -349,30 +400,42 @@ function FactorScreen({ app }: { app: App }) {
           >
             {state.challenge.methods.map((value) => (
               <option key={value} value={value}>
-                {t(value)}
+                {nt(
+                  "login.factor_" +
+                    (value === "recovery_code" ? "backup" : value),
+                )}
               </option>
             ))}
           </select>
         )}
         {method === "email" && (
-          <ActionButton
-            disabled={pending}
-            action={async () => {
-              await app.api.request(
-                "/api/v1/auth/factors/email/start",
-                "POST",
-                {
-                  challenge_id: state.challenge.challenge_id,
-                  operation_id: operation(),
-                  delivery_id: secret(),
-                },
-                true,
-              );
-              if (current()) setSent(true);
-            }}
-          >
-            {nt(sent ? "email.resend_code" : "email.send_code")}
-          </ActionButton>
+          <div className="factor-mail">
+            <ActionButton
+              className="flat"
+              disabled={pending}
+              action={() => mail(false)}
+            >
+              {nt(intent?.email ? "email.resume_delivery" : "email.send_code")}
+            </ActionButton>
+            {intent?.email?.status && (
+              <ActionButton
+                className="flat"
+                disabled={pending}
+                action={() => mail(true)}
+              >
+                {nt("email.resend_code")}
+              </ActionButton>
+            )}
+            <p className="factor-mail-status">
+              {nt(
+                !intent?.email
+                  ? "email.request_code"
+                  : !intent.email.status
+                    ? "email.delivery_unknown"
+                    : "email." + intent.email.status.delivery,
+              )}
+            </p>
+          </div>
         )}
         <Field
           label={nt("login.code_" + method)}
@@ -390,13 +453,15 @@ function FactorScreen({ app }: { app: App }) {
           value={code}
           disabled={pending}
           onChange={(event) => setCode(event.target.value)}
-          required
         />
+        {intent?.finish && (
+          <p className="factor-resume">{nt("login.factor_resume")}</p>
+        )}
         <div className="login-error" role="alert" hidden={!error}>
           {error}
         </div>
         <button className="cta" type="submit" disabled={pending}>
-          {t("verify")}
+          {nt("login.confirm")}
         </button>
       </form>
     </div>

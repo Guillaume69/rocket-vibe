@@ -63,6 +63,7 @@ impl ChatPage {
         if changed && let Some(error) = status.error {
             self.toast(t(native_error_key(&error)).to_owned());
         }
+        self.finish_native_room_navigation();
     }
 
     /// Live traffic in rooms that are not on screen: their rows in the list,
@@ -70,6 +71,25 @@ impl ChatPage {
     pub fn on_native_rooms(self: &Rc<Self>) {
         if self.native_session().is_some() {
             self.reload_rooms();
+            self.finish_native_room_navigation();
+        }
+    }
+
+    /// Metadata receipts do not establish membership. Open only once the
+    /// native store lists this room in a validated sync batch/snapshot.
+    fn finish_native_room_navigation(self: &Rc<Self>) {
+        let pending = self.native_pending_room.borrow().clone();
+        let Some((rid, expected, navigation)) = pending else { return };
+        let valid = expected.upgrade().is_some_and(|expected| {
+            !expected.is_closed()
+                && self.navigation_generation.get() == navigation
+                && self.native_session().is_some_and(|current| Arc::ptr_eq(&current, &expected))
+        });
+        if !valid {
+            self.native_pending_room.replace(None);
+        } else if self.has_room(&rid) {
+            self.native_pending_room.replace(None);
+            self.open_native_room(&rid);
         }
     }
 
@@ -149,8 +169,14 @@ impl ChatPage {
             return;
         };
         let Some(room) = self.rooms.borrow().iter().find(|r| r.rid == rid).cloned() else {
+            self.native_pending_room.replace(Some((
+                rid.to_owned(),
+                Arc::downgrade(&session),
+                self.navigation_generation.get(),
+            )));
             return;
         };
+        self.native_pending_room.replace(None);
         if self.current_rid().as_deref() == Some(rid) {
             self.content_stack.set_visible_child_name("room");
             self.split.set_show_content(true);
@@ -1056,6 +1082,9 @@ impl ChatPage {
         group.add(&button);
         let (weak, d, s, r) = (Rc::downgrade(self), dialog.clone(), session.clone(), self.current_rid());
         button.connect_activated(move |b| {
+            let Some(this) = weak.upgrade() else { return };
+            this.user_navigation();
+            let navigation = this.navigation_generation.get();
             b.set_sensitive(false);
             let (weak, d, s, r, username, b) =
                 (weak.clone(), d.clone(), s.clone(), r.clone(), entry.text().to_string(), b.clone());
@@ -1073,7 +1102,9 @@ impl ChatPage {
                 let Some(this) = weak.upgrade() else {
                     return;
                 };
-                if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                if this.navigation_generation.get() != navigation
+                    || this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                {
                     return;
                 }
                 match result {
@@ -1103,6 +1134,9 @@ impl ChatPage {
             group.add(&create);
             let (weak, d, s) = (Rc::downgrade(self), dialog.clone(), session.clone());
             create.connect_activated(move |b| {
+                let Some(this) = weak.upgrade() else { return };
+                this.user_navigation();
+                let navigation = this.navigation_generation.get();
                 b.set_sensitive(false);
                 let (weak, d, s, name, private, b) =
                     (weak.clone(), d.clone(), s.clone(), name.text().to_string(), private.is_active(), b.clone());
@@ -1113,7 +1147,9 @@ impl ChatPage {
                     let Some(this) = weak.upgrade() else {
                         return;
                     };
-                    if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                    if this.navigation_generation.get() != navigation
+                        || this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                    {
                         return;
                     }
                     match result {

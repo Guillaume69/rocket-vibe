@@ -36,6 +36,9 @@ try {
     .first()
     .click();
   await page.locator(".timeline article").first().waitFor();
+  // Offline reload needs the installed shell to control this new context.
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await context.setOffline(true);
   // Synthetic cached metadata exercises the client's exclusion without creating a
   // fake server-side MLS group. It is deliberately not a crypto protocol test.

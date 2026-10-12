@@ -6,6 +6,7 @@ import type {
   ChangeEmailFactor,
   RemoveVerifiedEmail,
   EmailRemovalReceipt,
+  FactorStatus,
 } from "./protocol";
 import { Api, ApiError, operation, secret } from "./api";
 import { read, writeBatch } from "./store";
@@ -96,10 +97,25 @@ export async function emailSettings(
     });
     await writeBatch([{ store: "operations", key }], valid);
   }
+  const factors = app.info?.capabilities.email_factors
+    ? await request<FactorStatus>("/api/v1/me/factors")
+    : undefined;
+  if (!valid()) return;
+  const factorStatus = factors
+    ? actionRow(
+        nt(factors.email ? "email.factor_enabled" : "email.factor_disabled"),
+        factors.email ? nt("email.factor_contact") : "",
+      )
+    : undefined;
   const [group, rows] = preferencesGroup(
     nt("email.title"),
     nt("email.private"),
   );
+  const renderRows = (...content: Node[]) => {
+    rows.replaceChildren(...content);
+    // GTK keeps the factor status beside the current address in every phase.
+    if (factorStatus) rows.insertBefore(factorStatus, rows.children.item(1));
+  };
   rows.append(
     actionRow(
       nt(status.address ? "email.current" : "email.none"),
@@ -109,6 +125,7 @@ export async function emailSettings(
   const [wrap, address] = field(nt("email.address"), "", "email");
   address.setAttribute("aria-label", nt("email.address"));
   rows.append(wrap);
+  if (factorStatus) rows.insertBefore(factorStatus, wrap);
   page.append(group);
   const refresh = async () => {
     if (!valid()) return;
@@ -122,7 +139,7 @@ export async function emailSettings(
     removal = false,
   ) => {
     if (!valid()) return;
-    rows.replaceChildren(
+    renderRows(
       actionRow(nt(address ? "email.current" : "email.none"), address),
       actionRow(message),
       buttonRow(nt("email.done"), async () => {
@@ -174,7 +191,7 @@ export async function emailSettings(
       )
         showReceipt(nt("email.verified"), latest.address!, intent.operation_id);
       else
-        rows.replaceChildren(
+        renderRows(
           actionRow(nt("email.stale")),
           buttonRow(nt("email.restart"), async () => {
             await retire(intent);
@@ -212,7 +229,7 @@ export async function emailSettings(
           await resume(intent, true);
           return;
         }
-        rows.replaceChildren(
+        renderRows(
           actionRow(nt("email.stale")),
           buttonRow(nt("email.restart"), async () => {
             await retire(intent);
@@ -221,7 +238,7 @@ export async function emailSettings(
         );
         return;
       }
-      rows.replaceChildren(
+      renderRows(
         actionRow(
           nt(status.address ? "email.current" : "email.none"),
           status.address || "",
@@ -276,7 +293,7 @@ export async function emailSettings(
     )
       return;
     const body = rows;
-    body.replaceChildren(
+    renderRows(
       actionRow(
         nt(status.address ? "email.current" : "email.none"),
         status.address || "",
@@ -419,7 +436,7 @@ export async function emailSettings(
     }
     const removalStale =
       removalError instanceof ApiError && removalError.status === 409;
-    rows.replaceChildren(
+    renderRows(
       actionRow(
         nt(status.address ? "email.current" : "email.none"),
         status.address || "",
@@ -557,14 +574,7 @@ export async function emailSettings(
         "destructive",
       ),
     );
-  if (status.address && app.info?.capabilities.email_factors) {
-    const factors =
-      await request<import("./protocol").FactorStatus>("/api/v1/me/factors");
-    const factorStatus = actionRow(
-      nt(factors.email ? "email.factor_enabled" : "email.factor_disabled"),
-      factors.email ? nt("email.factor_contact") : "",
-    );
-    rows.insertBefore(factorStatus, wrap);
+  if (factors) {
     wrap.hidden = factors.email;
     if (factors.email)
       for (const control of rows.querySelectorAll<HTMLButtonElement>(
@@ -577,7 +587,7 @@ export async function emailSettings(
         )
           control.hidden = true;
       }
-    if (!factorBusy)
+    if (!factorBusy && status.address)
       rows.insertBefore(
         button(
           nt(factors.email ? "email.factor_disable" : "email.factor_enable"),
@@ -612,7 +622,7 @@ export async function emailSettings(
     if (JSON.stringify(pending.context) === JSON.stringify(status.context))
       await resume(pending);
     else
-      rows.replaceChildren(
+      renderRows(
         actionRow(nt("email.stale")),
         buttonRow(nt("email.restart"), async () => {
           await retire();

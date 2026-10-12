@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
+import { translatedErrorChecks } from "./translated-errors.mjs";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
 const aliceName = process.env.RV_WEB_ALICE || "webalice";
@@ -204,15 +205,32 @@ try {
   await a.locator(".sidebar-dialog .preferences-close").click();
   console.log("PASS report and moderator dismissal through the application");
   for (const failure of ["constructor", "start"]) {
+    await a
+      .locator(".toast")
+      .evaluateAll((nodes) =>
+        nodes.forEach((node) =>
+          node.setAttribute("data-recorder-before", "true"),
+        ),
+      );
     await a.evaluate((value) => (window.rvRecorderFailure = value), failure);
     await a
       .locator(".room-content")
       .getByRole("button", { name: "Record a voice message", exact: true })
       .click();
     await a
-      .locator(".toast")
-      .filter({ hasText: "Controlled recorder " + failure + " failure" })
+      .locator(".toast:not([data-recorder-before])")
+      .filter({
+        hasText: "Action failed. Check connectivity and account permissions.",
+      })
+      .last()
       .waitFor();
+    assert.equal(
+      await a
+        .locator(".toast")
+        .filter({ hasText: "Controlled recorder " + failure + " failure" })
+        .count(),
+      0,
+    );
     await a.waitForFunction(
       () =>
         window.rvRecorderTracks?.length > 0 &&
@@ -423,6 +441,7 @@ try {
   console.log(
     "PASS membership withdrawal and rejoin cannot replay the old offline send",
   );
+  await translatedErrorChecks(a, base);
   const cachedRequests = await a.evaluate(async () => {
     const urls = [];
     for (const name of await caches.keys())

@@ -9,6 +9,10 @@ section here.
 
 ### Fixed
 
+- GTK keeps finite green speaking rings and button feedback on Windows when the Cairo renderer is active, avoiding a GTK shadow-blur crash after a failed Win32 mask allocation while switching from voice to a text channel.
+- GTK sign-in, invitation and recovery forms fit narrow windows, with their existing scrollbar reaching the submit button; the hidden chat page no longer stretches the login beyond the window.
+- GTK follows older encrypted-room search results beyond the latest history page, keeping the newer rows in order without duplicates or plaintext in the ordinary message store.
+- GTK opens newly created direct conversations, channels and joined public rooms as soon as their validated membership arrives, without overriding a newer room choice or another account.
 - Saving, enabling, disabling or deleting a RocketVibe workflow refreshes the open GTK room and thread command catalogues immediately, so a new slash command is usable without switching rooms.
 - Incoming GTK and SwiftUI calls stay open until Accept or Decline is chosen; Escape and clicks outside no longer silence them. Calls ending remotely and account shutdown still close the prompt, including calls on background accounts.
 - SwiftUI closes a view's protected media access when switching accounts, including emoji, cached images and new downloads, while the previous account keeps running in the background.

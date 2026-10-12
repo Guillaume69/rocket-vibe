@@ -36,6 +36,8 @@ const page = await browser.newPage({
   locale: "en-US",
   viewport: { width: 1280, height: 800 },
 });
+const errors = [];
+page.on("pageerror", (error) => errors.push(error.message));
 try {
   await page.goto(base);
   await page.getByLabel("Username or email").fill(username);
@@ -81,6 +83,105 @@ try {
   await chip.waitFor({ state: "detached", timeout: 15000 });
   assert.equal((await call("/api/v1/scheduled", me.token)).messages.length, 0);
   console.log("PASS Cancel removes it before it is sent");
+  await input.fill("GTK picked scheduled receipt");
+  await page.locator(".send-later").click();
+  await page
+    .getByRole("menuitem", { name: "Pick a time", exact: true })
+    .click();
+  let picker = page.locator(".time-picker-dialog");
+  await picker.waitFor();
+  assert.equal(await picker.locator(".calendar-day").count(), 42);
+  assert.equal(await picker.locator(".dialog-header").count(), 0);
+  assert.equal(
+    await picker.locator(".calendar-weekday").first().textContent(),
+    "Sun",
+  );
+  const selected = await picker
+      .locator('.calendar-day[aria-pressed="true"]')
+      .getAttribute("aria-label"),
+    initialHour = await picker.getByLabel("Hour", { exact: true }).inputValue(),
+    initialMinute = await picker
+      .getByLabel("Minute", { exact: true })
+      .inputValue();
+  await picker.getByRole("button", { name: "Next year", exact: true }).click();
+  await picker.locator(".calendar-day:not(.other-month)").first().click();
+  assert.equal(
+    await picker
+      .getByRole("button", { name: "Schedule", exact: true })
+      .isEnabled(),
+    false,
+    "a year ahead remains beyond the server's thirty-day bound",
+  );
+  await picker
+    .getByRole("button", { name: "Previous year", exact: true })
+    .click();
+  await picker.getByRole("button", { name: selected, exact: true }).click();
+  await picker.getByLabel("Hour", { exact: true }).fill("23");
+  await picker
+    .getByRole("button", { name: "Increase Hour", exact: true })
+    .click();
+  assert.equal(
+    await picker.getByLabel("Hour", { exact: true }).inputValue(),
+    "00",
+  );
+  await picker.getByLabel("Minute", { exact: true }).fill("59");
+  await picker
+    .getByRole("button", { name: "Increase Minute", exact: true })
+    .click();
+  assert.equal(
+    await picker.getByLabel("Minute", { exact: true }).inputValue(),
+    "00",
+  );
+  await picker
+    .getByRole("button", { name: "Decrease Minute", exact: true })
+    .click();
+  assert.equal(
+    await picker.getByLabel("Minute", { exact: true }).inputValue(),
+    "59",
+  );
+  await picker.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(
+    (await input.textContent())?.trim(),
+    "GTK picked scheduled receipt",
+  );
+  assert.equal(
+    (await call("/api/v1/scheduled", me.token)).messages.length,
+    0,
+    "cancelled calendar changes create no schedule",
+  );
+  await page.locator(".send-later").click();
+  await page
+    .getByRole("menuitem", { name: "Pick a time", exact: true })
+    .click();
+  picker = page.locator(".time-picker-dialog");
+  await picker.getByRole("button", { name: selected, exact: true }).click();
+  await picker.getByLabel("Hour", { exact: true }).fill(initialHour);
+  await picker.getByLabel("Minute", { exact: true }).fill(initialMinute);
+  const accepted = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname.endsWith("/scheduled"),
+  );
+  await picker.getByRole("button", { name: "Schedule", exact: true }).click();
+  const receipt = await accepted;
+  assert.ok(receipt.ok());
+  const scheduled = await receipt.json(),
+    at = new Date(selected);
+  at.setHours(Number(initialHour), Number(initialMinute), 0, 0);
+  assert.equal(Date.parse(scheduled.send_at), at.getTime());
+  await picker.waitFor({ state: "detached" });
+  await chip.waitFor();
+  await chip.click();
+  await page
+    .locator(".scheduled-row")
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await chip.waitFor({ state: "detached" });
+  assert.equal((await call("/api/v1/scheduled", me.token)).messages.length, 0);
+  console.log(
+    "PASS native calendar month/year bounds and wrapping time controls preserve Cancel and deliver the exact selected schedule receipt",
+  );
+  assert.deepEqual(errors, []);
 } catch (error) {
   await page.screenshot({
     path: "../../.cache/web-shots/scheduled-failure.png",

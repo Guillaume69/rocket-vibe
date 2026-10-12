@@ -1,0 +1,153 @@
+/* rv-gtk chat_quotes.rs: 420×440 destination dialog and compact boxed rows. */
+.quote-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.quote-text > p {
+  margin: 0;
+}
+.quote-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.quote-file .symbolic-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+dialog.quote-room-picker {
+  border: 0;
+  background: var(--window-bg-color);
+  width: min(420px, calc(100vw - 32px));
+  height: min(440px, calc(100dvh - 32px));
+  max-width: none;
+  max-height: none;
+}
+dialog.quote-room-picker:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header {
+  height: 46px;
+  min-height: 46px;
+  padding: 6px;
+}
+dialog.quote-room-picker:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header
+  h2 {
+  font-family: Nunito, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  padding-left: 34px;
+}
+dialog.quote-room-picker:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header
+  > button {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 5px;
+  background: transparent;
+}
+.quote-room-picker > .dialog-header > button::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #ffffff1a;
+}
+.quote-room-picker > .dialog-header > button .symbolic-icon {
+  position: relative;
+}
+.quote-room-picker .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: calc(100% - 46px);
+  max-height: none;
+  overflow: hidden;
+  padding: 6px 14px 14px;
+}
+.quote-room-picker .quote-destination-search {
+  flex: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 9px;
+  margin: 0;
+  border-radius: 8px;
+  background: #ffffff1a;
+}
+.quote-room-picker .quote-destination-search:focus-within {
+  box-shadow: inset 0 0 0 2px #ff5fa280;
+}
+.quote-destination-search .pill-caption,
+.quote-destination-search .entry-edit-indicator {
+  display: none;
+}
+.quote-destination-search .symbolic-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.quote-room-picker .quote-destination-search input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 400;
+  outline: none;
+  box-shadow: none;
+}
+.quote-room-picker .spotlight {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  background: var(--card-bg-color, #171529);
+  border: 0;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+  border-radius: 12px;
+}
+.quote-room-picker .spotlight-row {
+  display: block;
+  width: calc(100% - 4px);
+  height: 34px;
+  min-height: 34px;
+  margin: 2px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: center;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.quote-room-picker .spotlight-row:hover {
+  background: #ffffff12;
+}
+@media (max-width: 600px) {
+  dialog.quote-room-picker {
+    width: 100vw;
+    max-width: 100vw;
+    height: min(440px, 85dvh);
+    margin: auto 0 0;
+    border-radius: 16px 16px 0 0;
+  }
+}

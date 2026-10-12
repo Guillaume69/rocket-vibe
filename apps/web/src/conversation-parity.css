@@ -2,65 +2,148 @@
 .actions-menu:has(.quick-reactions) {
   width: 280px;
 }
-.time-picker-dialog {
-  width: 380px;
-  max-width: calc(100vw - 24px);
+dialog.time-picker-dialog.confirmation-dialog {
+  width: max-content;
+  min-width: min(328px, calc(100vw - 32px));
+  max-width: min(420px, calc(100vw - 32px));
 }
-.time-picker-dialog .details-sub {
-  text-align: center;
-  color: #8f89ab;
+.time-picker-dialog .confirmation-message {
+  display: block;
+  padding: 28px 8px 20px;
+}
+.time-picker-dialog .confirmation-message h2 {
+  margin: 0 24px;
+  line-height: 25px;
+  text-align: left;
+}
+.time-picker-dialog .confirmation-message p {
+  margin: 12px 0 0;
+  line-height: 19px;
+  font-size: 13px;
+}
+.time-picker-content {
+  width: 264px;
+  max-width: 100%;
+  margin: 22px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .time-calendar {
   border: 1px solid #2c2946;
-  border-radius: 12px;
-  padding: 8px;
-  background: #242138;
+  border-radius: 0;
+  background: var(--view-bg-color);
+  height: 236px;
+  overflow: hidden;
 }
 .calendar-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-weight: 700;
-  margin-bottom: 6px;
+  height: 35px;
+  border-bottom: 1px solid #2c2946;
+  font-weight: 400;
+}
+.calendar-month-controls,
+.calendar-year-controls {
+  display: flex;
+  align-items: center;
+}
+.calendar-heading button {
+  padding: 8px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+}
+.calendar-month {
+  text-transform: capitalize;
+  font-weight: 400;
+}
+.calendar-year {
+  min-width: 42px;
+  font-weight: 400;
 }
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 2px;
+  grid-template-rows: repeat(7, 28px);
+  gap: 0;
+  padding: 1px 2px 0;
 }
 .calendar-weekday {
   text-align: center;
-  color: #8f89ab;
-  font-size: 11px;
-  padding: 6px 0;
+  font-size: 13px;
+  line-height: 25px;
+  padding: 0;
+  font-weight: 400;
 }
 .calendar-day {
-  min-height: 32px;
-  padding: 4px;
+  min-height: 25px;
+  height: 25px;
+  padding: 0;
+  margin: 1px 2px 2px;
+  font-size: 13px;
+  line-height: 25px;
+  font-weight: 400;
   border-radius: 8px;
 }
+.calendar-day.other-month {
+  color: #8f89ab80;
+}
 .calendar-day[aria-pressed="true"] {
-  background: #34e1d0;
+  background: #ff5fa2;
   color: #171529;
-  font-weight: 800;
 }
 .time-clock {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 12px 0;
+  height: 34px;
+  font-size: 13px;
 }
-.time-clock .time-spin {
-  max-width: 70px;
+.time-spin-group {
+  display: flex;
+  width: 106px;
+  height: 34px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff1a;
+}
+.time-spin-group .time-spin {
+  width: 40px;
+  min-width: 0;
+  height: 34px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 6px;
   margin: 0;
   text-align: center;
+  font-size: 13px;
+  font-weight: 400;
+  appearance: textfield;
   font-feature-settings: "tnum";
 }
-.time-picker-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+.time-spin::-webkit-inner-spin-button,
+.time-spin::-webkit-outer-spin-button {
+  appearance: none;
+}
+.time-spin-step {
+  width: 33px;
+  min-width: 33px;
+  height: 34px;
+  padding: 0;
+  border-left: 1px solid #ffffff12;
+  border-radius: 0;
+  font-size: 20px;
+  line-height: 34px;
+  font-weight: 400;
+}
+.time-picker-dialog .time-picker-confirm {
+  background: #ff5fa2;
+  color: #171529;
 }
 .scheduled-list[popover] {
   width: 350px;
@@ -300,14 +383,76 @@
 .threads-dialog .dialog-body {
   padding: 12px;
 }
+.marked-dialog {
+  height: min(560px, calc(100dvh - 40px));
+  background: var(--window-bg-color);
+}
+.marked-dialog > .dialog-header {
+  height: 46px;
+}
+.marked-dialog > .dialog-header .tabs {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  padding: 0;
+  margin: 0 auto;
+}
+.marked-dialog > .dialog-header > button {
+  position: absolute;
+  right: 12px;
+}
+.marked-dialog > .dialog-body {
+  height: calc(100% - 46px);
+  max-height: none;
+  overflow: auto;
+  padding: 6px 14px 14px;
+}
+.marked-dialog .tabs button {
+  min-width: 120px;
+  height: 34px;
+  padding: 4px 12px;
+  background: transparent;
+  font-weight: 400;
+}
+.marked-dialog .tabs button[aria-selected="true"] {
+  background: #ffffff1a;
+}
+.marked-dialog .marked-status {
+  border: 0;
+  background: transparent;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+}
+.marked-status > .symbolic-icon,
+.marked-status > svg {
+  width: 128px;
+  height: 128px;
+  opacity: 0.55;
+}
+.marked-dialog .tabs button[aria-label] > svg {
+  fill: currentColor;
+  stroke: none;
+}
+.marked-status h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+}
 .marked-dialog .conversation-preview {
   padding: 8px 10px;
   border-radius: 0;
 }
 .marked-dialog .boxed-list {
   overflow: hidden;
-  border: 1px solid #2c2946;
+  border: 0;
   border-radius: 12px;
+  background: #171529;
 }
 .marked-dialog .conversation-preview + .conversation-preview {
   border-top: 1px solid #2c2946;
@@ -316,6 +461,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+@media (max-width: 600px) {
+  dialog.marked-dialog {
+    width: 100vw;
+    max-width: 100vw;
+    margin: auto 0 0;
+    border-radius: 16px 16px 0 0;
+  }
 }
 .threads-dialog .thread-entry {
   display: flex;
@@ -458,13 +611,55 @@
   width: 100%;
 }
 .room-invite-dialog {
-  width: min(600px, calc(100vw - 32px));
+  width: min(640px, calc(100vw - 32px));
+  background: var(--window-bg-color);
+  border: 0;
+  outline: 1px solid #ffffff12;
+}
+dialog.room-invite-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header {
+  height: 46px;
+}
+dialog.room-invite-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header
+  h2 {
+  font-weight: 400;
 }
 .room-invite-dialog .dialog-body {
-  padding: 24px;
+  padding: 24px 54px;
 }
-.room-invite-form > .entry-row {
+.room-invite-form {
+  margin: 0;
+}
+.room-invite-dialog .room-invite-form .entry-row {
+  height: 55px;
+  min-height: 55px;
+  padding: 8px 14px;
+  gap: 1px;
   border-bottom: 1px solid #ffffff12;
+}
+.room-invite-dialog .room-invite-form .entry-row > .action-row-title {
+  line-height: 16px;
+}
+.room-invite-dialog .room-invite-form .entry-row > input {
+  height: 21px;
+  min-height: 21px;
+  line-height: 21px;
+}
+.room-invite-dialog .room-invite-form .entry-row:focus-within {
+  box-shadow: inset 0 0 0 2px #ff7ab480;
+}
+.room-invite-dialog .preferences-box > .button-row {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .room-invite-dialog .dialog-body {
+    padding-inline: 24px;
+  }
 }
 .room-settings-dialog .room-toggle input {
   flex-shrink: 0;
@@ -476,27 +671,190 @@
 .room-members-dialog .members {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+}
+.room-members-dialog > .dialog-header h2 {
+  font-weight: 400;
+}
+.room-members-dialog > .dialog-body {
+  padding: 35px 44px 22px;
+}
+.room-members-dialog .preferences-group {
+  margin: 0;
 }
 .room-members-dialog .preferences-group-title {
+  display: flex;
+  align-items: center;
+  height: 34px;
   margin-bottom: 6px;
+}
+.room-members-dialog .preferences-box {
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.room-members-dialog .action-row {
+  height: 54px;
+  min-height: 54px;
+  border-radius: 12px;
+  background: #171529;
+}
+.room-members-dialog .action-row-title {
+  font-weight: 400;
 }
 .room-members-dialog .action-row .pill-entry {
   max-width: 150px;
+  width: auto;
+  height: 34px;
+  min-height: 34px;
   margin: 0;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  font-weight: 400;
 }
 .room-members-dialog .preferences-box > button {
   width: 100%;
-  border-radius: 0;
-  min-height: 38px;
+  border-radius: 9px;
+  height: 34px;
+  min-height: 34px;
+  padding: 4px 12px;
+  font-weight: 400;
 }
 .room-members-dialog .preferences-box > button:last-child {
-  border-radius: 0 0 12px 12px;
+  border-radius: 9px;
 }
 .room-invite-dialog .room-invite-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.new-message-dialog {
+  width: min(420px, calc(100vw - 32px));
+  height: min(480px, calc(100dvh - 40px));
+  border: 0;
+  outline: 1px solid #ffffff12;
+  background: var(--window-bg-color);
+}
+.new-conversation-dialog {
+  border: 0;
+  outline: 1px solid #ffffff12;
+}
+.new-conversation-dialog .preferences-box {
+  border: 0;
+  box-shadow: inset 0 0 0 1px #2c2946;
+}
+.new-conversation-dialog .preferences-box > .button-row {
+  height: 44px;
+  min-height: 44px;
+}
+.new-conversation-dialog > .dialog-header h2 {
+  font-weight: 400;
+}
+dialog.new-message-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header {
+  height: 46px;
+}
+dialog.new-message-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header
+  h2 {
+  font-weight: 400;
+}
+.new-message-dialog > .dialog-body {
+  height: calc(100% - 46px);
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 14px 14px;
+  overflow: hidden;
+}
+.conversation-spotlight-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #ffffff1a;
+}
+.conversation-spotlight-search:focus-within {
+  border-color: #ff7ab480;
+}
+.conversation-spotlight-search > input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 400;
+}
+.conversation-spotlight-search > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--dimmed-color);
+}
+.conversation-spotlight-results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--card-bg-color);
+  border-radius: 12px;
+}
+.conversation-spotlight-status {
+  margin: 0;
+  flex: none;
+  text-align: center;
+}
+.conversation-spotlight-row {
+  padding: 8px 6px;
+  gap: 12px;
+  min-height: 55px;
+  border-bottom: 0;
+  font-weight: 400;
+}
+.conversation-spotlight-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  align-items: flex-start;
+}
+.conversation-spotlight-names .room-name {
+  flex: none;
+  font-size: 14px;
+  line-height: 21px;
+  font-weight: 600;
+}
+.conversation-spotlight-names .room-preview {
+  font-size: 12px;
+  line-height: 18px;
+  opacity: 0.6;
+}
+.conversation-spotlight-create {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #ffffff1a;
+  font-weight: 700;
+}
+@media (max-width: 600px) {
+  dialog.new-message-dialog {
+    position: fixed;
+    inset: auto 0 0;
+    margin: 0;
+    width: 100vw;
+    max-width: none;
+    border-radius: 16px 16px 0 0;
+  }
 }
 .completion-item.completion-row {
   display: flex;
@@ -525,5 +883,61 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.completion.command-completion {
+  padding: 0;
+  max-height: none;
+  overflow: visible;
+  background: transparent;
+}
+.command-completion .completion-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  box-sizing: border-box;
+}
+.command-completion .completion-title {
+  flex: 1;
+}
+.command-completion .completion-keys {
+  white-space: nowrap;
+}
+.command-completion .command-options {
+  min-height: 58px;
+  max-height: 340px;
+  padding: 4px;
+  overflow: auto;
+  background: #171529;
+  border-radius: 12px;
+}
+.command-completion .command-choice {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 34px;
+  padding: 4px 12px;
+  line-height: 26px;
+}
+.command-completion .command-choice.chosen {
+  box-shadow: inset 3px 0 0 #ff5fa2;
+}
+.command-completion .command-name {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.command-completion .command-params {
+  opacity: 0.6;
+}
+.command-completion .command-description {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
   white-space: nowrap;
 }

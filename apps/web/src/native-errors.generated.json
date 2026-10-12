@@ -91,5 +91,23 @@
     "error-invalid-file-width": "admin.icon_error_size",
     "error-invalid-file-height": "admin.icon_error_size",
     "not_authorized": "admin.error_denied"
+  },
+  "native": {
+    "server_identity_changed": "native.identity_changed",
+    "session_rejected": "login.expired",
+    "offline": "native.offline",
+    "revision_conflict": "native.message_changed",
+    "message_action_pending": "native.action_pending",
+    "user_not_found": "native.user_missing"
+  },
+  "commands": {
+    "not_found": "command.not_found",
+    "unknown_command": "command.not_found",
+    "permission_denied": "command.forbidden",
+    "invalid_request": "command.invalid",
+    "crypto_required": "command.encrypted",
+    "workflow_unavailable": "command.workflow_unavailable",
+    "workflow_rate_limited": "command.workflow_rate_limited",
+    "workflow_busy": "command.workflow_busy"
   }
 }

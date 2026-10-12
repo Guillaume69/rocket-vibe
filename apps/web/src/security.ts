@@ -222,7 +222,6 @@ export function backupCodes(
       value.codes.join("\n"),
     );
     rows.append(
-      codes,
       buttonRow(nt("security.copy_codes"), () =>
         navigator.clipboard.writeText(value.codes.join("\n")),
       ),
@@ -235,6 +234,7 @@ export function backupCodes(
         await securitySettings(app, page);
       }),
     );
+    group.append(codes);
     const status = page.querySelector<HTMLElement>(".security-account-status");
     page.replaceChildren(...(status ? [status] : []), group);
     void Promise.all([
@@ -441,6 +441,7 @@ export async function securitySettings(
             await vault.save();
         }),
     });
+    await emailSettings(app, page, true);
     return;
   } else if (view.kind === "setup") {
     const { setup, intent } = view;
@@ -453,9 +454,7 @@ export async function securitySettings(
     const qr = qrCode(setup.provisioning_uri),
       [wrap, code] = field(nt("login.code_totp"));
     code.autocomplete = "one-time-code";
-    if (qr) body.append(qr);
     body.append(
-      key,
       buttonRow(nt("security.copy_secret"), () =>
         navigator.clipboard.writeText(setup.secret),
       ),
@@ -480,15 +479,9 @@ export async function securitySettings(
           if (valid()) throw error;
         }
       }),
-      buttonRow(nt("security.cancel_pending"), async () => {
-        await vault.locked(async () => {
-          const current = await vault.read();
-          if (current && factorOperation(current) === intent.operation_id)
-            await vault.save();
-        });
-        await refresh();
-      }),
     );
+    if (qr) group.append(qr);
+    group.append(key);
     page.replaceChildren(status, group);
     page.closest("dialog")?.addEventListener(
       "close",
@@ -500,6 +493,7 @@ export async function securitySettings(
       },
       { once: true },
     );
+    await emailSettings(app, page, true);
     return;
   }
   if (view.kind !== "idle") {
@@ -535,23 +529,24 @@ export async function securitySettings(
         "destructive",
       ),
     );
-  if (app.info?.capabilities.second_factors && factors.factor_version)
-    actionRows.append(
-      buttonRow(nt("security.regenerate"), () =>
-        confirmAction(
-          nt("security.regenerate"),
-          nt("security.regenerate_body"),
-          async () => {
-            if (factors.factor_version)
-              await start({
-                kind: "regenerate",
-                operation_id: operation(),
-                factor_version: factors.factor_version,
-              });
-          },
-        ),
+  if (app.info?.capabilities.second_factors && factors.factor_version) {
+    const regenerate = buttonRow(nt("security.regenerate"), () =>
+      confirmAction(
+        nt("security.regenerate"),
+        nt("security.regenerate_body"),
+        async () => {
+          if (factors.factor_version)
+            await start({
+              kind: "regenerate",
+              operation_id: operation(),
+              factor_version: factors.factor_version,
+            });
+        },
       ),
     );
+    if (factors.totp) actionRows.prepend(regenerate);
+    else actionRows.append(regenerate);
+  }
   await emailSettings(app, page);
   const [refreshGroup, refreshRows] = preferencesGroup();
   refreshRows.append(buttonRow(nt("security.refresh"), refresh));

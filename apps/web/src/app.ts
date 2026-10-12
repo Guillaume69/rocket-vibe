@@ -9,8 +9,11 @@ import { clearView } from "./ui/portals";
 import { flushSync } from "react-dom";
 import { ViewState } from "./ui/state";
 import { nt } from "./native-i18n";
+import { errorMessage } from "./ui-errors";
 import { confirmAction } from "./preferences-controls";
 import { PrivateChat } from "./crypto/chat";
+import { OrdinaryQuotes, quoteElsewhere } from "./crypto/ordinary-quotes";
+import type { NativeQuoteSelection } from "./crypto/quote-types";
 import { Api, ApiError, operation, segment } from "./api";
 import { finishPendingLogouts } from "./logouts";
 import { adoptFolds } from "./folds";
@@ -31,6 +34,7 @@ import type {
   AuthChallenge,
   Session,
   Discovery,
+  User,
   Message,
   MessagePage,
   Room,
@@ -117,6 +121,7 @@ export class App implements RowActions {
   private readonly lifetime = new AbortController();
   private sessionTimer?: ReturnType<typeof setInterval>;
   privateChat?: PrivateChat;
+  private ordinaryQuotes?: OrdinaryQuotes;
   api = new Api();
   model = new Model();
   account?: Account;
@@ -196,6 +201,14 @@ export class App implements RowActions {
   /** The operation of a schedule still unanswered, replayed by a retry. */
   private scheduling?: { key: string; operation: string };
   roomPermissions = new Map<string, import("./protocol").RoomPermissions>();
+  private roomCommands = new Map<
+    string,
+    {
+      membership?: string | null;
+      request: number;
+      list?: import("./protocol").CommandList;
+    }
+  >();
   uploadProgress = new Map<string, number>();
   typingAt = 0;
   notifications = new Map<string, NoteHandle>();
@@ -207,6 +220,7 @@ export class App implements RowActions {
   ownStatus?: import("./protocol").PresenceStatus;
   ownProfileRevision?: string;
   quote?: Message;
+  quoteSelection?: NativeQuoteSelection;
   quoteRoot?: string;
   recorder?: MediaRecorder;
   fileWork = new WeakMap<HTMLElement, Promise<void>>();
@@ -381,9 +395,9 @@ export class App implements RowActions {
     this.loginChallenge = undefined;
     this.view.screen("login");
   }
-  loginChallenge?: { challenge: AuthChallenge; info: Discovery };
-  challenge(challenge: AuthChallenge, info: Discovery): void {
-    this.loginChallenge = { challenge, info };
+  loginChallenge?: { challenge: AuthChallenge; info: Discovery; user: User };
+  challenge(challenge: AuthChallenge, info: Discovery, user: User): void {
+    this.loginChallenge = { challenge, info, user };
     this.view.changed();
   }
   async accept(session: Session, info: Discovery): Promise<void> {
@@ -427,6 +441,9 @@ export class App implements RowActions {
     const privateChat = this.privateChat;
     this.privateChat = undefined;
     void privateChat?.close();
+    void this.ordinaryQuotes?.close();
+    this.ordinaryQuotes = undefined;
+    this.quoteSelection = undefined;
     const token = this.api.token,
       hasPresence = this.info?.capabilities.presence;
     this.generation++;
@@ -485,6 +502,7 @@ export class App implements RowActions {
     this.stagedURLs = new WeakMap();
     this.jobs = [];
     this.roomPermissions.clear();
+    this.roomCommands.clear();
     this.uploadProgress.clear();
     this.hasOlder.clear();
     this.threadRead.clear();
@@ -516,7 +534,7 @@ export class App implements RowActions {
     await this.stop(true);
     await purge(key);
     this.channel.postMessage({ purged: key });
-    toast("Session expired");
+    toast(nt("login.expired"));
   }
   /**
    * The account block's menu, shown at once: settings, the administration
@@ -1068,6 +1086,7 @@ export class App implements RowActions {
           options.forEach((option, i) =>
             option.classList.toggle("chosen", i === index),
           );
+          options[index].scrollIntoView({ block: "nearest" });
           return;
         }
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -1086,6 +1105,14 @@ export class App implements RowActions {
       : "";
   }
   refresh(): void {
+    if (this.ordinaryQuotes && !this.ordinaryQuotes.active) {
+      void this.ordinaryQuotes.close();
+      this.ordinaryQuotes = undefined;
+      this.quoteSelection = undefined;
+      this.quote = undefined;
+      this.replyBar.hidden = true;
+      this.threadReplyBar.hidden = true;
+    }
     window.dispatchEvent(new Event("rv-profile-update"));
     window.dispatchEvent(new Event("rv-model-update"));
     this.renderRooms();
@@ -1180,10 +1207,51 @@ export class App implements RowActions {
       this.model.rooms.has(id) &&
       membership === this.model.rooms.get(id)?.read_state?.membership_version;
   }
+  private async commands(room: string) {
+    const current = this.roomFence(room),
+      membership = this.model.rooms.get(room)?.read_state?.membership_version;
+    let cached = this.roomCommands.get(room);
+    if (!cached || cached.membership !== membership) {
+      cached = { membership, request: 0 };
+      this.roomCommands.set(room, cached);
+    }
+    if (this.connection !== "online") return cached.list;
+    const request = ++cached.request;
+    try {
+      const list = await this.api.request<import("./protocol").CommandList>(
+        "/api/v1/commands?room=" + segment(room),
+      );
+      if (!current()) return;
+      if (this.roomCommands.get(room) === cached && cached.request === request)
+        cached.list = list;
+    } catch {
+      // A failed read retains the catalogue already known for this membership.
+    }
+    return current() ? this.roomCommands.get(room)?.list : undefined;
+  }
+  async command(text: string, room: string, current: () => boolean) {
+    if (!this.info?.capabilities.slash_commands) return text;
+    const match = /^\/([^\s/]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+    if (!match) return text;
+    const commands = await this.commands(room);
+    if (!current()) return;
+    if (!commands?.commands.some((item) => item.command === match[1]))
+      return text;
+    const decorated = decorate(text);
+    if (decorated !== undefined) return decorated || undefined;
+    await this.api.request("/api/v1/commands/run", "POST", {
+      room_id: room,
+      command: match[1],
+      params: (match[2] || "").trim(),
+    });
+  }
   async openRoom(id: string, navigate = true, mark = true): Promise<void> {
     const previous = this.privateChat;
     this.privateChat = undefined;
     void previous?.close();
+    void this.ordinaryQuotes?.close();
+    this.ordinaryQuotes = undefined;
+    this.quoteSelection = undefined;
     const account = this.account?.key;
     if (!account) return;
     const opening = ++this.roomOpening,
@@ -1250,6 +1318,7 @@ export class App implements RowActions {
     this.staged = staged;
     this.stagedOriginal = original;
     this.draftReady = true;
+    if (this.info?.capabilities.slash_commands) void this.commands(id);
     this.renderHeader();
     this.renderUploads();
     this.composer.focus();
@@ -1299,11 +1368,33 @@ export class App implements RowActions {
     this.patchRows(this.timeline, this.model.timeline(this.room));
     this.renderPending();
   }
+  ordinaryQuoteReader(): OrdinaryQuotes | undefined {
+    if (!this.room || this.model.rooms.get(this.room)?.encrypted) return;
+    if (this.ordinaryQuotes && !this.ordinaryQuotes.active) {
+      void this.ordinaryQuotes.close();
+      this.ordinaryQuotes = undefined;
+    }
+    return (this.ordinaryQuotes ??= new OrdinaryQuotes(this, this.room));
+  }
   patchRows(
     container: HTMLElement,
     messages: Message[],
     actions: RowActions = this,
   ): void {
+    if (
+      actions === this &&
+      messages.some((message) =>
+        message.quotes?.some(
+          (quote) => this.model.rooms.get(quote.reference.room_id)?.encrypted,
+        ),
+      )
+    ) {
+      const original = messages;
+      messages =
+        this.ordinaryQuoteReader()?.overlay(original, container, () => {
+          this.patchRows(container, original, actions);
+        }) ?? messages;
+    }
     const pinned =
       container.scrollHeight - container.scrollTop - container.clientHeight <
       100;
@@ -1890,6 +1981,7 @@ export class App implements RowActions {
       opening = this.roomOpening,
       sourceText = text,
       quote = this.quoteRoot === root ? this.quote : undefined,
+      selection = quote ? this.quoteSelection : undefined,
       editor = root ? this.threadComposer : this.composer,
       current = this.roomFence(room),
       draftKey = account.key + ":" + room + (root ? ":thread:" + root : ""),
@@ -1942,30 +2034,28 @@ export class App implements RowActions {
       await flushUploads(this);
       return;
     }
-    if (text.trim().startsWith("/")) {
-      const decorated = decorate(text);
-      if (decorated === undefined) {
-        const match = /^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
-        if (!match) throw new Error("Invalid slash command");
-        if (match) {
-          await this.api.request("/api/v1/commands/run", "POST", {
-            room_id: room,
-            command: match[1],
-            params: (match[2] || "").trim(),
-          });
-          if (sameComposer() && editor.value === sourceText) {
-            editor.value = "";
-            await writeBatch(
-              [{ store: "drafts", key: draftKey, value: "" }],
-              () => sameComposer() && editor.value === "",
-            );
-          }
-          return;
+    if (!quote && text.trimStart().startsWith("/")) {
+      const prepared = await this.command(text, room, sameComposer);
+      if (!sameComposer()) return;
+      if (prepared === undefined) {
+        if (editor.value === sourceText) {
+          editor.value = "";
+          await writeBatch(
+            [{ store: "drafts", key: draftKey, value: "" }],
+            () => sameComposer() && editor.value === "",
+          );
         }
-      } else {
-        text = decorated;
-        if (!text) return;
+        return;
       }
+      text = prepared;
+    }
+    if (
+      selection &&
+      (!(await this.ordinaryQuoteReader()?.preview(selection)) ||
+        !sameComposer())
+    ) {
+      if (sameComposer()) toast(nt("quote.unavailable"));
+      return;
     }
     const id = operation(),
       payload: import("./protocol").SendMessage = { operation_id: id, text };
@@ -1995,7 +2085,11 @@ export class App implements RowActions {
     ];
     if (
       !(await writeBatch(changes, () => {
-        if (!current()) return false;
+        if (
+          !current() ||
+          (selection && !this.ordinaryQuotes?.permits(selection))
+        )
+          return false;
         if (sameComposer() && editor.value === sourceText)
           changes.push({ store: "drafts", key: draftKey, value: "" });
         return true;
@@ -2006,6 +2100,7 @@ export class App implements RowActions {
       if (editor.value === sourceText) editor.value = "";
       if (this.quote === quote) {
         this.quote = undefined;
+        this.quoteSelection = undefined;
         this.replyBar.hidden = true;
         this.threadReplyBar.hidden = true;
       }
@@ -2523,6 +2618,7 @@ export class App implements RowActions {
       action(nt("actions.reply_thread"), () => this.thread(message));
     const quote = () => {
       this.quote = message;
+      this.quoteSelection = undefined;
       const inThread = !!this.root && !!anchor.closest(".thread-pane");
       this.quoteRoot = inThread ? this.root : undefined;
       const replyBar = inThread ? this.threadReplyBar : this.replyBar;
@@ -2536,6 +2632,7 @@ export class App implements RowActions {
         el("span", "reply-preview", message.text),
         iconButton("close", t("cancel"), () => {
           this.quote = undefined;
+          this.quoteSelection = undefined;
           replyBar.hidden = true;
         }),
       );
@@ -2544,40 +2641,7 @@ export class App implements RowActions {
     };
     if (this.info?.capabilities.quotes) {
       action(nt("actions.reply"), quote);
-      action(nt("quote.elsewhere"), () => {
-        const [picker, body] = dialog(nt("quote.elsewhere"));
-        picker.classList.add("quote-room-picker");
-        const [wrap, input] = field(t("searchRooms"));
-        const list = el("div", "spotlight");
-        body.append(wrap, list);
-        const paint = () => {
-          list.replaceChildren();
-          for (const room of this.model.rooms.values()) {
-            if (
-              room.encrypted ||
-              room.id === message.room_id ||
-              !room.name.toLowerCase().includes(input.value.toLowerCase())
-            )
-              continue;
-            list.append(
-              button(
-                room.name,
-                async () => {
-                  if (!current()) return;
-                  picker.close();
-                  this.closeThread();
-                  await this.openRoom(room.id);
-                  if (current() && this.room === room.id) quote();
-                },
-                "flat spotlight-row",
-              ),
-            );
-          }
-        };
-        input.addEventListener("input", paint);
-        paint();
-        input.focus();
-      });
+      action(nt("quote.elsewhere"), () => quoteElsewhere(this, message));
     }
     if (
       this.info?.capabilities.reports &&
@@ -2970,11 +3034,12 @@ export class App implements RowActions {
     save: () => void | Promise<void> = () => this.saveDraft(),
   ): Promise<void> {
     list.replaceChildren();
+    list.classList.remove("command-completion");
     if (!this.room || input.disabled) return;
     const end = input.selectionStart,
       text = input.value.slice(0, end);
     const emojiMatch = /(?:^|\s):([a-z0-9_+-]+)$/.exec(text);
-    const command = /^\/([a-z0-9_-]*)$/.exec(text);
+    const command = /^\/([a-z0-9_-]*)$/i.exec(text);
     const room = this.room,
       account = this.account?.key,
       generation = this.generation,
@@ -3043,34 +3108,50 @@ export class App implements RowActions {
             .catch(() => {});
       }
     } else if (command && this.info?.capabilities.slash_commands) {
-      const commands = await this.api.request<import("./protocol").CommandList>(
-        "/api/v1/commands?room=" + segment(room),
+      const commands = await this.commands(room);
+      if (!current() || !commands) return;
+      const candidates = commands.commands
+        .filter((item) =>
+          item.command.toLowerCase().startsWith(command[1].toLowerCase()),
+        )
+        .sort((a, b) => a.command.localeCompare(b.command));
+      if (!candidates.length) return;
+      list.classList.add("command-completion");
+      const header = el("div", "completion-header"),
+        options = el("div", "command-options");
+      header.append(
+        el("span", "completion-title", nt("command.title")),
+        el("span", "completion-keys", nt("command.keys")),
       );
-      if (!current()) return;
-      for (const item of commands.commands
-        .filter((item) => item.command.startsWith(command[1]))
-        .slice(0, 8))
-        list.append(
-          button(
-            "/" +
-              item.command +
-              " " +
-              item.params +
-              (item.description
-                ? " · " +
-                  (item.literal ? item.description : nt(item.description))
-                : ""),
-            () => {
-              if (!current()) return;
-              input.value = "/" + item.command + " ";
-              this.openGifPicker(input.value, root);
-              list.replaceChildren();
-              input.focus();
-              void save();
-            },
-            "completion-item",
+      list.append(header, options);
+      for (const item of candidates) {
+        const option = button(
+          "",
+          () => {
+            if (!current()) return;
+            input.value = "/" + item.command + " ";
+            this.openGifPicker(input.value, root);
+            list.replaceChildren();
+            input.focus();
+            void save();
+          },
+          "completion-item command-choice",
+        );
+        const name = el("span", "command-name");
+        name.append(el("strong", "", "/" + item.command));
+        if (item.params)
+          name.append(el("span", "command-params", "  " + item.params));
+        option.append(
+          name,
+          el(
+            "span",
+            "command-description",
+            item.literal ? item.description : nt(item.description),
           ),
         );
+        if (!options.children.length) option.classList.add("chosen");
+        options.append(option);
+      }
     } else if (mention) {
       const users =
         await this.api.request<import("./protocol").User[]>("/api/v1/users");
@@ -3742,7 +3823,7 @@ export class App implements RowActions {
         ),
       );
       if (job.error) {
-        row.title = job.error;
+        row.title = errorMessage(job.error);
         row.append(
           button(t("retry"), () => flushUploads(this)),
           button(t("cancel"), async () => {

@@ -185,7 +185,13 @@ impl AppWindow {
         chat_area.append(&rail.root);
         chat.root().set_hexpand(true);
         chat_area.append(chat.root());
-        let stack = gtk::Stack::builder().transition_type(gtk::StackTransitionType::Crossfade).build();
+        // An inactive chat must not impose its sidebar's minimum size on the
+        // sign-in form, whose existing scroller fits a narrow window.
+        let stack = gtk::Stack::builder()
+            .hhomogeneous(false)
+            .vhomogeneous(false)
+            .transition_type(gtk::StackTransitionType::Crossfade)
+            .build();
         stack.add_named(&adw::Spinner::new(), Some("starting"));
         stack.add_named(&login.widget, Some("login"));
         stack.add_named(&chat_area, Some("chat"));
@@ -202,6 +208,7 @@ impl AppWindow {
             .height_request(240)
             .content(&toasts)
             .build();
+        crate::style::watch_window(&window);
 
         // Below this width, one pane at a time: the room list, then the room
         // with a back button.
@@ -1773,3 +1780,7 @@ impl AppWindow {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tests/login_layout.rs"]
+mod login_layout_tests;

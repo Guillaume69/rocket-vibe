@@ -11,10 +11,9 @@ import type {
   EncryptedFile,
   Upload,
 } from "../protocol";
-import { operation, segment } from "../api";
+import { ApiError, operation, segment } from "../api";
 import type { RowActions } from "../render";
 import { el, button, dialog, field, stopMedia, toast } from "../dom";
-import { messageRow } from "../render";
 import { iconButton } from "../icons";
 import { t } from "../i18n";
 import { nt } from "../native-i18n";
@@ -30,6 +29,9 @@ import type {
 import type { NativeQuoteSelection } from "./quote-types";
 import { CryptoStorageKeyAccess } from "./shared/cryptoStorageKey";
 import { CryptoHistoryBackupAccess } from "./shared/cryptoHistoryBackup";
+import { quoteElsewhere, sameQuote } from "./ordinary-quotes";
+import { quoteAttachments } from "./quote-sources";
+import type { NativeQuoteAttachment } from "./quote-types";
 
 // These documents belong only to this live view. They never enter Model,
 // ordinary snapshots, localStorage, ordinary drafts or the ordinary outbox.
@@ -299,6 +301,67 @@ export class PrivateChat {
         if (!this.active) return new Map();
         this.people.set(id, value.user);
       }
+    const quoteNames = (cards: NativeQuoteAttachment[], depth = 1): string[] =>
+      cards.flatMap((card) =>
+        card.native_unavailable
+          ? []
+          : [
+              ...(card.author_name ? [card.author_name] : []),
+              ...(depth < 2
+                ? quoteNames(quoteAttachments(card).quotes, depth + 1)
+                : []),
+            ],
+      );
+    for (const name of new Set(
+      quoteNames(Object.values(view.quote_cards ?? {}).flat()),
+    )) {
+      if (this.people.has(name)) continue;
+      try {
+        const value = await this.app.api.request<
+          import("../protocol").UserProfile
+        >("/api/v1/users/" + segment(name));
+        if (!this.active) return new Map();
+        this.people.set(name, value.user);
+      } catch (error) {
+        if (!this.active) return new Map();
+        if (!(error instanceof ApiError && [403, 404].includes(error.status)))
+          throw error;
+        this.people.set(name, {
+          id: "quote",
+          username: name,
+          display_name: name,
+        });
+      }
+    }
+    const quoted = (
+      card: NativeQuoteAttachment,
+      depth = 1,
+    ): import("../protocol").MessageQuote => {
+      const attachments = quoteAttachments(card);
+      return {
+        reference: card.native_reference,
+        excerpt: card.native_unavailable
+          ? null
+          : {
+              text: card.text,
+              author: this.people.get(card.author_name ?? "") ?? {
+                id: "quote",
+                username: card.author_name ?? "",
+                display_name: card.author_name ?? "",
+              },
+              created_at: "1970-01-01T00:00:00Z",
+              revision: card.native_reference.revision,
+              membership_version:
+                this.app.model.rooms.get(card.native_reference.room_id)
+                  ?.read_state?.membership_version ?? "0",
+              files: attachments.files,
+              quotes:
+                depth < 2
+                  ? attachments.quotes.map((card) => quoted(card, depth + 1))
+                  : [],
+            },
+      };
+    };
     const message = (row: CryptoMessage): Message => ({
       id: row.id,
       room_id: this.room,
@@ -328,28 +391,7 @@ export class PrivateChat {
         bytes: file.bytes,
         sha256: file.sha256,
       })),
-      quotes: (view.quote_cards?.[row.id] ?? []).map((card) => ({
-        reference: card.native_reference,
-        unavailable: card.native_unavailable,
-        excerpt: card.native_unavailable
-          ? null
-          : {
-              text: card.text,
-              author: this.people.get(card.author_name ?? "") ?? {
-                id: "quote",
-                username: card.author_name ?? "",
-                display_name: card.author_name ?? "",
-              },
-              created_at: new Date(
-                Number(row.observed_at) * 1000,
-              ).toISOString(),
-              revision: card.native_reference.revision,
-              membership_version:
-                this.app.model.rooms.get(card.native_reference.room_id)
-                  ?.read_state?.membership_version ?? "0",
-              files: [],
-            },
-      })),
+      quotes: (view.quote_cards?.[row.id] ?? []).map((card) => quoted(card)),
     });
     return new Map(rows.map((row) => [row.id, message(row)]));
   }
@@ -398,12 +440,19 @@ export class PrivateChat {
       (!thread ||
         (this.app.root === thread && this.threadConversation === conversation));
     const input = thread ? this.app.threadComposer : this.app.composer,
-      quote = this.quote;
+      quote = this.quote,
+      sourceText = text;
     const staged = [...this.app.staged];
     this.sending = true;
     this.app.renderHeader();
     input.disabled = true;
     try {
+      const prepared =
+        !quote && !staged.length && text.trimStart().startsWith("/")
+          ? await this.app.command(text, this.room, current)
+          : text;
+      if (!current()) return;
+      if (prepared !== undefined) text = prepared;
       if (staged.length) {
         for (const [index, file] of staged.entries()) {
           if (!current()) throw Error("session_closed");
@@ -448,9 +497,10 @@ export class PrivateChat {
           this.app.staged = this.app.staged.filter((value) => value !== file);
           this.app.renderUploads();
         }
-      } else await conversation.send(text, quote ? [quote] : []);
+      } else if (prepared !== undefined)
+        await conversation.send(text, quote ? [quote] : []);
       if (!current()) return;
-      if (input.value === text) input.value = "";
+      if (input.value === sourceText) input.value = "";
       if (this.quote === quote) {
         this.quote = undefined;
         this.app.replyBar.hidden = true;
@@ -470,8 +520,8 @@ export class PrivateChat {
   async thread(message: Message): Promise<void> {
     if (!this.active || !this.access) return;
     await this.closeThread();
-    this.app.root = message.id;
-    const root = message.id;
+    this.app.root = message.reply_to || message.id;
+    const root = this.app.root;
     this.threadAccess = await cryptoAccess(
       this.app,
       () => this.active && this.app.root === root,
@@ -555,6 +605,65 @@ export class PrivateChat {
       }
     } finally {
       this.paging = false;
+    }
+  }
+  /** Search navigation reads only this admission's sealed retained history. */
+  async jumpTo(message: Message): Promise<void> {
+    if (!this.active || message.room_id !== this.room) return;
+    if (message.reply_to) await this.thread(message);
+    const root = this.app.root,
+      thread = !!message.reply_to,
+      current = () => this.active && (!thread || this.app.root === root);
+    for (let page = 0; page < 30 && current(); page++) {
+      const rows = thread ? this.threadRows : this.rows,
+        view = thread ? this.threadView : this.view;
+      if (rows.has(message.id) || !view?.has_older) break;
+      const size = rows.size;
+      await this.older(thread);
+      if ((thread ? this.threadRows : this.rows).size === size) break;
+    }
+    if (!current()) return;
+    const timeline = thread ? this.app.threadTimeline : this.app.timeline,
+      row = timeline.querySelector<HTMLElement>(
+        '[data-id="' + message.id + '"]',
+      );
+    if (!row) {
+      toast(nt("marked.not_loaded"));
+      return;
+    }
+    row.scrollIntoView({ block: "center" });
+    row.classList.add("jump-highlight");
+    setTimeout(() => row.classList.remove("jump-highlight"), 2200);
+  }
+  async selectSourceQuote(selection: NativeQuoteSelection): Promise<void> {
+    if (!this.active || !this.conversation) return;
+    this.selectingQuote = true;
+    this.app.renderHeader();
+    try {
+      const preview = await this.conversation.selectSourceQuote(
+        selection.reference.room_id,
+        selection.reference.message_id,
+      );
+      if (!this.active) return;
+      if (!sameQuote(preview.selection, selection)) {
+        toast(nt("quote.unavailable"));
+        return;
+      }
+      this.quote = preview.selection;
+      this.app.replyBar.replaceChildren(
+        el("span", "reply-title", preview.author),
+        el("span", "reply-preview", preview.text),
+        iconButton("close", t("close"), () => {
+          this.quote = undefined;
+          this.app.replyBar.hidden = true;
+          this.app.replyBar.replaceChildren();
+        }),
+      );
+      this.app.replyBar.hidden = false;
+      this.app.composer.focus();
+    } finally {
+      this.selectingQuote = false;
+      if (this.active) this.app.renderHeader();
     }
   }
   private pendingFor(
@@ -641,6 +750,11 @@ export class PrivateChat {
           }
         }
       }),
+      action(nt("quote.elsewhere"), async () => {
+        const selected = await this.target(message)?.selectQuote(message.id);
+        if (this.active && selected)
+          await quoteElsewhere(this.app, message, selected.selection);
+      }),
       action(nt("actions.copy"), () =>
         navigator.clipboard.writeText(message.text),
       ),
@@ -703,7 +817,8 @@ export class PrivateChat {
   async search(): Promise<void> {
     if (!this.active || !this.conversation) return;
     const [node, body] = dialog(t("search")),
-      [wrap, input] = field(t("search"));
+      [wrap, input] = field(nt("search.placeholder"));
+    node.classList.add("room-search-dialog");
     input.type = "search";
     const list = el("div", "search-results");
     body.append(wrap, list);
@@ -725,17 +840,23 @@ export class PrivateChat {
         quote_cards: {},
       };
       const messages = await this.project(view);
+      const { messagePreview } = await import("../panels");
       if (!this.active || !node.open || current !== generation) return;
       list.replaceChildren(
         ...[...messages.values()].map((message) =>
-          messageRow(message, this.app.account!.session.user.id, this.actions),
+          messagePreview(this.app, message, async () => {
+            if (!this.active || !node.open) return;
+            node.close();
+            await this.jumpTo(message);
+          }),
         ),
       );
       if (!messages.size) list.append(el("p", "dim", t("noResults")));
     };
     input.oninput = () => {
+      generation++;
       clearTimeout(timer);
-      timer = setTimeout(() => void run().catch(toast), 250);
+      timer = setTimeout(() => void run().catch(toast), 350);
     };
     input.onkeydown = (event) => {
       if (event.key === "Enter") void run().catch(toast);
@@ -775,6 +896,11 @@ export class PrivateChat {
   }
   async file(file: FileDescriptor, node: HTMLElement): Promise<void> {
     if (!this.active || !this.access || node.dataset.loaded) return;
+    if (!file.encrypted) {
+      if (!this.app.model.rooms.get(file.room_id)?.encrypted)
+        await this.app.file(file, node);
+      return;
+    }
     const descriptor = this.descriptor(file.id);
     if (!descriptor) throw Error("crypto_scope_changed");
     const valid = () =>

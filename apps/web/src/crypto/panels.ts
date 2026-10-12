@@ -3,6 +3,7 @@ import { el, button, field, dialog, toast } from "../dom";
 import { preferencesGroup, actionRow, buttonRow } from "../sidebar";
 import { accountFence } from "../preferences-controls";
 import { nt } from "../native-i18n";
+import { untrustedGroupError } from "../ui-errors";
 import { cryptoAccess, type CryptoAccess } from "./access";
 import type {
   CryptoIdentityStatus,
@@ -524,18 +525,28 @@ export async function encryptedRoom(app: App, room: string): Promise<void> {
     await update();
   } catch (error) {
     if (active()) {
-      const code = error instanceof Error ? error.message : String(error);
+      const code =
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        typeof error.code === "string"
+          ? error.code
+          : error instanceof Error
+            ? error.message
+            : "";
       body.replaceChildren(
+        el("p", "dim", nt("crypto.failed")),
         el(
           "p",
           "dim",
           nt(
-            code === "crypto_peer_untrusted"
-              ? "crypto.group_untrusted"
-              : "crypto.failed",
+            code === "crypto_bot_member"
+              ? "bots.error_crypto_member"
+              : untrustedGroupError(code)
+                ? "crypto.group_untrusted"
+                : "crypto.group_need_empty",
           ),
         ),
-        el("p", "dim", code),
         button(nt("crypto.refresh"), update),
         button(nt("crypto.group_prepare"), async () => {
           await group.publishPackages();

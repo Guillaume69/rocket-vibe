@@ -136,6 +136,33 @@ try {
   await page
     .getByRole("menuitem", { name: "New message", exact: true })
     .click();
+  const search = page.locator(".new-message-dialog");
+  await search
+    .getByLabel("Search people or channels", { exact: true })
+    .waitFor();
+  assert.equal(
+    await search
+      .locator("input")
+      .evaluate((node) => node === document.activeElement),
+    true,
+  );
+  assert.equal(
+    await search.locator(".conversation-spotlight-results").textContent(),
+    "",
+  );
+  assert.deepEqual(
+    await search.evaluate((node) => {
+      const bounds = node.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height };
+    }),
+    { width: 420, height: 480 },
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-new-message-spotlight-parity.png",
+  });
+  await search
+    .getByRole("button", { name: "Create room", exact: true })
+    .click();
   const dialog = page.locator(".new-conversation-dialog");
   await dialog.getByLabel("Exact username", { exact: true }).waitFor();
   await dialog.getByLabel("Room name", { exact: true }).waitFor();

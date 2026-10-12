@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { chromium, firefox } from "playwright";
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
+import { privateQuoteSearch } from "./private-quote-search.mjs";
 import {
   base,
   fixture,
@@ -319,6 +320,29 @@ try {
   console.log(
     "PASS cross-browser verified peer certificates, MLS admission and bidirectional encrypted messages with pre-admission isolation",
   );
+  await input.fill("/shrug encrypted gesture");
+  await input.press("Enter");
+  await bob
+    .locator(".timeline .message-body")
+    .filter({ hasText: "encrypted gesture ¯_(ツ)_/¯" })
+    .waitFor();
+  await bobInput.fill("/unknown-private-path");
+  await bobInput.press("Enter");
+  await page
+    .locator(".timeline .message-body")
+    .filter({ hasText: "/unknown-private-path" })
+    .waitFor();
+  assert.ok(
+    !packets.some(
+      (packet) =>
+        packet.includes("encrypted gesture") ||
+        packet.includes("/unknown-private-path"),
+    ),
+    "GTK text commands and unknown slash paths stay inside MLS ciphertext",
+  );
+  console.log(
+    "PASS GTK text commands decorate encrypted messages while unknown slash names stay private literal text",
+  );
   const chooser = page.waitForEvent("filechooser");
   await page
     .getByRole("button", { name: "Attach a file", exact: true })
@@ -487,6 +511,7 @@ try {
   console.log(
     "PASS encrypted reactions/deletion and local private search without clear network payloads",
   );
+  await privateQuoteSearch(page, bob, room, packets);
   await openSettings(page);
   await page.locator('[data-category="encryption"]').click();
   const rootFingerprint = await page

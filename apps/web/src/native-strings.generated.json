@@ -1468,6 +1468,17 @@
     "Retour à la conversation",
     "Back to the conversation"
   ],
+  "spotlight.placeholder": [
+    "Chercher des personnes ou des salons",
+    "Search people or channels"
+  ],
+  "spotlight.failed": ["Recherche impossible", "Search failed"],
+  "spotlight.open_failed": [
+    "Impossible d'ouvrir cette conversation",
+    "Couldn't open this conversation"
+  ],
+  "spotlight.join": ["Rejoindre", "Join"],
+  "spotlight.none": ["Aucun résultat", "No results"],
   "info.room": ["Informations du salon", "Room information"],
   "info.profile": ["Profil", "Profile"],
   "info.failed": ["Informations indisponibles", "Information unavailable"],

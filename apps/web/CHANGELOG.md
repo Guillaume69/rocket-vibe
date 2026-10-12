@@ -10,6 +10,15 @@ All notable changes are documented here in English.
 
 ### Fixed
 
+- Show GTK-translated messages for server, worker and local failures instead of technical error or translation keys, including sign-in, encrypted-room panels and upload tooltips. Keep the original codes in diagnostics.
+- Match GTK's factor-login captions, method selector and Confirm button. Recover an accepted sign-in with a blank code and the original receipt, resume email delivery before resending, and keep those intents encrypted and fenced to their account and challenge.
+- Match GTK's Security setup and backup-code row order, with QR, key and code contents below the action rows. Preserve email status during these states and pending-action cancellation separately.
+- Support protected quoting between ordinary and encrypted conversations without storing private excerpts in ordinary drafts or caches. Render GTK Markdown, bounded nested quotes and authorized ordinary attachments, and navigate older encrypted search results and threads.
+- Match GTK's pinned/starred dialog header, size, captions and compact rows. Use the native headerless date picker with separate month/year navigation, surrounding days, wrapping time controls and explicit Cancel/Schedule or Remind me responses.
+- Match GTK's New message search dialog, with people before channels, native narrow layout and a separate Create room form. Preserve real DM and channel membership navigation while discarding delayed search answers.
+- Match GTK's social chooser, poll and event forms, image shelf, room invitation, workflow step controls and settings category typography.
+- Use GTK bot-detail headings and photo-removal availability. Keep the email-code status visible before address verification and through pending changes and receipts.
+- Keep unknown slash names, paths and quoted commands as literal messages, matching GTK. Decorate recognized text commands through the normal encrypted message path in private conversations, and retain room command catalogues across temporary connection failures.
 - Use GTK confirmation messages and explicit action labels with Cancel focused, and remove extra confirmation steps from immediate administrator actions.
 - Match GTK invitation and custom emoji administration, grouped field focus and spacing, profile email hints and compact composer formatting controls. Emoji completion shows Unicode and protected custom-image previews in both room and thread composers.
 - Require Accept or Decline for incoming calls. Backdrop clicks and Escape leave them ringing, while caller cancellation and account teardown still remove the prompt.

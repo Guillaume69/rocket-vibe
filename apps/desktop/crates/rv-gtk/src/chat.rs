@@ -27,6 +27,9 @@ mod call_ring;
 mod crypto;
 #[path = "chat_native.rs"]
 mod native;
+#[cfg(test)]
+#[path = "tests/native_navigation.rs"]
+mod native_navigation_tests;
 #[path = "chat_quotes.rs"]
 mod quotes;
 #[path = "chat_voice.rs"]
@@ -188,6 +191,9 @@ fn room_menu(widget: &gtk::Widget, session: Arc<Session>, room: &RoomRow, mark: 
 
 pub struct ChatPage {
     native: Rc<RefCell<Option<Arc<rv_core::native::NativeSession>>>>,
+    /// Accepted room creation/join waits for its authoritative live membership.
+    native_pending_room: RefCell<Option<(String, std::sync::Weak<rv_core::native::NativeSession>, u64)>>,
+    navigation_generation: Cell<u64>,
     native_edit: RefCell<Option<(String, String, String)>>,
     native_crypto: RefCell<Option<rv_core::native::crypto::enrollment::rooms::messages::Access>>,
     native_crypto_ready: Cell<bool>,
@@ -552,6 +558,8 @@ impl ChatPage {
 
         let this = Rc::new(ChatPage {
             native: native_session,
+            native_pending_room: RefCell::default(),
+            navigation_generation: Cell::new(0),
             native_edit: RefCell::default(),
             native_crypto: RefCell::default(),
             native_crypto_ready: Cell::new(false),
@@ -1582,6 +1590,8 @@ impl ChatPage {
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
+        self.native_pending_room.replace(None);
+        self.navigation_generation.set(self.navigation_generation.get().wrapping_add(1));
         self.administrator.set(None);
         self.close_native_crypto();
         self.voice.reset();
@@ -2289,6 +2299,7 @@ impl ChatPage {
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.
     pub fn go_to(self: &Rc<Self>, found: rv_core::rooms::Found) {
         self.user_navigation();
+        let navigation = self.navigation_generation.get();
         use rv_core::rooms::Found;
         if let Some(session) = self.native_session() {
             let weak = Rc::downgrade(self);
@@ -2308,7 +2319,9 @@ impl ChatPage {
                 })
                 .await;
                 let Some(this) = weak.upgrade() else { return };
-                if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                if this.navigation_generation.get() != navigation
+                    || this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
+                {
                     return;
                 }
                 match result {
@@ -3313,6 +3326,8 @@ impl ChatPage {
         self.on_user_navigation.borrow_mut().push(Box::new(f));
     }
     fn user_navigation(&self) {
+        self.native_pending_room.replace(None);
+        self.navigation_generation.set(self.navigation_generation.get().wrapping_add(1));
         for f in self.on_user_navigation.borrow().iter() {
             f();
         }

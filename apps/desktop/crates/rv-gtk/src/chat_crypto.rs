@@ -60,7 +60,7 @@ impl ChatPage {
                         .await?
                 }
             };
-            let view = access.refresh(None, 200).await?;
+            let view = access.refresh(before, 200).await?;
             Ok::<_, rv_core::native::crypto::Error>((access, view))
         })
         .await;
@@ -100,6 +100,24 @@ impl ChatPage {
                 for message in view.messages {
                     metadata.push((message.row.id.clone(), message.operation, message.position));
                     incoming.push(message.row);
+                }
+                if older {
+                    // The projection's cursor is exclusive. Keep the newer
+                    // page while inserting older rows, including the accepted
+                    // alias of any operation that was pending on that page.
+                    let mut ids: std::collections::HashSet<_> = metadata.iter().map(|(id, _, _)| id.clone()).collect();
+                    let mut operations: std::collections::HashSet<_> =
+                        metadata.iter().map(|(_, operation, _)| operation.clone()).collect();
+                    for (row, meta) in
+                        self.native_crypto_rows.borrow().iter().zip(self.native_crypto_meta.borrow().iter())
+                    {
+                        if !ids.contains(&meta.0) && !operations.contains(&meta.1) {
+                            ids.insert(meta.0.clone());
+                            operations.insert(meta.1.clone());
+                            incoming.push(row.clone());
+                            metadata.push(meta.clone());
+                        }
+                    }
                 }
                 self.native_crypto_rows.replace(incoming);
                 self.native_crypto_meta.replace(metadata);

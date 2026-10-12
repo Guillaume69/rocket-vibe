@@ -6,7 +6,7 @@ export function nt(
 ): string {
   let text =
     (catalog as Record<string, string[]>)[key]?.[language === "fr" ? 0 : 1] ??
-    key;
+    catalog["native.error"][language === "fr" ? 0 : 1];
   if ("n" in values && text.includes(" | "))
     text = text.split(" | ")[Number(values.n) === 1 ? 0 : 1];
   for (const [name, value] of Object.entries(values))

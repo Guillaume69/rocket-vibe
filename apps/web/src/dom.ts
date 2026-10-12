@@ -1,5 +1,6 @@
 import { confirmationContents, dialogContents } from "./ui/dialog";
 import { noteError } from "./diagnostics";
+import { errorMessage } from "./ui-errors";
 import { icon as nativeIcon } from "./icons";
 export function stopMedia(node: ParentNode): void {
   for (const player of node.querySelectorAll<HTMLMediaElement>("audio,video"))
@@ -185,7 +186,7 @@ export function actionMenu(
 }
 export function toast(error: unknown): void {
   noteError(error);
-  const text = error instanceof Error ? error.message : String(error);
+  const text = errorMessage(error);
   const node = el("div", "toast", text);
   document.querySelector("#toasts")?.append(node);
   setTimeout(() => node.remove(), 6000);

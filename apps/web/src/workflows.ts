@@ -224,7 +224,7 @@ async function editor(
   fields.append(enabled);
   page.append(general);
   const [trigger, triggerRows] = preferencesGroup(nt("workflows.trigger"));
-  const triggerFields = el("div");
+  const triggerFields = el("div", "preferences-box workflow-trigger-fields");
   triggerRows.append(
     selectRow(
       nt("workflows.trigger_kind"),
@@ -245,20 +245,26 @@ async function editor(
   const steps = el("div", "workflow-steps");
   page.append(steps);
   const [add, addRows] = preferencesGroup();
-  let kind: Step["kind"] = "message";
-  addRows.append(
-    selectRow(
-      nt("workflows.add_step"),
-      kind,
-      stepKinds.map((k) => [k, nt("workflows.step." + k)]),
-      (v) => (kind = v as Step["kind"]),
-    ),
-    buttonRow(nt("workflows.add_step"), () => {
-      if (draft.steps.length >= 20) return;
-      draft.steps.push(newStep(kind, draft.trigger, draft.steps));
-      drawSteps();
-    }),
-  );
+  const addRow = actionRow(nt("workflows.add_step")),
+    kinds = el("div", "workflow-add-step-actions");
+  addRow.classList.add("workflow-add-step-row");
+  for (const kind of stepKinds)
+    kinds.append(
+      button(
+        nt("workflows.step." + kind),
+        () => {
+          if (draft.steps.length >= 20) {
+            toast(nt("workflows.error_steps"));
+            return;
+          }
+          draft.steps.push(newStep(kind, draft.trigger, draft.steps));
+          drawSteps();
+        },
+        "workflow-add-step-button",
+      ),
+    );
+  addRow.append(kinds);
+  addRows.append(addRow);
   page.append(add);
   const [actions, actionRows] = preferencesGroup();
   const note = el("p", "dim");
@@ -352,14 +358,24 @@ async function editor(
     triggerFields.replaceChildren();
     const tr = draft.trigger;
     switch (tr.kind) {
-      case "command":
+      case "command": {
+        const commandRow = entryRow(
+          nt("workflows.command_name"),
+          tr.name,
+          (v) => (tr.name = v),
+        );
+        commandRow.classList.add("workflow-command-row");
+        const prefix = el("span", "workflow-entry-prefix", "/");
+        prefix.setAttribute("aria-hidden", "true");
+        commandRow.prepend(prefix);
         triggerFields.append(
-          entryRow(nt("workflows.command_name"), tr.name, (v) => (tr.name = v)),
-          el("p", "dim", nt("workflows.command_hint")),
+          commandRow,
+          actionRow(nt("workflows.command_hint")),
         );
         break;
+      }
       case "schedule": {
-        const settings = el("div");
+        const settings = el("div", "preferences-box workflow-trigger-fields");
         const redraw = () => {
           settings.replaceChildren();
           const [hour, minute] = tr.time.split(":");
@@ -498,6 +514,15 @@ async function editor(
   }
   function drawSteps() {
     steps.replaceChildren();
+    if (!draft.steps.length) {
+      const [empty, rows] = preferencesGroup(
+        nt("workflows.steps"),
+        nt("workflows.no_steps"),
+      );
+      empty.classList.add("workflow-empty-steps");
+      rows.remove();
+      steps.append(empty);
+    }
     draft.steps.forEach((step, index) => {
       const [group, rows] = preferencesGroup(
         index + 1 + ". " + nt("workflows.step." + step.kind),

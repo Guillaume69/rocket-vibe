@@ -1,4 +1,8 @@
-import { gtkNewConversation, browsePublicRooms } from "./new-conversation";
+import {
+  gtkNewConversation,
+  gtkConversationSpotlight,
+  browsePublicRooms,
+} from "./new-conversation";
 import { userProfile } from "./ui/profile";
 import { clearView } from "./ui/portals";
 import type { App } from "./app";
@@ -142,11 +146,12 @@ export async function newConversation(
   start: "people" | "rooms" | "create" = "people",
 ): Promise<void> {
   if (start === "rooms") await browsePublicRooms(app);
+  else if (start === "people") gtkConversationSpotlight(app);
   else gtkNewConversation(app, start === "create");
 }
 
 /** Compact activatable GTK search/marked rows, without timeline controls. */
-function messagePreview(
+export function messagePreview(
   _app: App,
   message: Message,
   open: () => Promise<void>,
@@ -156,19 +161,26 @@ function messagePreview(
   row.dataset.id = message.id;
   row.setAttribute("aria-label", t("openMessage"));
   const head = el("div", "message-heading");
-  const stamp = new Date(message.created_at).toLocaleString(language, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  const at = new Date(message.created_at),
+    pad = (value: number) => String(value).padStart(2, "0");
+  const stamp =
+    className === "marked-row"
+      ? `${pad(at.getDate())}/${pad(at.getMonth() + 1)}/${at.getFullYear()} ${pad(at.getHours())}:${pad(at.getMinutes())}`
+      : at.toLocaleString(language, {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
   head.append(
     el(
       "span",
       "author",
-      message.author.display_name || message.author.username,
+      className === "marked-row"
+        ? message.author.username
+        : message.author.display_name || message.author.username,
     ),
     el("time", "message-time", stamp),
   );
@@ -298,25 +310,47 @@ export function localSearch(app: App): void {
 export async function marked(app: App): Promise<void> {
   if (!app.room) return;
   const room = app.room;
-  const [node, body] = dialog(t("pins"));
+  const [node, body] = dialog(nt("marked.title"));
   node.classList.add("marked-dialog");
   const tabs = el("div", "tabs"),
     list = el("div", "conversation-results boxed-list");
   let kind = "pins";
   let generation = 0;
-  body.append(tabs, list);
+  const valid = accountFence(app),
+    lifetime = app.model.roomLifetime(room),
+    membership = app.model.rooms.get(room)?.read_state?.membership_version;
+  const available = () =>
+    valid() &&
+    node.open &&
+    lifetime === app.model.roomLifetime(room) &&
+    membership === app.model.rooms.get(room)?.read_state?.membership_version;
+  body.append(list);
+  const header = node.querySelector(".dialog-header")!;
+  header.querySelector("h2")?.remove();
+  header.prepend(tabs);
+  node.setAttribute("aria-label", nt("marked.title"));
   const load = async () => {
     const current = ++generation;
-    const page = await app.api.request<MessagePage>(
-      "/api/v1/rooms/" + segment(room) + "/" + kind,
-    );
-    if (!node.open || current !== generation) return;
+    let page: MessagePage;
+    try {
+      page = await app.api.request<MessagePage>(
+        "/api/v1/rooms/" + segment(room) + "/" + kind,
+      );
+    } catch {
+      if (!available() || current !== generation) return;
+      list.classList.add("marked-status");
+      list.replaceChildren(icon("moderation"), el("h2", "", nt("info.failed")));
+      return;
+    }
+    if (!available() || current !== generation) return;
+    list.classList.remove("marked-status");
     list.replaceChildren();
     for (const message of page.messages) {
       const row = messagePreview(
         app,
         message,
         async () => {
+          if (!available()) return;
           await app.jumpTo(message);
           node.close();
         },
@@ -324,14 +358,25 @@ export async function marked(app: App): Promise<void> {
       );
       list.append(row);
     }
-    if (!page.messages.length) list.append(el("p", "dim", t("noResults")));
+    if (!page.messages.length) {
+      list.classList.add("marked-status");
+      list.append(
+        icon(kind === "stars" ? "star" : "pin"),
+        el(
+          "h2",
+          "",
+          nt(kind === "stars" ? "marked.no_starred" : "marked.no_pinned"),
+        ),
+      );
+    }
   };
   tabs.setAttribute("role", "tablist");
   for (const [value, label, name] of [
-    ["pins", t("pins"), "pin"],
-    ["stars", t("stars"), "star"],
+    ["pins", nt("marked.pinned"), "pin"],
+    ["stars", nt("marked.starred"), "star"],
   ]) {
     const tab = button("", () => {
+      if (!available()) return;
       kind = value;
       for (const child of tabs.children)
         child.setAttribute("aria-selected", String(child === tab));
@@ -918,21 +963,20 @@ export async function roomInfo(app: App): Promise<void> {
   await load();
   if (details.permissions.invite) {
     const [wrap, input] = field(nt("native.username"));
-    wrap.className = "action-row entry-row";
+    wrap.className = "field entry-row";
     wrap.querySelector("span")!.className = "action-row-title";
-    const inviteForm = el("div", "room-invite-form");
+    const [inviteForm, inviteRows] = preferencesGroup();
+    inviteForm.classList.add("room-invite-form");
     body.append(
       button(nt("native.invite"), () => {
         const [child, content] = dialog(nt("native.invite"));
         child.classList.add("room-invite-dialog");
-        const [group, rows] = preferencesGroup("");
-        rows.append(inviteForm);
-        content.append(group);
+        content.append(inviteForm);
         node.addEventListener("close", () => child.close(), { once: true });
         input.focus();
       }),
     );
-    inviteForm.append(
+    inviteRows.append(
       wrap,
       buttonRow(nt("native.invite"), async () => {
         const users = await app.api.request<User[]>("/api/v1/users");
@@ -1583,7 +1627,7 @@ export async function settings(
       app.voice.settings(page),
     );
   if (app.info?.capabilities.e2ee && app.info.capabilities.device_sessions)
-    host.add("encryption", nt("settings.cat.encryption"), "security", (page) =>
+    host.add("encryption", nt("settings.cat.encryption"), "lock", (page) =>
       encryptionSettings(app, page),
     );
   host.add("security", t("security"), "security", (page) =>

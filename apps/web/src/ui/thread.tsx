@@ -86,6 +86,7 @@ function ThreadView({ app, options }: { app: App; options: ThreadOptions }) {
           options.forEach((option, i) =>
             option.classList.toggle("chosen", i === index),
           );
+          options[index].scrollIntoView({ block: "nearest" });
           return;
         }
         if (formatShortcut(input, event)) return;

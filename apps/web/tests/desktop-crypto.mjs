@@ -204,7 +204,56 @@ try {
   );
   await input.fill("Browser confirms GTK decryption");
   await input.press("Enter");
+  await marker("round-trip-passed");
+  const oldest = "Private history oldest sentinel " + tag;
+  const newest = "Private history newest sentinel " + tag;
+  const historyTexts = [
+    oldest,
+    ...Array.from(
+      { length: 202 },
+      (_, index) => "Private history page " + tag + " " + index,
+    ),
+    newest,
+  ];
+  let oldestID;
+  for (const [index, text] of historyTexts.entries()) {
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector(".room-content .rich-composer")
+          ?.getAttribute("aria-disabled") === "false",
+    );
+    await input.fill(text);
+    await input.press("Enter");
+    const row = page.locator(".timeline .message").filter({
+      has: page.getByText(text, { exact: true }),
+    });
+    await row.waitFor();
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector(".room-content .rich-composer")
+          ?.getAttribute("aria-disabled") === "false",
+    );
+    assert.equal(await row.locator(".private-pending").count(), 0);
+    if (index === 0) oldestID = await row.getAttribute("data-id");
+    if ((index + 1) % 50 === 0)
+      console.log("Seeded " + (index + 1) + " accepted MLS history messages");
+  }
+  assert.ok(oldestID);
+  await writeFile(
+    resolve(folder, "history.json"),
+    JSON.stringify({
+      id: oldestID,
+      oldest,
+      newest,
+      count: historyTexts.length,
+    }),
+  );
   await marker("passed");
+  console.log(
+    "PASS real GTK opens a >200-row private search result while retaining newer rows and keeping plaintext outside its ordinary store",
+  );
   const result = await exited;
   assert.equal(result.code, 0, log);
   assert.equal(errors.length, 0, errors.join("\n"));

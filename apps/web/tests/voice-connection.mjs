@@ -72,8 +72,10 @@ try {
       const NativePeer = RTCPeerConnection;
       window.RTCPeerConnection = new Proxy(NativePeer, {
         construct(Target, args) {
+          // Deliberately remove relays for the timeout case, including benches
+          // with authenticated TURN available for normal Firefox connections.
           const options = window.__forceVoiceRelay
-            ? { ...args[0], iceTransportPolicy: "relay" }
+            ? { ...args[0], iceTransportPolicy: "relay", iceServers: [] }
             : args[0];
           const connection = new Target(options);
           window.__voiceConnections.push(connection);

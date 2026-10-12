@@ -1,0 +1,221 @@
+/* Native social.rs dialogs use plain Entry fields and ordinary GTK buttons. */
+.gtk-social-dialog {
+  width: min(600px, calc(100vw - 32px));
+  height: min(560px, calc(100dvh - 40px));
+  background: var(--window-bg-color);
+  border: 1px solid #ffffff12;
+  border-radius: 16px;
+}
+.gtk-social-dialog.social-menu-dialog {
+  height: min(220px, calc(100dvh - 40px));
+}
+@media (max-width: 600px) {
+  dialog.gtk-social-dialog {
+    position: fixed;
+    inset: auto 0 0;
+    width: 100vw;
+    max-width: none;
+    margin: 0;
+    border-radius: 16px 16px 0 0;
+  }
+}
+dialog.gtk-social-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header {
+  height: 46px;
+  border-bottom: 1px solid #ffffff0a;
+}
+dialog.gtk-social-dialog:not(.sidebar-dialog):not(.call-ring):not(
+    .user-profile-dialog
+  )
+  > .dialog-header
+  h2 {
+  font-weight: 400;
+}
+.gtk-social-dialog > .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.social-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: none;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+.social-entry {
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: #ffffff1a;
+  color: inherit;
+}
+.social-entry:focus {
+  border-color: #ff7ab480;
+  outline: none;
+}
+.gtk-social-dialog .social-button {
+  flex: none;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #ffffff1a;
+  font-weight: 700;
+}
+.gtk-social-dialog .social-button:hover {
+  background: #ffffff26;
+}
+.gtk-social-dialog .social-button.suggested-action {
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+.social-multiple {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  flex: none;
+  font-weight: 400;
+}
+.social-multiple input {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 4px;
+  border: 2px solid #ffffff26;
+  border-radius: 6px;
+  background: transparent;
+}
+.social-multiple input:checked {
+  background: var(--accent-bg-color);
+  border-color: var(--accent-bg-color);
+}
+.social-multiple input:checked::after {
+  content: "✓";
+  display: block;
+  color: var(--accent-fg-color);
+  text-align: center;
+  line-height: 16px;
+}
+.social-error {
+  min-height: 18px;
+  flex: none;
+  margin: 0;
+  color: var(--error-color);
+  overflow-wrap: anywhere;
+}
+.social-empty {
+  text-align: center;
+  margin: 0;
+}
+.social-shelf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.social-shelf-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.social-shelf-item > img {
+  width: 180px;
+  height: 150px;
+  max-width: calc(100% - 148px);
+  flex: 0 1 auto;
+  object-fit: contain;
+}
+.social-shelf-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.social-card {
+  align-self: stretch;
+  max-width: none;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #30294a;
+  background: var(--card-bg-color);
+}
+.social-card:not(.game-night) .poll-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-weight: 400;
+}
+.social-card:not(.game-night) .poll-option input {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0 0 0 4px;
+  border: 2px solid #ffffff26;
+  border-radius: 50%;
+  background: transparent;
+  flex: none;
+}
+.social-card:not(.game-night) .poll-option input[type="checkbox"] {
+  border-radius: 6px;
+}
+.social-card:not(.game-night) .poll-option input:checked {
+  background: var(--accent-bg-color);
+  border-color: var(--accent-bg-color);
+  box-shadow: inset 0 0 0 4px var(--card-bg-color);
+}
+.social-card .social-card-error {
+  min-height: 18px;
+  color: var(--error-color);
+}
+.social-card .social-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.social-card .social-actions > button,
+.social-card.game-night > button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #ffffff1a;
+  font-weight: 700;
+}
+.social-card .social-actions > button[aria-pressed="true"] {
+  background: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+.social-card.game-night > time {
+  text-align: center;
+}
+.social-card.social-image {
+  max-width: none;
+}
+.social-card.social-image > img {
+  width: 100%;
+  min-height: 150px;
+  max-height: none;
+  border-radius: 0;
+  object-fit: contain;
+}
+.social-image-attribution {
+  text-align: center;
+}
+.social-card.social-image > button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #ffffff1a;
+  font-weight: 700;
+}

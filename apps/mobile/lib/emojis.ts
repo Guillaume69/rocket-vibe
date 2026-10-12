@@ -41,7 +41,7 @@ export function unicodeOfShortcode(code: string): string | null {
 let byGlyph: Map<string, string> | null = null;
 
 /** Without variation selectors: WhatsApp sends `❤️` where the table has `❤`, or the reverse. */
-const bare = (glyph: string): string => glyph.replace(/️/g, '');
+const bare = (glyph: string): string => glyph.replace(/\uFE0F/g, '');
 
 /**
  * The shortcode of a glyph (`👍` → `+1`), the first the table lists for it;

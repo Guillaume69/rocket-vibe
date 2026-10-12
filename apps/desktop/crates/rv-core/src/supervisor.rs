@@ -578,6 +578,47 @@ mod tests {
         assert_eq!((room.author.as_str(), room.room_name.as_str()), ("Ana", "general (chat.example)"));
     }
 
+    fn native_account() -> (Supervisor, SessionInfo) {
+        let info = SessionInfo {
+            base_url: "http://127.0.0.1:9/native".into(),
+            user_id: "u1".into(),
+            username: "me".into(),
+            auth_token: "t".into(),
+            native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
+            mattermost: None,
+        };
+        let path = std::env::temp_dir().join(format!("rv-supervisor-{:032x}.sqlite", fastrand::u128(..)));
+        let starter: Starter = Arc::new(move |info: &SessionInfo| {
+            crate::native::NativeSession::start(info.clone(), &path).map(Chat::from).map_err(|e| e.to_string())
+        });
+        (Supervisor::new(Handle::current(), starter).0, info)
+    }
+
+    #[tokio::test]
+    async fn opening_a_suspended_account_connects_it_again() {
+        let (accounts, info) = native_account();
+        let Ok(Chat::Native(first)) = accounts.open(&info) else { panic!("a native session") };
+        first.suspend();
+        assert!(first.is_suspended());
+        let Ok(Chat::Native(again)) = accounts.open(&info) else { panic!("a native session") };
+        assert!(Arc::ptr_eq(&first, &again), "the running session is reused");
+        assert!(!again.is_suspended());
+        accounts.shutdown();
+        assert!(!first.is_suspended(), "a closed session is not suspended");
+    }
+
+    #[tokio::test]
+    async fn the_screen_left_behind_by_a_reopening_does_not_close_the_account() {
+        let (accounts, info) = native_account();
+        let (_, first) = accounts.open_counted(&info).unwrap();
+        let (_, second) = accounts.open_counted(&info).unwrap();
+        accounts.leave(first);
+        assert!(accounts.is_active(&key(&info)));
+        accounts.leave(second);
+        assert_eq!(accounts.active(), None);
+        accounts.shutdown();
+    }
+
     #[test]
     fn keys_match_the_keychain_files() {
         let info = SessionInfo {

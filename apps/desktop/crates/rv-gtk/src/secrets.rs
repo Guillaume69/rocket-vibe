@@ -92,7 +92,12 @@ pub async fn load_for_rail() -> Vec<SessionInfo> {
         }
         Err(_) => eprintln!("Keychain did not answer, starting signed out."),
     }
-    rv_core::server_rail::order(&mut found, &glib::user_config_dir().join("rocket-vibe-rs"));
+    let config = glib::user_config_dir().join("rocket-vibe-rs");
+    rv_core::server_rail::order(&mut found, &config);
+    rv_core::collapsed_sections::sync(
+        &config,
+        &found.iter().map(rv_core::collapsed_sections::account).collect::<Vec<_>>(),
+    );
     found
 }
 

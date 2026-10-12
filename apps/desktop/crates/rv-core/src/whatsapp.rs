@@ -91,6 +91,21 @@ pub struct Snapshot {
     pub account: Option<(String, String)>,
     /// Who types (or records) in each chat, and since when.
     pub typing: BTreeMap<String, BTreeMap<String, (String, std::time::Instant)>>,
+    /// Calls ringing now, by id.
+    pub calls: BTreeMap<String, WaCall>,
+}
+/// A WhatsApp call ringing: it can be declined here, or answered on the phone.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct WaCall {
+    pub id: String,
+    /// The caller's JID.
+    pub from: String,
+    /// The group a group call rings in.
+    #[serde(default)]
+    pub group: String,
+    #[serde(default)]
+    pub video: bool,
+    pub state: String,
 }
 /// A "typing" WhatsApp does not end itself fades after this.
 const TYPING_FADE: Duration = Duration::from_secs(12);
@@ -362,6 +377,9 @@ enum Event {
     Typing {
         typing: WireTyping,
     },
+    Call {
+        call: WaCall,
+    },
     /// A downloaded attachment, by its message id; an empty path is a failure.
     File {
         id: String,
@@ -426,6 +444,7 @@ enum Request {
     Download { id: String },
     Upload(Box<Upload>),
     Typing { chat: String, composing: bool },
+    RejectCall { id: String },
     Presence { available: bool },
     Connect,
     Logout,
@@ -538,6 +557,13 @@ impl Snapshot {
                 self.unread.clear();
             }
             Event::Account { jid, name } => self.account = Some((jid, name)),
+            Event::Call { call } => {
+                if call.state == "ringing" {
+                    self.calls.insert(call.id.clone(), call);
+                } else {
+                    self.calls.remove(&call.id);
+                }
+            }
             Event::Typing { typing } => {
                 let senders = self.typing.entry(typing.chat).or_default();
                 senders.insert(typing.sender, (typing.state, std::time::Instant::now()));
@@ -651,6 +677,10 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// Declines a call ringing here, for all my devices.
+    pub fn reject_call(&self, id: String) -> Result<(), String> {
+        self.request(Request::RejectCall { id })
+    }
     /// Tells a chat I am typing, or stopped.
     pub fn set_typing(&self, chat: String, composing: bool) -> Result<(), String> {
         self.request(Request::Typing { chat, composing })
@@ -776,6 +806,7 @@ async fn worker(
                     Request::Read { chat } => json!({"type":"read","chat":chat}),
                     Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
                     Request::Download { id } => json!({"type":"download","id":id}),
+                    Request::RejectCall { id } => json!({"type":"reject_call","id":id}),
                     Request::Typing { chat, composing } => {
                         json!({"type":"typing","chat":chat,"text":if composing { "composing" } else { "paused" }})
                     }
@@ -961,6 +992,17 @@ mod tests {
             "author":"","text":"hi","ts":1,"mine":false
         }})));
         assert!(s.typing_names("a@s.whatsapp.net").is_empty());
+    }
+    #[test]
+    fn a_call_rings_until_it_ends() {
+        let mut s = Snapshot::default();
+        let wire = |value: serde_json::Value| serde_json::from_value::<Event>(value).unwrap();
+        s.apply(wire(
+            json!({"type":"call","call":{"id":"C1","from":"a@s.whatsapp.net","video":true,"state":"ringing"}}),
+        ));
+        assert!(s.calls["C1"].video);
+        s.apply(wire(json!({"type":"call","call":{"id":"C1","from":"a@s.whatsapp.net","state":"ended"}})));
+        assert!(s.calls.is_empty());
     }
     #[test]
     fn the_replayed_cache_marks_the_snapshot_loaded() {

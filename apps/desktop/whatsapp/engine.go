@@ -110,6 +110,8 @@ type wire struct {
 	Path string `json:"path,omitempty"`
 	// Someone typing (a `typing` frame).
 	Typing *typing `json:"typing,omitempty"`
+	// A call ringing or ended (a `call` frame).
+	Call *call `json:"call,omitempty"`
 }
 type connector struct {
 	client     *whatsmeow.Client
@@ -125,6 +127,8 @@ type connector struct {
 	avatarKick chan struct{}
 	// The opt-in diagnostic log (`RV_WHATSAPP_LOG`), a no-op otherwise.
 	log waLog.Logger
+	// Calls ringing here, to decline them.
+	calls ringing
 }
 
 func (c *connector) emit(event wire) {
@@ -381,6 +385,8 @@ func (c *connector) event(raw any) {
 		c.receipt(evt)
 	case *events.ChatPresence:
 		c.chatPresence(evt)
+	case *events.CallOffer, *events.CallOfferNotice, *events.CallAccept, *events.CallTerminate, *events.CallReject:
+		c.callEvent(evt)
 	case *events.MarkChatAsRead:
 		c.markedRead(evt)
 	case *events.HistorySync:
@@ -729,6 +735,8 @@ func (c *connector) handle(cmd command) bool {
 		go c.download(cmd)
 	case "presence":
 		go c.presence(cmd)
+	case "reject_call":
+		go c.rejectCall(cmd)
 	case "typing":
 		go c.typing(cmd)
 	case "logout":

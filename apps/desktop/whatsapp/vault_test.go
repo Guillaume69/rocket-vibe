@@ -523,3 +523,19 @@ func TestConnectionsDoNotWaitForEachOtherLikeWhatsmeowNeeds(t *testing.T) {
 		t.Fatalf("%d names: %v", n, err)
 	}
 }
+
+func TestACallRingsThenEnds(t *testing.T) {
+	c := engineWithCache(t)
+	var frames []wire
+	c.sink = func(w wire) { frames = append(frames, w) }
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	meta := types.BasicCallMeta{From: alice, CallCreator: alice, CallID: "CALL1"}
+	c.event(&events.CallOfferNotice{BasicCallMeta: meta, Media: "video"})
+	c.event(&events.CallTerminate{BasicCallMeta: meta, Reason: "timeout"})
+	if len(frames) != 2 || frames[0].Call.State != "ringing" || !frames[0].Call.Video || frames[1].Call.State != "ended" {
+		t.Fatalf("frames %+v", frames)
+	}
+	if _, ok := c.calls.take("CALL1"); ok {
+		t.Fatal("an ended call stays declinable")
+	}
+}

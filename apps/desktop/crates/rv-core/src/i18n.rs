@@ -40,6 +40,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
     ("wa.choose", "Choisis une conversation", "Choose a conversation"),
     ("wa.me", "Moi", "Me"),
+    ("wa.call_on_phone", "Répondre sur le téléphone", "Answer on the phone"),
     ("wa.kind.image", "📷 Photo", "📷 Photo"),
     ("wa.kind.gif", "🎞️ GIF", "🎞️ GIF"),
     ("wa.kind.video", "🎥 Vidéo", "🎥 Video"),

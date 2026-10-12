@@ -40,6 +40,8 @@ enum LoginOutcome {
 enum Answer {
     Call(Arc<Session>, String),
     Voice(Arc<rv_core::native::NativeSession>, String),
+    /// A WhatsApp call: declined here, or answered on the phone.
+    WhatsApp(Arc<rv_core::whatsapp_session::WaSession>),
 }
 
 struct BackgroundRing {
@@ -68,6 +70,8 @@ pub struct AppWindow {
     previous: RefCell<Option<SessionInfo>>,
     /// A WhatsApp unlink in flight: its own end is not an expiry.
     unlinking: Cell<bool>,
+    /// The WhatsApp accounts whose calls are listened to, by session.
+    call_watches: RefCell<std::collections::HashSet<usize>>,
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
     link_generation: Cell<u64>,
@@ -257,6 +261,7 @@ impl AppWindow {
             notifier: RefCell::default(),
             previous: RefCell::default(),
             unlinking: Cell::new(false),
+            call_watches: RefCell::default(),
             pending_link: RefCell::default(),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
@@ -1195,6 +1200,7 @@ impl AppWindow {
             this.accounts.sync(&accounts);
             this.rail.set_accounts(accounts, current.as_ref());
             this.whatsapp_rail_photos();
+            this.watch_whatsapp_calls();
         });
     }
 
@@ -1347,6 +1353,10 @@ impl AppWindow {
             "voice_session.incoming_on",
             &[("name", caller), ("server", &supervisor::server_label(info))],
         ));
+        // A WhatsApp call cannot be answered here: on the phone.
+        if matches!(answer, Answer::WhatsApp(_)) {
+            dialog.set_response_label("accept", t("wa.call_on_phone"));
+        }
         let (weak, ring, account) = (Rc::downgrade(self), id.clone(), info.clone());
         dialog.connect_response(None, move |dialog, response| {
             let Some(this) = weak.upgrade() else { return };
@@ -1388,6 +1398,8 @@ impl AppWindow {
                     runtime().spawn(async move { session.decline_ring(&id).await });
                 }
                 (Answer::Voice(..), _) => {}
+                (Answer::WhatsApp(session), "decline") => session.reject_call(&ring),
+                (Answer::WhatsApp(_), _) => {}
             }
         });
         if !self.window.is_visible() {
@@ -1401,6 +1413,44 @@ impl AppWindow {
         {
             let caller = format!("{caller} ({})", supervisor::server_label(info));
             notifier.show_call(&supervisor::notification_key(info, rid), "", &caller);
+        }
+    }
+
+    /// Each running WhatsApp account's calls ring here, open or in the
+    /// background, until they end.
+    fn watch_whatsapp_calls(self: &Rc<Self>) {
+        for info in self.accounts.running() {
+            let key = supervisor::key(&info);
+            let Some(Chat::WhatsApp(session)) = self.accounts.chat(&key) else { continue };
+            if !self.call_watches.borrow_mut().insert(Arc::as_ptr(&session) as usize) {
+                continue;
+            }
+            let (weak, mut notices) = (Rc::downgrade(self), session.notices());
+            glib::spawn_future_local(async move {
+                use rv_core::whatsapp_session::Notice;
+                use tokio::sync::broadcast::error::RecvError;
+                loop {
+                    let notice = match notices.recv().await {
+                        Ok(notice) => notice,
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    };
+                    let Some(this) = weak.upgrade() else { break };
+                    match notice {
+                        Notice::Ring(call, name) => {
+                            let answer = Answer::WhatsApp(session.clone());
+                            this.ring_background(&info, call.id, &call.from, &name, answer, false);
+                        }
+                        Notice::RingEnded(id) if this.background_ring.borrow().as_ref().is_some_and(|r| r.id == id) => {
+                            this.end_background_ring();
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(this) = weak.upgrade() {
+                    this.call_watches.borrow_mut().remove(&(Arc::as_ptr(&session) as usize));
+                }
+            });
         }
     }
 

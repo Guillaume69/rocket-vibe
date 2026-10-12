@@ -14,7 +14,9 @@ A personal WhatsApp account linked by scanning a QR from the official phone app,
 
 Sending files goes through the composer's attach and microphone buttons (`attach::send_all_whatsapp`): one file at a time per chat, pictures reduced unless the original is asked for, a recording made here sent as a voice note (Ogg/Opus, its length read from the stream), MP4 as video, other audio as audio, anything else as a document; the helper uploads first (a failed upload is a plain refusal) and keeps my copy so it shows at once (`upload.go`).
 
-**Hidden** because WhatsApp has no equivalent here yet: search, pins and stars, threads, calls, room details and settings, reminders. Typing, presence and complete history are not there yet; view-once and disappearing content is never kept.
+**Calls** ring here (`calls.go`; `Notice::Ring` / `RingEnded` of `WaSession`, watched by the window for every WhatsApp account, open or in the background): the incoming-call prompt and ringtone name the caller, Decline rejects the call for all my devices, "Answer on the phone" only stops it ringing here, and it closes when the call ends or is answered elsewhere. Audio and video are not carried: whatsmeow implements none of WhatsApp's VoIP, and rebuilding that proprietary protocol is out of scope.
+
+**Hidden** because WhatsApp has no equivalent here yet: search, pins and stars, threads, placing calls, room details and settings, reminders. Typing, presence and complete history are not there yet; view-once and disappearing content is never kept.
 
 **Not packaged**: release builds do not ship the helper (`TARGET_OS=windows apps/desktop/scripts/build-whatsapp.sh` builds it for Windows by hand).
 
@@ -39,6 +41,7 @@ Missing. The Go engine is meant to be embedded on Android through a `gomobile` b
 - apps/desktop/whatsapp/search.go
 - apps/desktop/whatsapp/media.go
 - apps/desktop/whatsapp/upload.go
+- apps/desktop/whatsapp/calls.go
 - apps/desktop/crates/rv-gtk/src/attach.rs
 - apps/desktop/crates/rv-gtk/src/media.rs
 - apps/desktop/whatsapp/vault.go

@@ -35,6 +35,10 @@ pub enum Notice {
     /// The device is no longer linked (removed from the phone, or another
     /// account behind its state): the account is over.
     Expired,
+    /// A call rings: its caller's name comes along.
+    Ring(whatsapp::WaCall, String),
+    /// That call stopped ringing (ended, declined, answered elsewhere).
+    RingEnded(String),
 }
 
 /// Connectors a sign-in already started, waiting for their account to adopt
@@ -71,6 +75,8 @@ struct Local {
     typing_sent: Option<(String, std::time::Instant)>,
     /// Whether I last said I am online.
     available: bool,
+    /// The calls already said to ring.
+    ringing: HashSet<String>,
 }
 
 /// WhatsApp's typing fades unless repeated: re-said this often while typing.
@@ -311,6 +317,12 @@ impl WaSession {
             local.available = available;
         }
     }
+    /// Declines a call ringing here.
+    pub fn reject_call(&self, id: &str) {
+        if let Some(connector) = self.connector() {
+            let _ = connector.reject_call(id.to_owned());
+        }
+    }
     pub fn chat_name(&self, chat: &str) -> String {
         let s = self.snapshot();
         s.name_of(chat).map(str::to_owned).unwrap_or_else(|| whatsapp::fallback_name(chat))
@@ -454,6 +466,18 @@ impl WaSession {
                         }
                     }
                 }
+            }
+            for (id, call) in &s.calls {
+                if local.ringing.insert(id.clone()) {
+                    let name =
+                        s.name_of(&call.from).map(str::to_owned).unwrap_or_else(|| whatsapp::fallback_name(&call.from));
+                    notices.push(Notice::Ring(call.clone(), name));
+                }
+            }
+            let ended: Vec<String> = local.ringing.iter().filter(|id| !s.calls.contains_key(*id)).cloned().collect();
+            for id in ended {
+                local.ringing.remove(&id);
+                notices.push(Notice::RingEnded(id));
             }
             let unlinked = s.state == "logged_out"
                 || s.qr.is_some()

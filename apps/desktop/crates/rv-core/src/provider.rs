@@ -260,6 +260,8 @@ impl Chat {
                             n = notices.recv() => match n {
                                 Ok(Notice::Incoming(incoming)) => ChatEvent::Incoming(*incoming),
                                 Ok(Notice::Expired) => ChatEvent::Session(SessionEvent::Expired),
+                                // Calls ring through the window, which watches every account.
+                                Ok(Notice::Ring(..) | Notice::RingEnded(_)) => continue,
                                 Err(RecvError::Lagged(_)) => continue,
                                 Err(RecvError::Closed) => return,
                             },

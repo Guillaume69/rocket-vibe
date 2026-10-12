@@ -120,7 +120,8 @@ Update this record with actual commands and evidence, never with intended result
 5. The pilot excludes view-once and disappearing message content; outgoing behaviour in a disappearing chat is not handled.
 6. Qualify snapshot durability during a crash and keychain loss. The encrypted-file limit is 128 MiB; exceeding it stops the connection instead of silently discarding state. The in-memory database lives on database/sql's single pooled connection: a driver returning `ErrBadConn` would drop it (not observed).
 7. A send blocks the helper's command loop for up to 45 s; a Stop during it is answered after the send, and the adapter kills the helper after 5 s, leaving the send `uncertain` at the next start.
-8. SwiftUI facade (the FFI filters WhatsApp accounts out today), then Android through a `gomobile` binding of the engine, with a foreground service to receive in the background (WhatsApp sends no push to a linked device) or a relay, which is a separate privacy decision.
+8. Calls ring and can be declined (`calls.go`); talking is out of scope: whatsmeow implements no VoIP, and we do not reverse-engineer WhatsApp's proprietary call protocol (decided 2026-10-12).
+9. SwiftUI facade (the FFI filters WhatsApp accounts out today), then Android through a `gomobile` binding of the engine, with a foreground service to receive in the background (WhatsApp sends no push to a linked device) or a relay, which is a separate privacy decision.
 
 ## Primary references
 

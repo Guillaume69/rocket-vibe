@@ -4,12 +4,14 @@ import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/norma
 import type { StoreWrites } from '../../lib/sync.ts';
 import { parseFrame, type WaFrame, type WaMessage } from './frames.ts';
 import { WhatsAppProjection } from './projection.ts';
+import { filePath, photoVersion } from '../../lib/whatsappFiles.ts';
 
 function fakeStore(known: string[] = []) {
   const rooms = new Map<string, LocalRoom>();
   const subscriptions = new Map<string, LocalSubscription>();
   const messages = new Map<string, LocalMessage>();
   const purges: { alive: string[]; known: string[] }[] = [];
+  const people = new Map<string, { username: string; avatarEtag: string | null; name?: string | null }>();
   let transactions = 0;
   const tx = {
     upsertRoom: async (r: LocalRoom) => { rooms.set(r.rid, r); },
@@ -17,11 +19,12 @@ function fakeStore(known: string[] = []) {
     upsertMessage: async (m: LocalMessage) => { messages.set(m.id, m); },
   } as unknown as StoreWrites;
   return {
-    rooms, subscriptions, messages, purges, get transactions() { return transactions; },
+    rooms, subscriptions, messages, purges, people, get transactions() { return transactions; },
     store: {
       transaction: async (fn: (w: StoreWrites) => Promise<void>) => { transactions++; await fn(tx); },
       listKnownRids: async () => known,
       purgeMissingRooms: async (alive: string[], knownRids: string[]) => { purges.push({ alive, known: knownRids }); },
+      saveIdentity: async (i: { uid: string; username: string; avatarEtag: string | null; name?: string | null }) => { people.set(i.uid, i); },
     },
   };
 }
@@ -70,7 +73,7 @@ test('my messages carry my id, groups are private rooms, attachments and deletio
   assert.equal(fake.rooms.get('g@g.us')!.type, 'p');
   assert.equal(fake.rooms.get('g@g.us')!.dmOtherUid, null);
   assert.equal(fake.rooms.get('g@g.us')!.displayName, 'g');
-  assert.equal(fake.messages.get('g@g.us:1')!.text, '[image]\nLa vue');
+  assert.equal(fake.messages.get('g@g.us:1')!.text, 'La vue');
   assert.deepEqual([fake.messages.get('g@g.us:2')!.authorId, fake.messages.get('g@g.us:2')!.authorName], [me.userId, 'Me']);
   assert.equal(fake.messages.get('g@g.us:3')!.text, 'This message was deleted');
 });
@@ -131,4 +134,44 @@ test('status, QR, pairing code, account and errors reach the watchers; only fata
   assert.equal(calls, 7);
   assert.equal(parseFrame('{"type":"a_newer_frame"}')?.type, 'a_newer_frame');
   assert.equal(parseFrame('not json'), null);
+});
+
+test('attachments take the shape the timeline draws, their file asked for through the file path', async () => {
+  const { p, fake } = projection();
+  p.apply(message({ id: 'a@s.whatsapp.net:P', chat: 'a@s.whatsapp.net', kind: 'image', mime: 'image/jpeg', text: '', width: 800, height: 600, size: 1234 }));
+  p.apply(message({ id: 'a@s.whatsapp.net:V', chat: 'a@s.whatsapp.net', kind: 'voice', mime: 'audio/ogg; codecs=opus', text: '', ts: 2 }));
+  p.apply(message({ id: 'a@s.whatsapp.net:D', chat: 'a@s.whatsapp.net', kind: 'document', file_name: 'plan.pdf', text: 'le plan', ts: 3 }));
+  await p.flush();
+  const image = JSON.parse(fake.messages.get('a@s.whatsapp.net:P')!.attachments!)[0];
+  assert.equal(image.image_url, filePath('a@s.whatsapp.net:P'));
+  assert.equal(image.title_link, image.image_url);
+  assert.deepEqual(image.image_dimensions, { width: 800, height: 600 });
+  assert.equal(fake.messages.get('a@s.whatsapp.net:P')!.text, null);
+  const voice = JSON.parse(fake.messages.get('a@s.whatsapp.net:V')!.attachments!)[0];
+  assert.deepEqual([voice.audio_type, voice.title], ['audio/ogg', '[voice]']);
+  const document = JSON.parse(fake.messages.get('a@s.whatsapp.net:D')!.attachments!)[0];
+  assert.deepEqual([document.title, document.image_url, fake.messages.get('a@s.whatsapp.net:D')!.text], ['plan.pdf', undefined, 'le plan']);
+});
+
+test('photos version the chats and the people, mine under my username; a removal is none', async () => {
+  const { p, fake } = projection();
+  p.apply(message({}));
+  p.apply(message({ id: 'g@g.us:1', chat: 'g@g.us', sender: 'bob@s.whatsapp.net' }));
+  p.apply({ type: 'avatar', jid: 'alice@s.whatsapp.net', data: '/9j/alice' });
+  p.apply({ type: 'avatar', jid: 'g@g.us', data: '/9j/group' });
+  p.apply({ type: 'avatar', jid: me.userId, data: '/9j/me' });
+  await p.flush();
+  assert.equal(fake.rooms.get('alice@s.whatsapp.net')!.avatarEtag, photoVersion('/9j/alice'));
+  assert.equal(fake.rooms.get('g@g.us')!.avatarEtag, photoVersion('/9j/group'));
+  assert.equal(fake.people.get('alice@s.whatsapp.net')!.avatarEtag, photoVersion('/9j/alice'));
+  // Named in the timeline by that row: her push name until the names table knows her.
+  assert.equal(fake.people.get('alice@s.whatsapp.net')!.username, 'Alice (push)');
+  p.apply({ type: 'names', names: { 'alice@s.whatsapp.net': 'Alice Martin' } });
+  await p.flush();
+  assert.equal(fake.people.get('alice@s.whatsapp.net')!.username, 'Alice Martin');
+  assert.equal(fake.people.has('g@g.us'), false);
+  assert.deepEqual([fake.people.get(me.userId)!.username, fake.people.get(me.userId)!.avatarEtag], [me.username, photoVersion('/9j/me')]);
+  p.apply({ type: 'avatar', jid: 'alice@s.whatsapp.net', data: '' });
+  await p.flush();
+  assert.equal(fake.people.get('alice@s.whatsapp.net')!.avatarEtag, 'none');
 });

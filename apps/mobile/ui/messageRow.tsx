@@ -925,7 +925,7 @@ function Attachments({
             />
           );
         }
-        if(client.kind==='rocketvibe'&&typeof attachment.title_link==='string'){
+        if((client.kind==='rocketvibe'||client.kind==='whatsapp')&&typeof attachment.title_link==='string'){
           return <NativeAttachment key={i} c={c} attachment={attachment} client={client} maxWidth={availableWidth} onLongPress={onLongPress}/>;
         }
         if (typeof attachment?.image_url === 'string') {

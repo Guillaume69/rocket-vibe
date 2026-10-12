@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-641 production files scanned; 702 occurrences.
+642 production files scanned; 703 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -568,17 +568,18 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/sync.ts:137](../../apps/mobile/lib/sync.ts#L137) | stream | stream-notify-user |
 | [apps/mobile/lib/sync.ts:138](../../apps/mobile/lib/sync.ts#L138) | stream | stream-notify-room |
 | [apps/mobile/lib/typing.ts:21](../../apps/mobile/lib/typing.ts#L21) | stream | stream-notify-room |
-| [apps/mobile/lib/upload.ts:90](../../apps/mobile/lib/upload.ts#L90) | url | /api/v1/rooms.media/{…} |
-| [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
-| [apps/mobile/lib/upload.ts:131](../../apps/mobile/lib/upload.ts#L131) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/mobile/lib/upload.ts:161](../../apps/mobile/lib/upload.ts#L161) | url | /api/v1/users.setAvatar |
-| [apps/mobile/lib/upload.ts:251](../../apps/mobile/lib/upload.ts#L251) | url | /api/v4/users/{…}/image |
-| [apps/mobile/lib/upload.ts:256](../../apps/mobile/lib/upload.ts#L256) | resource | /avatar/{…} |
-| [apps/mobile/lib/upload.ts:258](../../apps/mobile/lib/upload.ts#L258) | resource | /avatar/uid/{…} |
-| [apps/mobile/lib/upload.ts:260](../../apps/mobile/lib/upload.ts#L260) | resource | /avatar/room/{…} |
+| [apps/mobile/lib/upload.ts:91](../../apps/mobile/lib/upload.ts#L91) | url | /api/v1/rooms.media/{…} |
+| [apps/mobile/lib/upload.ts:132](../../apps/mobile/lib/upload.ts#L132) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
+| [apps/mobile/lib/upload.ts:132](../../apps/mobile/lib/upload.ts#L132) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/mobile/lib/upload.ts:162](../../apps/mobile/lib/upload.ts#L162) | url | /api/v1/users.setAvatar |
+| [apps/mobile/lib/upload.ts:255](../../apps/mobile/lib/upload.ts#L255) | url | /api/v4/users/{…}/image |
+| [apps/mobile/lib/upload.ts:260](../../apps/mobile/lib/upload.ts#L260) | resource | /avatar/{…} |
+| [apps/mobile/lib/upload.ts:262](../../apps/mobile/lib/upload.ts#L262) | resource | /avatar/uid/{…} |
+| [apps/mobile/lib/upload.ts:264](../../apps/mobile/lib/upload.ts#L264) | resource | /avatar/room/{…} |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | call:GET | 'settings.public' |
 | [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | endpoint | settings.public |
 | [apps/mobile/lib/uploadQueue.ts:496](../../apps/mobile/lib/uploadQueue.ts#L496) | resource | /file-upload/{…}/{…} |
+| [apps/mobile/lib/whatsappFiles.ts:80](../../apps/mobile/lib/whatsappFiles.ts#L80) | url | /api/v1/files/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:176](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L176) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
 | [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |

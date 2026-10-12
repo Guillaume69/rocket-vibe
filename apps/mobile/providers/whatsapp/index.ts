@@ -13,7 +13,7 @@ import type { Capabilities, FileOutbox, Listener, Provider } from '../../lib/pro
 import { describeProviderError } from '../../lib/providerError.ts';
 import type { Store } from '../../lib/sync.ts';
 import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
-import { parseFrame } from './frames.ts';
+import { parseFrame, type WaFrame } from './frames.ts';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
 
 export const WHATSAPP_CAPABILITIES: Capabilities = {
@@ -44,17 +44,63 @@ function messageId(random: () => Uint8Array): string {
   return [...random()].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
+/** Writes a profile photo the engine sent inline, before the rows name its version. */
+export type PhotoWriter = (jid: string, data: string) => Promise<void>;
+
+/** A download is given up after this long; the engine's own limit is five minutes. */
+const DOWNLOAD_TIMEOUT = 6 * 60_000;
+
 /** The engine of one account, attached: frames in, commands out. */
 export class WhatsAppAccount {
   readonly state: string;
   readonly projection: WhatsAppProjection;
   private readonly native: WhatsAppNative;
+  private readonly writePhoto: PhotoWriter;
   private detach: (() => void) | null = null;
+  /** Downloads asked for, by message id: one engine request each, however many screens wait. */
+  private readonly downloads = new Map<string, { promise: Promise<string>; resolve: (path: string) => void }>();
+  /** Photos are written in order, so a later version never loses to an earlier write. */
+  private photos: Promise<void> = Promise.resolve();
 
-  constructor(state: string, native: WhatsAppNative, projection: WhatsAppProjection) {
+  constructor(state: string, native: WhatsAppNative, projection: WhatsAppProjection, writePhoto: PhotoWriter = async () => {}) {
     this.state = state;
     this.native = native;
     this.projection = projection;
+    this.writePhoto = writePhoto;
+  }
+
+  private receive(frame: WaFrame): void {
+    if (frame.type === 'file') {
+      this.downloads.get(frame.id)?.resolve(frame.path ?? '');
+      this.downloads.delete(frame.id);
+      return;
+    }
+    if (frame.type === 'avatar') {
+      // A removal waits behind a write still going, or it would be overtaken.
+      const data = frame.data ?? '';
+      this.photos = this.photos
+        .then(() => (data !== '' ? this.writePhoto(frame.jid, data) : undefined))
+        .then(() => this.projection.apply(frame), () => {});
+      return;
+    }
+    this.projection.apply(frame);
+  }
+
+  /** A message's attachment as a local file path, downloaded and decrypted by the engine on first use. */
+  download(id: string): Promise<string> {
+    const pending = this.downloads.get(id);
+    if (pending !== undefined) return pending.promise;
+    let resolve!: (path: string) => void;
+    const promise = new Promise<string>((done, fail) => {
+      const timer = setTimeout(() => { this.downloads.delete(id); fail(new WhatsAppError('download_failed')); }, DOWNLOAD_TIMEOUT);
+      resolve = (path) => {
+        clearTimeout(timer);
+        if (path === '') fail(new WhatsAppError('download_failed')); else done(path);
+      };
+    });
+    this.downloads.set(id, { promise, resolve });
+    this.command({ type: 'download', id }).then((running) => { if (!running) resolve(''); }, () => resolve(''));
+    return promise;
   }
 
   /** Starts the engine if this process does not run it yet, then asks for everything again. */
@@ -63,7 +109,7 @@ export class WhatsAppAccount {
       const subscription = this.native.addListener('frame', (event) => {
         if (event.state !== this.state) return;
         const frame = parseFrame(event.frame);
-        if (frame !== null) this.projection.apply(frame);
+        if (frame !== null) this.receive(frame);
       });
       this.detach = () => subscription.remove();
     }
@@ -75,6 +121,8 @@ export class WhatsAppAccount {
   release(): void {
     this.detach?.();
     this.detach = null;
+    for (const pending of this.downloads.values()) pending.resolve('');
+    this.downloads.clear();
   }
 
   command(value: Record<string, unknown>): Promise<boolean> {
@@ -88,11 +136,12 @@ export function createWhatsAppProvider(
   native: WhatsAppNative,
   labels: WaLabels,
   random: () => Uint8Array,
+  writePhoto?: PhotoWriter,
 ): Provider & { whatsapp: WhatsAppAccount } {
   const state = whatsappState(session.baseUrl);
   if (state === null) throw new WhatsAppError('invalid_account');
   const projection = new WhatsAppProjection(store, { userId: session.userId, username: session.username }, labels);
-  const account = new WhatsAppAccount(state, native, projection);
+  const account = new WhatsAppAccount(state, native, projection, writePhoto);
   const run = async (value: Record<string, unknown>) => {
     if (!(await account.command(value))) throw new WhatsAppError('not_connected');
   };

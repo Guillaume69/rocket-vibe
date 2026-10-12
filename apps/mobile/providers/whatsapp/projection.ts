@@ -8,6 +8,7 @@
  */
 
 import { shortcodeOfUnicode } from '../../lib/emojis.ts';
+import { filePath, photoVersion } from '../../lib/whatsappFiles.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { Store } from '../../lib/sync.ts';
 import { FATAL_ERRORS, fallbackName, isGroup, type WaFrame, type WaMessage } from './frames.ts';
@@ -34,7 +35,7 @@ export type WaStatus = {
   refused: string | null;
 };
 
-type Writer = Pick<Store, 'transaction' | 'listKnownRids' | 'purgeMissingRooms'>;
+type Writer = Pick<Store, 'transaction' | 'listKnownRids' | 'purgeMissingRooms' | 'saveIdentity'>;
 type Me = { userId: string; username: string };
 
 export const INITIAL_STATUS: WaStatus = { state: 'loading', qr: null, pairingCode: null, error: null, account: null, refused: null };
@@ -65,6 +66,11 @@ export class WhatsAppProjection {
   private readonly unread = new Map<string, number>();
   /** Chat → its newest message. */
   private readonly last = new Map<string, WaMessage>();
+  /** JID → the version of its photo (`lib/whatsappFiles.ts`), `none` once removed. */
+  private readonly photos = new Map<string, string>();
+  private readonly dirtyPeople = new Set<string>();
+  /** The name each sender gave themselves (push name), for people the names table does not know. */
+  private readonly authors = new Map<string, string>();
   private readonly dirtyMessages = new Set<string>();
   private readonly dirtyRooms = new Set<string>();
   private readonly dirtySubscriptions = new Set<string>();
@@ -115,6 +121,14 @@ export class WhatsAppProjection {
         if (this.messages.has(message)) this.mark(this.dirtyMessages, message);
         return;
       }
+      case 'avatar': {
+        const version = photoVersion(frame.data ?? '');
+        if (this.photos.get(frame.jid) === version) return;
+        this.photos.set(frame.jid, version);
+        if (this.last.has(frame.jid)) this.mark(this.dirtyRooms, frame.jid);
+        if (!isGroup(frame.jid)) this.mark(this.dirtyPeople, frame.jid);
+        return;
+      }
       case 'chat': {
         const unread = frame.unread ?? 0;
         if (unread > 0) this.unread.set(frame.jid, unread); else this.unread.delete(frame.jid);
@@ -154,6 +168,10 @@ export class WhatsAppProjection {
 
   private onMessage(m: WaMessage): void {
     this.messages.set(m.id, m);
+    if (!m.mine && m.author && this.authors.get(m.sender) !== m.author) {
+      this.authors.set(m.sender, m.author);
+      if (this.photos.has(m.sender)) this.mark(this.dirtyPeople, m.sender);
+    }
     this.mark(this.dirtyMessages, m.id);
     const last = this.last.get(m.chat);
     if (last === undefined || last.id === m.id || newer(m, last)) {
@@ -173,6 +191,7 @@ export class WhatsAppProjection {
     }
     if (changed.size === 0) return;
     for (const chat of this.last.keys()) if (changed.has(chat)) this.mark(this.dirtyRooms, chat);
+    for (const jid of changed) if (this.photos.has(jid) && !isGroup(jid)) this.mark(this.dirtyPeople, jid);
     for (const m of this.messages.values()) if (!m.mine && changed.has(m.sender)) this.mark(this.dirtyMessages, m.id);
   }
 
@@ -195,7 +214,8 @@ export class WhatsAppProjection {
     const messages = [...this.dirtyMessages].map((id) => this.messages.get(id)).filter((m) => m !== undefined);
     const rooms = [...this.dirtyRooms].filter((chat) => this.last.has(chat));
     const subscriptions = [...this.dirtySubscriptions];
-    this.dirtyMessages.clear(); this.dirtyRooms.clear(); this.dirtySubscriptions.clear();
+    const people = [...this.dirtyPeople];
+    this.dirtyMessages.clear(); this.dirtyRooms.clear(); this.dirtySubscriptions.clear(); this.dirtyPeople.clear();
     const purge = this.purge;
     this.purge = null;
     if (messages.length + rooms.length + subscriptions.length > 0) {
@@ -205,6 +225,13 @@ export class WhatsAppProjection {
         for (const chat of subscriptions) if (this.last.has(chat)) await tx.upsertSubscription(this.subscriptionRow(chat));
         for (const m of messages) await tx.upsertMessage(this.messageRow(m));
       });
+    }
+    // People's photos live in `users` (by uid), where avatars are looked up.
+    // The timeline names an author by that row's username: it is the name.
+    for (const jid of people) {
+      const mine = jid === this.me.userId;
+      await this.store.saveIdentity({ uid: jid, username: mine ? this.me.username : this.name(jid, this.authors.get(jid)),
+        avatarEtag: this.photos.get(jid) ?? null, name: null });
     }
     // An empty replay purges nothing (the store refuses it as well).
     if (purge !== null && purge.seen.length > 0) await this.store.purgeMissingRooms(purge.seen, await purge.known);
@@ -246,15 +273,41 @@ export class WhatsAppProjection {
         ...(m.link_description ? { ogDescription: m.link_description } : {}),
       } }])
       : null;
+    const kind = m.deleted ? '' : m.kind ?? '';
     return {
-      id: m.id, rid: m.chat, text: this.words(m), ts: m.ts,
+      // An attachment draws itself: its caption alone is the text.
+      id: m.id, rid: m.chat, text: kind === '' ? this.words(m) : m.text || null, ts: m.ts,
       authorId: m.mine ? this.me.userId : m.sender,
       authorName: m.mine ? this.labels.me : this.name(m.sender, m.author),
       systemType: null, threadId: null, threadCount: 0, threadLast: null, threadShown: false,
-      editedAt: m.edited && !m.deleted ? m.ts : null, md: null, attachments: null,
+      editedAt: m.edited && !m.deleted ? m.ts : null, md: null, attachments: this.attachments(m, kind),
       reactions, urls: link, callId: null, encryptedRaw: null, pinned: false, starred: null,
       updatedAt: this.tick(),
     };
+  }
+
+  /**
+   * An attachment in the shape the timeline draws (`ui/messageRow.tsx`
+   * `NativeAttachment`): its file is reached through `lib/nativeFiles.ts`,
+   * which asks the engine to download it.
+   */
+  private attachments(m: WaMessage, kind: string): string | null {
+    if (kind === '') return null;
+    const url = filePath(m.id);
+    const mime = (m.mime ?? '').split(';')[0]!.trim();
+    const size = m.size ? m.size : null;
+    const attachment: Record<string, unknown> = {
+      type: 'file', title: m.file_name || this.labels.kind(kind), title_link: url, size,
+    };
+    if (kind === 'image' || kind === 'sticker') {
+      Object.assign(attachment, { image_url: url, image_type: mime || 'image/jpeg', image_size: size,
+        ...(m.width && m.height ? { image_dimensions: { width: m.width, height: m.height } } : {}) });
+    } else if (kind === 'video' || kind === 'gif') {
+      Object.assign(attachment, { video_url: url, video_type: mime || 'video/mp4', video_size: size });
+    } else if (kind === 'voice' || kind === 'audio') {
+      Object.assign(attachment, { audio_url: url, audio_type: mime || 'audio/ogg', audio_size: size });
+    }
+    return JSON.stringify([attachment]);
   }
 
   roomRow(chat: string): LocalRoom {
@@ -265,7 +318,7 @@ export class WhatsAppProjection {
       encrypted: false, readOnly: false,
       dmOtherUid: group ? null : chat, dmOtherUsername: group ? null : chat,
       lastMessage: last ? this.words(last).replace(/\n/g, ' ') : null,
-      lastMessageType: null, lastMessageTs: last?.ts ?? null, avatarEtag: null,
+      lastMessageType: null, lastMessageTs: last?.ts ?? null, avatarEtag: this.photos.get(chat) ?? null,
       updatedAt: this.tick(),
     };
   }

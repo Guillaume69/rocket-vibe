@@ -99,6 +99,9 @@ import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
 import { NativeStore } from '../providers/rocketvibe/store.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
+import * as FS from 'expo-file-system/legacy';
+import { setNativeFiles } from '../lib/nativeFiles.ts';
+import { messageOfKey, photoFolder, photoUri, photoVersion, setWhatsAppCache } from '../lib/whatsappFiles.ts';
 import { createWhatsAppProvider } from '../providers/whatsapp/index.ts';
 import type { TranslationKey } from './messages.ts';
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
@@ -205,10 +208,28 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const {base,raw,writeQueue} = openDatabase(session.baseUrl,session.userId);
         if (!alive) return;
         const store = createStore(raw,writeQueue);
+        setWhatsAppCache(FS.cacheDirectory);
+        // The photos the engine sends inline, one file per version: the old one goes.
+        const written = new Map<string, string>();
+        const writePhoto = async (jid: string, data: string) => {
+          const folder = photoFolder(session.baseUrl), uri = photoUri(session.baseUrl, jid, photoVersion(data));
+          if (folder === null || uri === null) return;
+          await FS.makeDirectoryAsync(folder,{intermediates:true}).catch(() => {});
+          if (!(await FS.getInfoAsync(uri)).exists) await FS.writeAsStringAsync(uri,data,{encoding:FS.EncodingType.Base64});
+          const old = written.get(jid);
+          if (old !== undefined && old !== uri) await FS.deleteAsync(old,{idempotent:true}).catch(() => {});
+          written.set(jid,uri);
+        };
         const provider = createWhatsAppProvider(session,store,WhatsApp,{
           me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'),
           kind:(kind)=>WHATSAPP_KINDS.has(kind)?translateCurrent(`wa.kind.${kind}` as TranslationKey):kind,
-        },()=>Crypto.getRandomBytes(16));
+        },()=>Crypto.getRandomBytes(16),writePhoto);
+        // Attachments: the engine downloads and decrypts them into its own folder.
+        const unfiles = setNativeFiles(client,async (key) => {
+          const id = messageOfKey(key);
+          if (id === null) throw new Error('file_unavailable');
+          return `file://${await provider.whatsapp.download(id)}`;
+        });
         const unmountEmoji = mountEmojiUsage(createEmojiUsageStore(raw,writeQueue)), unmountSearch = mountLocalSearch(createLocalSearch(raw));
         unmountUsage = () => { unmountEmoji(); unmountSearch(); };
         const engine = new SyncEngine(store,provider.translator);
@@ -239,7 +260,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           refused = status.refused;
         });
         const appState = AppState.addEventListener('change',next => { if (connected) present(next === 'active'); });
-        stop = () => { unstatus(); appState.remove(); if (connected) present(false); provider.listener.close(); };
+        stop = () => { unstatus(); unfiles(); appState.remove(); if (connected) present(false); provider.listener.close(); };
         setSync({
           phase:'ready',base,drafts:createDraftStore(raw,writeQueue),engine,outbox,files,
           ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,

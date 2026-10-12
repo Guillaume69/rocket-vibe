@@ -504,6 +504,7 @@
     "apps/mobile/lib/videoLinks.ts",
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
+    "apps/mobile/lib/whatsappFiles.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
     "apps/mobile/plugins/with-expo-package-list.js",
@@ -4009,49 +4010,49 @@
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 90,
+      "line": 91,
       "kind": "url",
       "surface": "/api/v1/rooms.media/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 131,
+      "line": 132,
       "kind": "call:POST",
       "surface": "`rooms.mediaConfirm/{…}/{…}`"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 131,
+      "line": 132,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 161,
+      "line": 162,
       "kind": "url",
       "surface": "/api/v1/users.setAvatar"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 251,
+      "line": 255,
       "kind": "url",
       "surface": "/api/v4/users/{…}/image"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 256,
+      "line": 260,
       "kind": "resource",
       "surface": "/avatar/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 258,
+      "line": 262,
       "kind": "resource",
       "surface": "/avatar/uid/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 260,
+      "line": 264,
       "kind": "resource",
       "surface": "/avatar/room/{…}"
     },
@@ -4072,6 +4073,12 @@
       "line": 496,
       "kind": "resource",
       "surface": "/file-upload/{…}/{…}"
+    },
+    {
+      "file": "apps/mobile/lib/whatsappFiles.ts",
+      "line": 80,
+      "kind": "url",
+      "surface": "/api/v1/files/{…}"
     },
     {
       "file": "apps/mobile/plugins/ios-notification-service/NotificationService.swift",

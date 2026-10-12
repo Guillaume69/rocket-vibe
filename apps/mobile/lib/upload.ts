@@ -18,6 +18,7 @@ import { sameOrigin } from './origin.ts';
 import type { RestClient } from './rest.ts';
 import {nativeAvatarUri} from './nativeAvatars.ts';
 import {nativeFileUri} from './nativeFiles.ts';
+import { photoUri } from './whatsappFiles.ts';
 
 export type FileToSend = {
   uri: string;
@@ -189,7 +190,8 @@ export async function setAvatar(options: {
  * failure.
  */
 export function protectedFileUrl(client: RestClient, path: string): string {
-  if(client.kind==='rocketvibe')return nativeFileUri(client,path);
+  // Files of the app's own account stores (RocketVibe's private files, the WhatsApp engine's downloads).
+  if(client.kind==='rocketvibe'||client.kind==='whatsapp')return nativeFileUri(client,path);
   // Bearer header added at the image or download site: `lib/mediaAuth.ts`.
   if(client.kind==='mattermost'||client.kind==='kchat')return path.startsWith('http')?path:`${client.baseUrl}${path}`;
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
@@ -243,6 +245,8 @@ export function avatarUrl(
   },
 ): string | null {
   if (client.kind === 'rocketvibe') return target.rid?null:nativeAvatarUri(client,target.etag);
+  // Photos the WhatsApp engine sent, written as local files by version (`lib/whatsappFiles.ts`).
+  if (client.kind === 'whatsapp') return photoUri(client.baseUrl, target.uid || target.rid || target.username, target.etag);
   if (client.kind === 'mattermost' || client.kind === 'kchat') {
     if (target.rid) return null;
     const id = target.uid || (target.username ? knownUserId(client.baseUrl, target.username) : null);

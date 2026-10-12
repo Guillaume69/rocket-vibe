@@ -38,6 +38,9 @@ class WhatsAppModule : Module() {
     AsyncFunction("handle") { state: String, command: String -> WhatsAppEngines.handle(state, command) }
     AsyncFunction("stop") { state: String -> WhatsAppEngines.stop(state) }
     AsyncFunction("forget") { state: String -> coded { WhatsAppEngines.forget(context, state) } }
+    // Background reception (`WhatsAppService`), chosen per account.
+    Function("background") { state: String -> state in WhatsAppBackground.enabled(context) }
+    AsyncFunction("setBackground") { state: String, on: Boolean -> WhatsAppBackground.set(context, state, on) }
     // A recorded note made into a WhatsApp voice note (Opus in Ogg); false when this device cannot.
     AsyncFunction("toVoiceNote") { input: String, output: String ->
       WhatsAppVoice.toOpus(localPath(input), localPath(output))

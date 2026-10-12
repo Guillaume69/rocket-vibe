@@ -19,6 +19,9 @@ import Constants from 'expo-constants';
 import { AppUpdatesCard } from './appUpdates.tsx';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Notifications from 'expo-notifications';
+import { WhatsApp } from '../modules/whatsapp/index.ts';
+import { whatsappState } from '../providers/whatsapp/index.ts';
 import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { readMyProfile } from '../lib/myProfile.ts';
@@ -431,6 +434,52 @@ function useNatives() {
 }
 
 function NotificationsCategory({ c, client }: { c: Colors; client: RestClient }) {
+  if (client.kind === 'whatsapp') return <WhatsAppNotifications c={c} baseUrl={client.baseUrl} />;
+  return <ServerNotifications c={c} client={client} />;
+}
+
+/**
+ * A WhatsApp account's notifications: WhatsApp sends a linked device no push,
+ * so they need the engine connected; with the app closed, only the opt-in
+ * foreground service (`WhatsAppService`) keeps it so.
+ */
+function WhatsAppNotifications({ c, baseUrl }: { c: Colors; baseUrl: string }) {
+  const t = useT();
+  const state = whatsappState(baseUrl);
+  const [on, setOn] = useState(() => state !== null && WhatsApp?.background(state) === true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<TranslationKey | null>(null);
+  const change = async (next: boolean) => {
+    if (state === null || WhatsApp === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (next && !(await Notifications.requestPermissionsAsync()).granted) {
+        setError('wa.background.denied');
+        return;
+      }
+      await WhatsApp.setBackground(state, next);
+      setOn(next);
+    } catch {
+      setError('settings.saveFailed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <View style={styles.switchRow}>
+        <Text style={[styles.settingTitle, styles.grow, { color: c.text }]}>{t('wa.background.title')}</Text>
+        <Switch value={on} disabled={busy || state === null || WhatsApp === null} onValueChange={(next) => void change(next)}
+          trackColor={{ true: c.accent }} accessibilityLabel={t('wa.background.title')} />
+      </View>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('wa.background.help')}</Text>
+      {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{t(error)}</Text>}
+    </View>
+  );
+}
+
+function ServerNotifications({ c, client }: { c: Colors; client: RestClient }) {
   const t = useT();
   const natives = useNatives();
   const push = usePreferencePush(client,natives);

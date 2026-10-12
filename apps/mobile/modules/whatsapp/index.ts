@@ -22,6 +22,9 @@ export type WhatsAppNative = {
   forget(state: string): Promise<void>;
   /** A recorded note (`file://` m4a) written as a WhatsApp voice note (Opus in Ogg) at `output`; false when this device cannot (before Android 10). */
   toVoiceNote(input: string, output: string): Promise<boolean>;
+  /** Whether the account receives with the app closed (a foreground service). */
+  background(state: string): boolean;
+  setBackground(state: string, on: boolean): Promise<void>;
   addListener(event: 'frame', listener: (event: {state: string; frame: string}) => void): {remove(): void};
 };
 

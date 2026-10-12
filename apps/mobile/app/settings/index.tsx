@@ -49,7 +49,8 @@ function Settings({ c, account }: { c: Colors; account: SettingsAccount }) {
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat : null;
   const categories = visibleCategories({
     native: account.client.kind === 'rocketvibe',
-    push: sync.phase === 'ready' ? sync.capabilities.push : account.client.kind === 'rocketchat',
+    // WhatsApp: its notifications come from the engine, and their page holds the background switch.
+    push: account.client.kind === 'whatsapp' || (sync.phase === 'ready' ? sync.capabilities.push : account.client.kind === 'rocketchat'),
     e2ee: sync.phase === 'ready' ? sync.capabilities.e2ee : account.client.kind === 'rocketchat',
     encryptedIdentity: hasEncryptedIdentity(chat),
     security: hasNativeSecurity(chat),

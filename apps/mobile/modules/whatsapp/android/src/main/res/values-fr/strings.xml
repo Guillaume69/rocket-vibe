@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="rv_wa_channel_messages">Messages WhatsApp</string>
+  <string name="rv_wa_channel_service">WhatsApp en arrière-plan</string>
+  <string name="rv_wa_service_title">WhatsApp connecté</string>
+  <string name="rv_wa_service_text">Vos messages WhatsApp arrivent application fermée.</string>
+  <string name="rv_wa_service_stop">Arrêter</string>
+  <string name="rv_wa_me">Vous</string>
+  <string name="rv_wa_reply">Répondre</string>
+  <string name="rv_wa_mark_read">Marquer comme lu</string>
+  <string name="rv_wa_not_sent">Non envoyé : WhatsApp injoignable.</string>
+  <string name="rv_wa_kind_image">📷 Photo</string>
+  <string name="rv_wa_kind_gif">🎞️ GIF</string>
+  <string name="rv_wa_kind_video">🎥 Vidéo</string>
+  <string name="rv_wa_kind_audio">🎵 Audio</string>
+  <string name="rv_wa_kind_voice">🎤 Message vocal</string>
+  <string name="rv_wa_kind_document">📄 Document</string>
+  <string name="rv_wa_kind_sticker">Sticker</string>
+</resources>

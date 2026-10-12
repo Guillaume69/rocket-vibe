@@ -17,6 +17,8 @@ object WhatsAppEngines {
   private class Running(val handle: Long, val frame: WhatsAppLibrary.Frame)
 
   private val running = ConcurrentHashMap<String, Running>()
+  /** Each engine's last `status` (`connected`, `connecting`…). */
+  private val states = ConcurrentHashMap<String, String>()
   private val listeners = CopyOnWriteArrayList<(String, String) -> Unit>()
   private val stateId = Regex("[0-9a-f]{24}")
   private const val STOP = "{\"type\":\"stop\"}"
@@ -47,11 +49,17 @@ object WhatsAppEngines {
     if (running.containsKey(state)) return
     val key = WhatsAppKeys.key(context, state, create = !path.exists())
     try {
+      val app = context.applicationContext
       val frame = object : WhatsAppLibrary.Frame {
         override fun invoke(handle: Long, frame: String) {
+          if (frame.startsWith("{\"type\":\"status\"")) {
+            runCatching { states[state] = org.json.JSONObject(frame).optString("state") }
+          }
+          WhatsAppNotifier.frame(app, state, frame)
           listeners.forEach { it(state, frame) }
         }
       }
+      WhatsAppNotifier.opened(state)
       // The engine's threads stay attached between frames instead of being
       // attached and detached for each one.
       Native.setCallbackThreadInitializer(frame, CallbackThreadInitializer(true, false, "rv-whatsapp"))
@@ -65,6 +73,18 @@ object WhatsAppEngines {
     } finally {
       key.fill(0)
     }
+  }
+
+  /** Starts the engine if needed and waits until it is connected to WhatsApp; false after [timeoutMs]. */
+  fun awaitConnected(context: Context, state: String, timeoutMs: Long): Boolean {
+    start(context, state)
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+      if (states[state] == "connected") return true
+      if (!running.containsKey(state)) return false
+      Thread.sleep(100)
+    }
+    return false
   }
 
   /** Runs one command; false once the engine ended, which closes it. */
@@ -84,6 +104,7 @@ object WhatsAppEngines {
   @Synchronized
   private fun close(state: String) {
     running.remove(state)?.let { WhatsAppLibrary.native.rvwa_close(it.handle) }
+    states.remove(state)
   }
 
   /** Stops the engine and erases the state, its media and its key. */
@@ -92,5 +113,6 @@ object WhatsAppEngines {
     stop(state)
     File(directory(context), state).deleteRecursively()
     WhatsAppKeys.forget(context, state)
+    WhatsAppBackground.set(context, state, false)
   }
 }

@@ -20,6 +20,8 @@ export type WhatsAppNative = {
   stop(state: string): Promise<void>;
   /** Stops the engine and erases the state, its media and its key. */
   forget(state: string): Promise<void>;
+  /** A recorded note (`file://` m4a) written as a WhatsApp voice note (Opus in Ogg) at `output`; false when this device cannot (before Android 10). */
+  toVoiceNote(input: string, output: string): Promise<boolean>;
   addListener(event: 'frame', listener: (event: {state: string; frame: string}) => void): {remove(): void};
 };
 

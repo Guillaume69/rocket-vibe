@@ -10,6 +10,8 @@
 import type { Session } from '../../lib/auth.ts';
 import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import type { Capabilities, FileOutbox, Listener, Provider } from '../../lib/provider.ts';
+import type { FileToSend } from '../../lib/upload.ts';
+import { ValidationError } from '../../lib/uploadQueue.ts';
 import { describeProviderError } from '../../lib/providerError.ts';
 import type { Store } from '../../lib/sync.ts';
 import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
@@ -17,7 +19,7 @@ import { parseFrame, type WaFrame } from './frames.ts';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
 
 export const WHATSAPP_CAPABILITIES: Capabilities = {
-  editing: true, deletion: true, reactions: true,
+  editing: true, deletion: true, reactions: true, files: true,
   typing: false, presence: false, push: false, e2ee: false, customEmojis: false,
   videoCall: false, search: false, threadTemplate: 'tmid',
 };
@@ -43,6 +45,14 @@ const noSubscription = () => () => {};
 function messageId(random: () => Uint8Array): string {
   return [...random()].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
 }
+
+/** A file to send, made readable by the engine: a plain path, its type, its name, whether it is a voice note. */
+export type PreparedFile = { path: string; mime: string; name: string; voice: boolean };
+/** Copies (or converts, for a recorded voice note) a picked file where the engine can read it. */
+export type FilePreparer = (file: FileToSend & { size: number | null }, id: string) => Promise<PreparedFile>;
+
+/** The engine's own limit (`engine/upload.go` `maxUpload`). */
+const MAX_UPLOAD_MB = 100;
 
 /** Writes a profile photo the engine sent inline, before the rows name its version. */
 export type PhotoWriter = (jid: string, data: string) => Promise<void>;
@@ -137,6 +147,7 @@ export function createWhatsAppProvider(
   labels: WaLabels,
   random: () => Uint8Array,
   writePhoto?: PhotoWriter,
+  prepareFile?: FilePreparer,
 ): Provider & { whatsapp: WhatsAppAccount } {
   const state = whatsappState(session.baseUrl);
   if (state === null) throw new WhatsAppError('invalid_account');
@@ -157,9 +168,23 @@ export function createWhatsAppProvider(
     onLoss: (fn) => projection.subscribe(() => { if (projection.status.state !== 'connected') fn(); }),
     armedSubscriptions: async () => {}, reset: () => {},
   };
-  const files: FileOutbox = {
+  const validate = async (file: { type: string; size: number | null }) => {
+    if (file.size !== null && file.size > MAX_UPLOAD_MB * 1024 * 1024) throw new ValidationError({ code: 'size', maxMb: String(MAX_UPLOAD_MB) });
+  };
+  // The engine records a file once WhatsApp has it, then the timeline shows it.
+  const files: FileOutbox = prepareFile === undefined ? {
     progress: new Map(), subscribe: noSubscription, validate: unsupported,
     send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {},
+  } : {
+    progress: new Map(), subscribe: noSubscription, validate,
+    send: async (rid, file, caption) => {
+      await validate(file);
+      const id = messageId(random);
+      const ready = await prepareFile(file, id);
+      await run({ type: 'upload', id, chat: rid, path: ready.path, mime: ready.mime, name: ready.name,
+        text: caption ?? '', voice: ready.voice });
+    },
+    process: async () => {}, retry: async () => {}, discard: async () => {},
   };
   return {
     whatsapp: account,

@@ -1,6 +1,7 @@
 package com.rocketvibe.whatsapp
 
 import android.content.Context
+import android.net.Uri
 import expo.modules.kotlin.exception.CodedException
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -22,6 +23,10 @@ class WhatsAppModule : Module() {
     throw CodedException(code, code, null)
   }
 
+  /** A `file://` URI's path, percent-decoded; a plain path as it is. */
+  private fun localPath(value: String): String =
+    if (value.startsWith("file://")) Uri.parse(value).path ?: value else value
+
   override fun definition() = ModuleDefinition {
     Name("WhatsApp")
     Events("frame")
@@ -33,5 +38,9 @@ class WhatsAppModule : Module() {
     AsyncFunction("handle") { state: String, command: String -> WhatsAppEngines.handle(state, command) }
     AsyncFunction("stop") { state: String -> WhatsAppEngines.stop(state) }
     AsyncFunction("forget") { state: String -> coded { WhatsAppEngines.forget(context, state) } }
+    // A recorded note made into a WhatsApp voice note (Opus in Ogg); false when this device cannot.
+    AsyncFunction("toVoiceNote") { input: String, output: String ->
+      WhatsAppVoice.toOpus(localPath(input), localPath(output))
+    }
   }
 }

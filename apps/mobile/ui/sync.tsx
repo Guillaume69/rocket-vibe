@@ -223,7 +223,19 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const provider = createWhatsAppProvider(session,store,WhatsApp,{
           me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'),
           kind:(kind)=>WHATSAPP_KINDS.has(kind)?translateCurrent(`wa.kind.${kind}` as TranslationKey):kind,
-        },()=>Crypto.getRandomBytes(16),writePhoto);
+        },()=>Crypto.getRandomBytes(16),writePhoto,async (file, id) => {
+          // A copy the engine reads by path; a recorded note becomes a real voice note.
+          const engine = WhatsApp!, folder = `${FS.cacheDirectory}whatsapp/outgoing/`;
+          await FS.makeDirectoryAsync(folder,{intermediates:true}).catch(() => {});
+          const path = (uri: string) => decodeURIComponent(uri.replace(/^file:\/\//, ''));
+          if (file.type.startsWith('audio/') && file.name.startsWith('vocal-')) {
+            const note = `${folder}${id}.ogg`;
+            if (await engine.toVoiceNote(file.uri, note).catch(() => false)) return {path:path(note),mime:'audio/ogg',name:'voice.ogg',voice:true};
+          }
+          const copy = `${folder}${id}-${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+          await FS.copyAsync({from:file.uri,to:copy});
+          return {path:path(copy),mime:file.type,name:file.name,voice:false};
+        });
         // Attachments: the engine downloads and decrypts them into its own folder.
         const unfiles = setNativeFiles(client,async (key) => {
           const id = messageOfKey(key);

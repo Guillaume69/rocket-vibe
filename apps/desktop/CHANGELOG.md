@@ -7,6 +7,13 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- SwiftUI closes a view's protected media access when switching accounts, including emoji, cached images and new downloads, while the previous account keeps running in the background.
+- Reopening a suspended RocketVibe account resumes its existing session and delivers queued offline messages without restarting healthy background accounts, on GTK and SwiftUI.
+
+## [0.17.0] - 2026-10-12
+
 ### Added
 
 - RocketVibe administrators can create, copy, list and revoke account invitation codes in GTK and SwiftUI.
@@ -16,8 +23,6 @@ section here.
 
 ### Fixed
 
-- SwiftUI closes a view's protected media access when switching accounts, including emoji, cached images and new downloads, while the previous account keeps running in the background.
-- Reopening a suspended RocketVibe account resumes its existing session and delivers queued offline messages without restarting healthy background accounts, on GTK and SwiftUI.
 - The RocketVibe Security settings no longer stay stuck on "Loading security…" after a change that needed a fresh identity confirmation (adding or removing an email address, setting up or disabling the authenticator, replacing backup codes, email codes). The page always shows the account's status; the unfinished change appears with Continue and Cancel, and Continue asks for the password (or second factor) before completing it. "Try again" only appears after a failure, on GTK and SwiftUI.
 - Verifying an email address already linked to another RocketVibe account says so instead of a generic failure, and the verification stays cancellable.
 - The sign-in field reads "Username" while creating an account or recovering a password, which take a username only.
@@ -1196,7 +1201,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...HEAD
+[0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
 [0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/24e6175c...desktop-v0.15.1
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...24e6175c

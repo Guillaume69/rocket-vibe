@@ -8,6 +8,12 @@ everything before it is under that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve a room's reviewed encryption policy when only its name, texts or voice-channel flag changes; actual privacy and read-only changes still invalidate the old policy.
+
+## [0.5.0] - 2026-10-12
+
 ### Added
 
 - Admin-only, retry-safe account invitation creation, listing and revocation; secrets remain hashed in storage.
@@ -20,8 +26,6 @@ everything before it is under that section.
 - A verified email address belongs to one account: confirming an address another account already holds answers `409 email_address_taken`. Migration 0062 keeps addresses two accounts already shared as contacts but not as sign-in identifiers.
 
 ### Fixed
-
-- Preserve a room's reviewed encryption policy when only its name, texts or voice-channel flag changes; actual privacy and read-only changes still invalidate the old policy.
 
 - Convert IPv4-mapped trusted proxy prefixes to their IPv4 width, preserving exact address boundaries and rejecting broader ambiguous mappings.
 
@@ -68,7 +72,8 @@ everything before it is under that section.
 
 - Preserve bot identity in live profile observations so author refreshes keep the BOT badge on bot and workflow messages.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...HEAD
+[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...server-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...server-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...server-v0.3.0
 [0.2.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/server-v0.2.0

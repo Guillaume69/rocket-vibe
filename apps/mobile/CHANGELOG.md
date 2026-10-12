@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-12
+
 ### Added
 
 - RocketVibe administrators can create, share, list and revoke account invitation codes.
@@ -761,7 +763,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.13.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...HEAD
+[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.13.0...mobile-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.12.0...mobile-v0.13.0
 [0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.11.0...mobile-v0.12.0
 [0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...mobile-v0.11.0

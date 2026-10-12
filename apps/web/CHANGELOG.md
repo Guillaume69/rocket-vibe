@@ -6,18 +6,12 @@ All notable changes are documented here in English.
 
 ### Added
 
-- RocketVibe administrators can create, copy, list and revoke account invitation codes.
-- Sign in with the verified email address of your account instead of your username.
-- Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry.
 - Room owners can change channel images from room information, with protected, revisioned images in the room header and list.
 
 ### Fixed
 
 - Keep unfinished authenticator, backup-code and email changes visible in Security with Continue and Cancel. Recover accepted answers using their original operation, retain recovery codes until acknowledgement, and protect pending secrets in account-scoped encrypted browser storage.
 - Confirm identity with the original proof operation and correct recovery-code labels, so expired-proof sensitive changes can continue after two-factor verification.
-- Confirming an email address already linked to another account says so instead of showing a raw error code.
-- The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
-- The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
 - Replace a stalled browser-storage upgrade with an actionable Retry screen, preserve saved drafts and accounts, and release database connections when another tab upgrades them.
 - Keep account security status visible during authenticator setup and backup-code acknowledgement.
 - Align the RocketVibe web screens with the running GTK client: login and verification steps, room groups and menus, conversation headers, timeline grouping, composers, threads, message actions, emoji, search, room information, members, profiles and scheduling calendars.
@@ -27,6 +21,21 @@ All notable changes are documented here in English.
 - Keep private-thread composers visible and update their controls after an in-flight send completes, preserving the draft. Retire pending channel-image operations when membership is withdrawn, and use the personal read revision for room-information favourites.
 - Hydrate new DM, room and join receipts with personal membership state before opening them, preserving newer live state and preventing profile/encryption dialogs from closing during initial synchronization.
 - Load the cached public shell offline even when module/style requests carry a different Origin header from their precache requests. Authenticated APIs remain excluded from the service-worker cache.
+
+## [0.6.0] - 2026-10-12
+
+### Added
+
+- RocketVibe administrators can create, copy, list and revoke account invitation codes.
+- Sign in with the verified email address of your account instead of your username.
+- Setting up an authenticator on a RocketVibe account shows a QR code of the setup link to scan, next to the key for manual entry.
+
+### Fixed
+
+- The RocketVibe Security page shows an unfinished email address removal from this browser, with Continue (asking for the password only if the server needs it) and Cancel, instead of silently keeping it.
+- Confirming an email address already linked to another account says so instead of showing a raw error code.
+- The sign-up and recovery-code forms label their username field "Username", since they do not take an email address.
+- The profile page and the add-member field label the username field "Username", not the sign-in label "Username or email".
 - Invitation signup and password recovery authenticate after receiving the account response, including second-factor challenges.
 - Typing /giphy opens a compact GIF grid immediately. Search updates as you type in both the command and sharing-menu pickers; choosing a GIF highlights it, and Enter or the shared Send button sends it. Search changes discard old selections and stale responses, and cancellation preserves the draft.
 - Fold room-list sections per account, keyed by section rather than by its translated title: signing in as someone else no longer inherits the previous account's folds, and changing the language keeps them.
@@ -176,7 +185,8 @@ All notable changes are documented here in English.
 - LiveKit audio/video calls, capture controls and browser notifications while the tab is alive.
 - Encrypted rooms shown locked, with sending and media/call actions unavailable.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.5.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.6.0...HEAD
+[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.5.0...web-v0.6.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.4.0...web-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.3.0...web-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/web-v0.2.0...web-v0.3.0

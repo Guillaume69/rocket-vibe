@@ -23,7 +23,7 @@ Date: 2026-10-12. Reference: the GTK client connected to a RocketVibe server. Th
 | Settings categories and subpages | `rv-gtk/src/sidebar_dialog.rs`, `settings.rs` | Categories retain drafts and scroll state; server-backed mutations explicitly invalidate affected pages. |
 | App preferences, diagnostics and room switcher | `rv-gtk/src/settings.rs`, `logs.rs`, `spotlight.rs` | Native preference groups and captions, cached category state and Ctrl+K room navigation. Browser installation, diagnostics download and web version display retain their platform mappings. |
 | Notifications and quiet hours | `rv-gtk/src/settings.rs` | Backend/test group, switch rows and quiet-hours expander with nested time rows. |
-| Security, email, device sessions | `rv-gtk/src/native_security.rs`, `settings.rs` | Grouped status, inline proof/setup/acknowledgement, verified/removed email receipts and native action rows; existing durable operations and confirmations retained. |
+| Security, email, device sessions | `rv-gtk/src/native_security.rs`, `settings.rs` | Grouped status, inline proof/setup/acknowledgement and native action rows. Unfinished sensitive changes retain Continue/Cancel across reload, exact operation/version replay and explicit email-code direction. Accepted code bags and verified/removed receipts stay until acknowledgement; setup secrets and bags use scoped authenticated ciphertext. |
 | Administration dashboard, moderation, rooms, users, invitations, emoji | `rv-gtk/src/admin.rs`, `admin_emoji.rs` | Native category order, both moderation groups, presence badges, room metadata and grouped rows. |
 | Encryption, identity and device association, peers, groups, recovery and history | `rv-gtk/src/native_crypto/` | Dialog/account lifetime survives cached categories; native grouped controls and subpages, explicit device choices, typed current/previous fingerprint confirmation, inline history offers and recovery steps. Repaints replace rather than accumulate warnings. |
 | Bots, workflows, triggers, steps and runs | `rv-gtk/src/settings/native_bots.rs`, `settings/native_workflows.rs` | Native descriptions, ButtonRows, expanders, proof fields and numeric limits; category mutations refresh their cached pages. |
@@ -45,6 +45,10 @@ Strict TypeScript, formatting, the production build and all 125 Node tests pass.
 
 All twenty voice and eight voice-lifecycle groups pass real microphone/camera/screen RTP, gains, mute/deafen, incoming calls, leave/rejoin and account/access teardown against the isolated SFU. The native device/capture captions, silent chooser cancellation and listening-only claim release pass on the final embedded build. The fixture closes its own injected tone contexts and oscillators; the production two-second peer-rejoin grace is unchanged. Controlled screen/program-sound fixtures qualify processing and cleanup; physical-device audibility, operating-system loopback exclusion and platform font rasterization are not established by headless tests.
 
+Voice-channel creation opens the connected voice page automatically, matching GTK. Its room-settings test explicitly uses the native Open the chat action before opening room information, and leaves the call through the sidebar when finished. The connected-SFU helper and all four conversation-parity groups pass with fresh unprivileged users and zero page errors; the application retains automatic joining.
+
+The room-image lost-response fixture waits for the actual successful receipt and the client failure state before taking its baseline snapshot. The staged Resume control appears before HTTP completes and cannot establish that baseline. The fixture compares the snapshot with the receipt's applied revision, then preserves the exact operation ID and unchanged avatar version through reload and replay.
+
 All twelve E2EE checkpoints pass against the embedded server app: identity/device review, MLS genesis and peer admission, cross-browser messages/files, private edits/quotes/threads/reactions/search, root and history backup, browser-key renewal, encrypted voice and fresh-profile recovery with separate-code history restoration. The official Linux Playwright fixture includes a disposable PulseAudio null sink and private bridge SFU; both Chromium and Firefox retain normal ICE policy and exchange real decrypted audio energy. The original Windows loopback/virtual-adapter SFU could not qualify Firefox transport. Browser vault tests separately pass reload, concurrent workers, non-extractable keys and authenticated-corruption refusal.
 
 The encrypted-call preparation also exposed a server policy defect: a full room-settings command touched privacy/read-only columns even when only text or the voice flag changed, invalidating the accepted policy. Additive migration 0063 preserves authority for unchanged values. All ten real PostgreSQL room-details cases pass, including metadata/voice receipt replay and unique authority rotation for genuine privacy/read-only changes and reversals. The web gate now runs this target. The TLS mail fixture publishes its mailbox atomically, eliminating the truncated JSON read that failed the preceding master web CI run.
@@ -55,7 +59,13 @@ The server gate passes formatting, clippy with warnings denied, 220 library test
 
 Integration preserves current master's email sign-in, authenticator QR setup, per-account folds and visible security status. Migration 0062 remains the email sign-in migration; the new room-policy guard is 0063. All ten admin integration cases pass with the current migration count. The final embedded entry is `index-B8AUHH2z.js`, SHA-256 `51678d591500b891b116f624de266f3c410806aad6f169e4183deb224f72d996`. Final actual-server qualification also repeats all nine conversation/shell, six security and twelve visual/settings checks against those bytes.
 
+The integrated native-client checks exposed a suspended-account resume defect in the current master's background-session reuse. Opening a cached native session now resumes it only when paused. The same session, draft and durable outbox survive, while healthy background accounts keep their sockets. A scripted HTTP/WebSocket regression passes on Fedora and Windows, verifies one new socket after resume and exactly one acknowledged queued message, and retains the existing server-identity and closed-session fences. The final mandatory Fedora `apps/desktop/scripts/build.sh` gate passes formatting, clippy with warnings denied, all 713 tests and the workspace binary build. Its nine display-dependent GTK cases and the real PostgreSQL GTK/SwiftUI provider, media, security, email and restart checks pass in [native integration CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38201571981). [GTK packaging](https://github.com/Guillaume69/rocket-vibe/actions/runs/38201572099) and [SwiftUI packaging and launch](https://github.com/Guillaume69/rocket-vibe/actions/runs/38201571886) also pass. These native corrections leave the browser source and distribution unchanged.
+
+SwiftUI's protected media view also enforces its own closed lifetime independently of the retained background session. Closed current/cached reads, loads and new downloads are rejected, and a new download reports `session_closed` before contacting the provider or creating a destination. The existing real protected-emoji regression checks these boundaries and confirms the background account stays online.
+
 Browser-specific mappings remain browser storage, same-origin HTTPS links, native media/capture permissions, downloads and installation. OS keyring, external-provider login, multi-account/server switching and closed-tab push are separate existing scope or platform decisions, not claims of visual equivalence.
+
+The follow-up Security correction closes the visible pending-state gap for authenticator setup/removal, backup-code replacement, email verification/removal and both email-code directions. Its actual-server source-preview checks deliberately commit and then abort responses, expire only dedicated fixture proof grants, reload and recover the same receipt. Continue/Cancel preserve current account status; accepted replay precedes proof, and original request IDs prevent replacement code bags. The proof form also keeps its original operation through second-factor confirmation and labels recovery codes correctly. Twenty-one model/vault cases qualify save-before-request, stale/refusal semantics, authenticated nonextractable storage and held-write/read/retirement fences. These follow-up checks use source preview against the actual server; the preceding embedded-bundle evidence remains historical until the final rebuild is qualified.
 
 ## Sources
 
@@ -74,6 +84,8 @@ Browser-specific mappings remain browser storage, same-origin HTTPS links, nativ
 - apps/web/src/panels.ts
 - apps/web/src/preferences-controls.ts
 - apps/web/src/security.ts
+- apps/web/src/security-intents.ts
+- apps/web/src/security-vault.ts
 - apps/web/src/email.ts
 - apps/web/src/admin.ts
 - apps/web/src/voice.ts
@@ -88,11 +100,20 @@ Browser-specific mappings remain browser storage, same-origin HTTPS links, nativ
 - apps/web/tests/visual.mjs
 - apps/web/tests/composer.mjs
 - apps/web/tests/security.mjs
+- apps/web/tests/security-pending.mjs
+- apps/web/tests/security-intents.test.ts
+- apps/web/tests/security-vault.test.ts
 - apps/web/tests/threads.mjs
 - apps/web/tests/voice.mjs
 - apps/server/migrations/0063_room_authority_changes.sql
 - apps/server/tests/room_details.rs
 - apps/web/tests/smtp.mjs
 - apps/web/tests/notifications.mjs
+- apps/desktop/crates/rv-core/src/native.rs
+- apps/desktop/crates/rv-core/src/supervisor.rs
+- apps/desktop/crates/rv-core/tests/supervisor.rs
+- apps/desktop/macos/Tests/RocketVibeKitTests/NativeProviderTests.swift
+- apps/desktop/macos/Sources/RocketVibeKit/MediaStore.swift
+- apps/desktop/macos/Tests/RocketVibeKitTests/NativeEmojiTests.swift
 - apps/server/src/limits.rs
 - .github/workflows/web-client.yml

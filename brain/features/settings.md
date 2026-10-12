@@ -70,6 +70,10 @@ The settings are an overlay of the main window, not a `Settings` scene (removed)
 
 Categories retain their drafts and scroll position until the owning dialog closes. Server-backed mutations invalidate only affected pages. Native profile/photo rows, notification backend/test groups, quiet-hours expansion and inline factor/email ceremonies follow GTK's layouts. Account security status remains visible during authenticator setup and backup-code acknowledgement and refreshes after the actual factor change. Crypto controls remain active when a cached page is temporarily detached; peer device approval requires typed fingerprint confirmation. Workflows and bots retain native grouped/expanded forms. The screen inventory and actual runtime checks are in `docs/WEB_GTK_SCREEN_AUDIT.md`.
 
+Security now retains unfinished sensitive actions across reopening and reload (`src/security-intents.ts`, `security.ts`, `email.ts`). It saves the original operation and requested factor/contact versions before sending, including the explicit enable/disable direction for email codes. Recovery probes accepted receipts before requiring fresh proof. Refused uncommitted actions show the current account status and native Continue/Cancel controls; Continue uses the same proof operation through password and second-factor confirmation. Cancel clears only the matching factor intent, or retires the original email head without proving identity. Accepted recovery-code bags and verified/removed email receipts stay until acknowledgement, and stale versions cannot silently mint replacement codes. A directionless legacy email-factor intent is shown as stale rather than guessed from current status.
+
+`src/security-vault.ts` uses the existing AES-GCM vault envelope with a nonextractable key and origin/instance/epoch/account/device/purpose scope. Its separate operations namespace is ignored by ordinary send/renew pumps and removed by normal account purge. Named locks and account/generation/token checks prevent late encryption, replay, cancellation and acknowledgement from replacing a newer intent or restoring a signed-out account's record. Setup secrets and recovery codes are ciphertext in persistent storage; entered passwords and one-time codes are never persisted. Model/vault tests and `tests/security-pending.mjs` cover real committed lost answers, expired-proof Continue/Cancel, exact original receipts and both email-code directions.
+
 The settings dialog (`settings` in `apps/web/src/panels.ts`) follows GTK's categories ([web-client](web-client.md)). **App** shows the version (`package.json`) and **Diagnostics**, the browser's mapping of GTK's logs folder: a browser has no folder to open, so `src/diagnostics.ts` keeps a ring of the 200 latest client-side events in memory (errors the app reported through `toast`, uncaught errors and rejections from `installDiagnostics` in `main.ts`, connection state changes from `App.setConnection`, sign-out deferrals and replays, retention counts) and the row downloads them as `rocketvibe-web-diagnostics-<time>.txt` with the version, user agent, language and connection state. Never recorded: tokens, message text, names. An API error keeps only its status and code, any other error its type and a message passed through `scrub` (quoted text, email addresses, URL queries and opaque runs of 20 or more characters removed, 200 characters at most); strings shown to the user are not recorded. The ring lives as long as the tab. Unit tests `tests/diagnostics.test.ts`; `tests/logout-replay.mjs` downloads it and checks no token or name is in it.
 
 ## Authenticator QR code
@@ -138,6 +142,12 @@ Setting up an authenticator on a RocketVibe account (Security category, `POST /a
 - apps/web/tests/diagnostics.test.ts
 - apps/server/src/factor_crypto.rs
 - apps/web/src/security.ts
+- apps/web/src/security-intents.ts
+- apps/web/src/security-vault.ts
+- apps/web/src/email.ts
+- apps/web/tests/security-intents.test.ts
+- apps/web/tests/security-vault.test.ts
+- apps/web/tests/security-pending.mjs
 - apps/web/src/totp-qr.ts
 - apps/web/tests/totp-qr.test.ts
 - apps/mobile/ui/nativeSecurity.tsx

@@ -207,4 +207,6 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/src/native.rs
 - apps/desktop/crates/rv-core/src/native/admin.rs
 - apps/desktop/crates/rv-core/tests/
+- apps/desktop/crates/rv-core/tests/supervisor.rs
+- apps/desktop/macos/Tests/RocketVibeKitTests/NativeProviderTests.swift
 - apps/desktop/crates/rv-core/src/mattermost/

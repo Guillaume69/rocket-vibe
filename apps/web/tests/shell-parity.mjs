@@ -5,7 +5,7 @@ import { startupStorage } from "./startup-storage.mjs";
 const base = process.env.RV_WEB_TEST_URL || "http://127.0.0.1:3417";
 assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
 const password = "web-client-disposable-password",
-  username = "webshell";
+  username = process.env.RV_WEB_SHELL_USER || "webshell";
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({
   viewport: { width: 1280, height: 800 },

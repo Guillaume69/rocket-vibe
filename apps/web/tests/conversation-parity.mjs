@@ -116,6 +116,12 @@ try {
       .evaluate((node) => node.classList.contains("day-separator")),
     true,
   );
+  await page.waitForFunction(
+    () => document.querySelectorAll("#toasts > *").length === 0,
+  );
+  await page.screenshot({
+    path: "../../.cache/web-shots/web-conversation-final-reference.png",
+  });
   await row.locator(".row-more").click();
   const actions = page.locator(".actions-menu");
   await actions.locator(".quick-reaction.more-reactions").waitFor();

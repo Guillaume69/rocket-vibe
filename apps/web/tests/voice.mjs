@@ -67,9 +67,26 @@ try {
       window.__voiceGains = [];
       window.__displayTracks = [];
       window.__displaySoundTracks = [];
+      window.__displayFailures = [];
+      window.__screenReceipts = [];
       window.__voiceSenders = [];
       window.__toneGains = [];
       window.__microphoneCaptures = [];
+      const ownTone = (context, tone, track) => {
+        const stop = track.stop.bind(track);
+        let released = false;
+        const release = () => {
+          if (released) return;
+          released = true;
+          tone.stop();
+          void context.close();
+        };
+        track.stop = () => {
+          stop();
+          release();
+        };
+        track.addEventListener("ended", release, { once: true });
+      };
       const microphone = navigator.mediaDevices.getUserMedia.bind(
         navigator.mediaDevices,
       );
@@ -88,8 +105,10 @@ try {
           tone.connect(gain).connect(output);
           tone.start();
           window.__toneGains.push(gain);
-          for (const track of output.stream.getAudioTracks())
+          for (const track of output.stream.getAudioTracks()) {
+            ownTone(context, tone, track);
             stream.addTrack(track);
+          }
         }
         if (options.audio)
           window.__microphoneCaptures.push(...stream.getAudioTracks());
@@ -99,7 +118,13 @@ try {
         navigator.mediaDevices,
       );
       navigator.mediaDevices.getDisplayMedia = async (options) => {
-        const stream = await display(options);
+        let stream;
+        try {
+          stream = await display(options);
+        } catch (error) {
+          window.__displayFailures.push(error.name);
+          throw error;
+        }
         window.__displayTracks.push(...stream.getVideoTracks());
         if (window.__verifiedShare) {
           // A controlled program-sound source exercises the verified-exclusion
@@ -118,6 +143,7 @@ try {
           tone.start();
           const track = output.stream.getAudioTracks()[0],
             settings = track.getSettings.bind(track);
+          ownTone(context, tone, track);
           track.getSettings = () => ({ ...settings(), restrictOwnAudio: true });
           stream.addTrack(track);
         } else {
@@ -131,6 +157,22 @@ try {
         }
         window.__displaySoundTracks.push(...stream.getAudioTracks());
         return stream;
+      };
+      const fetch = window.fetch.bind(window);
+      window.fetch = async (input, options) => {
+        const response = await fetch(input, options);
+        const url = new URL(
+          input instanceof Request ? input.url : input,
+          location.href,
+        );
+        if (url.pathname === "/api/v1/voice/screen")
+          window.__screenReceipts.push({
+            method:
+              options?.method ||
+              (input instanceof Request ? input.method : "GET"),
+            status: response.status,
+          });
+        return response;
       };
       const transceiver = RTCPeerConnection.prototype.addTransceiver;
       RTCPeerConnection.prototype.addTransceiver = function (...args) {
@@ -860,6 +902,7 @@ try {
   console.log(
     "PASS direct call rings the other browser and acceptance exchanges actual audio",
   );
+  const peerRejoinStarted = Date.now();
   await a
     .locator(".voice-bar")
     .getByRole("button", { name: "Close", exact: true })
@@ -867,6 +910,10 @@ try {
   await a.locator(".voice-bar").waitFor({ state: "detached" });
   await a.getByRole("button", { name: "Join voice", exact: true }).click();
   await a.locator(".voice-status.connected").waitFor();
+  console.log(
+    "Direct peer rejoin elapsed milliseconds:",
+    Date.now() - peerRejoinStarted,
+  );
   await a.waitForFunction(() =>
     [...document.querySelectorAll(".voice-stage audio")].some((audio) =>
       audio.srcObject
@@ -1058,6 +1105,11 @@ try {
     "device causes belong in diagnostics, while the native captions explain the failure",
   );
   await failurePage
+    .locator(
+      '.room-voice-person[data-voice-user="' + failureUser.user.id + '"]',
+    )
+    .waitFor();
+  await failurePage
     .locator(".voice-controls")
     .getByRole("button", { name: "Camera", exact: true })
     .click();
@@ -1106,10 +1158,17 @@ try {
     beforeCancel,
     "closing the browser capture chooser remains quiet",
   );
+  const failedParticipant = (
+    await request("/api/v1/live", failureUser.token)
+  ).data.rooms
+    .find((item) => item.room_id === room.id)
+    ?.voice?.find((item) => item.user.id === failureUser.user.id);
+  assert.ok(
+    failedParticipant,
+    "the listening-only participant stays connected",
+  );
   assert.equal(
-    (await request("/api/v1/live", failureUser.token)).data.rooms
-      .find((item) => item.room_id === room.id)
-      ?.voice?.find((item) => item.user.id === failureUser.user.id)?.screen,
+    Boolean(failedParticipant.screen),
     false,
     "failed and cancelled capture must release the server screen claim",
   );
@@ -1168,6 +1227,14 @@ try {
     console.log(
       "Voice UI:",
       await pages[i].locator(".toast").allTextContents(),
+    );
+    console.log(
+      "Capture state:",
+      await pages[i].evaluate(() => ({
+        failures: window.__displayFailures,
+        receipts: window.__screenReceipts,
+        displayTracks: window.__displayTracks?.map((track) => track.readyState),
+      })),
     );
     await pages[i].screenshot({
       path: "../../.cache/web-shots/voice-failure-" + i + ".png",

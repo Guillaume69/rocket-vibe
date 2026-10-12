@@ -91,6 +91,19 @@ pub enum Badge {
     Count(i64),
 }
 
+impl Badge {
+    /// Several accounts' badges as one: their counts added, else a dot when
+    /// one of them has unread chatter.
+    pub fn merge(badges: impl IntoIterator<Item = Badge>) -> Badge {
+        badges.into_iter().fold(Badge::None, |all, one| match (all, one) {
+            (Badge::Count(a), Badge::Count(b)) => Badge::Count(a + b),
+            (Badge::Count(n), _) | (_, Badge::Count(n)) => Badge::Count(n),
+            (Badge::Dot, _) | (_, Badge::Dot) => Badge::Dot,
+            _ => Badge::None,
+        })
+    }
+}
+
 pub fn badge(rooms: &[RoomRow]) -> Badge {
     match attention(rooms) {
         0 if unread_rooms(rooms) > 0 => Badge::Dot,
@@ -176,6 +189,13 @@ pub fn spotlight_results(response: &Value) -> Vec<Found> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn accounts_badges_add_up() {
+        assert_eq!(Badge::merge([]), Badge::None);
+        assert_eq!(Badge::merge([Badge::None, Badge::Dot]), Badge::Dot);
+        assert_eq!(Badge::merge([Badge::Dot, Badge::Count(2), Badge::None, Badge::Count(3)]), Badge::Count(5));
+    }
 
     fn room(rid: &str, kind: &str, unread: i64) -> RoomRow {
         RoomRow {

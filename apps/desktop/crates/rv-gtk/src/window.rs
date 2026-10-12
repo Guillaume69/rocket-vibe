@@ -8,6 +8,7 @@ use gtk::glib;
 use rv_core::provider::{Chat, ChatEvent};
 use rv_core::rest::RestError;
 use rv_core::session::{self, Session, SessionEvent, SessionInfo};
+use rv_core::supervisor::{self, AccountNotice, Notice, Supervisor};
 
 use crate::chat::ChatPage;
 use crate::i18n::{t, tf};
@@ -35,6 +36,19 @@ enum LoginOutcome {
     Native(Box<rv_core::native::authentication_vault::Prepared>),
 }
 
+/// A call ringing on an account in the background, and how to answer it.
+enum Answer {
+    Call(Arc<Session>, String),
+    Voice(Arc<rv_core::native::NativeSession>, String),
+}
+
+struct BackgroundRing {
+    key: String,
+    id: String,
+    dialog: adw::AlertDialog,
+    _tone: Option<crate::sounds::Player>,
+}
+
 pub struct AppWindow {
     pub window: adw::ApplicationWindow,
     stack: gtk::Stack,
@@ -57,6 +71,9 @@ pub struct AppWindow {
     link_generation: Cell<u64>,
     pending_notification: RefCell<Option<NotificationAction>>,
     notification_request: RefCell<Option<String>>,
+    /// Every signed-in account's session, the open one and the others.
+    accounts: Supervisor,
+    background_ring: RefCell<Option<BackgroundRing>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -85,6 +102,29 @@ fn database_path(info: &SessionInfo) -> PathBuf {
         None => url.host_str().unwrap_or_default().to_owned(),
     };
     data_dir().join(format!("{host}-{}.sqlite", info.user_id))
+}
+
+/// An account's session, on the runtime: Rocket.Chat, Mattermost and kChat
+/// unlock their encrypted rooms with the key the keychain kept.
+fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
+    let path = database_path(info);
+    if info.native.is_some() {
+        return rv_core::native::NativeSession::start_with_credentials(
+            info.clone(),
+            &path,
+            Some(crate::secrets::native_credentials()),
+        )
+        .map(Chat::from)
+        .map_err(|e| e.to_string());
+    }
+    let session = Session::start(info.clone(), &path).map_err(|e| e.to_string())?;
+    let resumed = session.clone();
+    tokio::spawn(async move {
+        if let Some(jwk) = secrets::e2e_key(&resumed.info).await {
+            resumed.e2e_resume(&jwk);
+        }
+    });
+    Ok(session.into())
 }
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
@@ -170,6 +210,7 @@ impl AppWindow {
         window.add_breakpoint(narrow);
 
         crate::widgets::badge_follows(&window);
+        let (accounts, mut notices) = Supervisor::new(runtime().handle().clone(), Arc::new(start_chat));
         let this = Rc::new(AppWindow {
             window,
             stack,
@@ -190,6 +231,15 @@ impl AppWindow {
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
             notification_request: RefCell::default(),
+            accounts,
+            background_ring: RefCell::default(),
+        });
+        let weak = Rc::downgrade(&this);
+        glib::spawn_future_local(async move {
+            while let Some(notice) = notices.recv().await {
+                let Some(this) = weak.upgrade() else { return };
+                this.on_notice(notice);
+            }
         });
 
         let weak = Rc::downgrade(&this);
@@ -288,6 +338,11 @@ impl AppWindow {
                         this.notification_action(NotificationAction { key: rid, message, text: None });
                         return;
                     }
+                    if let Some((account, rid)) = supervisor::notification_target(&rid) {
+                        this.window.present();
+                        this.open_background_notification(&account, rid, message);
+                        return;
+                    }
                     if this.chat.native_session().is_some() {
                         return;
                     }
@@ -301,6 +356,12 @@ impl AppWindow {
                     this.reply_notification(rid, message, text);
                     return;
                 }
+                if let Some((account, rid)) = supervisor::notification_target(&rid) {
+                    if let Some(session) = this.accounts.chat(&account).and_then(|c| c.legacy().cloned()) {
+                        runtime().spawn(async move { session.send(&rid, &text).await });
+                    }
+                    return;
+                }
                 if this.chat.native_session().is_some() {
                     return;
                 }
@@ -310,10 +371,22 @@ impl AppWindow {
             },
             move |rid, message, quick| {
                 let Some(this) = w3.upgrade() else { return };
-                if rid.starts_with("rv-native:") || this.chat.native_session().is_some() {
+                if rid.starts_with("rv-native:") {
                     return;
                 }
-                let Some(session) = this.session.borrow().clone() else { return };
+                let (session, notification, rid) = match supervisor::notification_target(&rid) {
+                    Some((account, room)) => {
+                        let Some(session) = this.accounts.chat(&account).and_then(|c| c.legacy().cloned()) else {
+                            return;
+                        };
+                        (session, rid, room)
+                    }
+                    None if this.chat.native_session().is_some() => return,
+                    None => {
+                        let Some(session) = this.session.borrow().clone() else { return };
+                        (session, rid.clone(), rid)
+                    }
+                };
                 match quick {
                     crate::notifier::Quick::React(shortcode) => {
                         crate::reactions::record(&session.info.base_url, &session.info.user_id, &shortcode);
@@ -325,7 +398,7 @@ impl AppWindow {
                     }
                     crate::notifier::Quick::MarkRead => {
                         if let Some(notifier) = this.notifier.borrow().as_ref() {
-                            notifier.withdraw(&rid);
+                            notifier.withdraw(&notification);
                         }
                         runtime().spawn(async move { session.mark_read(&rid).await });
                     }
@@ -335,6 +408,9 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.chat.connect_room_opened(move |rid| {
             if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
+                if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
+                    notifier.withdraw(&supervisor::notification_key(&info, &rid));
+                }
                 let key = weak
                     .upgrade()
                     .and_then(|this| this.chat.native_session())
@@ -354,7 +430,13 @@ impl AppWindow {
         notifier.set_call_handler(move |accept| {
             if let Some(this) = weak.upgrade() {
                 this.window.present();
-                this.chat.answer_call_ring(accept);
+                let background = this.background_ring.borrow().as_ref().map(|r| r.dialog.clone());
+                match background {
+                    Some(dialog) => {
+                        dialog.emit_by_name::<()>("response", &[&if accept { "accept" } else { "decline" }])
+                    }
+                    None => this.chat.answer_call_ring(accept),
+                }
             }
         });
         this.notifier.replace(Some(notifier.clone()));
@@ -463,6 +545,7 @@ impl AppWindow {
             }
             keep.invalidate_login();
             keep.stop_session(false);
+            keep.accounts.shutdown();
             glib::Propagation::Proceed
         });
         this
@@ -959,75 +1042,263 @@ impl AppWindow {
         true
     }
 
+    /// The account on screen: its session already running in the background,
+    /// else a new one.
     fn start_session(self: &Rc<Self>, info: SessionInfo) {
         self.invalidate_login();
         self.stop_session(false);
+        let key = supervisor::key(&info);
+        if self.background_ring.borrow().as_ref().is_some_and(|r| r.key == key) {
+            self.end_background_ring();
+        }
         let path = database_path(&info);
-        if info.native.is_some() {
-            self.start_native(info, path);
-        } else {
-            self.start_legacy(info, path);
+        match self.accounts.open(&info) {
+            Ok(Chat::Native(session)) => {
+                crate::badge::set_open(Some(key));
+                self.start_native(session, path);
+            }
+            Ok(Chat::Legacy(session)) => {
+                crate::badge::set_open(Some(key));
+                self.start_legacy(session, path);
+            }
+            Err(error) if info.native.is_some() => self.show_login(Some(&error)),
+            Err(error) => self.show_login(Some(&tf("login.no_database", &[("error", &error)]))),
         }
     }
 
     /// The RocketVibe server.
-    fn start_native(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
-        let started = {
-            let _guard = runtime().enter();
-            rv_core::native::NativeSession::start_with_credentials(
-                info,
-                &path,
-                Some(crate::secrets::native_credentials()),
-            )
-        };
-        match started {
-            Ok(session) => {
-                self.db_path.replace(Some(path));
-                self.chat.set_native_session(session.clone());
-                self.listen(session.into());
-                self.stack.set_visible_child_name("chat");
-                self.refresh_rail();
-            }
-            Err(error) => self.show_login(Some(&error.to_string())),
-        }
-    }
-
-    /// Rocket.Chat, Mattermost or kChat.
-    fn start_legacy(self: &Rc<Self>, info: SessionInfo, path: std::path::PathBuf) {
-        let started = {
-            let _guard = runtime().enter();
-            Session::start(info, &path)
-        };
-        let session = match started {
-            Ok(s) => s,
-            Err(e) => {
-                self.show_login(Some(&tf("login.no_database", &[("error", &e.to_string())])));
-                return;
-            }
-        };
+    fn start_native(self: &Rc<Self>, session: Arc<rv_core::native::NativeSession>, path: PathBuf) {
         self.db_path.replace(Some(path));
-        let resumed = session.clone();
-        runtime().spawn(async move {
-            if let Some(jwk) = secrets::e2e_key(&resumed.info).await {
-                resumed.e2e_resume(&jwk);
-            }
-        });
-
-        self.chat.set_session(Some(session.clone()));
-        self.session.replace(Some(session.clone()));
+        self.chat.set_native_session(session.clone());
         self.listen(session.into());
         self.stack.set_visible_child_name("chat");
         self.refresh_rail();
     }
 
-    /// The rail's accounts and which one is open, read again from the keyring.
+    /// Rocket.Chat, Mattermost or kChat.
+    fn start_legacy(self: &Rc<Self>, session: Arc<Session>, path: PathBuf) {
+        self.db_path.replace(Some(path));
+        self.chat.set_session(Some(session.clone()));
+        self.session.replace(Some(session.clone()));
+        self.listen(session.clone().into());
+        self.stack.set_visible_child_name("chat");
+        self.refresh_rail();
+        // A call that started ringing while the account was in the background.
+        if session.incoming_call().is_some() {
+            self.on_call_ring();
+        }
+    }
+
+    /// The rail's accounts and which one is open, read again from the
+    /// keyring; every one of them is kept connected.
     fn refresh_rail(self: &Rc<Self>) {
         let current = self.open_account();
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_for_rail()).await;
+            this.accounts.sync(&accounts);
             this.rail.set_accounts(accounts, current.as_ref());
         });
+    }
+
+    /// What an account in the background has to say.
+    fn on_notice(self: &Rc<Self>, notice: AccountNotice) {
+        let key = notice.key();
+        match notice.notice {
+            Notice::Unread(badge) => {
+                self.rail.set_unread(&key, badge != rv_core::rooms::Badge::None);
+                crate::badge::set_account(&key, Some(badge));
+            }
+            // Opened meanwhile: its window speaks for it now.
+            _ if self.accounts.is_active(&key) => {}
+            Notice::Incoming(incoming) => self.notify_background(&notice.info, incoming),
+            Notice::Call(call) => {
+                let caller = call.as_ref().and_then(|call| {
+                    let Some(Chat::Legacy(session)) = self.accounts.chat(&key) else { return None };
+                    let room = session.store.rooms().into_iter().find(|r| r.rid == call.rid).map(|r| r.name);
+                    Some((
+                        call.call_id.clone(),
+                        call.rid.clone(),
+                        call.caller_name.clone().or(room).unwrap_or_default(),
+                        session,
+                    ))
+                });
+                match caller {
+                    Some((id, rid, caller, session)) => {
+                        let answer = Answer::Call(session, rid.clone());
+                        self.ring_background(&notice.info, id, &rid, &caller, answer, false)
+                    }
+                    None => self.end_background_ring_of(&key),
+                }
+            }
+            Notice::Voice(call) => match (call, self.accounts.chat(&key)) {
+                (Some(call), Some(Chat::Native(session))) => {
+                    let quiet = session.quiet_now();
+                    let answer = Answer::Voice(session, call.rid.clone());
+                    self.ring_background(&notice.info, call.id, &call.rid, &call.caller, answer, quiet);
+                }
+                _ => self.end_background_ring_of(&key),
+            },
+            Notice::Expired => {
+                self.rail.forget_unread(&key);
+                crate::badge::set_account(&key, None);
+                self.end_background_ring_of(&key);
+            }
+        }
+    }
+
+    /// A background account's message, as its own window would show it,
+    /// naming its server; a click opens that account on the message.
+    fn notify_background(self: &Rc<Self>, info: &SessionInfo, incoming: rv_core::notify::Incoming) {
+        let key = supervisor::key(info);
+        let (Some(chat), Some(notifier)) = (self.accounts.chat(&key), self.notifier.borrow().clone()) else { return };
+        let incoming = supervisor::from_account(incoming, info);
+        match chat {
+            Chat::Native(session) => {
+                if !session.quiet_now() {
+                    let incoming =
+                        rv_core::notify::Incoming { rid: session.notification_key(&incoming.rid), ..incoming };
+                    notifier.show(&incoming, &crate::notifier::Pictures::default());
+                }
+            }
+            Chat::Legacy(session) => {
+                let incoming =
+                    rv_core::notify::Incoming { rid: supervisor::notification_key(info, &incoming.rid), ..incoming };
+                let weak = Rc::downgrade(self);
+                glib::spawn_future_local(async move {
+                    let pictures = crate::notifier::pictures::fetch(session, &incoming).await;
+                    if weak.upgrade().is_some_and(|this| !this.accounts.is_active(&key)) {
+                        notifier.show(&incoming, &pictures);
+                    }
+                });
+            }
+        }
+    }
+
+    /// A background account's notification clicked: that account opens on the message.
+    fn open_background_notification(self: &Rc<Self>, account: &str, rid: String, message: String) {
+        let message = (!message.is_empty()).then_some(message);
+        if self.open_account().is_some_and(|open| supervisor::key(&open) == account) {
+            if let Some(message) = message {
+                self.chat.open_message(&rid, &message);
+            } else {
+                self.chat.open_room(&rid);
+            }
+            return;
+        }
+        let Some(info) = self.accounts.running().into_iter().find(|i| supervisor::key(i) == account) else {
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        };
+        self.cancel_navigation();
+        self.pending_link.replace(Some(rv_core::links::RoomLink {
+            rid,
+            host: rv_core::links::service_url(&info.base_url),
+            native: info.native.clone(),
+            user_id: Some(info.user_id.clone()),
+            message,
+            root: None,
+        }));
+        self.switch_to_for_link(info);
+    }
+
+    /// A call ringing on a background account: the prompt names the server,
+    /// the ringtone plays (unless that account is in do not disturb), and a
+    /// notification shows while the window is not in front. Accepting opens
+    /// the account and joins; a second call while one rings is not shown.
+    fn ring_background(
+        self: &Rc<Self>,
+        info: &SessionInfo,
+        id: String,
+        rid: &str,
+        caller: &str,
+        answer: Answer,
+        quiet: bool,
+    ) {
+        let key = supervisor::key(info);
+        if self.background_ring.borrow().is_some() || self.chat.ringing() {
+            return;
+        }
+        let dialog = adw::AlertDialog::builder()
+            .heading(t("voice_session.incoming"))
+            .body(tf("voice_session.incoming_on", &[("name", caller), ("server", &supervisor::server_label(info))]))
+            .default_response("accept")
+            // Escape or a click outside ignores the call: the prompt and the
+            // ringtone stop here, nothing is declined.
+            .close_response("ignore")
+            .build();
+        dialog.add_responses(&[("decline", t("voice_session.decline")), ("accept", t("voice_session.accept"))]);
+        dialog.set_response_appearance("decline", adw::ResponseAppearance::Destructive);
+        dialog.set_response_appearance("accept", adw::ResponseAppearance::Suggested);
+        let (weak, ring, account) = (Rc::downgrade(self), id.clone(), info.clone());
+        dialog.connect_response(None, move |_, response| {
+            let Some(this) = weak.upgrade() else { return };
+            // Closed because the ring ended elsewhere: nothing to answer.
+            if this.background_ring.borrow().as_ref().is_none_or(|r| r.id != ring) {
+                return;
+            }
+            this.background_ring.replace(None);
+            if let Some(notifier) = this.notifier.borrow().as_ref() {
+                notifier.withdraw_call();
+            }
+            match (&answer, response) {
+                (Answer::Call(session, rid), "accept") => {
+                    session.dismiss_call();
+                    let room = session.store.room_name(rid).map(|(name, _)| name);
+                    this.switch_to(account.clone());
+                    let (weak, session, id) = (Rc::downgrade(&this), session.clone(), ring.clone());
+                    glib::spawn_future_local(async move {
+                        let url = on_tokio(async move { session.join_call(&id).await }).await;
+                        let Some(this) = weak.upgrade() else { return };
+                        match url {
+                            Ok(url) => this.chat.open_call(&url, &room.unwrap_or_default()),
+                            Err(_) => this.chat.toast(t("call.failed").to_owned()),
+                        }
+                    });
+                }
+                (Answer::Call(session, _), "decline") => {
+                    let (session, id) = (session.clone(), ring.clone());
+                    runtime().spawn(async move { session.decline_call(&id).await });
+                }
+                (Answer::Call(session, _), _) => session.dismiss_call(),
+                (Answer::Voice(_, room), "accept") => {
+                    this.switch_to(account.clone());
+                    this.chat.accept_voice_ring(ring.clone(), room.clone());
+                }
+                (Answer::Voice(session, _), "decline") => {
+                    let (session, id) = (session.clone(), ring.clone());
+                    runtime().spawn(async move { session.decline_ring(&id).await });
+                }
+                (Answer::Voice(..), _) => {}
+            }
+        });
+        if !self.window.is_visible() {
+            self.window.present();
+        }
+        let tone = if quiet { None } else { crate::sounds::looped(crate::sounds::Sound::Ringtone) };
+        self.background_ring.replace(Some(BackgroundRing { key, id, dialog: dialog.clone(), _tone: tone }));
+        crate::widgets::present(&dialog, Some(&self.window));
+        if !self.window.is_active()
+            && let Some(notifier) = self.notifier.borrow().clone()
+        {
+            let caller = format!("{caller} ({})", supervisor::server_label(info));
+            notifier.show_call(&supervisor::notification_key(info, rid), "", &caller);
+        }
+    }
+
+    fn end_background_ring_of(&self, key: &str) {
+        if self.background_ring.borrow().as_ref().is_some_and(|r| r.key == key) {
+            self.end_background_ring();
+        }
+    }
+
+    fn end_background_ring(&self) {
+        if let Some(ring) = self.background_ring.take() {
+            ring.dialog.force_close();
+            if let Some(notifier) = self.notifier.borrow().as_ref() {
+                notifier.withdraw_call();
+            }
+        }
     }
 
     /// A call from the other member of a direct room rings, or stopped: the
@@ -1080,15 +1351,25 @@ impl AppWindow {
         }
     }
 
+    /// The account leaves the screen: it stays connected in the background,
+    /// unless it is going for good (`delete_cache`: signed out, expired).
     fn stop_session(&self, delete_cache: bool) {
         if let Some(notifier) = self.notifier.borrow().as_ref() {
             notifier.clear();
         }
-        if let Some(session) = self.chat.native_session() {
+        if delete_cache && let Some(info) = self.open_account() {
+            let key = supervisor::key(&info);
+            self.accounts.remove(&key);
+            self.rail.forget_unread(&key);
+            crate::badge::set_account(&key, None);
+        }
+        self.accounts.set_active(None);
+        crate::badge::set_open(None);
+        if let Some(session) = self.chat.native_session()
+            && delete_cache
+        {
             session.shutdown();
-            if delete_cache {
-                let _ = session.store.clear();
-            }
+            let _ = session.store.clear();
         }
         if let Some(forward) = self.forward.take() {
             forward.abort();
@@ -1099,14 +1380,14 @@ impl AppWindow {
         }
         self.chat.set_session(None);
         crate::media::clear();
-        if let Some(session) = self.session.take() {
+        if let Some(session) = self.session.take()
+            && delete_cache
+        {
             session.shutdown();
             // Tasks still running hold the store: release the file itself, or
             // Windows refuses the deletion below and the messages stay on disk.
-            if delete_cache {
-                crate::cards::clear_file_cache(&session);
-                session.store.close();
-            }
+            crate::cards::clear_file_cache(&session);
+            session.store.close();
         }
         if let Some(path) = self.db_path.take()
             && delete_cache

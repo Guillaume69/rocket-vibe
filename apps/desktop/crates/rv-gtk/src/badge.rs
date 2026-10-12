@@ -1,17 +1,50 @@
 //! The unread count on the app's icon, or a dot for plain unread: the Windows
 //! taskbar and the macOS dock through rv-native. On Linux, docks that read
 //! the Unity launcher protocol (KDE Plasma, Dash to Dock, Plank) show the
-//! count; it has no dot.
+//! count; it has no dot. It adds up every signed-in account: the open one's
+//! room list, the others' unread state from the background.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 
 use rv_core::rooms::Badge;
 
 thread_local! {
     static SHOWN: Cell<Option<Badge>> = const { Cell::new(None) };
+    static OPEN: Cell<Badge> = const { Cell::new(Badge::None) };
+    static OPEN_KEY: RefCell<Option<String>> = const { RefCell::new(None) };
+    static ACCOUNTS: RefCell<HashMap<String, Badge>> = RefCell::default();
 }
 
+/// The open account's badge, from its room list.
 pub fn set(badge: Badge) {
+    OPEN.set(badge);
+    show();
+}
+
+/// Which account is open: its own badge comes from `set`.
+pub fn set_open(key: Option<String>) {
+    if OPEN_KEY.replace(key.clone()) != key {
+        OPEN.set(Badge::None);
+    }
+    show();
+}
+
+/// An account's badge from the background, or None once it is gone.
+pub fn set_account(key: &str, badge: Option<Badge>) {
+    ACCOUNTS.with_borrow_mut(|accounts| match badge {
+        Some(badge) => accounts.insert(key.to_owned(), badge),
+        None => accounts.remove(key),
+    });
+    show();
+}
+
+fn show() {
+    let open = OPEN_KEY.with_borrow(Clone::clone);
+    let others = ACCOUNTS.with_borrow(|accounts| {
+        accounts.iter().filter(|(key, _)| open.as_deref() != Some(key.as_str())).map(|(_, b)| *b).collect::<Vec<_>>()
+    });
+    let badge = Badge::merge(std::iter::once(OPEN.get()).chain(others));
     if SHOWN.replace(Some(badge)) == Some(badge) {
         return;
     }

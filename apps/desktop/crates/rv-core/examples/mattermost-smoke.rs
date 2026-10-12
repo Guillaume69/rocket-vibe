@@ -166,7 +166,8 @@ async fn main() {
     s.open_room(&rid, "d").await.unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;
     s.shutdown();
-    assert!(rv_core::account_unread::rocket_chat(&info).await.unwrap(), "unread for the rail");
-    println!("ok  unread seen from outside the session");
+    let badge = rv_core::supervisor::badge(&rv_core::provider::Chat::from(s.clone()));
+    assert!(badge != rv_core::rooms::Badge::None, "unread for the rail");
+    println!("ok  unread for the rail from the store");
     println!("ALL OK");
 }

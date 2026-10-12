@@ -345,7 +345,7 @@ another request, which must be caught, refused and close the window.
 - `docs/MATTERMOST.md`: the protocol both apps speak, with its provenance and how to validate it
 
 - `apps/desktop/crates/rv-core/src/mattermost/`
-- `apps/desktop/crates/rv-core/src/session.rs`, `sync.rs`, `outbox.rs`, `uploads.rs`, `media.rs`, `server.rs`, `native.rs`, `account_unread.rs`
+- `apps/desktop/crates/rv-core/src/session.rs`, `sync.rs`, `outbox.rs`, `uploads.rs`, `media.rs`, `server.rs`, `native.rs`
 - `apps/desktop/crates/rv-gtk/src/login.rs`, `apps/desktop/crates/rv-gtk/src/sign_in_window.rs`, `apps/desktop/crates/rv-ffi/src/model.rs`, `apps/desktop/crates/rv-ffi/src/lib.rs`
 - `apps/desktop/crates/rv-native/src/windows_call.rs`, `apps/desktop/crates/rv-native/src/macos_call.rs`
 - `apps/desktop/macos/Sources/RocketVibe/LoginView.swift`, `apps/desktop/macos/Sources/RocketVibe/SignInWindow.swift`, `apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift`

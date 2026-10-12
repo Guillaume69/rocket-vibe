@@ -21,6 +21,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | Module | Responsibility |
 |---|---|
 | `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls. Each per-server choice, here and in `sync`, `outbox` and `uploads`, is an exhaustive `match` on `SyncEngine::backend()`, `Backend::{RocketChat, Mattermost}`, whose arms call `rocketchat::actions` or `mattermost::actions`: a server forgotten in a new method is a compile error, not a silent call to Rocket.Chat's REST (`tests/session_backends.rs` checks each action's route per backend) |
+| `supervisor` | Every signed-in account kept connected: one `Chat` per account key, the open one and the others in the background, started again with a back-off when a start fails; a background account's events become `AccountNotice`s (`Incoming`, `Call`, `Voice`, `Unread`, `Expired`) while the open account's stay with the UI's listener; notification keys and labels naming a background account. See [login-and-servers](../features/login-and-servers.md#desktop) |
 | `provider` | `Chat { Legacy(Session), Native(NativeSession) }`: one account whichever server it speaks to, with the operations both sessions offer (so far the spotlight, the marked messages, a person's profile and a room's search) and `legacy()` / `native()` for the rest; errors as `RestError`. `Chat::events()` is one event stream per account, `ChatEvent::{Changed, Reload, Incoming, Session}`: Rocket.Chat, Mattermost and kChat say which rooms changed, the RocketVibe session `Rooms` for a live batch (its rooms, and those whose quote cards cite its messages: `StoreChange::Rooms` from `native/store.rs`) and `Reload` for everything else (its notifications already filtered by `notification_current`). GTK's spotlight, marked, profile and search dialogs hold it instead of their own two-variant enums (the search adds a third case of its own, an encrypted room's search on the device) |
 | `rocketchat` | Rocket.Chat's REST calls behind `Session`'s actions (`rocketchat::actions`), the counterpart of `mattermost::actions`; the message actions the display rules share (react, edit, pin...) stay in `actions` |
 | `mattermost` | A Mattermost or kChat account behind the same `Session`: sign-in, sync, socket (WebSocket or Pusher), actions; see [mattermost-and-kchat](../features/mattermost-and-kchat.md#desktop) |
@@ -65,6 +66,8 @@ It then opens the socket and immediately spawns a first catch-up, not sequenced 
 `catch_up`: `sync.catch_up_global()`, then, if that worked, `outbox.process()` and `uploads.process()`; then presence (`users.presence`); then once per session (`OnceCell`) the custom emoji list, `me` (notification preference) and `reconcile_rooms`; finally history and edit/deletion catch-up of the open room. Things that do not change between reconnections are read once because the REST budget is 10 calls a minute.
 
 `open_room(rid, kind)` swaps the per-room subscriptions (`<rid>/deleteMessage`, `<rid>/user-activity`; deletions are not on `__my_messages__`), marks the room read in the background, loads the newest page, and runs `catch_up_room` once per session per room (tracked in `synced`).
+
+Several accounts run at once: the UIs open every one through `supervisor::Supervisor` (`open`, `sync`, `set_active`, `remove`), which keeps a session per signed-in account. A session not on screen has no open room (`close_room`), so it hears only the account-wide subscriptions above, and its catch-up reads no room's history.
 
 Reconnection: on `DdpEvent::Lost` (or `LiveEvent::Lost` for Mattermost) the listener waits `min(1000 << attempt, 30 s) + jitter(0..1 s)` and reopens (`reconnect_after`); `Authenticated` resets the attempt counter. `reconnect_now()` skips the wait. The timer is kept in the session's tasks, so `shutdown` aborts it, and it reopens nothing once `closed` is set: a shutdown during the wait used to reopen the socket with the old token.
 
@@ -165,6 +168,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-core/Cargo.toml
 - apps/desktop/crates/rv-core/src/lib.rs
 - apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/supervisor.rs
 - apps/desktop/crates/rv-core/src/rest.rs
 - apps/desktop/crates/rv-core/src/ddp.rs
 - apps/desktop/crates/rv-core/src/store.rs

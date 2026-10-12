@@ -29,6 +29,11 @@ struct RocketVibeApp: App {
     func start() async {
         let notifier = Notifier.shared
         notifier.onOpen = { [app] rid, message, scope in
+            if let scope, app.client.backgroundTarget(scope: scope) != nil {
+                NSApp.activate()
+                Task { await app.openBackgroundNotification(scope: scope, message: message) }
+                return
+            }
             if let scope {
                 NSApp.activate()
                 Task { await app.notificationAction(key:scope,message:message) }
@@ -39,6 +44,10 @@ struct RocketVibeApp: App {
             Task { await app.open(rid, message: message) }
         }
         notifier.onReply = { [app] rid, message, scope, text in
+            if let scope, app.client.backgroundTarget(scope: scope) != nil {
+                Task { try? await app.client.backgroundReply(scope: scope, text: text) }
+                return
+            }
             if let scope {
                 Task { await app.notificationAction(key:scope,message:message,text:text) }
                 return
@@ -51,6 +60,18 @@ struct RocketVibeApp: App {
             if !watching { notifier.show(incoming, scope: app.native?.notificationKey(rid: incoming.rid)) }
         }
         app.onWithdraw = { key in notifier.withdraw(scope: key) }
+        app.onBackgroundIncoming = { incoming, scope in notifier.show(incoming, scope: scope) }
+        app.onBackgroundCall = { [app] call in
+            guard let call else {
+                VoiceSounds.shared.tone(app.foregroundTone)
+                notifier.withdrawCall()
+                return
+            }
+            if !call.quiet { VoiceSounds.shared.tone(.ringtone) }
+            guard !NSApp.isActive else { return }
+            NSApp.requestUserAttention(.criticalRequest)
+            notifier.showCall(rid: call.rid, callId: call.id, caller: "\(call.caller) (\(call.server))")
+        }
         notifier.onOpenLink = { [app] link in
             NSApp.activate()
             Task { await app.openLink(link) }
@@ -76,6 +97,16 @@ struct RocketVibeApp: App {
             notifier.showCall(rid: call.rid, callId: call.callId, caller: app.callerName(call))
         }
         notifier.onCall = { [app] accept in
+            if let call = app.backgroundCall {
+                NSApp.activate()
+                if accept {
+                    let title = L("call.window_title", ["room": call.caller])
+                    Task { if let link = await app.answerBackgroundCall(call), let url = URL(string: link) { CallWindow.show(url, title: title) } }
+                } else {
+                    app.declineBackgroundCall(call)
+                }
+                return
+            }
             guard let call = app.ringingCall else { return }
             NSApp.activate()
             if accept {

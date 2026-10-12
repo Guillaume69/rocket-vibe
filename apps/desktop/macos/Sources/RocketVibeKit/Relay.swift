@@ -15,3 +15,17 @@ final class Relay: Listener {
         DispatchQueue.main.async { MainActor.assumeIsolated { handler(event) } }
     }
 }
+
+/// The same hop for the accounts not on screen.
+final class AccountRelay: AccountListener {
+    let handler: @MainActor @Sendable (AccountEvent) -> Void
+
+    init(_ handler: @escaping @MainActor @Sendable (AccountEvent) -> Void) {
+        self.handler = handler
+    }
+
+    func onAccountEvent(event: AccountEvent) {
+        let handler = handler
+        DispatchQueue.main.async { MainActor.assumeIsolated { handler(event) } }
+    }
+}

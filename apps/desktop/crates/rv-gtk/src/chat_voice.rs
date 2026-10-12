@@ -1306,22 +1306,7 @@ impl ChatPage {
                 runtime().spawn(async move { session.decline_ring(&ring).await });
                 return;
             }
-            this.show_voice(&room);
-            this.voice.joining.replace(Some(room.clone()));
-            let keys = voice_keys(&session, &room);
-            let (weak, expected, ring, room) = (Rc::downgrade(&this), session.clone(), ring.clone(), room.clone());
-            glib::spawn_future_local(async move {
-                let result = on_tokio(async move { session.answer_ring(&ring, &room, Some(keys)).await }).await;
-                let Some(this) = weak.upgrade() else { return };
-                this.voice.joining.replace(None);
-                if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
-                    return;
-                }
-                if let Err(error) = result {
-                    this.toast(t(refusal(error.code())).to_owned());
-                }
-                this.refresh_voice();
-            });
+            this.accept_voice_ring(ring.clone(), room.clone());
         });
         if let Some(window) = self.split.root().and_downcast::<gtk::Window>()
             && !window.is_visible()
@@ -1330,6 +1315,32 @@ impl ChatPage {
         }
         self.voice.ringing.replace(Some((id, dialog.clone())));
         crate::widgets::present(&dialog, Some(&self.split));
+    }
+
+    pub(super) fn voice_ringing(&self) -> bool {
+        self.voice.ringing.borrow().is_some()
+    }
+
+    /// Answers the ring and joins its room's voice session.
+    pub(crate) fn accept_voice_ring(self: &Rc<Self>, ring: String, room: String) {
+        let Some(session) = self.native_session() else { return };
+        self.voice.answered.replace(Some(ring.clone()));
+        self.show_voice(&room);
+        self.voice.joining.replace(Some(room.clone()));
+        let keys = voice_keys(&session, &room);
+        let (weak, expected) = (Rc::downgrade(self), session.clone());
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { session.answer_ring(&ring, &room, Some(keys)).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            this.voice.joining.replace(None);
+            if this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected)) {
+                return;
+            }
+            if let Err(error) = result {
+                this.toast(t(refusal(error.code())).to_owned());
+            }
+            this.refresh_voice();
+        });
     }
 
     /// The menu beside the microphone, as in Discord: devices, the microphone's

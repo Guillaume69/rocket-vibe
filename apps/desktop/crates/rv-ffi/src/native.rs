@@ -5,8 +5,8 @@ use rv_core::native::NativeSession;
 use std::sync::{Arc, Mutex};
 use tokio::sync::broadcast::error::RecvError;
 
-struct CredentialStore {
-    dirs: Arc<accounts::Dirs>,
+pub(crate) struct CredentialStore {
+    pub(crate) dirs: Arc<accounts::Dirs>,
 }
 impl rv_core::native::credentials::Provider for CredentialStore {
     fn resume(&self, expected: rv_core::session::SessionInfo) -> rv_core::native::credentials::CredentialFuture {
@@ -163,6 +163,7 @@ pub struct NativeChat {
     forward: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// The voice supervisor (`native_voice.rs`), started with the listener.
     voice: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    accounts: rv_core::supervisor::Supervisor,
 }
 impl Drop for NativeChat {
     fn drop(&mut self) {
@@ -171,7 +172,6 @@ impl Drop for NativeChat {
                 task.abort();
             }
         }
-        self.session.shutdown();
     }
 }
 
@@ -209,25 +209,6 @@ impl Client {
         on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await.into()
     }
 
-    /// Whether the signed-in account `key` (not the open one) has unread
-    /// messages, for the dot in the server rail: one read, never its store.
-    /// `None` when it cannot tell (offline, refused, unknown key).
-    pub async fn account_unread(&self, key: String) -> Option<bool> {
-        let dirs = self.dirs.clone();
-        let info = blocking(move || {
-            crate::accounts::load_all(&dirs).into_iter().find(|info| crate::accounts::key(info) == key)
-        })
-        .await?;
-        let store = Arc::new(CredentialStore { dirs: self.dirs.clone() });
-        on_tokio(async move {
-            if info.native.is_some() {
-                rv_core::account_unread::native(info, Some(store)).await.ok()
-            } else {
-                rv_core::account_unread::rocket_chat(&info).await.ok()
-            }
-        })
-        .await
-    }
     /// Whether the address is a RocketVibe server, under the user's choice of kind.
     pub async fn is_native_server(&self, server: String, kind: crate::model::ServerChoice) -> Result<bool, RvError> {
         let url =
@@ -311,20 +292,28 @@ impl Client {
         self.start_native(info)
     }
     pub(crate) fn start_native(&self, info: rv_core::session::SessionInfo) -> Result<Arc<NativeChat>, RvError> {
-        let path = self.dirs.database(&info);
-        let _guard = runtime().enter();
-        Ok(Arc::new(NativeChat {
-            session: NativeSession::start_with_credentials(
-                info,
-                &path,
-                Some(Arc::new(CredentialStore { dirs: self.dirs.clone() })),
-            )
-            .map_err(RvError::local)?,
-            dirs: self.dirs.clone(),
-            forward: Mutex::default(),
-            voice: Mutex::default(),
-        }))
+        open_native(&self.dirs, &self.accounts, info)
     }
+}
+
+/// The account's session, running in the background already or new; it
+/// becomes the open account.
+pub(crate) fn open_native(
+    dirs: &Arc<accounts::Dirs>,
+    supervisor: &rv_core::supervisor::Supervisor,
+    info: rv_core::session::SessionInfo,
+) -> Result<Arc<NativeChat>, RvError> {
+    let session = match supervisor.open(&info).map_err(RvError::local)? {
+        rv_core::provider::Chat::Native(session) => session,
+        rv_core::provider::Chat::Legacy(_) => return Err(RvError::local("not a RocketVibe account")),
+    };
+    Ok(Arc::new(NativeChat {
+        session,
+        dirs: dirs.clone(),
+        forward: Mutex::default(),
+        voice: Mutex::default(),
+        accounts: supervisor.clone(),
+    }))
 }
 #[uniffi::export]
 impl NativeChat {
@@ -840,13 +829,17 @@ impl NativeChat {
     pub fn suspend(&self) {
         self.session.suspend();
     }
+    /// The account leaves the screen: its events stop coming here, it stays
+    /// connected in the background.
     pub fn shutdown(&self) {
         for task in [&self.forward, &self.voice] {
             if let Some(task) = task.lock().unwrap().take() {
                 task.abort();
             }
         }
-        self.session.shutdown();
+        if self.accounts.is_active(&accounts::key(&self.session.info)) {
+            self.accounts.set_active(None);
+        }
     }
     pub async fn history(&self, room: String, older: bool) -> Result<bool, RvError> {
         let s = self.session.clone();
@@ -949,6 +942,7 @@ impl NativeChat {
         {
             return Err(RvError::local(error));
         }
+        self.accounts.remove(&accounts::key(&self.session.info));
         self.session.shutdown();
         self.session.store.clear().map_err(RvError::local)?;
         let (dirs, info) = (self.dirs.clone(), self.session.info.clone());

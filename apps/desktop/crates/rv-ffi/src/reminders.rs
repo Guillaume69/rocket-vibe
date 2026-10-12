@@ -235,7 +235,7 @@ mod tests {
         let m1 = get(&dirs, &alice, "m1").unwrap();
         assert!(m1.link.as_deref().is_some_and(|l| l.contains("tmid=root1") && l.contains("msg=m1")));
         assert_eq!(pending(&dirs, &alice).iter().map(|r| r.message_id.as_str()).collect::<Vec<_>>(), ["m2", "m1"]);
-        let client = Client { dirs: std::sync::Arc::new(other_app) };
+        let client = Client::with_dirs(std::sync::Arc::new(other_app));
         let due = client.take_due_reminders();
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].room_name, "general");

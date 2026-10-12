@@ -59,6 +59,7 @@ A call someone starts in a two-person direct room rings on Rocket.Chat and kChat
 - **Mobile.** `lib/callRing.ts` (`CallRinger`, Node-pure, `lib/callRing.test.ts`), fed by `Provider.callSignal`: Rocket.Chat reads the room's new `lastMessage` in `rooms-changed` (the rooms not open are not streamed) and the open room's stream, Mattermost/kChat the translated `posted` and `post_edited`. `ui/callRing.tsx` (`CallRingHost` in `_layout`) shows `IncomingCallPrompt` (`ui/voice.tsx`) with the voice module's ringtone; on Rocket.Chat only while the app is in front, since the push rings it otherwise. `conferenceCheck` and `declineConference` are in `lib/call.ts`.
 - **Mobile push.** Android: the FCM service rings a `videoconf` push of a direct room over the lock screen with the voice ring's `VoiceRinging` (ring id `call:<callId>`), after `chat.getMessage` (the block's `callId`), `rooms.info` (two members) and `video-conference.info`; Accept opens `rocketvibe://call-ring/<callId>?rid=&host=` (`app/call-ring/[callId].tsx`), Decline goes through `NativeCallReceiver` and a WorkManager job. iOS: the Notification Service Extension only makes it a time-sensitive "Incoming call" alert (no CallKit, no Accept or Decline), never built yet. kChat sends no push to this app: it rings while the app runs. See [notifications](notifications.md).
 - **Desktop.** `rv-core/src/call_ring.rs` (`Rings`, tested there) and `Session::ring` / `incoming_call` / `dismiss_call` / `decline_call`, fed by `stream-room-messages` (`__my_messages__`) and Mattermost's `posted` / `post_edited` (`MmSync::call_signal`), announced by `SessionEvent::CallRing`. GTK: `chat_call_ring.rs` shows the voice dialog (`close_response` "ignore") over the ringtone, and `window.rs::on_call_ring` adds, while the window is not active, a notification (`Notifier::show_call`: Accept and Decline on `org.freedesktop.Notifications`, a click opening the call card elsewhere). SwiftUI: `RingingCallPrompt` (`Voice.swift`) over `AppModel.ringingCall`, the ringtone and the dock bouncing, and a `call` notification category with Accept and Decline (`Notifier.showCall`).
+- **Desktop, accounts not on screen.** A call ringing on a background account (`supervisor::Notice::Call`, and RocketVibe's voice rings as `Notice::Voice`) shows its own prompt naming the server (`voice_session.incoming_on`), with the ringtone (silent in that account's do not disturb) and, while the window is behind, the call notification. Accept switches to that account, then joins (`Session::join_call` and the call window, or `ChatPage::accept_voice_ring` / `AppModel.answer` for a voice ring); Decline and ignore act on the background session without switching. A second call while one rings is not shown; opening the account hands its ring to its own prompt. GTK: `AppWindow::ring_background`; SwiftUI: `BackgroundCallPrompt` over `AppModel.backgroundCall`.
 
 ## Parity
 
@@ -66,6 +67,8 @@ Start, join, call card with Join, profile Call: both apps ([parity](../parity.md
 
 ## Sources
 
+- apps/desktop/crates/rv-core/src/supervisor.rs
+- apps/desktop/crates/rv-gtk/src/window.rs
 - apps/mobile/lib/call.ts
 - apps/mobile/lib/callRing.ts
 - apps/mobile/ui/callRing.tsx

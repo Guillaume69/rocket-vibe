@@ -62,6 +62,10 @@
 //!                          reply, whose Reply button must open it the same way)
 //!   RV_SMOKE_SECOND="<user>|<password>"  adds a second account on the same server,
 //!                          then switches back to the first
+//!   RV_SMOKE_BACKGROUND=<tag>  with RV_SMOKE_SECOND and RV_SMOKE_NOTIFY: once back on the
+//!                          first account, it sends the second one a direct message "<tag>";
+//!                          the second account, in the background, must notify it, and the
+//!                          notification's click must open the second account on that room
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
 //!   RV_SMOKE_SCHEDULE=<tag>  RocketVibe: types "scheduled <tag>", "Send later" must show; schedules
@@ -1802,6 +1806,9 @@ fn second_account(window: &Rc<AppWindow>, server: String, user: String, password
                 step.set(3);
                 check("switched back", w.chat.room_count() > 0, &session.info.username);
                 let (w, original, user) = (w.clone(), session.info.username.clone(), user.clone());
+                if let Ok(tag) = std::env::var("RV_SMOKE_BACKGROUND") {
+                    glib::spawn_future_local(background_checks(w.clone(), session.clone(), user.clone(), tag));
+                }
                 glib::timeout_add_local_once(Duration::from_millis(1000), move || {
                     check_rail_positions(&w, &[&original, &user], &original);
                 });
@@ -1809,6 +1816,46 @@ fn second_account(window: &Rc<AppWindow>, server: String, user: String, password
             _ => {}
         }
     });
+}
+
+/// The open account writes to the one in the background; the fake
+/// notification server answers and clicks the notification it raises, which
+/// must open the background account on that direct message.
+async fn background_checks(
+    window: Rc<AppWindow>,
+    session: std::sync::Arc<rv_core::session::Session>,
+    other: String,
+    tag: String,
+) {
+    let s = session.clone();
+    let created = crate::on_tokio(async move {
+        s.rest.post("im.create", rv_core::rest::CallOptions::body(serde_json::json!({"username": other}))).await
+    })
+    .await;
+    let rid = created.ok().and_then(|r| r.pointer("/room/_id").and_then(serde_json::Value::as_str).map(str::to_owned));
+    check("direct message with the background account", rid.is_some(), &rid);
+    let Some(rid) = rid else { return };
+    // The background account hears of the new room before its first message.
+    glib::timeout_future(Duration::from_millis(3000)).await;
+    let (s, r, text) = (session.clone(), rid.clone(), tag.clone());
+    let posted = crate::on_tokio(async move {
+        s.rest
+            .post("chat.postMessage", rv_core::rest::CallOptions::body(serde_json::json!({"roomId": r, "text": text})))
+            .await
+    })
+    .await;
+    check("message to the background account posted", posted.is_ok(), posted.as_ref().err());
+    for _ in 0..40 {
+        glib::timeout_future(Duration::from_millis(250)).await;
+        let open = window.chat.session().map(|s| s.info.username.clone());
+        if open.as_deref() != Some(session.info.username.as_str()) && window.chat.current_rid().as_deref() == Some(&rid)
+        {
+            check("the notification opened the background account on its room", true, &open);
+            return;
+        }
+    }
+    let open = window.chat.session().map(|s| s.info.username.clone());
+    check("the notification opened the background account on its room", false, (&open, window.chat.current_rid()));
 }
 
 /// Check the rendered tile order and selection after each account switch.

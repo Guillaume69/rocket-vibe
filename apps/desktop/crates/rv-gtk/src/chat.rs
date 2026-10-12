@@ -1594,9 +1594,7 @@ impl ChatPage {
         self.native_unread_after.replace(None);
         self.native_edit.replace(None);
         self.native_membership.replace(None);
-        if let Some(native) = self.native.take() {
-            native.shutdown();
-        }
+        self.native.take();
         self.search_button.set_sensitive(true);
         self.marked_button.set_sensitive(true);
         self.local_search_button.set_visible(session.is_some());
@@ -3361,7 +3359,7 @@ impl ChatPage {
         self.current.borrow().as_ref().map(|o| o.name.clone()).unwrap_or_default()
     }
 
-    fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+    pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
         let weak = Rc::downgrade(self);
         crate::call_window::open(&self.split, url, room, move |text| {
             if let Some(this) = weak.upgrade() {

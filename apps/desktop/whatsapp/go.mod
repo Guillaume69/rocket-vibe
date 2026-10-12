@@ -29,3 +29,7 @@ require (
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
+
+// Our fork (boubou666/whatsmeow, branch rocketvibe), so fixes and features
+// whatsmeow lacks (calls) can live there; it declares the upstream path.
+replace go.mau.fi/whatsmeow => github.com/boubou666/whatsmeow v0.0.0-20261007111105-c386243a72ba

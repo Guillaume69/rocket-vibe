@@ -123,7 +123,7 @@ Update this record with actual commands and evidence, never with intended result
 
 ## Primary references
 
-- [whatsmeow](https://github.com/tulir/whatsmeow): third-party Go linked-device protocol library, MPL-2.0. Calls are outside its implemented feature set.
+- [whatsmeow](https://github.com/tulir/whatsmeow): third-party Go linked-device protocol library, MPL-2.0. Calls are outside its implemented feature set (it sees call offers and can reject them). We build from our fork, [boubou666/whatsmeow](https://github.com/boubou666/whatsmeow) branch `rocketvibe`, chosen by the user so that fixes and calls can be done there.
 - [whatsmeow API](https://pkg.go.dev/go.mau.fi/whatsmeow): QR channel, event and send interfaces.
 - [Meta multi-device architecture](https://engineering.fb.com/2021/07/14/security/whatsapp-multi-device/): independent device keys and encrypted recent-history transfer.
 - [Meta Business Platform](https://www.postman.com/meta/whatsapp-business-platform/overview): separate professional messaging API, not a personal-account import.

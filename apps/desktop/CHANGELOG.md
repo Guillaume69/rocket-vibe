@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- Experimental GTK WhatsApp linked-device window with QR association, the existing native timeline and text composer, and a local encrypted session helper: contact and group names (a phone number and its LID make one conversation), profile photos, reactions, quoted replies, editing or deleting your own messages for everyone, unread counts shared with the phone, and delivered/read state on your messages. Available only when the helper is installed; release packaging is pending.
+- Experimental WhatsApp accounts on GTK: link a personal account by scanning a QR (Connect WhatsApp on the sign-in page) and use it like any other account, in the rail, room list and timeline, with notifications in the background. Contact and group names, profile photos, reactions, quoted replies, editing or deleting your own messages for everyone, unread counts shared with the phone, delivered/read state, and new conversations from your contacts or a number. Text only for now; it needs the WhatsApp helper installed beside the app, which release packages do not ship yet.
 
 ### Fixed
 

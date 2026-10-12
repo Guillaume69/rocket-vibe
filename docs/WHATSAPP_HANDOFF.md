@@ -1,37 +1,38 @@
-# WhatsApp linked-device pilot: agent handoff
+# WhatsApp accounts: agent handoff
 
 Date: 2026-10-12.
-Branch: `claude/whatsapp-feasibility`, based on `origin/master` at `089df389`. It continues `codex/whatsapp-feasibility`, whose work was left uncommitted in the Codex worktree when that session ended; the first commit imports it unchanged, the following ones fix and qualify it.
-Status: synthetic qualification complete (see the verification record); live WhatsApp qualification pending.
+Branch: `claude/whatsapp-feasibility`, based on `origin/master` at `089df389`. It continues `codex/whatsapp-feasibility`, whose work was left uncommitted in the Codex worktree when that session ended; the first commit imports it unchanged, the following ones fix it, then make WhatsApp an account of the GTK app.
+Status: linked and used live by the user on Windows (pilot window builds); the integrated account is checked by tests and the synthetic GTK smoke, its live check pending. Not merged into master, not released.
 
 ## Accepted direction and scope
 
-The user selected QR association with a personal WhatsApp account, reusing the app's native UI, and selected desktop first. They explicitly requested English documentation for another agent. Keep this work in its own worktree.
+The user chose QR association with a personal WhatsApp account, the app's native interface, desktop first, and whatsmeow (alternatives weighed: Baileys needs a Node runtime, a Rust port is less proven, an own implementation is out of reach). The user asked for the implementation "done properly" after the pilot, and said mobile follows: the Go engine is transport-free so that an Android `gomobile` binding can drive it. Keep this work in its own worktree; documentation in English.
 
-The first increment is a local **GTK text pilot**: display an actual QR produced by the connector, receive the supported recent history and live text, select conversations, send text, preserve an encrypted session and unlink it. Reuse `MessageList`, `Composer`, room tiles, styling and the existing system keychain integration.
-
-There is no authorization to claim a live pairing, merge this experimental pilot into master, release it, or expand it simultaneously to every platform. Do not manufacture an account, import a personal database, send messages to contacts, or check credentials into the repository for testing. Live acceptance requires a person to scan the QR in WhatsApp and authorize the chosen test conversation.
+Do not manufacture an account, import a personal database, send messages to contacts, or check credentials into the repository for testing. Live checks are the user's: they scan the QR with their own phone.
 
 ## Architecture and source map
 
 | Layer | Source | Responsibility |
 |---|---|---|
-| Go engine | `apps/desktop/whatsapp/engine.go` | whatsmeow association, protocol events, history, sends, reactions, edits and revocations, the command set; transport-free (`open` returns the engine and its closer, `handle` runs one command, frames go to a sink) so a mobile binding can drive it |
-| Go cache | `apps/desktop/whatsapp/store.go` | The engine's tables (`rv_messages`, `rv_reactions`, `rv_chat_names`, `rv_avatars`), migrations, pruning, LID to phone-number re-keying, replay |
+| Go engine | `apps/desktop/whatsapp/engine.go` | whatsmeow association, protocol events, history, sends, reactions, edits and revocations, the command set; transport-free (`open` returns the engine and its closer, `handle` runs one command, frames go to a sink) |
+| Go cache | `apps/desktop/whatsapp/store.go` | The engine's tables (`rv_messages`, `rv_reactions`, `rv_chat_names`, `rv_avatars`, `rv_chats`), migrations, pruning, LID to phone-number re-keying, replay |
 | Go identities | `apps/desktop/whatsapp/identity.go` | Canonical JIDs, the name table, group subjects |
-| Go photos | `apps/desktop/whatsapp/avatars.go` | Profile previews fetched one at a time, cached sealed for a week |
+| Go photos | `apps/desktop/whatsapp/avatars.go` | Profile previews (mine first) fetched one at a time, cached sealed for a week |
 | Go read state | `apps/desktop/whatsapp/reads.go` | Unread counts per chat, receipts on my messages, read receipts when a chat is read |
+| Go search | `apps/desktop/whatsapp/search.go` | Contacts, groups and typed numbers for new conversations |
 | Go transport | `apps/desktop/whatsapp/main.go` | stdin/stdout JSON lines for the desktop |
-| Encrypted state | `apps/desktop/whatsapp/vault.go` | In-memory SQLite, serialization, AES-GCM snapshots, atomic replace and revocation |
-| Rust adapter | `apps/desktop/crates/rv-core/src/whatsapp.rs` | Spawn and reap the child, bounded IPC, transient QR, in-memory native projection |
-| GTK pilot | `apps/desktop/crates/rv-gtk/src/whatsapp_pilot.rs` | QR screen, conversation selection, existing timeline and composer, drafts and pending sends, names and photos, message menu (quick reactions, copy, edit, delete for everyone) |
-| Keychain | `apps/desktop/crates/rv-gtk/src/secrets.rs` | Separate wrapping-key entry; missing key with existing state fails closed |
-| Entry points | `rv-gtk/src/main.rs`, `rv-gtk/src/login.rs` | Environment-selected pilot, and login shortcut when the sidecar is present |
-| Test child | `apps/desktop/crates/rv-core/tests/support/fake_whatsapp_sidecar.rs` | Synthetic QR, two conversations, names, a photo, a reaction, send, react and logout |
-| IPC tests | `apps/desktop/crates/rv-core/tests/whatsapp.rs` | Actual subprocess exchange and shutdown |
-| Go tests | `apps/desktop/whatsapp/vault_test.go` | Encrypted restoration and storage invariants, pruning, author-only edits and revocations, reaction replacement and retraction |
-
-The pilot does not extend `provider::Chat`, `Session`, `supervisor::Supervisor`, `ServerKind`, the persistent account list or `rv-ffi`. Those are the next integration seams, **not already completed**. The mobile driver factory currently contains only Rocket.Chat, RocketVibe, Mattermost and kChat. The web app remains a client of its serving RocketVibe origin.
+| Sealed state | `apps/desktop/whatsapp/vault.go` | In-memory SQLite, AES-GCM snapshots, atomic replace, revocation; restore through the backup API (a deserialized image cannot grow) |
+| Rust adapter | `apps/desktop/crates/rv-core/src/whatsapp.rs` | Spawn and reap the child, bounded IPC, snapshot, change signal, `whatsapp://` identity, state locations |
+| Account | `apps/desktop/crates/rv-core/src/whatsapp_session.rs` | `WaSession`: helper kept alive, room rows, timeline, sends and drafts, reads, notifications, unlink, expiry, connector handoff |
+| Provider | `apps/desktop/crates/rv-core/src/provider.rs` | `Chat::WhatsApp`: spotlight (search), events |
+| GTK chats | `apps/desktop/crates/rv-gtk/src/chat_whatsapp.rs` | The account in `ChatPage`: room list, timeline, composer, menu, photos, reads |
+| GTK linking | `apps/desktop/crates/rv-gtk/src/whatsapp_link.rs` | QR dialog for a new account, adoption of the pilot's linked device |
+| GTK window | `apps/desktop/crates/rv-gtk/src/window.rs` | Start, reload, notifications, unlink, expiry |
+| Keychain | `apps/desktop/crates/rv-gtk/src/secrets.rs` | One wrapping key per state; missing key with existing state fails closed; forgetting an unlinked account |
+| Test helper | `apps/desktop/crates/rv-core/tests/support/fake_whatsapp_sidecar.rs` | Synthetic QR (and its own "scan"), conversations, names, photos, a reaction, a reply, search, send, read, logout |
+| IPC tests | `apps/desktop/crates/rv-core/tests/whatsapp.rs` | Actual subprocess exchange, `WaSession` against the fake helper |
+| GTK smoke | `apps/desktop/crates/rv-gtk/src/smoke/whatsapp.rs`, `apps/desktop/scripts/smoke-whatsapp.sh` | The whole flow in the app under Xvfb |
+| Go tests | `apps/desktop/whatsapp/vault_test.go` | Sealed state, growth after a restore, pruning, author-only edits and revocations, reactions, unread counts and receipts, replies, numbers |
 
 ## Local IPC contract (version 1, experimental)
 
@@ -78,49 +79,42 @@ Photos: after each connection or `events.Picture`, a worker asks `GetProfilePict
 
 The Go cache stores send intents before their network attempt, and emits the record before that attempt. It turns surviving `sending` records into `uncertain` at startup, and never replays them automatically. The GTK window gives the text back as a draft only when the send provably never left: an `error` naming its id, the helper exited with no record of it, or a restarted helper replayed its cache without it. A stale error from another command never counts. An ambiguous network outcome is shown as unconfirmed rather than restoring a tempting duplicate-send draft.
 
-## Commands and synthetic UI checks
+## Commands and synthetic checks
 
-See `apps/desktop/whatsapp/README.md` for the build and real launch. From Windows PowerShell for the Rust gate:
+See `apps/desktop/whatsapp/README.md` for the helper's build. On this Windows machine the Rust gate runs in the Fedora container directly (see the project memory): `cargo fmt`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test -p rv-core --test whatsapp`, `cargo test -p rv-core --lib whatsapp`.
 
-```powershell
-$env:MSYS_NO_PATHCONV = '1'
-& 'C:\Program Files\Git\bin\bash.exe' apps/desktop/scripts/build.sh
-```
-
-A Linux synthetic render runs the compiled app and fake child in the Fedora image, with `RV_WHATSAPP_PILOT=1`, `RV_WHATSAPP_SMOKE=qr` or `chat`, `RV_WHATSAPP_SMOKE_SHOT=<output.png>`, Xvfb and `GSK_RENDERER=cairo`. The QR is explicitly invalid and the messages are fixtures. Chat mode uses the actual native composer to submit a synthetic message and asserts that the actual timeline row exists. An automatic capture must never run against a real linked account.
+`RV_CARGO_TARGET=/cargo/target-desktop apps/desktop/scripts/smoke-whatsapp.sh` runs the app under Xvfb with an unlocked keychain and the synthetic helper (`RV_WHATSAPP_HELPER`), which scans its own QR after `RV_FAKE_WHATSAPP_SCAN_MS`: Connect WhatsApp, QR dialog, account opened, names, unread count, messages, text-only composer, a send, my photo, a new conversation. Screenshots go to `.cache/whatsapp/`. An automatic capture must never run against a real linked account.
 
 ## Verification record
 
 2026-10-12, on `claude/whatsapp-feasibility`, Windows host with Docker Desktop:
 
-- Go: `apps/desktop/scripts/build-whatsapp.sh` (gofmt, `go vet`, `go test -race`, Linux build) passed; 8 tests, among them the skipped unchanged checkpoint and the cache pruning. `TARGET_OS=windows PROFILE=release` cross-builds `rv-whatsapp.exe` with mingw-w64; it imports only `KERNEL32.dll` and `msvcrt.dll`.
-- Rust, in `rocket-vibe-rs-build` with `CARGO_TARGET_DIR=/cargo/target-desktop`: `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` passed; `cargo test -p rv-core --lib whatsapp` (4), `--lib i18n` (4), `--test whatsapp` (3, real child process: pairing, send, refused send by id, unlink, stop) and `cargo test -p rocket-vibe-gtk --bins` (15) passed.
-- Synthetic render: `RV_CARGO_TARGET=/cargo/target-desktop apps/desktop/scripts/smoke-whatsapp.sh` printed `whatsapp smoke: native flow=true screenshot=true` for `qr` and `chat`; both screenshots were inspected (QR centred with instructions; the two fixture conversations, the received and the sent message in the native timeline, composer reduced to text). The inspection found the sent message's author empty, since fixed.
-- Windows test package: `gh workflow run desktop.yml --ref claude/whatsapp-feasibility` for the GTK app, the helper cross-built as above and copied beside `rocket-vibe-gtk.exe`. Launching it is a manual step; see "Live test on Windows" below.
-- Live, 2026-10-12, by the user on Windows with the package of run 38256657698 and the release helper: QR pairing succeeded and the conversations showed. The user reported phone numbers instead of names, no photos and no reactions; the following increment (engine split, name table, LID re-keying, photos, reactions, edits, deletions) answers that, checked by Go and Rust tests and the synthetic render (names, a decoded photo on the tile and the author, a reaction chip). Its live check is pending.
-- Not yet checked live: text delivery both ways, reconnect after process restart, remote unlink and upstream failure scenarios.
+- Go: `apps/desktop/scripts/build-whatsapp.sh` (gofmt, `go vet`, `go test -race`) passes; the tests cover the sealed state and its growth after a restore, pruning, author-only edits and revocations, reactions, unread counts and receipts, replies, phone numbers. `TARGET_OS=windows PROFILE=release` cross-builds `rv-whatsapp.exe` with mingw-w64; it imports only `KERNEL32.dll` and `msvcrt.dll`.
+- Rust, in `rocket-vibe-rs-build` with `CARGO_TARGET_DIR=/cargo/target-desktop`: `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` pass; `cargo test -p rv-core --lib whatsapp` (8), `--test whatsapp` (6, real child processes: pairing, send, refused send, react, unlink, stop; `WaSession` listing, reading, notifying only a new message, unlinking, ending when its state is gone, stopping without unlinking), `--test supervisor` (3) and `cargo test -p rocket-vibe-gtk --bins` (15) pass.
+- GTK smoke: `smoke-whatsapp.sh` passes every check (QR dialog, account opened and active, names, unread count, messages, text-only composer, a send, my photo, a new conversation found, opened and written to); `link.png` and `chat.png` inspected (rail tile, sections, badge, photos, reaction chip, quote card, Read under my message, account named WhatsApp).
+- Live, by the user on Windows: the first package (run 38256657698) paired and listed conversations, with numbers instead of names and no photos or reactions, which the next increments answer. Launching the second package (run 38267472381) found the helper unable to start on the state the first session sealed: SQLite's deserialized image could not grow ("database or disk is full"), so no linked device had ever survived a restart. Reproduced in Docker with the first helper's state, fixed (restore through the backup API), and the fixed helper restarted on the user's real state (the state grew from 1.29 to 1.55 MB as it synced).
+- Not yet checked live: the integrated account (run 38274025137 onwards), adoption of the pilot's device, notifications, unlinking, upstream failure scenarios.
 - macOS GTK runtime, SwiftUI, Android: absent. Web: `n/a`.
 
 Update this record with actual commands and evidence, never with intended results.
 
 ## Live test on Windows
 
-1. Unzip the `desktop-windows` artifact's portable zip under `D:\RocketVibe\artifacts\` and put `rv-whatsapp.exe` (`TARGET_OS=windows PROFILE=release apps/desktop/scripts/build-whatsapp.sh`, output in `apps/desktop/target/release/`) in its `bin\` folder, next to `rocket-vibe-gtk.exe`.
-2. In PowerShell: `$env:RV_WHATSAPP_PILOT = '1'; & '<folder>\bin\rocket-vibe-gtk.exe'`. The pilot has its own application id, so the installed RocketVibe may stay open. Without the variable, the sign-in page of a signed-out app offers Connect WhatsApp when the helper is present.
-3. Scan the QR from WhatsApp > Linked devices > Link a device. The key goes to Windows Credential Manager (service `me.barrut.RocketVibe`, entry `whatsapp-pilot-storage-v1`), the sealed state to `%LOCALAPPDATA%\rocket-vibe-rs\whatsapp-pilot\state.bin`.
-4. To start over: Unlink in the window (or remove the device from the phone, then Refresh). Deleting `state.bin` alone leaves the device linked on the phone's side.
+1. `gh workflow run desktop.yml --ref claude/whatsapp-feasibility` (one dispatch at a time: a second cancels the first), then `gh run download <id> -n desktop-windows` and unzip the portable zip under `D:\RocketVibe\artifacts\`.
+2. Build the helper of the same commit (`git archive <sha> apps/desktop/whatsapp`, then `TARGET_OS=windows PROFILE=release apps/desktop/scripts/build-whatsapp.sh` or the same cross-build in a scratch copy) and put `rv-whatsapp.exe` in the package's `bin\`, next to `rocket-vibe-gtk.exe`. A helper and an app of different commits mostly work (unknown frames are skipped) but say nothing about either.
+3. Launch `bin\rocket-vibe-gtk.exe`. A device linked by an earlier pilot build is adopted at startup as an account; otherwise Connect WhatsApp on the sign-in page (or the rail's +, then the sign-in page) shows the QR. The key goes to Windows Credential Manager (service `me.barrut.RocketVibe`, entry `whatsapp-storage-v1|<state>`, or `whatsapp-pilot-storage-v1` for the adopted one), the sealed state to `%LOCALAPPDATA%\rocket-vibe-rs\whatsapp\<state>\` (`whatsapp-pilot\` for the adopted one).
+4. To start over: the account menu's Unlink WhatsApp (or remove the device on the phone). Deleting the state alone leaves the device linked on the phone's side.
 
 ## Known limitations and next work
 
-1. Qualify on a dedicated, human-authorized WhatsApp account: association; a known recent conversation; inbound and outbound text; app restart with the phone offline; normal unlink; unlink from the phone; interrupted sends. Keep only sanitized evidence. Not yet rendered: QR expiry, failed startup, an uncertain send and closing while connecting (the logic is in `whatsapp_pilot.rs`, the unit and IPC tests cover the snapshot side only).
-2. Package the helper: `package-windows.sh` and the installer do not ship `rv-whatsapp.exe`, nor the Linux and macOS bundles their helper; add its build to `desktop.yml`, with whatsmeow's MPL-2.0 notice, before any public release.
-3. Make identifier normalization explicit: PN and LID aliases can represent one person. The current pilot can split a conversation when upstream identity forms change. Contact/group renaming, unread counters, read/delivery receipts, mutations and a complete historical backfill are not qualified.
-4. The pilot excludes view-once and disappearing message content. It does not yet qualify outgoing behavior in a disappearing chat, nor guarantee deletion/edit reconciliation. Keep it experimental until retention and remote mutations are handled correctly.
-5. Qualify snapshot durability during a crash and keychain loss, and concurrent restore failures. The encrypted-file limit is 128 MiB; exceeding it stops the connection instead of silently discarding state. The in-memory database lives on database/sql's single pooled connection: a driver returning `ErrBadConn` would drop it and the session with it (not observed).
-6. Add explicit user-facing states for missing helper, locked keychain, corrupt encrypted state (today the only way out is deleting `state.bin`), simultaneous process and network failure. Current startup error text groups these cases.
+1. Live-check the integrated account on Windows: adoption of the pilot's device, notifications in the background, unlink from the menu and from the phone, a restart with the phone offline, an interrupted send.
+2. Media: images, files, voice notes and stickers, received (download and decrypt on demand into the account's private cache, cleared on unlink, like the other accounts' attachment copies) then sent. The timeline's image and file rows need a third `media::Provider` for bytes from the helper.
+3. Typing and presence (`SendPresence`, `SubscribePresence`, chat presence events), and the rail tile's photo for the account.
+4. Ship the helper in `desktop.yml` packages (Windows mingw cross-build or MSYS2, Linux, macOS), with whatsmeow's MPL-2.0 notice.
+5. The pilot excludes view-once and disappearing message content; outgoing behaviour in a disappearing chat is not handled.
+6. Qualify snapshot durability during a crash and keychain loss. The encrypted-file limit is 128 MiB; exceeding it stops the connection instead of silently discarding state. The in-memory database lives on database/sql's single pooled connection: a driver returning `ErrBadConn` would drop it (not observed).
 7. A send blocks the helper's command loop for up to 45 s; a Stop during it is answered after the send, and the adapter kills the helper after 5 s, leaving the send `uncertain` at the next start.
-8. Integrate a dedicated account/session variant with the normal rail and supervisor, preserving provider separation. Do not pretend WhatsApp is a Rocket.Chat REST backend. Capabilities must hide unsupported threads, server administration, calls, media, search and scheduling.
-9. After the desktop increment is live-qualified, design the SwiftUI facade and Android native embedding/background notification model. A server relay would change the privacy boundary and needs a separate decision.
+8. SwiftUI facade (the FFI filters WhatsApp accounts out today), then Android through a `gomobile` binding of the engine, with a foreground service to receive in the background (WhatsApp sends no push to a linked device) or a relay, which is a separate privacy decision.
 
 ## Primary references
 

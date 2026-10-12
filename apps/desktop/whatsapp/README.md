@@ -1,8 +1,8 @@
-# Local WhatsApp desktop pilot
+# WhatsApp helper
 
-Status: experimental GTK pilot on `claude/whatsapp-feasibility` (continuing `codex/whatsapp-feasibility`). Real-account qualification is pending. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
+Status: experimental, on `claude/whatsapp-feasibility` (continuing `codex/whatsapp-feasibility`). A WhatsApp account is an account of the GTK app; this is the local helper behind it. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
 
-This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), with RocketVibe's existing GTK message list and composer. It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or RocketVibe server relay.
+This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), driven by the app's `WaSession` (`rv-core/src/whatsapp_session.rs`). It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or RocketVibe server relay.
 
 ## Build and launch
 
@@ -13,23 +13,24 @@ From the repository root, in Bash:
 apps/desktop/scripts/build-whatsapp.sh
 apps/desktop/scripts/build.sh
 
-RV_WHATSAPP_PILOT=1 apps/desktop/target/debug/rocket-vibe-gtk
+# The Windows helper (mingw-w64 cross build):
+TARGET_OS=windows PROFILE=release apps/desktop/scripts/build-whatsapp.sh
 ```
 
 The Go script builds a **Linux** sidecar in Docker. It pins whatsmeow and its dependencies in `go.mod` and `go.sum`; Go 1.26.0 is required and downloaded into the dedicated Docker volume through Go's toolchain mechanism. SQLite uses a compiled native driver (CGO). The Rust app still builds through the existing Fedora script.
 
-The installed executable locates `rv-whatsapp` (`rv-whatsapp.exe` on Windows) beside itself. If that file is present, the ordinary GTK login page also offers **Connect WhatsApp**, which opens a secondary native window. The pilot has one local WhatsApp slot, separate from the ordinary account rail.
+The app locates `rv-whatsapp` (`rv-whatsapp.exe` on Windows) beside itself, or the path in `RV_WHATSAPP_HELPER`. If it is there, the sign-in page offers **Connect WhatsApp**, which shows the QR; each linked account gets its own helper process and state.
 
-Windows sidecar compilation, Windows GTK packaging, macOS SwiftUI and Android embedding are not supplied by this script. Do not call this a Windows-ready integration solely because the Rust adapter has a Windows process flag.
+Release packages do not ship the helper yet; macOS SwiftUI and Android embedding are not there.
 
 On Linux, an unlocked Secret Service is necessary for real linking. On Windows/macOS the GTK implementation uses the corresponding system keychain. Unavailable secure storage fails closed. Do not replace that with a plaintext key file or an environment variable.
 
 ## State and privacy
 
-- The GTK system keychain stores a separate 32-byte wrapping key under `whatsapp-pilot-storage-v1`.
+- The system keychain stores a separate 32-byte wrapping key per account, under `whatsapp-storage-v1|<state>` (`whatsapp-pilot-storage-v1` for the device the earlier pilot window linked).
 - Initialization passes that key through the child's private stdin, never arguments or environment variables.
 - The child keeps its SQLite database in memory. It serializes and seals the database with AES-256-GCM, using a fresh nonce and an authenticated version header.
-- The persistent state is `<user-data>/rocket-vibe-rs/whatsapp-pilot/state.bin`. It contains encrypted device keys, protocol state and the text cache. A native OS lock prevents simultaneous writers.
+- The persistent state is `<user-data>/rocket-vibe-rs/whatsapp/<state>/state.bin` (`whatsapp-pilot/state.bin` for the adopted pilot device). Restoring it copies the image into the in-memory database through SQLite's backup API: a deserialized image cannot grow. It contains encrypted device keys, protocol state and the text cache. A native OS lock prevents simultaneous writers.
 - The QR payload exists only in the current process and expires in the UI. It is never written to a log, documentation or a fixture.
 - Stop checkpoints the state; successful unlinking removes the ciphertext and clears the UI projection. The wrapping key may remain in the keychain for a later association.
 - Checkpoints run once per second, when the database changed, and before an outbound request. Atomic replacement protects the previous file, but the last second of received protocol state can be lost in a crash.

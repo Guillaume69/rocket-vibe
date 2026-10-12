@@ -191,6 +191,14 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   hands to WebRTC's audio processing module itself (its own mix). On Linux cpal speaks
   PulseAudio's protocol in pure Rust (PipeWire serves it): its PipeWire host would link
   libpipewire, which libwebrtc's stubs shadow (see `rv-screen-audio`).
+- **The sidecar's streams ask for 32-bit float, not the device's native format.** cpal's
+  PulseAudio host reports a sink's hardware format as its default; a USB output under
+  PipeWire reported `s24le`, which the sidecar did not convert, so its speakers never
+  opened while its microphone (16-bit) did: the room heard the person, who heard nothing,
+  with no word of it (the error went to a stderr rv-core discarded, and `device_not_found`
+  showed nothing). Float is what WASAPI's shared mode and CoreAudio already gave, and the
+  sound server converts. A device that still fails to open is now a notice and a log line
+  (rv-core passes the sidecar's stderr through).
 - **RNNoise for noise removal, the same port on both apps.** `nnnoiseless` is Rust, BSD,
   with its model built in; WebRTC's own suppression is gentler, and Krisp needs LiveKit
   Cloud. It runs after the echo canceller on desktop; on Android it runs on the captured

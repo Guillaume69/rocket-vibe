@@ -15,7 +15,7 @@ import { ValidationError } from '../../lib/uploadQueue.ts';
 import { describeProviderError } from '../../lib/providerError.ts';
 import type { Store } from '../../lib/sync.ts';
 import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
-import { parseFrame, type WaFrame } from './frames.ts';
+import { fallbackName, parseFrame, type WaFrame } from './frames.ts';
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
@@ -116,6 +116,11 @@ export class WhatsAppAccount {
       for (const listener of this.typing) listener(event);
       return;
     }
+    if (frame.type === 'found') {
+      this.searches.get(frame.id)?.(frame.people ?? []);
+      this.searches.delete(frame.id);
+      return;
+    }
     if (frame.type === 'file') {
       this.downloads.get(frame.id)?.resolve(frame.path ?? '');
       this.downloads.delete(frame.id);
@@ -130,6 +135,21 @@ export class WhatsAppAccount {
       return;
     }
     this.projection.apply(frame);
+  }
+
+  /** Searches answered by the engine's `found` frames, by request id. */
+  private readonly searches = new Map<string, (people: { jid: string; name: string }[]) => void>();
+
+  /** The phone's contacts and groups matching a name, or the person behind a number WhatsApp confirms. */
+  search(text: string): Promise<{ jid: string; name: string }[]> {
+    const id = Math.random().toString(16).slice(2, 18);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.searches.delete(id); reject(new WhatsAppError('search_failed')); }, 20_000);
+      this.searches.set(id, (people) => { clearTimeout(timer); resolve(people); });
+      this.command({ type: 'search', id, text }).then((running) => {
+        if (!running) { this.searches.delete(id); clearTimeout(timer); reject(new WhatsAppError('not_connected')); }
+      }, () => { this.searches.delete(id); clearTimeout(timer); reject(new WhatsAppError('not_connected')); });
+    });
   }
 
   /** A message's attachment as a local file path, downloaded and decrypted by the engine on first use. */
@@ -240,8 +260,13 @@ export function createWhatsAppProvider(
       pin: unsupported, unpin: unsupported, star: unsupported,
       listPinned: async () => [], listStarred: async () => [],
       markRead: (rid) => run({ type: 'read', chat: rid }),
-      // A chat is its JID: a contact's opens before its first message.
-      openOrCreateDm: async (username, uid) => ({ rid: uid ?? username, rawRoom: {} }),
+      // A chat is its JID: a contact's is listed before its first message, so its screen has a room.
+      openOrCreateDm: async (username, uid) => {
+        // From a search: `uid` is the JID and `username` the name found for it.
+        const jid = uid ?? username;
+        await projection.startChat(jid, uid !== undefined ? username : undefined);
+        return { rid: jid, rawRoom: {} };
+      },
     },
     initialSubscriptions: () => [], roomSubscriptions: () => [],
     // The engine replays its whole cache: there is no older page to ask for.
@@ -258,6 +283,10 @@ export function createWhatsAppProvider(
     }),
     createUploadQueue: () => files,
     catchUpGlobal: async () => {}, catchUpRoom: async () => {}, reconcile: async () => {},
+    searchPeople: async (query) => (await account.search(query)).map((person) => ({
+      id: person.jid, name: person.name || fallbackName(person.jid),
+      detail: person.jid.endsWith('@g.us') ? labels.group : fallbackName(person.jid),
+    })),
     setTyping: (rid, active) => {
       const now = Date.now();
       if (active && typingSent?.rid === rid && now - typingSent.at < TYPING_REPEAT_MS) return;

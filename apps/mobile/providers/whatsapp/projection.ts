@@ -17,6 +17,8 @@ import { FATAL_ERRORS, fallbackName, isGroup, type WaFrame, type WaMessage } fro
 export type WaLabels = {
   me: string;
   deleted: string;
+  /** What a group is called in a search result. */
+  group: string;
   /** An attachment's label: `image`, `voice`, `document`… */
   kind(kind: string): string;
 };
@@ -69,6 +71,8 @@ export class WhatsAppProjection {
   /** JID → the version of its photo (`lib/whatsappFiles.ts`), `none` once removed. */
   private readonly photos = new Map<string, string>();
   private readonly dirtyPeople = new Set<string>();
+  /** Chats opened before their first message, listed from then. */
+  private readonly started = new Map<string, number>();
   /** The name each sender gave themselves (push name), for people the names table does not know. */
   private readonly authors = new Map<string, string>();
   private readonly dirtyMessages = new Set<string>();
@@ -160,6 +164,18 @@ export class WhatsAppProjection {
     }
   }
 
+  /**
+   * A chat opened before its first message (a new conversation): listed now,
+   * so its screen has a room to show; resolves once it is written.
+   */
+  startChat(jid: string, name?: string): Promise<void> {
+    if (name && !this.names.has(jid) && name !== fallbackName(jid)) this.names.set(jid, name);
+    if (!this.last.has(jid) && !this.started.has(jid)) this.started.set(jid, Date.now());
+    this.mark(this.dirtyRooms, jid);
+    this.mark(this.dirtySubscriptions, jid);
+    return this.flush();
+  }
+
   /** Writes what changed now; resolves once it is in the database. */
   flush(): Promise<void> {
     this.writing = this.writing.then(() => this.write()).catch(() => {});
@@ -168,9 +184,11 @@ export class WhatsAppProjection {
 
   private onMessage(m: WaMessage): void {
     this.messages.set(m.id, m);
-    if (!m.mine && m.author && this.authors.get(m.sender) !== m.author) {
-      this.authors.set(m.sender, m.author);
-      if (this.photos.has(m.sender)) this.mark(this.dirtyPeople, m.sender);
+    // Each sender's row in `users` names them in the timeline: written once a
+    // session, and again when their name changes, photo or not.
+    if (!m.mine && m.sender !== '' && !isGroup(m.sender) && (!this.authors.has(m.sender) || (m.author && this.authors.get(m.sender) !== m.author))) {
+      this.authors.set(m.sender, m.author || this.authors.get(m.sender) || '');
+      this.mark(this.dirtyPeople, m.sender);
     }
     this.mark(this.dirtyMessages, m.id);
     const last = this.last.get(m.chat);
@@ -191,7 +209,7 @@ export class WhatsAppProjection {
     }
     if (changed.size === 0) return;
     for (const chat of this.last.keys()) if (changed.has(chat)) this.mark(this.dirtyRooms, chat);
-    for (const jid of changed) if (this.photos.has(jid) && !isGroup(jid)) this.mark(this.dirtyPeople, jid);
+    for (const jid of changed) if ((this.photos.has(jid) || this.authors.has(jid)) && !isGroup(jid)) this.mark(this.dirtyPeople, jid);
     for (const m of this.messages.values()) if (!m.mine && changed.has(m.sender)) this.mark(this.dirtyMessages, m.id);
   }
 
@@ -212,7 +230,8 @@ export class WhatsAppProjection {
 
   private async write(): Promise<void> {
     const messages = [...this.dirtyMessages].map((id) => this.messages.get(id)).filter((m) => m !== undefined);
-    const rooms = [...this.dirtyRooms].filter((chat) => this.last.has(chat));
+    const listed = (chat: string) => this.last.has(chat) || this.started.has(chat);
+    const rooms = [...this.dirtyRooms].filter(listed);
     const subscriptions = [...this.dirtySubscriptions];
     const people = [...this.dirtyPeople];
     this.dirtyMessages.clear(); this.dirtyRooms.clear(); this.dirtySubscriptions.clear(); this.dirtyPeople.clear();
@@ -222,7 +241,7 @@ export class WhatsAppProjection {
       await this.store.transaction(async (tx) => {
         // Rooms first: a message or a subscription of a room the list has not got is not shown.
         for (const chat of rooms) await tx.upsertRoom(this.roomRow(chat));
-        for (const chat of subscriptions) if (this.last.has(chat)) await tx.upsertSubscription(this.subscriptionRow(chat));
+        for (const chat of subscriptions) if (listed(chat)) await tx.upsertSubscription(this.subscriptionRow(chat));
         for (const m of messages) await tx.upsertMessage(this.messageRow(m));
       });
     }
@@ -342,7 +361,7 @@ export class WhatsAppProjection {
       encrypted: false, readOnly: false,
       dmOtherUid: group ? null : chat, dmOtherUsername: group ? null : chat,
       lastMessage: last ? this.words(last).replace(/\n/g, ' ') : null,
-      lastMessageType: null, lastMessageTs: last?.ts ?? null, avatarEtag: this.photos.get(chat) ?? null,
+      lastMessageType: null, lastMessageTs: last?.ts ?? this.started.get(chat) ?? null, avatarEtag: this.photos.get(chat) ?? null,
       updatedAt: this.tick(),
     };
   }

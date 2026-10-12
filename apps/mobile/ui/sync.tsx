@@ -221,7 +221,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           written.set(jid,uri);
         };
         const provider = createWhatsAppProvider(session,store,WhatsApp,{
-          me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'),
+          me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'), group:translateCurrent('wa.group'),
           kind:(kind)=>WHATSAPP_KINDS.has(kind)?translateCurrent(`wa.kind.${kind}` as TranslationKey):kind,
         },()=>Crypto.getRandomBytes(16),writePhoto,async (file, id) => {
           // A copy the engine reads by path; a recorded note becomes a real voice note.

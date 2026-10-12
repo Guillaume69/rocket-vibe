@@ -29,7 +29,7 @@ function fakeStore(known: string[] = []) {
   };
 }
 
-const labels = { me: 'Me', deleted: 'This message was deleted', kind: (k: string) => `[${k}]` };
+const labels = { me: 'Me', deleted: 'This message was deleted', group: 'Group', kind: (k: string) => `[${k}]` };
 const me = { userId: '33600000000@s.whatsapp.net', username: '33600000000@s.whatsapp.net' };
 const message = (over: Partial<WaMessage>): WaFrame => ({ type: 'message', message: {
   id: 'alice@s.whatsapp.net:1', chat: 'alice@s.whatsapp.net', name: 'alice', sender: 'alice@s.whatsapp.net',
@@ -190,4 +190,26 @@ test('a reply carries the quoted message as a quote block, from the cache when i
   assert.equal(fake.messages.get('alice@s.whatsapp.net:R')!.text, 'La réponse');
   const uncached = JSON.parse(fake.messages.get('alice@s.whatsapp.net:S')!.attachments!)[0];
   assert.deepEqual([uncached.author_name, uncached.text], ['Me', 'what I said']);
+});
+
+test('a conversation started before its first message is listed with the name found, then becomes an ordinary chat', async () => {
+  const { p, fake } = projection();
+  await p.startChat('bob@s.whatsapp.net', 'Bob Martin');
+  const room = fake.rooms.get('bob@s.whatsapp.net')!;
+  assert.deepEqual([room.displayName, room.lastMessage, room.type], ['Bob Martin', null, 'd']);
+  assert.ok(room.lastMessageTs !== null);
+  assert.equal(fake.subscriptions.get('bob@s.whatsapp.net')!.open, true);
+  p.apply(message({ id: 'bob@s.whatsapp.net:1', chat: 'bob@s.whatsapp.net', sender: 'me', mine: true, text: 'Salut', ts: 5 }));
+  await p.flush();
+  assert.equal(fake.rooms.get('bob@s.whatsapp.net')!.lastMessage, 'Salut');
+});
+
+test('every sender gets a users row naming them, photo or not, so an old row naming them by JID is replaced', async () => {
+  const { p, fake } = projection();
+  p.apply(message({ id: 'a@s.whatsapp.net:1', chat: 'a@s.whatsapp.net', sender: 'a@s.whatsapp.net', author: '' }));
+  await p.flush();
+  assert.deepEqual([fake.people.get('a@s.whatsapp.net')!.username, fake.people.get('a@s.whatsapp.net')!.avatarEtag], ['+a', null]);
+  p.apply({ type: 'names', names: { 'a@s.whatsapp.net': 'Julie' } });
+  await p.flush();
+  assert.equal(fake.people.get('a@s.whatsapp.net')!.username, 'Julie');
 });

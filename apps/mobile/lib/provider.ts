@@ -412,6 +412,12 @@ export interface Provider {
   readonly admin?: import('./admin.ts').ProviderAdmin;
   /** Reporting a message or an account, when `capabilities.reports`. */
   readonly reports?: import('./admin.ts').ProviderReports;
+  /**
+   * People and groups to start a conversation with, by name or number, when
+   * the protocol answers that itself (WhatsApp: the phone's contacts and
+   * groups, or a number WhatsApp confirms). `id` opens with `openOrCreateDm(id, id)`.
+   */
+  searchPeople?(query: string): Promise<{ id: string; name: string; detail: string }[]>;
   /** Says I am typing in a room (`active`) or stopped, where the protocol carries it outside the native runner (WhatsApp). */
   setTyping?(rid: string, active: boolean): void;
   /** Messages the server sends later, when `capabilities.scheduledMessages` (`lib/scheduled.ts`). */

@@ -31,7 +31,9 @@ import { Tappable } from '../ui/tappable.tsx';
 type User = { _id: string; username?: string; name?: string };
 /** `fname`: the display name a channel shows in the list, when it differs from its slug. */
 type PublicRoom = { _id: string; name?: string; fname?: string; t?: string };
-type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[] };
+/** Someone found by the account's own search (`Provider.searchPeople`, WhatsApp): a name and what tells them apart. */
+type Person = { id: string; name: string; detail: string };
+type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[]; people?: Person[] };
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
 const NO_RESULT: SpotlightResponse = {};
@@ -81,6 +83,7 @@ function Search({
 
   const searchSpotlight = useCallback(
     async (clean: string): Promise<SpotlightResponse> => {
+      if (provider.searchPeople) return { people: await provider.searchPeople(clean) };
       if (!provider.native) return client.get<SpotlightResponse>('spotlight', { params: { query: clean } });
       const [users,page] = await Promise.all([provider.native.chat.users(),provider.native.chat.publicRooms(clean)]);
       return {users: users.filter(user => user.id !== client.auth?.userId &&
@@ -125,6 +128,25 @@ function Search({
     [actions, openRoom, setMessage, t],
   );
 
+  const startWith = useCallback(
+    async (person: Person) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setBusy(true);
+      setMessage(null);
+      try {
+        const { rid, rawRoom } = await actions.openOrCreateDm(person.name, person.id);
+        await openRoom(Object.keys(rawRoom).length > 0 ? rawRoom : undefined, rid);
+      } catch (e) {
+        setMessage(e instanceof Error ? e.message : t('search.conversationFailed'));
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    },
+    [actions, openRoom, setMessage, t],
+  );
+
   const joinChannel = useCallback(
     async (room: PublicRoom) => {
       if (inFlight.current) return;
@@ -152,8 +174,10 @@ function Search({
 
   type Row =
     | { type: 'user'; user: User }
-    | { type: 'channel'; room: PublicRoom };
+    | { type: 'channel'; room: PublicRoom }
+    | { type: 'person'; person: Person };
   const rows: Row[] = [
+    ...(results.people ?? []).map((person) => ({ type: 'person', person }) as Row),
     ...(results.users ?? []).map((user) => ({ type: 'user', user }) as Row),
     ...(results.rooms ?? []).map((room) => ({ type: 'channel', room }) as Row),
   ];
@@ -178,9 +202,26 @@ function Search({
       )}
       <FlatList
         data={rows}
-        keyExtractor={(l) => (l.type === 'user' ? `u-${l.user._id}` : `c-${l.room._id}`)}
+        keyExtractor={(l) => (l.type === 'user' ? `u-${l.user._id}` : l.type === 'person' ? `p-${l.person.id}` : `c-${l.room._id}`)}
         renderItem={({ item }) =>
-          item.type === 'user' ? (
+          item.type === 'person' ? (
+            <View style={styles.rowWrapper}>
+              <Tappable
+                onPress={() => void startWith(item.person)}
+                disabled={busy}
+                android_ripple={{ color: c.ripple }}
+                unstable_pressDelay={LIST_PRESS_DELAY}
+                style={styles.row}
+              >
+                <View>
+                  <Text style={[styles.name, { color: c.text }]}>{item.person.name}</Text>
+                  {item.person.detail !== item.person.name && (
+                    <Text style={[styles.detail, { color: c.dimmed }]}>{item.person.detail}</Text>
+                  )}
+                </View>
+              </Tappable>
+            </View>
+          ) : item.type === 'user' ? (
             <View style={styles.rowWrapper}>
               <Tappable
                 onPress={() => void startDm(item.user)}

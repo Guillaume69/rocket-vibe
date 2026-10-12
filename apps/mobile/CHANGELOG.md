@@ -20,6 +20,7 @@ release, and its notes are that version's section here.
 - Commit optimistic messages and their outbox entries together, so a failed queue write leaves no orphaned message.
 - Keep Rocket.Chat, Mattermost and kChat HTTP deadlines and cancellation active until the response body finishes.
 - Recover Mattermost and kChat sends by a persistent operation marker. Ambiguous legacy matches remain visible for manual retry instead of silently discarding a new identical message.
+- Fold room-list sections (unread, favorites, rooms, direct messages, sidebar categories) per account instead of across every server. Each signed-in account starts from the folds shared before, once, and signing out drops the account's folds.
 
 ## [0.13.0] - 2026-10-11
 

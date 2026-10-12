@@ -20,6 +20,7 @@ section here.
 - Recover Mattermost and kChat sends by a persistent operation marker; keep ambiguous legacy matches visible for manual retry.
 - Scope GTK attachment and image caches by account, clear local attachment copies on sign-out, and reject late downloads from closed sessions.
 - Give SwiftUI attachment copies a private session directory and delete them when the session ends.
+- Fold room-list sections (unread, favorites, channels, direct messages, sidebar categories) per account instead of across every server, on GTK and SwiftUI. Each signed-in account starts from the folds shared before, once; a removed account's folds are dropped.
 
 ## [0.16.0] - 2026-10-11
 

@@ -349,7 +349,7 @@ beta does.
 
 ## Open debt
 
-- **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Mobile and SwiftUI owe the whole account (the Go engine is meant for a `gomobile` binding on Android). Web is `n/a` (serving origin only).
+- **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Mobile and SwiftUI owe the whole account (the Go engine is built for Android and runs in its Expo module; the provider and screens are not done on Android). Web is `n/a` (serving origin only).
 
 Mattermost/kChat protected-copy isolation and logout cleanup are implemented on mobile, GTK and SwiftUI. Automatic revocation of kChat's account-wide Infomaniak OAuth token remains unqualified on all three; local sign-out does not claim that token is invalidated.
 

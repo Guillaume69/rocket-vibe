@@ -24,7 +24,7 @@ SwiftUI: missing (the FFI filters WhatsApp accounts out of the shared keychain i
 
 ## Mobile
 
-Missing; designed in [the Android design](../../docs/WHATSAPP_ANDROID.md). The same Go engine, split into a library and bound with `gomobile` into an AAR, owned by a Kotlin singleton the JS provider attaches to; linking by phone-number code rather than QR, since the primary WhatsApp usually runs on the same phone; background reception only through an opt-in foreground service, since WhatsApp sends no push to a linked device.
+Missing; designed in [the Android design](../../docs/WHATSAPP_ANDROID.md). The same Go engine, built by Gradle as a C shared library (`apps/desktop/whatsapp/mobile`, `librv_whatsapp.so`, Go needed on the build machine) and loaded through JNA by the Expo module `apps/mobile/modules/whatsapp` (done: `WhatsAppEngines`, one engine per state under `noBackupFilesDir/whatsapp/`, its key wrapped by an Android Keystore key, frames to JS as `frame` events; proved on an emulator by `WhatsAppEngineTest`), owned by that Kotlin singleton the JS provider attaches to (provider and screens not done); linking by phone-number code rather than QR, since the primary WhatsApp usually runs on the same phone; background reception only through an opt-in foreground service, since WhatsApp sends no push to a linked device.
 
 ## Web
 

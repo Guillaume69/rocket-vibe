@@ -10,14 +10,16 @@ A personal WhatsApp account linked to the phone as a WhatsApp linked device, liv
 
 The desktop's Go engine (whatsmeow from the fork `boubou666/whatsmeow`, the sealed in-memory SQLite vault, the event queue, the frame vocabulary) is reused as is. Nothing about WhatsApp is reimplemented in Kotlin or TypeScript.
 
-1. **Go, `gomobile bind`.** The engine is `package main` today (`apps/desktop/whatsapp/engine/engine.go`), with `open` and `handle` unexported. It splits into:
-   - `engine/` (done): everything but the transport, exporting only gomobile-legal types (`engine/api.go`): `Open(path string, key []byte, sink Sink) (*Device, error)`, `(*Device).Connect()`, `Handle(line string) bool`, `Cancel()`, `Close()`, and `Sink interface { Frame(frame string) }`. gomobile binds this package directly into the AAR;
-   - the module root: the desktop helper (`main.go`), unchanged on the wire (JSON lines over stdin/stdout).
+1. **Go, a C shared library** (done). The module splits into:
+   - `engine/`: everything but the transport, exported by `engine/api.go`: `Open(path string, key []byte, sink Sink) (*Device, error)`, `(*Device).Connect()`, `Handle(line string) bool`, `Cancel()`, `Close()`, `Sink interface { Frame(frame string) }`, `ErrBusy`;
+   - the module root: the desktop helper (`main.go`), unchanged on the wire (JSON lines over stdin/stdout);
+   - `mobile/`: `librv_whatsapp.so`, four C functions (`rvwa_open` with the frame callback, answering a handle, -1 when another engine holds the state, -2 otherwise; `rvwa_connect`; `rvwa_handle`, 1 while running; `rvwa_close`), driven by `mobile/testdata/harness.c` the way Kotlin drives it.
+   Chosen over `gomobile bind`: it follows `crypto-native` (a `.so` loaded through JNA, built by a Gradle `Exec` task with the NDK's clang) and needs no gomobile toolchain nor `golang.org/x/mobile` in the module.
    The frames stay JSON strings, so the mobile side parses exactly the vocabulary `rv-core/src/whatsapp.rs` parses (`message`, `names`, `avatar`, `reaction`, `reload`, `chat`, `account`, `found`, `file`, `typing`, `qr`, `pairing_code`, `status`, `error`, `sent`) and skips unknown ones. The `replay` command (done) re-emits the cached projection after a `reload` frame, for a JS side that attaches to an engine already running. Once two apps depend on it, the module moves out of `apps/desktop/` to a shared root directory, like `crates/`.
 2. **Kotlin, `modules/whatsapp/`** (local Expo module, autolinked like `modules/voice/`):
    - `WhatsAppEngines`, a process singleton holding one engine per state id. The engine takes an exclusive file lock (`engine.go` `flock`), so JS and the service must share this one instance. It outlives JS reloads, account switches and `SyncProvider` cleanup; only unlink, logout and the user's "stop" end it.
    - `WhatsAppService`, a foreground service that keeps the engines alive in the background (see Background).
-   - The module API to JS: `start(stateId)`, `handle(stateId, command)`, `stop(stateId)`, and an `Events("frame")` event carrying `{stateId, json}`, the pattern of `VoiceModule.kt`.
+   - The module API to JS (done, `modules/whatsapp/index.ts`): `newState()`, `running()`, `start(state)`, `handle(state, command)`, `stop(state)`, `forget(state)`, and an `Events("frame")` event carrying `{state, frame}`, the pattern of `VoiceModule.kt`; failures reach JS as `whatsapp_busy`, `whatsapp_key_missing`, `whatsapp_start_failed` only.
    - Notifications posted from Kotlin, from frames, while JS is not attached (see Notifications).
 3. **TypeScript, `providers/whatsapp/`** on the template of `providers/rocketvibe/index.ts`: the provider owns its runner, fakes the `Listener` (state from the engine's `status`), has no-op catch-ups and `reconcile`, and a store that writes the shared tables from frames. `ProviderKind` gains `whatsapp` (`lib/provider.ts`), with a clause in `providers/index.ts`, `lib/sessionTransport.ts` (resume is a no-op, logout sends `logout`), `ui/serverRail.tsx` (unread from the engine's `chat` frames) and `ui/sync.tsx` (a branch beside the RocketVibe one).
 
@@ -63,10 +65,11 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 
 ## Build
 
-- A Gradle `Exec` task in `modules/whatsapp/android/build.gradle` runs `gomobile bind -target=android/arm64,android/amd64 -androidapi 24 -tags sqlite_unlock_notify` (the vault panics without the tag, `tags.go`) against the NDK already pinned for `crypto-native`, following `reactNativeArchitectures` (`arm64-v8a,x86_64`), and the AAR is consumed with `implementation files(...)`.
-- 16 KB pages: `-ldflags=-extldflags=-Wl,-z,max-page-size=16384`, checked with `llvm-readelf -l` in CI.
-- CI (`mobile.yml`) adds Go (from `go.mod`, which asks 1.26) and gomobile; the licence notice (`licenses.sh`) ships in the APK's assets and is reachable from About.
-- Size: whatsmeow, protobuf and SQLite are estimated at 15 to 25 MB per ABI; measured at the first AAR before going further.
+- The Gradle `Exec` task `buildWhatsAppNative` (`modules/whatsapp/android/build.gradle`) runs `modules/whatsapp/build-android.mjs`: `go build -buildmode=c-shared -tags sqlite_unlock_notify ./mobile` (the vault panics without the tag, `engine/tags.go`) per ABI of `reactNativeArchitectures` (`arm64-v8a,x86_64`), `CC` = the NDK's clang with `--target=<triple><minSdk>`, into `build/generated/jniLibs`. Go is required on the build machine (`go.mod`'s version; `GOTOOLCHAIN=auto` fetches it); on Windows, Go installed by winget builds with the Windows NDK.
+- 16 KB pages: `-extldflags=-Wl,-z,max-page-size=16384,-soname,librv_whatsapp.so`; `llvm-readelf -l` shows `0x4000` alignment on both ABIs.
+- CI (`mobile.yml`) sets up Go from `go.mod` and watches `apps/desktop/whatsapp/**`. The licence notice (`licenses.sh`) still has to ship in the APK's assets, reachable from About.
+- Size, measured: about 18 MB per ABI (`arm64-v8a` 18.4 MB, `x86_64` 19.4 MB, stripped), before APK compression.
+- Proof: `WhatsAppEngineTest` (androidTest of the module) runs the real library and Keystore on an emulator: a new state loads, reaches WhatsApp until it offers a QR (never logged), replays, stops, reopens with the unwrapped key, and is erased with its key.
 
 ## Risks
 
@@ -78,7 +81,7 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 ## Milestones
 
 1. **Engine split** (Go), done: the `engine/` package and its API, the `replay` command; the desktop helper unchanged on the wire.
-2. **AAR and module, in front only**: the Expo module, the key in AndroidKeyStore, linking by number, the room list and text timeline; the account in the rail.
+2. **Library and module, in front only**: the `.so`, the Expo module and the Keystore key are done (above); left: linking by number, the provider, the room list and text timeline, the account in the rail.
 3. **Conversation**: send, reactions, replies, edits and deletions, read state, typing, new conversations.
 4. **Media** both ways.
 5. **Background**: the service, Kotlin notifications with reply and react, boot restart, mute when the official app is present.

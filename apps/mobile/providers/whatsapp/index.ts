@@ -16,11 +16,13 @@ import { describeProviderError } from '../../lib/providerError.ts';
 import type { Store } from '../../lib/sync.ts';
 import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
 import { parseFrame, type WaFrame } from './frames.ts';
+import type { DdpEvent } from '../../lib/ddp.ts';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
 
 export const WHATSAPP_CAPABILITIES: Capabilities = {
-  editing: true, deletion: true, reactions: true, files: true,
-  typing: false, presence: false, push: false, e2ee: false, customEmojis: false,
+  editing: true, deletion: true, reactions: true, files: true, quotes: true, marks: false, threads: false,
+  typing: true, presence: false, push: false, e2ee: false, customEmojis: false,
   videoCall: false, search: false, threadTemplate: 'tmid',
 };
 
@@ -40,6 +42,25 @@ export class WhatsAppError extends Error {
 
 const unsupported = async (): Promise<never> => { throw new WhatsAppError('unsupported_feature'); };
 const noSubscription = () => () => {};
+
+/**
+ * A reply as the composer sends it, `[ ](<permalink>?msg=<id>) text`
+ * (`lib/quote.ts`): the quoted message's id and the text. Anything else is
+ * plain text.
+ */
+export function splitReply(text: string): { reply: string | null; text: string } {
+  const match = /^\s*\[ ?\]\(([^)\s]+)\)\s?/.exec(text);
+  const msg = match ? /[?&]msg=([^&)\s]+)/.exec(match[1]!) : null;
+  if (!match || !msg) return { reply: null, text };
+  try {
+    return { reply: decodeURIComponent(msg[1]!), text: text.slice(match[0].length) };
+  } catch {
+    return { reply: null, text };
+  }
+}
+
+/** WhatsApp forgets a "typing" after about 25 s: it is said again while it lasts. */
+const TYPING_REPEAT_MS = 10_000;
 
 /** A send's id, as WhatsApp's own clients make them: 16 random bytes, upper-case hex. */
 function messageId(random: () => Uint8Array): string {
@@ -79,7 +100,22 @@ export class WhatsAppAccount {
     this.writePhoto = writePhoto;
   }
 
+  /** Who types where, for the room screens (`lib/typing.ts` reads it as `user-activity`). */
+  private readonly typing = new Set<(event: DdpEvent) => void>();
+
+  onTyping(listener: (event: DdpEvent) => void): () => void {
+    this.typing.add(listener);
+    return () => { this.typing.delete(listener); };
+  }
+
   private receive(frame: WaFrame): void {
+    if (frame.type === 'typing') {
+      const { chat, sender, state } = frame.typing;
+      const event: DdpEvent = { collection: STREAM_NOTIFY_ROOM_TYPING, eventKey: `${chat}/user-activity`,
+        args: [this.projection.nameOf(sender), state === 'paused' ? [] : [TYPING_ACTIVITY]] };
+      for (const listener of this.typing) listener(event);
+      return;
+    }
     if (frame.type === 'file') {
       this.downloads.get(frame.id)?.resolve(frame.path ?? '');
       this.downloads.delete(frame.id);
@@ -153,6 +189,7 @@ export function createWhatsAppProvider(
   if (state === null) throw new WhatsAppError('invalid_account');
   const projection = new WhatsAppProjection(store, { userId: session.userId, username: session.username }, labels);
   const account = new WhatsAppAccount(state, native, projection, writePhoto);
+  let typingSent: { rid: string; at: number } | null = null;
   const run = async (value: Record<string, unknown>) => {
     if (!(await account.command(value))) throw new WhatsAppError('not_connected');
   };
@@ -164,7 +201,7 @@ export function createWhatsAppProvider(
     connect: () => account.attach(),
     close: () => account.release(),
     checkAlive: async () => projection.status.state === 'connected',
-    subscribe: noSubscription, onEvent: noSubscription,
+    subscribe: noSubscription, onEvent: (fn) => account.onTyping(fn),
     onLoss: (fn) => projection.subscribe(() => { if (projection.status.state !== 'connected') fn(); }),
     armedSubscriptions: async () => {}, reset: () => {},
   };
@@ -211,14 +248,22 @@ export function createWhatsAppProvider(
     loadHistory: async () => ({ oldest: null }),
     loadThread: async () => {},
     createOutbox: () => ({
-      send: async (rid, text) => {
+      send: async (rid, raw) => {
         const id = messageId(random);
-        await run({ type: 'send', id, chat: rid, text });
+        const { reply, text } = splitReply(raw);
+        await run({ type: 'send', id, chat: rid, text, ...(reply !== null ? { reply } : {}) });
         return `${rid}:${id}`;
       },
       process: async () => {}, retry: async () => {}, discard: async () => {},
     }),
     createUploadQueue: () => files,
     catchUpGlobal: async () => {}, catchUpRoom: async () => {}, reconcile: async () => {},
+    setTyping: (rid, active) => {
+      const now = Date.now();
+      if (active && typingSent?.rid === rid && now - typingSent.at < TYPING_REPEAT_MS) return;
+      if (!active && typingSent?.rid !== rid) return;
+      typingSent = active ? { rid, at: now } : null;
+      void account.command({ type: 'typing', chat: rid, text: active ? 'composing' : 'paused' }).catch(() => {});
+    },
   };
 }

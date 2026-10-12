@@ -175,3 +175,19 @@ test('photos version the chats and the people, mine under my username; a removal
   await p.flush();
   assert.equal(fake.people.get('alice@s.whatsapp.net')!.avatarEtag, 'none');
 });
+
+test('a reply carries the quoted message as a quote block, from the cache when it has it', async () => {
+  const { p, fake } = projection();
+  p.apply({ type: 'names', names: { 'alice@s.whatsapp.net': 'Alice Martin' } });
+  p.apply(message({ id: 'alice@s.whatsapp.net:Q', text: 'La question' }));
+  p.apply(message({ id: 'alice@s.whatsapp.net:R', sender: 'me', mine: true, text: 'La réponse', ts: 2000,
+    reply_to: 'alice@s.whatsapp.net:Q', quote_sender: 'alice@s.whatsapp.net', quote_text: 'old words' }));
+  p.apply(message({ id: 'alice@s.whatsapp.net:S', text: 'Et ça ?', ts: 3000,
+    reply_to: 'alice@s.whatsapp.net:GONE', quote_sender: 'me', quote_text: 'what I said' }));
+  await p.flush();
+  const quote = JSON.parse(fake.messages.get('alice@s.whatsapp.net:R')!.attachments!)[0];
+  assert.deepEqual(quote, { message_link: 'wa-reply:alice@s.whatsapp.net:Q', author_name: 'Alice Martin', text: 'La question' });
+  assert.equal(fake.messages.get('alice@s.whatsapp.net:R')!.text, 'La réponse');
+  const uncached = JSON.parse(fake.messages.get('alice@s.whatsapp.net:S')!.attachments!)[0];
+  assert.deepEqual([uncached.author_name, uncached.text], ['Me', 'what I said']);
+});

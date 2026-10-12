@@ -25,6 +25,7 @@ import { NativeError } from '../providers/rocketvibe/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
 import {
   possibleActions,
+  whatsappActions,
   messageGoneFromServer,
   rulesFromSettings,
   textToCopy,
@@ -310,7 +311,9 @@ export default function MessageActionsScreen() {
           encrypted: roomRows[0]?.encrypted === true,
           inThread: typeof thread === 'string',
           now: Date.now(),
-        }).filter(action => action !== 'reply' || client.kind === 'rocketchat' || provider?.capabilities.quotes === true),
+        }).filter(action => action !== 'reply' || client.kind === 'rocketchat' || provider?.capabilities.quotes === true)
+          // WhatsApp has no threads, pins nor stars, and its own edit and delete windows.
+          .filter(action => client.kind !== 'whatsapp' || whatsappActions([action], raw, me, Date.now()).length > 0),
       });
     })().catch(() => {
       if(isPrivate==='1' && !canceled){void privateAccess.current?.close();privateAccess.current=null;setPayload(null);}

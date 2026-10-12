@@ -701,7 +701,10 @@ function Room({
 
   // Typing indicator: the existing indicator consumes provider events; the
   // Rocket.Chat emission stays as recorded in lib/typing.ts.
-  const onInput=useCallback((active:boolean)=>{void provider.native?.chat.setTyping(rid,active,undefined,membership??undefined);},[provider,rid,membership]);
+  const onInput=useCallback((active:boolean)=>{
+    if(provider.native)void provider.native.chat.setTyping(rid,active,undefined,membership??undefined);
+    else provider.setTyping?.(rid,active);
+  },[provider,rid,membership]);
   const myName = useDisplayNames().get(client.auth?.userId ?? '') ?? null;
   const typingEngine = useMemo(() => new TypingEngine({ rid, me, myName }), [rid, me, myName]);
   useEffect(() => {

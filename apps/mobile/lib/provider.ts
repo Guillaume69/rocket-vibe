@@ -412,6 +412,8 @@ export interface Provider {
   readonly admin?: import('./admin.ts').ProviderAdmin;
   /** Reporting a message or an account, when `capabilities.reports`. */
   readonly reports?: import('./admin.ts').ProviderReports;
+  /** Says I am typing in a room (`active`) or stopped, where the protocol carries it outside the native runner (WhatsApp). */
+  setTyping?(rid: string, active: boolean): void;
   /** Messages the server sends later, when `capabilities.scheduledMessages` (`lib/scheduled.ts`). */
   readonly scheduled?: import('./scheduled.ts').ProviderScheduled;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */

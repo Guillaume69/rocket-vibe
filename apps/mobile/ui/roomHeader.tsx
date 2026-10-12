@@ -213,16 +213,17 @@ export function RoomHeader({
           <Icon name="chat-message-new" color={c.secondaryText} style={styles.headerIcon} />
         </Tappable>
       )}
-      <Tappable
+      {/* A server without pins or stars (WhatsApp) has no marked messages to list. */}
+      {capabilities?.marks !== false && <Tappable
         onPress={onMarked}
-        disabled={!availableMessageActions || capabilities?.marks === false}
+        disabled={!availableMessageActions}
         hitSlop={8}
         android_ripple={{ color: c.ripple, borderless: true }}
         accessibilityRole="button"
         accessibilityLabel={t('room.marked')}
       >
         <Icon name="view-pin" color={c.secondaryText} style={styles.headerIcon} />
-      </Tappable>
+      </Tappable>}
       <Tappable
         onPress={onSearch}
         disabled={!privateSearch && (!availableMessageActions || capabilities?.search === false)}

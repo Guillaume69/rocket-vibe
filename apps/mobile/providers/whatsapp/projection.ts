@@ -247,6 +247,11 @@ export class WhatsAppProjection {
     return this.names.get(jid) || given || fallbackName(jid);
   }
 
+  /** A person's or a chat's shown name: its WhatsApp name, else the name it gave itself, else its number. */
+  nameOf(jid: string): string {
+    return this.name(jid, this.authors.get(jid));
+  }
+
   /** What a message says in words: an attachment's label then its caption, or its text. */
   words(m: WaMessage): string {
     if (m.deleted) return this.labels.deleted;
@@ -280,7 +285,7 @@ export class WhatsAppProjection {
       authorId: m.mine ? this.me.userId : m.sender,
       authorName: m.mine ? this.labels.me : this.name(m.sender, m.author),
       systemType: null, threadId: null, threadCount: 0, threadLast: null, threadShown: false,
-      editedAt: m.edited && !m.deleted ? m.ts : null, md: null, attachments: this.attachments(m, kind),
+      editedAt: m.edited && !m.deleted ? m.ts : null, md: null, attachments: this.attachmentsJson(m, kind),
       reactions, urls: link, callId: null, encryptedRaw: null, pinned: false, starred: null,
       updatedAt: this.tick(),
     };
@@ -291,7 +296,26 @@ export class WhatsAppProjection {
    * `NativeAttachment`): its file is reached through `lib/nativeFiles.ts`,
    * which asks the engine to download it.
    */
-  private attachments(m: WaMessage, kind: string): string | null {
+  private attachmentsJson(m: WaMessage, kind: string): string | null {
+    const all = [this.quote(m), this.attachment(m, kind)].filter((a) => a !== null);
+    return all.length > 0 ? JSON.stringify(all) : null;
+  }
+
+  /**
+   * The quoted message as the timeline's quote block (`message_link`, author,
+   * text): its current words when cached (edited or deleted since), else the
+   * text the reply carried. The link only marks it as a quote.
+   */
+  private quote(m: WaMessage): Record<string, unknown> | null {
+    if (!m.reply_to || m.deleted) return null;
+    const cached = this.messages.get(m.reply_to);
+    const sender = cached ? (cached.mine ? 'me' : cached.sender) : m.quote_sender ?? '';
+    const author = sender === 'me' ? this.labels.me : sender === '' ? null : this.nameOf(sender);
+    return { message_link: `wa-reply:${m.reply_to}`, ...(author === null ? {} : { author_name: author }),
+      text: cached ? this.words(cached) : m.quote_text ?? '' };
+  }
+
+  private attachment(m: WaMessage, kind: string): Record<string, unknown> | null {
     if (kind === '') return null;
     const url = filePath(m.id);
     const mime = (m.mime ?? '').split(';')[0]!.trim();
@@ -307,7 +331,7 @@ export class WhatsAppProjection {
     } else if (kind === 'voice' || kind === 'audio') {
       Object.assign(attachment, { audio_url: url, audio_type: mime || 'audio/ogg', audio_size: size });
     }
-    return JSON.stringify([attachment]);
+    return attachment;
   }
 
   roomRow(chat: string): LocalRoom {

@@ -6,6 +6,7 @@ import {
   messageGoneFromServer,
   rulesFromSettings,
   textToCopy,
+  whatsappActions,
 } from './messageActions.ts';
 import { RestError } from './rest.ts';
 
@@ -285,4 +286,14 @@ describe('messageGoneFromServer', () => {
     const c = client(() => Promise.reject(new Error('boom')));
     assert.equal(await messageGoneFromServer(c, 'm1'), false);
   });
+});
+
+test('a WhatsApp message offers no thread, pin nor star, and edits and deletes only mine within WhatsApp windows', () => {
+  const all = ['react', 'reply', 'replyInThread', 'copy', 'edit', 'delete', 'pin', 'star'] as const;
+  const now = 10 * 60 * 60_000;
+  const mine = { authorId: 'me@s.whatsapp.net', ts: now - 60_000, attachments: null };
+  assert.deepEqual(whatsappActions(all, mine, 'me@s.whatsapp.net', now), ['react', 'reply', 'copy', 'edit', 'delete']);
+  assert.deepEqual(whatsappActions(all, { ...mine, ts: now - 20 * 60_000 }, 'me@s.whatsapp.net', now), ['react', 'reply', 'copy', 'delete']);
+  assert.deepEqual(whatsappActions(all, { ...mine, attachments: '[{"title_link":"/api/v1/files/x"}]' }, 'me@s.whatsapp.net', now), ['react', 'reply', 'copy', 'delete']);
+  assert.deepEqual(whatsappActions(all, { ...mine, authorId: 'alice@s.whatsapp.net' }, 'me@s.whatsapp.net', now), ['react', 'reply', 'copy']);
 });

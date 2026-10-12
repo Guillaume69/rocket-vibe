@@ -183,3 +183,37 @@ export function rulesFromSettings(settings: PublicSetting[]): MessageRules {
     starAllowed: values.get('Message_AllowStarring') !== false,
   };
 }
+
+/** WhatsApp's own windows: recipients ignore later edits and revocations (`engine/engine.go`). */
+const WHATSAPP_EDIT_MS = 15 * 60_000;
+const WHATSAPP_DELETE_MS = 48 * 60 * 60_000;
+
+/**
+ * What a WhatsApp message offers among `possibleActions`: no threads, pins
+ * or stars there; only my own messages are edited (a text, within 15
+ * minutes) or deleted for everyone (within 48 hours).
+ */
+export function whatsappActions(
+  actions: readonly ActionMessage[],
+  message: { authorId: string; ts: number; attachments: string | null },
+  me: string | null,
+  now: number,
+): ActionMessage[] {
+  const mine = me !== null && message.authorId === me;
+  const media = (() => {
+    try {
+      const list = JSON.parse(message.attachments ?? '[]') as unknown;
+      return Array.isArray(list) && list.some((a) => typeof a === 'object' && a !== null && 'title_link' in a);
+    } catch {
+      return false;
+    }
+  })();
+  return actions.filter((action) => {
+    switch (action) {
+      case 'replyInThread': case 'pin': case 'unpin': case 'star': case 'unstar': return false;
+      case 'edit': return mine && !media && now - message.ts < WHATSAPP_EDIT_MS;
+      case 'delete': return mine && now - message.ts < WHATSAPP_DELETE_MS;
+      default: return true;
+    }
+  });
+}

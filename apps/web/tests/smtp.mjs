@@ -11,9 +11,22 @@ mkdirSync(".cache", { recursive: true });
 const messages = [];
 const mailbox = ".cache/smtp-mails.json";
 const pendingMailbox = mailbox + "." + process.pid + ".tmp";
+const renameWait = new Int32Array(new SharedArrayBuffer(4));
 function saveMailbox() {
   writeFileSync(pendingMailbox, JSON.stringify(messages));
-  renameSync(pendingMailbox, mailbox);
+  const deadline = performance.now() + 1000;
+  for (;;) {
+    try {
+      renameSync(pendingMailbox, mailbox);
+      return;
+    } catch (error) {
+      const remaining = deadline - performance.now();
+      if (!["EPERM", "EACCES", "EBUSY"].includes(error.code) || remaining <= 0)
+        throw error;
+      // Windows scanners/readers may briefly share-lock the destination file.
+      Atomics.wait(renameWait, 0, 0, Math.min(25, remaining));
+    }
+  }
 }
 saveMailbox();
 const server = tls.createServer(

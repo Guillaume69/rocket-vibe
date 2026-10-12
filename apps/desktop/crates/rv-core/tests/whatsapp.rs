@@ -88,6 +88,25 @@ async fn a_refused_send_names_its_id_and_keeps_the_connection() {
     c.stop();
     until(&c, |s| s.exited).await;
 }
+#[tokio::test]
+async fn a_phone_number_gets_a_pairing_code_and_a_bad_one_leaves_the_qr() {
+    let c = Connector::start(
+        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        Path::new("synthetic"),
+        storage_key().unwrap(),
+    )
+    .await
+    .unwrap();
+    until(&c, |s| s.qr.is_some()).await;
+    c.pair_phone("336".into()).unwrap();
+    until(&c, |s| s.error.as_deref() == Some("phone_invalid")).await;
+    assert!(c.snapshot().qr.is_some() && c.snapshot().state != "error");
+    c.pair_phone("33612345678".into()).unwrap();
+    until(&c, |s| s.pairing_code.as_deref() == Some("RVWA2468")).await;
+    assert!(c.snapshot().error.is_none());
+    c.stop();
+    until(&c, |s| s.exited).await;
+}
 
 mod session {
     use rv_core::whatsapp::{account_info, state_location, storage_key};

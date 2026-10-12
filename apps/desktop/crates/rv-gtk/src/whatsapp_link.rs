@@ -53,6 +53,35 @@ pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static
         .visible(false)
         .build();
     content.append(&refresh);
+    // Without a camera to scan with (or from the phone itself): a code instead.
+    let by_number = gtk::Expander::builder().label(t("wa.pair_number")).build();
+    let number_box = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).margin_top(8).build();
+    number_box.append(
+        &gtk::Label::builder()
+            .label(t("wa.pair_number_help"))
+            .wrap(true)
+            .xalign(0.0)
+            .css_classes(["dim-label", "caption"])
+            .build(),
+    );
+    let number =
+        gtk::Entry::builder().input_purpose(gtk::InputPurpose::Phone).placeholder_text("+33 6 12 34 56 78").build();
+    let ask =
+        gtk::Button::builder().label(t("wa.pair_number_ask")).css_classes(["pill"]).halign(gtk::Align::Center).build();
+    let code =
+        gtk::Label::builder().selectable(true).css_classes(["title-1", "whatsapp-pairing-code"]).visible(false).build();
+    let code_help = gtk::Label::builder()
+        .label(t("wa.pair_code_help"))
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .visible(false)
+        .build();
+    number_box.append(&number);
+    number_box.append(&ask);
+    number_box.append(&code);
+    number_box.append(&code_help);
+    by_number.set_child(Some(&number_box));
+    content.append(&by_number);
     content.append(
         &gtk::Label::builder()
             .label(t("wa.local"))
@@ -75,6 +104,16 @@ pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static
     let closed = Rc::new(Cell::new(false));
     let done = Rc::new(done);
 
+    let (c, entry) = (connector.clone(), number.clone());
+    ask.connect_clicked(move |button| {
+        let digits: String = entry.text().chars().filter(char::is_ascii_digit).collect();
+        if let Some(connector) = c.borrow().as_ref()
+            && !digits.is_empty()
+            && connector.pair_phone(digits).is_ok()
+        {
+            button.set_sensitive(false);
+        }
+    });
     let c = connector.clone();
     refresh.connect_clicked(move |button| {
         button.set_visible(false);
@@ -134,8 +173,20 @@ pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static
             } else {
                 qr.set_visible(false);
             }
+            if let Some(pairing) = &s.pairing_code {
+                // Shown as WhatsApp shows it: two groups of four.
+                let shown =
+                    if pairing.len() == 8 { format!("{}-{}", &pairing[..4], &pairing[4..]) } else { pairing.clone() };
+                code.set_label(&shown);
+                code.set_visible(true);
+                code_help.set_visible(true);
+            }
+            if matches!(s.error.as_deref(), Some("phone_invalid" | "pairing_code_failed")) {
+                ask.set_sensitive(true);
+            }
             let label = match s.error.as_deref() {
                 Some("client_outdated") => t("wa.client_outdated"),
+                Some(code @ ("phone_invalid" | "pairing_code_failed")) => t(&format!("wa.{code}")),
                 Some(_) if s.state == "error" => t("wa.connection_failed"),
                 _ => t(&format!("wa.{}", s.state)),
             };

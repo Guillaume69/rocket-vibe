@@ -737,6 +737,8 @@ func (c *connector) handle(cmd command) bool {
 		go c.presence(cmd)
 	case "reject_call":
 		go c.rejectCall(cmd)
+	case "pair_phone":
+		go c.pairPhone(cmd)
 	case "typing":
 		go c.typing(cmd)
 	case "logout":

@@ -105,6 +105,15 @@ fn main() {
             Some("connect") => {
                 linked();
             }
+            // A pairing code for any number long enough to be international.
+            Some("pair_phone") => {
+                let digits = command["text"].as_str().unwrap_or_default();
+                if digits.len() >= 8 {
+                    println!("{}", json!({"type":"pairing_code","code":"RVWA2468"}));
+                } else {
+                    println!("{}", json!({"type":"error","code":"phone_invalid"}));
+                }
+            }
             // Bob in the contacts; any number WhatsApp "knows".
             // A file sent: a voice note when recorded, a photo when an image.
             Some("upload") => {

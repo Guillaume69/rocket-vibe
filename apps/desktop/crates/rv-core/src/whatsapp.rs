@@ -93,6 +93,8 @@ pub struct Snapshot {
     pub typing: BTreeMap<String, BTreeMap<String, (String, std::time::Instant)>>,
     /// Calls ringing now, by id.
     pub calls: BTreeMap<String, WaCall>,
+    /// The code to type on the phone to link by number, once asked for.
+    pub pairing_code: Option<String>,
 }
 /// A WhatsApp call ringing: it can be declined here, or answered on the phone.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -380,6 +382,9 @@ enum Event {
     Call {
         call: WaCall,
     },
+    PairingCode {
+        code: String,
+    },
     /// A downloaded attachment, by its message id; an empty path is a failure.
     File {
         id: String,
@@ -445,6 +450,7 @@ enum Request {
     Upload(Box<Upload>),
     Typing { chat: String, composing: bool },
     RejectCall { id: String },
+    PairPhone { number: String },
     Presence { available: bool },
     Connect,
     Logout,
@@ -565,6 +571,10 @@ impl Snapshot {
                 self.unread.clear();
             }
             Event::Account { jid, name } => self.account = Some((jid, name)),
+            Event::PairingCode { code } => {
+                self.pairing_code = Some(code);
+                self.error = None;
+            }
             Event::Call { call } => {
                 if call.state == "ringing" {
                     self.calls.insert(call.id.clone(), call);
@@ -685,6 +695,11 @@ impl Connector {
         self.request(Request::Act { kind: "delete", id, text: String::new() })
     }
     /// Reads a chat: its unread messages get their read receipts.
+    /// Asks for a code to link by phone number (international, digits only
+    /// count) instead of the QR; it arrives as `Snapshot::pairing_code`.
+    pub fn pair_phone(&self, number: String) -> Result<(), String> {
+        self.request(Request::PairPhone { number })
+    }
     /// Declines a call ringing here, for all my devices.
     pub fn reject_call(&self, id: String) -> Result<(), String> {
         self.request(Request::RejectCall { id })
@@ -815,6 +830,7 @@ async fn worker(
                     Request::Search { id, text } => json!({"type":"search","id":id,"text":text}),
                     Request::Download { id } => json!({"type":"download","id":id}),
                     Request::RejectCall { id } => json!({"type":"reject_call","id":id}),
+                    Request::PairPhone { number } => json!({"type":"pair_phone","text":number}),
                     Request::Typing { chat, composing } => {
                         json!({"type":"typing","chat":chat,"text":if composing { "composing" } else { "paused" }})
                     }

@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- Experimental GTK WhatsApp linked-device window with QR association, the existing native timeline and text composer, and a local encrypted session helper. Available only when the helper is installed; real-account qualification and release packaging are pending.
+- Experimental GTK WhatsApp linked-device window with QR association, the existing native timeline and text composer, and a local encrypted session helper: contact and group names (a phone number and its LID make one conversation), profile photos, reactions, and editing or deleting your own messages for everyone. Available only when the helper is installed; release packaging is pending.
 
 ### Fixed
 

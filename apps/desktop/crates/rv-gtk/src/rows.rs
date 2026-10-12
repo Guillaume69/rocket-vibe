@@ -539,7 +539,18 @@ pub fn message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
-    message_from_provider(d, my_id, session, None, editing, on_event)
+    message_from_provider(d, my_id, session, None, None, editing, on_event)
+}
+/// A message of a provider with no session here (the WhatsApp pilot): its
+/// author's photo comes along as a texture.
+pub fn provider_message_widget(
+    d: &Display,
+    my_id: &str,
+    photo: Option<&gdk::Texture>,
+    editing: Option<&gtk::TextBuffer>,
+    on_event: OnRowEvent,
+) -> gtk::Widget {
+    message_from_provider(d, my_id, None, None, photo, editing, on_event)
 }
 pub fn native_message_widget(
     d: &Display,
@@ -548,13 +559,14 @@ pub fn native_message_widget(
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
-    message_from_provider(d, my_id, None, Some(session), editing, on_event)
+    message_from_provider(d, my_id, None, Some(session), None, editing, on_event)
 }
 fn message_from_provider(
     d: &Display,
     my_id: &str,
     session: Option<&Arc<Session>>,
     native: Option<&Arc<rv_core::native::NativeSession>>,
+    photo: Option<&gdk::Texture>,
     editing: Option<&gtk::TextBuffer>,
     on_event: OnRowEvent,
 ) -> gtk::Widget {
@@ -624,6 +636,9 @@ fn message_from_provider(
             let id = native.store.profile_identity(&row.author_id).ok().flatten().and_then(|p| p.avatar_file_id);
             with_native_photo(tile, native, id)
         } else {
+            if let Some(photo) = photo {
+                widgets::set_photo(&tile, photo);
+            }
             tile
         };
         opens_profile(&tile, on_event.clone(), &author);
@@ -758,7 +773,8 @@ fn message_from_provider(
         column.append(&cards::call(row.call_id.as_deref(), on_event.clone()));
     }
 
-    let me = session.map(|s| s.info.username.as_str()).unwrap_or_default();
+    // Without a session (a provider pilot) my reactions are listed under my id.
+    let me = session.map(|s| s.info.username.as_str()).unwrap_or(if native.is_some() { "" } else { my_id });
     let reactions = rv_core::actions::reactions(row.reactions.as_deref(), me);
     if !reactions.is_empty() {
         let chips = gtk::FlowBox::builder()
@@ -774,7 +790,11 @@ fn message_from_provider(
                 .css_classes(if reaction.mine { vec!["reaction", "mine"] } else { vec!["reaction"] })
                 .build();
             let code = reaction.shortcode.trim_matches(':');
-            match rv_core::emoji::unicode(&reaction.shortcode).map(str::to_owned) {
+            // A glyph with no shortcode (WhatsApp sends any emoji) is keyed by itself.
+            let glyph = rv_core::emoji::unicode(&reaction.shortcode)
+                .map(str::to_owned)
+                .or_else(|| (!code.is_empty() && !code.is_ascii()).then(|| code.to_owned()));
+            match glyph {
                 Some(glyph) => chip.set_label(&format!("{glyph} {}", reaction.count)),
                 None => {
                     let content = gtk::Box::builder().spacing(4).build();

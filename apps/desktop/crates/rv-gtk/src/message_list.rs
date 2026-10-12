@@ -234,9 +234,22 @@ pub struct MessageList {
     native_me: RefCell<String>,
     native_provider: RefCell<Option<Arc<rv_core::native::NativeSession>>>,
     native_images: RefCell<String>,
+    /// Authors' photos by author id, for a provider with no session (the WhatsApp pilot).
+    photos: RefCell<Option<Photos>>,
+    /// Moves when those photos change, so rows rebuild with them.
+    photo_version: Cell<u64>,
 }
 
+pub type Photos = Rc<dyn Fn(&str) -> Option<gtk::gdk::Texture>>;
+
 impl MessageList {
+    pub fn set_photos(&self, photos: Photos) {
+        self.photos.replace(Some(photos));
+    }
+    /// The next `set_native_rows` rebuilds its rows' photos.
+    pub fn set_photo_version(&self, version: u64) {
+        self.photo_version.set(version);
+    }
     pub fn set_native_provider(&self, session: Arc<rv_core::native::NativeSession>) {
         self.native_provider.replace(Some(session));
     }
@@ -247,7 +260,7 @@ impl MessageList {
             .borrow()
             .as_ref()
             .map(|s| format!("{}:{}:{}", s.profile_version(), s.file_version(), s.emoji_version()))
-            .unwrap_or_default();
+            .unwrap_or_else(|| self.photo_version.get().to_string());
         let images_changed = self.native_images.replace(version.clone()) != version;
         if *self.rows.borrow() == fresh && !images_changed {
             return;
@@ -343,6 +356,8 @@ impl MessageList {
             native_me: RefCell::default(),
             native_provider: RefCell::default(),
             native_images: RefCell::default(),
+            photos: RefCell::default(),
+            photo_version: Cell::default(),
         });
         this.wire_selection();
         this.wire();
@@ -363,8 +378,12 @@ impl MessageList {
         };
         let editing = self.editing.borrow().as_ref().filter(|(id, _)| *id == display.row.id).map(|(_, b)| b.clone());
         let native = self.native_provider.borrow().clone().filter(|s| !s.is_closed());
+        let photos = self.photos.borrow().clone();
         let widget = if let Some(native) = native.filter(|_| session.is_none()) {
             rows::native_message_widget(display, &my_id, &native, editing.as_ref(), on_event)
+        } else if let Some(photos) = photos.filter(|_| session.is_none()) {
+            let photo = photos(&display.row.author_id);
+            rows::provider_message_widget(display, &my_id, photo.as_ref(), editing.as_ref(), on_event)
         } else {
             rows::message_widget(display, &my_id, session.as_ref(), editing.as_ref(), on_event)
         };

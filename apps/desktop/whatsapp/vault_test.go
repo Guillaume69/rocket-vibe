@@ -8,12 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gofrs/flock"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 )
 
 func testVault(t *testing.T) (*vault, []byte) {
@@ -104,7 +108,6 @@ func TestUnsupportedPrivateMessageIsNotStored(t *testing.T) {
 	for _, evt := range []*events.Message{
 		{Message: &waE2E.Message{}, IsEphemeral: true},
 		{Message: &waE2E.Message{}, IsViewOnce: true},
-		{Message: &waE2E.Message{}, IsEdit: true},
 	} {
 		c.receive(evt, "") // A database/client access would panic.
 	}
@@ -179,13 +182,11 @@ func TestCheckpointSkipsAnUnchangedDatabase(t *testing.T) {
 }
 func TestPruneKeepsTheNewestAndUnsettledMessages(t *testing.T) {
 	v, _ := testVault(t)
-	if _, err := v.db.Exec(`CREATE TABLE rv_messages (
- id TEXT PRIMARY KEY,chat TEXT NOT NULL,name TEXT NOT NULL,sender TEXT NOT NULL,author TEXT NOT NULL,
- text TEXT NOT NULL,ts INTEGER NOT NULL,mine INTEGER NOT NULL,status TEXT NOT NULL)`); err != nil {
+	if err := migrate(v.db); err != nil {
 		t.Fatal(err)
 	}
 	insert := func(id string, ts int64, status string) {
-		if _, err := v.db.Exec(`INSERT INTO rv_messages VALUES(?,?,?,?,?,?,?,?,?)`, id, "c", "", "", "", "x", ts, false, status); err != nil {
+		if _, err := v.db.Exec(`INSERT INTO rv_messages(id,chat,name,sender,author,text,ts,mine,status) VALUES(?,?,?,?,?,?,?,?,?)`, id, "c", "", "", "", "x", ts, false, status); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -205,5 +206,80 @@ func TestPruneKeepsTheNewestAndUnsettledMessages(t *testing.T) {
 	}
 	if err := v.db.QueryRow("SELECT count(*) FROM rv_messages WHERE id = 'oldest-uncertain'").Scan(&n); err != nil || n != 1 {
 		t.Fatal("an uncertain send was pruned")
+	}
+}
+
+func engineWithCache(t *testing.T) *connector {
+	t.Helper()
+	v, _ := testVault(t)
+	if err := migrate(v.db); err != nil {
+		t.Fatal(err)
+	}
+	return &connector{vault: v, ctx: context.Background()}
+}
+
+func received(c *connector, chat, sender types.JID, id string, m *waE2E.Message) {
+	c.receive(&events.Message{Info: types.MessageInfo{
+		MessageSource: types.MessageSource{Chat: chat, Sender: sender},
+		ID:            types.MessageID(id), Timestamp: time.UnixMilli(1000),
+	}, Message: m}, "")
+}
+
+func TestOnlyTheAuthorEditsAndRevokesInADirectChat(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	mallory := types.NewJID("33600000002", types.DefaultUserServer)
+	received(c, alice, alice, "X1", &waE2E.Message{Conversation: proto.String("first")})
+	edit := func(from types.JID, text string) *waE2E.Message {
+		return &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+			Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(), Key: &waCommon.MessageKey{ID: proto.String("X1")},
+			EditedMessage: &waE2E.Message{Conversation: proto.String(text)},
+		}}
+	}
+	received(c, alice, mallory, "X2", edit(mallory, "forged"))
+	if m, _ := c.load(alice.String() + ":X1"); m.Text != "first" || m.Edited {
+		t.Fatalf("someone else's edit applied: %+v", m)
+	}
+	received(c, alice, alice, "X3", edit(alice, "second"))
+	if m, _ := c.load(alice.String() + ":X1"); m.Text != "second" || !m.Edited {
+		t.Fatalf("the author's edit lost: %+v", m)
+	}
+	revoke := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Type: waE2E.ProtocolMessage_REVOKE.Enum(), Key: &waCommon.MessageKey{ID: proto.String("X1")},
+	}}
+	received(c, alice, mallory, "X4", revoke)
+	if m, _ := c.load(alice.String() + ":X1"); m.Deleted {
+		t.Fatal("someone else revoked a direct message")
+	}
+	received(c, alice, alice, "X5", revoke)
+	if m, _ := c.load(alice.String() + ":X1"); !m.Deleted || m.Text != "" {
+		t.Fatalf("the author's revocation lost: %+v", m)
+	}
+}
+
+func TestReactionsReplaceAndRetract(t *testing.T) {
+	c := engineWithCache(t)
+	alice := types.NewJID("33600000001", types.DefaultUserServer)
+	received(c, alice, alice, "X1", &waE2E.Message{Conversation: proto.String("hello")})
+	react := func(emoji string, ts int64) {
+		c.receive(&events.Message{Info: types.MessageInfo{
+			MessageSource: types.MessageSource{Chat: alice, Sender: alice}, ID: "R", Timestamp: time.UnixMilli(ts),
+		}, Message: &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+			Key: &waCommon.MessageKey{ID: proto.String("X1")}, Text: proto.String(emoji),
+		}}}, "")
+	}
+	count := func() (n int, emoji string) {
+		_ = c.vault.db.QueryRow(`SELECT count(*), coalesce(max(emoji), '') FROM rv_reactions`).Scan(&n, &emoji)
+		return
+	}
+	react("👍", 2000)
+	react("❤️", 3000)
+	react("😂", 2500) // older than the kept one: ignored
+	if n, emoji := count(); n != 1 || emoji != "❤️" {
+		t.Fatalf("kept %d reactions, %q", n, emoji)
+	}
+	react("", 4000)
+	if n, _ := count(); n != 0 {
+		t.Fatal("a retracted reaction stayed")
 	}
 }

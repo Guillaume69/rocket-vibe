@@ -1,6 +1,6 @@
 //! Experimental local WhatsApp window, reusing RocketVibe's timeline and composer.
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::whatsapp::{Connector, Snapshot};
+
+use crate::rows::RowEvent;
 
 use crate::composer::Composer;
 use crate::i18n::t;
@@ -53,6 +55,8 @@ pub fn show(app: &adw::Application) {
     pilot.smoke();
     PILOT.with_borrow_mut(|slot| *slot = Some(pilot));
 }
+type PhotoCache = Rc<RefCell<HashMap<String, (Arc<[u8]>, gtk::gdk::Texture)>>>;
+type PhotoTable = Arc<BTreeMap<String, Arc<[u8]>>>;
 struct Pilot {
     window: adw::ApplicationWindow,
     stack: gtk::Stack,
@@ -78,6 +82,11 @@ struct Pilot {
     retry: gtk::Button,
     logout: gtk::Button,
     closing: Cell<bool>,
+    /// Decoded photos by JID, with the bytes they came from.
+    photos: PhotoCache,
+    /// The photo table last drawn, to rebuild rows and tiles when it moves.
+    photo_table: RefCell<Option<PhotoTable>>,
+    photo_version: Cell<u64>,
 }
 impl Pilot {
     fn new(app: &adw::Application) -> Rc<Self> {
@@ -203,7 +212,13 @@ impl Pilot {
             retry,
             logout,
             closing: Cell::new(false),
+            photos: Rc::default(),
+            photo_table: RefCell::default(),
+            photo_version: Cell::default(),
         });
+        let photos = this.photos.clone();
+        this.messages
+            .set_photos(Rc::new(move |jid: &str| photos.borrow().get(jid).map(|(_, texture)| texture.clone())));
         this.wire();
         this
     }
@@ -236,6 +251,12 @@ impl Pilot {
                     this.composer.set_text(&text);
                     this.problem(t("wa.send_failed"));
                 }
+            }
+        });
+        let weak = Rc::downgrade(self);
+        self.messages.connect_event(move |event| {
+            if let Some(this) = weak.upgrade() {
+                this.row_event(event);
             }
         });
         let weak = Rc::downgrade(self);
@@ -400,6 +421,9 @@ impl Pilot {
                 "client_outdated" => t("wa.client_outdated"),
                 "logout_failed" => t("wa.logout_failed"),
                 "invalid_send" | "not_connected" | "send_already_recorded" => t("wa.send_failed"),
+                "action_failed" => t("wa.action_failed"),
+                "edit_expired" => t("wa.edit_expired"),
+                "delete_expired" => t("wa.delete_expired"),
                 _ if s.state == "error" => t("wa.connection_failed"),
                 _ => t("wa.helper_failed"),
             });
@@ -419,16 +443,20 @@ impl Pilot {
                 self.stack.set_visible_child_name("pairing");
             }
         }
+        self.refresh_photos(s);
         let mut rooms: BTreeMap<String, (String, i64)> = BTreeMap::new();
         for m in s.messages.values() {
-            let entry = rooms.entry(m.chat.clone()).or_insert((m.name.clone(), m.ts));
-            if m.ts >= entry.1 {
-                *entry = (m.name.clone(), m.ts);
-            }
+            let entry = rooms.entry(m.chat.clone()).or_insert_with(|| (s.chat_name(m), m.ts));
+            entry.1 = entry.1.max(m.ts);
         }
         let mut rooms: Vec<_> = rooms.into_iter().collect();
         rooms.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(&b.0)));
-        let signature: Vec<_> = rooms.iter().map(|(id, (name, _))| (id.clone(), name.clone())).collect();
+        let version = self.photo_version.get().to_string();
+        let signature: Vec<_> = rooms
+            .iter()
+            .map(|(id, (name, _))| (id.clone(), name.clone()))
+            .chain(std::iter::once((String::new(), version)))
+            .collect();
         if *self.room_signature.borrow() != signature {
             self.room_signature.replace(signature);
             // Selection callbacks must not read a stale index while replacing the list.
@@ -445,12 +473,16 @@ impl Pilot {
                     .margin_top(12)
                     .margin_bottom(12)
                     .build();
-                row.append(&crate::rows::room_tile(
+                let tile = crate::rows::room_tile(
                     name,
                     if id.ends_with("@g.us") { "p" } else { "d" },
                     false,
                     crate::widgets::TileSize::Room,
-                ));
+                );
+                if let Some((_, photo)) = self.photos.borrow().get(id) {
+                    crate::widgets::set_photo(&tile, photo);
+                }
+                row.append(&tile);
                 row.append(
                     &gtk::Label::builder()
                         .label(name)
@@ -522,17 +554,168 @@ impl Pilot {
         let mut messages: Vec<_> = s.messages.values().filter(|m| m.chat == chat).collect();
         messages.sort_by_key(|m| (m.ts, &m.id));
         if let Some(message) = messages.last() {
-            self.title.set_label(&message.name);
+            self.title.set_label(&s.chat_name(message));
         } else {
             self.title.set_label(t("wa.choose"));
         }
-        let mut rows = crate::rows::group(messages.into_iter().map(|m| m.presentation()).collect());
+        let mut rows = crate::rows::group(messages.into_iter().map(|m| s.presentation(m)).collect());
         for row in &mut rows {
             if row.row.outbox_status.as_deref() == Some("uncertain") {
                 row.seen = Some(t("wa.send_uncertain").into());
             }
         }
+        self.messages.set_photo_version(self.photo_version.get());
         self.messages.set_native_rows(rows, "me");
+    }
+    /// Decodes the photos that changed since the last paint.
+    fn refresh_photos(&self, s: &Snapshot) {
+        if self.photo_table.borrow().as_ref().is_some_and(|table| Arc::ptr_eq(table, &s.avatars)) {
+            return;
+        }
+        self.photo_table.replace(Some(s.avatars.clone()));
+        let mut photos = self.photos.borrow_mut();
+        photos.retain(|jid, _| s.avatars.contains_key(jid));
+        let mut changed = false;
+        for (jid, bytes) in s.avatars.iter() {
+            if photos.get(jid).is_some_and(|(kept, _)| Arc::ptr_eq(kept, bytes)) {
+                continue;
+            }
+            let texture = gtk::gdk::Texture::from_bytes(&glib::Bytes::from(&bytes[..]));
+            if let Ok(texture) = texture {
+                photos.insert(jid.clone(), (bytes.clone(), texture));
+                changed = true;
+            }
+        }
+        if changed || photos.len() != s.avatars.len() {
+            self.photo_version.set(self.photo_version.get() + 1);
+        }
+    }
+    fn row_event(self: &Rc<Self>, event: RowEvent) {
+        let Some(connector) = self.connector.borrow().clone() else { return };
+        let result = match event {
+            RowEvent::React { id, shortcode, add } => {
+                connector.react(id, if add { rv_core::whatsapp::reaction_glyph(&shortcode) } else { String::new() })
+            }
+            RowEvent::Menu { row, anchor, x, y, .. } => {
+                self.menu(&connector, *row, &anchor, x, y);
+                Ok(())
+            }
+            RowEvent::SaveEdit => match self.messages.stop_edit() {
+                Some((id, text)) if !text.trim().is_empty() => connector.edit(id, text.trim().to_owned()),
+                _ => Ok(()),
+            },
+            RowEvent::CancelEdit => {
+                self.messages.stop_edit();
+                Ok(())
+            }
+            _ => Ok(()),
+        };
+        if result.is_err() {
+            self.problem(t("wa.action_failed"));
+        }
+    }
+    /// The actions a WhatsApp message offers: quick reactions, copy, and on my
+    /// own messages edit (15 minutes) and delete for everyone (48 hours).
+    fn menu(
+        self: &Rc<Self>,
+        connector: &Arc<Connector>,
+        row: rv_core::store::MessageRow,
+        anchor: &gtk::Widget,
+        x: f64,
+        y: f64,
+    ) {
+        let snapshot = connector.snapshot();
+        let Some(message) = snapshot.messages.get(&row.id).cloned() else { return };
+        let popover = gtk::Popover::builder().has_arrow(true).build();
+        popover.set_parent(anchor);
+        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.connect_closed(|popover| popover.unparent());
+        let column = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).build();
+        let connected = snapshot.state == "connected";
+        if !message.deleted && connected {
+            let quick = gtk::Box::builder().spacing(2).build();
+            let mine = snapshot.reactions.get(&message.id).and_then(|by| by.get("me")).cloned();
+            for code in rv_core::actions::QUICK_REACTIONS {
+                let glyph = rv_core::whatsapp::reaction_glyph(code);
+                let button = gtk::Button::builder().label(&glyph).css_classes(["flat"]).build();
+                let taken = mine.as_deref() == Some(glyph.as_str());
+                if taken {
+                    button.add_css_class("suggested-action");
+                }
+                let (connector, id, popover) = (connector.clone(), message.id.clone(), popover.clone());
+                let weak = Rc::downgrade(self);
+                button.connect_clicked(move |_| {
+                    popover.popdown();
+                    if connector.react(id.clone(), if taken { String::new() } else { glyph.clone() }).is_err()
+                        && let Some(this) = weak.upgrade()
+                    {
+                        this.problem(t("wa.action_failed"));
+                    }
+                });
+                quick.append(&button);
+            }
+            column.append(&quick);
+        }
+        let item = |label: &str| gtk::Button::builder().label(label).css_classes(["flat"]).build();
+        if !message.deleted {
+            let copy = item(t("actions.copy"));
+            let (text, popover_c) = (message.text.clone(), popover.clone());
+            copy.connect_clicked(move |button| {
+                button.clipboard().set_text(&text);
+                popover_c.popdown();
+            });
+            column.append(&copy);
+        }
+        let age = chrono::Utc::now().timestamp_millis() - message.ts;
+        let settled = message.mine && !message.deleted && message.status.is_empty() && connected;
+        if settled && age < 15 * 60 * 1000 {
+            let edit = item(t("actions.edit"));
+            let (weak, popover_c) = (Rc::downgrade(self), popover.clone());
+            edit.connect_clicked(move |_| {
+                popover_c.popdown();
+                if let Some(this) = weak.upgrade() {
+                    this.messages.start_edit(&row);
+                }
+            });
+            column.append(&edit);
+        }
+        if settled && age < 48 * 60 * 60 * 1000 {
+            let delete = item(t("actions.delete"));
+            delete.add_css_class("destructive-action");
+            let (weak, popover_c, connector, id) =
+                (Rc::downgrade(self), popover.clone(), connector.clone(), message.id);
+            delete.connect_clicked(move |_| {
+                popover_c.popdown();
+                if let Some(this) = weak.upgrade() {
+                    this.confirm_delete(connector.clone(), id.clone());
+                }
+            });
+            column.append(&delete);
+        }
+        if column.first_child().is_none() {
+            popover.unparent();
+            return;
+        }
+        popover.set_child(Some(&column));
+        popover.popup();
+    }
+    fn confirm_delete(self: &Rc<Self>, connector: Arc<Connector>, id: String) {
+        let dialog = adw::AlertDialog::new(Some(t("wa.delete_title")), Some(t("wa.delete_body")));
+        dialog.add_response("cancel", t("actions.cancel"));
+        dialog.add_response("delete", t("actions.delete"));
+        dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+        dialog.set_default_response(Some("cancel"));
+        dialog.set_close_response("cancel");
+        let weak = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response == "delete"
+                && connector.delete(id.clone()).is_err()
+                && let Some(this) = weak.upgrade()
+            {
+                this.problem(t("wa.action_failed"));
+            }
+        });
+        crate::widgets::present(&dialog, Some(&self.window));
     }
     fn smoke(self: &Rc<Self>) {
         let Some(mode) = std::env::var("RV_WHATSAPP_SMOKE").ok() else { return };
@@ -557,6 +740,8 @@ impl Pilot {
                 snapshot.state == "connected"
                     && snapshot.messages.values().any(|m| m.text == "Native pilot test" && m.status.is_empty())
                     && this.messages.row_widget("alice@s.whatsapp.net:fake-received").is_some()
+                    && snapshot.name_of("alice@s.whatsapp.net") == Some("Alice Martin")
+                    && this.photos.borrow().contains_key("alice@s.whatsapp.net")
             };
             let shot = std::env::var("RV_WHATSAPP_SMOKE_SHOT").unwrap_or_default();
             let paintable = gtk::WidgetPaintable::new(Some(&this.window));

@@ -40,6 +40,28 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
     ("wa.choose", "Choisis une conversation", "Choose a conversation"),
     ("wa.me", "Moi", "Me"),
+    ("wa.deleted", "Ce message a été supprimé", "This message was deleted"),
+    (
+        "wa.action_failed",
+        "WhatsApp n’a pas accepté cette action. Réessaie.",
+        "WhatsApp did not accept this action. Try again.",
+    ),
+    (
+        "wa.edit_expired",
+        "Un message ne se modifie que dans les 15 minutes après son envoi.",
+        "A message can only be edited within 15 minutes of sending.",
+    ),
+    (
+        "wa.delete_expired",
+        "Ce message est trop ancien pour être supprimé pour tous.",
+        "This message is too old to delete for everyone.",
+    ),
+    ("wa.delete_title", "Supprimer pour tout le monde ?", "Delete for everyone?"),
+    (
+        "wa.delete_body",
+        "Le message sera remplacé par « Ce message a été supprimé » chez tous les participants.",
+        "The message will be replaced by “This message was deleted” for everyone in the chat.",
+    ),
     ("wa.connecting", "Connexion à WhatsApp…", "Connecting to WhatsApp…"),
     ("wa.loaded", "Conversations locales chargées", "Local conversations loaded"),
     ("wa.paired", "Appareil associé, connexion en cours…", "Device linked, connecting…"),

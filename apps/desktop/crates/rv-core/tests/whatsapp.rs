@@ -28,6 +28,13 @@ async fn native_connector_links_sends_and_revokes_without_a_server() {
     until(&c, |s| s.state == "connected").await;
     assert!(c.snapshot().qr.is_none());
     assert_eq!(c.snapshot().messages.len(), 2);
+    until(&c, |s| s.name_of("alice@s.whatsapp.net") == Some("Alice Martin") && !s.avatars.is_empty()).await;
+    c.react("alice@s.whatsapp.net:fake-received".into(), "👍".into()).unwrap();
+    until(&c, |s| {
+        s.reactions.get("alice@s.whatsapp.net:fake-received").and_then(|by| by.get("me")).map(String::as_str)
+            == Some("👍")
+    })
+    .await;
     let id = c.send("alice@s.whatsapp.net".into(), "Native IPC test".into()).unwrap();
     until(&c, |s| s.messages.values().any(|m| m.id.ends_with(&id) && m.text == "Native IPC test" && m.mine)).await;
     c.logout().unwrap();

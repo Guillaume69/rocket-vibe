@@ -1,0 +1,598 @@
+// The WhatsApp engine: one linked device, its sealed state and the events
+// the client projects. It knows no transport: main.go speaks JSON lines over
+// pipes, a mobile binding can drive the same methods. Never log QR payloads,
+// keys or message bodies.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/gofrs/flock"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waWeb"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
+)
+
+const (
+	// The text cache keeps the newest messages, like the client's projection.
+	maxCached = 20000
+	maxText   = 20000
+	// WhatsApp's own windows: recipients ignore later edits and revocations.
+	editWindow   = 15 * time.Minute
+	revokeWindow = 48 * time.Hour
+)
+
+type command struct {
+	Type string `json:"type"`
+	Key  string `json:"key,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Chat string `json:"chat,omitempty"`
+	Text string `json:"text,omitempty"`
+}
+type message struct {
+	ID        string `json:"id"`
+	Chat      string `json:"chat"`
+	Name      string `json:"name"`
+	Sender    string `json:"sender"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+	TS        int64  `json:"ts"`
+	Mine      bool   `json:"mine"`
+	Status    string `json:"status,omitempty"`
+	Edited    bool   `json:"edited,omitempty"`
+	Deleted   bool   `json:"deleted,omitempty"`
+	RawChat   string `json:"-"`
+	RawSender string `json:"-"`
+}
+type reaction struct {
+	Message string `json:"message"`
+	Sender  string `json:"sender"`
+	// Empty once the reaction was taken back.
+	Emoji string `json:"emoji"`
+	TS    int64  `json:"ts"`
+}
+type wire struct {
+	Type      string            `json:"type"`
+	State     string            `json:"state,omitempty"`
+	Code      string            `json:"code,omitempty"`
+	ExpiresMS int64             `json:"expires_ms,omitempty"`
+	Message   *message          `json:"message,omitempty"`
+	ID        string            `json:"id,omitempty"`
+	Names     map[string]string `json:"names,omitempty"`
+	JID       string            `json:"jid,omitempty"`
+	// A photo in base64, empty when the person has none.
+	Data     *string   `json:"data,omitempty"`
+	Reaction *reaction `json:"reaction,omitempty"`
+}
+type connector struct {
+	client     *whatsmeow.Client
+	vault      *vault
+	ctx        context.Context
+	cancel     context.CancelFunc
+	sink       func(wire)
+	output     sync.Mutex
+	pairing    sync.Mutex
+	qrCancel   context.CancelFunc
+	stopped    atomic.Bool
+	namesDirty atomic.Bool
+	avatarKick chan struct{}
+}
+
+func (c *connector) emit(event wire) {
+	c.output.Lock()
+	defer c.output.Unlock()
+	if c.sink != nil {
+		c.sink(event)
+	}
+}
+func (c *connector) fail(code string) { c.emit(wire{Type: "error", Code: code}) }
+
+// A send that never reached the network: the client keeps its draft.
+func (c *connector) refuse(id, code string) { c.emit(wire{Type: "error", Code: code, ID: id}) }
+
+func validChat(value string) (types.JID, error) {
+	jid, err := types.ParseJID(value)
+	if err != nil || jid.User == "" || jid.Device != 0 ||
+		(jid.Server != types.DefaultUserServer && jid.Server != types.GroupServer && jid.Server != types.HiddenUserServer) {
+		return types.JID{}, fmt.Errorf("invalid chat")
+	}
+	return jid, nil
+}
+
+func textOf(m *waE2E.Message) string {
+	if text := m.GetConversation(); text != "" {
+		return text
+	}
+	return m.GetExtendedTextMessage().GetText()
+}
+
+func (c *connector) receive(evt *events.Message, name string) {
+	// Not kept: view-once and disappearing content must not outlive WhatsApp's own copy.
+	if evt.IsEphemeral || evt.IsViewOnce || evt.IsViewOnceV2 || evt.IsViewOnceV2Extension {
+		return
+	}
+	if evt.Message.GetExtendedTextMessage().GetContextInfo().GetExpiration() != 0 {
+		return
+	}
+	if r := evt.Message.GetReactionMessage(); r != nil {
+		chat := c.canonical(evt.Info.Chat)
+		c.storeReaction(chat.String()+":"+r.GetKey().GetID(), c.senderKey(evt.Info.IsFromMe, evt.Info.Sender),
+			r.GetText(), evt.Info.Timestamp.UnixMilli())
+		return
+	}
+	if p := evt.Message.GetProtocolMessage(); p != nil {
+		c.protocol(evt, p)
+		return
+	}
+	text := textOf(evt.Message)
+	if text == "" {
+		return
+	}
+	raw := evt.Info.Chat.ToNonAD()
+	if _, err := validChat(raw.String()); err != nil {
+		return
+	}
+	chat := c.canonical(raw)
+	if name != "" {
+		c.setChatName(chat, name)
+	}
+	c.remember(message{ID: chat.String() + ":" + evt.Info.ID, Chat: chat.String(), Name: chat.User,
+		Sender: c.senderKey(evt.Info.IsFromMe, evt.Info.Sender), Author: evt.Info.PushName, Text: text,
+		TS: evt.Info.Timestamp.UnixMilli(), Mine: evt.Info.IsFromMe,
+		RawChat: raw.String(), RawSender: evt.Info.Sender.ToNonAD().String()})
+	c.namesDirty.Store(true)
+}
+
+// An edit or a revocation, accepted from the author only; in a group an
+// admin may also revoke someone else's message.
+func (c *connector) protocol(evt *events.Message, p *waE2E.ProtocolMessage) {
+	chat := c.canonical(evt.Info.Chat)
+	id := chat.String() + ":" + p.GetKey().GetID()
+	stored, ok := c.load(id)
+	if !ok {
+		return
+	}
+	author := stored.Sender == c.senderKey(evt.Info.IsFromMe, evt.Info.Sender)
+	switch p.GetType() {
+	case waE2E.ProtocolMessage_REVOKE:
+		if !author && !evt.Info.IsGroup {
+			return
+		}
+		c.markDeleted(id)
+	case waE2E.ProtocolMessage_MESSAGE_EDIT:
+		text := textOf(p.GetEditedMessage())
+		if !author || text == "" {
+			return
+		}
+		c.markEdited(id, text)
+	}
+}
+
+func (c *connector) markDeleted(id string) {
+	_, err := c.vault.db.ExecContext(c.ctx, `UPDATE rv_messages SET text = '', deleted = 1 WHERE id = ?`, id)
+	if err == nil {
+		_, err = c.vault.db.ExecContext(c.ctx, `DELETE FROM rv_reactions WHERE message = ?`, id)
+	}
+	if err != nil {
+		c.fail("local_storage_failed")
+		return
+	}
+	c.emitStored(id)
+}
+
+func (c *connector) markEdited(id, text string) {
+	if _, err := c.vault.db.ExecContext(c.ctx, `UPDATE rv_messages SET text = ?, edited = 1 WHERE id = ? AND deleted = 0`, text, id); err != nil {
+		c.fail("local_storage_failed")
+		return
+	}
+	c.emitStored(id)
+}
+
+// History arrives newest first: replayed oldest first so edits and
+// revocations find their message.
+func (c *connector) history(evt *events.HistorySync) {
+	for _, conversation := range evt.Data.GetConversations() {
+		if conversation.GetEphemeralExpiration() != 0 {
+			continue
+		}
+		jid, err := validChat(conversation.GetID())
+		if err != nil {
+			continue
+		}
+		entries := conversation.GetMessages()
+		for i := len(entries) - 1; i >= 0; i-- {
+			web := entries[i].GetMessage()
+			if parsed, err := c.client.ParseWebMessage(jid, web); err == nil {
+				c.receive(parsed, conversation.GetName())
+			}
+			c.historyReactions(jid, web)
+		}
+	}
+	if c.normalize() {
+		c.reload()
+	}
+	c.prune()
+	c.namesDirty.Store(true)
+	c.kickAvatars()
+}
+
+func (c *connector) historyReactions(chat types.JID, web *waWeb.WebMessageInfo) {
+	target := c.canonical(chat).String() + ":" + web.GetKey().GetID()
+	for _, r := range web.GetReactions() {
+		key := r.GetKey()
+		sender := "me"
+		if !key.GetFromMe() {
+			from := key.GetParticipant()
+			if from == "" {
+				from = key.GetRemoteJID()
+			}
+			jid, err := types.ParseJID(from)
+			if err != nil {
+				continue
+			}
+			sender = c.canonical(jid).String()
+		}
+		c.storeReaction(target, sender, r.GetText(), r.GetSenderTimestampMS())
+	}
+}
+
+// The client drops its projection and takes the whole cache again.
+func (c *connector) reload() {
+	c.emit(wire{Type: "reload"})
+	if err := c.replay(); err != nil {
+		c.fail("local_storage_failed")
+	}
+}
+
+func (c *connector) event(raw any) {
+	switch evt := raw.(type) {
+	case *events.Connected:
+		c.emit(wire{Type: "status", State: "connected"})
+		go c.refreshGroups()
+		c.kickAvatars()
+	case *events.Disconnected:
+		c.emit(wire{Type: "status", State: "offline"})
+	case *events.PairSuccess:
+		if c.vault.checkpoint() != nil {
+			c.stopOnStorageFailure()
+			return
+		}
+		c.emit(wire{Type: "status", State: "paired"})
+	case *events.LoggedOut:
+		c.stopped.Store(true)
+		if c.vault.revoke() != nil {
+			c.fail("state_removal_failed")
+		}
+		c.emit(wire{Type: "status", State: "logged_out"})
+	case *events.StreamReplaced:
+		c.emit(wire{Type: "status", State: "replaced"})
+	case *events.Message:
+		c.receive(evt, "")
+	case *events.HistorySync:
+		c.history(evt)
+	case *events.Contact, *events.PushName, *events.BusinessName, *events.AppStateSyncComplete:
+		c.namesDirty.Store(true)
+	case *events.GroupInfo:
+		if evt.Name != nil {
+			c.setChatName(c.canonical(evt.JID), evt.Name.Name)
+		}
+	case *events.JoinedGroup:
+		c.setChatName(c.canonical(evt.JID), evt.Name)
+	case *events.Picture:
+		c.invalidateAvatar(c.canonical(evt.JID))
+	}
+}
+func (c *connector) stopOnStorageFailure() {
+	if c.stopped.Swap(true) {
+		return
+	}
+	c.client.Disconnect()
+	c.fail("secure_storage_failed")
+}
+func (c *connector) connect() {
+	c.pairing.Lock()
+	defer c.pairing.Unlock()
+	if c.stopped.Load() {
+		c.fail("session_ended")
+		return
+	}
+	if c.qrCancel != nil {
+		c.qrCancel()
+		c.qrCancel = nil
+	}
+	c.client.Disconnect()
+	c.emit(wire{Type: "status", State: "connecting"})
+	if c.client.Store.ID == nil {
+		ctx, cancel := context.WithCancel(c.ctx)
+		c.qrCancel = cancel
+		channel, err := c.client.GetQRChannel(ctx)
+		if err != nil {
+			c.fail("pairing_failed")
+			return
+		}
+		go func() {
+			for item := range channel {
+				if ctx.Err() != nil {
+					return
+				}
+				switch item.Event {
+				case whatsmeow.QRChannelEventCode:
+					c.emit(wire{Type: "qr", Code: item.Code, ExpiresMS: item.Timeout.Milliseconds()})
+				case whatsmeow.QRChannelSuccess.Event:
+				case whatsmeow.QRChannelTimeout.Event:
+					c.emit(wire{Type: "status", State: "qr_expired"})
+				case whatsmeow.QRChannelClientOutdated.Event:
+					c.fail("client_outdated")
+				default:
+					// Scanned by a phone without multi-device, unexpected state, or a pairing error.
+					c.fail("pairing_failed")
+				}
+			}
+		}()
+	}
+	if err := c.client.ConnectContext(c.ctx); err != nil {
+		c.fail("connection_failed")
+	}
+}
+func (c *connector) ready() bool {
+	return !c.stopped.Load() && c.client.IsLoggedIn() && c.client.IsConnected()
+}
+func (c *connector) send(cmd command) {
+	if !c.ready() {
+		c.refuse(cmd.ID, "not_connected")
+		return
+	}
+	chat, err := validChat(cmd.Chat)
+	if err != nil || len(cmd.Text) == 0 || len(cmd.Text) > maxText || len(cmd.ID) < 8 || len(cmd.ID) > 64 {
+		c.refuse(cmd.ID, "invalid_send")
+		return
+	}
+	raw := c.rawChatFor(chat)
+	// Persist the send intent before the network request. Reopening never replays it.
+	m := message{ID: cmd.Chat + ":" + cmd.ID, Chat: cmd.Chat, Name: chat.User, Sender: "me", Text: cmd.Text,
+		TS: now(), Mine: true, Status: "sending", RawChat: raw.String()}
+	result, err := c.vault.db.ExecContext(c.ctx, `INSERT INTO rv_messages(`+messageColumns+`)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+		m.ID, m.Chat, m.Name, m.Sender, m.Author, m.Text, m.TS, m.Mine, m.Status, m.Edited, m.Deleted, m.RawChat, m.RawSender)
+	if err != nil {
+		c.refuse(cmd.ID, "local_storage_failed")
+		return
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n != 1 {
+		c.refuse(cmd.ID, "send_already_recorded")
+		return
+	}
+	if c.vault.checkpoint() != nil {
+		c.stopOnStorageFailure()
+		return
+	}
+	c.emit(wire{Type: "message", Message: &m})
+	ctx, cancel := context.WithTimeout(c.ctx, 45*time.Second)
+	defer cancel()
+	response, err := c.client.SendMessage(ctx, raw, &waE2E.Message{Conversation: proto.String(cmd.Text)}, whatsmeow.SendRequestExtra{ID: types.MessageID(cmd.ID)})
+	if err != nil {
+		m.Status = "uncertain"
+	} else {
+		m.Status = ""
+		m.TS = response.Timestamp.UnixMilli()
+	}
+	c.remember(m)
+	if c.vault.checkpoint() != nil {
+		c.stopOnStorageFailure()
+		return
+	}
+	c.emit(wire{Type: "sent", ID: cmd.ID, State: m.Status})
+}
+
+// The JID my own messages are keyed under in a chat's addressing.
+func (c *connector) ownJID(chat types.JID) types.JID {
+	if chat.Server == types.HiddenUserServer && !c.client.Store.LID.IsEmpty() {
+		return c.client.Store.LID.ToNonAD()
+	}
+	if c.client.Store.ID != nil {
+		return c.client.Store.ID.ToNonAD()
+	}
+	return types.JID{}
+}
+
+// The key's sender: me, or the author as WhatsApp addressed them.
+func (c *connector) keySender(m message, chat types.JID) types.JID {
+	if m.Mine {
+		return c.ownJID(chat)
+	}
+	if jid, err := types.ParseJID(m.RawSender); err == nil && m.RawSender != "" {
+		return jid
+	}
+	jid, _ := types.ParseJID(m.Sender)
+	return jid
+}
+
+// Reacts with an emoji, or takes my reaction back with an empty one.
+func (c *connector) react(cmd command) {
+	m, chat, waid, ok := c.target(cmd.ID)
+	if !c.ready() || !ok || m.Deleted || len(cmd.Text) > 64 {
+		c.fail("action_failed")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+	if _, err := c.client.SendMessage(ctx, chat, c.client.BuildReaction(chat, c.keySender(m, chat), waid, cmd.Text)); err != nil {
+		c.fail("action_failed")
+		return
+	}
+	c.storeReaction(m.ID, "me", cmd.Text, now())
+}
+
+func (c *connector) edit(cmd command) {
+	m, chat, waid, ok := c.target(cmd.ID)
+	if !c.ready() || !ok || !m.Mine || m.Deleted || m.Status != "" || len(cmd.Text) == 0 || len(cmd.Text) > maxText {
+		c.fail("action_failed")
+		return
+	}
+	if time.Since(time.UnixMilli(m.TS)) > editWindow {
+		c.fail("edit_expired")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+	if _, err := c.client.SendMessage(ctx, chat, c.client.BuildEdit(chat, waid, &waE2E.Message{Conversation: proto.String(cmd.Text)})); err != nil {
+		c.fail("action_failed")
+		return
+	}
+	c.markEdited(m.ID, cmd.Text)
+}
+
+// Deletes my message for everyone.
+func (c *connector) revoke(cmd command) {
+	m, chat, waid, ok := c.target(cmd.ID)
+	if !c.ready() || !ok || !m.Mine || m.Deleted || m.Status != "" {
+		c.fail("action_failed")
+		return
+	}
+	if time.Since(time.UnixMilli(m.TS)) > revokeWindow {
+		c.fail("delete_expired")
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.ctx, 30*time.Second)
+	defer cancel()
+	if _, err := c.client.SendMessage(ctx, chat, c.client.BuildRevoke(chat, c.ownJID(chat), waid)); err != nil {
+		c.fail("action_failed")
+		return
+	}
+	c.markDeleted(m.ID)
+}
+
+// open loads the sealed state under its lock and prepares the client. The
+// returned closer checkpoints and releases everything.
+func open(path string, key []byte, sink func(wire)) (*connector, func(), error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, nil, err
+	}
+	lock := flock.New(path + ".lock")
+	ok, err := lock.TryLock()
+	if err != nil || !ok {
+		return nil, nil, fmt.Errorf("session busy")
+	}
+	v, err := openVault(path, key)
+	if err != nil {
+		_ = lock.Unlock()
+		return nil, nil, err
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	fail := func(err error) (*connector, func(), error) {
+		cancel()
+		v.db.Close()
+		_ = lock.Unlock()
+		return nil, nil, err
+	}
+	container := sqlstore.NewWithDB(v.db, "sqlite3", waLog.Noop)
+	if err := container.Upgrade(ctx); err != nil {
+		return fail(err)
+	}
+	if err := migrate(v.db); err != nil {
+		return fail(err)
+	}
+	devices, err := container.GetAllDevices(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	if len(devices) > 1 {
+		return fail(fmt.Errorf("ambiguous session"))
+	}
+	device := container.NewDevice()
+	if len(devices) == 1 {
+		device = devices[0]
+	}
+	c := &connector{vault: v, ctx: ctx, cancel: cancel, sink: sink, avatarKick: make(chan struct{}, 1)}
+	c.client = whatsmeow.NewClient(device, waLog.Noop)
+	c.client.AddEventHandler(c.event)
+	// A crash while sending is an uncertain outcome, never an automatic retry.
+	if _, err := v.db.Exec(`UPDATE rv_messages SET status='uncertain' WHERE status='sending'`); err != nil {
+		return fail(err)
+	}
+	c.normalize()
+	c.prune()
+	if err := c.replay(); err != nil {
+		return fail(err)
+	}
+	c.emit(wire{Type: "status", State: "loaded"})
+	done := make(chan struct{})
+	go c.avatarWorker()
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for tick := 1; ; tick++ {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if c.stopped.Load() {
+					continue
+				}
+				if tick%30 == 0 && c.normalize() {
+					c.reload()
+				}
+				if c.namesDirty.Swap(false) {
+					c.emitNames()
+				}
+				if v.checkpoint() != nil {
+					c.stopOnStorageFailure()
+				}
+			}
+		}
+	}()
+	closer := func() {
+		cancel()
+		c.client.Disconnect()
+		<-done
+		_ = v.checkpoint()
+		v.db.Close()
+		_ = lock.Unlock()
+	}
+	return c, closer, nil
+}
+
+// handle runs one client command; it reports false once the engine ended.
+func (c *connector) handle(cmd command) bool {
+	switch cmd.Type {
+	case "connect":
+		go c.connect()
+	case "send":
+		c.send(cmd)
+	case "react":
+		c.react(cmd)
+	case "edit":
+		c.edit(cmd)
+	case "delete":
+		c.revoke(cmd)
+	case "logout":
+		if err := c.client.Logout(c.ctx); err != nil {
+			c.fail("logout_failed")
+			return true
+		}
+		c.stopped.Store(true)
+		if err := c.vault.revoke(); err != nil {
+			c.fail("state_removal_failed")
+		}
+		c.emit(wire{Type: "status", State: "logged_out"})
+		return false
+	case "stop":
+		return false
+	default:
+		c.fail("invalid_command")
+	}
+	return true
+}

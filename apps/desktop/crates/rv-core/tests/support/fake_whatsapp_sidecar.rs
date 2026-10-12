@@ -1,5 +1,8 @@
 //! Synthetic IPC peer. It never contacts WhatsApp.
 use serde_json::{Value, json};
+
+/// A 32x32 blue PNG: a photo the render shows plainly.
+const PHOTO: &str = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mOQq7hDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAKHFyEyREEL5AAAAAElFTkSuQmCC";
 use std::io::{self, BufRead};
 fn main() {
     let mut input = io::stdin().lock().lines();
@@ -30,7 +33,26 @@ fn main() {
                         "ts":1791810000000_i64,"mine":false
                     }})
                 );
+                println!(
+                    "{}",
+                    json!({"type":"names","names":{
+                        "alice@s.whatsapp.net":"Alice Martin","friends@g.us":"Les amis","bob@s.whatsapp.net":"Bob"
+                    }})
+                );
+                println!("{}", json!({"type":"avatar","jid":"alice@s.whatsapp.net","data":PHOTO}));
+                println!(
+                    "{}",
+                    json!({"type":"reaction","reaction":{
+                        "message":"alice@s.whatsapp.net:fake-received","sender":"alice@s.whatsapp.net","emoji":"❤️","ts":1
+                    }})
+                );
                 println!("{}", json!({"type":"status","state":"connected"}));
+            }
+            Some("react") => {
+                println!(
+                    "{}",
+                    json!({"type":"reaction","reaction":{"message":command["id"],"sender":"me","emoji":command["text"],"ts":2}})
+                );
             }
             Some("send") if command["chat"] == "refused@s.whatsapp.net" => {
                 println!("{}", json!({"type":"error","code":"invalid_send","id":command["id"]}));

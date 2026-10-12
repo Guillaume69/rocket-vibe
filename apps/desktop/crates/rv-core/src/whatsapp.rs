@@ -34,6 +34,61 @@ pub struct Snapshot {
     pub refused: Option<String>,
     /// The helper process is gone; its state lock is free for a new one.
     pub exited: bool,
+    /// What each chat and sender is called, swapped in whole by the helper.
+    pub names: Arc<BTreeMap<String, String>>,
+    /// Profile photos (JPEG previews) by JID.
+    pub avatars: Arc<BTreeMap<String, Arc<[u8]>>>,
+    /// Reactions by message id, then by sender ("me" for mine): the emoji.
+    pub reactions: Arc<BTreeMap<String, BTreeMap<String, String>>>,
+}
+impl Snapshot {
+    /// The name shown for a chat or a person, falling back on what the
+    /// message itself carried.
+    pub fn name_of(&self, jid: &str) -> Option<&str> {
+        self.names.get(jid).map(String::as_str).filter(|n| !n.is_empty())
+    }
+    pub fn chat_name(&self, message: &WireMessage) -> String {
+        self.name_of(&message.chat).map(str::to_owned).unwrap_or_else(|| fallback_name(&message.chat))
+    }
+    /// A message as the native timeline draws it.
+    pub fn presentation(&self, m: &WireMessage) -> MessageRow {
+        let mut row = m.presentation();
+        if !m.mine {
+            let named = self.name_of(&m.sender).map(str::to_owned);
+            row.author = Some(
+                named.unwrap_or_else(|| if !m.author.is_empty() { m.author.clone() } else { fallback_name(&m.sender) }),
+            );
+        }
+        row.reactions = self.reactions.get(&m.id).and_then(reactions_json);
+        row
+    }
+}
+
+/// A JID without a known name: its number, as WhatsApp shows a stranger.
+pub fn fallback_name(jid: &str) -> String {
+    match jid.split_once('@') {
+        Some((user, "s.whatsapp.net")) => format!("+{user}"),
+        Some((user, _)) => user.to_owned(),
+        None => jid.to_owned(),
+    }
+}
+
+/// `{":shortcode:": {"usernames": [sender, ...]}}`, the shape the timeline's
+/// reaction chips read; a glyph with no shortcode is keyed by itself.
+fn reactions_json(by_sender: &BTreeMap<String, String>) -> Option<String> {
+    let mut grouped: BTreeMap<String, Vec<&str>> = BTreeMap::new();
+    for (sender, emoji) in by_sender {
+        let code = crate::emoji::shortcode(emoji).unwrap_or(emoji.as_str());
+        grouped.entry(format!(":{code}:")).or_default().push(sender);
+    }
+    let value: serde_json::Map<String, serde_json::Value> =
+        grouped.into_iter().map(|(code, users)| (code, json!({ "usernames": users }))).collect();
+    (!value.is_empty()).then(|| serde_json::Value::Object(value).to_string())
+}
+
+/// The glyph WhatsApp sends for a reaction chip's shortcode.
+pub fn reaction_glyph(shortcode: &str) -> String {
+    crate::emoji::unicode(shortcode).map(str::to_owned).unwrap_or_else(|| shortcode.trim_matches(':').to_owned())
 }
 #[derive(Clone, Deserialize)]
 pub struct WireMessage {
@@ -47,6 +102,10 @@ pub struct WireMessage {
     pub mine: bool,
     #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub edited: bool,
+    #[serde(default)]
+    pub deleted: bool,
 }
 impl WireMessage {
     pub fn presentation(&self) -> MessageRow {
@@ -54,7 +113,8 @@ impl WireMessage {
             id: self.id.clone(),
             rid: self.chat.clone(),
             ts: self.ts,
-            text: Some(self.text.clone()),
+            text: Some(if self.deleted { crate::i18n::t("wa.deleted").to_owned() } else { self.text.clone() }),
+            edited: self.edited && !self.deleted,
             author: Some(if self.mine {
                 crate::i18n::t("wa.me").to_owned()
             } else if self.author.is_empty() {
@@ -96,9 +156,31 @@ enum Event {
         #[serde(default)]
         state: String,
     },
+    Names {
+        #[serde(default)]
+        names: BTreeMap<String, String>,
+    },
+    Avatar {
+        jid: String,
+        #[serde(default)]
+        data: String,
+    },
+    Reaction {
+        reaction: WireReaction,
+    },
+    /// The helper re-keyed its cache (a LID mapped to a number): it replays it whole.
+    Reload,
+}
+#[derive(Deserialize)]
+struct WireReaction {
+    message: String,
+    sender: String,
+    #[serde(default)]
+    emoji: String,
 }
 enum Request {
     Send { id: String, chat: String, text: String },
+    Act { kind: &'static str, id: String, text: String },
     Connect,
     Logout,
     Stop,
@@ -153,14 +235,50 @@ impl Snapshot {
                 }
             }
             Event::Error { code, id } => {
-                // A refused send or a failed unlink leaves the connection as it was.
+                // Only these end the session; a refused send, a failed reaction
+                // or unlink leave the connection as it was.
                 if id.is_some() {
                     self.refused = id;
-                } else if !matches!(code.as_str(), "logout_failed" | "invalid_command" | "local_storage_failed") {
+                } else if matches!(
+                    code.as_str(),
+                    "connector_start_failed"
+                        | "secure_storage_failed"
+                        | "session_ended"
+                        | "pairing_failed"
+                        | "client_outdated"
+                        | "connection_failed"
+                        | "state_removal_failed"
+                ) {
                     self.qr = None;
                     self.state = "error".into();
                 }
                 self.error = Some(code);
+            }
+            Event::Names { names } => self.names = Arc::new(names),
+            Event::Avatar { jid, data } => {
+                let photo = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).unwrap_or_default();
+                let avatars = Arc::make_mut(&mut self.avatars);
+                if photo.is_empty() {
+                    avatars.remove(&jid);
+                } else {
+                    avatars.insert(jid, photo.into());
+                }
+            }
+            Event::Reaction { reaction } => {
+                let reactions = Arc::make_mut(&mut self.reactions);
+                let by_sender = reactions.entry(reaction.message.clone()).or_default();
+                if reaction.emoji.is_empty() {
+                    by_sender.remove(&reaction.sender);
+                } else {
+                    by_sender.insert(reaction.sender, reaction.emoji);
+                }
+                if by_sender.is_empty() {
+                    reactions.remove(&reaction.message);
+                }
+            }
+            Event::Reload => {
+                self.messages.clear();
+                self.reactions = Arc::default();
             }
             Event::Sent { id, state } => {
                 let _ = id;
@@ -238,6 +356,20 @@ impl Connector {
         self.request(Request::Send { id: id.clone(), chat, text })?;
         Ok(id)
     }
+    /// Reacts to a message with a glyph; an empty one takes my reaction back.
+    pub fn react(&self, id: String, glyph: String) -> Result<(), String> {
+        self.request(Request::Act { kind: "react", id, text: glyph })
+    }
+    pub fn edit(&self, id: String, text: String) -> Result<(), String> {
+        if text.trim().is_empty() || text.len() > 20_000 {
+            return Err("invalid_edit".into());
+        }
+        self.request(Request::Act { kind: "edit", id, text })
+    }
+    /// Deletes my message for everyone.
+    pub fn delete(&self, id: String) -> Result<(), String> {
+        self.request(Request::Act { kind: "delete", id, text: String::new() })
+    }
 }
 async fn worker(
     weak: Weak<Connector>,
@@ -262,6 +394,7 @@ async fn worker(
                 let stopping = matches!(request, Request::Stop);
                 let value = match request {
                     Request::Send { id, chat, text } => json!({"type":"send","id":id,"chat":chat,"text":text}),
+                    Request::Act { kind, id, text } => json!({"type":kind,"id":id,"text":text}),
                     Request::Connect => json!({"type":"connect"}),
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),
@@ -320,6 +453,49 @@ mod tests {
         s.apply(serde_json::from_value(json!({"type":"error","code":"secure_storage_failed"})).unwrap());
         assert_eq!(s.state, "error");
         assert_eq!(s.error.as_deref(), Some("secure_storage_failed"));
+    }
+    #[test]
+    fn names_reactions_and_avatars_reach_the_presentation() {
+        let mut s = Snapshot::default();
+        let wire = |value: serde_json::Value| serde_json::from_value::<Event>(value).unwrap();
+        s.apply(wire(json!({"type":"message","message":{
+            "id":"g@g.us:1","chat":"g@g.us","name":"g","sender":"33600000001@s.whatsapp.net","author":"",
+            "text":"hello","ts":10,"mine":false
+        }})));
+        let m = s.messages["g@g.us:1"].clone();
+        assert_eq!(s.presentation(&m).author.as_deref(), Some("+33600000001"));
+        assert_eq!(s.chat_name(&m), "g");
+        s.apply(wire(json!({"type":"names","names":{"g@g.us":"Les amis","33600000001@s.whatsapp.net":"Alice"}})));
+        assert_eq!(s.presentation(&m).author.as_deref(), Some("Alice"));
+        assert_eq!(s.chat_name(&m), "Les amis");
+        s.apply(wire(json!({"type":"reaction","reaction":{"message":"g@g.us:1","sender":"me","emoji":"👍","ts":11}})));
+        s.apply(wire(json!({"type":"reaction","reaction":{"message":"g@g.us:1","sender":"b","emoji":"👍","ts":12}})));
+        let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");
+        assert_eq!(reactions.len(), 1);
+        assert_eq!((reactions[0].count, reactions[0].mine), (2, true));
+        assert_eq!(reaction_glyph(&reactions[0].shortcode), "👍");
+        s.apply(wire(json!({"type":"reaction","reaction":{"message":"g@g.us:1","sender":"me","emoji":"","ts":13}})));
+        let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");
+        assert_eq!((reactions[0].count, reactions[0].mine), (1, false));
+        s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":"/9j/"})));
+        assert_eq!(s.avatars.get("g@g.us").map(|a| a.len()), Some(3));
+        s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":""})));
+        assert!(s.avatars.is_empty());
+        s.apply(wire(json!({"type":"reload"})));
+        assert!(s.messages.is_empty() && s.reactions.is_empty());
+    }
+    #[test]
+    fn a_deleted_message_shows_as_deleted_and_an_edit_as_edited() {
+        let m: WireMessage = serde_json::from_value(json!({
+            "id":"c:1","chat":"c","name":"c","sender":"c","author":"","text":"","ts":1,"mine":false,"deleted":true
+        }))
+        .unwrap();
+        assert_eq!(m.presentation().text.as_deref(), Some(crate::i18n::t("wa.deleted")));
+        let m: WireMessage = serde_json::from_value(json!({
+            "id":"c:1","chat":"c","name":"c","sender":"c","author":"","text":"new","ts":1,"mine":false,"edited":true
+        }))
+        .unwrap();
+        assert!(m.presentation().edited);
     }
     #[test]
     fn the_replayed_cache_marks_the_snapshot_loaded() {

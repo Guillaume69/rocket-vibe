@@ -174,6 +174,15 @@ impl Client {
         accounts::known_servers(&self.dirs)
     }
 
+    /// The room list's folded sections of an account (`Account::key`).
+    pub fn collapsed_sections(&self, account: String) -> Vec<String> {
+        rv_core::collapsed_sections::load(&self.dirs.config, &account)
+    }
+
+    pub fn toggle_collapsed_section(&self, account: String, section: String) -> Vec<String> {
+        rv_core::collapsed_sections::toggle(&self.dirs.config, &account, &section)
+    }
+
     pub async fn accounts(&self) -> Vec<Account> {
         let dirs = self.dirs.clone();
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()

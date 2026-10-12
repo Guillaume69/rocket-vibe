@@ -503,6 +503,27 @@ fn failed(mix: &Mix, side: &str, error: cpal::Error) {
     }
 }
 
+/// What opening a microphone or speakers came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Opened {
+    /// The device asked for, or the default when none was.
+    Chosen,
+    /// The device asked for is gone: the default stands in.
+    Default,
+    /// No stream: nothing is captured, or nothing plays.
+    Failed,
+}
+
+impl Opened {
+    fn of(found: bool, stream: bool) -> Self {
+        match (stream, found) {
+            (false, _) => Self::Failed,
+            (true, true) => Self::Chosen,
+            (true, false) => Self::Default,
+        }
+    }
+}
+
 /// The audio of one connection: its devices' streams and the microphone track's source.
 pub struct Audio {
     mix: Arc<Mix>,
@@ -529,8 +550,8 @@ impl Drop for Audio {
 
 impl Audio {
     /// Opens the chosen devices (empty ids: the defaults). Within the runtime.
-    /// Also says whether both devices were found.
-    pub fn start(mix: Arc<Mix>, fake: bool, input: &str, output: &str) -> (Self, bool) {
+    /// Also says how the microphone and the speakers opened.
+    pub fn start(mix: Arc<Mix>, fake: bool, input: &str, output: &str) -> (Self, Opened, Opened) {
         // The processing runs here, not again in LiveKit's source.
         let options =
             AudioSourceOptions { echo_cancellation: false, noise_suppression: false, auto_gain_control: false };
@@ -562,22 +583,20 @@ impl Audio {
             fake,
             tasks: vec![],
         };
-        let found = if fake {
+        let opened = if fake {
             tasks.push(tokio::spawn(sine(audio.mix.clone(), audio.frames.clone())));
-            true
+            (Opened::Chosen, Opened::Chosen)
         } else {
-            let found_in = audio.set_input(input);
-            let found_out = audio.set_output(output);
-            found_in && found_out
+            (audio.set_input(input), audio.set_output(output))
         };
         audio.tasks = tasks;
-        (audio, found)
+        (audio, opened.0, opened.1)
     }
 
-    /// Reopens the microphone; false when that device is gone (the default then).
-    pub fn set_input(&mut self, id: &str) -> bool {
+    /// Reopens the microphone.
+    pub fn set_input(&mut self, id: &str) -> Opened {
         if self.fake {
-            return true;
+            return Opened::Chosen;
         }
         self.input = None;
         self.choices.0 = id.to_owned();
@@ -586,36 +605,37 @@ impl Audio {
         self.input = device.and_then(|(d, _)| match capture(&d, self.mix.clone(), self.frames.clone()) {
             Ok(stream) => Some(stream),
             Err(error) => {
-                eprintln!("rv-voice: microphone unavailable: {error}");
+                crate::diagnose(&format!("microphone unavailable: {error}"));
                 None
             }
         });
-        found && self.input.is_some()
+        Opened::of(found, self.input.is_some())
     }
 
     /// Opens the chosen devices again (a stream died): the default stands in for one gone.
-    pub fn recover(&mut self) {
+    pub fn recover(&mut self) -> (Opened, Opened) {
         let (input, output) = self.choices.clone();
-        self.set_input(&input);
-        self.set_output(&output);
+        (self.set_input(&input), self.set_output(&output))
     }
 
     /// Reopens a side that follows the default when the system's default changed.
-    pub fn follow_defaults(&mut self) {
+    pub fn follow_defaults(&mut self) -> (Opened, Opened) {
+        let mut opened = (Opened::Chosen, Opened::Chosen);
         if self.fake {
-            return;
+            return opened;
         }
         if self.choices.0.is_empty() && default_id(true).is_some_and(|id| self.opened.0.as_ref() != Some(&id)) {
-            self.set_input("");
+            opened.0 = self.set_input("");
         }
         if self.choices.1.is_empty() && default_id(false).is_some_and(|id| self.opened.1.as_ref() != Some(&id)) {
-            self.set_output("");
+            opened.1 = self.set_output("");
         }
+        opened
     }
 
-    pub fn set_output(&mut self, id: &str) -> bool {
+    pub fn set_output(&mut self, id: &str) -> Opened {
         if self.fake {
-            return true;
+            return Opened::Chosen;
         }
         self.output = None;
         self.choices.1 = id.to_owned();
@@ -624,11 +644,11 @@ impl Audio {
         self.output = device.and_then(|(d, _)| match play(&d, self.mix.clone()) {
             Ok(stream) => Some(stream),
             Err(error) => {
-                eprintln!("rv-voice: speakers unavailable: {error}");
+                crate::diagnose(&format!("speakers unavailable: {error}"));
                 None
             }
         });
-        found && self.output.is_some()
+        Opened::of(found, self.output.is_some())
     }
 
     /// Reads a remote audio track for as long as it is subscribed.

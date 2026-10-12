@@ -54,8 +54,8 @@ fn emit(event: Event) {
     let _ = out.flush();
 }
 
-/// A diagnostics line (`RV_VOICE_DEBUG=1`): appended to the file `RV_VOICE_LOG`
-/// names (the app gives the sidecar no stderr), else to stderr.
+/// A diagnostics line (`RV_VOICE_DEBUG=1`, or a device that did not open):
+/// appended to the file `RV_VOICE_LOG` names, else to stderr, the app's own.
 fn diagnose(line: &str) {
     use std::io::Write as _;
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
@@ -72,6 +72,20 @@ fn diagnose(line: &str) {
 
 fn error(code: &str) {
     emit(Event::Error { code: code.into() });
+}
+
+/// A microphone or speakers that did not open, or opened the default in place of the chosen one.
+fn report((input, output): (audio::Opened, audio::Opened)) {
+    use audio::Opened;
+    if input == Opened::Failed {
+        error("microphone_unavailable");
+    }
+    if output == Opened::Failed {
+        error("speakers_unavailable");
+    }
+    if input == Opened::Default || output == Opened::Default {
+        error("device_not_found");
+    }
 }
 
 fn main() {
@@ -338,18 +352,14 @@ impl Voice {
             }
             Command::ListDevices => self.list_devices(),
             Command::SetInput { device } => {
-                if let Some(audio) = &mut self.audio
-                    && !audio.set_input(&device)
-                {
-                    error("device_not_found");
+                if let Some(audio) = &mut self.audio {
+                    report((audio.set_input(&device), audio::Opened::Chosen));
                 }
                 self.input = Some(device);
             }
             Command::SetOutput { device } => {
-                if let Some(audio) = &mut self.audio
-                    && !audio.set_output(&device)
-                {
-                    error("device_not_found");
+                if let Some(audio) = &mut self.audio {
+                    report((audio::Opened::Chosen, audio.set_output(&device)));
                 }
                 self.output = Some(device);
             }
@@ -492,10 +502,8 @@ impl Voice {
         let Some(room) = self.room.clone() else { return };
         if self.audio.is_none() {
             let (input, output) = (self.input.clone().unwrap_or_default(), self.output.clone().unwrap_or_default());
-            let (audio, found) = audio::Audio::start(self.mix.clone(), self.fake, &input, &output);
-            if !found {
-                error("device_not_found");
-            }
+            let (audio, input, output) = audio::Audio::start(self.mix.clone(), self.fake, &input, &output);
+            report((input, output));
             self.audio = Some(audio);
             self.apply_microphone();
         }
@@ -546,14 +554,15 @@ impl Voice {
             && let Some(audio) = &mut self.audio
         {
             self.recovered = Some(Instant::now());
-            audio.recover();
+            let opened = audio.recover();
             error("device_lost");
+            report(opened);
         }
         self.ticks += 1;
         if self.ticks.is_multiple_of(30)
             && let Some(audio) = &mut self.audio
         {
-            audio.follow_defaults();
+            report(audio.follow_defaults());
         }
         let level = (self.mix.input_level() * 50.0).round() / 50.0;
         if level != self.input_level {

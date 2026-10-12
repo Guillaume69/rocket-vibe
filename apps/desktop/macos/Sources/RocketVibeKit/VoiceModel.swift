@@ -113,6 +113,8 @@ public final class VoiceModel {
             switch error {
             case "camera_unavailable": onNotice?(L("voice_session.camera_unavailable"))
             case "screen_unavailable": onNotice?(L("voice_session.screen_unavailable"))
+            case "speakers_unavailable": onNotice?(L("voice_session.speakers_unavailable"))
+            case "microphone_unavailable": onNotice?(L("voice_session.microphone_unavailable"))
             default: break
             }
         }

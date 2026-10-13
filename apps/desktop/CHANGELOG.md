@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Voice on a RocketVibe server lagged by seconds on Linux: the speakers and the microphone now ask the sound server for a few milliseconds of buffering instead of its 2-second default. On every system, a stall of the microphone no longer adds to the call's delay for the rest of the call.
+
 ## [0.19.1] - 2026-10-13
 
 ### Fixed

@@ -48,6 +48,11 @@ const FRAME: usize = 480;
 const PRIME: usize = 4 * FRAME * 2;
 /// ...and is cut back to it past this much (a clock drifting, a burst).
 const BACKLOG: usize = 20 * FRAME * 2;
+/// Microphone frames (10 ms) waiting for LiveKit's source past this are dropped,
+/// oldest first. The source sends one frame every 10 ms and fills a gap with
+/// silence, so a backlog never drains: each stall (a late microphone callback,
+/// a busy worker) would otherwise add its length to the call's delay for good.
+const SEND_BACKLOG: usize = 5;
 /// Someone still speaks this long after their last loud enough frame.
 const HANGOVER: Duration = Duration::from_millis(350);
 /// Above this, a remote voice speaks: a whisper after the sender's processing
@@ -215,7 +220,7 @@ pub struct Mix {
 
 /// What the audio threads did since the last report: 10 ms frames received,
 /// mixed and captured (100 a second each when the clocks agree), tracks that
-/// ran dry, backlogs cut, and the longest wait for the processing lock, gap
+/// ran dry, backlogs cut, microphone frames shed, and the longest wait for the processing lock, gap
 /// between two speakers' or microphone's callbacks, and microphone frame's
 /// processing (µs).
 #[derive(Default)]
@@ -225,6 +230,7 @@ pub struct Stats {
     captured: AtomicU32,
     dry: AtomicU32,
     cut: AtomicU32,
+    shed: AtomicU32,
     waited: AtomicU32,
     output_gap: AtomicU32,
     input_gap: AtomicU32,
@@ -242,12 +248,13 @@ impl Stats {
     pub fn report(&self) -> String {
         let take = |c: &AtomicU32| c.swap(0, Ordering::Relaxed);
         format!(
-            "received {} mixed {} captured {} dry {} cut {} | longest: lock {} µs, speakers gap {} µs, microphone gap {} µs, processing {} µs",
+            "received {} mixed {} captured {} dry {} cut {} shed {} | longest: lock {} µs, speakers gap {} µs, microphone gap {} µs, processing {} µs",
             take(&self.received),
             take(&self.mixed),
             take(&self.captured),
             take(&self.dry),
             take(&self.cut),
+            take(&self.shed),
             take(&self.waited),
             take(&self.output_gap),
             take(&self.input_gap),
@@ -558,8 +565,12 @@ impl Audio {
         let source = NativeAudioSource::new(options, RATE, 1, 100);
         let (frames, mut received) = mpsc::unbounded_channel::<Vec<i16>>();
         let pusher = source.clone();
+        let stats = mix.clone();
         let mut tasks = vec![tokio::spawn(async move {
-            while let Some(samples) = received.recv().await {
+            while let Some(mut samples) = received.recv().await {
+                if let Some(newer) = shed(&mut received, &stats.stats) {
+                    samples = newer;
+                }
                 let frame = AudioFrame {
                     data: samples.into(),
                     sample_rate: RATE,
@@ -675,6 +686,17 @@ impl Audio {
     }
 }
 
+/// Drops the microphone frames waiting past [`SEND_BACKLOG`], oldest first, and
+/// returns the oldest one kept, to send in place of the frame just received.
+fn shed(received: &mut mpsc::UnboundedReceiver<Vec<i16>>, stats: &Stats) -> Option<Vec<i16>> {
+    let mut kept = None;
+    while received.len() >= SEND_BACKLOG {
+        kept = received.try_recv().ok();
+        Stats::count(&stats.shed);
+    }
+    kept
+}
+
 /// The sample formats `play` and `capture` convert.
 const WRITABLE: [SampleFormat; 5] =
     [SampleFormat::F32, SampleFormat::I16, SampleFormat::I24, SampleFormat::I32, SampleFormat::U16];
@@ -710,21 +732,46 @@ fn stream_config(device: &cpal::Device, output: bool) -> Result<cpal::SupportedS
     })
 }
 
+/// The stream's period on Linux: cpal's PulseAudio host sends a default buffer
+/// size as "server's choice", and PulseAudio and PipeWire then choose 2 s, for
+/// the speakers' queue and for each microphone fragment: seconds of delay, and a
+/// microphone arriving in bursts. A fixed size asks them for this latency.
+/// WASAPI's and CoreAudio's defaults are already a few ms. A server refusing the
+/// size gets its own choice rather than no sound.
+fn period<S>(
+    side: &str,
+    config: cpal::StreamConfig,
+    ms: u32,
+    open: impl Fn(&cpal::StreamConfig) -> Result<S, String>,
+) -> Result<S, String> {
+    if cfg!(target_os = "linux") {
+        let fixed =
+            cpal::StreamConfig { buffer_size: cpal::BufferSize::Fixed(config.sample_rate * ms / 1000), ..config };
+        match open(&fixed) {
+            Ok(stream) => return Ok(stream),
+            Err(error) => crate::diagnose(&format!("{side}: no {ms} ms period ({error}), the server's own")),
+        }
+    }
+    open(&config)
+}
+
 /// The speakers: 48 kHz stereo from the mix, to the device's own rate and channels.
 fn play(device: &cpal::Device, mix: Arc<Mix>) -> Result<cpal::Stream, String> {
     let supported = stream_config(device, true)?;
-    let config = supported.config();
-    if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
-        crate::diagnose(&format!("speakers {:?} {:?}", supported.sample_format(), config));
-    }
-    let stream = match supported.sample_format() {
-        SampleFormat::F32 => play_as::<f32>(device, &config, mix),
-        SampleFormat::I16 => play_as::<i16>(device, &config, mix),
-        SampleFormat::I24 => play_as::<cpal::I24>(device, &config, mix),
-        SampleFormat::I32 => play_as::<i32>(device, &config, mix),
-        SampleFormat::U16 => play_as::<u16>(device, &config, mix),
-        other => return Err(format!("unsupported sample format {other:?}")),
-    }?;
+    // Two periods queued: 40 ms ahead of the mix.
+    let stream = period("speakers", supported.config(), 20, |config| {
+        if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+            crate::diagnose(&format!("speakers {:?} {:?}", supported.sample_format(), config));
+        }
+        match supported.sample_format() {
+            SampleFormat::F32 => play_as::<f32>(device, config, mix.clone()),
+            SampleFormat::I16 => play_as::<i16>(device, config, mix.clone()),
+            SampleFormat::I24 => play_as::<cpal::I24>(device, config, mix.clone()),
+            SampleFormat::I32 => play_as::<i32>(device, config, mix.clone()),
+            SampleFormat::U16 => play_as::<u16>(device, config, mix.clone()),
+            other => Err(format!("unsupported sample format {other:?}")),
+        }
+    })?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
 }
@@ -789,18 +836,21 @@ fn capture(
     frames: mpsc::UnboundedSender<Vec<i16>>,
 ) -> Result<cpal::Stream, String> {
     let supported = stream_config(device, false)?;
-    let config = supported.config();
-    if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
-        crate::diagnose(&format!("microphone {:?} {:?}", supported.sample_format(), config));
-    }
-    let stream = match supported.sample_format() {
-        SampleFormat::F32 => capture_as::<f32>(device, &config, mix, frames),
-        SampleFormat::I16 => capture_as::<i16>(device, &config, mix, frames),
-        SampleFormat::I24 => capture_as::<cpal::I24>(device, &config, mix, frames),
-        SampleFormat::I32 => capture_as::<i32>(device, &config, mix, frames),
-        SampleFormat::U16 => capture_as::<u16>(device, &config, mix, frames),
-        other => return Err(format!("unsupported sample format {other:?}")),
-    }?;
+    // The microphone in 10 ms fragments, as LiveKit takes it.
+    let stream = period("microphone", supported.config(), 10, |config| {
+        if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
+            crate::diagnose(&format!("microphone {:?} {:?}", supported.sample_format(), config));
+        }
+        let (mix, frames) = (mix.clone(), frames.clone());
+        match supported.sample_format() {
+            SampleFormat::F32 => capture_as::<f32>(device, config, mix, frames),
+            SampleFormat::I16 => capture_as::<i16>(device, config, mix, frames),
+            SampleFormat::I24 => capture_as::<cpal::I24>(device, config, mix, frames),
+            SampleFormat::I32 => capture_as::<i32>(device, config, mix, frames),
+            SampleFormat::U16 => capture_as::<u16>(device, config, mix, frames),
+            other => Err(format!("unsupported sample format {other:?}")),
+        }
+    })?;
     stream.play().map_err(|e| e.to_string())?;
     Ok(stream)
 }
@@ -954,6 +1004,25 @@ mod tests {
         }
         assert!(mix.activity("", true).0, "the unpublished input still detects speech");
         assert_eq!(mix.input_level(), 0.0, "the published microphone meter remains silent");
+    }
+
+    #[test]
+    fn a_microphone_backlog_is_shed_down_to_its_cap_oldest_first() {
+        let stats = Stats::default();
+        let (frames, mut received) = mpsc::unbounded_channel::<Vec<i16>>();
+        frames.send(vec![0]).unwrap();
+        frames.send(vec![1]).unwrap();
+        let _ = received.try_recv();
+        assert_eq!(shed(&mut received, &stats), None, "a short queue is left alone");
+        let _ = received.try_recv();
+        // A stall: 200 ms of frames waiting behind the one just received.
+        for index in 0..21 {
+            frames.send(vec![index]).unwrap();
+        }
+        let _ = received.try_recv();
+        assert_eq!(shed(&mut received, &stats), Some(vec![16]));
+        assert_eq!(received.len(), SEND_BACKLOG - 1, "50 ms left, the kept frame included");
+        assert!(stats.report().contains("shed 16 "));
     }
 
     fn range(channels: u16, format: SampleFormat) -> cpal::SupportedStreamConfigRange {

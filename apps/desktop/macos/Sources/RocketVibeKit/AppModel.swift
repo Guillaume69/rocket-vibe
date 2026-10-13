@@ -923,6 +923,27 @@ public final class AppModel {
         }
     }
 
+    /// Whether this account creates channels from the app: a RocketVibe
+    /// server (`createRoom`) or Rocket.Chat (`createChannel`).
+    public var createsChannels: Bool { native != nil || chat?.channelsCreatable() == true }
+
+    /// Creates a channel, or a private group with `private`, on a Rocket.Chat
+    /// server, then opens it. Nil once done, else what to tell.
+    public func createChannel(name: String, private: Bool) async -> String? {
+        guard let chat, chat.channelsCreatable() else { return L("new_channel.failed") }
+        let (account, selected) = (sessionId, UUID())
+        selectionId = selected
+        do {
+            let rid = try await chat.createChannel(name: name, private: `private`)
+            if await waitListed(rid, account: account, selected: selected) { open(rid) }
+            return nil
+        } catch let RvError.Local(message) {
+            return L(message)
+        } catch {
+            return L("new_channel.failed")
+        }
+    }
+
     /// A discussion card's Open: its room, joined first when it belongs to a
     /// public channel; one of a private group is for its members.
     public func openDiscussion(_ drid: String) async {

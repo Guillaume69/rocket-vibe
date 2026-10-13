@@ -175,6 +175,9 @@ async fn rocket_chat_invites_and_discussions() {
     b.expect("discussion", "POST", "/api/v1/rooms.createDiscussion", s.create_discussion("r1", "plans", None, None))
         .await;
     b.expect("open discussion", "GET", "/api/v1/rooms.info", s.open_discussion("d1")).await;
+    assert!(s.channels_creatable());
+    b.expect("channel", "POST", "/api/v1/channels.create", s.create_channel("team", false)).await;
+    b.expect("group", "POST", "/api/v1/groups.create", s.create_channel("team", true)).await;
     b.close();
 }
 
@@ -186,8 +189,10 @@ async fn mattermost_has_no_invites_or_discussions() {
         let b = bench(Some(flavor)).await;
         let s = b.session.clone();
         assert!(!s.discussions_available() && !s.also_in_room_available());
+        assert!(!s.channels_creatable());
         let calls = b
             .during(async {
+                assert!(s.create_channel("team", false).await.is_err());
                 assert!(s.invite_link("r1").await.is_err());
                 assert!(s.create_discussion("r1", "plans", None, None).await.is_err());
                 assert!(s.open_discussion("d1").await.is_err());

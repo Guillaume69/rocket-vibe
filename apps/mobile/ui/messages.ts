@@ -1559,6 +1559,8 @@ const fr = {
   'newRoom.create': 'Créer',
   'newRoom.failed': 'Impossible de créer le salon.',
   'newRoom.forbidden': 'Votre compte ne peut pas créer ce type de salon.',
+  'newRoom.nameTaken': 'Un salon porte déjà ce nom.',
+  'newRoom.nameInvalid': 'Le serveur refuse ce nom : essayez lettres, chiffres, - _ et ., sans espace ni accent.',
   // ── Voice (RocketVibe server): call rows
   'call.voice': '📞 Appel',
   'call.ringing': '📞 Appel en cours…',
@@ -3212,6 +3214,8 @@ const en: Record<TranslationKey, string> = {
   'newRoom.create': 'Create',
   'newRoom.failed': "Couldn't create the room.",
   'newRoom.forbidden': 'Your account cannot create this kind of room.',
+  'newRoom.nameTaken': 'A room already has this name.',
+  'newRoom.nameInvalid': 'The server refuses this name: try letters, digits, - _ and ., without spaces or accents.',
   'call.voice': '📞 Call',
   'call.ringing': '📞 Calling…',
   'call.missed': '📞 Missed call',

@@ -248,6 +248,12 @@ export interface ProviderActions {
    * different validations of the response.
    */
   openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
+  /**
+   * Creates a channel, or a private group when `privateRoom`, owned by me and
+   * with me as its only member. Same return as `openOrCreateDm`. Rocket.Chat
+   * only: the RocketVibe server creates through `provider.native.chat.createRoom`.
+   */
+  createChannel?(name: string, privateRoom: boolean): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
 
 /** A room member as `ProviderActions.listMembers` reads it; `roles` in the room (`owner`, `moderator`, `leader`). */

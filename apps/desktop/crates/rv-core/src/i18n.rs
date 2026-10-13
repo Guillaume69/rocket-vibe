@@ -1347,6 +1347,18 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rooms.new", "Nouvelle conversation", "New conversation"),
     ("rooms.new_message", "Nouveau message", "New message"),
     ("rooms.new_channel", "Créer un canal", "Create a channel"),
+    ("new_channel.failed", "Impossible de créer le salon.", "Couldn't create the room."),
+    (
+        "new_channel.forbidden",
+        "Votre compte ne peut pas créer ce type de salon.",
+        "Your account cannot create this kind of room.",
+    ),
+    ("new_channel.name_taken", "Un salon porte déjà ce nom.", "A room already has this name."),
+    (
+        "new_channel.name_invalid",
+        "Le serveur refuse ce nom : essayez lettres, chiffres, - _ et ., sans espace ni accent.",
+        "The server refuses this name: try letters, digits, - _ and ., without spaces or accents.",
+    ),
     ("rooms.account_menu", "Mon compte, réglages et déconnexion", "My account, settings and sign out"),
     ("nav.back", "Précédent", "Back"),
     ("nav.forward", "Suivant", "Forward"),

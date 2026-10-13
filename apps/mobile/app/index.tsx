@@ -517,7 +517,8 @@ function NewConversationRow({ c }: { c: Colors }) {
   const router = useRouter();
   const t = useT();
   const sync = useSync();
-  const native = sync.phase === 'ready' && sync.provider.native !== undefined;
+  // RocketVibe creates natively, Rocket.Chat through `actions.createChannel`.
+  const creates = sync.phase === 'ready' && (sync.provider.native !== undefined || sync.actions.createChannel !== undefined);
   return (
     <View>
     <View style={styles.rowWrapper}>
@@ -537,7 +538,7 @@ function NewConversationRow({ c }: { c: Colors }) {
         </Text>
       </Tappable>
     </View>
-    {native && (
+    {creates && (
       <View style={styles.rowWrapper}>
         <Tappable
           onPress={() => router.push('/new-room')}

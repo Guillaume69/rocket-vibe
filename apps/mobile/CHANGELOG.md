@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Create a channel or a private group on Rocket.Chat accounts: "Create a room" in the room list, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
+
 ### Changed
 
 - The app's own sounds (incoming call ringtone, ringback, voice session cues) play 30 % quieter.

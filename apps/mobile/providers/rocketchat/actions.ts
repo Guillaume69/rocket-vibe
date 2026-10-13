@@ -210,4 +210,26 @@ export class ActionsRC implements ProviderActions {
     }
     return { rid, rawRoom };
   }
+
+  /**
+   * `channels.create` answers `{channel}`, `groups.create` `{group}`. The name
+   * goes as typed (trimmed): the server owns its rule (`[0-9a-zA-Z-_.]+` by
+   * default, `error-invalid-room-name`) and refuses a taken one, whatever its
+   * kind (`error-duplicate-channel-name`).
+   */
+  async createChannel(
+    name: string,
+    privateRoom: boolean,
+  ): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    const response = await this.client.post<{ channel?: Record<string, unknown>; group?: Record<string, unknown> }>(
+      privateRoom ? 'groups.create' : 'channels.create',
+      { body: { name: name.trim() } },
+    );
+    const rawRoom = privateRoom ? response.group : response.channel;
+    const rid = rawRoom?._id;
+    if (rawRoom === undefined || typeof rid !== 'string') {
+      throw new Error(`${privateRoom ? 'groups' : 'channels'}.create: response without a room`);
+    }
+    return { rid, rawRoom };
+  }
 }

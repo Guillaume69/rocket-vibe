@@ -203,7 +203,7 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.native != nil, add: { section in
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.createsChannels, add: { section in
                     if section == .channels { creating = true } else { searchFocused = true }
                 })
             }
@@ -235,7 +235,7 @@ struct RoomListView: View {
                     }
                     Menu {
                         Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
-                        if app.native != nil {
+                        if app.createsChannels {
                             Button { creating = true } label: { Label(L("rooms.new_channel"), systemImage: "number") }
                         }
                     } label: {

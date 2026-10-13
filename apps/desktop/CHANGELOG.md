@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Create a channel or a private group on Rocket.Chat accounts, on GTK and SwiftUI: "Create a channel" in the "+" menu and on the Channels header, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
+
 ### Changed
 
 - The app's own sounds (incoming call ringtone, ringback, voice session cues, and the new message sound on Windows) play 30 % quieter, on GTK and SwiftUI.

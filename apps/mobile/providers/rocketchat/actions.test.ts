@@ -23,6 +23,23 @@ describe('ActionsRC', () => {
     assert.deepEqual(await new ActionsRC(client).roomInfo('r1'),{id:'r1',name:'A room',type:'p',description:'Description',topic:'Sujet',announcement:'Annonce',members:4,readOnly:true});
     assert.deepEqual(calls,[['rooms.info',{params:{roomId:'r1'}}]]);
   });
+  test('createChannel picks channels.create or groups.create and reads the matching room', async () => {
+    const pub = fakeClient({ channel: { _id: 'c1', t: 'c', name: 'team' } });
+    assert.deepEqual(await new ActionsRC(pub.client).createChannel('  team ', false), {
+      rid: 'c1',
+      rawRoom: { _id: 'c1', t: 'c', name: 'team' },
+    });
+    assert.deepEqual(pub.calls, [{ path: 'channels.create', body: { name: 'team' } }]);
+
+    const priv = fakeClient({ group: { _id: 'p1', t: 'p', name: 'core' } });
+    assert.equal((await new ActionsRC(priv.client).createChannel('core', true)).rid, 'p1');
+    assert.deepEqual(priv.calls, [{ path: 'groups.create', body: { name: 'core' } }]);
+
+    // A group answer read as a channel's: no room, no navigation to nowhere.
+    const wrong = fakeClient({ group: { _id: 'p1' } });
+    await assert.rejects(new ActionsRC(wrong.client).createChannel('core', false), /response without a room/);
+  });
+
   test('react wraps the shortname in :code: and passes shouldReact', async () => {
     const { client, calls } = fakeClient();
     await new ActionsRC(client).react('r1', 'm1', '+1', true);

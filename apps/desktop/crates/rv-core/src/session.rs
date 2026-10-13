@@ -2113,6 +2113,35 @@ impl Session {
         Ok(rid)
     }
 
+    /// Whether this account creates channels and private groups from the app:
+    /// Rocket.Chat only (Mattermost and kChat channels are made on their own
+    /// servers' clients). The server still checks `create-c` / `create-p`.
+    pub fn channels_creatable(&self) -> bool {
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
+    }
+
+    /// Creates a channel named `name`, or a private group when `private`, with
+    /// me as its owner and only member; stored and listed before it returns, so
+    /// it opens at once. Its rid. A refusal reads through
+    /// `rocketchat::actions::creation_refusal`.
+    pub async fn create_channel(&self, name: &str, private: bool) -> Result<String, RestError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RestError::incomplete("channel: no name"));
+        }
+        let room = match self.backend() {
+            Backend::RocketChat => rocketchat::actions::create_channel(&self.rest, name, private).await?,
+            Backend::Mattermost(_) => return Err(RestError::incomplete("channel: not on this server")),
+        };
+        let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.sync.ingest_room(&room);
+        self.sync.catch_up_global().await?;
+        Ok(rid)
+    }
+
     /// Reaches a discussion from its card: listed already, or joined when it
     /// belongs to a public channel; one of a private group is for its members.
     pub async fn open_discussion(&self, drid: &str) -> Result<DiscussionAccess, RestError> {

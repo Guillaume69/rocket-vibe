@@ -325,7 +325,12 @@ impl ChatPage {
                     item.set_selectable(false);
                     item.set_activatable(true);
                     let add = match section {
-                        Section::Channels if native_shared.borrow().is_some() => Some(t("rooms.new_channel")),
+                        Section::Channels
+                            if native_shared.borrow().is_some()
+                                || shared.borrow().as_ref().is_some_and(|s| s.channels_creatable()) =>
+                        {
+                            Some(t("rooms.new_channel"))
+                        }
                         Section::Direct => Some(t("rooms.new_message")),
                         _ => None,
                     }
@@ -706,7 +711,7 @@ impl ChatPage {
         add_in_section.replace(Some(Rc::new(move |section| {
             let Some(this) = weak.upgrade() else { return };
             if section == Section::Channels {
-                this.native_conversation(false);
+                this.create_channel();
             } else {
                 this.new_conversation();
             }
@@ -874,14 +879,14 @@ impl ChatPage {
                     }
                 }),
             )];
-            // Creating a room: RocketVibe servers.
-            if this.native_session().is_some() {
+            // Creating a room: RocketVibe and Rocket.Chat servers.
+            if this.creates_channels() {
                 items.push((
                     "list-add-symbolic",
                     t("rooms.new_channel").to_owned(),
                     Rc::new(move || {
                         if let Some(this) = w2.upgrade() {
-                            this.native_conversation(false);
+                            this.create_channel();
                         }
                     }),
                 ));
@@ -2343,11 +2348,11 @@ impl ChatPage {
     fn new_conversation(self: &Rc<Self>) {
         let Some(chat) = self.chat() else { return };
         let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
-        // The RocketVibe server creates channels from here too.
-        let create: Option<Rc<dyn Fn()>> = chat.native().map(|_| {
+        // The servers that create channels do it from here too.
+        let create: Option<Rc<dyn Fn()>> = self.creates_channels().then(|| {
             Rc::new(move || {
                 if let Some(this) = w3.upgrade() {
-                    this.native_conversation(false);
+                    this.create_channel();
                 }
             }) as Rc<dyn Fn()>
         });
@@ -2362,6 +2367,32 @@ impl ChatPage {
             },
             create,
         );
+    }
+
+    /// Whether this account creates channels from the app: a RocketVibe
+    /// server, or Rocket.Chat (`Session::channels_creatable`).
+    fn creates_channels(&self) -> bool {
+        self.native_session().is_some() || self.session().is_some_and(|s| s.channels_creatable())
+    }
+
+    /// "Create a channel": the RocketVibe server's dialog, or Rocket.Chat's
+    /// (`new_channel.rs`); the new room opens.
+    fn create_channel(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.native_conversation(false);
+            return;
+        }
+        let Some(session) = self.session().filter(|s| s.channels_creatable()) else { return };
+        let (weak, expected) = (Rc::downgrade(self), session.clone());
+        crate::new_channel::open(&self.split, session, move |rid| {
+            if let Some(this) = weak.upgrade()
+                && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+            {
+                this.user_navigation();
+                this.reload_rooms();
+                this.open_room(&rid);
+            }
+        });
     }
 
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.

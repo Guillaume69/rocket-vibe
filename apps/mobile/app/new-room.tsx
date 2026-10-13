@@ -1,13 +1,16 @@
 /**
- * New room sheet (RocketVibe server), `presentation: 'formSheet'` (declared in
- * `app/_layout.tsx`): a name, private or public, and, when the server offers
- * voice, a voice channel. The idempotent creation lives in NativeChat.
+ * New room sheet, `presentation: 'formSheet'` (declared in `app/_layout.tsx`):
+ * a name, private or public, and, when the server offers voice, a voice channel.
+ * On the RocketVibe server the idempotent creation lives in NativeChat; on
+ * Rocket.Chat it is `actions.createChannel` (a channel or a private group), its
+ * room ingested before navigating so the room screen finds it.
  */
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { useT } from '../ui/i18n.ts';
+import type { TranslationKey } from '../ui/messages.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
@@ -20,6 +23,9 @@ export default function NewRoomScreen() {
   const router = useRouter();
   const t = useT();
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat ?? null : null;
+  const rocketChat = sync.phase === 'ready' && chat === null && sync.actions.createChannel !== undefined
+    ? { create: sync.actions.createChannel.bind(sync.actions), engine: sync.engine }
+    : null;
   const voiceOffered = sync.phase === 'ready' && sync.capabilities.voice === true;
 
   const [name, setName] = useState('');
@@ -29,17 +35,22 @@ export default function NewRoomScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const submit = (): void => {
-    if (chat === null || busy || name.trim() === '') return;
+    if ((chat === null && rocketChat === null) || busy || name.trim() === '') return;
     setBusy(true);
     setError(null);
     void (async () => {
       try {
-        const rid = await chat.createRoom(name, privateRoom, voice && voiceOffered);
+        let rid: string;
+        if (chat !== null) rid = await chat.createRoom(name, privateRoom, voice && voiceOffered);
+        else {
+          const created = await rocketChat!.create(name, privateRoom);
+          await rocketChat!.engine.ingestRooms([created.rawRoom]);
+          rid = created.rid;
+        }
         router.back();
         if (!voice) router.push({ pathname: '/room/[rid]', params: { rid } });
       } catch (e) {
-        const code = (e as { code?: unknown })?.code;
-        setError(t(code === 'permission_denied' ? 'newRoom.forbidden' : 'newRoom.failed'));
+        setError(t(creationRefusal(e)));
         setBusy(false);
       }
     })();
@@ -75,7 +86,7 @@ export default function NewRoomScreen() {
       {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>}
       <Tappable
         onPress={submit}
-        disabled={busy || name.trim() === '' || chat === null}
+        disabled={busy || name.trim() === '' || (chat === null && rocketChat === null)}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={[styles.button, { backgroundColor: c.accent }, (busy || name.trim() === '') && styles.inactive]}
@@ -86,6 +97,23 @@ export default function NewRoomScreen() {
       </Tappable>
     </View>
   );
+}
+
+/**
+ * The sentence for a refused creation. RocketVibe names its refusal
+ * `permission_denied`; Rocket.Chat answers 403 to `channels.create` and
+ * `error-not-allowed` to `groups.create` without the right (read in the 8.5
+ * bundle), and refuses a taken or malformed name with its own types (probed on
+ * 8.5.1).
+ */
+function creationRefusal(e: unknown): TranslationKey {
+  const refusal = e as { code?: unknown; status?: unknown; errorType?: unknown } | null;
+  if (refusal?.code === 'permission_denied' || refusal?.status === 403 || refusal?.errorType === 'error-not-allowed') {
+    return 'newRoom.forbidden';
+  }
+  if (refusal?.errorType === 'error-duplicate-channel-name') return 'newRoom.nameTaken';
+  if (refusal?.errorType === 'error-invalid-room-name') return 'newRoom.nameInvalid';
+  return 'newRoom.failed';
 }
 
 const styles = StyleSheet.create({

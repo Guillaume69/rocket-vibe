@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The app's own sounds (incoming call ringtone, ringback, voice session cues, and the new message sound on Windows) play 30 % quieter, on GTK and SwiftUI.
+
 ## [0.18.0] - 2026-10-13
 
 ### Added

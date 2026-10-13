@@ -16,6 +16,9 @@ import { join } from 'node:path';
 
 const SR = 48000;
 const TAU = Math.PI * 2;
+// Overall level of every sound, applied on top of each one's peak: 0.7 is 30 %
+// quieter (about -3 dB) than the first set, which played too loud.
+const LEVEL = 0.7;
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -271,7 +274,7 @@ function master(mix, { lp = 9000, drive = 1.2, peak = 0.89 }) {
     ch[i] = Math.tanh(ch[i] * drive);
     max = Math.max(max, Math.abs(ch[i]));
   }
-  const g = max > 0 ? peak / max : 1;
+  const g = max > 0 ? (peak * LEVEL) / max : 1;
   for (const ch of [mix.l, mix.r]) for (let i = 0; i < mix.n; i++) ch[i] *= g;
   if (!mix.loop) {
     // Short fade at both ends of a one-shot: no click.

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The app's own sounds (incoming call ringtone, ringback, voice session cues) play 30 % quieter.
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

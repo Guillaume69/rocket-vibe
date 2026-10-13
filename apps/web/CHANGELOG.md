@@ -8,6 +8,10 @@ All notable changes are documented here in English.
 
 - Room owners can change channel images from room information, with protected, revisioned images in the room header and list.
 
+### Changed
+
+- The app's own sounds (incoming call ringtone, ringback, voice session cues, new message sound) play 30 % quieter.
+
 ### Fixed
 
 - Show GTK-translated messages for server, worker and local failures instead of technical error or translation keys, including sign-in, encrypted-room panels and upload tooltips. Keep the original codes in diagnostics.

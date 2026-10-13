@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-13
+
 ### Added
 
 - Create a channel or a private group on Rocket.Chat accounts: "Create a room" in the room list, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
@@ -782,7 +784,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.16.0...HEAD
+[0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...mobile-v0.16.0
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...mobile-v0.15.0
 [0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.13.0...mobile-v0.14.0
 [0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.12.0...mobile-v0.13.0

@@ -202,6 +202,12 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
   showed nothing). Float is what WASAPI's shared mode and CoreAudio already gave, and the
   sound server converts. A device that still fails to open is now a notice and a log line
   (rv-core passes the sidecar's stderr through).
+- **The sidecar bounds the call's delay rather than trusting the clocks.** On Linux it
+  asks the sound server for fixed 10/20 ms periods: cpal's default buffer size lets
+  PulseAudio and PipeWire pick 2 s, which delayed a call by seconds (2026-10-13). And
+  since LiveKit's paced source fills a gap with silence and never catches up, microphone
+  frames waiting past 50 ms are dropped: a glitch once, instead of a delay for the rest
+  of the call.
 - **RNNoise for noise removal, the same port on both apps.** `nnnoiseless` is Rust, BSD,
   with its model built in; WebRTC's own suppression is gentler, and Krisp needs LiveKit
   Cloud. It runs after the echo canceller on desktop; on Android it runs on the captured

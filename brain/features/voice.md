@@ -187,7 +187,13 @@ On Windows with the actual Cairo renderer, GTK uses finite zero-blur green speak
   (shut while RNNoise's voice probability stays under 0.6, held 300 ms after a voice, fading
   out over about 100 ms: a keyboard between words, which RNNoise only softens), then
   WebRTC's gain control in a second module, last so that it never raises the noise RNNoise
-  removes, the input volume, then LiveKit. `RV_VOICE_DEBUG`, `RV_VOICE_RECORD` and
+  removes, the input volume, then LiveKit. LiveKit's source sends one 10 ms frame every
+  10 ms and silence when it has none, so frames waiting for it never drain: past 50 ms
+  the oldest are dropped (`SEND_BACKLOG`, counted as `shed` in the debug stats), or every
+  stall would add its length to the call's delay for good. On Linux both streams ask for
+  a fixed period (`audio::period`: 10 ms microphone fragments, 20 ms speaker periods, two
+  queued, the server's own size if it refuses): with cpal's default size PulseAudio and
+  PipeWire choose 2 s for both, which made a call lag by seconds. `RV_VOICE_DEBUG`, `RV_VOICE_RECORD` and
   `RV_VOICE_TEST_TONE` are diagnostics (`audio.rs`). Playout: each remote audio track as 48 kHz stereo into a buffer
   (primed at 40 ms, cut back past 200 ms), mixed at each person's gain (muted here: 0) and
   the output volume; the mix is the echo canceller's reference. **Who speaks** comes from the

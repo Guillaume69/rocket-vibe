@@ -20,9 +20,11 @@ export function parseSession(raw: string, baseUrl: string): Session | null {
     // Migration on read: sessions older than the `kind` (formerly `genre`) and
     // `siteUrl` fields fall back on their defaults (`rocketchat`, null →
     // `baseUrl` at use), without rewriting.
+    const kind = normalizeProviderKind(session.kind ?? session.genre);
+    if (kind === 'slack' && (typeof session.slackCookie !== 'string' || typeof session.slackTeamId !== 'string')) return null;
     return {
       ...session,
-      kind: normalizeProviderKind(session.kind ?? session.genre),
+      kind,
       siteUrl: typeof session.siteUrl === 'string' ? session.siteUrl : null,
     };
   } catch {

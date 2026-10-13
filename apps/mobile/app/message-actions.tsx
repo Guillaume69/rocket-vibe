@@ -47,6 +47,7 @@ import { starredBy, starredAfter } from '../lib/marks.ts';
 import { ENCRYPTED_TYPE } from '../lib/normalize.ts';
 import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
 import { reactionList } from '../lib/reactions.ts';
+import type { Capabilities } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
 import { saveInBackground, shareInBackground } from '../ui/attachmentActions.ts';
@@ -95,6 +96,22 @@ import type {NativeChat} from '../providers/vibez/chat.ts';
  * while the sheet is open; the server will decide.
  */
 const rulesByServer = new Map<string, MessageRules>();
+
+/** A provider that says it cannot do an action never offers it; one that says nothing keeps it. */
+function offered(action: ActionMessage, capabilities: Capabilities): boolean {
+  switch (action) {
+    case 'react': return capabilities.reactions !== false;
+    case 'reply': return capabilities.sending !== false;
+    case 'replyInThread': return capabilities.sending !== false && capabilities.threads !== false;
+    case 'edit': return capabilities.editing !== false;
+    case 'delete': return capabilities.deletion !== false;
+    case 'pin':
+    case 'unpin':
+    case 'star':
+    case 'unstar': return capabilities.marks !== false;
+    default: return true;
+  }
+}
 async function readRules(client: RestClient): Promise<MessageRules> {
   const cached = rulesByServer.get(client.baseUrl);
   if (cached !== undefined) return cached;
@@ -313,7 +330,8 @@ export default function MessageActionsScreen() {
           now: Date.now(),
         }).filter(action => action !== 'reply' || client.kind === 'rocketchat' || provider?.capabilities.quotes === true)
           // WhatsApp has no threads, pins nor stars, and its own edit and delete windows.
-          .filter(action => client.kind !== 'whatsapp' || whatsappActions([action], raw, me, Date.now()).length > 0),
+          .filter(action => client.kind !== 'whatsapp' || whatsappActions([action], raw, me, Date.now()).length > 0)
+          .filter(action => provider === null || offered(action, provider.capabilities)),
       });
     })().catch(() => {
       if(isPrivate==='1' && !canceled){void privateAccess.current?.close();privateAccess.current=null;setPayload(null);}
@@ -357,7 +375,7 @@ export default function MessageActionsScreen() {
   // Rocket.Chat reacts only with the codes of its own list: a glyph it has
   // no code for is left out of the quick row and the picker
   // (`lib/rocketchatReactions.ts`); Vibez takes every standard emoji.
-  const onRocketChat = client?.kind !== 'vibez';
+  const onRocketChat = client?.kind !== 'vibez' && client?.kind !== 'slack';
   const reactable = useCallback(
     (code: string) => !onRocketChat || rocketChatReaction(code) !== null,
     [onRocketChat],

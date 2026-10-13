@@ -11,6 +11,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
 import { createVibezProvider } from './vibez/index.ts';
+import { createSlackProvider } from './slack/index.ts';
 import type { NativeStore } from './vibez/store.ts';
 
 export function createProvider(
@@ -29,6 +30,8 @@ export function createProvider(
     case 'mattermost':
     case 'kchat':
       return createMattermostProvider(session, client, generateId);
+    case 'slack':
+      return createSlackProvider(session, client);
     case 'whatsapp':
       // Built by `ui/sync.tsx` with its database and the engine module.
       throw new Error('WhatsApp provider requires its account store');

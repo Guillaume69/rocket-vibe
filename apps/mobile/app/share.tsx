@@ -92,6 +92,9 @@ export default function ShareScreen() {
       </View>
     );
   }
+  if (sync.capabilities.sending === false) {
+    return <Message c={c} text={t('room.sendingUnavailable')} />;
+  }
   return (
     <Share
       c={c}

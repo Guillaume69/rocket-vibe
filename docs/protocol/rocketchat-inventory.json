@@ -517,6 +517,7 @@
     "apps/mobile/lib/serverKind.ts",
     "apps/mobile/lib/sessionStore.ts",
     "apps/mobile/lib/sessionTransport.ts",
+    "apps/mobile/lib/slackAvatars.ts",
     "apps/mobile/lib/storageKeys.ts",
     "apps/mobile/lib/storedRecords.ts",
     "apps/mobile/lib/streamingFile.ts",
@@ -584,7 +585,6 @@
     "apps/mobile/ui/encryptedGroup.tsx",
     "apps/mobile/ui/encryptedIdentity.tsx",
     "apps/mobile/ui/encryptedTrust.tsx",
-    "apps/mobile/ui/experimentalPreview.tsx",
     "apps/mobile/ui/experimentalProviders.ts",
     "apps/mobile/ui/externalLink.ts",
     "apps/mobile/ui/fileEncryption.ts",
@@ -659,7 +659,7 @@
     "apps/mobile/ui/settingsCategories.ts",
     "apps/mobile/ui/settingsSections.tsx",
     "apps/mobile/ui/sheetMargin.ts",
-    "apps/mobile/ui/slackPreview.tsx",
+    "apps/mobile/ui/slackSignIn.tsx",
     "apps/mobile/ui/slider.tsx",
     "apps/mobile/ui/smoothedData.ts",
     "apps/mobile/ui/social.tsx",
@@ -3538,19 +3538,19 @@
     },
     {
       "file": "apps/mobile/app/login.tsx",
-      "line": 482,
+      "line": 504,
       "kind": "endpoint",
       "surface": "chat.example.org"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 102,
+      "line": 119,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 103,
+      "line": 120,
       "kind": "endpoint",
       "surface": "settings.public"
     },
@@ -3658,25 +3658,25 @@
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 89,
+      "line": 93,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 103,
+      "line": 107,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 149,
+      "line": 153,
       "kind": "call:POST",
       "surface": "'users.2fa.sendEmailCode'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 171,
+      "line": 175,
       "kind": "call:POST",
       "surface": "'logout'"
     },
@@ -4084,49 +4084,49 @@
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 91,
+      "line": 92,
       "kind": "url",
       "surface": "/api/v1/rooms.media/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 132,
+      "line": 133,
       "kind": "call:POST",
       "surface": "`rooms.mediaConfirm/{…}/{…}`"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 132,
+      "line": 133,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 162,
+      "line": 163,
       "kind": "url",
       "surface": "/api/v1/users.setAvatar"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 255,
+      "line": 259,
       "kind": "url",
       "surface": "/api/v4/users/{…}/image"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 260,
+      "line": 264,
       "kind": "resource",
       "surface": "/avatar/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 262,
+      "line": 266,
       "kind": "resource",
       "surface": "/avatar/uid/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 264,
+      "line": 268,
       "kind": "resource",
       "surface": "/avatar/room/{…}"
     },
@@ -4858,73 +4858,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1290,
+      "line": 1296,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1291,
+      "line": 1297,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1293,
+      "line": 1299,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1294,
+      "line": 1300,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1295,
+      "line": 1301,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1296,
+      "line": 1302,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3012,
+      "line": 3025,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3013,
+      "line": 3026,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3015,
+      "line": 3028,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3016,
+      "line": 3029,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3017,
+      "line": 3030,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3018,
+      "line": 3031,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
@@ -4942,7 +4942,7 @@
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 43,
+      "line": 45,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

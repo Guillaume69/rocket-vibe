@@ -100,6 +100,7 @@ export function Composer({
   mentionCandidates,
   readOnly,
   catchingUp = false,
+  sendingUnavailable = false,
   encrypted,
   placeholder,
   afterSend,
@@ -124,6 +125,8 @@ export function Composer({
   readOnly: boolean;
   /** Writing pauses while the encrypted view catches up: said as such, not as read-only. */
   catchingUp?: boolean;
+  /** The account cannot post anywhere (`Capabilities.sending`): said as such, not as a read-only room. */
+  sendingUnavailable?: boolean;
   encrypted: boolean;
   /** Placeholder of the empty field: a pending attachment replaces it. */
   placeholder: string;
@@ -773,12 +776,12 @@ export function Composer({
       </View>
     );
   }
-  if (readOnly) {
+  if (readOnly || sendingUnavailable) {
     return (
       <View>
         {scheduledChip}
         <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
-          <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
+          <Text style={[styles.noteComposer, { color: c.dimmed }]}>{t(sendingUnavailable ? 'room.sendingUnavailable' : catchingUp ? 'room.catchingUp' : 'room.readOnly')}</Text>
         </View>
       </View>
     );

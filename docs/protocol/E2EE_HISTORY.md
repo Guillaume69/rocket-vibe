@@ -187,7 +187,7 @@ Android goes through the bridge's `history_action` (JSON actions: `request`,
 `view`, `offers`, `preview`, `approve`, `upload` / `uploaded`, `commit` /
 `committed`, `abandon`, `import_begin`, `import_page`, `acknowledgeable`), with
 offers, previews and the page being uploaded staged in Rust under a random id
-bound to the handle; `providers/rocketvibe/cryptoHistory.ts` carries the HTTP
+bound to the handle; `providers/vibez/cryptoHistory.ts` carries the HTTP
 and the same orchestration as the desktop.
 
 ## Reading recovered history

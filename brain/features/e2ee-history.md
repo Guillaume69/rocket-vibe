@@ -1,6 +1,6 @@
-# Encrypted history on a new device (RocketVibe server)
+# Encrypted history on a new device (Vibez server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), a newly registered device cannot read messages sent before it joined a room. History recovery lets it ask another device of the same account for the encrypted messages that device already received. The protocols are `docs/protocol/E2EE_HISTORY.md` (path A, device to device) and `docs/protocol/E2EE_HISTORY_BACKUP.md` (path B, history backup with its own code).
+On the Vibez native server (MLS end-to-end encryption, not Rocket.Chat E2EE), a newly registered device cannot read messages sent before it joined a room. History recovery lets it ask another device of the same account for the encrypted messages that device already received. The protocols are `docs/protocol/E2EE_HISTORY.md` (path A, device to device) and `docs/protocol/E2EE_HISTORY_BACKUP.md` (path B, history backup with its own code).
 
 ## What the user sees
 
@@ -25,9 +25,9 @@ When no old device is left, a separate history code recovers the history ([E2EE_
 ## Mobile
 
 - `ui/encryptedIdentity.tsx`: the history block of `EncryptedIdentitySection`, with its alert before sharing; room names come from the `rooms` table (`displayName`, then `name`). Strings `private.history*` in `ui/messages.ts`.
-- `providers/rocketvibe/cryptoHistory.ts` (`CryptoHistoryAccess`): HTTP and orchestration, abandoning a share whose request is gone or claimed by another device; `transport.ts` carries the seven `/api/v1/e2ee/history/requests` routes.
+- `providers/vibez/cryptoHistory.ts` (`CryptoHistoryAccess`): HTTP and orchestration, abandoning a share whose request is gone or claimed by another device; `transport.ts` carries the seven `/api/v1/e2ee/history/requests` routes.
 - The Expo module's `historyAction` calls the Rust bridge `crates/rv-crypto-mobile/src/history.rs`, which keeps offers, previews and the page being uploaded staged in Rust.
-- History backup: the same screen's "History backup" block over `providers/rocketvibe/cryptoHistoryBackup.ts` and the bridge's `history_backup_action` (`crates/rv-crypto-mobile/src/history_backup.rs`); `NativeChat.syncHistoryBackupSoon` runs after each private conversation refresh (`ui/encryptedConversation.ts`). Strings `private.historyBackup*`.
+- History backup: the same screen's "History backup" block over `providers/vibez/cryptoHistoryBackup.ts` and the bridge's `history_backup_action` (`crates/rv-crypto-mobile/src/history_backup.rs`); `NativeChat.syncHistoryBackupSoon` runs after each private conversation refresh (`ui/encryptedConversation.ts`). Strings `private.historyBackup*`.
 
 ## Desktop
 
@@ -57,7 +57,7 @@ Encryption settings expose history request/import, reviewed offers and share/res
 - crates/rv-crypto-mobile/src/history.rs
 - apps/server/src/e2ee/history.rs
 - apps/mobile/ui/encryptedIdentity.tsx
-- apps/mobile/providers/rocketvibe/cryptoHistory.ts
+- apps/mobile/providers/vibez/cryptoHistory.ts
 - apps/desktop/crates/rv-core/src/native/crypto/enrollment/history.rs
 - apps/desktop/crates/rv-gtk/src/native_crypto/history.rs
 - apps/desktop/crates/rv-ffi/src/native_crypto/history.rs

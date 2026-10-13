@@ -1,4 +1,4 @@
-# RFC 0001: Standalone RocketVibe server in Rust
+# RFC 0001: Standalone Vibez server in Rust (formerly RocketVibe)
 
 | Field | Value |
 |---|---|
@@ -10,9 +10,9 @@
 
 ## 1. Summary
 
-Add to the monorepo a RocketVibe messaging server in Rust, self-hostable,
+Add to the monorepo a messaging server, Vibez (named RocketVibe until 2026-10-14), in Rust, self-hostable,
 with its own HTTP API and WebSocket protocol. The existing clients reach this
-server through a new `rocketvibe` provider, while keeping the Rocket.Chat
+server through a new `vibez` provider, while keeping the Rocket.Chat
 provider. Both remain usable in the same app, per account, including after the
 transition.
 
@@ -85,7 +85,7 @@ a dependency of the proposed server.
 
 ## 4. Target parity matrix
 
-All the "parity" items below must be available on the RocketVibe provider
+All the "parity" items below must be available on the Vibez provider
 at final release. Assigning them to a milestone does not authorize dropping them.
 
 | Domain | Native server | Client work | Target |
@@ -126,7 +126,7 @@ still has update and background gaps. This RFC does not declare them resolved.
 | ID | Proposal | Rationale |
 |---|---|---|
 | D01 | Rust server, Axum / Tokio / SQLx | Consistency with the desktop core, explicit types, resource control |
-| D02 | Versioned RocketVibe HTTP + WebSocket API | Master synchronization without reimplementing DDP and the Rocket.Chat conventions |
+| D02 | Versioned Vibez HTTP + WebSocket API | Master synchronization without reimplementing DDP and the Rocket.Chat conventions |
 | D03 | Modular monolith, one application process | Simple operation; durable background tasks in PostgreSQL |
 | D04 | PostgreSQL as the authoritative database | Transactions, constraints, journal, initial full-text search |
 | D05 | Files on a local volume at first | Simple deployment; internal interface allowing object storage later |
@@ -164,8 +164,8 @@ a need is measured; Redis is not required by the first milestones.
 
 ```mermaid
 flowchart TD
-    A[Android: RocketVibe provider] -->|HTTPS / WebSocket| S[vibez]
-    B[rv-core: RocketVibe provider] -->|HTTPS / WebSocket| S
+    A[Android: Vibez provider] -->|HTTPS / WebSocket| S[vibez]
+    B[rv-core: Vibez provider] -->|HTTPS / WebSocket| S
     B --> G[GTK interface]
     B --> F[rv-ffi then SwiftUI]
     S --> P[(PostgreSQL)]
@@ -183,9 +183,9 @@ apps/server/                       Rust package vibez, CLI and SQL migrations
 crates/rv-protocol/                 Rust contract independent of GTK, SQLite and SQLx
 docs/protocol/                     Specification, schemas and conformance examples
 docs/rfcs/                         Architecture proposals
-docker/compose.rocketvibe.yml       Native environment, distinct from the Rocket.Chat bench
+docker/compose.vibez.yml           Native environment, distinct from the Rocket.Chat bench
 scripts/                           Import and operator tools
-apps/mobile/providers/rocketvibe/
+apps/mobile/providers/vibez/
 apps/desktop/crates/rv-core/        Native adapter and provider interface
 ```
 
@@ -251,7 +251,7 @@ An anonymous discovery route, `GET /.well-known/vibez`, exposes `product`,
 `instance_id`, `data_epoch`, the server version, the accepted protocol versions,
 the API base URL and the available sign-in methods. It exposes no secret.
 
-Clients probe RocketVibe and, in the absence of a native identification, use the
+Clients probe Vibez and, in the absence of a native identification, use the
 existing Rocket.Chat probe. An explicit native incompatibility must not cause
 a silent fallback to Rocket.Chat. Discovered origins are validated; no
 token is transferred automatically to a new origin.
@@ -544,7 +544,7 @@ does not promise to restore a history whose keys are lost.
 
 ### Android
 
-Add `rocketvibe` to `ProviderKind` and to the registry. Extend the contract to secondary
+Add `vibez` to `ProviderKind` and to the registry. Extend the contract to secondary
 reads, auth, discovery, profiles, presence, emojis, push, E2EE and calls.
 The new provider implements its transports, normalization, send and catch-up.
 The UI keeps its SQLite projection and consults the neutral capabilities / rights.

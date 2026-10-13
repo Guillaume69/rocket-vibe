@@ -1,6 +1,6 @@
 # Custom emoji catalog (P07 / J3)
 
-The RocketVibe provider uses the same pickers, completions, message bodies and
+The Vibez provider uses the same pickers, completions, message bodies and
 reactions as Rocket.Chat. The catalog is specific to the instance and
 to its generation; it grants no right on a room. The additive capability
 `custom_emojis` is intersected with the adapters actually installed.

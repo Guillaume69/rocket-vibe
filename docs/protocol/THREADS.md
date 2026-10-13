@@ -2,7 +2,7 @@
 
 The Rust server and the mobile / desktop providers use the existing thread screens,
 message lists, menus and composers. The Rocket.Chat provider
-keeps its routes and its `tmid` model; RocketVibe announces `threads` and uses
+keeps its routes and its `tmid` model; Vibez announces `threads` and uses
 `reply_to` / `root_id`. The qualification of the installed applications remains open.
 
 ## Roots and replies

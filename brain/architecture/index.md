@@ -42,4 +42,4 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 
 | Doc | What's here |
 |---|---|
-| [server.md](server.md) | The RocketVibe server: the CLI and its settings, startup and background loops, the router's layers, errors and discovery, accounts, sessions, factors and rate limits, the journal, cursors, snapshots and WebSocket, files and objects, what it serves, tests, release, footguns. |
+| [server.md](server.md) | The Vibez server: the CLI and its settings, startup and background loops, the router's layers, errors and discovery, accounts, sessions, factors and rate limits, the journal, cursors, snapshots and WebSocket, files and objects, what it serves, tests, release, footguns. |

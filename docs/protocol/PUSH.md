@@ -1,8 +1,8 @@
 # Native notifications (P17 / J3)
 
-RocketVibe reuses the existing client's Android FCM service, `MessagingStyle`
+Vibez reuses the existing client's Android FCM service, `MessagingStyle`
 notifications, room links and `RemoteInput`. The Rocket.Chat provider keeps its
-`push.token` / `push.get` / `chat.sendMessage` flow. RocketVibe Android push is
+`push.token` / `push.get` / `chat.sendMessage` flow. Vibez Android push is
 advertised on the client side only when its native receiver is wired up; native iOS
 remains outside the scope of this RFC.
 

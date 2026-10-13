@@ -1,4 +1,4 @@
-# Workflows (RocketVibe server)
+# Workflows (Vibez server)
 
 A workflow is a small automation a person builds in the apps: a trigger starts ordered steps, and everything it posts is posted by one of its owner's bots ([bots](bots.md)), so the bot's badge, scopes, memberships, budgets and refusal of encrypted rooms apply. Rocket.Chat servers have no such feature here: `n/a`. Design: `docs/rfcs/0004-workflows.md`; contract: `docs/protocol/WORKFLOWS.md`.
 
@@ -24,7 +24,7 @@ A workflow is a small automation a person builds in the apps: a trigger starts o
 
 ## Mobile
 
-- `ui/workflows.tsx` (`WorkflowsSection`, category `workflows` in `ui/settingsCategories.ts`) over `ui/workflowsModel.ts` (defaults, trigger summaries, variables per step, save bodies, the editor's own checks with the server's byte limits, unsaved changes, error wording, the form's state and answer checks; tested in `ui/workflowsModel.test.ts`). Steps, fields and headers carry stable keys (`useKeys`) so their editors follow them when moved; the draft builds on a `basis` revision, so a refresh or Turn off never replaces unsaved edits and a save on a moved revision reloads and says so. Rooms come from the local `rooms` table (unencrypted ones), people from `NativeChat.users` (bots and deleted accounts left out). Calls go through `NativeChat.workflows` (`providers/rocketvibe/chat.ts`, capability and session checks, operation ids).
+- `ui/workflows.tsx` (`WorkflowsSection`, category `workflows` in `ui/settingsCategories.ts`) over `ui/workflowsModel.ts` (defaults, trigger summaries, variables per step, save bodies, the editor's own checks with the server's byte limits, unsaved changes, error wording, the form's state and answer checks; tested in `ui/workflowsModel.test.ts`). Steps, fields and headers carry stable keys (`useKeys`) so their editors follow them when moved; the draft builds on a `basis` revision, so a refresh or Turn off never replaces unsaved edits and a save on a moved revision reloads and says so. Rooms come from the local `rooms` table (unencrypted ones), people from `NativeChat.users` (bots and deleted accounts left out). Calls go through `NativeChat.workflows` (`providers/vibez/chat.ts`, capability and session checks, operation ids).
 - Forms: messages keep the form JSON (`messages.form`, migration `0022_message_form.sql`, written by the native store); `ui/messageRow.tsx` draws `FormCard` and hides a body that only repeats the title; `app/answer-form.tsx` is the answer sheet (`presentation: 'formSheet'`), reading the room's members through `NativeChat.roomMembers` for a person field open to the room (a failed read can be retried).
 - Workflow commands: `NativeChat.commands` asks `GET /api/v1/commands?room=` when the server announces `workflows`, so the composer's panel lists them per room.
 
@@ -47,7 +47,7 @@ Workflow message authors keep their bot identity through live profile refreshes.
 - The room triggers watch one room each; a message is matched by a plain "contains", not a pattern.
 - A form waits up to 7 days; a run waiting on a form or a wait holds one of the workflow's 100 unfinished runs.
 - An encrypted room can be neither a trigger room nor a target: the server cannot read or post there as a bot.
-- Workflows are RocketVibe only; Rocket.Chat has its own integrations.
+- Workflows are Vibez only; Rocket.Chat has its own integrations.
 
 ## Sources
 
@@ -73,7 +73,7 @@ Workflow message authors keep their bot identity through live profile refreshes.
 - apps/mobile/ui/workflowsModel.ts
 - apps/mobile/ui/messageRow.tsx
 - apps/mobile/app/answer-form.tsx
-- apps/mobile/providers/rocketvibe/chat.ts
+- apps/mobile/providers/vibez/chat.ts
 - apps/mobile/db/migrations/0022_message_form.sql
 - apps/desktop/crates/rv-core/src/native/workflows.rs
 - apps/desktop/crates/rv-core/src/native.rs

@@ -29,7 +29,7 @@ Example of the shape, to be replaced in a private file outside the repository:
 ```json
 {
   "url": "https://meet.example.org",
-  "app_id": "rocketvibe",
+  "app_id": "vibez",
   "secret": "REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_BYTES"
 }
 ```
@@ -43,7 +43,7 @@ by this configuration. Sources: [official Jitsi token contract](https://github.c
 
 ## Routes and identity
 
-The routes use the usual RocketVibe bearer and the private-delivery checks.
+The routes use the usual Vibez bearer and the private-delivery checks.
 An administrator without membership does not obtain the address of a private call.
 
 | Route | Intent / result |

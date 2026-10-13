@@ -1,6 +1,6 @@
-# RocketVibe native protocol: first increment
+# Vibez native protocol: first increment
 
-The server is experimental. [RFC 0001](../rfcs/0001-rocketvibe-rust-server.md)
+The server is experimental. [RFC 0001](../rfcs/0001-vibez-server.md)
 describes the destination; this contract covers only the delivered foundation, not full parity.
 
 `crates/rv-protocol` is the source of the DTOs. Its `export-schema` binary produces

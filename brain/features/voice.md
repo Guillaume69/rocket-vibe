@@ -1,9 +1,9 @@
 # Voice
 
-Discord-style voice on a **RocketVibe server** only: every room has a voice session, a
+Discord-style voice on a **Vibez server** only: every room has a voice session, a
 **voice channel** is a room you enter by selecting it (and can still write in), any other
 room joins its session from the call button, and a call in a direct room **rings** the
-other member. Audio flows through the operator's **LiveKit SFU**; the RocketVibe server
+other member. Audio flows through the operator's **LiveKit SFU**; the Vibez server
 mints join tokens and mirrors who is connected. It replaced the native server's Jitsi
 meetings ([calls](calls.md) stays the Rocket.Chat path). Camera (off by default) and one
 screen share per room, a new share replacing the current one, with the computer's sound
@@ -19,7 +19,7 @@ room the frames are end-to-end encrypted under a key from the room's MLS group.
 ## Speaking while muted
 
 GTK, SwiftUI and Web show a localized "You're muted. Unmute your microphone to speak."
-toast after 600 ms of local speech while muted in a connected RocketVibe call, once per
+toast after 600 ms of local speech while muted in a connected Vibez call, once per
 speech burst and at most once every 10 seconds. No reminder is sent to the server or
 other participants. Jitsi calls are outside this feature. The desktop sidecar detects
 speech before the outgoing-audio gate and emits an additive `MutedSpeech` event; rv-core
@@ -131,9 +131,9 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   (`ui/messageRow.tsx`, `lib/systemMessages.ts`). `app/new-room.tsx` creates rooms and voice
   channels. The room information's edit form (`ui/roomManagement.tsx`) shows a "Voice channel"
   switch when the provider fills `RoomFields.voice`: an owner, a room that is not direct, a
-  server announcing voice (`providers/rocketvibe/index.ts`); it is sent as `UpdateRoom.voice`,
+  server announcing voice (`providers/vibez/index.ts`); it is sent as `UpdateRoom.voice`,
   absent otherwise so the flag stays, and a saved form differs by it (`sameRoomForm`).
-- **Ringing in the background**: the FCM service's RocketVibe branch
+- **Ringing in the background**: the FCM service's Vibez branch
   (`plugins/native-push-source.js`) reads the ring authenticated, then
   `VoiceRinging.show` posts an incoming `CallStyle` notification with a ringtone channel and
   a full-screen intent to `IncomingCallActivity`, shown over the lock screen; MainActivity
@@ -164,7 +164,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   them does not exist here. While it flows the microphone track stays on and a mute only
   zeroes the voice samples (`voiceAndScreen`), so the room sees the sharer unmuted.
 - **Encrypted rooms**: `NativeChat.voiceKey` reads the key through the crypto bridge's
-  `voice_key` action (`providers/rocketvibe/cryptoGroups.ts` `voiceKey`, null when this
+  `voice_key` action (`providers/vibez/cryptoGroups.ts` `voiceKey`, null when this
   device is behind the server's epoch) and the join says `e2ee`; the engine builds a
   `BaseKeyProvider` after creating the room (its constructor needs WebRTC loaded) and sets
   `Room.e2eeOptions` before connecting. The controller refuses a grant that says `e2ee`
@@ -405,7 +405,7 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - crates/rv-crypto/src/groups.rs
 - crates/rv-crypto/src/delivery.rs
 - crates/rv-crypto-mobile/src/groups.rs
-- apps/mobile/providers/rocketvibe/cryptoGroups.ts
+- apps/mobile/providers/vibez/cryptoGroups.ts
 - apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/VoiceVideoView.kt
 - apps/desktop/crates/rv-core/src/native/crypto/enrollment/rooms.rs
 - apps/server/src/livekit.rs
@@ -443,10 +443,10 @@ The browser uses the room's verified MLS voice exporter with LiveKit's encoded-t
 - apps/mobile/app/voice-ring/[id].tsx
 - apps/mobile/app/new-room.tsx
 - apps/mobile/ui/roomManagement.tsx
-- apps/mobile/providers/rocketvibe/roomOperations.ts
+- apps/mobile/providers/vibez/roomOperations.ts
 - apps/mobile/plugins/native-push-source.js
 - apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/IncomingCallActivity.kt
-- apps/mobile/providers/rocketvibe/chat.ts
+- apps/mobile/providers/vibez/chat.ts
 - apps/desktop/voice/src/main.rs
 - apps/desktop/voice/src/audio.rs
 - apps/desktop/voice/src/video.rs

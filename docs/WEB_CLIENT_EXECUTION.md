@@ -1,8 +1,8 @@
 # Web client execution
 
-Reference: [RFC 0005](rfcs/0005-web-client.md). Direction selected on 2026-10-08: a real browser client, delivered by the RocketVibe server, with GTK as the visual reference.
+Reference: [RFC 0005](rfcs/0005-web-client.md). Direction selected on 2026-10-08: a real browser client, delivered by the Vibez server, with GTK as the visual reference.
 
-Current state: real application implemented and embedded in the server. One serving origin/account. On 2026-10-09 the user requested usable browser E2EE, superseding its temporary exclusion; shared-engine integration and qualification are tracked in [WEB_E2EE.md](WEB_E2EE.md). Statuses below describe native RocketVibe equivalents, not Rocket.Chat endpoint support.
+Current state: real application implemented and embedded in the server. One serving origin/account. On 2026-10-09 the user requested usable browser E2EE, superseding its temporary exclusion; shared-engine integration and qualification are tracked in [WEB_E2EE.md](WEB_E2EE.md). Statuses below describe native Vibez equivalents, not Rocket.Chat endpoint support.
 
 ## Construction and qualification
 
@@ -84,7 +84,7 @@ All three master workflows pass on corrective commit `e5d51efd`: [web client](ht
 
 ## GTK screen audit, 2026-10-12
 
-The renewed screen audit compares the native RocketVibe-provider branch of the actual GTK client, not its Rocket.Chat toolbar or an approximate colour scheme. [WEB_GTK_SCREEN_AUDIT.md](WEB_GTK_SCREEN_AUDIT.md) records the screen inventory, native source references and corrections. The browser now follows GTK login/challenge steps, sidebar grouping and menus, header controls, timeline grouping, composers, thread navigation, actions, emoji, compact search/marked previews, room/member/profile dialogs, settings categories, security/encryption ceremonies, administration, bots/workflows, scheduling and voice states. Cached settings retain drafts and scroll; live operations invalidate only the affected pages.
+The renewed screen audit compares the native Vibez-provider branch of the actual GTK client, not its Rocket.Chat toolbar or an approximate colour scheme. [WEB_GTK_SCREEN_AUDIT.md](WEB_GTK_SCREEN_AUDIT.md) records the screen inventory, native source references and corrections. The browser now follows GTK login/challenge steps, sidebar grouping and menus, header controls, timeline grouping, composers, thread navigation, actions, emoji, compact search/marked previews, room/member/profile dialogs, settings categories, security/encryption ceremonies, administration, bots/workflows, scheduling and voice states. Cached settings retain drafts and scroll; live operations invalidate only the affected pages.
 
 Qualification uses a fresh mandatory Fedora GTK build and connected GTK captures, plus the browser's production distribution against disposable PostgreSQL, TLS SMTP and LiveKit services. Formatting, strict TypeScript, build and 146 Node tests pass. Real-server suites pass conversations, composer, threads, shell, profiles, settings, workflows, security, quiet hours, scheduled messages, reminders, search, reads, receipts, sessions, signout replay, notifications, social cards, images, video reduction, media and capture/offline cases. The final conversation-parity checks include real role changes, cancellation, DM profile navigation and channel images. A committed image response is deliberately lost and replayed with its original nonce after reload; a separate actual membership withdrawal purges the pending image intent. Four held-response tests cover receipt hydration with initial membership, withdrawal, removal/rejoin and newer live room/read revisions.
 
@@ -115,7 +115,7 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | 2FA by email: send and resend the code | partial | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Session in the system keychain, resumed at launch; a 401 on an authenticated call signs out | done | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
 | Server probe before login (`/api/info`, `settings.public`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Choose the server type at sign-in (automatic, Rocket.Chat, RocketVibe) | done | n/a | One account on the serving origin, explicit user decision. |
+| Choose the server type at sign-in (automatic, Rocket.Chat, Vibez) | done | n/a | One account on the serving origin, explicit user decision. |
 | Known servers offered on the login screen | done | n/a | One account on the serving origin, explicit user decision. |
 | Several servers side by side, switch without signing out | done | n/a | One account on the serving origin, explicit user decision. |
 | Server rail: a button per account, "+" to add one, a dot on another account with unread | done | n/a | One account on the serving origin, explicit user decision. |
@@ -143,7 +143,7 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | `:shortcode:` emoji (6222 codes, same table) and custom emoji images | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Images inline (original), viewer, protected-file token only to our origin | done | done | Actual GTK inline/viewer/menu comparison on the same originals. PNG export, live retention and withdrawal in tests/images.mjs; clipboard payload intercepted, OS clipboard permission unqualified. |
 | Photo avatars over gradient tiles, updated live | partial | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Change a channel image on RocketVibe | done | done | Native owner-only PNG/JPEG picker, 2 MB limit, revisioned receipt/reload and protected header/list images pass tests/conversation-parity.mjs. Encrypted header/list tiles retain their lock; room information may show the photo. |
+| Change a channel image on Vibez | done | done | Native owner-only PNG/JPEG picker, 2 MB limit, revisioned receipt/reload and protected header/list images pass tests/conversation-parity.mjs. Encrypted header/list tiles retain their lock; room information may show the photo. |
 | Read-only rooms: no composer | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Header: room info, DM presence, search in room, start a call | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | New-messages bar at the first unread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -181,11 +181,11 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | Voice recording | done | done | Actual GTK recording bar capture; elapsed/cancel/stop, inline staged replay, real capture cancellation and constructor/start failure cleanup in tests/features.mjs. |
 | Replay and caption a voice message before sending | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Slash commands (`commands.list`, `commands.run`) and their private answers | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Slash commands on a RocketVibe server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
+| Slash commands on a Vibez server (`/api/v1/commands`), text commands written by the client so they work in encrypted rooms | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
 | Every command listed after `/` in a titled panel, narrowed as one types, completed with a tap or Tab/Enter | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Quick reactions and removing mine | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | React with any emoji (picker from the menu, the server's custom emoji included) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Report a message to the administrators (`chat.reportMessage`, RocketVibe `reports`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
+| Report a message to the administrators (`chat.reportMessage`, Vibez `reports`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Reply (quote), reply in thread | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Copy text | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Share an attachment | mapped | mapped | Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
@@ -207,7 +207,7 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | My profile: avatar, status, name, bio, email and username (with password and 2FA) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Remove my photo (`users.resetAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Live avatar changes (`updateAvatar`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Report a user from the profile (`moderation.reportUser`, RocketVibe `reports`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
+| Report a user from the profile (`moderation.reportUser`, Vibez `reports`) | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Room members, room settings, roles | missing | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Settings in categories (account, notifications, language, voice, encryption, security, devices, bots, workflows, accounts, app), each shown only with content, Sign out under them | done | done | Native order/icons, lazy pages preserving drafts, profile subpages, device/session actions and separate administration are audited and qualified in tests/visual.mjs, tests/profiles.mjs and security/email flows. One serving account omits Accounts; MLS qualification is recorded separately. |
 | A click or tap outside a modal (dialog, alert, confirmation, sheet, overlay) closes it like Cancel, never running its action | done | done | Native provider: see [web implementation](../apps/web/README.md). |
@@ -222,24 +222,24 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | Reply from the notification | done | partial | Live-tab replies use a bounded in-app text field. Browser action limits and OS delivery remain platform qualification; no closed-tab Web Push or native inline-reply field is claimed. |
 | Nothing of encrypted rooms' content | done | done | Locked metadata; private content is shown only through the verified Rust MLS journal. src/crypto/chat.ts. |
 | Running with the window closed, starting at login | done | partial | Installable public shell; closed-tab Web Push and OS autostart absent. |
-| Unlock with the E2E password, decrypt messages and previews, lock again | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| Room keys AES-128 and AES-256 | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| Send, edit and answer in a thread, encrypted | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| Encrypted files, both directions | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| Key kept across launches | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| Create an encrypted room | missing | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the RocketVibe rows below. |
-| RocketVibe server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: history backup with a separate code (enable, join, continuous upload, restore) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
-| RocketVibe server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
-| RocketVibe server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
-| RocketVibe server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| RocketVibe server: recovered history shown in conversations | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
-| Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
-| Meeting information: the link without the token (`video-conference.info`) | done | n/a | Native RocketVibe origin only; calls use LiveKit. |
+| Unlock with the E2E password, decrypt messages and previews, lock again | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Room keys AES-128 and AES-256 | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Send, edit and answer in a thread, encrypted | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Encrypted files, both directions | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Key kept across launches | done | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Create an encrypted room | missing | n/a | Rocket.Chat password/AES encryption is outside the native serving-origin scope; native MLS qualification is recorded in the Vibez rows below. |
+| Vibez server: create an encrypted room (MLS group): prepare the device for invitations, review and confirm creation, admission and device changes | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: a new device asks for history, another device of the account reviews and shares it, the new device imports it ([e2ee-history](features/e2ee-history.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: history backup with a separate code (enable, join, continuous upload, restore) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: edit and delete own private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
+| Vibez server: react to private messages, pending on the target until accepted ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
+| Vibez server: search an encrypted room on the device ([e2ee-private-actions](features/e2ee-private-actions.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: send and open encrypted files in private rooms ([e2ee-private-files](features/e2ee-private-files.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: storage key renewed every 30 days and on request, old keys destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)) | done | partial | Native MLS browser implementation and ceremonies; qualification and browser-storage limits remain tracked in docs/WEB_E2EE.md. |
+| Vibez server: hand control of the account to another device with a history share ([e2ee-delegation](features/e2ee-delegation.md)) | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Vibez server: recovered history shown in conversations | done | partial | Shared Rust MLS engine with browser ceremonies; see docs/WEB_E2EE.md for qualification and remaining debt. |
+| Start and join a Jitsi call (`video-conference.start`, `.join`), Rocket.Chat servers | done | n/a | Native Vibez origin only; calls use LiveKit. |
+| Meeting information: the link without the token (`video-conference.info`) | done | n/a | Native Vibez origin only; calls use LiveKit. |
 | Voice channels: speaker mark, entered on selection, writable | done | done | Selection joins automatically; native header, page and roster states are audited. Actual microphone RTP, chat navigation, manual Leave/Join preview and listen-only cleanup pass tests/voice.mjs; Firefox/Chromium connection/retry has separate evidence. |
 | People connected under each room of the list, ring lit while speaking in your session | done | done | Native identifier-based avatars, room occupants, PCM speaking halos and person menus. Real GTK/browser interop and two-browser voice tests. |
 | Voice screen: a tile per person sharing all the room, glowing while they speak, chat one step away | done | done | GTK TileGrid, status, circular controls, speaking halo and chat/Leave/Join navigation are compared with current GTK. Actual camera/share layouts, takeover, fullscreen and capture-ended teardown pass tests/voice.mjs and tests/voice-lifecycle.mjs. |
@@ -272,7 +272,7 @@ The GTK baseline column is inherited; current native-app status is in brain/pari
 | Moderation: reported messages and accounts, reasons, dismiss, delete the message, deactivate the author or account | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Rooms list: every room, direct conversations, discussions and teams included, searched by the server | done | done | Native provider: see [web implementation](../apps/web/README.md). |
 | Users list with actions: admin right, activation, deletion (confirmed); none on my own account | done | done | Native provider: see [web implementation](../apps/web/README.md). |
-| Deleted RocketVibe account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
+| Deleted Vibez account shown as "Deleted user" (author, reactions, quotes, notifications) | partial | partial | Implemented native browser equivalent requires row-specific GTK qualification; see docs/WEB_CLIENT_EXECUTION.md. |
 
 ## Sources
 

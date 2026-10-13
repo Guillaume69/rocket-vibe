@@ -1,7 +1,7 @@
 # Native presence and typing (P12)
 
 The clients keep their composers, typing indicators and DM badges.
-The Rocket.Chat provider keeps its current transport. The RocketVibe provider
+The Rocket.Chat provider keeps its current transport. The Vibez provider
 exposes `presence` / `typing` only if the server also announces them.
 
 ## Writing and expiry

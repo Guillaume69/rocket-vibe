@@ -137,7 +137,7 @@ and cancellation, join with the code, then wire-level upload (`history_backup_up
 / `history_backup_uploaded`) and import (`history_backup_next` /
 `history_backup_import`). The desktop drives it in `rv-core`
 (`enrollment/history_backup.rs`), Android through the bridge's
-`history_backup_action` and `providers/rocketvibe/cryptoHistoryBackup.ts`.
+`history_backup_action` and `providers/vibez/cryptoHistoryBackup.ts`.
 
 **Continuous upload** is triggered after each successful refresh of a private
 conversation (new verified messages may be waiting), at most once every 10 minutes

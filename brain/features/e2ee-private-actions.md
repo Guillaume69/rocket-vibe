@@ -1,6 +1,6 @@
-# Encrypted edits, deletions, reactions and search (RocketVibe server)
+# Encrypted edits, deletions, reactions and search (Vibez server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), the author of a private message can edit or delete it, any member can react to it, and the room can be searched on the device. Edits, deletions and reactions are **amendments**: ordinary encrypted messages of the room whose authenticated header names the amended message. The protocol is `docs/protocol/E2EE_AMENDMENTS.md`.
+On the Vibez native server (MLS end-to-end encryption, not Rocket.Chat E2EE), the author of a private message can edit or delete it, any member can react to it, and the room can be searched on the device. Edits, deletions and reactions are **amendments**: ordinary encrypted messages of the room whose authenticated header names the amended message. The protocol is `docs/protocol/E2EE_AMENDMENTS.md`.
 
 ## What the user sees
 
@@ -24,7 +24,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 ## Mobile
 
 - Bridge (`crates/rv-crypto-mobile/src/conversations.rs`): commands `amend`, `react` and `search`; view rows carry `edited`, `reactions` (`{emoji, users}`) and, for an unsettled amendment, `amendment: {operation, status}` on the target row, the target keeping its own operation.
-- `CryptoConversationAccess` (`providers/rocketvibe/cryptoConversations.ts`): `amend`, `react` (canonical emoji names through `canonicalEmoji`) and `search`; `privateRows` / `privateRow` (`cryptoProjection.ts`) turn `edited` into `editedAt` and reactions into the ordinary reaction JSON, with the user's id shown as their username so their reactions are marked.
+- `CryptoConversationAccess` (`providers/vibez/cryptoConversations.ts`): `amend`, `react` (canonical emoji names through `canonicalEmoji`) and `search`; `privateRows` / `privateRow` (`cryptoProjection.ts`) turn `edited` into `editedAt` and reactions into the ordinary reaction JSON, with the user's id shown as their username so their reactions are marked.
 - `ui/encryptedConversation.ts` keeps its private view while a sheet of the room (actions, edit, attach, room info, profile) or a system picker launched from the composer covers it (`ui/roomCover.ts`, `launchPickerWithRetry` in `ui/launchPicker.ts`, and `ui/sync.tsx` defers the session suspension until the picker returns); a reload asked during another one runs once it ends. Private quote cards and the reply banner resolve the author's uid through `useIdentities`.
 - `ui/encryptedConversation.ts`: `privateRow` / `privateInterrupted`, `react`; the outbox's retry, discard and process act on the amendment's operation when there is one. Room and thread screens show such a row as pending, block its actions and route reaction chips to `react`.
 - `app/message-actions.tsx`: the private payload adds `react` when the room can send and `edit` / `delete` for the user's own rows; save, delete and the quick reactions go through the sheet's own actor.
@@ -54,8 +54,8 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/server/src/e2ee/groups/messages.rs
 - apps/server/migrations/0047_e2ee_amendments.sql
 - crates/rv-crypto-mobile/src/conversations.rs
-- apps/mobile/providers/rocketvibe/cryptoConversations.ts
-- apps/mobile/providers/rocketvibe/cryptoProjection.ts
+- apps/mobile/providers/vibez/cryptoConversations.ts
+- apps/mobile/providers/vibez/cryptoProjection.ts
 - apps/mobile/ui/encryptedConversation.ts
 - apps/mobile/ui/roomCover.ts
 - apps/mobile/ui/roomHeader.tsx

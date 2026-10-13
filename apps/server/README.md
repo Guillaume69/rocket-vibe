@@ -1,6 +1,6 @@
-# Native RocketVibe server: RFC 0001 workstream
+# Vibez server: RFC 0001 workstream
 
-Experimental Rust server, developed on `feature/vibez`. The foundation
+Experimental Rust server. The foundation
 is independent of Rocket.Chat: Axum / Tokio, PostgreSQL, `rv-protocol` contracts and
 the reusable Rust transport `rv-client`. The native workspace at the root excludes
 the existing desktop workspace.
@@ -69,14 +69,14 @@ The server binary now embeds [apps/web](../web/README.md). Open its origin at `/
 
 ## Releases
 
-A `server-vX.Y.Z` tag publishes the server (`.github/workflows/server-release.yml`): a GitHub
+A `vibez-vX.Y.Z` tag publishes the server and its embedded web client (`.github/workflows/server-release.yml`): a GitHub
 Release with `vibez-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
 `Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`, and
 pushes that build's image to `ghcr.io/guillaume69/vibez` as `X.Y.Z` and `latest`
 (`server-image.yml`, dispatched with a tag, republishes an older one). The version lives in
 `Cargo.toml`, the notes are its section of [CHANGELOG.md](CHANGELOG.md). Each release embeds
 the web client of its commit. The apps' administration Dashboard compares the server's version
-with the newest `server-v*` release.
+with the newest `vibez-v*` release (older releases were tagged `server-v*`).
 
 ## Local start
 
@@ -91,7 +91,7 @@ From the repository root, with Docker Desktop / Docker Engine running:
 3. Start:
 
 ```sh
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml up --build -d
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml up --build -d
 ```
 
 The server listens on `http://127.0.0.1:3400`. Native end-to-end encryption is on:
@@ -114,7 +114,7 @@ environment variable `VIBEZ_USER_PASSWORD`; the value does not go through the ar
 
 ```sh
 # Set VIBEZ_USER_PASSWORD in the shell before this command.
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm -e VIBEZ_USER_PASSWORD server create-user alice --admin
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm -e VIBEZ_USER_PASSWORD server create-user alice --admin
 ```
 
 The administrator flag is stored for the rest of the workstream; it does not allow
@@ -130,9 +130,9 @@ Administrators can also create, copy and revoke invitation codes in Server admin
 To issue a code through the operator CLI:
 
 ```sh
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server invite --hours 168
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-invitations
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-invitation IDENTIFIER
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server invite --hours 168
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server list-invitations
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server revoke-invitation IDENTIFIER
 ```
 
 `invite` prints once a JSON containing the secret code `token` and the metadata;
@@ -150,9 +150,9 @@ For an account owner verified by the operator, issue a password recovery code;
 its value never goes through the arguments:
 
 ```sh
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server recover-user alice --hours 24
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server list-recovery-codes
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm server revoke-recovery-code IDENTIFIER
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server recover-user alice --hours 24
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server list-recovery-codes
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm server revoke-recovery-code IDENTIFIER
 ```
 
 The JSON of `recover-user` prints the secret code once. Duration: 1 to 24 h,
@@ -178,8 +178,8 @@ curl -f http://127.0.0.1:3400/health/ready
 From the root, run:
 
 ```sh
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml build check
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm check bash apps/server/scripts/check.sh
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml build check
+docker compose --env-file docker/.env.native -f docker/compose.vibez.yml run --rm check bash apps/server/scripts/check.sh
 ```
 
 The check image contains Rust, rustfmt, clippy and Node 24. The SQLx tests
@@ -251,7 +251,7 @@ It purges neither journal nor messages. These bounds do not replace a load test.
 
 The [workstream tracker](../../docs/NATIVE_SERVER_EXECUTION.md) details what is
 delivered and what remains to be done to close J0 and J1. The
-[RFC](../../docs/rfcs/0001-rocketvibe-rust-server.md) remains the parity destination.
+[RFC](../../docs/rfcs/0001-vibez-server.md) remains the parity destination.
 This version is a local bench, not a server meant to replace a Rocket.Chat instance
 containing real data.
 

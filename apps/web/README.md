@@ -1,6 +1,6 @@
-# rocket-vibe web
+# Vibez web client
 
-The native RocketVibe server serves this actual browser client at `/`. It uses that origin and one account. Native MLS encrypted conversations use the same Rust engine as the installed clients through WebAssembly; see [browser encryption and its storage trust model](../../docs/WEB_E2EE.md).
+The Vibez server serves this actual browser client at `/`. It uses that origin and one account. Native MLS encrypted conversations use the same Rust engine as the installed clients through WebAssembly; see [browser encryption and its storage trust model](../../docs/WEB_E2EE.md).
 
 The interface reuses the GTK theme, Nunito/Baloo 2 fonts, Adwaita icons, Noto emoji and project sounds. Chat, threads, actions, search, drafts, offline queues, uploads, recording, profiles, room management, administration, security settings, bots, workflows, their message forms and LiveKit calls are implemented. See [execution and remaining parity](../../docs/WEB_CLIENT_EXECUTION.md).
 
@@ -30,9 +30,7 @@ For development, `RV_WEB_API_URL=http://127.0.0.1:3400 npm run dev` proxies the 
 
 ## Releases
 
-`node scripts/version.mjs web` from the repository root checks `package.json` and both lockfile version fields. A `web-vX.Y.Z` tag must match that version and the corresponding section of this changelog. The web workflow runs the complete server/browser gate before publishing `rocket-vibe-web-X.Y.Z.tar.gz`, `.zip` and `SHA256SUMS`. A manual workflow dispatch produces downloadable artifacts without publishing a release.
-
-`node scripts/package-web.mjs` packages the committed build with version/commit metadata, deployment instructions, this README and the changelog. The archives contain the frontend assets. Deployment uses the matching source tag and rebuilds the native server or its Docker image, because its existing binary retains the embedded bundle. Keep the browser and API on the same HTTPS origin.
+The web client has no version or release of its own: it reaches users only compiled into the server binary, so it ships under the server's version (`node scripts/version.mjs vibez`, `vibez-vX.Y.Z` tags, [apps/server/CHANGELOG.md](../server/CHANGELOG.md), entries marked "Web client"); see [server releases](../server/README.md#releases). The `web-client` workflow runs the complete server/browser gate on every change and does not publish anything. Deploying a web change means rebuilding the server or its Docker image, because the binary embeds the bundle. Keep the browser and API on the same HTTPS origin.
 
 ## Verification
 

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Quick polls, game-night cards and voice reactions are RocketVibe-server features in unencrypted rooms. The image shelf and GIF picker also work with Rocket.Chat in Android, GTK and SwiftUI. Web speaks to RocketVibe only. Mattermost and kChat do not offer these controls.
+Quick polls, game-night cards and voice reactions are Vibez features in unencrypted rooms. The image shelf and GIF picker also work with Rocket.Chat in Android, GTK and SwiftUI. Web speaks to Vibez only. Mattermost and kChat do not offer these controls.
 
 ## Server and contract
 
@@ -10,13 +10,13 @@ Additive `Message.social` carries a typed poll, game night or image. Older clien
 
 Create, answer and close run in PostgreSQL transactions, lock current room membership, persist operation receipts and publish message revisions to the journal. Exact retries do not overwrite newer answers. Ordinary text edits cannot change social cards; ordinary deletion hides their typed content. Poll closure and event expiry are also enforced by the server.
 
-The private shelf holds at most 200 public HTTPS image links per account. On RocketVibe it syncs through GET/POST/DELETE `/api/v1/stickers`; POST `/api/v1/rooms/{room}/images` sends one with the usual idempotent message identity. Authenticated file links and credential-bearing URLs cannot become shelf entries.
+The private shelf holds at most 200 public HTTPS image links per account. On Vibez it syncs through GET/POST/DELETE `/api/v1/stickers`; POST `/api/v1/rooms/{room}/images` sends one with the usual idempotent message identity. Authenticated file links and credential-bearing URLs cannot become shelf entries.
 
 Voice uses POST `/api/v1/rooms/{room}/voice/reactions` and the ephemeral `LiveState.voice_reactions` vector. Only currently connected voice participants of the current data epoch can send and receive bursts. The six choices are applause, laughter, heart, party, thumbs-up and wave. Bursts expire after six seconds, stay out of history, and have a two-second sender cooldown. Maintenance removes expired rows. Encrypted voice reactions remain debt; no plaintext reaction is sent there.
 
 ## GIPHY configuration
 
-RocketVibe reads a private, bounded JSON file via `VIBEZ_GIPHY_CONFIG_FILE` or `--giphy-config-file`. See `apps/server/giphy.example.json`. Required `api_key`; rating defaults to `pg` and accepts `g`, `pg`, `pg-13`, `r`. A Unix file must be private to its owner. The key stays on the server and is cleared from memory on drop. No key is shipped. Without configuration, discovery advertises `giphy=false` and search returns `giphy_not_configured`.
+Vibez reads a private, bounded JSON file via `VIBEZ_GIPHY_CONFIG_FILE` or `--giphy-config-file`. See `apps/server/giphy.example.json`. Required `api_key`; rating defaults to `pg` and accepts `g`, `pg`, `pg-13`, `r`. A Unix file must be private to its owner. The key stays on the server and is cleared from memory on drop. No key is shipped. Without configuration, discovery advertises `giphy=false` and search returns `giphy_not_configured`.
 
 GET `/api/v1/gifs?q=...` searches or lists trending GIFs; `stickers=true` selects the provider's sticker collection. Queries are bounded, authenticated and rate-limited. Provider requests time out, reject redirects and bound response size. Only GIPHY media origins enter search results. Pickers and cards show Powered By GIPHY.
 
@@ -28,7 +28,7 @@ Typing `/giphy` opens the same GIF picker as the sharing menu, in rooms and thre
 
 `app/social.tsx` is a native form sheet opened from the composer. Poll options use one line each; closing presets keep the same timestamp on retry. Game nights use local date choices and HH:MM. Card votes, RSVPs, local reminders and the voice page are accessible from the timeline. Voice bursts use native Animated text. Encrypted-room controls are hidden.
 
-Rocket.Chat shelves are private files keyed by a native SHA256 digest of server and user. RocketVibe shelves live on the server. RN Image renders GIFs with Expo's existing native Fresco GIF support. No extra UI or native dependency was added.
+Rocket.Chat shelves are private files keyed by a native SHA256 digest of server and user. Vibez shelves live on the server. RN Image renders GIFs with Expo's existing native Fresco GIF support. No extra UI or native dependency was added.
 
 ## Desktop
 
@@ -58,7 +58,7 @@ Server integration tests exercise create replay, answer changes, stale retries, 
 - apps/mobile/ui/social.tsx
 - apps/mobile/lib/giphy.ts
 - apps/mobile/ui/gifSelection.ts
-- apps/mobile/providers/rocketvibe/social.test.ts
+- apps/mobile/providers/vibez/social.test.ts
 - apps/desktop/crates/rv-core/src/social.rs
 - apps/desktop/crates/rv-core/src/native/social.rs
 - apps/desktop/crates/rv-gtk/src/social.rs

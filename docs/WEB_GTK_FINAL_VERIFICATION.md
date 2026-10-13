@@ -1,6 +1,6 @@
 # GTK and browser verification, 2026-10-12
 
-GTK is the visual and interaction reference for the RocketVibe-server browser client. This record supplements the earlier [screen audit](WEB_GTK_SCREEN_AUDIT.md) and the [41-family screen matrix](WEB_GTK_SCREEN_MATRIX.md). It separates inspected screens, executed behavior and platform mappings; a source-inventoried refusal state is not a separately tested screen.
+GTK is the visual and interaction reference for the Vibez-server browser client. This record supplements the earlier [screen audit](WEB_GTK_SCREEN_AUDIT.md) and the [41-family screen matrix](WEB_GTK_SCREEN_MATRIX.md). It separates inspected screens, executed behavior and platform mappings; a source-inventoried refusal state is not a separately tested screen.
 
 ## Corrections found by the final sweep
 
@@ -49,7 +49,7 @@ The user's installed executable is unchanged by these source and container check
 
 ## Platform and evidence boundaries
 
-The established browser scope has one RocketVibe origin/account. Native provider/account switching, server rail, OS tray/autostart and keyring remain installed-app capabilities. Browser capture requires the browser's own consent/source chooser after the retained quality dialog. Links, downloads, storage and installation follow browser mechanisms.
+The established browser scope has one Vibez origin/account. Native provider/account switching, server rail, OS tray/autostart and keyring remain installed-app capabilities. Browser capture requires the browser's own consent/source chooser after the retained quality dialog. Links, downloads, storage and installation follow browser mechanisms.
 
 The existing native user-directory endpoint returns its first 100 active users. GTK and browser spotlight use that same contract; fixture accounts outside it cannot appear in client-side filtering. This limit is recorded rather than mistaken for a search-layout failure.
 

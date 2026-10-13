@@ -97,9 +97,9 @@ Each workflow runs only when its app's files, `scripts/version.mjs` or the workf
 | `mobile.yml` | pushes to every branch, tags `mobile-v*`, PRs, dispatch | `check`: version check, `npm ci`, `tsc --noEmit`, `npm run lint`, `npm test` | `android`: SDK pieces, `google-services.json` and keystore from secrets, `expo prebuild`, `./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a` with ccache, `apksigner verify`, artifact `rocket-vibe-mobile-<v>.apk`; `release` on a tag |
 | `desktop.yml` | pushes to every branch touching `apps/desktop` or the shared crates `rv-core` builds from (`rv-client`, `rv-crypto`, `rv-crypto-public`, `rv-protocol`), tags `desktop-v*`, PRs, dispatch | `version`; `linux` in `fedora:44`: fmt, clippy `-D warnings`, `cargo test --workspace` | release build and `.tar.gz`; `appimage` and `appimage-smoke` (the AppImage on `ubuntu:22.04` with no GTK: gallery, 3 media must play); `windows` (rv-core tests, release build, zip, Inno Setup installer, then an install, launch, background start, autostart, gallery, call window, player and soak round trip, and uninstall); `macos` (rv-core tests, release build, signing, notarization, Gatekeeper check, then the bundle started with Homebrew moved aside); `macos-swiftui` (calls `desktop-swiftui.yml`); `release` on a tag |
 | `desktop-swiftui.yml` | pushes to every branch including `master` touching `macos/`, `rv-ffi` or itself; `workflow_call`; dispatch | On `macos-15`: generate bindings, `swift build`, `swift test`, `swift run rv-rooms`, sign, package, notarize, start the app (login, gallery, 45 s soak, scroll benchmark reported as a trend) | |
-| `server-release.yml` | tags `server-v*`, pushes to `release/**`, dispatch | The server gate (`apps/server/scripts/check.sh` with PostgreSQL), version, tag and changelog agreement | One Docker build (`apps/server/Dockerfile`): its binary as `vibez-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`; on a tag only, that image pushed to `ghcr.io/guillaume69/vibez` as `X.Y.Z` and `latest`, and the release with the changelog section, which names the image |
-| `server-image.yml` | dispatch only, input `tag` (`server-vX.Y.Z`) and `latest` | | Builds `apps/server/Dockerfile` at that tag and pushes `ghcr.io/guillaume69/vibez:X.Y.Z` (and `latest`) with the workflow token: backfills or republishes a version the release flow did not push |
-| `web-client.yml` | pushes to all branches matching source paths, tags `web-v*`, PRs, dispatch | Web version, format/Node/build and committed assets; native server fmt/clippy/tests; isolated PostgreSQL/SMTP/LiveKit and browser gate | Verified frontend `.tar.gz`, `.zip`, `SHA256SUMS`; release on a tag with that changelog section |
+| `server-release.yml` | tags `vibez-v*`, pushes to `release/**`, dispatch | The server gate (`apps/server/scripts/check.sh` with PostgreSQL), version, tag and changelog agreement | One Docker build (`apps/server/Dockerfile`): its binary as `vibez-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`; on a tag only, that image pushed to `ghcr.io/guillaume69/vibez` as `X.Y.Z` and `latest`, and the release with the changelog section, which names the image |
+| `server-image.yml` | dispatch only, input `tag` (`vibez-vX.Y.Z`) and `latest` | | Builds `apps/server/Dockerfile` at that tag and pushes `ghcr.io/guillaume69/vibez:X.Y.Z` (and `latest`) with the workflow token: backfills or republishes a version the release flow did not push |
+| `web-client.yml` | pushes to all branches matching source paths, PRs, dispatch | Format/Node/build and committed assets; `vibez` fmt/clippy/tests; isolated PostgreSQL/SMTP/LiveKit and browser gate | Nothing: the web client ships inside the server binary, released by `server-release.yml` |
 | `desktop-voice.yml` | pushes to every branch touching `apps/desktop/voice`, `rv-voice-protocol` or itself; PRs; `workflow_call` (from `desktop.yml` when it packages); dispatch | Builds the `rv-voice` sidecar on Linux, Windows and macOS and uploads it | |
 | `native-server.yml` | pushes to every branch touching the server, `crates/`, the mobile or desktop app, `docs/protocol` or the native Compose files; PRs; dispatch | The `rv-crypto` matrix and its HTTP bench; when a client may be affected (`scope`), the server gate (`apps/server/scripts/check.sh`), the Android bundle export, the GTK widget tests and the mobile, GTK and Swift pilots against a native server, `rv-core` and `rv-native` on Windows. It leaves the mobile typecheck and tests to `mobile.yml` and the desktop fmt, clippy and workspace tests to `desktop.yml` | |
 | `native-crypto-android.yml` | pushes to every branch touching `crates/rv-crypto*`, `rv-protocol` or the mobile crypto module; PRs; dispatch | The native crypto library on Android with the keystore | |
@@ -109,23 +109,21 @@ Path filters do not apply to tag pushes, so a release tag always builds. Maestro
 
 ## Versions and changelogs
 
-- `node scripts/version.mjs mobile|desktop|web|server [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; web checks both `package-lock.json` version fields against `package.json`; server reads `apps/server/Cargo.toml` and requires the root `Cargo.lock`'s `vibez` entry to match. With `--tag` the tag must be exactly `<app>-v<version>`.
-- `node scripts/changelog.mjs mobile|desktop|web|server <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog) and fails if it is missing or empty.
+- `node scripts/version.mjs mobile|desktop|vibez [--tag <tag>]` prints the version. For mobile it fails unless `package.json` equals `app.json` and `android.versionCode == major*10000 + minor*100 + patch` (so each release installs over the last); for desktop it reads `[workspace.package] version`; vibez (the server, whose version also covers the web client compiled into it: `apps/web/package.json` has no version) reads `apps/server/Cargo.toml` and requires the root `Cargo.lock`'s `vibez` entry to match. With `--tag` the tag must be exactly `<app>-v<version>`.
+- `node scripts/changelog.mjs mobile|desktop|vibez <version>` prints that version's section of `apps/<app>/CHANGELOG.md` (Keep a Changelog; `apps/server/CHANGELOG.md` for vibez, its web client entries included) and fails if it is missing or empty.
 - Every user-visible change goes under `## [Unreleased]` in that app's changelog, in English.
 - **Rust locks.** The Rust code has seven workspaces, each with its `Cargo.lock`: the root (server, `rv-protocol`, `rv-client`, `rv-crypto-public`), `apps/desktop`, `apps/desktop/voice`, `crates/rv-crypto`, `crates/rv-crypto-mobile`, `crates/rv-crypto-web` and `crates/rv-voice-mobile`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them: `node scripts/cargo-locks.mjs` checks it (CI, `cargo-locks.yml`), and after a `cargo update` anywhere `node scripts/cargo-locks.mjs --sync` raises every lagging lock to the newest version already in use, then all the changed locks are committed together.
 
 ## Release flow
 
 1. Move the unreleased section under `## [X.Y.Z] - <date>` and update the compare links.
-2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); web in `package.json` and `package-lock.json`, then rebuild and commit the embedded bundle; server in `apps/server/Cargo.toml` and the root `Cargo.lock`.
+2. Bump the version: mobile in `app.json` (`version` and `android.versionCode`) and `package.json`; desktop in `Cargo.toml`, and refresh `Cargo.lock` (CI builds with `--locked`); vibez in `apps/server/Cargo.toml` and the root `Cargo.lock`, with the embedded web bundle (`apps/web/dist`) rebuilt and committed if the web client changed.
 
    Desktop includes all five crates inheriting the workspace version, including `rv-voice-protocol`. Its path dependency in `apps/desktop/voice/Cargo.lock` must match too: the separate sidecar workflow builds with `--locked` and is required by every desktop release package.
-3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z`, `web-vX.Y.Z` or `server-vX.Y.Z`.
-4. The workflow checks tag against version and the changelog section first, builds every package, then `softprops/action-gh-release` creates "Mobile X.Y.Z" (the APK) or "Desktop X.Y.Z" (`.tar.gz`, `.AppImage`, `.zip`, `-setup.exe`, the GTK and SwiftUI `.dmg`) with the changelog section as notes.
+3. Commit, merge to `master`, push a tag `mobile-vX.Y.Z`, `desktop-vX.Y.Z` or `vibez-vX.Y.Z`.
+4. The workflow checks tag against version and the changelog section first, builds every package, then `softprops/action-gh-release` creates "Mobile X.Y.Z" (the APK) or "Desktop X.Y.Z" (`.tar.gz`, `.AppImage`, `.zip`, `-setup.exe`, the GTK and SwiftUI `.dmg`) with the changelog section as notes; `server-release.yml` creates the Vibez release itself (`gh release create`: the `vibez-X.Y.Z-linux-x86_64.tar.gz` archive and `SHA256SUMS`, the notes naming the image).
 
-The desktop app updates itself from these GitHub releases, see [features/desktop-updates.md](features/desktop-updates.md). The server's releases (`server-v*`, first 0.2.0 on 2026-10-09; it had none before) are what every app's administration Dashboard compares the server's version with ([features/administration.md](features/administration.md)). A server release carries the web client embedded at its commit: release web first when both change.
-
-Web packaging uses `scripts/package-web.mjs` after the server/browser gate; only its release job has `contents: write`. The static archives carry version/commit metadata and deployment instructions. Deploy the matching source tag and rebuild `vibez` or its Docker image: existing binaries keep their embedded web version. The browser uses the serving API origin over HTTPS.
+The desktop app updates itself from these GitHub releases, see [features/desktop-updates.md](features/desktop-updates.md). The server's releases (`vibez-v*`; before the rename, `server-v*` from 0.2.0 on 2026-10-09, and the web client had its own `web-v*` until 0.6.0) are what every app's administration Dashboard compares the server's version with, taking the newest `vibez-v` release ([features/administration.md](features/administration.md)). A Vibez release carries the web client embedded at its commit, under the same version: there is no separate web package. Existing binaries keep the web client they were built with; deploying a newer one means deploying the matching `vibez` binary or image. The browser uses the serving API origin over HTTPS.
 
 ## Secrets
 
@@ -154,12 +152,13 @@ The mobile Android job fails loudly without its two secrets. Without the Apple s
 - `scripts/spike-ddp.mjs`
 - `scripts/version.mjs`
 - `scripts/changelog.mjs`
-- `scripts/package-web.mjs`
 - `apps/web/README.md`
 - `apps/web/package.json`
 - `apps/web/package-lock.json`
-- `apps/web/CHANGELOG.md`
+- `apps/server/CHANGELOG.md`
 - `.github/workflows/web-client.yml`
+- `.github/workflows/server-release.yml`
+- `.github/workflows/server-image.yml`
 - `apps/mobile/package.json`
 - `apps/mobile/app.json`
 - `apps/mobile/.gitignore`

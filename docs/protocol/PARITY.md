@@ -1,6 +1,6 @@
 # Parity contract and J0 backlog
 
-Reference: [RFC 0001](../rfcs/0001-rocketvibe-rust-server.md), notably §4,
+Reference: [RFC 0001](../rfcs/0001-vibez-server.md), notably §4,
 §7-14 and §17. The identifiers P01-P23 cover **every** row of its matrix.
 This document fixes the construction decisions of 1 October 2026. It does not
 declare the planned functions available, nor an instance fit for the switchover.
@@ -33,7 +33,7 @@ are nevertheless listed.
 | Mobile `protectedFileUrl`, Rust `fetch_protected` / `MediaClient::fetch` | Resources `title_link`, `image_url`, `audio_url`, `video_url`; origin verified before credentials | P14 |
 | DDP `subscribe(name, key)` | `stream-room-messages`, `stream-notify-user`, `stream-notify-room`, `stream-notify-logged`; keys built inside the driver | P06 / P12 / P16 |
 | DDP handshake | `connect`, `login` with resume, `sub`, `unsub`, ping/pong; no business method | P01 / P06 |
-| Android Kotlin push | Rocket.Chat: `push.get` / `chat.sendMessage`. RocketVibe: family registry, private fetch, WorkManager and idempotent reply in the existing plugin; Firebase / phone to be qualified | [P17](PUSH.md) |
+| Android Kotlin push | Rocket.Chat: `push.get` / `chat.sendMessage`. Vibez: family registry, private fetch, WorkManager and idempotent reply in the existing plugin; Firebase / phone to be qualified | [P17](PUSH.md) |
 | Current iOS extension | `GET push.get`; kept on the RC side, native iOS out of RFC scope | P17 |
 | Links / quotes | `channel`, `group`, `direct` with `?msg=`, app links `rocketvibe://room/…` | P07 / P21 |
 
@@ -61,7 +61,7 @@ keep their canonical name and their intent when the catalog changes.
 The caches are versioned and bound to the generation; installed qualification
 and animated desktop rendering remain open in P07 / J3.
 
-Mobile `Provider.identity` exposes kind, origin, account and, for RocketVibe,
+Mobile `Provider.identity` exposes kind, origin, account and, for Vibez,
 instance / generation. Desktop keeps the same data in `SessionInfo`.
 The neutral mobile diagnostics keep code, native request ID, status and delay;
 only an understood refusal of an authenticated request indicates a rejected session.

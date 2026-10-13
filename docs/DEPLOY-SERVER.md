@@ -1,6 +1,6 @@
-# Déployer un serveur RocketVibe
+# Déployer un serveur Vibez
 
-Ce guide installe un serveur RocketVibe sur un serveur dédié, derrière un nom de domaine en HTTPS, avec le vocal (LiveKit). Tout part du dépôt : le serveur se construit depuis les sources, il n'y a pas d'image publiée.
+Ce guide installe un serveur Vibez sur un serveur dédié, derrière un nom de domaine en HTTPS, avec le vocal (LiveKit). Tout part du dépôt : le serveur se construit depuis les sources. L'image `ghcr.io/guillaume69/vibez`, publiée pour chaque version `vibez-vX.Y.Z`, n'est pas utilisée ici.
 
 **Pile :** Linux, Docker Compose, PostgreSQL 18, LiveKit v1.13, Caddy pour le HTTPS. C'est un **serveur pilote** (voir les [limites connues](#limites-connues)).
 
@@ -74,7 +74,7 @@ openssl rand -hex 32   # RV_LIVEKIT_API_SECRET
 |---|---|
 | `VIBEZ_DATABASE_PASSWORD` | la première valeur aléatoire (en hexadécimal : aucun caractère à échapper dans l'URL de la base) |
 | `RV_LIVEKIT_NODE_IP` | l'**IP publique** du serveur |
-| `VIBEZ_LIVEKIT_API_KEY` | `rocketvibe` convient |
+| `VIBEZ_LIVEKIT_API_KEY` | `vibez` convient |
 | `RV_LIVEKIT_API_SECRET` | la seconde valeur aléatoire (32 octets ou plus) |
 | `RV_LIVEKIT_URL` | **à ajouter** : `wss://voice.example.org`. C'est l'adresse du vocal que le serveur donne aux apps ; sans elle, elles reçoivent `ws://IP:7880`, en clair. |
 
@@ -83,7 +83,7 @@ Exemple de `docker/.env.native` (valeurs à remplacer) :
 ```ini
 VIBEZ_DATABASE_PASSWORD=…64 caractères hexadécimaux…
 RV_LIVEKIT_NODE_IP=203.0.113.10
-VIBEZ_LIVEKIT_API_KEY=rocketvibe
+VIBEZ_LIVEKIT_API_KEY=vibez
 RV_LIVEKIT_API_SECRET=…64 caractères hexadécimaux…
 RV_LIVEKIT_URL=wss://voice.example.org
 ```
@@ -110,7 +110,7 @@ services:
 Pour ne pas retaper la commande, un alias dans `~/.bashrc`, à lancer depuis la racine du dépôt :
 
 ```bash
-alias rv='docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml -f docker/compose.voice.yml -f docker/compose.prod.yml'
+alias rv='docker compose --env-file docker/.env.native -f docker/compose.vibez.yml -f docker/compose.voice.yml -f docker/compose.prod.yml'
 ```
 
 > **Attention : Docker passe à travers ufw.** Les ports publiés par Docker contournent les règles d'ufw. Sans ce fichier, `7880` serait ouvert sur Internet même si ufw le bloque. L'API, elle, est déjà liée à `127.0.0.1:3400` par le dépôt.
@@ -229,11 +229,11 @@ Dans les apps, on entre `https://chat.example.org` : le type de serveur est reco
 Le serveur tourne sous l'utilisateur `10001` et refuse les fichiers lisibles par d'autres : les ranger hors du dépôt, à lui, en mode `600`.
 
 ```bash
-sudo install -d -m 700 /etc/rocketvibe
-openssl rand -hex 32 | sudo tee /etc/rocketvibe/auth.key > /dev/null
-# Copier aussi smtp.json et firebase.json dans /etc/rocketvibe, puis :
-sudo chown 10001:10001 /etc/rocketvibe/*
-sudo chmod 600 /etc/rocketvibe/*
+sudo install -d -m 700 /etc/vibez
+openssl rand -hex 32 | sudo tee /etc/vibez/auth.key > /dev/null
+# Copier aussi smtp.json et firebase.json dans /etc/vibez, puis :
+sudo chown 10001:10001 /etc/vibez/*
+sudo chmod 600 /etc/vibez/*
 ```
 
 À ajouter dans `docker/compose.prod.yml`, sous `services:` :
@@ -245,9 +245,9 @@ sudo chmod 600 /etc/rocketvibe/*
       VIBEZ_SMTP_CONFIG_FILE: /run/secrets/smtp.json
       VIBEZ_FCM_CONFIG_FILE: /run/secrets/firebase.json
     volumes:
-      - /etc/rocketvibe/auth.key:/run/secrets/auth.key:ro
-      - /etc/rocketvibe/smtp.json:/run/secrets/smtp.json:ro
-      - /etc/rocketvibe/firebase.json:/run/secrets/firebase.json:ro
+      - /etc/vibez/auth.key:/run/secrets/auth.key:ro
+      - /etc/vibez/smtp.json:/run/secrets/smtp.json:ro
+      - /etc/vibez/firebase.json:/run/secrets/firebase.json:ro
 ```
 
 Ne garder que les lignes des options utilisées, puis `rv up -d`.
@@ -263,14 +263,14 @@ Créer un fichier privé hors du dépôt à partir de `apps/server/giphy.example
 ### Ce qu'il faut sauvegarder
 
 - la base PostgreSQL ;
-- le volume des fichiers envoyés (`rocketvibe-native_native-objects`) ;
-- `/etc/rocketvibe` et `docker/.env.native`, à part.
+- le volume des fichiers envoyés (`vibez-native_native-objects`) ;
+- `/etc/vibez` et `docker/.env.native`, à part.
 
 Une sauvegarde, à mettre dans un cron :
 
 ```bash
-rv exec -T postgres pg_dump -U rocketvibe rocketvibe | gzip > rocketvibe-$(date +%F).sql.gz
-docker run --rm -v rocketvibe-native_native-objects:/data:ro -v "$PWD":/backup busybox \
+rv exec -T postgres pg_dump -U vibez vibez | gzip > vibez-$(date +%F).sql.gz
+docker run --rm -v vibez-native_native-objects:/data:ro -v "$PWD":/backup busybox \
   tar czf /backup/objects-$(date +%F).tgz -C /data .
 ```
 
@@ -305,5 +305,5 @@ rv up --build -d
 ## Sources
 
 - [apps/server/README.md](../apps/server/README.md)
-- [docker/compose.rocketvibe.yml](../docker/compose.rocketvibe.yml), [docker/compose.voice.yml](../docker/compose.voice.yml), [docker/livekit.yaml](../docker/livekit.yaml)
+- [docker/compose.vibez.yml](../docker/compose.vibez.yml), [docker/compose.voice.yml](../docker/compose.voice.yml), [docker/livekit.yaml](../docker/livekit.yaml)
 - [docs/protocol/VOICE.md](protocol/VOICE.md), [AUTHENTICATION.md](protocol/AUTHENTICATION.md), [EMAIL.md](protocol/EMAIL.md), [PUSH.md](protocol/PUSH.md)

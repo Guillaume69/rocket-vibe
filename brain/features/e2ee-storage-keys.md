@@ -1,6 +1,6 @@
-# Destruction of old keys (RocketVibe server)
+# Destruction of old keys (Vibez server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), each device keeps its private state in a vault sealed under a storage key held by the platform keystore. That key is renewed every 30 days and on request, destroying the old one, so a copy of the database made earlier (backup, journal, flash remnants) can never be opened again. Expired KeyPackage keys are destroyed on the way. The protocol is `docs/protocol/E2EE_STORAGE.md`.
+On the Vibez native server (MLS end-to-end encryption, not Rocket.Chat E2EE), each device keeps its private state in a vault sealed under a storage key held by the platform keystore. That key is renewed every 30 days and on request, destroying the old one, so a copy of the database made earlier (backup, journal, flash remnants) can never be opened again. Expired KeyPackage keys are destroyed on the way. The protocol is `docs/protocol/E2EE_STORAGE.md`.
 
 ## What the user sees
 
@@ -18,7 +18,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 ## Mobile
 
 - Bridge: `storage_action` (`crates/rv-crypto-mobile/src/storage.rs`, actions `view`, `renew`, `renew_if_due`) through the Expo module's `storageAction`.
-- `providers/rocketvibe/cryptoStorageKey.ts` (`CryptoStorageKeyAccess`); `NativeChat.renewStorageSoon`, called after private conversation refreshes (`ui/encryptedConversation.ts`).
+- `providers/vibez/cryptoStorageKey.ts` (`CryptoStorageKeyAccess`); `NativeChat.renewStorageSoon`, called after private conversation refreshes (`ui/encryptedConversation.ts`).
 - UI: the "Storage key" block of `EncryptedIdentitySection` (`ui/encryptedIdentity.tsx`); strings `private.storage*`.
 
 ## Desktop
@@ -46,7 +46,7 @@ guarantee. See `docs/WEB_E2EE.md`.
 - crates/rv-crypto/src/packages.rs
 - crates/rv-crypto/src/account/storage.rs
 - crates/rv-crypto-mobile/src/storage.rs
-- apps/mobile/providers/rocketvibe/cryptoStorageKey.ts
+- apps/mobile/providers/vibez/cryptoStorageKey.ts
 - apps/mobile/ui/encryptedIdentity.tsx
 - apps/desktop/crates/rv-core/src/native/crypto/enrollment/storage.rs
 - apps/desktop/crates/rv-gtk/src/native_crypto/storage.rs

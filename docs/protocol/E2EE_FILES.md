@@ -1,6 +1,6 @@
 # Encrypted files
 
-Files of private (MLS) rooms on the RocketVibe server are encrypted on the device
+Files of private (MLS) rooms on the Vibez server are encrypted on the device
 before upload, under a key that travels only inside the encrypted message
 ([E2EE_MESSAGES.md](E2EE_MESSAGES.md)). The server stores and serves an opaque object:
 it never learns the name, type, size of the content or the key. The ordinary upload

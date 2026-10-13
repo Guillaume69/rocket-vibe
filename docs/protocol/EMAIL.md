@@ -579,7 +579,7 @@ The Rust coordinator `Form` keeps the intent behind a public view without
 nonce. GTK and UniFFI / SwiftUI use this same view and its revisions; late
 actions and closing during a real write are tested over
 TCP HTTP. The three existing forms offer the email request
-only on RocketVibe advertising `email_recovery`. Opening them reads the
+only on Vibez advertising `email_recovery`. Opening them reads the
 local vault with no discovery or send. A distinct button resumes an unconfirmed
 response; the acknowledgement shown stays generic. Expiry, a change
 of generation or an accepted receipt require an explicit local erasure before a

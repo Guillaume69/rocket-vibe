@@ -1,7 +1,7 @@
-# Native RocketVibe in the existing mobile app
+# Native Vibez in the existing mobile app
 
-Branch: `feature/vibez`. The sign-in flow recognizes Rocket.Chat or
-RocketVibe. Both providers use the same home and room screens, the same message
+Branch: `feature/rocketvibe-server`. The sign-in flow recognizes Rocket.Chat or
+Vibez. Both providers use the same home and room screens, the same message
 list, the same composer and the existing settings. The former `/native` route
 redirects to home; it is no longer a separate messaging client.
 
@@ -33,13 +33,13 @@ verifying an address does not activate it.
    identifier and the draft is kept per room.
 
 The fresh server has no default account. The Android build requirements, including
-`google-services.json`, remain those of the current app; native RocketVibe does not
+`google-services.json`, remain those of the current app; native Vibez does not
 use Firebase for notifications yet.
 
 ## Provider and data
 
 `SynchroProvider` selects the account's provider. Rocket.Chat keeps its DDP
-transport and its engines. RocketVibe uses `NativeChat` / `NativeStore`: no
+transport and its engines. Vibez uses `NativeChat` / `NativeStore`: no
 Rocket.Chat DDP initialization, REST presence, E2EE, upload or push leaves on this
 branch. The compatibility REST client blocks these endpoints locally and does not
 produce a Rocket.Chat avatar URL with the native token.
@@ -103,7 +103,7 @@ while keeping the drafts and outbox of the rooms that are still authorized. This
 path is tested with real expiry in PostgreSQL and the mobile SQLite engine. `429`
 refusals suspend login / ticket / snapshot requests until the retry delay.
 The bench `compose.native-email-settings-pilot.yml`, layered over the native,
-security and OTP overlays in a fresh project `rocketvibe-email-settings-mobile`,
+security and OTP overlays in a fresh project `vibez-email-settings-mobile`,
 runs `email-settings-mobile` then `email-settings-check`. Three Node processes
 recreate the provider, the SQLite projection and a portable private vault on disk.
 Activation / removal receipts survive lost responses; the full recovery-code proof

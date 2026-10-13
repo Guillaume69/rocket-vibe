@@ -8,7 +8,7 @@ A `/` at the start of a message offers the server's slash commands the user may 
 - `POST commands.run` with `{command, roomId, params, triggerId}` and `tmid` in a thread. `triggerId` is a random client token.
 - `commands.run` answers `{success: true}` **even when the command fails**. The real answer (an error, `/help` output) arrives as a private message on `stream-notify-user` / `<uid>/message`, with args `[{rid, msg, private: true, ...}]`, never in the REST response (probed on 8.5). Both apps subscribe to that key at session start (mobile `initialSubscriptions` in `providers/rocketchat/index.ts`, desktop `Session` construction in `rv-core/src/session.rs`).
 
-## On a RocketVibe server
+## On a Vibez server
 
 The native server (`apps/server/src/commands.rs`) offers Rocket.Chat's core commands under their names and i18n keys, so both apps read its list with the same code. It announces them with the `slash_commands` capability.
 
@@ -37,7 +37,7 @@ The web client turns the keys into text with its own catalogue. Both apps carry 
 - The list is a panel titled "COMMANDS" with the keys to use, scrolling past a few rows, the first or selected row marked by a pink bar.
   - Mobile (`ui/commandCompletion.tsx`, `useCommands`) puts `/name  params` over the description in a card above the composer; a tap completes.
   - GTK (`command_choice` and `update_completion` in `rv-gtk/src/composer.rs`) spreads it over the field's width, name and parameters left, description right; arrows walk it (the row is kept in sight), Tab or Enter completes, Escape closes.
-  - SwiftUI (`SuggestionList.commands` in `Composer.swift`) does the same through rv-ffi's `suggestions` (`command_suggestions` in `rv-ffi/src/writing.rs`; `NativeChat::suggestions` for a RocketVibe account).
+  - SwiftUI (`SuggestionList.commands` in `Composer.swift`) does the same through rv-ffi's `suggestions` (`command_suggestions` in `rv-ffi/src/writing.rs`; `NativeChat::suggestions` for a Vibez account).
 
 ## Sending
 
@@ -46,7 +46,7 @@ The web client turns the keys into text with its own catalogue. Both apps carry 
 3. A known command is posted to `commands.run`, with `tmid` when the composer belongs to a thread.
 4. If the server refuses the call, the text goes back into the composer **only if the field is still empty** (the user may have typed since), and a toast shows the error.
 
-On a RocketVibe server the composer knows the list already (loaded when the room binds): a text command is rewritten and sent like the draft, encrypted or not; another goes to `NativeSession::run_command` (GTK `Chat::native_command`, SwiftUI `NativeChat.runCommand`, mobile `NativeChat.runSlashCommand`), and a refusal puts the text back if the field is still empty.
+On a Vibez server the composer knows the list already (loaded when the room binds): a text command is rewritten and sent like the draft, encrypted or not; another goes to `NativeSession::run_command` (GTK `Chat::native_command`, SwiftUI `NativeChat.runCommand`, mobile `NativeChat.runSlashCommand`), and a refusal puts the text back if the field is still empty.
 
 GTK also reloads the active room and its thread catalogues after a workflow save, enable, disable or delete succeeds in Settings. The callback belongs to the same live native session; a per-request key prevents an older catalogue response from replacing a later refresh or a different account. Existing drafts and ordinary offline sends are retained. A name not offered by the server remains literal message text.
 
@@ -56,7 +56,7 @@ Mobile only treats a draft as a command when no quote reply is armed (`ui/compos
 
 ## GIF selection
 
-Typing `/giphy` opens the GIF picker in unencrypted rooms and threads. Its search refreshes automatically as the text changes; a click selects and highlights an image without sending. Enter or the shared Send button submits the selected GIF. Cancellation retains the draft, and only a successful send clears the unchanged command draft. The sharing menu opens the same picker. Rocket.Chat uses GET and POST `commands.preview`, including `tmid` for a thread reply; RocketVibe uses its configured server-side GIPHY search and normal image sends. See [social.md](social.md) for configuration, provider limits and the shelf.
+Typing `/giphy` opens the GIF picker in unencrypted rooms and threads. Its search refreshes automatically as the text changes; a click selects and highlights an image without sending. Enter or the shared Send button submits the selected GIF. Cancellation retains the draft, and only a successful send clears the unchanged command draft. The sharing menu opens the same picker. Rocket.Chat uses GET and POST `commands.preview`, including `tmid` for a thread reply; Vibez uses its configured server-side GIPHY search and normal image sends. See [social.md](social.md) for configuration, provider limits and the shelf.
 
 ## The private answer
 
@@ -67,7 +67,7 @@ The private message is shown above the composer of the page it concerns, rendere
 
 ## Parity
 
-Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rules and wording tables. The private answers above the composer exist in both. The RocketVibe server's commands and the full command panel reached the three apps together; the SwiftUI side is checked by the Linux build of RocketVibeKit and the macOS CI only.
+Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rules and wording tables. The private answers above the composer exist in both. The Vibez server's commands and the full command panel reached the three apps together; the SwiftUI side is checked by the Linux build of RocketVibeKit and the macOS CI only.
 
 ## Sources
 
@@ -78,8 +78,8 @@ Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rul
 - crates/rv-protocol/src/commands.rs
 - apps/server/src/commands.rs
 - apps/server/tests/commands.rs
-- apps/mobile/providers/rocketvibe/chat.ts
-- apps/mobile/providers/rocketvibe/transport.ts
+- apps/mobile/providers/vibez/chat.ts
+- apps/mobile/providers/vibez/transport.ts
 - apps/desktop/crates/rv-core/src/native.rs
 - apps/desktop/crates/rv-gtk/src/chat_native.rs
 - apps/desktop/crates/rv-ffi/src/native.rs

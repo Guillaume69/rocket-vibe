@@ -6,12 +6,12 @@ the answer. Every leaf doc cites the real source files if you need to go deeper.
 
 > Product: **rocket-vibe** - chat clients faster and more reliable than the
 > official ones, for self-hosted Rocket.Chat 8 or later, Mattermost and kChat, and
-> the project's own RocketVibe server. Installed clients in `apps/mobile` (Expo /
+> the project's own Vibez server. Installed clients in `apps/mobile` (Expo /
 > React Native, Android first) and `apps/desktop` (Rust core, GTK 4 + libadwaita UI,
-> plus a SwiftUI app for macOS); `apps/web`, a browser client the RocketVibe server
+> plus a SwiftUI app for macOS); `apps/web`, a browser client the Vibez server
 > delivers; `apps/server`, that server (Rust, PostgreSQL); shared Rust in `crates/`.
-> Each app has its own version: `apps/mobile/app.json`, `apps/desktop/Cargo.toml`,
-> `apps/web/package.json` and `apps/server/Cargo.toml`. Stack snapshot in [stack.md](stack.md).
+> Each app has its own version: `apps/mobile/app.json`, `apps/desktop/Cargo.toml` and
+> `apps/server/Cargo.toml` (Vibez, the web client included). Stack snapshot in [stack.md](stack.md).
 
 ## How to use this
 
@@ -57,7 +57,7 @@ use the indexes.
 | [desktop-gtk.md](architecture/desktop-gtk.md) | rv-gtk structure, core events to the main thread, rv-native per platform, video, packaging. |
 | [desktop-macos.md](architecture/desktop-macos.md) | The SwiftUI macOS app over rv-ffi (UniFFI), its view models, status. |
 | [web-client.md](architecture/web-client.md) | Server-embedded browser application, its build chain, origin/session rules, IndexedDB and browser transports. |
-| [server.md](architecture/server.md) | The RocketVibe server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
+| [server.md](architecture/server.md) | The Vibez server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
 | [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
 ## Features (the what) - [features/index.md](features/index.md)
@@ -73,9 +73,9 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [room-list.md](features/room-list.md) | Unread / Favourites / Channels / DMs sections, ordering, previews, badges, presence. |
 | [room-view.md](features/room-view.md) | History paging, live messages, grouping, markdown, system messages, cards, jumps, unread bar. |
 | [composer.md](features/composer.md) | Where a send goes, drafts, quote replies, mentions, editing, formatting, staged attachments. |
-| [bots.md](features/bots.md) | RocketVibe server: bots owned by a person, API keys and scopes, the API reference, the BOT badge, the administrators' switch. |
-| [workflows.md](features/workflows.md) | RocketVibe server: automations acting through a bot, their triggers and steps, the run engine, forms in messages. |
-| [slash-commands.md](features/slash-commands.md) | `commands.list` / `commands.run`, the RocketVibe server's commands, the command panel, the server's private answers. |
+| [bots.md](features/bots.md) | Vibez server: bots owned by a person, API keys and scopes, the API reference, the BOT badge, the administrators' switch. |
+| [workflows.md](features/workflows.md) | Vibez server: automations acting through a bot, their triggers and steps, the run engine, forms in messages. |
+| [slash-commands.md](features/slash-commands.md) | `commands.list` / `commands.run`, the Vibez server's commands, the command panel, the server's private answers. |
 | [uploads.md](features/uploads.md) | The two-step upload behind a persisted queue, local dedup, retries, progress, protected downloads. |
 | [voice-messages.md](features/voice-messages.md) | Recording and playback, and why the formats differ per app. |
 | [message-actions.md](features/message-actions.md) | Which actions show, the endpoints, the menus, pinned and starred lists. |
@@ -88,21 +88,21 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [emoji.md](features/emoji.md) | The shortcode table, custom emoji, rendering order, completion, pickers, quick reactions. |
 | [room-info-and-profiles.md](features/room-info-and-profiles.md) | Room info, user profiles, editing my own profile. |
 | [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app. |
-| [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the RocketVibe contract, deleted accounts. |
-| [scheduled-messages.md](features/scheduled-messages.md) | RocketVibe scheduled messages. |
+| [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the Vibez contract, deleted accounts. |
+| [scheduled-messages.md](features/scheduled-messages.md) | Vibez scheduled messages. |
 | [activity.md](features/activity.md) | The Activity view: mentions, thread replies and reactions across rooms (and accounts on desktop), on the device. |
 | [reminders.md](features/reminders.md) | Reminders about a message, on the device. |
-| [read-receipts.md](features/read-receipts.md) | RocketVibe read receipts. |
-| [do-not-disturb.md](features/do-not-disturb.md) | RocketVibe quiet hours and mute. |
+| [read-receipts.md](features/read-receipts.md) | Vibez read receipts. |
+| [do-not-disturb.md](features/do-not-disturb.md) | Vibez quiet hours and mute. |
 | [notifications.md](features/notifications.md) | Mobile FCM push with hidden content, the native service, desktop notifier and badge. |
 | [e2ee.md](features/e2ee.md) | Encrypted rooms as the user sees them: lock, unlock, sends, media, notifications. |
-| [e2ee-history.md](features/e2ee-history.md) | RocketVibe server: a new device recovers encrypted history from another device of the account. |
-| [e2ee-delegation.md](features/e2ee-delegation.md) | RocketVibe server: control of the account (its root) handed to another device with a history share. |
-| [e2ee-storage-keys.md](features/e2ee-storage-keys.md) | RocketVibe server: the vault's storage key renewed every 30 days, old keys destroyed. |
-| [e2ee-private-files.md](features/e2ee-private-files.md) | RocketVibe server: files of private rooms sealed on the device, opaque to the server. |
-| [e2ee-private-actions.md](features/e2ee-private-actions.md) | RocketVibe server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
+| [e2ee-history.md](features/e2ee-history.md) | Vibez server: a new device recovers encrypted history from another device of the account. |
+| [e2ee-delegation.md](features/e2ee-delegation.md) | Vibez server: control of the account (its root) handed to another device with a history share. |
+| [e2ee-storage-keys.md](features/e2ee-storage-keys.md) | Vibez server: the vault's storage key renewed every 30 days, old keys destroyed. |
+| [e2ee-private-files.md](features/e2ee-private-files.md) | Vibez server: files of private rooms sealed on the device, opaque to the server. |
+| [e2ee-private-actions.md](features/e2ee-private-actions.md) | Vibez server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
 | [social.md](features/social.md) | Quick polls, game nights, sticker shelves, GIPHY configuration and voice reactions. |
-| [voice.md](features/voice.md) | RocketVibe server: voice channels, calls in every room and ringing DMs over LiveKit. |
+| [voice.md](features/voice.md) | Vibez server: voice channels, calls in every room and ringing DMs over LiveKit. |
 | [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows, ringing in direct rooms (Rocket.Chat and kChat). |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
 | [mobile-updates.md](features/mobile-updates.md) | Android GitHub APK updates: release checks, verified download, native installer and recovery. |
@@ -131,7 +131,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | How does the SwiftUI app talk to the Rust core? | [architecture/desktop-macos.md](architecture/desktop-macos.md) |
 | Does desktop do X yet, and how does it differ from mobile? | [parity.md](parity.md), then the feature doc's Mobile and Desktop sections |
 | How do I start the test server and seed it? | [operations.md](operations.md) |
-| How does the RocketVibe server deliver changes, and what limits does it enforce? | [architecture/server.md](architecture/server.md) |
+| How does the Vibez server deliver changes, and what limits does it enforce? | [architecture/server.md](architecture/server.md) |
 | Where is the native protocol defined, and how do its TypeScript types stay in sync? | [architecture/shared-crates.md](architecture/shared-crates.md) |
 | Why are there seven `Cargo.lock`, and how do I update a Rust dependency? | [architecture/shared-crates.md](architecture/shared-crates.md), [operations.md](operations.md) |
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |

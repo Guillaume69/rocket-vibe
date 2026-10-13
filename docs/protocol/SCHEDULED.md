@@ -1,6 +1,6 @@
 # Scheduled messages
 
-A RocketVibe server announcing `scheduled_messages` keeps text messages and sends
+A Vibez server announcing `scheduled_messages` keeps text messages and sends
 them for their author at a chosen time, whether or not any of the author's
 apps runs then.
 

@@ -1,13 +1,13 @@
 # rocket-vibe: standing instructions
 
-Chat clients for **Rocket.Chat**, Mattermost / kChat and our own RocketVibe server, and that server, in a monorepo. This file is reloaded every session. It holds what is expensive to rediscover.
+Chat clients for **Rocket.Chat**, Mattermost / kChat and our own Vibez server, and that server, in a monorepo. This file is reloaded every session. It holds what is expensive to rediscover.
 
 - `apps/mobile/`: the mobile app, Android first, in Expo / React Native. **Its commands (`npm`, `npx`) run from `apps/mobile/`.**
 - `apps/desktop/`: the desktop app, in Rust (UI-free core `rv-core`, GTK 4 + libadwaita interface `rv-gtk`). **Every build runs in the Fedora container of `apps/desktop/docker/`** through `apps/desktop/scripts/build.sh` (fmt, clippy `-D warnings`, tests); `scripts/smoke.sh` and `scripts/e2e*.sh` run it under Xvfb against the test server. Its parity with mobile: see "Parity" below.
-- `apps/web/`: the browser client of the RocketVibe server (React, Vite), compiled into the server's binary. **Its commands run from `apps/web/`**; a crypto change needs `npm run crypto:build` (Docker).
-- `apps/server/`: the RocketVibe server (Rust, Axum, PostgreSQL); `apps/server/scripts/check.sh` is its gate. `crates/`: the Rust shared by the server and the apps (native protocol, client, MLS engine and its bridges), see `brain/architecture/shared-crates.md`.
-- `docker/`, `scripts/`: the test servers (Rocket.Chat, RocketVibe, Mattermost) and their data, shared by the apps.
-- **One version per app**: `apps/mobile/app.json` (with `package.json` and `android.versionCode` = major×10000 + minor×100 + patch), `apps/desktop/Cargo.toml`, `apps/web/package.json` and `apps/server/Cargo.toml`; `node scripts/version.mjs mobile|desktop|web|server` reads and checks them. CI (`.github/workflows/`) checks an app only when its files change, and builds its packages (APK, archives, installers) only on a tag or a `workflow_dispatch`; a `mobile-vX.Y.Z` / `desktop-vX.Y.Z` / `web-vX.Y.Z` / `server-vX.Y.Z` tag publishes the release (the server's: a Linux binary and the `ghcr.io/guillaume69/vibez` image, `server-release.yml`), with the version's section of `apps/<app>/CHANGELOG.md` as notes (Keep a Changelog, required: `node scripts/changelog.mjs`). Every visible change to an app goes into its "Unreleased" section, in English.
+- `apps/web/`: the browser client of the Vibez server (React, Vite), compiled into the server's binary and versioned with it (no version, tag or changelog of its own). **Its commands run from `apps/web/`**; a crypto change needs `npm run crypto:build` (Docker).
+- `apps/server/`: the Vibez server (crate and binary `vibez`; Rust, Axum, PostgreSQL); `apps/server/scripts/check.sh` is its gate. `crates/`: the Rust shared by the server and the apps (native protocol, client, MLS engine and its bridges), see `brain/architecture/shared-crates.md`.
+- `docker/`, `scripts/`: the test servers (Rocket.Chat, Vibez, Mattermost) and their data, shared by the apps.
+- **One version per app**: `apps/mobile/app.json` (with `package.json` and `android.versionCode` = major×10000 + minor×100 + patch), `apps/desktop/Cargo.toml` and, for vibez (the server, with the web client shipped inside it), `apps/server/Cargo.toml`; `node scripts/version.mjs mobile|desktop|vibez` reads and checks them. CI (`.github/workflows/`) checks an app only when its files change, and builds its packages (APK, archives, installers) only on a tag or a `workflow_dispatch`; a `mobile-vX.Y.Z` / `desktop-vX.Y.Z` / `vibez-vX.Y.Z` tag publishes the release (vibez's: the Linux binary `vibez-X.Y.Z-linux-x86_64.tar.gz` and the `ghcr.io/guillaume69/vibez` image, `server-release.yml`), with the version's section of `apps/<app>/CHANGELOG.md` (`apps/server/CHANGELOG.md` for vibez, web client entries included) as notes (Keep a Changelog, required: `node scripts/changelog.mjs mobile|desktop|vibez`). Every visible change to an app goes into its "Unreleased" section, in English.
 
 - `ROADMAP.md`: the decisions and their justification. Rarely moves.
 - `apps/mobile/WORKSTREAMS.md`: the debt found by the 2026-07-25 audit, ticked off as it goes. **Source of truth for "what do we fix next".**
@@ -28,7 +28,7 @@ Chat clients for **Rocket.Chat**, Mattermost / kChat and our own RocketVibe serv
 
 ## Parity
 
-The four apps (Android, GTK, SwiftUI, Web) aim at the same features, and none is the reference: what one app does first, the others owe. The web app speaks to the RocketVibe server only: a feature of another server is `n/a` there. `brain/parity.md` keeps the count, row by row, with each app's status (`done`, `partial`, `missing`, `mapped`, `n/a`) and each one's debt.
+The four apps (Android, GTK, SwiftUI, Web) aim at the same features, and none is the reference: what one app does first, the others owe. The web app speaks to the Vibez server only: a feature of another server is `n/a` there. `brain/parity.md` keeps the count, row by row, with each app's status (`done`, `partial`, `missing`, `mapped`, `n/a`) and each one's debt.
 
 - Every visible feature reaches all four apps, or its row in `brain/parity.md` says which app owes it (`missing` or `partial`, with what is missing). One or the other, never nothing.
 - The row moves in the same branch as the change that moves it (a `docs(brain): …` layer), both ways: an app that catches up sets its cell to `done`, a new feature adds its row with the status of all four.

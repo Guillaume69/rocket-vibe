@@ -1,6 +1,6 @@
 # Room switcher
 
-On the desktop and the web, a keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, RocketVibe), voice channels included (opening one joins its session, as a click in the list does).
+On the desktop and the web, a keyboard shortcut opens a dialog over the window that lists the account's rooms, searched by name as typed; Return opens the selected room, the arrows move the selection, a click on a row opens it, and a click outside or Escape closes it with nothing opened. It covers every room of the list, on any server kind (Rocket.Chat, Mattermost and kChat, Vibez), voice channels included (opening one joins its session, as a click in the list does).
 
 ## The rule
 

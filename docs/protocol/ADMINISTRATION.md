@@ -99,7 +99,7 @@ files; import and restoration will be wired in J5.
 
 ## Account invitations
 
-On RocketVibe servers advertising both `administration` and `admin_invitations`, the server administration has an Invitations category in Android, GTK, SwiftUI and Web. An administrator creates a seven-day code, copies it (Android and SwiftUI also offer system sharing), lists metadata and revokes a code after confirmation. No email is sent automatically. Each code creates one non-admin account; the recipient enters it under Create account and chooses credentials. Server operators retain the CLI.
+On Vibez servers advertising both `administration` and `admin_invitations`, the server administration has an Invitations category in Android, GTK, SwiftUI and Web. An administrator creates a seven-day code, copies it (Android and SwiftUI also offer system sharing), lists metadata and revokes a code after confirmation. No email is sent automatically. Each code creates one non-admin account; the recipient enters it under Create account and chooses credentials. Server operators retain the CLI.
 
 The additive routes are `GET/POST /api/v1/admin/invitations` and `POST /api/v1/admin/invitations/{id}/revoke`. They require an active administrator, check authority again under mutation locks, return no-store and name the actor in the audit. Creation takes `{operation_id,hours,token}`, where token is 32 CSPRNG bytes represented by 64 lowercase hexadecimal characters. Only its SHA-256 is persisted. Clients keep an unacknowledged request transiently and resend exactly that operation and token after a lost response; no second invitation is created. A successful code is shown in the current screen, never recovered by metadata listing. Revocation does not disable a created account.
 

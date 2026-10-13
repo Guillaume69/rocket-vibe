@@ -131,7 +131,7 @@ React 19.3.0, TypeScript 6, Vite 8, `livekit-client` 2.22, Prettier 3.9.9, Playw
 | `rocketchat` | `registry.rocket.chat/rocketchat/rocket.chat:${RC_VERSION:-8.5.1}` | Pinned on the production target's version (8.5 LTS), not the latest. Runs a push-patched bundle (see [operations.md](operations.md)). |
 | `mongodb` | `mongodb/mongodb-community-server:${MONGODB_VERSION:-8.0-ubi8}` | Rocket.Chat 8.5 requires MongoDB 8.0; single-node replica set `rs0` for change streams. On Linux kernels 6.19 and later, set `8.0.4-ubi8`: 8.0.5+ refuses to start (SERVER-121912). |
 
-The RocketVibe bench (`docker/compose.rocketvibe.yml`) runs `postgres:18-alpine` and the server built from the repository; `docker/compose.voice.yml` adds `livekit/livekit-server:v1.13.8`.
+The Vibez bench (`docker/compose.vibez.yml`) runs `postgres:18-alpine` and the server built from the repository; `docker/compose.voice.yml` adds `livekit/livekit-server:v1.13.8`.
 
 ## CI runners
 
@@ -169,5 +169,5 @@ GitHub Actions: `ubuntu-24.04` (with `fedora:44`, the Arch image and `ubuntu:22.
 - `apps/server/Cargo.toml`
 - `apps/server/Dockerfile`
 - `Cargo.toml`
-- `docker/compose.rocketvibe.yml`
+- `docker/compose.vibez.yml`
 - `docker/compose.voice.yml`

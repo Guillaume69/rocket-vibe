@@ -11,9 +11,9 @@ A thread is a root message plus the replies that carry its id as `tmid`. Both ap
 - Live replies arrive on the same message streams as the room's messages ([offline and sync](offline-and-sync.md)).
 - **List**: `chat.getThreadsList?rid=&count=&offset=[&type=following]` returns the roots, newest last reply first, with `total`. Its `type=unread` filter is not offered: no REST route reads ONE thread (REST `chat.getThreadMessages` leaves `tunread` alone, `subscriptions.read {readThreads: true}` clears the whole room's), so an unread list would never empty.
 - **Following**: a root's `replies` is the uids of its followers (the author and every replier are added automatically). `chat.followMessage` / `chat.unfollowMessage {mid}` are idempotent and rebroadcast the root, so the followers stay live through ordinary ingestion. Exact behaviour in `CLAUDE.md`, "Threads: list and follow".
-- Mattermost servers offer neither here: the Mattermost provider does not map its threads routes yet (not probed). The RocketVibe server has the list, following and "also send to the room" (below), but only the web client calls them so far: the mobile and desktop RocketVibe providers do not.
+- Mattermost servers offer neither here: the Mattermost provider does not map its threads routes yet (not probed). The Vibez server has the list, following and "also send to the room" (below), but only the web client calls them so far: the mobile and desktop Vibez providers do not.
 
-## The RocketVibe server
+## The Vibez server
 
 Contract in `docs/protocol/THREADS.md` ("List, following and also send to the room"), code in `apps/server/src/threads.rs`, migration `0058_thread_follows.sql`; three capabilities, `thread_list`, `thread_follow`, `thread_also_in_room`, all `false` on an older server.
 
@@ -23,7 +23,7 @@ Contract in `docs/protocol/THREADS.md` ("List, following and also send to the ro
 
 ## Web
 
-Over the RocketVibe server only, each part shown when its capability is announced (`apps/web/src`).
+Over the Vibez server only, each part shown when its capability is announced (`apps/web/src`).
 
 - **Thread list**: a speech-bubble button (`threads`, the same `chat-message-new` symbol as the desktop) in the room header, hidden in an encrypted room, opens `panels.ts` `threads`: a dialog (closes on its backdrop) with All / Following tabs, rows of the root (`messageRow`), "N replies · last <time>", the unread count, Follow / Unfollow and Open thread; the next page loads as the list scrolls to its end (and at once while it does not fill the dialog).
 - **Following**: `App.followThread` sends the `PUT`, puts the returned root in the model and refreshes; `App.following` reads the newest `personal_follow` of the model's copy or the row's. `Model.put` (`store.ts`) merges `personal_follow` by its own revision like `personal_star`. The open thread's header has a bell (`ui/thread.tsx` `FollowButton`, `aria-pressed`); it and the list rows repaint on `rv-model-update` (fired by `App.refresh` after each sync frame), so a follow from another session shows live.
@@ -68,7 +68,7 @@ Thread list and following go through rv-ffi's `Chat` (`threads_available`, `thre
 
 ## Parity
 
-Thread view, live replies and thread composer in all four. Thread list, following and "also send to the room": see [parity](../parity.md), section 6; the native apps on Rocket.Chat servers, the web on the RocketVibe server. Mobile, GTK and SwiftUI still owe them on RocketVibe accounts, whose server now has the routes. Not available anywhere: an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted RocketVibe threads included (files only there).
+Thread view, live replies and thread composer in all four. Thread list, following and "also send to the room": see [parity](../parity.md), section 6; the native apps on Rocket.Chat servers, the web on the Vibez server. Mobile, GTK and SwiftUI still owe them on Vibez accounts, whose server now has the routes. Not available anywhere: an unread-threads list. Files and voice messages in a thread: all three send them into the thread, encrypted Vibez threads included (files only there).
 
 ## Sources
 

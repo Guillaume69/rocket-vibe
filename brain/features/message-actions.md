@@ -17,7 +17,7 @@ Inputs: the message (author, timestamp, system type, text, attachments, pinned, 
 - **Delete**: `force-delete-message`, or `Message_AllowDeleting` and (`delete-message`, or my message and `delete-own-message`) within `Message_AllowDeleting_BlockDeleteInMinutes`.
 - `bypass-time-limit-edit-and-delete` lifts both time limits.
 - **Pin / Unpin**: `Message_AllowPinning` and `pin-message`. **Star / Unstar**: `Message_AllowStarring`.
-- **Report**: decided beside `possibleActions` / `possible_actions`, by the menus: someone else's message that is not a system message, on Rocket.Chat always; on RocketVibe when the server advertises `reports`, never in a private (E2EE) conversation, never on a deleted message. See [administration.md](administration.md).
+- **Report**: decided beside `possibleActions` / `possible_actions`, by the menus: someone else's message that is not a system message, on Rocket.Chat always; on Vibez when the server advertises `reports`, never in a private (E2EE) conversation, never on a deleted message. See [administration.md](administration.md).
 
 Settings are read from `settings.public` with `count=0` (the `query` parameter is dead since 7.0). Mobile caches them per server base URL (`rulesByServer` in `app/message-actions.tsx`, so a server switch never applies the old server's rules) and never caches a failure: offline it falls back to permissive rules for that opening. Desktop reads them once per session (`Session::settings`). Permissions come from `permissions.listAll` plus my global and room roles, read once per session; **when unknown**, only what a member may do on their own messages plus Pin is offered (`delete-own-message` and `pin-message` default to granted, the others to denied).
 
@@ -31,7 +31,7 @@ Settings are read from `settings.public` with `count=0` (the `query` parameter i
 | Pin / Unpin | `chat.pinMessage` / `chat.unPinMessage` `{messageId}` | |
 | Star / Unstar | `chat.starMessage` / `chat.unStarMessage` `{messageId}` | |
 | Pinned / starred lists | `chat.getPinnedMessages` / `chat.getStarredMessages` `{roomId, count: 50}` | Newest first. |
-| Report | `chat.reportMessage` `{messageId, description}` | Reason required, 1 to 1,000 characters. RocketVibe: `POST /api/v1/messages/{message}/report` ([administration.md](administration.md)). |
+| Report | `chat.reportMessage` `{messageId, description}` | Reason required, 1 to 1,000 characters. Vibez: `POST /api/v1/messages/{message}/report` ([administration.md](administration.md)). |
 
 Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the `ProviderActions` interface so screens never name endpoints); desktop in free functions of `rv-core/src/actions.rs` called by `Session`.
 
@@ -43,7 +43,7 @@ Mobile wraps them in `ActionsRC` (`providers/rocketchat/actions.ts`, behind the 
 - **Quick reactions**: the 5 emoji I react with most on this account (`topEmojis`, [emoji.md](emoji.md#quick-reactions-and-reacting-with-any-emoji)), custom ones drawn as images, then **"+"**, which swaps the actions for `EmojiGrid` (search, categories, the server's tab except in a private conversation) at a fixed 60 % of the screen; a pick reacts and closes the sheet (an emoji already mine just closes it). Mine show outlined, matched by emoji (`emojiIdentity`, so an alias counts); tapping one of mine removes it under the code the message carries. A use is counted at the tap. On Rocket.Chat the quick row and the grid keep only the emoji the server accepts, and an addition goes out under an accepted alias (`lib/rocketchatReactions.ts`, [emoji.md](emoji.md#quick-reactions-and-reacting-with-any-emoji)). Reaction pills under a message also toggle on tap (`ui/messageRow.tsx`), fire-and-forget, joining one counting a use: the stream echo rewrites `messages.reactions`.
 - **Edit** swaps the list for a text field with Cancel / Save in the same sheet. The result arrives through the stream.
 - **Report** swaps the list for `ui/reportForm.tsx` (reason, Cancel / Report) the same way; sent through `provider.reports`, it toasts "Report sent" and closes the sheet.
-- **Delete asks for confirmation** in a native `Alert` over the sheet ("Delete this message?", Cancel / Delete), private messages of an encrypted RocketVibe room included. If `chat.delete` fails, `messageGoneFromServer` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
+- **Delete asks for confirmation** in a native `Alert` over the sheet ("Delete this message?", Cancel / Delete), private messages of an encrypted Vibez room included. If `chat.delete` fails, `messageGoneFromServer` asks `chat.getMessage`: a 400 means the server no longer knows the message (deleted from another client while the app was closed), so purging the local row is the requested deletion. Any other outcome keeps the original error. Otherwise the row disappears through the `deleteMessage` stream.
 - **Copy** uses `expo-clipboard`. **Share** sends the text through the system share sheet, or downloads the file and shares the local copy; **Save** stores it in the gallery or Downloads. Both run in the background with progress on the message row ([uploads](uploads.md#downloads)).
 - **Remind me** (any server kind; "Cancel reminder (time)" while one is pending) opens the `remind-me` sheet; reminders stay on the device, see [reminders.md](reminders.md#mobile).
 - **Reply** arms the quote target for the composer the sheet came from ([composer](composer.md#replies-quotes)); **Reply in thread** opens `/thread/<tmid or id>`.
@@ -65,7 +65,7 @@ The same actions come from `rv-ffi` (`Chat::actions`, cached per message per lis
 
 ## Parity
 
-Web RocketVibe marked lists use the native 440 by 560 dialog, with Pinned and My starred in the header switcher, compact username/date/body rows, and native empty or refused-read status pages. Account, dialog, request and membership lifetime fences discard stale list reads. A row still jumps through the ordinary message navigation; no action controls are added to the previews.
+Web Vibez marked lists use the native 440 by 560 dialog, with Pinned and My starred in the header switcher, compact username/date/body rows, and native empty or refused-read status pages. Account, dialog, request and membership lifetime fences discard stale list reads. A row still jumps through the ordinary message navigation; no action controls are added to the previews.
 
 Same rule set in all three apps, delete confirmation included. Desktop adds Up-to-edit; mobile adds the ghost-delete purge and Share. Quick reactions (my top 5) and reacting with any emoji through the picker are in all three. Reporting a message is in all three ([parity](../parity.md) §5). Forwarding to another Rocket.Chat room: all three.
 

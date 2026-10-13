@@ -1,7 +1,7 @@
-# Native RocketVibe in the existing desktop client
+# Native Vibez in the existing desktop client
 
-Branch: `feature/vibez`. The sign-in form recognizes Rocket.Chat or
-RocketVibe before authentication. Both providers feed the same GTK `ChatPage`: room
+Branch: `feature/rocketvibe-server`. The sign-in form recognizes Rocket.Chat or
+Vibez before authentication. Both providers feed the same GTK `ChatPage`: room
 list, headers, Markdown, message list, composer and navigation. There is no longer
 a parallel native chat page.
 
@@ -70,8 +70,8 @@ From the root, in Bash with Docker:
 
 ```sh
 docker build -t rocket-vibe-rs-build apps/desktop/docker
-docker build -t rocketvibe-native-server -f apps/server/Dockerfile .
-docker build -t rocketvibe-native-check -f apps/server/docker/Dockerfile.check .
+docker build -t vibez-native-server -f apps/server/Dockerfile .
+docker build -t vibez-native-check -f apps/server/docker/Dockerfile.check .
 docker run --rm -v "$PWD:/workspace" -v rv-cargo:/cargo \
   -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
     cargo fmt --all -- --check
@@ -155,7 +155,7 @@ its own counters with:
 
 ```sh
 docker compose -f docker/compose.native-pilot.yml run --rm --no-deps \
-  -e 'PGOPTIONS=-c rocketvibe.pilot_factor_user=swift-factor' factor-check
+  -e 'PGOPTIONS=-c vibez.pilot_factor_user=swift-factor' factor-check
 ```
 
 ## Security settings and email address
@@ -174,13 +174,13 @@ mail, then the erasure of the encrypted delivery payload.
 After building the images and binaries above, run a fresh project:
 
 ```sh
-docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+docker compose -p vibez-email-gtk-pilot -f docker/compose.native-pilot.yml \
   -f docker/compose.native-security-pilot.yml up -d factor-proxy
-docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+docker compose -p vibez-email-gtk-pilot -f docker/compose.native-pilot.yml \
   -f docker/compose.native-security-pilot.yml run --rm --no-deps security-desktop
-docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+docker compose -p vibez-email-gtk-pilot -f docker/compose.native-pilot.yml \
   -f docker/compose.native-security-pilot.yml run --rm --no-deps security-check
-docker compose -p rocketvibe-email-gtk-pilot -f docker/compose.native-pilot.yml \
+docker compose -p vibez-email-gtk-pilot -f docker/compose.native-pilot.yml \
   -f docker/compose.native-security-pilot.yml down -v
 ```
 
@@ -200,14 +200,14 @@ route.
 
 ```sh
 files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
-docker compose -p rocketvibe-email-settings-gtk $files up -d factor-proxy
-docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-desktop
-docker compose -p rocketvibe-email-settings-gtk $files run --rm --no-deps email-settings-check
-docker compose -p rocketvibe-email-settings-gtk $files down -v
+docker compose -p vibez-email-settings-gtk $files up -d factor-proxy
+docker compose -p vibez-email-settings-gtk $files run --rm --no-deps email-settings-desktop
+docker compose -p vibez-email-settings-gtk $files run --rm --no-deps email-settings-check
+docker compose -p vibez-email-settings-gtk $files down -v
 ```
 
 For Swift, add `-f docker/compose.native-swift-email-otp-pilot.yml` before the
-enrolment overlay and use the project `rocketvibe-email-settings-swift`
+enrolment overlay and use the project `vibez-email-settings-swift`
 with `email-settings-swift`. The `email-settings-check` control receives
-`-e 'PGOPTIONS=-c rocketvibe.pilot_email_settings_user=swift-email'`.
+`-e 'PGOPTIONS=-c vibez.pilot_email_settings_user=swift-email'`.
 The CI runs these paths and their cleanup. The bench relay stays local.

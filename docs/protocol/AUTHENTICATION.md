@@ -14,7 +14,7 @@ device qualification.
 The Rocket.Chat provider keeps its own flow.
 
 The coordinators `rv-core::native::authentication` and
-`providers/rocketvibe/authentication.ts` prepare this wiring. They separate
+`providers/vibez/authentication.ts` prepare this wiring. They separate
 challenge and active account, pin instance / generation / UID, save
 the candidate through a keyring callback before validation, then probe it
 first after a lost response. An already committed session is recovered even after
@@ -412,7 +412,7 @@ intent to resume; a closed handle refuses all its later calls.
 The section is added to the existing grouped form when the server advertises
 reauthentication and its safe retirement. Refresh can resume after the
 connection change caused by the factor, on this scope only and without
-resending an entry. The throwaway project `rocketvibe-swift-security-pilot` uses
+resending an entry. The throwaway project `vibez-swift-security-pilot` uses
 the overlay above and two Swift test processes with a real Secret Service.
 It loses the login, proof and mutation responses, resumes the receipt after
 restart, and verifies stale copy / confirmation, exit during a copy

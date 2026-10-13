@@ -1,6 +1,6 @@
-# Delegation of control (RocketVibe server)
+# Delegation of control (Vibez server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), the device holding the account's private root is the controller: only it approves and withdraws devices, renews certificates and backs the root up. Delegation hands control to another registered device of the account, so the account keeps a controller when the first is retired. The protocol is `docs/protocol/E2EE_DELEGATION.md`.
+On the Vibez native server (MLS end-to-end encryption, not Rocket.Chat E2EE), the device holding the account's private root is the controller: only it approves and withdraws devices, renews certificates and backs the root up. Delegation hands control to another registered device of the account, so the account keeps a controller when the first is retired. The protocol is `docs/protocol/E2EE_DELEGATION.md`.
 
 ## What the user sees
 
@@ -17,7 +17,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 
 ## Mobile
 
-- Bridge `history_action`: the preview returns `can_delegate`, `approve` takes `delegate` (`crates/rv-crypto-mobile/src/history.rs`); `CryptoHistoryAccess.share(preview, delegate)` (`providers/rocketvibe/cryptoHistory.ts`).
+- Bridge `history_action`: the preview returns `can_delegate`, `approve` takes `delegate` (`crates/rv-crypto-mobile/src/history.rs`); `CryptoHistoryAccess.share(preview, delegate)` (`providers/vibez/cryptoHistory.ts`).
 - UI: the share alert of `ui/encryptedIdentity.tsx` gains the destructive button; strings `private.historyShareDelegate`, `private.historyDelegateBody`.
 
 ## Desktop
@@ -37,7 +37,7 @@ The history offer review in `apps/web/src/crypto/settings-controls.ts` includes 
 - crates/rv-crypto/src/groups/history.rs
 - crates/rv-crypto/src/account/history.rs
 - crates/rv-crypto-mobile/src/history.rs
-- apps/mobile/providers/rocketvibe/cryptoHistory.ts
+- apps/mobile/providers/vibez/cryptoHistory.ts
 - apps/mobile/ui/encryptedIdentity.tsx
 - apps/desktop/crates/rv-core/src/native/crypto/enrollment/history.rs
 - apps/desktop/crates/rv-gtk/src/native_crypto/history.rs

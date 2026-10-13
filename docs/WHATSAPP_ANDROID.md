@@ -21,7 +21,7 @@ The desktop's Go engine (whatsmeow from the fork `boubou666/whatsmeow`, the seal
    - `WhatsAppService`, a foreground service that keeps the engines alive in the background (see Background).
    - The module API to JS (done, `modules/whatsapp/index.ts`): `newState()`, `running()`, `start(state)`, `handle(state, command)`, `stop(state)`, `forget(state)`, and an `Events("frame")` event carrying `{state, frame}`, the pattern of `VoiceModule.kt`; failures reach JS as `whatsapp_busy`, `whatsapp_key_missing`, `whatsapp_start_failed` only.
    - Notifications posted from Kotlin, from frames, while JS is not attached (see Notifications).
-3. **TypeScript, `providers/whatsapp/`** on the template of `providers/rocketvibe/index.ts`: the provider owns its runner, fakes the `Listener` (state from the engine's `status`), has no-op catch-ups and `reconcile`, and a store that writes the shared tables from frames. `ProviderKind` gains `whatsapp` (`lib/provider.ts`), with a clause in `providers/index.ts`, `lib/sessionTransport.ts` (resume is a no-op, logout sends `logout`), `ui/serverRail.tsx` (unread from the engine's `chat` frames) and `ui/sync.tsx` (a branch beside the RocketVibe one).
+3. **TypeScript, `providers/whatsapp/`** on the template of `providers/vibez/index.ts`: the provider owns its runner, fakes the `Listener` (state from the engine's `status`), has no-op catch-ups and `reconcile`, and a store that writes the shared tables from frames. `ProviderKind` gains `whatsapp` (`lib/provider.ts`), with a clause in `providers/index.ts`, `lib/sessionTransport.ts` (resume is a no-op, logout sends `logout`), `ui/serverRail.tsx` (unread from the engine's `chat` frames) and `ui/sync.tsx` (a branch beside the RocketVibe one).
 
 ## Identity and storage
 
@@ -60,7 +60,7 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 
 ## Media
 
-- Received: a native file source `wa-media:<message id>` in the registry of `lib/nativeFiles.ts` whose `read` sends `download` and resolves on the `file` frame's path; `NativeAttachment` (`ui/messageRow.tsx`) renders images, audio and video from it, the path RocketVibe files already take.
+- Received: a native file source `wa-media:<message id>` in the registry of `lib/nativeFiles.ts` whose `read` sends `download` and resolves on the `file` frame's path; `NativeAttachment` (`ui/messageRow.tsx`) renders images, audio and video from it, the path Vibez files already take.
 - Sent: the `FileOutbox` copies into private storage (`ui/nativeFiles.ts`), then sends `upload` (`path`, `mime`, `voice` for a recorded note, as on desktop); the `uploads` row drives the pending UI, `sent` or a refused `error` with the id ends it.
 
 ## Build
@@ -97,7 +97,7 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 - apps/desktop/crates/rv-gtk/src/whatsapp_link.rs
 - apps/mobile/lib/provider.ts
 - apps/mobile/providers/index.ts
-- apps/mobile/providers/rocketvibe/index.ts
+- apps/mobile/providers/vibez/index.ts
 - apps/mobile/lib/sessionTransport.ts
 - apps/mobile/ui/sync.tsx
 - apps/mobile/ui/serverRail.tsx

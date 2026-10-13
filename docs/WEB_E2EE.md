@@ -1,6 +1,6 @@
 # Browser E2EE
 
-The browser implements the native RocketVibe MLS protocol. Rocket.Chat's
+The browser implements the native Vibez MLS protocol. Rocket.Chat's
 password/RSA room-key protocol and external providers remain outside the
 serving-origin browser scope. The user requested usable browser encryption on
 2026-10-09, superseding the temporary exclusion in RFC 0005.
@@ -35,7 +35,7 @@ a withdrawal or pending original before returning its error.
 
 The complete private snapshot is sealed with AES-256-GCM, a fresh random IV,
 scope/revision associated data, and a non-extractable WebCrypto key. It lives in
-`rocket-vibe-private`, separate from ordinary accounts, caches, media, drafts,
+`vibez-private`, separate from ordinary accounts, caches, media, drafts,
 upload jobs and outboxes. Native storage-key renewal also replaces the outer
 WebCrypto key. Each view has its own worker and opaque consent, but all views
 and tabs serialize their persistent state through the same lock.
@@ -131,7 +131,7 @@ must not be described as equivalent to the native system-keystore anchor.
 The local GTK interoperability check is `RV_WEB_TEST_URL=http://127.0.0.1:3417
 npm run test:desktop-crypto` from `apps/web`. It requires the built Fedora GTK
 binary and the disposable `rv-web-e2ee-api` container labelled
-`rocketvibe.task=web-e2ee`. It creates fresh synthetic accounts, launches a real
+`vibez.task=web-e2ee`. It creates fresh synthetic accounts, launches a real
 GTK process under Xvfb and Secret Service in its own disposable container, and
 exchanges messages through the existing GTK composer/timeline and production
 browser UI. Keys stay in the container's temporary Linux profile; fixture

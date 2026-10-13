@@ -1,22 +1,25 @@
 ---
 name: release
-description: Cut a rocket-vibe release of the mobile app, the desktop app, or both, the whole shebang - docs sweep (each app's CHANGELOG, READMEs, brain/parity.md), version bump in the files that own it, gate, a release/<x.y.z> branch merged into master, the <app>-vX.Y.Z tag pushed, then watch the GitHub workflow until the Release exists with its binaries. Use when the user says "cut a release", "release", "release desktop", "release mobile", or "the whole release shebang".
+description: Cut a rocket-vibe release of the mobile app, the desktop app, the Vibez server, or several, the whole shebang - docs sweep (each app's CHANGELOG, READMEs, brain/parity.md), version bump in the files that own it, gate, a release/<x.y.z> branch merged into master, the <app>-vX.Y.Z tag pushed, then watch the GitHub workflow until the Release exists with its binaries. Use when the user says "cut a release", "release", "release desktop", "release mobile", or "the whole release shebang".
 ---
 
 # Release shebang
 
 Everything between "the code is done" and "the GitHub Release exists". There is no
 release task: the tag push does the publishing (`.github/workflows/mobile.yml`,
-`desktop.yml`), so the value of this skill is getting the files right before the
+`desktop.yml`, `server-release.yml`), so the value of this skill is getting the files right before the
 tag, and watching CI after it.
 
-Each app (mobile, desktop, web, server) has its own version, changelog and tag. A run
-can cut one app or several; they share one release branch.
+Each app (mobile, desktop, vibez) has its own version, changelog and tag (`<app>-vX.Y.Z`).
+vibez is the server: its version, `apps/server/CHANGELOG.md` and `vibez-v` tag also
+cover the web client compiled into it, which has no version or release of its own. A
+run can cut one app or several; they share one release branch.
 
 ## 1. Pre-flight
 
 - Which app(s)? If not given, list what each has unreleased:
-  `git log --oneline <app>-v<last>..master -- apps/<app>` and its changelog's
+  `git log --oneline <app>-v<last>..master -- apps/<app>` (vibez: `apps/server apps/web
+  crates`) and its changelog's
   "Unreleased" section. An app with nothing there is not released.
 - Previous version per app: `git describe --tags --abbrev=0 --match '<app>-v*' master`.
 - Pick the next semver: **minor** if the section has an Added entry or a
@@ -75,13 +78,13 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   is behind; check that `git diff` of both locks touches only those versions, and
   `cargo metadata --locked` in `apps/desktop/voice` (in the build container).
 
-- **web**: from `apps/web/`, `npm version <x.y.z> --no-git-tag-version`, then
-  `npm run build` and commit the rebuilt `dist/` (the version is in the bundle).
-- **server**: `[package] version` in `apps/server/Cargo.toml` and the `vibez`
-  entry of the root `Cargo.lock`. Its tag runs `server-release.yml` (gate, Docker
-  build, binary archive, image pushed to ghcr.io, release); the `release/**` branch push
-  runs the same without publishing, so wait for it to be green before tagging.
-  Release web before (or with) the server: the server embeds `apps/web/dist`.
+- **vibez**: `[package] version` in `apps/server/Cargo.toml` and the `vibez`
+  entry of the root `Cargo.lock`. The server embeds the committed `apps/web/dist`:
+  if the web client changed, make sure `npm run build` in `apps/web/` left `dist/`
+  committed and current. Its tag runs `server-release.yml` (gate, Docker build, the
+  `vibez-<x.y.z>-linux-x86_64.tar.gz` archive, the `ghcr.io/guillaume69/vibez` image,
+  release); the `release/**` branch push runs the same without publishing, so wait
+  for it to be green before tagging.
 
 Then both scripts must agree, or CI will refuse the tag:
 
@@ -112,9 +115,10 @@ git push origin master <app>-v<x.y.z> [<other-app>-v<a.b.c>]
 
 **At most 3 tags per push**: GitHub creates no tag event at all when a single push
 carries more than three tags (the 0.13.0 run pushed four and no release workflow
-started). With four apps, push the tags in two pushes, or start the workflows on the
-tags with `gh workflow run <app>.yml --ref <app>-v<x.y.z>` (every release job accepts a
-dispatch on a tag).
+started). The three apps fit in one push; if a tag event is lost anyway, start the
+workflow on the tag with `gh workflow run <workflow>.yml --ref <app>-v<x.y.z>` (every
+release job accepts a dispatch on a tag). The workflow is `<app>.yml`, and
+`server-release.yml` for vibez.
 
 Every commit message ends with the session's `Co-Authored-By` trailer. If master
 moved since the pull and the push is rejected, pull again (merge, not rebase:
@@ -123,7 +127,7 @@ the merge commit is already there) and re-push; never force.
 ## 6. Watch the release
 
 ```bash
-gh run list --workflow <app>.yml --limit 3          # find the tag's run
+gh run list --workflow <workflow>.yml --limit 3     # find the tag's run
 gh run watch <run-id> --exit-status
 gh release view <app>-v<x.y.z>
 ```
@@ -131,7 +135,8 @@ gh release view <app>-v<x.y.z>
 The desktop run builds Linux, AppImage, Windows, macOS (GTK and SwiftUI), then
 the `release` job; it takes a while. Expected assets: mobile
 `rocket-vibe-mobile-<x.y.z>.apk`; desktop `*.tar.gz`, `*.AppImage`, `*.zip`,
-`*-setup.exe`, `*.dmg`. If a job fails, read its log (`gh run view <id> --log-failed`),
+`*-setup.exe`, `*.dmg`; vibez `vibez-<x.y.z>-linux-x86_64.tar.gz` and `SHA256SUMS`
+(workflow `server-release.yml`), plus the image on ghcr.io. If a job fails, read its log (`gh run view <id> --log-failed`),
 fix on a new branch, and re-run the workflow on the tag rather than moving it,
 unless the tag points at a broken tree, in which case ask before deleting it.
 

@@ -6,9 +6,9 @@ share a protocol with. One app, several kinds of account side by side in a rail:
 | Account | What it is |
 |---|---|
 | **Rocket.Chat** | self-hosted servers running Rocket.Chat **8** or later |
-| **RocketVibe** | the Rust server in this monorepo ([`apps/server`](apps/server/README.md)): native protocol, MLS encrypted conversations, voice |
+| **Vibez** | the Rust server in this monorepo ([`apps/server`](apps/server/README.md)): native protocol, MLS encrypted conversations, voice |
 | **Mattermost** and **kChat** | Mattermost servers and Infomaniak's fork ([`docs/MATTERMOST.md`](docs/MATTERMOST.md)) |
-| **WhatsApp** (experimental) | a personal account linked as a WhatsApp device, like WhatsApp Web; the engine runs on your machine, nothing goes through a RocketVibe server ([`brain/features/whatsapp.md`](brain/features/whatsapp.md)) |
+| **WhatsApp** (experimental) | a personal account linked as a WhatsApp device, like WhatsApp Web; the engine runs on your machine, nothing goes through a Vibez server ([`brain/features/whatsapp.md`](brain/features/whatsapp.md)) |
 
 The interfaces are native (GTK, SwiftUI, Android views), with no UI kit; a web view only where a
 third party requires one (the Jitsi call screen on Android, video-site players on desktop).
@@ -20,12 +20,12 @@ third party requires one (the Jitsi call screen on Android, video-site players o
 | **Mobile** (Android; iOS later) | [`apps/mobile`](apps/mobile/README.md) | Expo / React Native, SQLite, Kotlin and Rust native modules | `apps/mobile/app.json` |
 | **Desktop** (Linux, Windows, macOS) | [`apps/desktop`](apps/desktop/README.md) | Rust, GTK 4 + libadwaita | `apps/desktop/Cargo.toml` |
 | **Desktop SwiftUI** (macOS) | [`apps/desktop/macos`](apps/desktop/macos) | SwiftUI on the desktop's Rust core (`rv-ffi`) | shipped with the desktop |
-| **Web** | [`apps/web`](apps/web/README.md) | TypeScript, served by the RocketVibe server | `apps/web/package.json` |
-| **Server** | [`apps/server`](apps/server/README.md) | Rust, Axum, PostgreSQL | `apps/server/Cargo.toml` |
+| **Web** | [`apps/web`](apps/web/README.md) | TypeScript, compiled into the Vibez server | shipped with the server |
+| **Vibez** (server) | [`apps/server`](apps/server/README.md) | Rust, Axum, PostgreSQL | `apps/server/Cargo.toml` |
 
 The apps aim at the same features; none is the reference. [`brain/parity.md`](brain/parity.md)
 keeps the count, feature by feature, with what each app still owes. The web client speaks to the
-RocketVibe server that serves it only, with the GTK design and MLS encryption through
+Vibez server that serves it only, with the GTK design and MLS encryption through
 WebAssembly ([encryption qualification](docs/WEB_E2EE.md)).
 
 Rust shared by the server and the apps (native protocol, client, MLS engine and its bridges)
@@ -44,7 +44,7 @@ inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
 - [`docs/`](docs): the development environment and the survey of the target server
   ([`DEV.md`](docs/DEV.md)), push ([`PUSH.md`](docs/PUSH.md)), WhatsApp
   ([`WHATSAPP_HANDOFF.md`](docs/WHATSAPP_HANDOFF.md)), the
-  [RFC of the RocketVibe server](docs/rfcs/0001-rocketvibe-rust-server.md).
+  [RFC of the Vibez server](docs/rfcs/0001-vibez-server.md).
 
 ## Test servers
 
@@ -57,7 +57,7 @@ docker compose up -d                                  # Rocket.Chat 8.5.1 + Mong
 node ../scripts/seed.mjs                              # alice, bob, test rooms, idempotent
 ```
 
-`compose.rocketvibe.yml` starts a RocketVibe server and `compose.mattermost.yml` a Mattermost
+`compose.vibez.yml` starts a Vibez server and `compose.mattermost.yml` a Mattermost
 one; the other compose files are the native pilots' benches.
 
 ## CI, versions and releases
@@ -86,25 +86,25 @@ release tag, or by hand through `workflow_dispatch`.
 - **`desktop-swiftui`**: the SwiftUI app for macOS, called by `desktop` on a tag or a
   `workflow_dispatch` (its release takes the DMG from it), and on its own when the app changes.
 - **`notification-cards`**: the desktop's own notification cards on Windows.
-- **`native-server`**: the RocketVibe server and its crypto against PostgreSQL and the real
+- **`native-server`**: the Vibez server and its crypto against PostgreSQL and the real
   platform keystores.
-- **`server-release`**: on a `server-vX.Y.Z` tag, the server gate, then one Docker build: its
-  binary as a Linux x86_64 archive with SHA-256 checksums and its image pushed to
+- **`server-release`**: on a `vibez-vX.Y.Z` tag, the server gate, then one Docker build: its
+  binary as a Linux x86_64 archive (`vibez-X.Y.Z-linux-x86_64.tar.gz`) with SHA-256 checksums and its image pushed to
   `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`). A `release/**` branch runs it
   without publishing; `server-image` republishes the image of an existing tag.
 - **`web-client`**: committed-bundle verification, server fmt/clippy/tests and real browser
-  scenarios. A `web-vX.Y.Z` tag publishes the verified frontend as `.tar.gz`, `.zip` and SHA-256
-  checksums. The bundle embeds the desktop's strings: a change to `rv-core`'s `i18n.rs` means
+  scenarios. It publishes nothing: the web client ships inside the server binary, under the
+  server's version and release. The bundle embeds the desktop's strings: a change to `rv-core`'s `i18n.rs` means
   rebuilding it (`apps/web`, `npm run build`).
 - **`cargo-locks`**: keeps the separate Rust workspaces' `Cargo.lock` files on the same versions.
 
-`node scripts/version.mjs mobile|desktop|web|server` prints an app's version and checks its
+`node scripts/version.mjs mobile|desktop|vibez` prints an app's version and checks its
 consistency. Each app keeps its changelog in the Keep a Changelog format
 ([mobile](apps/mobile/CHANGELOG.md), [desktop](apps/desktop/CHANGELOG.md),
-[web](apps/web/CHANGELOG.md), [server](apps/server/CHANGELOG.md)), every visible change going
+[vibez](apps/server/CHANGELOG.md), the server and its web client), every visible change going
 into its "Unreleased" section. To publish: move that section under the new version number,
-bump the version, then push a `mobile-vX.Y.Z`, `desktop-vX.Y.Z`, `web-vX.Y.Z` or
-`server-vX.Y.Z` tag, at most three in one push (GitHub starts no workflow for more). The
+bump the version, then push a `mobile-vX.Y.Z`, `desktop-vX.Y.Z` or
+`vibez-vX.Y.Z` tag, at most three in one push (GitHub starts no workflow for more). The
 workflow checks that the tag matches the version and that the changelog has its section, then
 creates the GitHub release with its binaries and that section as notes.
 

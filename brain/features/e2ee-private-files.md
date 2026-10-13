@@ -1,6 +1,6 @@
-# Encrypted files (RocketVibe server)
+# Encrypted files (Vibez server)
 
-On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE), files of private rooms are sealed on the device before upload. The server stores an opaque object and never learns the name, type, size of the content or the key, which travels only inside the encrypted message. The protocol is `docs/protocol/E2EE_FILES.md`; the object format `rv-file-v1` has a public vector checked by Node (`crates/rv-crypto-public/fixtures/file-v1.json`, `scripts/verify-file-vector.mjs`).
+On the Vibez native server (MLS end-to-end encryption, not Rocket.Chat E2EE), files of private rooms are sealed on the device before upload. The server stores an opaque object and never learns the name, type, size of the content or the key, which travels only inside the encrypted message. The protocol is `docs/protocol/E2EE_FILES.md`; the object format `rv-file-v1` has a public vector checked by Node (`crates/rv-crypto-public/fixtures/file-v1.json`, `scripts/verify-file-vector.mjs`).
 
 ## What the user sees
 
@@ -21,7 +21,7 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 ## Mobile
 
 - Rust bridge: free functions `seal_file` / `open_file` (`crates/rv-crypto-mobile/src/files.rs`), exposed by the Expo module as `sealFile` / `openFile` (`modules/crypto-native`); the `prepare` command takes `files`.
-- Sending: `sendPrivateFile` (`providers/rocketvibe/privateFiles.ts`) seals into `cacheDirectory/private-outbox/`, prepares and streams the object through the file-transfer module (`nativeFileSender`, `ui/nativeFiles.ts`), then `CryptoConversationAccess.send(text, [], files)`. The room screen passes the hook's `files` outbox (`ui/encryptedConversation.ts`) to the composer.
+- Sending: `sendPrivateFile` (`providers/vibez/privateFiles.ts`) seals into `cacheDirectory/private-outbox/`, prepares and streams the object through the file-transfer module (`nativeFileSender`, `ui/nativeFiles.ts`), then `CryptoConversationAccess.send(text, [], files)`. The room screen passes the hook's `files` outbox (`ui/encryptedConversation.ts`) to the composer.
 - Rows: `privateFileAttachments` (`cryptoProjection.ts`) shapes them like native attachments; `NativeChat.showPrivateFiles` / `forgetPrivateFiles` keep the openable ones per view (a refresh swaps a view's set, so only files no view shows any more lose their plaintext copy) (room and thread hook, `app/message-search.tsx`).
 - Opening: the native file reader (`mountNativeFiles`, `ui/nativeFiles.ts`) recognises a registered private id, downloads the object (`copyVerifiedFile` with no digest, the AEAD checks it) and calls `openFile` into the same private cache.
 
@@ -49,8 +49,8 @@ On the RocketVibe native server (MLS end-to-end encryption, not Rocket.Chat E2EE
 - apps/server/migrations/0048_e2ee_files.sql
 - crates/rv-crypto-mobile/src/files.rs
 - apps/mobile/modules/crypto-native/android/src/main/java/com/rocketvibe/crypto/CryptoNativeModule.kt
-- apps/mobile/providers/rocketvibe/privateFiles.ts
-- apps/mobile/providers/rocketvibe/cryptoProjection.ts
+- apps/mobile/providers/vibez/privateFiles.ts
+- apps/mobile/providers/vibez/cryptoProjection.ts
 - apps/mobile/ui/encryptedConversation.ts
 - apps/mobile/ui/nativeFiles.ts
 - apps/desktop/crates/rv-core/src/native/files.rs

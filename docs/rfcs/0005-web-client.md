@@ -4,7 +4,7 @@ Status: implemented on `codex/web-client`; qualification and remaining parity tr
 
 ## Accepted scope
 
-Deliver a true browser client directly from the native RocketVibe server, in its own worktree and branch, with GTK as the design reference. The browser signs into only the service that delivers it, with one account. Server/account switching and the GTK rail are intentionally absent. The initial encrypted-room exclusion was superseded on 2026-10-09 by the user's request for usable browser encryption. Its implementation and distinct browser-storage trust model are described in [WEB_E2EE.md](../WEB_E2EE.md).
+Deliver a true browser client directly from the native Vibez server, in its own worktree and branch, with GTK as the design reference. The browser signs into only the service that delivers it, with one account. Server/account switching and the GTK rail are intentionally absent. The initial encrypted-room exclusion was superseded on 2026-10-09 by the user's request for usable browser encryption. Its implementation and distinct browser-storage trust model are described in [WEB_E2EE.md](../WEB_E2EE.md).
 
 ## Implemented architecture
 

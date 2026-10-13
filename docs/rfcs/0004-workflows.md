@@ -1,11 +1,11 @@
-# RFC 0004: Workflows on the RocketVibe server
+# RFC 0004: Workflows on the Vibez server
 
 | Field | Value |
 |---|---|
 | Date | 8 October 2026 |
 | Status | Draft, implementation on `feature/workflows` |
 | Reference | RFC 0003 (bots), its layer 4; `docs/protocol/BOTS.md` |
-| Clients | Providers of the current mobile, GTK and SwiftUI apps (RocketVibe server only) |
+| Clients | Providers of the current mobile, GTK and SwiftUI apps (Vibez server only) |
 
 ## 1. Summary
 

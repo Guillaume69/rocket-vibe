@@ -1,6 +1,6 @@
 # GTK and web screen audit
 
-Date: 2026-10-12. Reference: the GTK client connected to a RocketVibe server. The browser retains the previously agreed single serving origin/account. The comparison covers structure, text, navigation, controls, defaults and dismissal, rather than palette similarity.
+Date: 2026-10-12. Reference: the GTK client connected to a Vibez server. The browser retains the previously agreed single serving origin/account. The comparison covers structure, text, navigation, controls, defaults and dismissal, rather than palette similarity.
 
 The later [final verification record](WEB_GTK_FINAL_VERIFICATION.md) adds the unique-screen classification, actual native/browser execution and corrections found after the embedded C6 baseline. Evidence below remains tied to its original source/build; it does not qualify the later distribution automatically.
 
@@ -65,7 +65,7 @@ Mobile TypeScript and 45 existing voice/call/push tests pass; its current x86_64
 
 The results below record the integrated baseline before the manual-test corrections above. They do not claim that the newly changed native or browser screens passed those earlier runs.
 
-The work uses disposable local PostgreSQL, TLS SMTP and LiveKit services and real RocketVibe API responses. Browser checks use the built production distribution rather than hot reload. A fresh GTK build passes its mandatory Fedora formatting, clippy and test gate; connected GTK captures supply the screen reference.
+The work uses disposable local PostgreSQL, TLS SMTP and LiveKit services and real Vibez API responses. Browser checks use the built production distribution rather than hot reload. A fresh GTK build passes its mandatory Fedora formatting, clippy and test gate; connected GTK captures supply the screen reference.
 
 Strict TypeScript, formatting, the production build and all 146 Node tests pass. The full actual-server browser and authenticated-vault workflow passes in [web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38204565043). The actual-server checks pass conversation acceptance (18), composer (8), threads (5), shell (5), reads (6), navigation (4), device sessions (4), receipts (2), offline signout (4), notifications (8), social cards (4) and video reduction (5). The shell checks hold a real older database connection, verify the English and French retry screen, preserve a saved draft through retry, and prove the current tab releases a subsequent upgrade. The expanded conversation-parity suite exercises GTK message controls, room/member dialogs, roles, DM profile navigation and channel images. It holds a committed image response through reload to prove nonce-preserving replay, then withdraws actual membership to prove pending image intents are purged. Four additional model/receipt tests hold personal-state responses through initial membership, withdrawal, removal/rejoin and newer live revisions. Settings, profiles, workflows, quiet hours, scheduling, reminders, global search, images, media and advanced capture/offline scenarios also pass their real-server suites. Security verifies TOTP and verified/removed email receipts through the local TLS SMTP service.
 

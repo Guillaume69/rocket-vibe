@@ -1,7 +1,7 @@
-# RocketVibe native server workstream
+# Vibez native server workstream
 
-Launch date: 30 September 2026. Branch: `feature/vibez`.
-Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
+Launch date: 30 September 2026. Branch: `feature/rocketvibe-server`.
+Destination: [RFC 0001](rfcs/0001-vibez-server.md).
 
 ## Summary status as of 5 October 2026
 
@@ -701,7 +701,7 @@ branch. The first increment included no connected native screen.
 ## Second increment: pilot mobile flow
 
 - [x] Native probe before authentication, with no Rocket.Chat fallback if the announced
-  RocketVibe protocol is incompatible.
+  Vibez protocol is incompatible.
 - [x] Native login, resumption and logout; kind, identity / generation and
   token kept in the existing secure storage.
 - [x] Dedicated React Native screen: private / public rooms, invitation by the
@@ -738,7 +738,7 @@ The instructions and limits are in the [pilot guide](NATIVE_MOBILE_PILOT.md).
 - [x] `NativeSession` engine in `rv-core`, separate SQLite cache, drafts and outbox.
 - [x] Atomic transactions for projection / cursor / echo, exact order, purge of
   removals and protection against late history responses.
-- [x] Same GTK ChatPage / MessageList / Composer for Rocket.Chat and RocketVibe.
+- [x] Same GTK ChatPage / MessageList / Composer for Rocket.Chat and Vibez.
 - [x] Same mobile home / room / list / composer, via the Provider contract.
 - [x] Switching between accounts and transports, absent capabilities disabled.
 - [x] Persistent mobile drafts, protected against writes from an old generation.

@@ -1,4 +1,4 @@
-# Bots (RocketVibe server)
+# Bots (Vibez server)
 
 A bot is an account owned by a person, acting with API keys inside the scopes its owner grants. People create and manage their bots in the apps; everyone sees a "BOT" badge next to a bot's name, and its profile names its owner. Rocket.Chat servers have their own bots and integrations, untouched: there the feature is `n/a`. Design: `docs/rfcs/0003-bots.md`; contract: `docs/protocol/BOTS.md`.
 
@@ -24,11 +24,11 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 
 ## Mobile
 
-- Messages carry `author_bot` (migration `0021_author_bot.sql`), written by the native store only (`providers/rocketvibe/store.ts`, an `UPDATE` after the shared upsert, so the Rocket.Chat path is untouched). Search, pins and encrypted rows have no flag and show no badge.
+- Messages carry `author_bot` (migration `0021_author_bot.sql`), written by the native store only (`providers/vibez/store.ts`, an `UPDATE` after the shared upsert, so the Rocket.Chat path is untouched). Search, pins and encrypted rows have no flag and show no badge.
 - `ui/botBadge.tsx` in `ui/messageRow.tsx`, `ui/roomManagement.tsx` (members) and `app/profile.tsx` (with the owner).
-- `ui/bots.tsx` (`BotsSection`, category `bots` in `ui/settingsCategories.ts`) over `ui/botsModel.ts` (scope order and sentences, routes per scope, error wording, the curl example). Calls: `providers/rocketvibe/transport.ts`, wrapped by `NativeChat.bots` in `chat.ts` (session, generation and capability checks, operation ids). The new key lives in component state only and is dropped on dismissal or loss of focus; copying works only while focused.
+- `ui/bots.tsx` (`BotsSection`, category `bots` in `ui/settingsCategories.ts`) over `ui/botsModel.ts` (scope order and sentences, routes per scope, error wording, the curl example). Calls: `providers/vibez/transport.ts`, wrapped by `NativeChat.bots` in `chat.ts` (session, generation and capability checks, operation ids). The new key lives in component state only and is dropped on dismissal or loss of focus; copying works only while focused.
 - The photo uses the own-avatar picker (`pickAvatar`, square crop) and `NativeChat.botAvatar`; the header and rows draw it like the admin user list.
-- Admin switch: a card in `app/admin/index.tsx`, `userBots`/`setUserBots` in `providers/rocketvibe/admin.ts`.
+- Admin switch: a card in `app/admin/index.tsx`, `userBots`/`setUserBots` in `providers/vibez/admin.ts`.
 
 ## Desktop
 
@@ -73,10 +73,10 @@ The server-delivered single-account browser shows the BOT badge on authors, memb
 - apps/mobile/ui/bots.tsx
 - apps/mobile/ui/botsModel.ts
 - apps/mobile/ui/botBadge.tsx
-- apps/mobile/providers/rocketvibe/store.ts
-- apps/mobile/providers/rocketvibe/chat.ts
-- apps/mobile/providers/rocketvibe/transport.ts
-- apps/mobile/providers/rocketvibe/admin.ts
+- apps/mobile/providers/vibez/store.ts
+- apps/mobile/providers/vibez/chat.ts
+- apps/mobile/providers/vibez/transport.ts
+- apps/mobile/providers/vibez/admin.ts
 - apps/mobile/app/admin/index.tsx
 - apps/mobile/db/migrations/0021_author_bot.sql
 - apps/desktop/crates/rv-core/src/native/bots.rs

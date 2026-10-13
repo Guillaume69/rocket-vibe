@@ -28,7 +28,7 @@ Implementations: mobile `apps/mobile/providers/mattermost/`, desktop
 | `GET /api/v4/system/ping` (anonymous) answers 2xx with `{"status":"OK"}` | Mattermost. Version in the `X-Version-Id` header, first three dot fields |
 | Anything else (404, HTML, timeout) | Not Mattermost |
 
-In automatic mode the apps try, in order: kChat host, RocketVibe discovery
+In automatic mode the apps try, in order: kChat host, Vibez discovery
 (`/.well-known/vibez`), the Mattermost ping, then Rocket.Chat
 (`/api/info`). A forced server type probes only that type. Probe timeout: 10 s.
 

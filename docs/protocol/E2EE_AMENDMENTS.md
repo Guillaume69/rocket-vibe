@@ -1,6 +1,6 @@
 # Encrypted edits, deletions, reactions and search
 
-Private (MLS) messages of the RocketVibe server can be edited and deleted by their
+Private (MLS) messages of the Vibez server can be edited and deleted by their
 author, and any member can react to them. All three are **amendments**: ordinary
 application messages of the same room, encrypted and authenticated like any message
 ([E2EE_MESSAGES.md](E2EE_MESSAGES.md)), whose header says what they amend. They follow

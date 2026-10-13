@@ -2,7 +2,7 @@
 
 The GTK / SwiftUI / mobile interfaces remain those of the existing client. The
 Rocket.Chat provider keeps its historical normalizer and rendering.
-The RocketVibe provider adapts the native data to the same widgets; no
+The Vibez provider adapts the native data to the same widgets; no
 new screen, theme, composer or client is introduced by this batch.
 
 ## Text and document

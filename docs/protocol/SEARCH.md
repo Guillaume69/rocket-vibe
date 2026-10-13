@@ -38,7 +38,7 @@ simple read refresh does not stale them. The search field allows
 a relaunch with Enter. A late response from the old account or the old
 room does not repopulate the results.
 
-The `search` capability exposes this plaintext text search. RocketVibe
+The `search` capability exposes this plaintext text search. Vibez
 does not yet announce `e2ee`. **The P13 / J4 part remains open**: bounded local
 index of the available decrypted content, indication of the downloaded history,
 erasure on lock, on deletion and according to retention. It must

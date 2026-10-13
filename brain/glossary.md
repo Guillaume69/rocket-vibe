@@ -4,7 +4,7 @@ The vocabulary you meet in rocket-vibe: Rocket.Chat protocol terms, the mobile c
 
 All code, comments and docs are in English. French survives in two places only: the French UI catalog users see, and the legacy stored names the mobile app still reads once so an upgrade loses nothing (see [Legacy French names](#legacy-french-names) and [decisions](decisions.md)).
 
-## Voice (RocketVibe server)
+## Voice (Vibez server)
 
 | Term | Meaning | More |
 |---|---|---|
@@ -18,7 +18,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Listening choices | How this device hears a call and shares its screen: each person's volume and a mute for oneself, input and output volumes, the noise remover, the share's quality. Kept per device, never sent to the server. | [voice](features/voice.md) |
 | Noise remover | RNNoise (`nnnoiseless`) on the microphone, on by default; its voice probability also tells whether you speak. | [voice](features/voice.md) |
 
-## Bots (RocketVibe server)
+## Bots (Vibez server)
 
 | Term | Meaning | More |
 |---|---|---|
@@ -28,7 +28,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Bot gate | The route layer (`apps/server/src/bots.rs`, `gate`) that admits a key only on the routes of its scopes; deny by default. | [bots](features/bots.md) |
 | Bot reference | `GET /api/v1/bots/reference`: the gate's table, by scope, which the apps show as the bot API. | [bots](features/bots.md) |
 
-## Workflows (RocketVibe server)
+## Workflows (Vibez server)
 
 | Term | Meaning | More |
 |---|---|---|
@@ -43,12 +43,12 @@ All code, comments and docs are in English. French survives in two places only: 
 | Person field | A form field answered with someone: from a list, or any non-bot member of the room; the run sees the username. | [workflows](features/workflows.md) |
 | Internal bot session | A `bot_keys` row flagged `internal`: the session the engine posts with as the bot, never listed nor counted. | [workflows](features/workflows.md) |
 
-## RocketVibe server and shared crates (`apps/server/`, `crates/`)
+## Vibez server and shared crates (`apps/server/`, `crates/`)
 
 | Term | Meaning | More |
 |---|---|---|
-| RocketVibe server, native server | The project's own chat server, `apps/server` (crate `vibez`); "native" names everything that speaks its protocol rather than Rocket.Chat's or Mattermost's. | [server](architecture/server.md) |
-| Native provider | A client's backend for the RocketVibe server: mobile `providers/rocketvibe/`, desktop `rv-core::native` (`NativeSession`), and the web app as a whole. | [overview](architecture/overview.md) |
+| Vibez server, native server | The project's own chat server, `apps/server` (crate `vibez`); "native" names everything that speaks its protocol rather than Rocket.Chat's or Mattermost's. | [server](architecture/server.md) |
+| Native provider | A client's backend for the Vibez server: mobile `providers/vibez/`, desktop `rv-core::native` (`NativeSession`), and the web app as a whole. | [overview](architecture/overview.md) |
 | `rv-protocol` | The native v1 wire types, the source of `docs/protocol/v1.schema.json` and of the generated TypeScript. | [shared-crates](architecture/shared-crates.md) |
 | `rv-client` | The Rust HTTP client of the native protocol (`NativeClient`), used by the desktop. | [shared-crates](architecture/shared-crates.md) |
 | `rv-crypto`, `rv-crypto-public` | The MLS engine with its vault (clients only), and the public proof formats the server verifies. | [shared-crates](architecture/shared-crates.md) |
@@ -124,7 +124,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Origin (`originOf`, `sameOrigin`) | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origin.ts` |
 | `OutboxEngine`, `outbox` | The text outbox engine (client-side `_id`, optimistic display) and its table (`pending`, `failed`; a sent row is deleted). | `apps/mobile/lib/outbox.ts`, `apps/mobile/db/schema.ts` |
 | `PresenceEngine`, `TypingEngine`, `ActivityEngine` | Volatile in-memory stores for presence, typing, and background-fetch activity (scope `'global'` or a `rid`). | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/typing.ts`, `apps/mobile/lib/activity.ts` |
-| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Kinds: `rocketchat`, `rocketvibe`, `mattermost`, `kchat`. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
+| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Kinds: `rocketchat`, `vibez`, `mattermost`, `kchat`, `whatsapp`. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
 | Quote | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/quote.ts` |
 | `RcTranslator` | Decodes Rocket.Chat stream events and documents into neutral `SyncChange` values. | `apps/mobile/providers/rocketchat/translator.ts` |
 | `Reconnector` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspend`/`resume` on background and foreground. | `apps/mobile/lib/reconnect.ts` |
@@ -224,32 +224,34 @@ All code, comments and docs are in English. French survives in two places only: 
 | Context window | The history around a message older than what a room has loaded, held in memory and never stored; the list showing it is detached from the present until the window reaches the local history (rv-core `context`, rv-ffi `ContextView`, mobile `lib/contextWindow.ts`). | [room-view](features/room-view.md) |
 | `Admin` | rv-core's administration of the open account, `RocketChat(Arc<Session>)` or `Native(Arc<NativeSession>)`, with the methods both desktop UIs call. | [administration](features/administration.md) |
 | Sidebar dialog (`SidebarDialog`) | rv-gtk's large modal with clickable categories on the left and the chosen page on the right (85 % of the window, at most 1100 x 800; Escape, close button or backdrop click close it), used by the settings and the administration. Its `Host` lets a page toast, push and pop subpages, select, close and badge a category. SwiftUI's counterpart is the settings overlay. | [settings](features/settings.md) |
-| `Chat` (provider) | rv-core `provider::Chat`: a signed-in account as `Legacy(Session)` (Rocket.Chat, Mattermost, kChat) or `Native(NativeSession)` (RocketVibe), with the operations both offer. | [desktop-core](architecture/desktop-core.md) |
+| `Chat` (provider) | rv-core `provider::Chat`: a signed-in account as `Legacy(Session)` (Rocket.Chat, Mattermost, kChat) or `Native(NativeSession)` (Vibez), with the operations both offer. | [desktop-core](architecture/desktop-core.md) |
 | Background account, `Supervisor` | A signed-in desktop account not on screen, kept connected by rv-core's `supervisor::Supervisor`, which announces its messages, calls, unread state and expiry as `AccountNotice`s. | [login-and-servers](features/login-and-servers.md#desktop) |
-| `ChatEvent` | rv-core `provider::ChatEvent`, from `Chat::events()`: `Changed(Change)` (which rooms), `Reload` (read everything again: a RocketVibe change that does not say what it touched, or missed changes), `Rooms` (a RocketVibe live batch touched only these rooms), `Incoming` (a notification), `Session(..)` (the rest, Rocket.Chat, Mattermost and kChat only). | [desktop-gtk](architecture/desktop-gtk.md) |
-| `Backend` | rv-core `sync::Backend`, from `SyncEngine::backend()`: which server family a `Session` speaks to, `RocketChat` or `Mattermost` (with its `MmSync`); every per-server choice in the session, the sync engine, the outbox and the uploads matches on it exhaustively. The RocketVibe server is a separate type, `NativeSession`. | [desktop-core](architecture/desktop-core.md) |
+| `ChatEvent` | rv-core `provider::ChatEvent`, from `Chat::events()`: `Changed(Change)` (which rooms), `Reload` (read everything again: a Vibez change that does not say what it touched, or missed changes), `Rooms` (a Vibez live batch touched only these rooms), `Incoming` (a notification), `Session(..)` (the rest, Rocket.Chat, Mattermost and kChat only). | [desktop-gtk](architecture/desktop-gtk.md) |
+| `Backend` | rv-core `sync::Backend`, from `SyncEngine::backend()`: which server family a `Session` speaks to, `RocketChat` or `Mattermost` (with its `MmSync`); every per-server choice in the session, the sync engine, the outbox and the uploads matches on it exhaustively. The Vibez server is a separate type, `NativeSession`. | [desktop-core](architecture/desktop-core.md) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary
 
 | Term | Meaning |
 |---|---|
-| Amendment | An encrypted edit, deletion or reaction of a private message on the RocketVibe server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
+| Amendment | An encrypted edit, deletion or reaction of a private message on the Vibez server: an ordinary MLS message whose header names its target, applied at projection time ([e2ee-private-actions](features/e2ee-private-actions.md)). |
 | Bench | The local Rocket.Chat 8.5.1 test server in `docker/`. |
-| Controller | The device of a RocketVibe account holding its private E2EE root: it approves and withdraws devices; control can be delegated ([e2ee-delegation](features/e2ee-delegation.md)). |
-| Deleted user, tombstoned account | A RocketVibe account deleted by an administrator: its row stays, marked `deleted`, its username becomes `deleted-<id>` (a reserved prefix) and its former username is retired, never to be taken again (`retired_usernames`), and everything personal is cleared, so its messages, reactions and quotes keep an author, which the apps show as "Deleted user". Rocket.Chat deletes for real, its messages following the server's erasure setting. |
+| Controller | The device of a Vibez account holding its private E2EE root: it approves and withdraws devices; control can be delegated ([e2ee-delegation](features/e2ee-delegation.md)). |
+| Deleted user, tombstoned account | A Vibez account deleted by an administrator: its row stays, marked `deleted`, its username becomes `deleted-<id>` (a reserved prefix) and its former username is retired, never to be taken again (`retired_usernames`), and everything personal is cleared, so its messages, reactions and quotes keep an author, which the apps show as "Deleted user". Rocket.Chat deletes for real, its messages following the server's erasure setting. |
 | Deliberate deviation | A documented departure from the audit's prescribed fix, with its reason (`apps/mobile/WORKSTREAMS.md`). |
 | Ignore (an incoming call) | What a click or tap outside the incoming call prompt, Escape or Back does in all three apps: the prompt hides and the local ringtone stops, but nothing is sent, so the caller hears it ring until it times out as a missed call. Decline is the explicit button. |
 | Kill gate | Phase 1 of `ROADMAP.md`: the binary proof that a self-built APK receives pushes when killed. |
 | Last owner | Rocket.Chat's `user-last-owner` refusal when an account to deactivate or delete is the last owner of rooms: the apps ask a second time, naming the rooms deleted with it and those whose owner changes, then confirm with `confirmRelinquish`. |
 | Modal overlay | A SwiftUI modal drawn in the window over a dimmed backdrop (`modalOverlay`, `confirmOverlay`, `Modals.swift`) instead of a macOS sheet or alert, so that a click outside closes it like Cancel. |
-| Moderation delete | An administrator's deletion of a REPORTED message (RocketVibe allows no other), tombstoning it like its author's own deletion and closing its reports; on Rocket.Chat `chat.delete` then the dismissal. When `chat.delete` cannot reach the room, the only Rocket.Chat way is the bulk delete, `moderation.user.deleteReportedMessages`, which removes ALL that author's reported messages and is only offered explicitly. |
-| Open report | A member's report of a message or an account not yet dismissed or acted on. On RocketVibe it is the only way an administrator reads a message's text, the reporter having disclosed it; a reporter keeps one open report per target. Each report keeps a snapshot of the text at report time, and the admin reads what the reporters saw, not the live message; a reporter holds at most 200 open reports. |
+| Moderation delete | An administrator's deletion of a REPORTED message (Vibez allows no other), tombstoning it like its author's own deletion and closing its reports; on Rocket.Chat `chat.delete` then the dismissal. When `chat.delete` cannot reach the room, the only Rocket.Chat way is the bulk delete, `moderation.user.deleteReportedMessages`, which removes ALL that author's reported messages and is only offered explicitly. |
+| Open report | A member's report of a message or an account not yet dismissed or acted on. On Vibez it is the only way an administrator reads a message's text, the reporter having disclosed it; a reporter keeps one open report per target. Each report keeps a snapshot of the text at report time, and the admin reads what the reporters saw, not the live message; a reporter holds at most 200 open reports. |
 | Proof by removal | Delete the fix, check that the expected tests fail, restore. A removal that changes nothing is an empty test. |
 | Quick reactions | The emoji the message menu offers first: the 5 this account reacts with most, counted on the device, filled with `+1 heart joy tada open_mouth pray`; then "+" for any emoji. |
+| RocketVibe | The client apps' name (Android, GTK, SwiftUI: `com.rocketvibe.app`, `me.barrut.RocketVibe`, `rocketvibe://` links) and the repository's (`rocket-vibe`). Until 2026-10-14 also the server's name, now Vibez ([decisions](decisions.md)). |
 | Step | A step of the (frozen) construction checklist `apps/mobile/EXECUTION.md`, e.g. "8.3". |
 | Storage key | The key of a device's private vault, in the platform keystore; renewed every 30 days, the old one destroyed ([e2ee-storage-keys](features/e2ee-storage-keys.md)). |
 | Unreleased | The changelog section every visible change goes into. |
+| Vibez | The project's own chat server (`apps/server`, binary `vibez`, `vibez-vX.Y.Z` releases), formerly the RocketVibe server, and the web client it serves, which shares its version; also the account kind `vibez` in the apps. |
 | Workstream | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/WORKSTREAMS.md`. |
 
 ## Legacy French names
@@ -263,7 +265,7 @@ The code had French names until the English rename. These are the only French wo
 - **Native push, kept one release.** `ReponseNotifReceiver` and `RattrapagePushWorker` (empty subclasses of the new classes), the RemoteInput key `rv_reponse`, the worker input key `ombre`, the work-name prefix `rattrapage-push-` (cancelled alongside `push-catch-up-`), the shown-messages preferences `rvpush-affiches` (read after `rvpush-shown`), the iOS reply action `rv-repondre` (accepted with `rv-reply`), and the native language key `key_v1-langue-preferee` (read after `key_v1-preferred-language`; iOS `langue-preferee`). The debug files `rvpush-journal.log` and `rvpush-sonde` were renamed without a fallback (`rvpush.log`, `rvpush-probe`).
 
 - **Social card**: typed poll, game-night RSVP or public image in Message.social, with a text fallback for older clients; see features/social.md.
-- **Sticker shelf**: an account's reusable public image links, server-backed on RocketVibe and device-local on Rocket.Chat.
+- **Sticker shelf**: an account's reusable public image links, server-backed on Vibez and device-local on Rocket.Chat.
 - **Voice burst**: a short-lived emoji reaction seen only by connected participants in the room's current voice session, absent from history.
 
 

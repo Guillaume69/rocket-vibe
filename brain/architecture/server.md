@@ -1,6 +1,6 @@
-# RocketVibe server
+# Vibez server
 
-`apps/server` is a chat server of its own (crate `vibez`): Rust, Axum 0.8 with WebSockets, tokio, PostgreSQL through SQLx. It shares no code and no API with Rocket.Chat. Its contract is `crates/rv-protocol` ([shared-crates.md](shared-crates.md)); the three client apps reach it through a separate "rocketvibe" provider next to their Rocket.Chat and Mattermost ones, and it serves the web client itself ([web-client.md](web-client.md)). The design and its scope are in `docs/rfcs/0001-rocketvibe-rust-server.md`; installing one is `docs/DEPLOY-SERVER.md` (in French).
+`apps/server` is a chat server of its own (crate `vibez`): Rust, Axum 0.8 with WebSockets, tokio, PostgreSQL through SQLx. It shares no code and no API with Rocket.Chat. Its contract is `crates/rv-protocol` ([shared-crates.md](shared-crates.md)); the three client apps reach it through a separate "vibez" provider next to their Rocket.Chat and Mattermost ones, and it serves the web client itself ([web-client.md](web-client.md)). The design and its scope are in `docs/rfcs/0001-vibez-server.md`; installing one is `docs/DEPLOY-SERVER.md` (in French).
 
 ## Process
 
@@ -15,7 +15,7 @@ One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `VIBEZ_BIND`, default `1
 | `VIBEZ_LIVEKIT_CONFIG_FILE` | LiveKit URL, API URL, key and secret, unreadable by group and others: voice (`src/livekit.rs`). |
 | `VIBEZ_E2EE` | Announce native end-to-end encryption, `true` by default. |
 | `VIBEZ_TRUSTED_PROXIES` | Addresses or CIDR ranges whose `X-Forwarded-For` names the client (`src/client_address.rs`); empty trusts nobody. The Compose file trusts loopback and the private ranges. |
-| `VIBEZ_OBJECTS_DIR` | Where files live (`data/objects`, `/var/lib/rocketvibe/objects` in the image). Without it, no uploads, avatars, emoji or previews. |
+| `VIBEZ_OBJECTS_DIR` | Where files live (`data/objects`, `/var/lib/vibez/objects` in the image). Without it, no uploads, avatars, emoji or previews. |
 | `VIBEZ_WORKFLOW_PRIVATE_HTTP` | Let workflow HTTP steps reach private addresses: tests and development only. |
 
 **Every subcommand, not only `serve`, migrates the database and runs the cleanup** (`App::from_pool_with_auth_key`, `src/lib.rs`): all numbered migrations in `migrations/`, applied by `sqlx::migrate!`. The first boot also draws the instance's `instance_id` and `data_epoch`.
@@ -55,7 +55,7 @@ The server keeps one ordered **journal** of changes (`journal`, `src/store.rs`):
 
 - **PostgreSQL** holds everything but file bytes: about a hundred tables across the all numbered migrations. Message ids are the client's `operation_id`: replaying a send with the same content returns the existing message, with different content 409. Operation ids share one namespace per user across messages, uploads, room commands and encryption (`src/store.rs`).
 - **Files** are flat objects named by 64 hex digits in `VIBEZ_OBJECTS_DIR`, written to a temporary name, fsynced and renamed (`src/objects.rs`). Uploads go prepared, ready, completed (or cancelled, expired after 24 h); the server checks the SHA-256 and the type's magic bytes, and completion posts the message in the same transaction (`src/files.rs`). Downloads support ranges. The garbage collector removes files older than an hour that nothing references.
-- **`data_epoch`** identifies the dataset in discovery, cursors and leases; a client seeing it change starts over. Nothing in the server changes it today: a restore from backup is supposed to (`docs/rfcs/0001-rocketvibe-rust-server.md`).
+- **`data_epoch`** identifies the dataset in discovery, cursors and leases; a client seeing it change starts over. Nothing in the server changes it today: a restore from backup is supposed to (`docs/rfcs/0001-vibez-server.md`).
 
 ## What it serves
 
@@ -64,8 +64,8 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 ## Tests and release
 
 - About 50 plain tests and 150 `#[sqlx::test]` inside `src/`, and 166 more `#[sqlx::test]` in `tests/` driving real HTTP and WebSockets, through `rv-client` and the mobile TypeScript transport. `#[sqlx::test]` needs `DATABASE_URL` and creates a database per test: `cargo test` without PostgreSQL fails on all of them.
-- `apps/server/scripts/check.sh` is the gate: fmt, clippy `-D warnings` and the tests of the root workspace, the crypto vectors re-verified with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile RocketVibe provider tests. Locally it runs in the Compose `check` profile; in CI in `native-server.yml` (`verify`, with `postgres:18-alpine`) and `server-release.yml`. `web-client.yml` also runs the server's clippy and unit tests.
-- A `server-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `vibez-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, the same build's image pushed to `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`), and the release with its changelog section. `server-image.yml`, dispatched with a tag, republishes an older version.
+- `apps/server/scripts/check.sh` is the gate: fmt, clippy `-D warnings` and the tests of the root workspace, the crypto vectors re-verified with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile Vibez provider tests. Locally it runs in the Compose `check` profile; in CI in `native-server.yml` (`verify`, with `postgres:18-alpine`) and `server-release.yml`. `web-client.yml` also runs the server's clippy and unit tests.
+- A `vibez-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `vibez-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, the same build's image pushed to `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`), and the release with its changelog section. `server-image.yml`, dispatched with a tag, republishes an older version.
 
 ## Footguns
 
@@ -121,8 +121,8 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 - `apps/server/src/e2ee.rs`
 - `apps/server/migrations/`
 - `apps/server/tests/`
-- `docker/compose.rocketvibe.yml`
+- `docker/compose.vibez.yml`
 - `docs/DEPLOY-SERVER.md`
-- `docs/rfcs/0001-rocketvibe-rust-server.md`
+- `docs/rfcs/0001-vibez-server.md`
 - `.github/workflows/native-server.yml`
 - `.github/workflows/server-release.yml`

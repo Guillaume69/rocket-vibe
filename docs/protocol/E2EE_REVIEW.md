@@ -74,7 +74,7 @@ ids, positions or directories.
 ## Voice frame key (added 2026-10-07)
 
 Encrypted voice ([VOICE.md](VOICE.md#encrypted-rooms)) exports one secret per
-epoch from the room's MLS group (`Coordinator::voice_key`, label `rocketvibe
+epoch from the room's MLS group (`Coordinator::voice_key`, label `vibez
 voice v1`, context the group id) and hands it to LiveKit's frame cryptor. It is
 the only group secret that leaves Rust: through the mobile bridge (`voice_key`
 action) it crosses JS as base64 into the Kotlin engine, and on desktop it goes

@@ -1,4 +1,4 @@
-# RFC 0002: Native encryption and RocketVibe history
+# RFC 0002: Native encryption and Vibez history
 
 | Field | Value |
 |---|---|

@@ -1,7 +1,7 @@
 # Mattermost and kChat servers
 
 The three apps sign in to a Mattermost server, or to kChat (Infomaniak's
-Mattermost), next to their Rocket.Chat and RocketVibe accounts: rooms, history,
+Mattermost), next to their Rocket.Chat and Vibez accounts: rooms, history,
 threads, live messages, unread counts, who types (received only, as on
 Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
 pins, stars (Mattermost's flagged posts), favourites and my own sidebar
@@ -29,10 +29,10 @@ so GTK and SwiftUI run unchanged past the sign-in screen.
 `ProviderKind` gains `mattermost` and `kchat` (`lib/provider.ts`); both build
 `createMattermostProvider` (`providers/mattermost/index.ts`). The login screen's
 kind picker offers them; in `auto`, `lib/serverKind.ts` takes a host under
-`kchat.infomaniak.com` as kChat, then after the RocketVibe discovery fails,
+`kchat.infomaniak.com` as kChat, then after the Vibez discovery fails,
 `GET /api/v4/system/ping` answering `{status: "OK"}` as Mattermost, before the
 Rocket.Chat probe. Other screens get a `RestClient` that answers 501
-`not-supported` (`lib/sessionTransport.ts`), as for RocketVibe, so a leftover
+`not-supported` (`lib/sessionTransport.ts`), as for Vibez, so a leftover
 Rocket.Chat call fails cleanly instead of hitting the wrong server.
 
 ### Sign-in
@@ -230,7 +230,7 @@ app id). Room settings are not mapped. Who types is received, not sent, as on Ro
 the GTK drop-down (`rv-gtk/src/login.rs`) and the SwiftUI picker
 (`macos/Sources/RocketVibe/LoginView.swift`, `ServerChoice` in `rv-ffi`). In
 automatic mode a `*.kchat.infomaniak.com` host is kChat, then after the
-RocketVibe discovery, `/api/v4/system/ping` identifies Mattermost before the
+Vibez discovery, `/api/v4/system/ping` identifies Mattermost before the
 Rocket.Chat probe (`server::probe_as`, `session::login_as`).
 
 - Mattermost: `mattermost::login`, the token from the `Token` header, no

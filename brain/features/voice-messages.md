@@ -8,7 +8,7 @@ A voice message is an audio file recorded from the microphone and sent through t
 - **Staged, not sent.** Stopping does not send: the recording becomes a staged piece named `vocal-<timestamp>.m4a`, shown above the field with a real player (`AudioPlayer` inside `ui/attachmentPreview.tsx`) so it can be replayed before sending. Text typed meanwhile becomes its caption, and the send button sends it with any other staged files. Removing the chip deletes the recording from the cache.
 - An empty recording (no URI) or a refused permission shows an error line above the composer.
 - The thread composer has no microphone (it has no attachments, see [threads](threads.md)).
-- **Encrypted RocketVibe rooms**: the recording goes through the room's private file outbox like any staged file; its decrypted copy stays in the private cache while a view shows it (`NativeChat.showPrivateFiles`), so the lazily created player finds it.
+- **Encrypted Vibez rooms**: the recording goes through the room's private file outbox like any staged file; its decrypted copy stays in the private cache while a view shows it (`NativeChat.showPrivateFiles`), so the lazily created player finds it.
 - **Playback** of any audio attachment, voice included, is `ui/audioPlayer.tsx`: play/pause, a seekable bar, and a frequency visualiser fed by an FFT of the output samples (Android's `Visualizer`, which needs `RECORD_AUDIO`; without it playback still works with idle bars). The player is only created on the first "play": mounting one per visible voice message buffered every file (about 20 MB for twenty messages scrolled past) and leaked the tokenised URL into ExoPlayer. One player plays at a time. Details in [media playback](media-playback.md).
 
 ## Desktop (GTK)
@@ -33,7 +33,7 @@ GTK uses Ogg/Opus, which "Rocket.Chat's web and mobile clients both play" (`reco
 
 ## Parity
 
-Recording, replay and caption before sending, and sending exist in all three: the recording is staged like a file and leaves with the send button, in the room or a thread, encrypted RocketVibe rooms included. SwiftUI checked by the macOS CI build only.
+Recording, replay and caption before sending, and sending exist in all three: the recording is staged like a file and leaves with the send button, in the room or a thread, encrypted Vibez rooms included. SwiftUI checked by the macOS CI build only.
 
 ## Sources
 

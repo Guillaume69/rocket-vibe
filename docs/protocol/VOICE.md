@@ -170,7 +170,7 @@ group or others:
 ```
 
 `url` is what clients connect to; `api_url` is where the server reaches the
-LiveKit API (Twirp), usually on the internal network. `docker/compose.rocketvibe.yml`
+LiveKit API (Twirp), usually on the internal network. `docker/compose.vibez.yml`
 runs LiveKit under the `voice` profile.
 
 Room flag: `create-room --voice`, `set-room --voice true|false` on the CLI;

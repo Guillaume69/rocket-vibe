@@ -1,10 +1,10 @@
 // Disposable PostgreSQL integration peer, using the actual mobile HTTP transport.
 import assert from 'node:assert/strict';
-import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
-import type { RoomDetails, UpdateRoom } from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/vibez/transport.ts';
+import type { RoomDetails, UpdateRoom } from '../apps/mobile/providers/vibez/protocol.generated.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';

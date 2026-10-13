@@ -2,13 +2,13 @@
  * vault restart; installed Android Keystore qualification remains separate. */
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
-import {AuthenticationVault} from '../apps/mobile/providers/rocketvibe/authenticationVault.ts';
-import {startNativeLogin} from '../apps/mobile/providers/rocketvibe/authentication.ts';
-import {ReauthenticationVault} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
-import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
+import {AuthenticationVault} from '../apps/mobile/providers/vibez/authenticationVault.ts';
+import {startNativeLogin} from '../apps/mobile/providers/vibez/authentication.ts';
+import {ReauthenticationVault} from '../apps/mobile/providers/vibez/reauthenticationVault.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
 

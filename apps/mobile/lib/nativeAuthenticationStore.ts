@@ -2,9 +2,9 @@
  * to push extensions. It never shares the active session's key or SQLite. */
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import {AuthenticationVault} from '../providers/rocketvibe/authenticationVault.ts';
-import {EmailRecoveryVault} from '../providers/rocketvibe/emailRecoveryVault.ts';
-import type {LoginChallenge} from '../providers/rocketvibe/authentication.ts';
+import {AuthenticationVault} from '../providers/vibez/authenticationVault.ts';
+import {EmailRecoveryVault} from '../providers/vibez/emailRecoveryVault.ts';
+import type {LoginChallenge} from '../providers/vibez/authentication.ts';
 import {hash,readSession} from './sessionStore.ts';
 
 const dependencies={

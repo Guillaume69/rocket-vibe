@@ -22,9 +22,9 @@ import { ActivityIndicator, Alert, AppState, Platform, StyleSheet, Switch, Text,
 
 import { rooms as roomsTable } from '../db/schema.ts';
 import type { LocalDatabase } from '../db/client.ts';
-import type { NativeChat } from '../providers/rocketvibe/chat.ts';
-import type { Bot, FormField, FormRecipient, Step, Trigger, User, Workflow, WorkflowRun } from '../providers/rocketvibe/protocol.generated.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import type { NativeChat } from '../providers/vibez/chat.ts';
+import type { Bot, FormField, FormRecipient, Step, Trigger, User, Workflow, WorkflowRun } from '../providers/vibez/protocol.generated.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { useAdminFormat } from './adminKit.tsx';
 import { dismissible } from './alerts.ts';
 import { providerKey } from './devices.tsx';

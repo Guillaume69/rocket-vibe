@@ -4,7 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { createOutboxStore } from './store.ts';
 import { createWriteQueue } from './writeQueue.ts';
 import { toMessage } from '../lib/normalize.ts';
-import { nativeTestDatabase } from '../providers/rocketvibe/testDatabase.ts';
+import { nativeTestDatabase } from '../providers/vibez/testDatabase.ts';
 
 test('optimistic text and its send intent roll back together when the second write fails', async () => {
   const h = nativeTestDatabase();

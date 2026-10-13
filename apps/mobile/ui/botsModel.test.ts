@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import type { BotReference } from '../providers/rocketvibe/protocol.generated.ts';
+import type { BotReference } from '../providers/vibez/protocol.generated.ts';
 import { BOT_SCOPES, botChanges, botDisplayName, botErrorKey, curlExample, expiryDays, routeLine, sameScopes, scopeRoutes, toggleScope } from './botsModel.ts';
 
 const reference: BotReference = {

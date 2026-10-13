@@ -1,11 +1,11 @@
 // Two actual providers, PostgreSQL, WebSockets and the existing SQLite migrations.
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {TypingEngine} from '../apps/mobile/lib/typing.ts';
 

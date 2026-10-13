@@ -1,6 +1,6 @@
 import type { ProviderError } from './provider.ts';
 import { RestError, TwoFactorError, isTokenRejected } from './rest.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 
 export function describeProviderError(error: unknown, authenticated: boolean): ProviderError {
   if (error instanceof NativeError) return {

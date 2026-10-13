@@ -1,6 +1,6 @@
 /**
  * Server administration, the neutral model both drivers map to
- * (`providers/rocketchat/admin.ts`, `providers/rocketvibe/admin.ts`), and the
+ * (`providers/rocketchat/admin.ts`, `providers/vibez/admin.ts`), and the
  * member side of moderation (reporting a message or an account). The screens
  * (`app/admin/`) only know these shapes; which endpoints feed them is the
  * driver's business, as everywhere else in the app.
@@ -141,8 +141,8 @@ export const ADMIN_PAGE = 50;
  * account sees it. Every method rejects with the driver's usual errors (read
  * through `provider.describeError`).
  */
-export type AccountInvitation = import('../providers/rocketvibe/protocol.generated.ts').AccountInvitation;
-export type IssuedAccountInvitation = import('../providers/rocketvibe/protocol.generated.ts').IssuedAccountInvitation;
+export type AccountInvitation = import('../providers/vibez/protocol.generated.ts').AccountInvitation;
+export type IssuedAccountInvitation = import('../providers/vibez/protocol.generated.ts').IssuedAccountInvitation;
 
 export interface ProviderAdmin {
   canInviteAccounts?(): boolean;

@@ -29,7 +29,7 @@ import {
 } from "../lib/giphy.ts";
 import { pickableDays, atMinute } from "../lib/scheduled.ts";
 import { minuteOf } from "../lib/quiet.ts";
-import type { CreateSocial } from "../providers/rocketvibe/protocol.generated.ts";
+import type { CreateSocial } from "../providers/vibez/protocol.generated.ts";
 type Mode = "menu" | "poll" | "game_night" | "stickers" | "giphy";
 type Media = { id: string; name: string; url: string; preview?: GifPreview };
 function SocialAction({

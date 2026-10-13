@@ -24,9 +24,9 @@ import {
 } from './storageKeys.ts';
 import type { PendingLogout } from './deferredLogout.ts';
 import { parsePendingLogouts, parseSession } from './storedRecords.ts';
-import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from '../providers/rocketvibe/renewal.ts';
-import {checkIdentity,transportFor} from '../providers/rocketvibe/auth.ts';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
+import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from '../providers/vibez/renewal.ts';
+import {checkIdentity,transportFor} from '../providers/vibez/auth.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
 
 const transactionsSession=new Map<string,Promise<void>>();
 function transactionSession<T>(baseUrl:string,action:()=>Promise<T>):Promise<T> {

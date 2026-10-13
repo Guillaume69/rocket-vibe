@@ -42,7 +42,7 @@ import { codeBlock, link, toggleLines, toggleWrap, type Edited } from '../lib/fo
 import { requestGifSelection } from "./gifSelection.ts";
 import { SocialButton } from "./social.tsx";
 import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import type { MentionCandidate } from '../lib/mentionCompletion.ts';
 import type { Outbox, FileOutbox } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';

@@ -28,7 +28,7 @@ import { readMyProfile } from '../lib/myProfile.ts';
 import { getFcmToken } from '../lib/push.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
-import type { NativeChat } from '../providers/rocketvibe/chat.ts';
+import type { NativeChat } from '../providers/vibez/chat.ts';
 import type { Provider, SidebarSettings } from '../lib/provider.ts';
 import { BotsSection } from './bots.tsx';
 import { WorkflowsSection } from './workflows.tsx';

@@ -10,7 +10,7 @@
  * `Intl.DateTimeFormat`; an engine that refuses the zone falls back to the
  * device's clock, the zone the window was saved in.
  */
-import type { QuietHours, UserPreferences } from '../providers/rocketvibe/protocol.generated.ts';
+import type { QuietHours, UserPreferences } from '../providers/vibez/protocol.generated.ts';
 
 /** The window offered first: 22:00 to 08:00. */
 export const DEFAULT_QUIET: { start_minute: number; end_minute: number } = { start_minute: 22 * 60, end_minute: 8 * 60 };

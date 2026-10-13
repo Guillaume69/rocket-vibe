@@ -8,7 +8,7 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { readReceipt, type ReceiptLine, type ReceiptRow } from '../lib/readReceipts.ts';
-import type { NativeLive } from '../providers/rocketvibe/live.ts';
+import type { NativeLive } from '../providers/vibez/live.ts';
 import { useT } from './i18n.ts';
 import { Icon } from './icon.tsx';
 import { type Colors, FONTS } from './theme.ts';

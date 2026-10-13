@@ -773,7 +773,7 @@ export class NativeChat {
     await this.transport.revokeDevice(id);
     if(this.stopped || generation!==this.generation)throw new NativeError(0,'session_closed');
   }
-  /** One administration or report call (`providers/rocketvibe/admin.ts`): run
+  /** One administration or report call (`providers/vibez/admin.ts`): run
    * on a verified session, against the server signed in, with the capability
    * it announces now, and answered only to the session generation that asked.
    * `operation` gives a fresh `operation_id` per command. */
@@ -792,7 +792,7 @@ export class NativeChat {
   bots<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {
     return this.administration('bots',call);
   }
-  /** Scheduled messages (`scheduled_messages` capability, `providers/rocketvibe/scheduled.ts`):
+  /** Scheduled messages (`scheduled_messages` capability, `providers/vibez/scheduled.ts`):
    * a verified session, the capability announced, the answer given only to the
    * session generation that asked. `operation` gives a fresh `operation_id`. */
   async scheduled<T>(call:(transport:NativeTransport,operation:()=>string)=>Promise<T>):Promise<T> {

@@ -2,14 +2,14 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {useFocusEffect,useNavigation} from 'expo-router';
 import {AppState} from 'react-native';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
-import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {CryptoConversationAccess,CryptoConversationView,CryptoMessage} from '../providers/rocketvibe/cryptoConversations.ts';
+import type {NativeChat} from '../providers/vibez/chat.ts';
+import type {CryptoConversationAccess,CryptoConversationView,CryptoMessage} from '../providers/vibez/cryptoConversations.ts';
 import type {FileOutbox,Outbox} from '../lib/provider.ts';
 import * as FS from 'expo-file-system/legacy';
 import {ValidationError} from '../lib/uploadQueue.ts';
-import {PRIVATE_FILE_MAX,sendPrivateFile} from '../providers/rocketvibe/privateFiles.ts';
+import {PRIVATE_FILE_MAX,sendPrivateFile} from '../providers/vibez/privateFiles.ts';
 import {nativeFileSender} from './nativeFiles.ts';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
 import {refreshNativeReply,invalidateNativeReply,readReply,useReply} from './reply.ts';
 import {sheetOverRoom,systemPickerOpen} from './roomCover.ts';
 /** A projected row, thread root included. */

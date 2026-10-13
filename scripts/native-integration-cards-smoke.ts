@@ -1,10 +1,10 @@
 /** Read the real server card through the mobile engine and its SQLite cache. */
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore,localMessage} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore,localMessage} from '../apps/mobile/providers/vibez/store.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {integrationCard} from '../apps/mobile/lib/integrationCards.ts';
 const base=process.env.RV_CARDS_TEST_SERVER!,room=process.env.RV_CARDS_TEST_ROOM!,id=process.env.RV_CARDS_TEST_MESSAGE!;

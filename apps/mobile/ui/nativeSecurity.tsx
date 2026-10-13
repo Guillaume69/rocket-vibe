@@ -3,12 +3,12 @@ import {ActivityIndicator,Alert,AppState,Linking,StyleSheet,Text,View} from 'rea
 import {dismissible} from './alerts.ts';
 import {useFocusEffect} from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {FactorView,PendingFactor} from '../providers/rocketvibe/factorVault.ts';
-import type {EmailView} from '../providers/rocketvibe/emailVault.ts';
-import type {FactorStatus,SecondFactor} from '../providers/rocketvibe/protocol.generated.ts';
-import type {ReauthenticationView,SecurityGuard} from '../providers/rocketvibe/reauthenticationVault.ts';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
+import type {NativeChat} from '../providers/vibez/chat.ts';
+import type {FactorView,PendingFactor} from '../providers/vibez/factorVault.ts';
+import type {EmailView} from '../providers/vibez/emailVault.ts';
+import type {FactorStatus,SecondFactor} from '../providers/vibez/protocol.generated.ts';
+import type {ReauthenticationView,SecurityGuard} from '../providers/vibez/reauthenticationVault.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
 import {nativeEmailVault,nativeFactorVault,nativeReauthenticationVault} from '../lib/nativeSecurityStore.ts';
 import {Tappable} from './tappable.tsx';
 import {useT} from './i18n.ts';

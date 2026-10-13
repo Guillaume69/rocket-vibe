@@ -2,7 +2,7 @@
 // the browser modules from those sources, never a separately maintained fork.
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { format } from "prettier";
-const source = "../mobile/providers/rocketvibe/";
+const source = "../mobile/providers/vibez/";
 const destination = "src/crypto/shared/";
 mkdirSync(destination, { recursive: true });
 const protocol = readFileSync(source + "protocol.generated.ts", "utf8");

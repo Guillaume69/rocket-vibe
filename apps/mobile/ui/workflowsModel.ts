@@ -20,8 +20,8 @@ import type {
   Trigger,
   Workflow,
   WorkflowForm,
-} from '../providers/rocketvibe/protocol.generated.ts';
-import { decodeNative } from '../providers/rocketvibe/validation.ts';
+} from '../providers/vibez/protocol.generated.ts';
+import { decodeNative } from '../providers/vibez/validation.ts';
 import type { TranslateFn, TranslationKey } from './messages.ts';
 
 export type TriggerKind = Trigger['kind'];

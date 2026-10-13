@@ -4,16 +4,16 @@ import {mkdtempSync,rmdirSync,unlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createOutboxStore} from '../apps/mobile/db/store.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import type {SQLiteDatabase} from 'expo-sqlite';
-import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
-import type {SendMessage} from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
+import type {SendMessage} from '../apps/mobile/providers/vibez/protocol.generated.ts';
 
 export async function quoteSmoke():Promise<void> {
   const base=process.env.RV_PEER_URL!,password=process.env.RV_PEER_PASSWORD!;

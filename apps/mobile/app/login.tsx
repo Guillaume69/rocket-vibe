@@ -12,11 +12,11 @@ import { discoverServer, NotMattermostError, NotRocketVibeError, type ServerKind
 import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
 import { MmError } from '../providers/mattermost/client.ts';
 import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, KCHAT_REDIRECT } from '../providers/mattermost/kchatOAuth.ts';
-import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/rocketvibe/authentication.ts';
-import type { SecondFactor } from '../providers/rocketvibe/protocol.generated.ts';
+import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/vibez/authentication.ts';
+import type { SecondFactor } from '../providers/vibez/protocol.generated.ts';
 import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
 import type { Session } from '../lib/auth.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { hash, readLastServer, listKnownServers } from '../lib/sessionStore.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
 import { useT } from '../ui/i18n.ts';

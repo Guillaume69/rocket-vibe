@@ -19,8 +19,8 @@ import { Redirect, Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {File} from 'expo-file-system';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
-import {profileIntent,nativeMyProfile,type SavedProfileOperation} from '../providers/rocketvibe/profileOperations.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
+import {profileIntent,nativeMyProfile,type SavedProfileOperation} from '../providers/vibez/profileOperations.ts';
 import {ConfirmNativeIdentity} from '../ui/nativeSecurity.tsx';
 
 import { prepareTwoFactorCode } from '../lib/auth.ts';

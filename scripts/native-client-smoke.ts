@@ -1,14 +1,14 @@
 /** Executed by a SQLx integration test against its disposable database. */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/vibez/transport.ts';
 import { createInterface } from 'node:readline';
-import { decodeNative } from '../apps/mobile/providers/rocketvibe/validation.ts';
-import type { SyncBatch } from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
+import { decodeNative } from '../apps/mobile/providers/vibez/validation.ts';
+import type { SyncBatch } from '../apps/mobile/providers/vibez/protocol.generated.ts';
 import type { Session as AppSession } from '../apps/mobile/lib/auth.ts';
-import { NativeChat } from '../apps/mobile/providers/rocketvibe/chat.ts';
-import { NativeStore } from '../apps/mobile/providers/rocketvibe/store.ts';
-import { nativeTestDatabase } from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import { NativeChat } from '../apps/mobile/providers/vibez/chat.ts';
+import { NativeStore } from '../apps/mobile/providers/vibez/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/providers/vibez/testDatabase.ts';
 import { createWriteQueue } from '../apps/mobile/db/writeQueue.ts';
 
 const base = process.env.RV_SMOKE_URL;

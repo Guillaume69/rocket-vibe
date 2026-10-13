@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
-import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {UserPreferences} from '../providers/rocketvibe/protocol.generated.ts';
-import type {SavedProfileOperation} from '../providers/rocketvibe/profileOperations.ts';
+import type {NativeChat} from '../providers/vibez/chat.ts';
+import type {UserPreferences} from '../providers/vibez/protocol.generated.ts';
+import type {SavedProfileOperation} from '../providers/vibez/profileOperations.ts';
 
 /** Keep the original revision while editing; an uncertain write remains recoverable. */
 export function useNativePreferences(chat:NativeChat|null|undefined,generation:number) {

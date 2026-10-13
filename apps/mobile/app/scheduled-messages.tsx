@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import type { ScheduledItem } from '../lib/scheduled.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { useScheduleFormatter, useT } from '../ui/i18n.ts';
 import { refreshScheduled, scheduledAvailable, scheduledReason, useScheduledList } from '../ui/scheduled.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';

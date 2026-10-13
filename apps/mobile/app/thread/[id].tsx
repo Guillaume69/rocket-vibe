@@ -10,7 +10,7 @@ import type { LocalDatabase } from '../../db/client.ts';
 import type { DraftStore } from '../../db/store.ts';
 import { messages, rooms, outbox, nativeRoomAccess, uploads } from '../../db/schema.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
-import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
+import {privateRows} from '../../providers/vibez/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
 import {Tappable} from '../../ui/tappable.tsx';

@@ -8,7 +8,7 @@
  *   `all` or `here` when there is one, else (Mattermost, kChat: no tree) a word
  *   `@<name>` of the text, the rule of the desktop's `rv_core::notify::mentions`;
  *   a word `@all` or `@here` of the text counts even beside a tree (the
- *   RocketVibe tree renders `@here` as plain text, `providers/rocketvibe/markdown.ts`);
+ *   RocketVibe tree renders `@here` as plain text, `providers/vibez/markdown.ts`);
  * - **reply**: someone else's thread reply, in a thread I take part in (I wrote
  *   its root, I replied there, or I follow it on Rocket.Chat);
  * - **reaction**: my message others reacted to, with who and which emojis.

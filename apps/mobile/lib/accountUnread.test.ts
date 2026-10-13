@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from './accountUnread.ts';
-import type { Room } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Room } from '../providers/vibez/protocol.generated.ts';
 
 test('a Rocket.Chat account is unread like the desktop room list', () => {
   assert.equal(subscriptionsUnread({ update: [] }), false);

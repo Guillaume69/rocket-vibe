@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, Text, View } from 'react-native';
-import { emailRecoveryExpired, emailRecoveryRetryAfter, emailRecoveryScope, type EmailRecoveryIntent } from '../providers/rocketvibe/emailRecoveryVault.ts';
-import type { Discovery } from '../providers/rocketvibe/protocol.generated.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { emailRecoveryExpired, emailRecoveryRetryAfter, emailRecoveryScope, type EmailRecoveryIntent } from '../providers/vibez/emailRecoveryVault.ts';
+import type { Discovery } from '../providers/vibez/protocol.generated.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { nativeEmailRecoveryVault } from '../lib/nativeAuthenticationStore.ts';
 import { useT } from './i18n.ts';
 import { useColors } from './theme.ts';

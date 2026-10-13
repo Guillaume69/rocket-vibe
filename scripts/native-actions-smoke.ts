@@ -1,10 +1,10 @@
 /** Actual mobile SQLite projections consume native action journal events. */
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
-import { NativeChat } from '../apps/mobile/providers/rocketvibe/chat.ts';
-import { NativeStore } from '../apps/mobile/providers/rocketvibe/store.ts';
-import { nativeTestDatabase } from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import { NativeTransport } from '../apps/mobile/providers/vibez/transport.ts';
+import { NativeChat } from '../apps/mobile/providers/vibez/chat.ts';
+import { NativeStore } from '../apps/mobile/providers/vibez/store.ts';
+import { nativeTestDatabase } from '../apps/mobile/providers/vibez/testDatabase.ts';
 import { createWriteQueue } from '../apps/mobile/db/writeQueue.ts';
 import type { Session } from '../apps/mobile/lib/auth.ts';
 const base=process.env.RV_SMOKE_URL;

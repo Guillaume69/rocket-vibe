@@ -1,7 +1,7 @@
 /** Native discovery first; a positively identified native server never falls back to RC. */
 import { normalizeUrl, probeServer, type ServerProfile as BaseServerProfile } from './server.ts';
-import { NativeTransport } from '../providers/rocketvibe/transport.ts';
-import type { Discovery } from '../providers/rocketvibe/protocol.generated.ts';
+import { NativeTransport } from '../providers/vibez/transport.ts';
+import type { Discovery } from '../providers/vibez/protocol.generated.ts';
 import { isKchatHost, probeMattermost } from '../providers/mattermost/auth.ts';
 /** `mattermost`: a Mattermost or kChat server, signed in through its own flow. */
 export type ServerProfile = BaseServerProfile & { native?: Discovery; mattermost?: { kind: 'mattermost' | 'kchat' } };

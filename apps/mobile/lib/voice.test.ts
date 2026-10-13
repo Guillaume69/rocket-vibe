@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { mock, test } from 'node:test';
 
 import type { VoiceSnapshot } from '../modules/voice/index.ts';
-import type { VoiceKey } from '../providers/rocketvibe/cryptoGroups.ts';
-import type { VoiceGrant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
+import type { VoiceKey } from '../providers/vibez/cryptoGroups.ts';
+import type { VoiceGrant, VoiceRing } from '../providers/vibez/protocol.generated.ts';
 import { DIRECT_GRACE_MS, SAVE_DELAY_MS, VoiceController, readListening, type ListeningStore, type VoiceEngine, type VoiceServer } from './voice.ts';
 
 const user = (id: string) => ({ id, username: id, display_name: id });

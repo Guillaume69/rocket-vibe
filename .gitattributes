@@ -5,7 +5,7 @@ crates/rv-crypto-public/fixtures/*.json text eol=lf
 docs/protocol/*.json text eol=lf
 docs/protocol/*.md text eol=lf
 crates/rv-protocol/data/emoji-aliases.json text eol=lf
-apps/mobile/providers/rocketvibe/*.generated.ts text eol=lf
+apps/mobile/providers/vibez/*.generated.ts text eol=lf
 apps/desktop/macos/scripts/*.sh text eol=lf
 apps/web/** text eol=lf
 apps/web/**/*.ttf -text

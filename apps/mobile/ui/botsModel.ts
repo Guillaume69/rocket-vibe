@@ -7,7 +7,7 @@
  * Loadable by plain Node, tested in `ui/botsModel.test.ts`.
  */
 
-import type { Bot, BotReference, BotRoute, BotScope, UpdateBot } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Bot, BotReference, BotRoute, BotScope, UpdateBot } from '../providers/vibez/protocol.generated.ts';
 import type { TranslationKey } from './messages.ts';
 
 /** Every scope, in the order of `BotScope::ALL` (`crates/rv-protocol/src/bots.rs`). */

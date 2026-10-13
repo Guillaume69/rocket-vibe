@@ -10,8 +10,8 @@ import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
-import { createRocketVibeProvider } from './rocketvibe/index.ts';
-import type { NativeStore } from './rocketvibe/store.ts';
+import { createRocketVibeProvider } from './vibez/index.ts';
+import type { NativeStore } from './vibez/store.ts';
 
 export function createProvider(
   session: Session,

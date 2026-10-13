@@ -5,8 +5,8 @@
  *
  * Node-pure: the engine and the server are injected, the tests drive both.
  */
-import type { VoiceKey } from '../providers/rocketvibe/cryptoGroups.ts';
-import type { VoiceGrant, VoiceRing } from '../providers/rocketvibe/protocol.generated.ts';
+import type { VoiceKey } from '../providers/vibez/cryptoGroups.ts';
+import type { VoiceGrant, VoiceRing } from '../providers/vibez/protocol.generated.ts';
 import type { VoiceMember, VoiceRoute, VoiceSnapshot } from '../modules/voice/index.ts';
 
 export type VoiceEngine = {

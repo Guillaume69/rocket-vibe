@@ -7,7 +7,7 @@
  * with `quietNow` (`lib/quiet.ts`).
  *
  * Each save sends ONLY the field it changes (`preferencesInput`,
- * providers/rocketvibe/profileOperations.ts): the other one stays absent, so
+ * providers/vibez/profileOperations.ts): the other one stays absent, so
  * the server keeps it. No modal: chips, a native switch and two text fields.
  */
 import { useEffect, useState } from 'react';

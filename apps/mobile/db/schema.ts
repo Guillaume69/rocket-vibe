@@ -155,7 +155,7 @@ export const messages = sqliteTable(
     /**
      * The author is a bot account (RocketVibe, RFC 0003): the row shows a
      * "BOT" badge after the name. Written by the native store only, after its
-     * upsert (`providers/rocketvibe/store.ts`); always false on Rocket.Chat.
+     * upsert (`providers/vibez/store.ts`); always false on Rocket.Chat.
      */
     authorBot: integer('author_bot', { mode: 'boolean' }).notNull().default(false),
     /**

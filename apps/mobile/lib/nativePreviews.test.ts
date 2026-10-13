@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {RestClient} from './rest.ts';
 import type {Provider} from './provider.ts';
-import type {PreviewAccess} from '../providers/rocketvibe/linkPreviews.ts';
+import type {PreviewAccess} from '../providers/vibez/linkPreviews.ts';
 import {subscribeNativePreview,loadNativePreview,exportNativePreview,mountNativePreviews,nativePreviewPhoto,nativePreviewUri} from './nativePreviews.ts';
 
 const file='a'.repeat(64),png:Uint8Array=new Uint8Array([137,80,78,71]);

@@ -2,17 +2,17 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
-import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {mountProviderProfiles} from '../apps/mobile/lib/providerProfiles.ts';
 import {setProfileClient,setProfileNavigator,readPreloadedProfile,openProfileCard} from '../apps/mobile/lib/profilePreload.ts';
 import {loadNativeAvatar,nativeAvatarPhoto} from '../apps/mobile/lib/nativeAvatars.ts';
 import {avatarUrl} from '../apps/mobile/lib/upload.ts';
-import {nativeMyProfile} from '../apps/mobile/providers/rocketvibe/profileOperations.ts';
+import {nativeMyProfile} from '../apps/mobile/providers/vibez/profileOperations.ts';
 
 const base=process.env.RV_SMOKE_URL!,password='profiles-test-password',png=readFileSync(process.env.RV_PROFILE_PNG!);
 assert(base);

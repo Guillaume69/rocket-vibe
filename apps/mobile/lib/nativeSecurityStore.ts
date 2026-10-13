@@ -1,8 +1,8 @@
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import {FactorVault} from '../providers/rocketvibe/factorVault.ts';
-import {EmailVault} from '../providers/rocketvibe/emailVault.ts';
-import {ReauthenticationVault} from '../providers/rocketvibe/reauthenticationVault.ts';
+import {FactorVault} from '../providers/vibez/factorVault.ts';
+import {EmailVault} from '../providers/vibez/emailVault.ts';
+import {ReauthenticationVault} from '../providers/vibez/reauthenticationVault.ts';
 import {hash} from './sessionStore.ts';
 
 const dependencies={hash:hash,

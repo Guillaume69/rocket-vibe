@@ -20,8 +20,8 @@ import { dismissible } from '../ui/alerts.ts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
-import { nativeReactions } from '../providers/rocketvibe/store.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { nativeReactions } from '../providers/vibez/store.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
 import {
   possibleActions,
@@ -67,9 +67,9 @@ import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
 import { Icon, type IconName } from '../ui/icon.tsx';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
-import type {CryptoConversationAccess} from '../providers/rocketvibe/cryptoConversations.ts';
-import {privateRow} from '../providers/rocketvibe/cryptoProjection.ts';
-import type {NativeChat} from '../providers/rocketvibe/chat.ts';
+import type {CryptoConversationAccess} from '../providers/vibez/cryptoConversations.ts';
+import {privateRow} from '../providers/vibez/cryptoProjection.ts';
+import type {NativeChat} from '../providers/vibez/chat.ts';
 
 /**
  * Message actions sheet (8.2), `presentation: 'formSheet'` declared in

@@ -18,7 +18,7 @@ import { serverIconUri } from '../lib/serverIcon.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
 import { listKnownServers, prepareNativeSession, readSession } from '../lib/sessionStore.ts';
 import { clientForSession } from '../lib/sessionTransport.ts';
-import { transportFor } from '../providers/rocketvibe/auth.ts';
+import { transportFor } from '../providers/vibez/auth.ts';
 import { useServerAdmin } from './adminAccess.ts';
 import { useT } from './i18n.ts';
 import { AvatarTile } from './kit.tsx';

@@ -30,7 +30,7 @@
 
 import { isWebLink } from './externalLink.ts';
 import { isVideoLink, videoId } from './videoLinks.ts';
-import {linkPreview} from '../providers/rocketvibe/linkPreviews.ts';
+import {linkPreview} from '../providers/vibez/linkPreviews.ts';
 
 export type LinkPreview =
   | { type: 'image'; url: string }

@@ -1,9 +1,9 @@
 // Real native HTTP -> SQLite -> existing mobile presentation. Disposable accounts.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 const owner=new NativeTransport(process.env.RV_ROOM_PEER_URL!),reader=new NativeTransport(process.env.RV_ROOM_PEER_URL!);
 await owner.login('read-owner','read-test-password-2026');

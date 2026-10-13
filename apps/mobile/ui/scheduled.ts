@@ -14,7 +14,7 @@ import { AppState } from 'react-native';
 
 import type { Provider } from '../lib/provider.ts';
 import type { ScheduledItem } from '../lib/scheduled.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import type { TranslateFn, TranslationKey } from './messages.ts';
 
 /** The provider offers scheduling: the server announces it and the driver has it. */

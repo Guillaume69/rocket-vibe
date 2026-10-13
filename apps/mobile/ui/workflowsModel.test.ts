@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 
-import type { Step, Trigger, Workflow, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
+import type { Step, Trigger, Workflow, WorkflowForm } from '../providers/vibez/protocol.generated.ts';
 import { translate, type TranslateFn } from './messages.ts';
 import {
   answerInput,

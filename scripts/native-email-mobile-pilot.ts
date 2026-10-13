@@ -1,14 +1,14 @@
 /** In-process PostgreSQL/HTTP/SMTP fixture only; no production mail or account. */
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
-import {NativeError,NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {EmailVault} from '../apps/mobile/providers/rocketvibe/emailVault.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
+import {NativeError,NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {EmailVault} from '../apps/mobile/providers/vibez/emailVault.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
-import type {RemoveVerifiedEmail} from '../apps/mobile/providers/rocketvibe/protocol.generated.ts';
+import type {RemoveVerifiedEmail} from '../apps/mobile/providers/vibez/protocol.generated.ts';
 
 let phase='initialization';
 async function main(){

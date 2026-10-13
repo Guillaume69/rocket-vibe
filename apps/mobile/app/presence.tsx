@@ -6,7 +6,7 @@ import {
   saveStatus,
   type DefaultStatus,
 } from '../lib/myProfile.ts';
-import { nativeMyProfile } from '../providers/rocketvibe/profileOperations.ts';
+import { nativeMyProfile } from '../providers/vibez/profileOperations.ts';
 import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { useT } from '../ui/i18n.ts';

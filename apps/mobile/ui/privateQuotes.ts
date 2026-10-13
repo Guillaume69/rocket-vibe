@@ -2,9 +2,9 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {useFocusEffect} from 'expo-router';
 import {AppState} from 'react-native';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
-import type {NativeChat} from '../providers/rocketvibe/chat.ts';
-import type {NativeQuoteAttachment,NativeQuoteSelection} from '../providers/rocketvibe/quotes.ts';
-import {quoteRows,overlayQuoteRows,type CryptoQuoteReader} from '../providers/rocketvibe/cryptoQuoteReader.ts';
+import type {NativeChat} from '../providers/vibez/chat.ts';
+import type {NativeQuoteAttachment,NativeQuoteSelection} from '../providers/vibez/quotes.ts';
+import {quoteRows,overlayQuoteRows,type CryptoQuoteReader} from '../providers/vibez/cryptoQuoteReader.ts';
 import {refreshPrivateReply,invalidateNativeReply,readReply,useReply} from './reply.ts';
 
 /** Only the final render gets decrypted quote cards. The ordinary cache,

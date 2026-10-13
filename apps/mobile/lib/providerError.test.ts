@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { describeProviderError } from './providerError.ts';
 import { TwoFactorError, RestError } from './rest.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 
 test('provider diagnostics preserve native request identity and retry delay', () => {
   const error = describeProviderError(new NativeError(429,'ticket_limit',30,'request-id'),true);

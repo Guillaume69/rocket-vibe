@@ -21,7 +21,7 @@
 
 import * as Crypto from 'expo-crypto';
 import { forgetAuthorizedMedia } from './authorizedMedia.ts';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
 import {mountProviderProfiles} from '../lib/providerProfiles.ts';
 import {VoiceNative} from '../modules/voice/index.ts';
 import {mountProviderCalls} from '../lib/providerCalls.ts';
@@ -32,7 +32,7 @@ import {mountNativePreviews} from '../lib/nativePreviews.ts';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { afterSystemPicker } from './roomCover.ts';
 import { AppState, Platform } from 'react-native';
-import {registerNativePush} from '../providers/rocketvibe/push.ts';
+import {registerNativePush} from '../providers/vibez/push.ts';
 
 import type { LocalDatabase } from '../db/client.ts';
 import { openDatabase } from '../db/client.ts';
@@ -97,7 +97,7 @@ import { createOpenRoomsStack } from './openRooms.ts';
 import { encryptLocalFile, hashedName } from './fileEncryption.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
 import { transportExpo } from './transportUpload.ts';
-import { NativeStore } from '../providers/rocketvibe/store.ts';
+import { NativeStore } from '../providers/vibez/store.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
 import * as FS from 'expo-file-system/legacy';
 import { setNativeFiles } from '../lib/nativeFiles.ts';
@@ -297,7 +297,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       setSync({phase:'preparing'});
       let alive = true;
       let stop: (() => void) | undefined;
-      let runner: import('../providers/rocketvibe/chat.ts').NativeChat | undefined;
+      let runner: import('../providers/vibez/chat.ts').NativeChat | undefined;
       let unmountUsage = (): void => {};
       const appState = AppState.addEventListener('change',state => {
         if (state === 'active') {runner?.resume();return;}

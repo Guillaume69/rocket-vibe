@@ -3,8 +3,8 @@ import { Animated, Image, Pressable, Text, View, StyleSheet } from 'react-native
 import { useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { File, Directory, Paths } from 'expo-file-system';
-import type { SocialCard, Sticker } from '../providers/rocketvibe/protocol.generated.ts';
-import { decodeNative } from '../providers/rocketvibe/validation.ts';
+import type { SocialCard, Sticker } from '../providers/vibez/protocol.generated.ts';
+import { decodeNative } from '../providers/vibez/validation.ts';
 import { imageLink } from '../lib/giphy.ts';
 import { useLanguage } from './i18n.ts';
 import {translate} from './messages.ts';

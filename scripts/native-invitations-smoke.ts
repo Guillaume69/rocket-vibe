@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
-import {nativeRegister,nativeRecover} from '../apps/mobile/providers/rocketvibe/auth.ts';
-import {NativeTransport,NativeError} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {nativeRegister,nativeRecover} from '../apps/mobile/providers/vibez/auth.ts';
+import {NativeTransport,NativeError} from '../apps/mobile/providers/vibez/transport.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 export async function invitationSmoke():Promise<void> {
   const path=process.env.RV_NATIVE_INVITATION_FILE;if(!path)return;

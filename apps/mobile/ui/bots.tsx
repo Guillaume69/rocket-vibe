@@ -19,9 +19,9 @@ import { File } from 'expo-file-system';
 import { ActivityIndicator, Alert, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { dismissible } from './alerts.ts';
-import type { NativeChat } from '../providers/rocketvibe/chat.ts';
-import type { Bot, BotKey, BotKeyCreated, BotReference, BotScope } from '../providers/rocketvibe/protocol.generated.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import type { NativeChat } from '../providers/vibez/chat.ts';
+import type { Bot, BotKey, BotKeyCreated, BotReference, BotScope } from '../providers/vibez/protocol.generated.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { useSync } from './sync.tsx';
 import { useT } from './i18n.ts';
 import { Tappable } from './tappable.tsx';
@@ -49,7 +49,7 @@ export function BotsSection({ c, client, baseUrl }: { c: Colors; client: RestCli
   return chat && hasBots(chat) ? <Bots key={providerKey(chat)} c={c} chat={chat} client={client} baseUrl={baseUrl} /> : null;
 }
 
-/** A bot's photo, drawn like any native avatar: its file, `none` without one (`providers/rocketvibe/admin.ts`). */
+/** A bot's photo, drawn like any native avatar: its file, `none` without one (`providers/vibez/admin.ts`). */
 function botPhoto(client: RestClient, bot: Bot): string | null {
   return avatarUrl(client, { username: bot.user.username, etag: bot.avatar_file_id ?? 'none' });
 }

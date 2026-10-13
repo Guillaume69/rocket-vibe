@@ -1,11 +1,11 @@
 /** Disposable PostgreSQL fixture only. Never logs provisioning or bearer codes. */
 import assert from 'node:assert/strict';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
-import { NativeError, NativeTransport } from '../apps/mobile/providers/rocketvibe/transport.ts';
-import { startNativeLogin } from '../apps/mobile/providers/rocketvibe/authentication.ts';
-import { AuthenticationVault } from '../apps/mobile/providers/rocketvibe/authenticationVault.ts';
-import {FactorVault,type FactorRemote} from '../apps/mobile/providers/rocketvibe/factorVault.ts';
-import {ReauthenticationVault,type SecurityScope} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
+import { NativeError, NativeTransport } from '../apps/mobile/providers/vibez/transport.ts';
+import { startNativeLogin } from '../apps/mobile/providers/vibez/authentication.ts';
+import { AuthenticationVault } from '../apps/mobile/providers/vibez/authenticationVault.ts';
+import {FactorVault,type FactorRemote} from '../apps/mobile/providers/vibez/factorVault.ts';
+import {ReauthenticationVault,type SecurityScope} from '../apps/mobile/providers/vibez/reauthenticationVault.ts';
 
 const base=process.argv[2];
 if (!base || !/^http:\/\/127\.0\.0\.1:\d+$/.test(base)) throw new Error('Requires the local disposable SQLx server');

@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 
 import { CryptoNative } from '../modules/crypto-native/index.ts';
-import type { CryptoConversationAccess } from '../providers/rocketvibe/cryptoConversations.ts';
-import { privateRow } from '../providers/rocketvibe/cryptoProjection.ts';
+import type { CryptoConversationAccess } from '../providers/vibez/cryptoConversations.ts';
+import { privateRow } from '../providers/vibez/cryptoProjection.ts';
 import type { LocalMessage } from '../lib/normalize.ts';
 import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';

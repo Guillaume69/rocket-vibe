@@ -3,11 +3,11 @@ import {fetch as expoFetch} from 'expo/fetch';
 import {File} from 'expo-file-system';
 import * as FS from 'expo-file-system/legacy';
 import {FileTransfer} from '../modules/file-transfer/index.ts';
-import {FILE_MAX} from '../providers/rocketvibe/fileDescriptors.ts';
-import {NativeError} from '../providers/rocketvibe/transport.ts';
-import type {NativeFileIO,NativeFileSender} from '../providers/rocketvibe/uploads.ts';
+import {FILE_MAX} from '../providers/vibez/fileDescriptors.ts';
+import {NativeError} from '../providers/vibez/transport.ts';
+import type {NativeFileIO,NativeFileSender} from '../providers/vibez/uploads.ts';
 import {CryptoNative} from '../modules/crypto-native/index.ts';
-import {objectSize} from '../providers/rocketvibe/privateFiles.ts';
+import {objectSize} from '../providers/vibez/privateFiles.ts';
 import type {Provider} from '../lib/provider.ts';
 import type {RestClient} from '../lib/rest.ts';
 import {setNativeFiles} from '../lib/nativeFiles.ts';
@@ -82,7 +82,7 @@ export function mountNativeFiles(client:RestClient,provider:Provider):()=>void {
   });
   // An encrypted file (E2EE_FILES.md): its opaque object, then opened in Rust
   // into the same private cache; it stays readable while a view shows it.
-  const openPrivate=async(id:string,shown:{room:string;file:import('../providers/rocketvibe/protocol.generated.ts').EncryptedFile},progress?:(fraction:number)=>void):Promise<string>=>{
+  const openPrivate=async(id:string,shown:{room:string;file:import('../providers/vibez/protocol.generated.ts').EncryptedFile},progress?:(fraction:number)=>void):Promise<string>=>{
     if(!CryptoNative)throw new NativeError(501,'crypto_unavailable');
     const membership=(await chat.store.cryptoRoomAccess(shown.room))?.membership;if(!membership)throw new NativeError(403,'file_access_denied');
     const scope=await chat.fileScope(shown.room,membership),stamp=revision;

@@ -39,7 +39,7 @@ import type { RestClient } from '../../lib/rest.ts';
 import { TypingEngine, summarizeTyping } from '../../lib/typing.ts';
 import { useDraft } from '../../ui/drafts.ts';
 import {useEncryptedConversation,privateRow,privateInterrupted} from '../../ui/encryptedConversation.ts';
-import {privateRows} from '../../providers/rocketvibe/cryptoProjection.ts';
+import {privateRows} from '../../providers/vibez/cryptoProjection.ts';
 import {usePrivateQuotes} from '../../ui/privateQuotes.ts';
 import {CryptoNative} from '../../modules/crypto-native/index.ts';
 import {RoomMembershipBound} from '../../ui/roomMembership.tsx';

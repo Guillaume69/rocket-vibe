@@ -1,7 +1,7 @@
 import { applySession, resumeSession as resumeRocketChatSession, logOut, type Session } from './auth.ts';
 import { RestClient, isTokenRejected } from './rest.ts';
-import { checkIdentity, resumeNative, transportFor } from '../providers/rocketvibe/auth.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import { checkIdentity, resumeNative, transportFor } from '../providers/vibez/auth.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { MmError } from '../providers/mattermost/client.ts';
 import { logoutMattermost, resumeMattermost } from '../providers/mattermost/auth.ts';
 

@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 
 import { type TranslateFn, translate } from '../ui/messages.ts';
 import { callDuration, systemPreview, systemText } from './systemMessages.ts';
-import { nativeSystemMessage } from '../providers/rocketvibe/systemMessages.ts';
+import { nativeSystemMessage } from '../providers/vibez/systemMessages.ts';
 
 /** Real French translator: the REAL sentences are tested, not a stub. */
 const t: TranslateFn = (key, params) => translate('fr', key, params);

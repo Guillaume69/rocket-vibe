@@ -1,11 +1,11 @@
 // Actual mobile HTTP transport against a disposable PostgreSQL server.
 import assert from 'node:assert/strict';
-import {NativeTransport} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/rocketvibe/index.ts';
+import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {ObservedRead} from '../apps/mobile/ui/observedRead.ts';
 const base=process.env.RV_ROOM_PEER_URL!,room=process.env.RV_ROOM_PEER_ROOM!;

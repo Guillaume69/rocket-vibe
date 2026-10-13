@@ -16,9 +16,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { messages } from '../db/schema.ts';
-import type { NativeChat } from '../providers/rocketvibe/chat.ts';
-import type { FormField, User, WorkflowForm } from '../providers/rocketvibe/protocol.generated.ts';
-import { NativeError } from '../providers/rocketvibe/transport.ts';
+import type { NativeChat } from '../providers/vibez/chat.ts';
+import type { FormField, User, WorkflowForm } from '../providers/vibez/protocol.generated.ts';
+import { NativeError } from '../providers/vibez/transport.ts';
 import { useT } from '../ui/i18n.ts';
 import type { TranslationKey } from '../ui/messages.ts';
 import { useSession } from '../ui/session.tsx';

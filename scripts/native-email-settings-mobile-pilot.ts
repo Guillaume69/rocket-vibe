@@ -3,12 +3,12 @@
 import assert from 'node:assert/strict';
 import {createHash,randomBytes} from 'node:crypto';
 import {readFile,writeFile,mkdir,unlink} from 'node:fs/promises';
-import {NativeTransport,NativeError} from '../apps/mobile/providers/rocketvibe/transport.ts';
-import {NativeChat} from '../apps/mobile/providers/rocketvibe/chat.ts';
-import {NativeStore} from '../apps/mobile/providers/rocketvibe/store.ts';
-import {FactorVault} from '../apps/mobile/providers/rocketvibe/factorVault.ts';
-import {ReauthenticationVault} from '../apps/mobile/providers/rocketvibe/reauthenticationVault.ts';
-import {nativeTestDatabase} from '../apps/mobile/providers/rocketvibe/testDatabase.ts';
+import {NativeTransport,NativeError} from '../apps/mobile/providers/vibez/transport.ts';
+import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
+import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
+import {FactorVault} from '../apps/mobile/providers/vibez/factorVault.ts';
+import {ReauthenticationVault} from '../apps/mobile/providers/vibez/reauthenticationVault.ts';
+import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
 const directory='/pilot-invitations/mobile-email-settings',base='http://factor-proxy:3401',token=()=>randomBytes(32).toString('hex');

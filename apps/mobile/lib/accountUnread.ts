@@ -4,8 +4,8 @@
  * cheap read per account, tested under Node; the reads themselves live in the
  * rail, which owns the Keystore.
  */
-import type { Room } from '../providers/rocketvibe/protocol.generated.ts';
-import { readBadges } from '../providers/rocketvibe/readStates.ts';
+import type { Room } from '../providers/vibez/protocol.generated.ts';
+import { readBadges } from '../providers/vibez/readStates.ts';
 
 /** `subscriptions.get` read like the desktop: an open subscription with unread messages or an alert. */
 export function subscriptionsUnread(response: unknown): boolean {

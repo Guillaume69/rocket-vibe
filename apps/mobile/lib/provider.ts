@@ -347,7 +347,7 @@ export interface Outbox {
     text: string,
     threadId?: string | null,
     localAttachments?: string | null,
-    quotes?: readonly import('../providers/rocketvibe/quotes.ts').NativeQuoteSelection[],
+    quotes?: readonly import('../providers/vibez/quotes.ts').NativeQuoteSelection[],
     /** A thread reply also posted to the room (`Capabilities.alsoInRoom`). */
     alsoInRoom?: boolean,
   ): Promise<string>;
@@ -391,7 +391,7 @@ export interface Provider {
   readonly identity: ProviderIdentity;
   describeError(error: unknown, authenticated: boolean): ProviderError;
   readonly messageOrder?: 'sequence';
-  readonly native?: { chat: import('../providers/rocketvibe/chat.ts').NativeChat; store: import('../providers/rocketvibe/store.ts').NativeStore };
+  readonly native?: { chat: import('../providers/vibez/chat.ts').NativeChat; store: import('../providers/vibez/store.ts').NativeStore };
   readonly capabilities: Capabilities;
   /** Temporary results, normalised for the existing renderer. */
   searchMessages?(rid:string,text:string):Promise<LocalMessage[]>;
@@ -495,7 +495,7 @@ export interface Provider {
      * on a lost `mediaConfirm`).
      */
     hooks?: {
-      nativeFiles?:import('../providers/rocketvibe/uploads.ts').NativeFileIO;
+      nativeFiles?:import('../providers/vibez/uploads.ts').NativeFileIO;
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
       /** Sending into an encrypted room: without it, a file waits there forever. */

@@ -34,7 +34,7 @@ export type ReplyTarget = {
   localAttachment: string;
   /** (Relative) URL of the quoted message's first image: the banner thumbnail. */
   previewImage: string | null;
-  native?: import('../providers/rocketvibe/quotes.ts').NativeQuoteSelection;
+  native?: import('../providers/vibez/quotes.ts').NativeQuoteSelection;
   nativeUnavailable?: boolean;
 };
 

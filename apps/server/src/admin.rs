@@ -321,7 +321,7 @@ pub(crate) async fn admit_with(
     if administration {
         require_admin(actor)?;
     }
-    sqlx::query("SELECT set_config('rocketvibe.operator_actor',$1,true),set_config('rocketvibe.operator_operation',$2,true)")
+    sqlx::query("SELECT set_config('vibez.operator_actor',$1,true),set_config('vibez.operator_operation',$2,true)")
         .bind(&actor.id)
         .bind(operation)
         .execute(&mut *tx)
@@ -488,7 +488,7 @@ pub(crate) async fn tombstone(
         "DELETE FROM factor_backup_codes WHERE user_id=$1",
         "DELETE FROM account_emails WHERE user_id=$1",
         "UPDATE account_recovery_codes SET revoked_at=clock_timestamp() WHERE user_id=$1 AND revoked_at IS NULL AND consumed_at IS NULL",
-        "UPDATE user_reports SET closed_at=clock_timestamp(),closed_by=current_setting('rocketvibe.operator_actor',true),resolution='deleted' WHERE user_id=$1 AND closed_at IS NULL",
+        "UPDATE user_reports SET closed_at=clock_timestamp(),closed_by=current_setting('vibez.operator_actor',true),resolution='deleted' WHERE user_id=$1 AND closed_at IS NULL",
         // Pending e-mail recovery keeps only its opaque no-op receipt, as for a removed account.
         "UPDATE email_recovery_outbox SET payload_cipher=NULL,lease_id=NULL,lease_expires_at=NULL WHERE request_hash IN (SELECT operation_hash FROM email_recovery_requests WHERE user_id=$1)",
         "UPDATE email_recovery_requests SET user_id=NULL,activation_version=NULL,email_version=NULL,address=NULL,token_hash=NULL WHERE user_id=$1",

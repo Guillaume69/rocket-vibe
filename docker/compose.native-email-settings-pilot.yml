@@ -20,7 +20,7 @@ services:
       RV_NATIVE_EMAIL_SETTINGS_PASSWORD: native-pilot-test-password
     command: [bash, macos/scripts/native-email-settings-smoke.sh]
   email-settings-mobile:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src', 'pilot-invitations:/pilot-invitations']
     command: [bash, -ec, 'for phase in enable resume-disable resume-disabled; do RV_EMAIL_SETTINGS_PHASE=$$phase node scripts/native-email-settings-mobile-pilot.ts; done']

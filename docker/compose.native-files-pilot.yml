@@ -1,5 +1,5 @@
 # Disposable file bench, using the current binaries; no host ports or real account.
-name: rocketvibe-files-pilot
+name: vibez-files-pilot
 services:
   postgres:
     image: postgres:18-alpine
@@ -14,24 +14,24 @@ services:
       timeout: 3s
       retries: 30
   bootstrap:
-    image: rocketvibe-native-server
+    image: vibez-native-server
     working_dir: /src
     volumes: ['..:/src:ro']
     environment:
       DATABASE_URL: postgres://files:disposable-native-files-password@postgres/files
-      RV_USER_PASSWORD: disposable-native-files-password
+      VIBEZ_USER_PASSWORD: disposable-native-files-password
     entrypoint: [/bin/sh, -ec]
     command: ['vibez create-user desktop-files && vibez create-user files-outsider']
     depends_on:
       postgres: {condition: service_healthy}
   server:
-    image: rocketvibe-native-server
+    image: vibez-native-server
     working_dir: /src
     volumes: ['..:/src:ro']
     environment:
       DATABASE_URL: postgres://files:disposable-native-files-password@postgres/files
-      RV_BIND: 0.0.0.0:3400
-      RV_OBJECTS_DIR: /tmp/native-files-objects
+      VIBEZ_BIND: 0.0.0.0:3400
+      VIBEZ_OBJECTS_DIR: /tmp/native-files-objects
     command: [serve]
     depends_on:
       bootstrap: {condition: service_completed_successfully}
@@ -45,7 +45,7 @@ services:
     command: [target/debug/examples/native-files-smoke]
     depends_on: [server]
   mobile-emojis:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src:ro']
     environment:

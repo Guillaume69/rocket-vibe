@@ -122,7 +122,7 @@ presence does not declare the corresponding endpoints available.
 | GET / upgrade | `/sync/socket?ticket=…&cursor=…` | Same `SyncBatch` format, replay then follow |
 
 Account creation is invitation-only, through an operator code or an administrator-created code; there is no open registration.
-The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false. `e2ee` is true by default since 6 October 2026 ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)); an operator turns it off with `RV_E2EE=false`.
+The [`threads`](THREADS.md) capability is enabled; `uploads`, `push`, `e2ee`, `calls` stay false. `e2ee` is true by default since 6 October 2026 ([RFC 0002, Activation](../rfcs/0002-e2ee-native.md#activation-6-october-2026)); an operator turns it off with `VIBEZ_E2EE=false`.
 `reactions` advertises explicit additions / removals, available in the three clients.
 `room_discovery` advertises the directory and joining; `idempotent_room_creation`
 advertises the creation receipts. Their handlers are available in the three clients.

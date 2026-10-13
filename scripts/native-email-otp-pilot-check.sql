@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 DO $$ DECLARE account text;
-  fixture text:=coalesce(nullif(current_setting('rocketvibe.pilot_otp_user',true),''),'gtk-email');
+  fixture text:=coalesce(nullif(current_setting('vibez.pilot_otp_user',true),''),'gtk-email');
 BEGIN
   IF fixture NOT IN ('gtk-email','swift-email') THEN RAISE EXCEPTION 'Requires the disposable desktop OTP fixture'; END IF;
   SELECT id INTO STRICT account FROM users WHERE username=fixture;

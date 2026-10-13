@@ -38,7 +38,7 @@ three clients. Presence, threads, search, profiles, settings and protected avata
 use their existing screens.
 The [Android notifications](../../docs/protocol/PUSH.md) use a durable queue,
 FCM HTTP v1 and private retrieval of the content in the existing mobile plugin.
-The operator service account is configured with `RV_FCM_CONFIG_FILE`; without this
+The operator service account is configured with `VIBEZ_FCM_CONFIG_FILE`; without this
 file, push stays disabled. Firebase / phone qualification is still open.
 [Operator administration](../../docs/protocol/ADMINISTRATION.md) provides
 accounts / rights / deactivation, rooms / members / settings, command receipts,
@@ -86,7 +86,7 @@ On a dedicated server, behind a domain in HTTPS and with voice: see
 From the repository root, with Docker Desktop / Docker Engine running:
 
 1. Copy `docker/.env.native.example` to `docker/.env.native`.
-2. Set `RV_DATABASE_PASSWORD` to a random password. Use URL-compatible
+2. Set `VIBEZ_DATABASE_PASSWORD` to a random password. Use URL-compatible
    characters, for example random bytes encoded in hexadecimal.
 3. Start:
 
@@ -96,13 +96,13 @@ docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml up
 
 The server listens on `http://127.0.0.1:3400`. Native end-to-end encryption is on:
 the server advertises the `e2ee` capability and the apps show their encryption
-settings. To run an instance without it, add `RV_E2EE=false` to
+settings. To run an instance without it, add `VIBEZ_E2EE=false` to
 `docker/.env.native`. It was activated before its independent review, by decision
 ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026),
 [internal review](../../docs/protocol/E2EE_REVIEW.md)). PostgreSQL has no port published on
 the host. This Compose file and its volumes are separate from the Rocket.Chat bench.
 
-Behind a reverse proxy, `RV_TRUSTED_PROXIES` (comma-separated addresses or CIDR
+Behind a reverse proxy, `VIBEZ_TRUSTED_PROXIES` (comma-separated addresses or CIDR
 ranges) lists the peers whose `X-Forwarded-For` names the client: the per-address
 login, invitation, recovery and mail limits key on that client
 (`src/client_address.rs`). Empty, the default outside Compose, trusts nobody. The
@@ -110,11 +110,11 @@ Compose file trusts loopback and the private ranges, since the API is published 
 `127.0.0.1` only and Docker's gateway is the proxy's address inside the container.
 
 Create an account with a password of at least 12 bytes supplied by the
-environment variable `RV_USER_PASSWORD`; the value does not go through the arguments:
+environment variable `VIBEZ_USER_PASSWORD`; the value does not go through the arguments:
 
 ```sh
-# Set RV_USER_PASSWORD in the shell before this command.
-docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm -e RV_USER_PASSWORD server create-user alice --admin
+# Set VIBEZ_USER_PASSWORD in the shell before this command.
+docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml run --rm -e VIBEZ_USER_PASSWORD server create-user alice --admin
 ```
 
 The administrator flag is stored for the rest of the workstream; it does not allow
@@ -195,7 +195,7 @@ export is neither an APK nor a visual validation on a device.
 ## Contract and generation
 
 The anonymous email recovery request is exposed by the server and the native SDKs
-when SMTP and `RV_AUTH_KEY_FILE` are configured. It uses only the verified
+when SMTP and `VIBEZ_AUTH_KEY_FILE` are configured. It uses only the verified
 contact, keeps a generic public response and keeps the same code after a retry.
 The confirmation resumes the existing recovery, without creating a session or
 removing the installed factors. See the
@@ -266,4 +266,4 @@ current members. GTK exposes the upload in Room information. See the
 
 ## GIF search
 
-Copy `giphy.example.json` outside the checkout, supply your own GIPHY key, restrict the file to its owner (`chmod 600` on Unix), and start with `RV_GIPHY_CONFIG_FILE=/path/to/giphy.json` or `--giphy-config-file /path/to/giphy.json`. The JSON accepts `api_key` and an optional `rating` (`pg` by default). In Docker, mount the private file read-only and use its container path. Restart after changing it. With no file, GIF search is disabled. The key is kept on the server; clients only receive public image results. Rocket.Chat servers configure their own installed GIPHY app instead. See [social features](../../brain/features/social.md).
+Copy `giphy.example.json` outside the checkout, supply your own GIPHY key, restrict the file to its owner (`chmod 600` on Unix), and start with `VIBEZ_GIPHY_CONFIG_FILE=/path/to/giphy.json` or `--giphy-config-file /path/to/giphy.json`. The JSON accepts `api_key` and an optional `rating` (`pg` by default). In Docker, mount the private file read-only and use its container path. Restart after changing it. With no file, GIF search is disabled. The key is kept on the server; clients only receive public image results. Rocket.Chat servers configure their own installed GIPHY app instead. See [social features](../../brain/features/social.md).

@@ -83,7 +83,7 @@ the lease of a single device remains distinct from the global `offline` choice.
   submitted, with the common delivery timeout of five seconds. PNG response,
   `no-store`, `nosniff`, with no redirect and no read of a user-supplied path.
 
-`RV_OBJECTS_DIR` / `--objects-dir` selects a local volume, `data/objects` by
+`VIBEZ_OBJECTS_DIR` / `--objects-dir` selects a local volume, `data/objects` by
 default. The native Compose mounts `native-objects`. The server finalizes
 the immutable object, syncs the file and, on Unix, the directory before the
 SQL reference. A disk failure produces neither a success nor a new reference.

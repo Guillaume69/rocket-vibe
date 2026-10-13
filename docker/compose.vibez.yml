@@ -1,16 +1,16 @@
 # Experimental native server, completely separate from the Rocket.Chat bench.
-name: rocketvibe-native
+name: vibez-native
 services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_DB: rocketvibe
-      POSTGRES_USER: rocketvibe
-      POSTGRES_PASSWORD: ${RV_DATABASE_PASSWORD:?Set RV_DATABASE_PASSWORD in docker/.env.native}
+      POSTGRES_DB: vibez
+      POSTGRES_USER: vibez
+      POSTGRES_PASSWORD: ${VIBEZ_DATABASE_PASSWORD:?Set VIBEZ_DATABASE_PASSWORD in docker/.env.native}
     volumes:
       - native-postgres:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rocketvibe -d rocketvibe"]
+      test: ["CMD-SHELL", "pg_isready -U vibez -d vibez"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -19,18 +19,18 @@ services:
       context: ..
       dockerfile: apps/server/Dockerfile
     environment:
-      DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
-      RV_BIND: 0.0.0.0:3400
-      RV_OBJECTS_DIR: /var/lib/rocketvibe/objects
+      DATABASE_URL: postgres://vibez:${VIBEZ_DATABASE_PASSWORD}@postgres/vibez
+      VIBEZ_BIND: 0.0.0.0:3400
+      VIBEZ_OBJECTS_DIR: /var/lib/vibez/objects
       # Native E2EE, on by default; false turns it off (apps/server/README.md).
-      RV_E2EE: ${RV_E2EE:-true}
+      VIBEZ_E2EE: ${VIBEZ_E2EE:-true}
       # The API is published on 127.0.0.1 only: every peer the container sees
       # is the host's reverse proxy through Docker's gateway, or a neighbour
       # container. They may name the client in X-Forwarded-For, which keys the
       # per-address login limits (apps/server/src/client_address.rs).
-      RV_TRUSTED_PROXIES: ${RV_TRUSTED_PROXIES:-127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
+      VIBEZ_TRUSTED_PROXIES: ${VIBEZ_TRUSTED_PROXIES:-127.0.0.0/8,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
     volumes:
-      - native-objects:/var/lib/rocketvibe/objects
+      - native-objects:/var/lib/vibez/objects
     ports:
       - "127.0.0.1:3400:3400"
     depends_on:
@@ -38,13 +38,13 @@ services:
         condition: service_healthy
   check:
     profiles: ["check"]
-    image: rocketvibe-native-check
+    image: vibez-native-check
     build:
       context: ../apps/server/docker
       dockerfile: Dockerfile.check
     working_dir: /src
     environment:
-      DATABASE_URL: postgres://rocketvibe:${RV_DATABASE_PASSWORD}@postgres/rocketvibe
+      DATABASE_URL: postgres://vibez:${VIBEZ_DATABASE_PASSWORD}@postgres/vibez
     volumes:
       - ..:/src
       - native-cargo:/usr/local/cargo

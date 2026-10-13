@@ -2,9 +2,9 @@ name: web-client
 on:
   push:
     branches: ['**']
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/rocketvibe/crypto*.ts', 'apps/mobile/providers/rocketvibe/validation.ts', 'apps/mobile/providers/rocketvibe/emojis.ts', 'apps/mobile/providers/rocketvibe/emoji-aliases.generated.ts', 'apps/mobile/modules/crypto-native/index.ts', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/vibez/crypto*.ts', 'apps/mobile/providers/vibez/validation.ts', 'apps/mobile/providers/vibez/emojis.ts', 'apps/mobile/providers/vibez/emoji-aliases.generated.ts', 'apps/mobile/modules/crypto-native/index.ts', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/vibez/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
   pull_request:
-    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/rocketvibe/crypto*.ts', 'apps/mobile/providers/rocketvibe/validation.ts', 'apps/mobile/providers/rocketvibe/emojis.ts', 'apps/mobile/providers/rocketvibe/emoji-aliases.generated.ts', 'apps/mobile/modules/crypto-native/index.ts', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/rocketvibe/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
+    paths: ['apps/web/**', 'apps/server/**', 'crates/rv-protocol/**', 'crates/rv-crypto/**', 'crates/rv-crypto-mobile/**', 'crates/rv-crypto-public/**', 'crates/rv-crypto-web/**', 'apps/mobile/providers/vibez/crypto*.ts', 'apps/mobile/providers/vibez/validation.ts', 'apps/mobile/providers/vibez/emojis.ts', 'apps/mobile/providers/vibez/emoji-aliases.generated.ts', 'apps/mobile/modules/crypto-native/index.ts', 'apps/desktop/crates/rv-gtk/src/style.rs', 'apps/desktop/crates/rv-core/data/emojis.tsv', 'apps/desktop/crates/rv-core/src/i18n.rs', 'apps/desktop/crates/rv-core/src/native/bots.rs', 'apps/desktop/crates/rv-core/src/native/workflows.rs', 'apps/desktop/crates/rv-gtk/assets/fonts/**', 'apps/desktop/crates/rv-gtk/src/login.rs', 'apps/mobile/providers/vibez/protocol.generated.ts', 'apps/desktop/data/**', 'assets/sounds/**', '.github/workflows/web-client.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
       RV_WEB_FACTOR_USER: websecfactorci
       RV_WEB_FACTOR_EMAIL_USER: websecfactoremailci
       RV_WEB_COMPOSER_USER: webcomposer
-      RV_USER_PASSWORD: web-client-disposable-password
+      VIBEZ_USER_PASSWORD: web-client-disposable-password
       RV_WEB_CRYPTO_ALICE: webcryptoalice
       RV_WEB_CRYPTO_BOB: webcryptobob
       RUST_TEST_THREADS: 4
@@ -78,10 +78,10 @@ jobs:
           RV_WEB_SFU_IP="$(hostname -I | cut -d ' ' -f1)" node apps/web/tests/configure-bench.mjs
           node apps/web/tests/smtp.mjs > .cache/smtp.log 2>&1 &
           docker run -d --name rv-web-test-sfu --network host -v "$PWD/.cache/livekit.yaml:/etc/livekit.yaml:ro" livekit/livekit-server:v1.13.8 --config /etc/livekit.yaml
-          export RV_AUTH_KEY_FILE="$PWD/.cache/auth-key"
-          export RV_OBJECTS_DIR="$PWD/.cache/web-objects"
-          export RV_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
-          export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
+          export VIBEZ_AUTH_KEY_FILE="$PWD/.cache/auth-key"
+          export VIBEZ_OBJECTS_DIR="$PWD/.cache/web-objects"
+          export VIBEZ_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
+          export VIBEZ_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
           target/debug/vibez create-user webcryptoalice --admin
           target/debug/vibez create-user webcryptobob --admin
           target/debug/vibez create-user webalice --admin

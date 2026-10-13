@@ -8,7 +8,7 @@ read neither messages, nor files, nor encryption keys.
 ## Accounts and invitations
 
 `create-user <username> [--admin]` keeps the password in
-`RV_USER_PASSWORD`, outside the arguments. `invite`, `list-invitations`,
+`VIBEZ_USER_PASSWORD`, outside the arguments. `invite`, `list-invitations`,
 `revoke-invitation`, `recover-user`, `list-recovery-codes` and
 `revoke-recovery-code` remain available. Invitation and
 recovery secrets are rendered only by their issuing command; their lists

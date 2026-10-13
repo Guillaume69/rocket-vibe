@@ -157,7 +157,7 @@ fn client(host: &str, addresses: &[SocketAddr]) -> Result<Client> {
         .resolve_to_addrs(host, addresses)
         .connect_timeout(Duration::from_secs(3))
         .timeout(REQUEST_TIME)
-        .user_agent("RocketVibe-LinkPreview/1")
+        .user_agent("Vibez-LinkPreview/1")
         .build()
         .map_err(|_| Failure::Network)
 }

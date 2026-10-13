@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 DO $$
-DECLARE remaining bigint; devices bigint; factor_user text := current_setting('rocketvibe.pilot_factor_user');
+DECLARE remaining bigint; devices bigint; factor_user text := current_setting('vibez.pilot_factor_user');
 BEGIN
   IF factor_user NOT IN ('gtk-factor', 'swift-factor') THEN RAISE EXCEPTION 'Unexpected disposable factor account'; END IF;
   SELECT COUNT(*) INTO remaining FROM factor_backup_codes WHERE user_id=(SELECT id FROM users WHERE username=factor_user) AND consumed_at IS NULL;

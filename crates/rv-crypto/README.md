@@ -9,7 +9,7 @@ the browser through `rv-crypto-web` (wasm). The public formats / verifiers are
 shared through [`rv-crypto-public`](../rv-crypto-public/README.md), consumed by the
 server and re-exported here without any format change. Native E2EE is on by default
 since 6 October 2026: the server announces the `e2ee` capability unless an instance sets
-`RV_E2EE=false` ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026)).
+`VIBEZ_E2EE=false` ([RFC 0002, Activation](../../docs/rfcs/0002-e2ee-native.md#activation-6-october-2026)).
 
 ## Format and transaction
 

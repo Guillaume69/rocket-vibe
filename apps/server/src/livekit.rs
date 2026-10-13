@@ -66,32 +66,32 @@ pub(crate) fn sources(speak: bool, screen: bool) -> Vec<String> {
 impl LiveKit {
     pub fn from_file(path: &Path) -> std::result::Result<Self, &'static str> {
         let metadata =
-            std::fs::symlink_metadata(path).map_err(|_| "Cannot read RV_LIVEKIT_CONFIG_FILE")?;
+            std::fs::symlink_metadata(path).map_err(|_| "Cannot read VIBEZ_LIVEKIT_CONFIG_FILE")?;
         if !metadata.is_file() || metadata.len() > 16 * 1024 {
-            return Err("RV_LIVEKIT_CONFIG_FILE must be a regular file of at most 16 KiB");
+            return Err("VIBEZ_LIVEKIT_CONFIG_FILE must be a regular file of at most 16 KiB");
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if metadata.permissions().mode() & 0o077 != 0 {
-                return Err("RV_LIVEKIT_CONFIG_FILE must not be readable by group or others");
+                return Err("VIBEZ_LIVEKIT_CONFIG_FILE must not be readable by group or others");
             }
         }
         let mut bytes = Zeroizing::new(Vec::new());
         std::fs::File::open(path)
-            .map_err(|_| "Cannot read RV_LIVEKIT_CONFIG_FILE")?
+            .map_err(|_| "Cannot read VIBEZ_LIVEKIT_CONFIG_FILE")?
             .take(16 * 1024 + 1)
             .read_to_end(&mut bytes)
-            .map_err(|_| "Cannot read RV_LIVEKIT_CONFIG_FILE")?;
+            .map_err(|_| "Cannot read VIBEZ_LIVEKIT_CONFIG_FILE")?;
         if bytes.len() > 16 * 1024 {
-            return Err("RV_LIVEKIT_CONFIG_FILE is oversized");
+            return Err("VIBEZ_LIVEKIT_CONFIG_FILE is oversized");
         }
         Self::parse(&bytes)
     }
 
     pub fn parse(bytes: &[u8]) -> std::result::Result<Self, &'static str> {
         let config: Configuration =
-            serde_json::from_slice(bytes).map_err(|_| "Invalid RV_LIVEKIT_CONFIG_FILE JSON")?;
+            serde_json::from_slice(bytes).map_err(|_| "Invalid VIBEZ_LIVEKIT_CONFIG_FILE JSON")?;
         let secret = Zeroizing::new(config.api_secret.into_bytes());
         let origin = |value: &str, schemes: [&str; 2]| {
             Url::parse(value).ok().filter(|url| {

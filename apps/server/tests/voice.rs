@@ -136,7 +136,7 @@ impl Bench {
             .route("/twirp/livekit.RoomService/{method}", post(twirp))
             .with_state(sfu.clone());
         let sfu_task = tokio::spawn(async move { axum::serve(listener, fake).await.unwrap() });
-        let config = json!({"url":"ws://127.0.0.1:7880","api_url":api,"api_key":"rocketvibe","api_secret":SECRET});
+        let config = json!({"url":"ws://127.0.0.1:7880","api_url":api,"api_key":"vibez","api_secret":SECRET});
         let livekit = LiveKit::parse(&serde_json::to_vec(&config).unwrap()).unwrap();
         let app = App::from_pool(pool)
             .await
@@ -242,7 +242,7 @@ async fn members_get_a_microphone_grant_and_the_worker_mirrors_the_sfu(pool: PgP
     assert_eq!(grant.url, "ws://127.0.0.1:7880");
     assert!(grant.can_publish && grant.ring.is_none());
     assert_eq!(token["sub"], alice_id.as_str());
-    assert_eq!(token["iss"], "rocketvibe");
+    assert_eq!(token["iss"], "vibez");
     assert_eq!(token["video"]["room"], sfu_room.as_str());
     assert_eq!(
         token["video"]["canPublishSources"],

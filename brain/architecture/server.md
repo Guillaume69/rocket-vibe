@@ -4,19 +4,19 @@
 
 ## Process
 
-One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `RV_BIND`, default `127.0.0.1:3400`) runs the server; the other subcommands are the operator's tools: `create-user` (the password comes from `RV_USER_PASSWORD`, never the arguments), `invite`, `recover-user`, the matching `list-*` and `revoke-*`, `set-user`, `create-room`, `set-room`, `set-member`, `audit`, `health`, `set-instance`, `emoji list|put|remove`. Operator commands take an `--operation-id` so a retried command returns its first receipt (`src/operator.rs`).
+One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `VIBEZ_BIND`, default `127.0.0.1:3400`) runs the server; the other subcommands are the operator's tools: `create-user` (the password comes from `VIBEZ_USER_PASSWORD`, never the arguments), `invite`, `recover-user`, the matching `list-*` and `revoke-*`, `set-user`, `create-room`, `set-room`, `set-member`, `audit`, `health`, `set-instance`, `emoji list|put|remove`. Operator commands take an `--operation-id` so a retried command returns its first receipt (`src/operator.rs`).
 
 | Setting | Meaning |
 |---|---|
 | `DATABASE_URL` | PostgreSQL, required. A pool of 12 connections. |
-| `RV_AUTH_KEY_FILE` | 64 hex digits in a mode-600 file: the AES-256-GCM-SIV key sealing second-factor secrets and receipts (`src/factor_crypto.rs`). Without it, no 2FA and no email factors; losing it locks TOTP accounts out (fail closed). |
-| `RV_SMTP_CONFIG_FILE` | SMTP host, port, sender, TLS mode, credentials (`src/mail.rs`). Enables email verification, recovery and email codes. |
-| `RV_FCM_CONFIG_FILE` | A Firebase service-account JSON: push (`src/push.rs`). |
-| `RV_LIVEKIT_CONFIG_FILE` | LiveKit URL, API URL, key and secret, unreadable by group and others: voice (`src/livekit.rs`). |
-| `RV_E2EE` | Announce native end-to-end encryption, `true` by default. |
-| `RV_TRUSTED_PROXIES` | Addresses or CIDR ranges whose `X-Forwarded-For` names the client (`src/client_address.rs`); empty trusts nobody. The Compose file trusts loopback and the private ranges. |
-| `RV_OBJECTS_DIR` | Where files live (`data/objects`, `/var/lib/rocketvibe/objects` in the image). Without it, no uploads, avatars, emoji or previews. |
-| `RV_WORKFLOW_PRIVATE_HTTP` | Let workflow HTTP steps reach private addresses: tests and development only. |
+| `VIBEZ_AUTH_KEY_FILE` | 64 hex digits in a mode-600 file: the AES-256-GCM-SIV key sealing second-factor secrets and receipts (`src/factor_crypto.rs`). Without it, no 2FA and no email factors; losing it locks TOTP accounts out (fail closed). |
+| `VIBEZ_SMTP_CONFIG_FILE` | SMTP host, port, sender, TLS mode, credentials (`src/mail.rs`). Enables email verification, recovery and email codes. |
+| `VIBEZ_FCM_CONFIG_FILE` | A Firebase service-account JSON: push (`src/push.rs`). |
+| `VIBEZ_LIVEKIT_CONFIG_FILE` | LiveKit URL, API URL, key and secret, unreadable by group and others: voice (`src/livekit.rs`). |
+| `VIBEZ_E2EE` | Announce native end-to-end encryption, `true` by default. |
+| `VIBEZ_TRUSTED_PROXIES` | Addresses or CIDR ranges whose `X-Forwarded-For` names the client (`src/client_address.rs`); empty trusts nobody. The Compose file trusts loopback and the private ranges. |
+| `VIBEZ_OBJECTS_DIR` | Where files live (`data/objects`, `/var/lib/rocketvibe/objects` in the image). Without it, no uploads, avatars, emoji or previews. |
+| `VIBEZ_WORKFLOW_PRIVATE_HTTP` | Let workflow HTTP steps reach private addresses: tests and development only. |
 
 **Every subcommand, not only `serve`, migrates the database and runs the cleanup** (`App::from_pool_with_auth_key`, `src/lib.rs`): all numbered migrations in `migrations/`, applied by `sqlx::migrate!`. The first boot also draws the instance's `instance_id` and `data_epoch`.
 
@@ -54,7 +54,7 @@ The server keeps one ordered **journal** of changes (`journal`, `src/store.rs`):
 ## Data
 
 - **PostgreSQL** holds everything but file bytes: about a hundred tables across the all numbered migrations. Message ids are the client's `operation_id`: replaying a send with the same content returns the existing message, with different content 409. Operation ids share one namespace per user across messages, uploads, room commands and encryption (`src/store.rs`).
-- **Files** are flat objects named by 64 hex digits in `RV_OBJECTS_DIR`, written to a temporary name, fsynced and renamed (`src/objects.rs`). Uploads go prepared, ready, completed (or cancelled, expired after 24 h); the server checks the SHA-256 and the type's magic bytes, and completion posts the message in the same transaction (`src/files.rs`). Downloads support ranges. The garbage collector removes files older than an hour that nothing references.
+- **Files** are flat objects named by 64 hex digits in `VIBEZ_OBJECTS_DIR`, written to a temporary name, fsynced and renamed (`src/objects.rs`). Uploads go prepared, ready, completed (or cancelled, expired after 24 h); the server checks the SHA-256 and the type's magic bytes, and completion posts the message in the same transaction (`src/files.rs`). Downloads support ranges. The garbage collector removes files older than an hour that nothing references.
 - **`data_epoch`** identifies the dataset in discovery, cursors and leases; a client seeing it change starts over. Nothing in the server changes it today: a restore from backup is supposed to (`docs/rfcs/0001-rocketvibe-rust-server.md`).
 
 ## What it serves
@@ -72,7 +72,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 - **A new route** needs a bot scope entry or keys cannot reach it (`crates/rv-protocol/src/bots.rs`), its own body limit above 64 KiB, and, if it carries private metadata, a place in the no-store list.
 - **The server does not compile without `apps/web/dist`**: rebuild the web client first when the front end changes.
 - **Any CLI subcommand migrates**: a newer binary's `list-users` against production upgrades production.
-- **Behind a proxy, set `RV_TRUSTED_PROXIES`**, or every client shares the proxy's login budget of 30 attempts a minute.
+- **Behind a proxy, set `VIBEZ_TRUSTED_PROXIES`**, or every client shares the proxy's login budget of 30 attempts a minute.
   IPv4-mapped IPv6 addresses are canonicalized with their prefix: `::ffff:127.0.0.1/128` becomes one IPv4 address, `/120` becomes an IPv4 `/24`, and prefixes below 96 are rejected. Untrusted peers cannot supply the client address through forwarded headers.
 - **Real time is polling**: 250 ms per socket, no pub/sub, and every journaled write serialises on the one `instance.position` row. Fine for a pilot, the first thing to change for a large instance.
 - **Bot keys and workflow sessions** expire after a century (`src/bots.rs`, `src/workflows/engine.rs`): revoke them, they do not lapse.

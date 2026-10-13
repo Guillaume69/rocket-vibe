@@ -218,7 +218,7 @@ async fn begin(
         }
         return Ok((tx, epoch, Some(receipt.0)));
     }
-    sqlx::query("SELECT set_config('rocketvibe.operator_operation',$1,true)")
+    sqlx::query("SELECT set_config('vibez.operator_operation',$1,true)")
         .bind(operation)
         .execute(&mut *tx)
         .await?;

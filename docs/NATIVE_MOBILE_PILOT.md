@@ -21,7 +21,7 @@ resumption metadata. Enrolling the factor from the settings remains to be wired;
 verifying an address does not activate it.
 
 1. Start the [native server](../apps/server/README.md) and create its accounts with
-   `create-user` and `RV_USER_PASSWORD`.
+   `create-user` and `VIBEZ_USER_PASSWORD`.
 2. Install the mobile app by following its [README](../apps/mobile/README.md).
 3. In debug with an ADB device: `adb reverse tcp:3400 tcp:3400`.
 4. Enter `http://127.0.0.1:3400`, the username and the password in the usual form.

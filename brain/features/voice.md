@@ -37,7 +37,7 @@ device qualification remain debt.
 
 The wire contract is `docs/protocol/VOICE.md`; the essentials:
 
-- **Capability** `voice`, announced when `RV_LIVEKIT_CONFIG_FILE` is set
+- **Capability** `voice`, announced when `VIBEZ_LIVEKIT_CONFIG_FILE` is set
   (`docker/compose.voice.yml` runs LiveKit on the bench). `calls` stays `false`.
 - **Join**: `POST /api/v1/rooms/{id}/voice/join {membership_version, data_epoch, ring?}`
   → `VoiceGrant {url, token, can_publish, ring?}`. The token lives 5 minutes, names the

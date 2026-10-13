@@ -1,7 +1,7 @@
 \set ON_ERROR_STOP on
 DO $$
 DECLARE
-  fixture text := coalesce(nullif(current_setting('rocketvibe.pilot_security_user',true),''),'gtk-security');
+  fixture text := coalesce(nullif(current_setting('vibez.pilot_security_user',true),''),'gtk-security');
   account text;
 BEGIN
   IF fixture NOT IN ('gtk-security','swift-security') THEN

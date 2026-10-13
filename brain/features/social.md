@@ -16,7 +16,7 @@ Voice uses POST `/api/v1/rooms/{room}/voice/reactions` and the ephemeral `LiveSt
 
 ## GIPHY configuration
 
-RocketVibe reads a private, bounded JSON file via `RV_GIPHY_CONFIG_FILE` or `--giphy-config-file`. See `apps/server/giphy.example.json`. Required `api_key`; rating defaults to `pg` and accepts `g`, `pg`, `pg-13`, `r`. A Unix file must be private to its owner. The key stays on the server and is cleared from memory on drop. No key is shipped. Without configuration, discovery advertises `giphy=false` and search returns `giphy_not_configured`.
+RocketVibe reads a private, bounded JSON file via `VIBEZ_GIPHY_CONFIG_FILE` or `--giphy-config-file`. See `apps/server/giphy.example.json`. Required `api_key`; rating defaults to `pg` and accepts `g`, `pg`, `pg-13`, `r`. A Unix file must be private to its owner. The key stays on the server and is cleared from memory on drop. No key is shipped. Without configuration, discovery advertises `giphy=false` and search returns `giphy_not_configured`.
 
 GET `/api/v1/gifs?q=...` searches or lists trending GIFs; `stickers=true` selects the provider's sticker collection. Queries are bounded, authenticated and rate-limited. Provider requests time out, reject redirects and bound response size. Only GIPHY media origins enter search results. Pickers and cards show Powered By GIPHY.
 

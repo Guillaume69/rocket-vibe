@@ -2,7 +2,7 @@
 //! Caddy in front (`docs/DEPLOY-SERVER.md`), so the TCP peer is the proxy for
 //! every request: the per-address login and mail limits then counted the whole
 //! instance as one address, and about thirty failed logins a minute locked
-//! everyone out. Only a peer listed in `RV_TRUSTED_PROXIES` may name the client
+//! everyone out. Only a peer listed in `VIBEZ_TRUSTED_PROXIES` may name the client
 //! in `X-Forwarded-For`; anyone else's header is ignored, since it is forgeable.
 
 use axum::{

@@ -70,7 +70,7 @@ macOS keyrings and SecureStore on an installed device remain to be qualified.
 
 ## Transport configuration
 
-`RV_SMTP_CONFIG_FILE` names a regular JSON file of at most 16 KiB. On
+`VIBEZ_SMTP_CONFIG_FILE` names a regular JSON file of at most 16 KiB. On
 Unix it must be private, for example mode 600; symbolic links are
 refused. Loading fails with a fixed message if a field is invalid,
 without displaying the content or the credentials. Example with no real secret:

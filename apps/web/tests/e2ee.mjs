@@ -82,7 +82,7 @@ if (!users[0] || !users[1]) {
       [
         "exec",
         "-e",
-        "RV_USER_PASSWORD=web-client-disposable-password",
+        "VIBEZ_USER_PASSWORD=web-client-disposable-password",
         container,
         ".cache/server-target/debug/vibez",
         "create-user",

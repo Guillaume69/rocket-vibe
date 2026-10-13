@@ -1,7 +1,7 @@
 # Voice sessions for the native bench: a LiveKit SFU, layered over
-# compose.rocketvibe.yml (docs/protocol/VOICE.md):
+# compose.vibez.yml (docs/protocol/VOICE.md):
 #
-#   docker compose --env-file docker/.env.native -f docker/compose.rocketvibe.yml \
+#   docker compose --env-file docker/.env.native -f docker/compose.vibez.yml \
 #     -f docker/compose.voice.yml up --build -d
 #
 # Phones and emulators reach LiveKit by RV_LIVEKIT_NODE_IP, the host's LAN
@@ -11,7 +11,7 @@ services:
     image: livekit/livekit-server:v1.13.8
     command: ["--config", "/etc/livekit.yaml", "--node-ip", "${RV_LIVEKIT_NODE_IP:?Set RV_LIVEKIT_NODE_IP in docker/.env.native}"]
     environment:
-      LIVEKIT_KEYS: "${RV_LIVEKIT_API_KEY:?Set RV_LIVEKIT_API_KEY}: ${RV_LIVEKIT_API_SECRET:?Set RV_LIVEKIT_API_SECRET}"
+      LIVEKIT_KEYS: "${VIBEZ_LIVEKIT_API_KEY:?Set VIBEZ_LIVEKIT_API_KEY}: ${RV_LIVEKIT_API_SECRET:?Set RV_LIVEKIT_API_SECRET}"
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
@@ -23,7 +23,7 @@ services:
     image: busybox:1.37
     environment:
       URL: ${RV_LIVEKIT_URL:-ws://${RV_LIVEKIT_NODE_IP}:7880}
-      KEY: ${RV_LIVEKIT_API_KEY}
+      KEY: ${VIBEZ_LIVEKIT_API_KEY}
       SECRET: ${RV_LIVEKIT_API_SECRET}
     command:
       - sh
@@ -33,9 +33,9 @@ services:
       - native-voice-config:/config
   server:
     environment:
-      RV_LIVEKIT_CONFIG_FILE: /run/rocketvibe/livekit.json
+      VIBEZ_LIVEKIT_CONFIG_FILE: /run/vibez/livekit.json
     volumes:
-      - native-voice-config:/run/rocketvibe:ro
+      - native-voice-config:/run/vibez:ro
     depends_on:
       voice-config:
         condition: service_completed_successfully

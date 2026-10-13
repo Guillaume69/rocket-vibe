@@ -18,4 +18,4 @@ services:
       file: compose.native-email-otp-pilot.yml
       service: otp-check
     environment:
-      PGOPTIONS: -c rocketvibe.pilot_otp_user=swift-email
+      PGOPTIONS: -c vibez.pilot_otp_user=swift-email

@@ -1,5 +1,5 @@
 # Disposable desktop/mobile integration bench; independent of the development database.
-name: rocketvibe-pilot
+name: vibez-pilot
 services:
   postgres:
     image: postgres:18-alpine
@@ -14,13 +14,13 @@ services:
       timeout: 3s
       retries: 30
   bootstrap:
-    image: rocketvibe-native-server
+    image: vibez-native-server
     # Root is only used to initialize this disposable shared invitation volume.
     user: '0:0'
     volumes: ['pilot-invitations:/pilot-invitations']
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
-      RV_USER_PASSWORD: native-pilot-test-password
+      VIBEZ_USER_PASSWORD: native-pilot-test-password
     entrypoint: [/bin/sh, -ec]
     command: ['umask 077; od -An -N32 -tx1 /dev/urandom | tr -d " \n" > /pilot-invitations/factors-auth-key; chown 10001:10001 /pilot-invitations/factors-auth-key; vibez create-user mobile && vibez create-user desktop && vibez create-user gtk-factor && vibez create-user gtk-security && vibez create-user swift-factor && vibez create-user swift-security && vibez create-user swift-replay && vibez invite > /pilot-invitations/mobile.json && vibez invite > /pilot-invitations/desktop.json && vibez invite > /pilot-invitations/swift.json && vibez create-user mobile-recovery && vibez create-user gtk-recovery && vibez create-user swift-recovery && vibez recover-user mobile-recovery > /pilot-invitations/mobile-recovery.json && vibez recover-user gtk-recovery > /pilot-invitations/desktop-recovery.json && vibez recover-user swift-recovery > /pilot-invitations/swift-recovery.json']
     depends_on:
@@ -34,16 +34,16 @@ services:
     depends_on:
       bootstrap: {condition: service_completed_successfully}
   server:
-    image: rocketvibe-native-server
+    image: vibez-native-server
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
-      RV_BIND: 0.0.0.0:3400
-      RV_AUTH_KEY_FILE: /pilot-invitations/factors-auth-key
+      VIBEZ_BIND: 0.0.0.0:3400
+      VIBEZ_AUTH_KEY_FILE: /pilot-invitations/factors-auth-key
     volumes: ['pilot-invitations:/pilot-invitations:ro']
     depends_on:
       session-policy: {condition: service_completed_successfully}
   factor-seed:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src', 'pilot-invitations:/pilot-invitations']
     environment:
@@ -52,7 +52,7 @@ services:
     command: [node, scripts/native-factors-pilot-seed.ts]
     depends_on: [server]
   factor-proxy:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src:ro']
     command: [node, scripts/native-factors-pilot-proxy.mjs]
@@ -62,7 +62,7 @@ services:
     image: postgres:18-alpine
     environment:
       PGPASSWORD: native-pilot-disposable-db-password
-      PGOPTIONS: -c rocketvibe.pilot_factor_user=gtk-factor
+      PGOPTIONS: -c vibez.pilot_factor_user=gtk-factor
     volumes: ['../scripts/native-factors-pilot-check.sql:/factors-check.sql:ro']
     command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /factors-check.sql]
   session-check:
@@ -73,7 +73,7 @@ services:
     command: [psql, -h, postgres, -U, pilot, -d, pilot, -v, ON_ERROR_STOP=1, -f, /pilot-check.sql]
     depends_on: [server]
   mobile:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src', 'pilot-invitations:/pilot-invitations:ro']
     environment:

@@ -347,7 +347,7 @@ beta does.
 | RocketVibe game-night cards: local time, details, Going/Maybe/Can't make it, voice join | done | done | done | done | Unencrypted rooms. Mac GUI qualification still pending. |
 | Game-night pre-event reminder shortcut | done | partial | done | partial | GTK and web use the ordinary message reminder and owe the dedicated shortcut. The web card follows GTK's actual controls, the requested visual reference. |
 | Private sticker shelf: save, send, remove, custom HTTPS image links | done | done | done | done | RocketVibe syncs the shelf; Rocket.Chat stores it locally per account. Web is native-provider only. |
-| /giphy opens while typing; live search, compact selection grid, Enter/Send, thread reply and cancel-preserved draft | done | done | done | done | Rocket.Chat requires its installed GIPHY app; RocketVibe requires RV_GIPHY_CONFIG_FILE. Live provider qualification awaits a key. |
+| /giphy opens while typing; live search, compact selection grid, Enter/Send, thread reply and cancel-preserved draft | done | done | done | done | Rocket.Chat requires its installed GIPHY app; RocketVibe requires VIBEZ_GIPHY_CONFIG_FILE. Live provider qualification awaits a key. |
 | Ephemeral voice reactions on RocketVibe | done | done | done | done | Connected voice participants only, six emoji, rate-limited and expiring; unencrypted rooms. |
 | Social cards and voice reactions in encrypted rooms | missing | missing | missing | missing | No plaintext fallback send in encrypted rooms. |
 

@@ -3,28 +3,28 @@ use std::net::SocketAddr;
 use vibez::App;
 
 #[derive(Parser)]
-#[command(about = "RocketVibe native server and operator CLI")]
+#[command(about = "Vibez chat server and operator CLI")]
 struct Args {
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: String,
-    #[arg(long, env = "RV_AUTH_KEY_FILE", hide_env_values = true)]
+    #[arg(long, env = "VIBEZ_AUTH_KEY_FILE", hide_env_values = true)]
     auth_key_file: Option<std::path::PathBuf>,
-    #[arg(long, env = "RV_SMTP_CONFIG_FILE", hide_env_values = true)]
+    #[arg(long, env = "VIBEZ_SMTP_CONFIG_FILE", hide_env_values = true)]
     smtp_config_file: Option<std::path::PathBuf>,
     /// Firebase HTTP v1 service-account JSON, kept outside the repository.
-    #[arg(long, env = "RV_FCM_CONFIG_FILE", hide_env_values = true)]
+    #[arg(long, env = "VIBEZ_FCM_CONFIG_FILE", hide_env_values = true)]
     fcm_config_file: Option<std::path::PathBuf>,
     /// The LiveKit SFU of voice sessions: client origin, API origin and key.
-    #[arg(long, env = "RV_LIVEKIT_CONFIG_FILE", hide_env_values = true)]
+    #[arg(long, env = "VIBEZ_LIVEKIT_CONFIG_FILE", hide_env_values = true)]
     livekit_config_file: Option<std::path::PathBuf>,
     /// Private JSON containing the GIPHY API key and optional content rating.
-    #[arg(long, env = "RV_GIPHY_CONFIG_FILE", hide_env_values = true)]
+    #[arg(long, env = "VIBEZ_GIPHY_CONFIG_FILE", hide_env_values = true)]
     giphy_config_file: Option<std::path::PathBuf>,
     /// Offer native end-to-end encryption to clients (`e2ee` capability). On
-    /// by default; `RV_E2EE=false` turns it off for this instance.
+    /// by default; `VIBEZ_E2EE=false` turns it off for this instance.
     #[arg(
         long,
-        env = "RV_E2EE",
+        env = "VIBEZ_E2EE",
         default_value_t = true,
         action = clap::ArgAction::Set,
         value_parser = clap::builder::BoolishValueParser::new()
@@ -33,7 +33,7 @@ struct Args {
     /// Lets workflow HTTP steps reach private addresses: local development only.
     #[arg(
         long,
-        env = "RV_WORKFLOW_PRIVATE_HTTP",
+        env = "VIBEZ_WORKFLOW_PRIVATE_HTTP",
         default_value_t = false,
         action = clap::ArgAction::Set,
         value_parser = clap::builder::BoolishValueParser::new()
@@ -42,10 +42,10 @@ struct Args {
     /// Reverse proxies whose `X-Forwarded-For` names the client, as a
     /// comma-separated list of addresses or CIDR ranges. Empty trusts nobody:
     /// behind a proxy, every client would then share the proxy's login limits.
-    #[arg(long, env = "RV_TRUSTED_PROXIES", default_value = "")]
+    #[arg(long, env = "VIBEZ_TRUSTED_PROXIES", default_value = "")]
     trusted_proxies: String,
     /// Durable volume; include it with PostgreSQL in backups.
-    #[arg(long, env = "RV_OBJECTS_DIR", default_value = "data/objects")]
+    #[arg(long, env = "VIBEZ_OBJECTS_DIR", default_value = "data/objects")]
     objects_dir: std::path::PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -59,10 +59,10 @@ enum Command {
         command: EmojiCommand,
     },
     Serve {
-        #[arg(long, env = "RV_BIND", default_value = "127.0.0.1:3400")]
+        #[arg(long, env = "VIBEZ_BIND", default_value = "127.0.0.1:3400")]
         bind: SocketAddr,
     },
-    /// Reads the initial password from RV_USER_PASSWORD, never from command arguments.
+    /// Reads the initial password from VIBEZ_USER_PASSWORD, never from command arguments.
     CreateUser {
         username: String,
         #[arg(long)]
@@ -414,8 +414,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             voice_worker.abort();
         }
         Command::CreateUser { username, admin } => {
-            let password = std::env::var("RV_USER_PASSWORD")
-                .map_err(|_| "RV_USER_PASSWORD is required (minimum 12 bytes)")?;
+            let password = std::env::var("VIBEZ_USER_PASSWORD")
+                .map_err(|_| "VIBEZ_USER_PASSWORD is required (minimum 12 bytes)")?;
             match vibez::auth::create_user(&app, &username, password, admin).await {
                 Ok(user) => println!("Created {} ({})", user.username, user.id),
                 Err(e) => return Err(format!("Cannot create user: {}", e.code).into()),

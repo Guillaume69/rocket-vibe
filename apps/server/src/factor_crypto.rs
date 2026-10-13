@@ -18,28 +18,30 @@ impl AuthKey {
     /// Unix permissions. No environment variable ever contains the key itself.
     pub fn from_file(path: &std::path::Path) -> std::result::Result<Self, &'static str> {
         let metadata =
-            std::fs::symlink_metadata(path).map_err(|_| "Cannot read RV_AUTH_KEY_FILE")?;
+            std::fs::symlink_metadata(path).map_err(|_| "Cannot read VIBEZ_AUTH_KEY_FILE")?;
         if !metadata.is_file() || !(64..=66).contains(&metadata.len()) {
             return Err(
-                "RV_AUTH_KEY_FILE must be a regular file containing 64 hexadecimal characters",
+                "VIBEZ_AUTH_KEY_FILE must be a regular file containing 64 hexadecimal characters",
             );
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if metadata.permissions().mode() & 0o077 != 0 {
-                return Err("RV_AUTH_KEY_FILE must not grant group or other access (use mode 600)");
+                return Err(
+                    "VIBEZ_AUTH_KEY_FILE must not grant group or other access (use mode 600)",
+                );
             }
         }
         use std::io::Read;
         let mut value = Zeroizing::new(String::new());
         std::fs::File::open(path)
-            .map_err(|_| "Cannot read RV_AUTH_KEY_FILE")?
+            .map_err(|_| "Cannot read VIBEZ_AUTH_KEY_FILE")?
             .take(67)
             .read_to_string(&mut value)
-            .map_err(|_| "Cannot read RV_AUTH_KEY_FILE")?;
+            .map_err(|_| "Cannot read VIBEZ_AUTH_KEY_FILE")?;
         Self::from_hex(value.trim_end_matches(['\r', '\n']))
-            .map_err(|_| "RV_AUTH_KEY_FILE is malformed")
+            .map_err(|_| "VIBEZ_AUTH_KEY_FILE is malformed")
     }
 
     /// Exactly 256 random bits, supplied outside the database. Never a password.
@@ -207,12 +209,12 @@ mod tests {
     #[test]
     fn provisioning_uri_follows_the_key_uri_format() {
         assert_eq!(
-            provisioning_uri("RocketVibe-0a1b2c3d", "ada_l-1", "JBSWY3DPEHPK3PXP"),
-            "otpauth://totp/RocketVibe-0a1b2c3d:ada_l-1?secret=JBSWY3DPEHPK3PXP&issuer=RocketVibe-0a1b2c3d&algorithm=SHA1&digits=6&period=30"
+            provisioning_uri("Vibez-0a1b2c3d", "ada_l-1", "JBSWY3DPEHPK3PXP"),
+            "otpauth://totp/Vibez-0a1b2c3d:ada_l-1?secret=JBSWY3DPEHPK3PXP&issuer=Vibez-0a1b2c3d&algorithm=SHA1&digits=6&period=30"
         );
         assert_eq!(
-            provisioning_uri("Rocket Vibe", "a:b@c/é", "S"),
-            "otpauth://totp/Rocket%20Vibe:a%3Ab%40c%2F%C3%A9?secret=S&issuer=Rocket%20Vibe&algorithm=SHA1&digits=6&period=30"
+            provisioning_uri("Good Vibez", "a:b@c/é", "S"),
+            "otpauth://totp/Good%20Vibez:a%3Ab%40c%2F%C3%A9?secret=S&issuer=Good%20Vibez&algorithm=SHA1&digits=6&period=30"
         );
     }
 

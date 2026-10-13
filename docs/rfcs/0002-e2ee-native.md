@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Date | 3 October 2026 |
-| Status | Activated 6 October 2026: the `e2ee` capability is on by default (`RV_E2EE=false` turns it off for an instance). The independent review (step 6) remains to be done; see [Activation](#activation-6-october-2026) |
+| Status | Activated 6 October 2026: the `e2ee` capability is on by default (`VIBEZ_E2EE=false` turns it off for an instance). The independent review (step 6) remains to be done; see [Activation](#activation-6-october-2026) |
 | Reference | RFC 0001 §13, P18 / P19 |
 | Clients | Providers of the current mobile, GTK and SwiftUI apps |
 
@@ -451,7 +451,7 @@ with consent and visible history boundaries, without rewriting the blobs.
 ## Activation (6 October 2026)
 
 The project owner activated native E2EE before the independent review of step 6. The
-server advertises `e2ee` by default; an operator turns it off with `RV_E2EE=false`
+server advertises `e2ee` by default; an operator turns it off with `VIBEZ_E2EE=false`
 (it was an opt-in preview, `RV_E2EE_PREVIEW`, until then).
 
 The basis: the [internal review](../protocol/E2EE_REVIEW.md), which found nothing

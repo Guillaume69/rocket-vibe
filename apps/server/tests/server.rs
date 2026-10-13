@@ -2895,7 +2895,7 @@ async fn auth_validation_and_generation_reset(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(discovery.product, "vibez");
-    // On by default; an operator may turn it off (`RV_E2EE=false`).
+    // On by default; an operator may turn it off (`VIBEZ_E2EE=false`).
     assert!(discovery.capabilities.e2ee);
     assert!(!discovery.capabilities.uploads);
     let unknown = server

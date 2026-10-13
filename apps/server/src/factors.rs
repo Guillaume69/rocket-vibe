@@ -386,7 +386,7 @@ pub(crate) async fn begin(
         (id, Zeroizing::new(secret.to_vec()), expires)
     };
     let secret = data_encoding::BASE32_NOPAD.encode(&secret);
-    let issuer = format!("RocketVibe-{}", &instance[..8.min(instance.len())]);
+    let issuer = format!("Vibez-{}", &instance[..8.min(instance.len())]);
     let provisioning_uri = factor_crypto::provisioning_uri(&issuer, &account.username, &secret);
     tx.commit().await?;
     Ok(FactorSetup {

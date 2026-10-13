@@ -66,10 +66,10 @@ pub struct App {
     pub livekit: Option<Arc<livekit::LiveKit>>,
     pub giphy: Option<Arc<giphy::Giphy>>,
     /// Advertises the `e2ee` capability: on by default, an operator may turn
-    /// native end-to-end encryption off for an instance (`RV_E2EE=false`).
+    /// native end-to-end encryption off for an instance (`VIBEZ_E2EE=false`).
     pub e2ee: bool,
     /// Lets workflow HTTP steps reach private addresses: tests and local
-    /// development only (`RV_WORKFLOW_PRIVATE_HTTP=true`).
+    /// development only (`VIBEZ_WORKFLOW_PRIVATE_HTTP=true`).
     pub private_http: bool,
     /// This process's start, reported by the administration overview.
     pub(crate) started_at: chrono::DateTime<chrono::Utc>,
@@ -82,7 +82,7 @@ pub struct App {
     dummy_password_hash: String,
     socket_slots: Arc<limits::SocketSlots>,
     auth_key: Option<Arc<factor_crypto::AuthKey>>,
-    /// Reverse proxies allowed to name the client (`RV_TRUSTED_PROXIES`).
+    /// Reverse proxies allowed to name the client (`VIBEZ_TRUSTED_PROXIES`).
     pub(crate) trusted_proxies: Arc<client_address::TrustedProxies>,
 }
 

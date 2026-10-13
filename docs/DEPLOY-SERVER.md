@@ -66,29 +66,29 @@ chmod 600 docker/.env.native
 Générer deux secrets, et copier chaque sortie dans le fichier :
 
 ```bash
-openssl rand -hex 32   # RV_DATABASE_PASSWORD
+openssl rand -hex 32   # VIBEZ_DATABASE_PASSWORD
 openssl rand -hex 32   # RV_LIVEKIT_API_SECRET
 ```
 
 | Variable | Valeur |
 |---|---|
-| `RV_DATABASE_PASSWORD` | la première valeur aléatoire (en hexadécimal : aucun caractère à échapper dans l'URL de la base) |
+| `VIBEZ_DATABASE_PASSWORD` | la première valeur aléatoire (en hexadécimal : aucun caractère à échapper dans l'URL de la base) |
 | `RV_LIVEKIT_NODE_IP` | l'**IP publique** du serveur |
-| `RV_LIVEKIT_API_KEY` | `rocketvibe` convient |
+| `VIBEZ_LIVEKIT_API_KEY` | `rocketvibe` convient |
 | `RV_LIVEKIT_API_SECRET` | la seconde valeur aléatoire (32 octets ou plus) |
 | `RV_LIVEKIT_URL` | **à ajouter** : `wss://voice.example.org`. C'est l'adresse du vocal que le serveur donne aux apps ; sans elle, elles reçoivent `ws://IP:7880`, en clair. |
 
 Exemple de `docker/.env.native` (valeurs à remplacer) :
 
 ```ini
-RV_DATABASE_PASSWORD=…64 caractères hexadécimaux…
+VIBEZ_DATABASE_PASSWORD=…64 caractères hexadécimaux…
 RV_LIVEKIT_NODE_IP=203.0.113.10
-RV_LIVEKIT_API_KEY=rocketvibe
+VIBEZ_LIVEKIT_API_KEY=rocketvibe
 RV_LIVEKIT_API_SECRET=…64 caractères hexadécimaux…
 RV_LIVEKIT_URL=wss://voice.example.org
 ```
 
-> **Chiffrement de bout en bout.** `RV_E2EE` vaut `true` par défaut. Ajouter `RV_E2EE=false` pour une instance sans chiffrement.
+> **Chiffrement de bout en bout.** `VIBEZ_E2EE` vaut `true` par défaut. Ajouter `VIBEZ_E2EE=false` pour une instance sans chiffrement.
 
 ## 3. Le fichier de prod
 
@@ -159,7 +159,7 @@ curl https://chat.example.org/.well-known/vibez
 
 La seconde réponse annonce les capacités du serveur : `voice` doit y valoir `true` si LiveKit est configuré.
 
-> **Adresse des clients.** Caddy transmet l'adresse de chaque client dans `X-Forwarded-For`. Le serveur ne la croit que si la connexion vient d'un proxy de confiance, `RV_TRUSTED_PROXIES` (adresses ou plages CIDR, séparées par des virgules). Le fichier Compose du dépôt y met déjà le local et les plages privées, celles de la passerelle Docker : les quotas de connexion (30 tentatives par minute et par adresse) comptent alors chaque client à part. Sans ce réglage, tous les clients partageraient le quota de Caddy, et une trentaine d'échecs par minute bloquerait la connexion de tout le monde.
+> **Adresse des clients.** Caddy transmet l'adresse de chaque client dans `X-Forwarded-For`. Le serveur ne la croit que si la connexion vient d'un proxy de confiance, `VIBEZ_TRUSTED_PROXIES` (adresses ou plages CIDR, séparées par des virgules). Le fichier Compose du dépôt y met déjà le local et les plages privées, celles de la passerelle Docker : les quotas de connexion (30 tentatives par minute et par adresse) comptent alors chaque client à part. Sans ce réglage, tous les clients partageraient le quota de Caddy, et une trentaine d'échecs par minute bloquerait la connexion de tout le monde.
 
 ## 6. Le pare-feu
 
@@ -193,9 +193,9 @@ Il n'y a pas d'inscription publique : l'opérateur crée les comptes, ou invite.
 Le mot de passe (12 octets au moins) passe par l'environnement, jamais en argument. `read -s` le saisit sans l'afficher ni l'écrire dans l'historique :
 
 ```bash
-read -rs RV_USER_PASSWORD && export RV_USER_PASSWORD
-rv run --rm -e RV_USER_PASSWORD server create-user ton-pseudo --admin
-unset RV_USER_PASSWORD
+read -rs VIBEZ_USER_PASSWORD && export VIBEZ_USER_PASSWORD
+rv run --rm -e VIBEZ_USER_PASSWORD server create-user ton-pseudo --admin
+unset VIBEZ_USER_PASSWORD
 ```
 
 ### Les autres : une invitation
@@ -222,9 +222,9 @@ Dans les apps, on entre `https://chat.example.org` : le type de serveur est reco
 
 | Variable | Sert à | Contenu |
 |---|---|---|
-| `RV_AUTH_KEY_FILE` | chiffrer les seconds facteurs (TOTP, e-mail) | 64 caractères hexadécimaux : `openssl rand -hex 32` |
-| `RV_SMTP_CONFIG_FILE` | e-mails (vérification, récupération) | JSON sur le modèle de `docker/smtp.example.json` |
-| `RV_FCM_CONFIG_FILE` | notifications push Android | JSON du compte de service Firebase du projet de l'app |
+| `VIBEZ_AUTH_KEY_FILE` | chiffrer les seconds facteurs (TOTP, e-mail) | 64 caractères hexadécimaux : `openssl rand -hex 32` |
+| `VIBEZ_SMTP_CONFIG_FILE` | e-mails (vérification, récupération) | JSON sur le modèle de `docker/smtp.example.json` |
+| `VIBEZ_FCM_CONFIG_FILE` | notifications push Android | JSON du compte de service Firebase du projet de l'app |
 
 Le serveur tourne sous l'utilisateur `10001` et refuse les fichiers lisibles par d'autres : les ranger hors du dépôt, à lui, en mode `600`.
 
@@ -241,9 +241,9 @@ sudo chmod 600 /etc/rocketvibe/*
 ```yaml
   server:
     environment:
-      RV_AUTH_KEY_FILE: /run/secrets/auth.key
-      RV_SMTP_CONFIG_FILE: /run/secrets/smtp.json
-      RV_FCM_CONFIG_FILE: /run/secrets/firebase.json
+      VIBEZ_AUTH_KEY_FILE: /run/secrets/auth.key
+      VIBEZ_SMTP_CONFIG_FILE: /run/secrets/smtp.json
+      VIBEZ_FCM_CONFIG_FILE: /run/secrets/firebase.json
     volumes:
       - /etc/rocketvibe/auth.key:/run/secrets/auth.key:ro
       - /etc/rocketvibe/smtp.json:/run/secrets/smtp.json:ro
@@ -256,7 +256,7 @@ Ne garder que les lignes des options utilisées, puis `rv up -d`.
 
 ### GIFs avec GIPHY (facultatif)
 
-Créer un fichier privé hors du dépôt à partir de `apps/server/giphy.example.json`, remplacer la clé et appliquer `chmod 600`. Le champ `rating` accepte `g`, `pg` (par défaut), `pg-13` ou `r`. Monter le fichier en lecture seule dans le conteneur du serveur et ajouter `RV_GIPHY_CONFIG_FILE` avec son chemin dans le conteneur, puis redémarrer le serveur. Ne pas placer la clé dans les applications ou dans le dépôt. Sans ce fichier, la recherche de GIF reste désactivée. Sur Rocket.Chat, installer/configurer son application GIPHY avec sa propre clé.
+Créer un fichier privé hors du dépôt à partir de `apps/server/giphy.example.json`, remplacer la clé et appliquer `chmod 600`. Le champ `rating` accepte `g`, `pg` (par défaut), `pg-13` ou `r`. Monter le fichier en lecture seule dans le conteneur du serveur et ajouter `VIBEZ_GIPHY_CONFIG_FILE` avec son chemin dans le conteneur, puis redémarrer le serveur. Ne pas placer la clé dans les applications ou dans le dépôt. Sans ce fichier, la recherche de GIF reste désactivée. Sur Rocket.Chat, installer/configurer son application GIPHY avec sa propre clé.
 
 ## 9. Sauvegardes et mises à jour
 

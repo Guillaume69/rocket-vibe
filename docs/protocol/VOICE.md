@@ -5,7 +5,7 @@ selecting it joins its session, the way Discord does. Any other room, direct
 messages included, joins its session from the header's call button. Audio only.
 
 The server announces `voice` only when the operator configured a LiveKit SFU
-(`RV_LIVEKIT_CONFIG_FILE`). It replaces Jitsi meetings, retired from the native
+(`VIBEZ_LIVEKIT_CONFIG_FILE`). It replaces Jitsi meetings, retired from the native
 server ([MEETINGS.md](MEETINGS.md)); `calls` stays in the discovery document,
 always `false`, for older clients.
 
@@ -162,7 +162,7 @@ the app reads the ring with `GET /api/v1/voice/rings/{id}`.
 
 ## Operator configuration
 
-`RV_LIVEKIT_CONFIG_FILE`: a regular JSON file of at most 16 KiB, not readable by
+`VIBEZ_LIVEKIT_CONFIG_FILE`: a regular JSON file of at most 16 KiB, not readable by
 group or others:
 
 ```json

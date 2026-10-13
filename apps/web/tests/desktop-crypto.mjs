@@ -46,7 +46,7 @@ for (const name of names)
     [
       "exec",
       "-e",
-      "RV_USER_PASSWORD=web-client-disposable-password",
+      "VIBEZ_USER_PASSWORD=web-client-disposable-password",
       apiContainer,
       ".cache/server-target/debug/vibez",
       "create-user",

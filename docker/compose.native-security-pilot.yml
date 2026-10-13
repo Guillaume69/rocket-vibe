@@ -1,8 +1,8 @@
-# Overlay for a fresh project: compose -p rocketvibe-security-pilot
+# Overlay for a fresh project: compose -p vibez-security-pilot
 # -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml
 services:
   security-mail-config:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     working_dir: /src
     volumes: ['..:/src:ro', 'pilot-invitations:/pilot-invitations']
     command: [node, scripts/native-email-pilot-relay.mjs, configure]
@@ -10,12 +10,12 @@ services:
       bootstrap: {condition: service_completed_successfully}
   server:
     environment:
-      RV_SMTP_CONFIG_FILE: /pilot-invitations/smtp-pilot.json
+      VIBEZ_SMTP_CONFIG_FILE: /pilot-invitations/smtp-pilot.json
     volumes: ['../apps/server/tests/fixtures:/mail-fixtures:ro']
     depends_on:
       security-mail-config: {condition: service_completed_successfully}
   security-mail-relay:
-    image: rocketvibe-native-check
+    image: vibez-native-check
     network_mode: 'service:server'
     working_dir: /src
     volumes: ['..:/src:ro', 'pilot-invitations:/pilot-invitations']
@@ -74,4 +74,4 @@ services:
   security-swift-check:
     extends: security-check
     environment:
-      PGOPTIONS: -c rocketvibe.pilot_security_user=swift-security
+      PGOPTIONS: -c vibez.pilot_security_user=swift-security

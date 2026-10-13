@@ -41,9 +41,9 @@ pub enum Purpose {
 impl Purpose {
     fn subject(self) -> &'static str {
         match self {
-            Self::VerifyAddress => "RocketVibe - verify your email address",
-            Self::Authentication => "RocketVibe - confirm your identity",
-            Self::PasswordRecovery => "RocketVibe - recover your password",
+            Self::VerifyAddress => "Vibez - verify your email address",
+            Self::Authentication => "Vibez - confirm your identity",
+            Self::PasswordRecovery => "Vibez - recover your password",
         }
     }
 }
@@ -73,30 +73,30 @@ impl Sender {
     /// or database row. Unknown keys / invalid TLS modes fail before serving.
     pub fn from_file(path: &Path) -> std::result::Result<Self, &'static str> {
         let metadata =
-            std::fs::symlink_metadata(path).map_err(|_| "Cannot read RV_SMTP_CONFIG_FILE")?;
+            std::fs::symlink_metadata(path).map_err(|_| "Cannot read VIBEZ_SMTP_CONFIG_FILE")?;
         if !metadata.is_file() || metadata.len() > 16 * 1024 {
-            return Err("RV_SMTP_CONFIG_FILE must be a regular file of at most 16 KiB");
+            return Err("VIBEZ_SMTP_CONFIG_FILE must be a regular file of at most 16 KiB");
         }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if metadata.permissions().mode() & 0o077 != 0 {
                 return Err(
-                    "RV_SMTP_CONFIG_FILE must not grant group or other access (use mode 600)",
+                    "VIBEZ_SMTP_CONFIG_FILE must not grant group or other access (use mode 600)",
                 );
             }
         }
         let mut data = Zeroizing::new(Vec::new());
         std::fs::File::open(path)
-            .map_err(|_| "Cannot read RV_SMTP_CONFIG_FILE")?
+            .map_err(|_| "Cannot read VIBEZ_SMTP_CONFIG_FILE")?
             .take(16 * 1024 + 1)
             .read_to_end(&mut data)
-            .map_err(|_| "Cannot read RV_SMTP_CONFIG_FILE")?;
+            .map_err(|_| "Cannot read VIBEZ_SMTP_CONFIG_FILE")?;
         if data.len() > 16 * 1024 {
-            return Err("RV_SMTP_CONFIG_FILE is oversized");
+            return Err("VIBEZ_SMTP_CONFIG_FILE is oversized");
         }
         let config: Configuration =
-            serde_json::from_slice(&data).map_err(|_| "RV_SMTP_CONFIG_FILE is malformed")?;
+            serde_json::from_slice(&data).map_err(|_| "VIBEZ_SMTP_CONFIG_FILE is malformed")?;
         Self::configured(config)
     }
     fn configured(config: Configuration) -> std::result::Result<Self, &'static str> {
@@ -178,7 +178,7 @@ impl Sender {
         }
         let message = Message::builder().from(self.from.clone()).to(Mailbox::new(None, recipient))
             .subject(purpose.subject()).header(ContentType::TEXT_PLAIN)
-            .body(format!("{}\n\nCode: {}\n\nEnter this code only in the RocketVibe action you requested. If you did not request it, ignore this message.\n", purpose.subject(), code.as_str()))
+            .body(format!("{}\n\nCode: {}\n\nEnter this code only in the Vibez action you requested. If you did not request it, ignore this message.\n", purpose.subject(), code.as_str()))
             .map_err(|_| Error::invalid())?;
         let permit = self
             .slots
@@ -347,7 +347,7 @@ mod tests {
                     }
                     // Boolean checks avoid printing a private payload on failure.
                     assert!(message.contains("Code: 123456"));
-                    assert!(message.contains("RocketVibe - confirm your identity"));
+                    assert!(message.contains("Vibez - confirm your identity"));
                     assert!(!message.contains("Bcc:"));
                     deliveries += 1;
                     b"250 queued\r\n".as_slice()

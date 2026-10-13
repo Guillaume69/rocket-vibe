@@ -1,10 +1,10 @@
 # Fresh disposable GTK OTP bench only; overlay the native security SMTP bench.
 services:
   otp-user:
-    image: rocketvibe-native-server
+    image: vibez-native-server
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
-      RV_USER_PASSWORD: native-pilot-test-password
+      VIBEZ_USER_PASSWORD: native-pilot-test-password
     entrypoint: [vibez, create-user, gtk-email]
     depends_on:
       bootstrap: {condition: service_completed_successfully}

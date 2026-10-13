@@ -136,7 +136,7 @@ pub(crate) async fn record(
     details: Value,
 ) -> Result<()> {
     // An in-app command names its account; the CLI leaves the actor unset.
-    sqlx::query("INSERT INTO operator_audit(data_epoch,action,operation_id,subject,details,actor_id) SELECT data_epoch,$1,NULLIF(current_setting('rocketvibe.operator_operation',true),''),$2,$3,NULLIF(current_setting('rocketvibe.operator_actor',true),'') FROM instance WHERE singleton")
+    sqlx::query("INSERT INTO operator_audit(data_epoch,action,operation_id,subject,details,actor_id) SELECT data_epoch,$1,NULLIF(current_setting('vibez.operator_operation',true),''),$2,$3,NULLIF(current_setting('vibez.operator_actor',true),'') FROM instance WHERE singleton")
         .bind(action).bind(subject).bind(Json(details)).execute(&mut **tx).await?;
     Ok(())
 }
@@ -220,7 +220,7 @@ pub async fn apply(app: &App, operation: &str, command: Command) -> Result<Recei
         }
         return Ok(receipt.0);
     }
-    sqlx::query("SELECT set_config('rocketvibe.operator_operation',$1,true)")
+    sqlx::query("SELECT set_config('vibez.operator_operation',$1,true)")
         .bind(operation)
         .execute(&mut *tx)
         .await?;

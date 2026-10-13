@@ -26,15 +26,15 @@ jobs:
       postgres:
         image: postgres:18-alpine
         env:
-          POSTGRES_USER: rocketvibe
+          POSTGRES_USER: vibez
           POSTGRES_PASSWORD: native-ci-disposable-password
-          POSTGRES_DB: rocketvibe
+          POSTGRES_DB: vibez
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U rocketvibe -d rocketvibe"
+          --health-cmd "pg_isready -U vibez -d vibez"
           --health-interval 2s --health-timeout 3s --health-retries 30
     env:
-      DATABASE_URL: postgres://rocketvibe:native-ci-disposable-password@localhost/rocketvibe
+      DATABASE_URL: postgres://vibez:native-ci-disposable-password@localhost/vibez
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

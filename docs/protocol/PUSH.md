@@ -8,7 +8,7 @@ remains outside the scope of this RFC.
 
 ## Operator configuration
 
-`RV_FCM_CONFIG_FILE` (or `--fcm-config-file`) names the Firebase service account JSON,
+`VIBEZ_FCM_CONFIG_FILE` (or `--fcm-config-file`) names the Firebase service account JSON,
 kept out of Git and readable only by the server process.
 Its `project_id` names the Firebase project used to build the Android app.
 The operator enables the Firebase Cloud Messaging API and authorises this account to
@@ -19,7 +19,7 @@ Without configuration, discovery advertises `push:false` and the worker stays id
 The registry and the rights remain accessible so that a registration can be removed.
 
 In a container, mount the file read-only and set
-`RV_FCM_CONFIG_FILE=/run/secrets/firebase-service-account.json`; this file must
+`VIBEZ_FCM_CONFIG_FILE=/run/secrets/firebase-service-account.json`; this file must
 never be copied into the image. The dummy Android build configuration used locally
 does not authorise any real Firebase send.
 

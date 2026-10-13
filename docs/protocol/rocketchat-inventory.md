@@ -296,7 +296,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1905](../../apps/desktop/crates/rv-core/src/session.rs#L1905) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/session.rs:1916](../../apps/desktop/crates/rv-core/src/session.rs#L1916) | call:GET | "chat.getThreadMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/session.rs:1916](../../apps/desktop/crates/rv-core/src/session.rs#L1916) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/slack.rs:288](../../apps/desktop/crates/rv-core/src/slack.rs#L288) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/mod.rs:290](../../apps/desktop/crates/rv-core/src/slack/mod.rs#L290) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |

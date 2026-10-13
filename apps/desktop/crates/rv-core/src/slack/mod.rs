@@ -1,4 +1,6 @@
 //! Slack session-mode read preview. Fixed API origin, no writes or persistent credentials.
+pub mod handoff;
+
 use serde_json::Value;
 use std::sync::{
     Arc, Mutex,
@@ -189,7 +191,7 @@ impl Reader {
             cancellation,
         }))
     }
-    pub fn from_browser(session: crate::slack_handoff::BrowserSession) -> Result<Arc<Self>, Error> {
+    pub fn from_browser(session: handoff::BrowserSession) -> Result<Arc<Self>, Error> {
         let mut reader = Self::new(session.token.to_string(), session.cookie.to_string())?;
         let value = Arc::get_mut(&mut reader).expect("new reader");
         value.expected = Some((session.team_id, session.user_id));
@@ -451,7 +453,7 @@ mod tests {
     }
     #[tokio::test]
     async fn browser_expiry_prevents_network_request() {
-        let session = crate::slack_handoff::BrowserSession {
+        let session = handoff::BrowserSession {
             team_id: "TTEST".to_owned(),
             user_id: "UTEST".to_owned(),
             token: zeroize::Zeroizing::new(TOKEN.to_owned()),

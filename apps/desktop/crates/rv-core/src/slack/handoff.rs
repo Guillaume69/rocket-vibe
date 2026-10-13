@@ -163,7 +163,7 @@ impl Drop for Pairing {
 mod tests {
     use super::*;
     fn fixture() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../../../../docs/protocol/fixtures/slack-handoff.json")).unwrap()
+        serde_json::from_str(include_str!("../../../../../../docs/protocol/fixtures/slack-handoff.json")).unwrap()
     }
     fn pair(f: &serde_json::Value) -> Pairing {
         Pairing {

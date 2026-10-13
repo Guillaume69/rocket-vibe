@@ -130,8 +130,8 @@
     "apps/desktop/crates/rv-core/src/server_icon.rs",
     "apps/desktop/crates/rv-core/src/server_rail.rs",
     "apps/desktop/crates/rv-core/src/session.rs",
-    "apps/desktop/crates/rv-core/src/slack.rs",
-    "apps/desktop/crates/rv-core/src/slack_handoff.rs",
+    "apps/desktop/crates/rv-core/src/slack/handoff.rs",
+    "apps/desktop/crates/rv-core/src/slack/mod.rs",
     "apps/desktop/crates/rv-core/src/social.rs",
     "apps/desktop/crates/rv-core/src/store.rs",
     "apps/desktop/crates/rv-core/src/supervisor.rs",
@@ -2409,8 +2409,8 @@
       "surface": "chat.getThreadMessages"
     },
     {
-      "file": "apps/desktop/crates/rv-core/src/slack.rs",
-      "line": 288,
+      "file": "apps/desktop/crates/rv-core/src/slack/mod.rs",
+      "line": 290,
       "kind": "endpoint",
       "surface": "users.conversations"
     },

@@ -121,7 +121,7 @@ impl Drop for SlackPreview {
 /// Owns pending reader too, so leaving the view cancels authentication before it finishes.
 #[derive(uniffi::Object)]
 pub struct SlackPairing {
-    pairing: Arc<rv_core::slack_handoff::Pairing>,
+    pairing: Arc<rv_core::slack::handoff::Pairing>,
     reader: std::sync::Mutex<Option<Arc<rv_core::slack::Reader>>>,
     closed: std::sync::atomic::AtomicBool,
 }
@@ -129,7 +129,7 @@ pub struct SlackPairing {
 impl Client {
     pub fn slack_pairing(&self) -> Result<Arc<SlackPairing>, RvError> {
         Ok(Arc::new(SlackPairing {
-            pairing: rv_core::slack_handoff::Pairing::new().map_err(error)?,
+            pairing: rv_core::slack::handoff::Pairing::new().map_err(error)?,
             reader: std::sync::Mutex::new(None),
             closed: std::sync::atomic::AtomicBool::new(false),
         }))

@@ -535,4 +535,13 @@ pub fn load() {
         &fallback,
         gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 1,
     );
+    // A fontconfig change (a font installed or updated) makes GTK reinitialise
+    // fontconfig, which forgets the fonts registered above.
+    if let Some(settings) = gtk::Settings::default() {
+        settings.connect_gtk_fontconfig_timestamp_notify(move |_| {
+            crate::fonts::register();
+            crate::fonts::register_packaged();
+            provider.load_from_string(CSS);
+        });
+    }
 }

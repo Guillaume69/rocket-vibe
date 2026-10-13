@@ -50,7 +50,7 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 | Message actions | `chat.update`, `chat.delete`, `chat.react`, `chat.pinMessage` / `chat.unPinMessage`, `chat.starMessage` / `chat.unStarMessage`, `chat.getPinnedMessages` / `chat.getStarredMessages` | `providers/rocketchat/actions.ts` | `actions.rs`, `session.rs` |
 | Read state, favourites | `subscriptions.read`, `rooms.favorite` | `actions.ts`, `app/room-info.tsx` | `actions.rs`, `session.rs` |
 | Search | `spotlight`, `chat.search` | `app/search.tsx`, `ui/debouncedSearch.ts` | `session.rs` |
-| Rooms and people | `rooms.info`, `users.info`, `im.create`; desktop also `channels.join` | `app/`, `lib/profilePreload.ts` | `info.rs`, `session.rs` |
+| Rooms and people | `rooms.info`, `users.info`, `im.create`, `channels.join`, `channels.create` / `groups.create` | `app/`, `lib/profilePreload.ts`, `providers/rocketchat/actions.ts` | `info.rs`, `session.rs`, `rocketchat/actions.rs` |
 | Profile | `me`, `users.setStatus`, `users.updateOwnBasicInfo`, `users.setAvatar`, `users.resetAvatar`, `users.setPreferences` | `lib/myProfile.ts`, `lib/upload.ts` | `account.rs`, `session.rs` |
 | Presence | `users.presence` (full snapshot, non-offline users only) | `lib/presence.ts` | `session.rs`, `live.rs` |
 | Permissions | `permissions.listAll` | `lib/permissions.ts` | `session.rs` |

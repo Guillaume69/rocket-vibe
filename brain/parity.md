@@ -59,7 +59,7 @@ beta does.
 | System and video-call messages translated in previews | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | New conversation: `spotlight`, open a DM (`im.create`), join a channel (`channels.join`) | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mark a room as unread, or as read with its threads, from the room list (Rocket.Chat) | done | done | done | n/a | Mobile: long press; GTK: right-click menu; SwiftUI: context menu, checked by the macOS CI build only. Opening the room marks it unread as left: a desktop marking the OPEN room unread leaves it first. Mattermost, kChat and RocketVibe not mapped. Web: Native-origin client; Rocket.Chat is outside its scope. |
-| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | missing | missing | missing | n/a | On a RocketVibe server the apps create rooms; on Rocket.Chat none does. Set aside by the user on 2026-10-07. Web: Rocket.Chat is outside the serving-origin browser scope. Native room creation and private defaults are qualified in tests/shell-parity.mjs. |
+| Rocket.Chat: create a channel or a private group (`channels.create`, `groups.create`) | done | done | done | n/a | The RocketVibe server's "Create a room" form (a name, Private on by default) on Rocket.Chat accounts too, the refusals said (name taken, name refused by the server, no right). Me as owner and only member: people join a public channel from search, a private group by its invite link. Mobile `app/new-room.tsx` over `ActionsRC.createChannel`; GTK `rv-gtk/src/new_channel.rs` over `Session::create_channel`; SwiftUI `NewRoomSheet` over `AppModel.createChannel`, checked by the macOS CI build only. Mattermost and kChat: not offered. Web: Rocket.Chat is outside the serving-origin browser scope. Native room creation and private defaults are qualified in tests/shell-parity.mjs. |
 | Room switcher: the account's rooms searched by name from the keyboard - [room-switcher](features/room-switcher.md) | mapped | done | done | done | GTK Ctrl+K (the composer's link moved to Ctrl+Shift+K), SwiftUI Cmd+K, both over `rooms::switcher_matches`; SwiftUI checked by the macOS CI build only. Mobile: a filter field atop the room list, the same ranking (`lib/roomFilter.ts`). Web: Ctrl+K, the composer's link on Ctrl+Shift+K, `matchRooms` (`src/room-match.ts`). |
 | Unread total on the app | done | done | done | done | Mobile: launcher badge; GTK: window title, Windows tray, macOS Dock; SwiftUI: Dock. Web: Native provider: see [web-client](features/web-client.md). |
 
@@ -388,8 +388,7 @@ are product gaps, listed last.
   profile bio, thread/search navigation, call layouts/controls and durable outbox
   are audited and qualified; they no longer carry blanket visual-parity debt.
 - **All four**: social cards and voice reactions in encrypted rooms.
-- **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; creating a
-  channel or private group on Rocket.Chat; "Deleted
+- **All three**: the thread list and following on Mattermost, kChat and RocketVibe servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs
   keep usernames, `@mentions` stay `@username`, and a real name changed elsewhere

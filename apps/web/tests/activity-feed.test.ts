@@ -6,6 +6,7 @@ import type { Message, Node, Room, User } from "../src/protocol.ts";
 const me = { id: "me", username: "alice", display_name: "Alice" };
 const bob: User = { id: "bob", username: "bob", display_name: "Bob" };
 const carol: User = { id: "carol", username: "carol", display_name: "Carol" };
+const dave: User = { id: "dave", username: "dave", display_name: "" };
 const room = (id: string, extra: Partial<Room> = {}): Room => ({
   id,
   name: id,
@@ -135,13 +136,26 @@ test("a reaction item names the others once and their emojis", () => {
       author: me,
       reactions: [
         { emoji: "+1", users: [me, bob] },
-        { emoji: "tada", users: [carol, bob] },
+        { emoji: "tada", users: [carol, bob, dave] },
         { emoji: "eyes", users: [me] },
       ],
     }),
   ]).items;
-  assert.deepEqual(item?.reactors, ["bob", "carol"]);
+  // Shown names, the username without a display name.
+  assert.deepEqual(item?.reactors, ["Bob", "Carol", "dave"]);
   assert.deepEqual(item?.emojis, ["+1", "tada"]);
+  // One per person, by id: two people sharing a display name both count.
+  const bobby: User = { id: "bobby", username: "bobby", display_name: "Bob" };
+  const [same] = feed([
+    message("mine", "general", 1, {
+      author: me,
+      reactions: [
+        { emoji: "+1", users: [bob, bobby] },
+        { emoji: "tada", users: [bobby] },
+      ],
+    }),
+  ]).items;
+  assert.deepEqual(same?.reactors, ["Bob", "Bob"]);
   // Only my own reaction: nothing.
   assert.deepEqual(
     kinds([

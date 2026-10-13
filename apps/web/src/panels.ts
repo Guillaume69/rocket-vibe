@@ -32,7 +32,7 @@ import { clock, minuteOf, nextMorning } from "./quiet";
 import { ownSound, setOwnSound } from "./notifications";
 import { t, language } from "./i18n";
 import { markdown } from "./render";
-import { previewText } from "./presentation";
+import { personName, previewText } from "./presentation";
 import { metadataMarkdown } from "./markdown-text";
 import { securitySettings, recentProof } from "./security";
 import { administration, report } from "./admin-actions";
@@ -404,13 +404,7 @@ export function activityFeed(app: App, closed: () => void): void {
         const where = el("div", "room-subtitle activity-feed-where");
         where.append(el("span", "", roomName(room)));
         if (item.kind !== "reaction")
-          where.append(
-            el(
-              "span",
-              "author",
-              message.author.display_name || message.author.username,
-            ),
-          );
+          where.append(el("span", "author", personName(message.author)));
         row.append(
           head,
           where,

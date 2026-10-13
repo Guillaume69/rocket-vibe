@@ -1,5 +1,12 @@
-import type { Message, Node as MarkdownNode } from "./protocol";
+import type { Message, Node as MarkdownNode, User } from "./protocol";
 import { language } from "./i18n.ts";
+/**
+ * The name a person is shown by, as the timeline and the room list show it:
+ * the display name, else the username (a tombstoned account has an empty
+ * display name and keeps its `deleted-` username).
+ */
+export const personName = (user: User): string =>
+  user.display_name || user.username;
 export function systemText(message: Message): string {
   const value = message.system;
   if (!value) return message.text;

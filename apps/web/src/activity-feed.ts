@@ -12,6 +12,7 @@
  * mention counter still lists the room.
  */
 import type { Message, Node, Room } from "./protocol";
+import { personName } from "./presentation.ts";
 
 /** At most this many items, as on the native apps. */
 export const ACTIVITY_LIMIT = 100;
@@ -24,7 +25,10 @@ export interface ActivityItem {
   kind: ActivityKind;
   message: Message;
   room: Room;
-  /** Reaction: the other reactors' usernames, deduplicated, in order. */
+  /**
+   * Reaction: the other reactors' shown names (`personName`), one per person
+   * (deduplicated by user id), in order.
+   */
   reactors: string[];
   /** Reaction: the emoji codes those reactors used, deduplicated, in order. */
   emojis: string[];
@@ -148,13 +152,17 @@ export function collectActivity(
       continue;
     }
     const reactors: string[] = [],
-      emojis: string[] = [];
+      emojis: string[] = [],
+      seen = new Set<string>();
     for (const reaction of message.reactions || []) {
       const others = reaction.users.filter((user) => user.id !== me.id);
       if (!others.length) continue;
       if (!emojis.includes(reaction.emoji)) emojis.push(reaction.emoji);
       for (const user of others)
-        if (!reactors.includes(user.username)) reactors.push(user.username);
+        if (!seen.has(user.id)) {
+          seen.add(user.id);
+          reactors.push(personName(user));
+        }
     }
     if (reactors.length) item("reaction", reactors, emojis);
   }

@@ -451,6 +451,9 @@ The **7 refuted findings** (including two "DDP zombies" demolished by digging al
 What the audit had not seen, found by running things. `docs/AUDIT.md` is frozen: later
 findings are added here.
 
+- [ ] 🟢 **Activity's candidates query has no index of its own** (2026-10-13 review): `ACTIVITY_CANDIDATES` (`db/upserts.ts`) filters on author, system type and thread over the whole `messages` table, sorted by `ts`, and `app/activity.tsx` runs it at each focus. Fine at the 500 messages kept per room; on a device holding many accounts' worth of rooms, an index on `(ts)` or a partial index would keep coming back from a room instant.
+- [ ] 🟢 **RocketVibe thread following is not stored** (2026-10-13 review): `providers/rocketvibe/store.ts` drops `Message.personal_follow`, so the Activity view counts a reply in a thread I only follow on Rocket.Chat (`thread_followers`) and the web, not on a RocketVibe account here. Part of the thread-following debt of `brain/parity.md` section 6.
+
 Repository reliability audit (2026-10-11):
 
 - [ ] Mattermost mention-notification qualification (2026-10-12): the broader desktop `mattermost-smoke` example on the disposable 11.11.1 bench received Bob's post live, then timed out waiting for its mention notification. It stopped before its search check. Reproduce notification delivery separately before attributing this to client code; exact room search has its own successful live probe below.

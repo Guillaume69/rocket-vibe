@@ -213,6 +213,17 @@ struct AppCommands: Commands {
             // Not over the settings or the administration, which cover the rooms.
             Button(L("switcher.title") + "…") { if !app.panelShown && app.account != nil { app.switching = true } }
                 .keyboardShortcut("k", modifiers: .command)
+            // Cmd + 1 to 9 opens the rail's first nine accounts, Cmd + 0 the
+            // tenth (GTK: Ctrl), hidden rail included; not over a panel.
+            Divider()
+            ForEach(Array(app.railAccounts.prefix(10).enumerated()), id: \.element.key) { slot, account in
+                if let digit = railShortcutDigit(slot: UInt32(slot)), let key = String(digit).first {
+                    Button("\(ServerRail.host(account)) · @\(account.username)") {
+                        if !app.panelShown && app.account != nil { Task { await app.openRailSlot(slot) } }
+                    }
+                    .keyboardShortcut(KeyEquivalent(key), modifiers: .command)
+                }
+            }
         }
     }
 }

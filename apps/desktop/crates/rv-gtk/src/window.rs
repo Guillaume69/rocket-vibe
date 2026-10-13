@@ -550,6 +550,28 @@ impl AppWindow {
                 this.switch_to(info);
             }
         });
+        // Ctrl + 1 to 9 opens the rail's first nine accounts, Ctrl + 0 the
+        // tenth, hidden rail included; not on the sign-in page nor under a dialog.
+        let keys = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
+        let weak = Rc::downgrade(&this);
+        keys.connect_key_pressed(move |controller, key, code, state| {
+            let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            let slot = controller
+                .widget()
+                .and_then(|w| crate::rail::shortcut_digit(&w.display(), key, code, state))
+                .and_then(rv_core::server_rail::shortcut_slot);
+            match slot {
+                Some(slot)
+                    if this.stack.visible_child_name().as_deref() == Some("chat")
+                        && this.window.visible_dialog().is_none() =>
+                {
+                    this.rail.open_slot(slot);
+                    glib::Propagation::Stop
+                }
+                _ => glib::Propagation::Proceed,
+            }
+        });
+        this.window.add_controller(keys);
         let weak = Rc::downgrade(&this);
         this.rail.connect_add(move |()| {
             if let Some(this) = weak.upgrade() {

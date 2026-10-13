@@ -92,16 +92,24 @@ struct ServerRail: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ForEach(app.railAccounts, id: \.key) { account in
+            ForEach(Array(app.railAccounts.enumerated()), id: \.element.key) { slot, account in
                 let open = account.key == app.account?.key
                 let host = Self.host(account)
                 // The open account's tile offers its server administration to
                 // an administrator; another one has no menu (a click switches).
-                if open && app.administrator {
-                    tile(account, open: open, host: host)
-                        .contextMenu { Button(L("admin.title")) { app.openAdmin() } }
-                } else {
-                    tile(account, open: open, host: host)
+                // A tile dragged onto another takes its place.
+                Group {
+                    if open && app.administrator {
+                        tile(account, open: open, host: host, slot: slot)
+                            .contextMenu { Button(L("admin.title")) { app.openAdmin() } }
+                    } else {
+                        tile(account, open: open, host: host, slot: slot)
+                    }
+                }
+                .draggable(account.key)
+                .dropDestination(for: String.self) { keys, _ in
+                    guard let moved = keys.first else { return false }
+                    return app.moveRailAccount(moved, onto: account.key)
                 }
             }
             Button { app.showLogin(error: nil) } label: {
@@ -119,7 +127,12 @@ struct ServerRail: View {
         .background(Vibe.ink)
     }
 
-    func tile(_ account: Account, open: Bool, host: String) -> some View {
+    /// The Cmd + digit that opens the rail's `slot` (`AppCommands`), for its tooltip.
+    static func shortcut(_ slot: Int) -> String? {
+        railShortcutDigit(slot: UInt32(slot)).map { "⌘\($0)" }
+    }
+
+    func tile(_ account: Account, open: Bool, host: String, slot: Int) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
             Group {
                 // The server's own icon when it has one, else its initial.
@@ -145,7 +158,7 @@ struct ServerRail: View {
                 }
         }
         .buttonStyle(.plain)
-        .help("\(host) · @\(account.username)")
+        .help("\(host) · @\(account.username)" + (Self.shortcut(slot).map { " (\($0))" } ?? ""))
     }
 }
 

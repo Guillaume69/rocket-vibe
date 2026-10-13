@@ -57,8 +57,38 @@ pub fn reload_icons() {
     }
 }
 
+/// Where the rail's order and visibility are kept, shared with the SwiftUI app.
+fn config_dir() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs")
+}
+
 fn hidden_file() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs").join("hide-server-rail")
+    config_dir().join("hide-server-rail")
+}
+
+/// The digit a Ctrl + key press means, whatever the layout: the key's own
+/// symbol, or the digit the same physical key types with Shift (AZERTY types
+/// `&` there and `1` shifted), or a keypad digit. None with Shift, Alt or
+/// Super held: Ctrl+Shift+7 to 9 format the composer's text.
+pub fn shortcut_digit(
+    display: &gtk::gdk::Display,
+    key: gtk::gdk::Key,
+    code: u32,
+    state: gtk::gdk::ModifierType,
+) -> Option<u32> {
+    use gtk::gdk::ModifierType as M;
+    if !state.contains(M::CONTROL_MASK) || state.intersects(M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK | M::META_MASK)
+    {
+        return None;
+    }
+    let digit = |key: gtk::gdk::Key| key.to_unicode().and_then(|c| c.to_digit(10));
+    digit(key).or_else(|| {
+        display
+            .map_keycode(code)
+            .unwrap_or_default()
+            .into_iter()
+            .find_map(|(entry, key)| (entry.level() == 1).then(|| digit(key)).flatten())
+    })
 }
 
 /// The user's choice to hide the rail, shared with the SwiftUI app.
@@ -178,7 +208,7 @@ impl Rail {
         }
         self.dots.borrow_mut().clear();
         self.slots.borrow_mut().clear();
-        for info in &accounts {
+        for (slot, info) in accounts.iter().enumerate() {
             let key = account_key(info);
             let open = active.as_deref() == Some(key.as_str());
             let server = host(info);
@@ -199,12 +229,22 @@ impl Rail {
                 self.load_icon(info, &key, &overlay, &tile);
             }
             self.slots.borrow_mut().push((info.clone(), key.clone(), overlay.downgrade(), tile.clone()));
+            // The first ten say their Ctrl + digit shortcut (`AppWindow::new`'s key handler).
+            // The digit keys are named after their digit ("1", "0").
+            let shortcut = rv_core::server_rail::shortcut_digit(slot)
+                .and_then(|digit| gtk::gdk::Key::from_name(digit.to_string()))
+                .map(|key| {
+                    let label = gtk::accelerator_get_label(key, gtk::gdk::ModifierType::CONTROL_MASK);
+                    format!(" ({label})")
+                })
+                .unwrap_or_default();
             let button = gtk::Button::builder()
                 .child(&overlay)
-                .tooltip_text(format!("{} · @{}", server, info.username))
+                .tooltip_text(format!("{} · @{}{shortcut}", server, info.username))
                 .css_classes(["rail-button"])
                 .halign(gtk::Align::Center)
                 .build();
+            self.reorderable(&button, &overlay, &key);
             if open {
                 button.add_css_class("rail-active");
             }
@@ -245,6 +285,50 @@ impl Rail {
         }
         self.accounts.replace(accounts);
         self.apply_visibility();
+    }
+
+    /// Opens the account at the rail's `slot` (Ctrl + digit), as its button
+    /// does: nothing past the last account or on the open one.
+    pub fn open_slot(&self, slot: usize) {
+        let Some(target) = self.accounts.borrow().get(slot).cloned() else { return };
+        if self.active.borrow().as_deref() == Some(account_key(&target).as_str()) {
+            return;
+        }
+        if let Some(f) = self.on_switch.borrow().clone() {
+            f(target);
+        }
+    }
+
+    /// A button dragged onto another takes its place (`server_rail::reordered`),
+    /// kept for the next launch and for the SwiftUI app.
+    fn reorderable(self: &Rc<Self>, button: &gtk::Button, overlay: &gtk::Overlay, key: &str) {
+        let source = gtk::DragSource::builder().actions(gtk::gdk::DragAction::MOVE).build();
+        source.set_content(Some(&gtk::gdk::ContentProvider::for_value(&key.to_value())));
+        let icon = overlay.downgrade();
+        source.connect_drag_begin(move |source, _| {
+            if let Some(overlay) = icon.upgrade() {
+                source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&overlay))), 22, 22);
+            }
+        });
+        button.add_controller(source);
+        let target = gtk::DropTarget::new(String::static_type(), gtk::gdk::DragAction::MOVE);
+        let (weak, key) = (Rc::downgrade(self), key.to_owned());
+        target.connect_drop(move |_, value, _, _| {
+            let (Some(this), Ok(moved)) = (weak.upgrade(), value.get::<String>()) else { return false };
+            let keys: Vec<String> = this.accounts.borrow().iter().map(account_key).collect();
+            let Some(order) = rv_core::server_rail::reordered(&keys, &moved, &key) else { return false };
+            rv_core::server_rail::save(&config_dir(), &order);
+            // Rebuilt once the drop is over: the buttons handling it go.
+            glib::idle_add_local_once(move || {
+                let mut accounts = this.accounts.borrow().clone();
+                accounts.sort_by_key(|info| order.iter().position(|k| *k == account_key(info)));
+                let active = this.active.borrow().clone();
+                let open = accounts.iter().find(|info| active.as_deref() == Some(account_key(info).as_str())).cloned();
+                this.set_accounts(accounts, open.as_ref());
+            });
+            true
+        });
+        button.add_controller(target);
     }
 
     /// Whether the account has unread rooms; the open account's own shows in
@@ -342,6 +426,23 @@ impl Rail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn control_and_a_digit_name_a_rail_position() {
+        use gtk::gdk::{Key, ModifierType as M};
+        gtk::init().unwrap();
+        let display = gtk::gdk::Display::default().unwrap();
+        // A keycode no key of the layout uses: only the symbol speaks.
+        let digit = |key: Key, state: M| shortcut_digit(&display, key, 0, state);
+        assert_eq!(digit(Key::_1, M::CONTROL_MASK), Some(1));
+        assert_eq!(digit(Key::_0, M::CONTROL_MASK), Some(0));
+        assert_eq!(digit(Key::KP_9, M::CONTROL_MASK), Some(9));
+        assert_eq!(digit(Key::_1, M::empty()), None, "a digit typed alone");
+        assert_eq!(digit(Key::_7, M::CONTROL_MASK | M::SHIFT_MASK), None, "the composer's list shortcut");
+        assert_eq!(digit(Key::_1, M::CONTROL_MASK | M::ALT_MASK), None);
+        assert_eq!(digit(Key::k, M::CONTROL_MASK), None, "the room switcher");
+    }
 
     #[test]
     #[ignore = "requires a GTK display; run under Xvfb"]

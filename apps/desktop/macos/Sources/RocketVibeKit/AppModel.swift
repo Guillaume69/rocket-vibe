@@ -28,6 +28,20 @@ public final class AppModel {
     /// Tile positions are independent of the active-first list used at startup.
     public private(set) var railAccounts: [Account] = []
 
+    /// Drops the account `moved` on `target`'s tile: it takes that place,
+    /// kept for the next launch and for GTK (`server-rail-order`).
+    public func moveRailAccount(_ moved: String, onto target: String) -> Bool {
+        guard let order = client.moveRailAccount(keys: railAccounts.map(\.key), moved: moved, target: target) else { return false }
+        railAccounts = Self.orderForRail(accounts, keys: order)
+        return true
+    }
+
+    /// Cmd + digit: the rail's account at `slot` (0 for Cmd+1), as its tile does.
+    public func openRailSlot(_ slot: Int) async {
+        guard railAccounts.indices.contains(slot) else { return }
+        await switchAccount(railAccounts[slot])
+    }
+
     static func orderForRail(_ accounts: [Account], keys: [String]) -> [Account] {
         accounts.enumerated().sorted { left, right in
             let a = keys.firstIndex(of: left.element.key) ?? keys.count

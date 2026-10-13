@@ -187,6 +187,15 @@ impl Client {
         rv_core::collapsed_sections::toggle(&self.dirs.config, &account, &section)
     }
 
+    /// The rail's order (`keys`, `Account::key`) once `moved` is dropped on
+    /// `target`'s tile, saved for the next launch and for GTK; None when
+    /// nothing moves.
+    pub fn move_rail_account(&self, keys: Vec<String>, moved: String, target: String) -> Option<Vec<String>> {
+        let order = rv_core::server_rail::reordered(&keys, &moved, &target)?;
+        rv_core::server_rail::save(&self.dirs.config, &order);
+        Some(order)
+    }
+
     pub async fn accounts(&self) -> Vec<Account> {
         let dirs = self.dirs.clone();
         blocking(move || accounts::load_all(&dirs)).await.iter().map(account).collect()
@@ -952,6 +961,13 @@ pub fn tf(key: String, args: std::collections::HashMap<String, String>) -> Strin
 #[uniffi::export]
 pub fn tn(key: String, n: i64) -> String {
     rv_core::i18n::tn(&key, n)
+}
+
+/// The digit of the Cmd shortcut opening the rail's `slot`: 1 to 9, then 0
+/// for the tenth; None past it.
+#[uniffi::export]
+pub fn rail_shortcut_digit(slot: u32) -> Option<u32> {
+    rv_core::server_rail::shortcut_digit(slot as usize)
 }
 
 /// What a system message says, after its author's name.

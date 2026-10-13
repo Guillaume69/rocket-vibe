@@ -10,6 +10,8 @@ section here.
 ### Added
 
 - Create a channel or a private group on Rocket.Chat accounts, on GTK and SwiftUI: "Create a channel" in the "+" menu and on the Channels header, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
+- Switch servers from the keyboard: Ctrl + 1 to 9 opens the server rail's first nine accounts and Ctrl + 0 the tenth on GTK (Cmd on SwiftUI, also listed in the menu bar), each tile's tooltip naming its shortcut. The digit row works without Shift on AZERTY keyboards.
+- Reorder the server rail by dragging a tile onto another, on GTK and SwiftUI; the order is kept across restarts and shared by both apps.
 
 ### Changed
 

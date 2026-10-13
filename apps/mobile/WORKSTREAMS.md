@@ -451,8 +451,8 @@ The **7 refuted findings** (including two "DDP zombies" demolished by digging al
 What the audit had not seen, found by running things. `docs/AUDIT.md` is frozen: later
 findings are added here.
 
-- [ ] 🟢 **Activity's candidates query has no index of its own** (2026-10-13 review): `ACTIVITY_CANDIDATES` (`db/upserts.ts`) filters on author, system type and thread over the whole `messages` table, sorted by `ts`, and `app/activity.tsx` runs it at each focus. Fine at the 500 messages kept per room; on a device holding many accounts' worth of rooms, an index on `(ts)` or a partial index would keep coming back from a room instant.
-- [ ] 🟢 **RocketVibe thread following is not stored** (2026-10-13 review): `providers/rocketvibe/store.ts` drops `Message.personal_follow`, so the Activity view counts a reply in a thread I only follow on Rocket.Chat (`thread_followers`) and the web, not on a RocketVibe account here. Part of the thread-following debt of `brain/parity.md` section 6.
+- [x] 🟢 (fixed 2026-10-13: migration 0031 `idx_messages_ts`, `+rid` in the query, about 65 ms to 10 ms on 200k rows) **Activity's candidates query has no index of its own** (2026-10-13 review): `ACTIVITY_CANDIDATES` (`db/upserts.ts`) filters on author, system type and thread over the whole `messages` table, sorted by `ts`, and `app/activity.tsx` runs it at each focus. Fine at the 500 messages kept per room; on a device holding many accounts' worth of rooms, an index on `(ts)` or a partial index would keep coming back from a room instant.
+- [x] 🟢 (fixed 2026-10-13: migration 0032 `native_follow_states`, projected into `thread_followers`) **RocketVibe thread following is not stored** (2026-10-13 review): `providers/rocketvibe/store.ts` drops `Message.personal_follow`, so the Activity view counts a reply in a thread I only follow on Rocket.Chat (`thread_followers`) and the web, not on a RocketVibe account here. Part of the thread-following debt of `brain/parity.md` section 6.
 
 Repository reliability audit (2026-10-11):
 

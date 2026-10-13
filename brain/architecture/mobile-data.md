@@ -53,6 +53,8 @@ Optimistic messages are `messages` rows with `updated_at = 0`: only a local copy
 - `db/migrate.ts#migrateDatabase` runs drizzle's expo migrator on one database. It is memoized per file name by promise, so two callers in the same tick share one run; a failure is not memoized, so the next call retries. The body is async so that even a synchronous throw from opening a corrupt file becomes a rejection the caller can catch.
 - Migration is done by whoever opens the database (`SyncProvider` for the session's), never globally at app start.
 - **Migration 0030 (`db/migrations/0030_reminders.sql`)** adds `reminders` and its due-time index ([../features/reminders.md](../features/reminders.md#mobile)).
+- **Migration 0031 (`db/migrations/0031_messages_ts.sql`)** adds `idx_messages_ts` on `messages(ts)`: the Activity view's candidates and the search across rooms walk every room newest first and stop at their limit. `ACTIVITY_CANDIDATES` writes its room filter `+rid IN (…)` so SQLite takes this index rather than `idx_messages_room_ts` and a full sort; `db/upserts.test.ts` checks both plans ([../features/activity.md](../features/activity.md#mobile)).
+- **Migration 0032 (`db/migrations/0032_native_follow_states.sql`)** adds `native_follow_states` (`id`, `rid`, `revision`, `present`): a RocketVibe `personal_follow`, versioned like `native_star_states`, so a copy without it or an older one never undoes it; `providers/rocketvibe/store.ts` projects it as my id in the root's `thread_followers`, and empties it wherever it empties the stars.
 - **Migration 0021 (`db/migrations/0021_author_bot.sql`)** adds `messages.author_bot` (default false), written only by the RocketVibe store after the shared upsert, for the bot badge ([../features/bots.md](../features/bots.md)).
 - **Migration 0022 (`db/migrations/0022_message_form.sql`)** adds `messages.form`, the JSON of a workflow's form (`Message.form`), written only by the RocketVibe store, read by the form card and the answer sheet ([../features/workflows.md](../features/workflows.md)).
 - **Migration 0025 (`db/migrations/0025_user_names.sql`)** adds `users.name`, the person's real name (a message's `u.name`, `me`, `users.info`, a two-person DM subscription's `fname`). Rows written before it have none until a source names them; the reconciliation's full subscription list backfills the DM peers.
@@ -120,6 +122,8 @@ Side effects baked into writes:
 - apps/mobile/db/migrations/0022_message_form.sql
 - apps/mobile/db/migrations/0025_user_names.sql
 - apps/mobile/db/migrations/0030_reminders.sql
+- apps/mobile/db/migrations/0031_messages_ts.sql
+- apps/mobile/db/migrations/0032_native_follow_states.sql
 - apps/mobile/ui/reminders.ts
 - apps/mobile/lib/catchUp.ts
 - apps/mobile/providers/rocketvibe/store.ts

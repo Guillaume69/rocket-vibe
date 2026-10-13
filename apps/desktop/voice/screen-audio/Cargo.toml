@@ -5,7 +5,7 @@
 [package]
 name = "rv-screen-audio"
 # Follows apps/desktop/Cargo.toml: one version per app.
-version = "0.19.0"
+version = "0.19.1"
 edition = "2024"
 license = "MIT"
 publish = false

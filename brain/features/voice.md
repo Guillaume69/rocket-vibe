@@ -243,6 +243,9 @@ On Windows with the actual Cairo renderer, GTK uses finite zero-blur green speak
   marker. `RV_VOICE_FAKE_VIDEO=pattern` replaces the camera and the screen.
 - **The screen's sound** (`voice/src/screen_audio.rs`), published beside the screen as its
   own `ScreenshareAudio` track (no echo cancellation, gain or noise suppression, 96 kb/s).
+  Unpublishing it at the end of a share must leave the microphone alone: the sidecar holds
+  one microphone track and forgets it only on that track's own `LocalTrackUnpublished`, else
+  the next permission change would publish a second one and the sharer be heard twice.
   "The call" is the sidecar's playout and the app's own sounds (cues, ringtone): rv-core
   passes the app's process id in `RV_VOICE_APP_PID`. Windows: WASAPI process loopback of
   everything but the app's process tree, the sidecar included (the `wasapi` crate, safe

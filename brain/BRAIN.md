@@ -90,6 +90,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app. |
 | [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the RocketVibe contract, deleted accounts. |
 | [scheduled-messages.md](features/scheduled-messages.md) | RocketVibe scheduled messages. |
+| [activity.md](features/activity.md) | The Activity view: mentions, thread replies and reactions across rooms (and accounts on desktop), on the device. |
 | [reminders.md](features/reminders.md) | Reminders about a message, on the device. |
 | [read-receipts.md](features/read-receipts.md) | RocketVibe read receipts. |
 | [do-not-disturb.md](features/do-not-disturb.md) | RocketVibe quiet hours and mute. |

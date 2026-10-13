@@ -204,7 +204,10 @@ On Windows with the actual Cairo renderer, GTK uses finite zero-blur green speak
   default-device notification, which a virtual surround headset's driver sends in bursts
   (it reopened ten times a second and crackled); a real change of default is followed every
   3 s instead, and a stream that dies reopens the chosen devices at most every 2 s
-  (`device_lost`). A stream opens at the device's own channels and rate in 32-bit float
+  (`device_lost`). An error the stream survives reopens nothing (`audio::survived`: a
+  reroute, refused real-time scheduling, an xrun): WASAPI flags a microphone's buffer
+  discontinuity as an xrun, a fresh stream's included, so reopening for it looped and cut
+  both directions for a moment every 2 s. A stream opens at the device's own channels and rate in 32-bit float
   when the device takes it (`audio::choose`): PulseAudio and PipeWire report the hardware's
   format, `s24le` on many USB outputs, and convert whatever a stream sends; the device's own
   format is the fallback (F32, I16, I24, I32, U16 are converted). Opening a side ends as

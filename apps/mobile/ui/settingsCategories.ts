@@ -45,7 +45,7 @@ export const SETTINGS_CATEGORIES: readonly CategoryInfo[] = [
 
 /** What the current account and server offer; each flag fills one category. */
 export type SettingsContent = {
-  /** A RocketVibe server (native provider) rather than Rocket.Chat. */
+  /** A Vibez server (native provider) rather than Rocket.Chat. */
   native: boolean;
   /** The server delivers push to this app (Rocket.Chat; a native server that takes registrations). */
   push: boolean;

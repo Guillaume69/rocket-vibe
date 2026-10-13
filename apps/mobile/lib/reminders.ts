@@ -218,7 +218,7 @@ const ID = /^[A-Za-z0-9_-]{1,128}$/;
 /**
  * The link of a Rocket.Chat or Mattermost account's reminder: the room on
  * its server, the message, and the thread root of a reply (`parseRoomLink`'s
- * `msg` and `tmid`). A RocketVibe account takes `nativeRoomPermalink`, which
+ * `msg` and `tmid`). A Vibez account takes `nativeRoomPermalink`, which
  * also names the server's instance and data epoch.
  */
 export function plainReminderLink(host: string, rid: string, messageId: string, threadId: string | null): string | null {

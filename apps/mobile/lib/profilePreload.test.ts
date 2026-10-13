@@ -34,7 +34,7 @@ const USER = { _id: 'u1', username: 'alice' };
 
 test('native preload uses its provider, and an account change fences late cache and navigation',async(t)=>{
   t.mock.timers.enable({apis:['setTimeout','Date']});
-  const c={kind:'rocketvibe',baseUrl:'http://native.local',get:()=>{throw new Error('Unexpected RC request');}} as unknown as RestClient;
+  const c={kind:'vibez',baseUrl:'http://native.local',get:()=>{throw new Error('Unexpected RC request');}} as unknown as RestClient;
   const other={...c,baseUrl:'http://other.local'} as unknown as RestClient;
   const navigations:ProfileParams[]=[];
   setProfileNavigator(p=>navigations.push(p));setProfileClient(c);

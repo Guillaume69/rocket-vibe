@@ -95,7 +95,7 @@ describe('native protocol contract', () => {
   });
   test('an unrecognized native version is not silently treated as Rocket.Chat', async () => {
     const client = new NativeTransport('https://example.org',async () => Response.json({...fixture.discovery,protocol_versions:[99]}));
-    await assert.rejects(client.discover(),/Unsupported RocketVibe/);
+    await assert.rejects(client.discover(),/Unsupported Vibez/);
   });
   test('server errors stay structured and missing sessions never send a request', async () => {
     let calls = 0;

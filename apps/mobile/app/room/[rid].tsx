@@ -304,7 +304,7 @@ function Room({
 }) {
   const t = useT();
   const [limit, setLimit] = useState(PAGE);
-  const native=provider.identity.kind==='rocketvibe';
+  const native=provider.identity.kind==='vibez';
   const { data: roomRows } = useCoalescedLiveQuery(
     base.select().from(rooms).where(eq(rooms.rid, rid)).limit(1), [rid],
   );
@@ -1088,7 +1088,7 @@ function Room({
     [outboxRows],
   );
   const highlighted = jumpIndex >= 0 ? targetJump : null;
-  // Read receipts (RocketVibe): the line under my latest confirmed root
+  // Read receipts (Vibez): the line under my latest confirmed root
   // message, from the live frame. Not in a context window (an older stretch)
   // nor in an encrypted room, whose rows carry no stored position.
   const receipt = useReadReceipt({

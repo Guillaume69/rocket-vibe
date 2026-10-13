@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createOutboxStore} from '../apps/mobile/db/store.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import type {SQLiteDatabase} from 'expo-sqlite';
@@ -31,7 +31,7 @@ export async function quoteSmoke():Promise<void> {
   const origin=await owner.createRoom({operation_id:`quote-origin-${nonce}`,name:`Quote origin ${nonce}`,private:true});
   await owner.addMember(destination.id,account.user.id);await owner.addMember(origin.id,account.user.id);
   const source=await owner.send(origin.id,{operation_id:`quote-source-${nonce}`,text:'*Source privée* _autorisée_'});
-  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const dir=mkdtempSync(join(tmpdir(),'rv-quote-peer-')),filename=join(dir,'cache.sqlite');
   let harness=nativeTestDatabase(filename),store=new NativeStore(harness.adapter,createWriteQueue(),session);
   const chats:NativeChat[]=[];
@@ -45,7 +45,7 @@ export async function quoteSmoke():Promise<void> {
     const losing=new NativeTransport(base);losing.restore(account.token);
     const attempts:SendMessage[]=[];
     losing.send=async(rid,input)=>{attempts.push(structuredClone(input));await reader.send(rid,input);throw new NativeError(503,'response_lost');};
-    const provider=createRocketVibeProvider(session,new RestClient(base),()=>`quote-send-${nonce}`,store,{transport:losing,socket});
+    const provider=createVibezProvider(session,new RestClient(base),()=>`quote-send-${nonce}`,store,{transport:losing,socket});
     const first=provider.native!.chat;chats.push(first);
     await first.connect();
     assert.equal(provider.capabilities.quotes,true,'discovery and the existing mobile provider must enable native quotes');

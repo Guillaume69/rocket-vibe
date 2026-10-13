@@ -72,7 +72,7 @@ export async function saveSession(session: Session): Promise<void> {
 export function rememberNativePushDevice(expected:Session,deviceId:string):Promise<void> {
   return transactionSession(expected.baseUrl,async()=>{
     const current=await readSession(expected.baseUrl);
-    if(!current || current.kind!=='rocketvibe' || current.authToken!==expected.authToken || current.userId!==expected.userId || current.nativeInstanceId!==expected.nativeInstanceId || current.nativeDataEpoch!==expected.nativeDataEpoch)throw new NativeError(0,'session_closed');
+    if(!current || current.kind!=='vibez' || current.authToken!==expected.authToken || current.userId!==expected.userId || current.nativeInstanceId!==expected.nativeInstanceId || current.nativeDataEpoch!==expected.nativeDataEpoch)throw new NativeError(0,'session_closed');
     await writeSession({...current,nativePushDeviceId:deviceId});
   });
 }
@@ -84,7 +84,7 @@ async function writeSession(session:Session):Promise<void> {
 export function prepareNativeSession(expected:Session):Promise<Session> {
   return transactionSession(expected.baseUrl,async()=>{
     const stored=await readSession(expected.baseUrl);
-    if (!stored || stored.userId!==expected.userId || stored.kind!=='rocketvibe') throw new NativeError(0,'session_closed');
+    if (!stored || stored.userId!==expected.userId || stored.kind!=='vibez') throw new NativeError(0,'session_closed');
     if(stored.nativeRenewal!==undefined && !validRenewal(stored.nativeRenewal,stored.authToken))throw new NativeError(0,'invalid_native_credentials');
     const transport=transportFor(stored);const discovery=await transport.discover();
     checkIdentity(expected,discovery);checkIdentity(stored,discovery);

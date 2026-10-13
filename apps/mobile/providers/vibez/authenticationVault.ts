@@ -131,7 +131,7 @@ export class AuthenticationVault {
     return serialized(key,async()=>{
       const current=await this.read(key,expected.baseUrl,expected.user.username);
       if(!current)return true;
-      if(!active || active.kind!=='rocketvibe' || canonical(active.baseUrl)!==canonical(current.baseUrl)
+      if(!active || active.kind!=='vibez' || canonical(active.baseUrl)!==canonical(current.baseUrl)
         || active.userId!==current.user.id || active.nativeInstanceId!==current.instanceId || active.nativeDataEpoch!==current.dataEpoch
         || !sameIdentity(current,expected) || current.challenge.challenge_id!==expected.challenge.challenge_id
         || !current.pending || active.authToken!==current.pending.next_token)return false;

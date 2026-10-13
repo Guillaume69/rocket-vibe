@@ -8,7 +8,7 @@
  *   `all` or `here` when there is one, else (Mattermost, kChat: no tree) a word
  *   `@<name>` of the text, the rule of the desktop's `rv_core::notify::mentions`;
  *   a word `@all` or `@here` of the text counts even beside a tree (the
- *   RocketVibe tree renders `@here` as plain text, `providers/vibez/markdown.ts`);
+ *   Vibez tree renders `@here` as plain text, `providers/vibez/markdown.ts`);
  * - **reply**: someone else's thread reply, in a thread I take part in (I wrote
  *   its root, I replied there, or I follow it on Rocket.Chat);
  * - **reaction**: my message others reacted to, with who and which emojis.
@@ -82,7 +82,7 @@ function wordMentions(text: string | null, names: readonly string[]): boolean {
 /**
  * `@me`, `@all` or `@here`: from the parsed tree, else from the text's words.
  * A word `@all` or `@here` of the text counts even when the tree has no node
- * for it (RocketVibe renders `@here` as plain text).
+ * for it (Vibez renders `@here` as plain text).
  */
 export function mentionsMe(md: string | null, text: string | null, username: string): boolean {
   const names = [username, 'all', 'here'];

@@ -56,7 +56,7 @@ let current: Mounted | null = null;
 
 /** The link a reminder's notification opens: the account, the room, the message (and its thread). */
 function linkFor(session: Session, reminder: Pick<Reminder, 'rid' | 'messageId' | 'threadId'>): string | null {
-  if (session.kind === 'rocketvibe') return nativeRoomPermalink(session, reminder.rid, reminder.messageId, reminder.threadId);
+  if (session.kind === 'vibez') return nativeRoomPermalink(session, reminder.rid, reminder.messageId, reminder.threadId);
   const host = serviceUrl(session.baseUrl);
   return host === null ? null : plainReminderLink(host, reminder.rid, reminder.messageId, reminder.threadId);
 }

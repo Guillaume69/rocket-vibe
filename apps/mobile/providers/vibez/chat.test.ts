@@ -14,7 +14,7 @@ import {createHash} from 'node:crypto';
 
 test('private e-mail access rejects changed identity, disabled capability and callbacks from a closed runner',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for(const scenario of ['normal','disabled','other-account','changed-epoch','hidden','closed-during-start'] as const){
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
@@ -52,7 +52,7 @@ test('private e-mail access rejects changed identity, disabled capability and ca
 
 test('removal access works without SMTP or factor configuration and rejects stale runner callbacks',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for(const scenario of ['normal','disabled','changed-epoch','hidden','closed-during-removal'] as const){
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
@@ -89,7 +89,7 @@ test('removal access works without SMTP or factor configuration and rejects stal
 
 test('security callbacks pin account, epoch and runner/focus generation before and after HTTP',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for(const outcome of ['normal','unsupported','password-only','different-account','different-epoch','hidden-during-discovery','closed-during-mutation'] as const){
     const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
@@ -121,7 +121,7 @@ test('security callbacks pin account, epoch and runner/focus generation before a
 
 test('device actions preserve recent-auth failures and discard replies after provider closure',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
   const current={id:'device-1',label:'Mobile',created_at:'2026-10-01T00:00:00Z',last_seen_at:'2026-10-01T00:00:00Z',expires_at:'2026-11-01T00:00:00Z',current:true};
@@ -154,7 +154,7 @@ test('device actions preserve recent-auth failures and discard replies after pro
 
 test('secure renewal precedes replay and a stopped runner cannot adopt its delayed result',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'old-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'old-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for (const outcome of ['success','stopped','other-account','other-server','legacy-capability'] as const) {
     const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -192,7 +192,7 @@ test('secure renewal precedes replay and a stopped runner cannot adopt its delay
 
 test('a persisted reaction retries one canonical intention after process restart and cannot be overwritten while pending',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const directory=mkdtempSync(join(tmpdir(),'rv-react-command-'));
   const filename=join(directory,'account.sqlite');
   let h=nativeTestDatabase(filename);
@@ -235,7 +235,7 @@ test('a persisted reaction retries one canonical intention after process restart
 
 test('pin and private star commands retain their IDs and explicit state through a SQLite restart',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for (const starred of [false,true]) {
     const directory=mkdtempSync(join(tmpdir(),'rv-mark-command-'));
     const filename=join(directory,'account.sqlite');
@@ -277,7 +277,7 @@ test('pin and private star commands retain their IDs and explicit state through 
 
 test('marked lists paginate before committing and reject corrupt pages without updating the projection',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
   let corrupt=false;const cursors:(string|undefined)[]=[];
@@ -304,7 +304,7 @@ test('marked lists paginate before committing and reject corrupt pages without u
 
 test('a session rejected before socket opening closes the retained provider without queuing stale sends',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();
   const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -320,7 +320,7 @@ test('a session rejected before socket opening closes the retained provider with
 
 test('durable edits retry the original revision after journal delivery and stop on conflicts or session rejection',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();
   const store=new NativeStore(adapter,createWriteQueue(),session);
   const references=[{room_id:'origin',message_id:'source',revision:'9007199254740993'}];
@@ -368,7 +368,7 @@ test('durable edits retry the original revision after journal delivery and stop 
 
 test('legacy edit intents retain their draft and stop before sending a changed operation body',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[fixture.message],cursor:'initial'});
   db.prepare("INSERT INTO native_commands(id,rid,message_id,kind,expected_revision,text) VALUES('legacy-edit',?,?,'edit',?,'Saved draft')").run(fixture.room.id,fixture.message.id,fixture.message.revision);
@@ -393,7 +393,7 @@ test('legacy edit intents retain their draft and stop before sending a changed o
 
 test('stopping during the WebSocket handshake cancels its timer and detaches every callback',async () => {
   const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter} = nativeTestDatabase();
   const store = new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
@@ -422,7 +422,7 @@ test('stopping during the WebSocket handshake cancels its timer and detaches eve
 
 test('a delivery revalidation keeps the durable send pending and retries its same intention',async () => {
   const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter} = nativeTestDatabase();
   const store = new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -456,7 +456,7 @@ test('a delivery revalidation keeps the durable send pending and retries its sam
 
 test('room creation keeps its persisted ID after a lost response and reuses existing discovery models',async () => {
   const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();
   const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});
@@ -493,7 +493,7 @@ test('room creation keeps its persisted ID after a lost response and reuses exis
 
 test('an online outbox retries transient failures, honors Retry-After and cancels when suspended',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase();
   const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -536,7 +536,7 @@ test('an online outbox retries transient failures, honors Retry-After and cancel
 
 test('a failed SQLite echo retries the same committed send and a rejected session stops stale callbacks',async () => {
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter,failWhen}=nativeTestDatabase();
   const store=new NativeStore(adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -572,7 +572,7 @@ test('a failed SQLite echo retries the same committed send and a rejected sessio
 });
 
 test('a refreshed view keeps the plaintext of the files it still shows, and forgets only the others',async()=>{
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'u',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'i',nativeDataEpoch:'1'};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'u',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'i',nativeDataEpoch:'1'};
   const {db,adapter}=nativeTestDatabase();const store=new NativeStore(adapter,createWriteQueue(),session);
   const chat=new NativeChat(session,store,()=>{throw new Error('No send');},{transport:{} as NativeTransport,socket:()=>{throw new Error('No socket');}});
   try {

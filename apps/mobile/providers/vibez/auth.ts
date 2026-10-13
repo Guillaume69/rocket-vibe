@@ -4,7 +4,7 @@ import type { Discovery } from './protocol.generated.ts';
 import { NativeError, NativeTransport } from './transport.ts';
 
 export function assertNativeSession(session: Session): void {
-  if (session.kind !== 'rocketvibe' || !session.nativeInstanceId || !session.nativeDataEpoch) throw new Error('Incomplete native session');
+  if (session.kind !== 'vibez' || !session.nativeInstanceId || !session.nativeDataEpoch) throw new Error('Incomplete native session');
 }
 export function checkIdentity(session: Session, discovery: Discovery): void {
   assertNativeSession(session);
@@ -26,7 +26,7 @@ export async function nativeLogin(baseUrl: string, discovered: Discovery, creden
   if (after.instance_id !== fresh.instance_id || after.data_epoch !== fresh.data_epoch) throw new NativeError(409,'server_identity_changed');
   return {
     baseUrl: transport.baseUrl, userId: result.user.id, username: result.user.username,
-    authToken: result.token, kind: 'rocketvibe', siteUrl: null,
+    authToken: result.token, kind: 'vibez', siteUrl: null,
     nativeInstanceId: fresh.instance_id, nativeDataEpoch: fresh.data_epoch,
     nativeExpiresAt: result.expires_at,
   };

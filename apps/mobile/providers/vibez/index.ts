@@ -12,7 +12,7 @@ import {NativeFileOutbox} from './uploads.ts';
 import {NativeAdmin,nativeReports} from './admin.ts';
 import {nativeScheduled} from './scheduled.ts';
 
-export const ROCKETVIBE_CAPABILITIES: Capabilities = {
+export const VIBEZ_CAPABILITIES: Capabilities = {
   editing:true, deletion:true,
   typing:true, presence:true, push:false, e2ee:false, customEmojis:true,
   search:true, threadTemplate:'root_id',
@@ -26,7 +26,7 @@ const unsupported = async (): Promise<never> => { throw new NativeError(501,'uns
 const noSubscription = () => () => {};
 
 /** Both the server and this client must implement a feature before exposing it. */
-export function effectiveCapabilities(announcement: NativeCapabilities | null, client: Capabilities = ROCKETVIBE_CAPABILITIES): Capabilities {
+export function effectiveCapabilities(announcement: NativeCapabilities | null, client: Capabilities = VIBEZ_CAPABILITIES): Capabilities {
   const both = (a: boolean | undefined, b: boolean | undefined) => a === true && b === true;
   return {
     threadTemplate:client.threadTemplate,
@@ -46,7 +46,7 @@ export function effectiveCapabilities(announcement: NativeCapabilities | null, c
   };
 }
 
-export function createRocketVibeProvider(session: Session, client: RestClient, generateId: () => string, store: NativeStore, options: ConstructorParameters<typeof NativeChat>[3] = {}): Provider {
+export function createVibezProvider(session: Session, client: RestClient, generateId: () => string, store: NativeStore, options: ConstructorParameters<typeof NativeChat>[3] = {}): Provider {
   let filesConnected=false;
   const chat = new NativeChat(session,store,generateId,{revoke: token => client.onTokenRejected?.(token),...options});
   const listener: Listener = {
@@ -60,7 +60,7 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
     send:unsupported, process:unsupported, retry:unsupported, discard:unsupported,
   };
   return {
-    identity:{kind:'rocketvibe',origin:session.baseUrl,accountId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
+    identity:{kind:'vibez',origin:session.baseUrl,accountId:session.userId,instanceId:session.nativeInstanceId ?? null,generation:session.nativeDataEpoch ?? null},
     describeError:describeProviderError,
     // No private notes here: a refused slash command answers in its HTTP error.
     privateNote:()=>null,
@@ -75,7 +75,7 @@ export function createRocketVibeProvider(session: Session, client: RestClient, g
     },
     searchMessages:async(rid,text)=>(await chat.searchMessages(rid,text)).map(m=>localMessage(m,session.userId)),
     admin:new NativeAdmin(chat), reports:nativeReports(chat), scheduled:nativeScheduled(call=>chat.scheduled(call)),
-    native:{chat,store}, messageOrder:'sequence', get capabilities() { return effectiveCapabilities(chat.capabilities,{...ROCKETVIBE_CAPABILITIES,files:filesConnected,push:options.pushAndroid===true,voice:options.voice===true}); }, listener,
+    native:{chat,store}, messageOrder:'sequence', get capabilities() { return effectiveCapabilities(chat.capabilities,{...VIBEZ_CAPABILITIES,files:filesConnected,push:options.pushAndroid===true,voice:options.voice===true}); }, listener,
     translator:{
       translateEvent:() => ({kind:'silence'}),
       toMessage:raw => localMessage(decodeNative('Message',raw),session.userId),

@@ -45,7 +45,7 @@ async function runner(username:string) {
     return response;
   });
   const discovery=await transport.discover(); const login=await transport.login(username,'test-password-2026');
-  const session: Session={kind:'rocketvibe',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session: Session={kind:'vibez',baseUrl:base!,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const db=nativeTestDatabase(); const store=new NativeStore(db.adapter,createWriteQueue(),session);
   let serial=0;
   const makeChat=() => new NativeChat(session,store,() => `${username}-${namespace}-action-${serial++}`,{transport});

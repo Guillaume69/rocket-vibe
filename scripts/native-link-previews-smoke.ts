@@ -21,9 +21,9 @@ const transport=new NativeTransport(base,async(input,options)=>{
 });
 const discovery=await transport.discover(),auth=await transport.login('owner','test-password-2026');
 assert.equal(discovery.capabilities.link_previews,true);
-const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const h=nativeTestDatabase(),store=new NativeStore(h.adapter,createWriteQueue(),session),chat=new NativeChat(session,store,randomUUID,{transport});
-const client=new RestClient(base);client.kind='rocketvibe';
+const client=new RestClient(base);client.kind='vibez';
 let unmount:()=>void=()=>{};
 async function until(check:()=>Promise<boolean>|boolean){const deadline=Date.now()+5000;while(!await check()){if(Date.now()>deadline)throw new Error('Preview event did not reach the app');await new Promise<void>(r=>setTimeout(r,20));}}
 async function urls(){await store.state();const row=h.db.prepare('SELECT urls FROM messages WHERE id=?').get(id) as {urls:string|null}|undefined;assert(row);return row.urls;}

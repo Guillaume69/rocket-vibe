@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {nativeRoomPermalink,parseRoomLink,roomLinkMatches,serviceUrl,systemRoomPath} from './roomLinks.ts';
 import type {Session} from './auth.ts';
-const alice:Session={baseUrl:'https://chat.example.org/native',userId:'alice',username:'alice',authToken:'private-bearer',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const alice:Session={baseUrl:'https://chat.example.org/native',userId:'alice',username:'alice',authToken:'private-bearer',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 test('native message links retain the service and actual thread while remaining shareable',()=>{
   const url=nativeRoomPermalink(alice,'room','reply','root')!;
   assert(!url.includes('alice')&&!url.includes('private-bearer'));

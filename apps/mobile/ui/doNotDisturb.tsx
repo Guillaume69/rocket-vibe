@@ -1,5 +1,5 @@
 /**
- * Settings > Notifications, "Do not disturb", on a RocketVibe account
+ * Settings > Notifications, "Do not disturb", on a Vibez account
  * (brain/features/do-not-disturb.md), as the web offers it: a mute for one
  * hour or until 08:00, and daily quiet hours (a switch and two HH:MM times,
  * 22:00 to 08:00 by default, saved with the phone's IANA time zone). The

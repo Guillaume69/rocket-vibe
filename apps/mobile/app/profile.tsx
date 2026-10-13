@@ -56,7 +56,7 @@ type Profile = {
    * the way, so the list and the messages benefit too.
    */
   avatarEtag: string | null;
-  /** A bot account (RocketVibe, RFC 0003), and its owner's username when known. */
+  /** A bot account (Vibez, RFC 0003), and its owner's username when known. */
   bot: boolean;
   botOwner: string | null;
 };
@@ -148,7 +148,7 @@ export default function ProfileScreen() {
     return state&&id?state.presence.find(p=>p.user.id===id)?.status??(state.profiles?.some(p=>p.user.id===id)?'offline':null):null;
   },[chat,profileUid]);
   const presenceNative=useSyncExternalStore(subscribePresence,snapshotPresence,snapshotPresence);
-  const displayedStatus=client?.kind==='rocketvibe'?presenceNative:profile?.status??null;
+  const displayedStatus=client?.kind==='vibez'?presenceNative:profile?.status??null;
   const [error, setError] = useState<string | null>(() =>
     preloaded !== undefined && preloaded.user === undefined
       ? profileErrorText(preloaded.error)
@@ -177,7 +177,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     // Already preloaded: reload nothing; a second render would move the height again.
     if (preloaded !== undefined && preloadVersion.current===profileVersion) return;
-    const stableUid=client?.kind==='rocketvibe'&&resolvedIdentity.current.target===profileTarget?resolvedIdentity.current.uid:null;
+    const stableUid=client?.kind==='vibez'&&resolvedIdentity.current.target===profileTarget?resolvedIdentity.current.uid:null;
     const params =
       stableUid?{uid:stableUid}:typeof username === 'string' && username !== ''
         ? { username }
@@ -194,7 +194,7 @@ export default function ProfileScreen() {
         else {resolvedIdentity.current={target:profileTarget,uid:p.uid};setProfile(p);setError(null);}
       })
       .catch((e: unknown) => {
-        if (alive){setProfile(null);setError(client.kind==='rocketvibe'?translateCurrent('native.error'):e instanceof Error ? e.message : translateCurrent('profile.profileNotFound'));}
+        if (alive){setProfile(null);setError(client.kind==='vibez'?translateCurrent('native.error'):e instanceof Error ? e.message : translateCurrent('profile.profileNotFound'));}
       });
     return () => {
       alive = false;
@@ -206,7 +206,7 @@ export default function ProfileScreen() {
   // the messages show the SAME photo, right away. The SQL only touches the row
   // if something really changed (see `UPSERT_IDENTITY`).
   useEffect(() => {
-    if (profile === null || engine === null || client?.kind==='rocketvibe') return;
+    if (profile === null || engine === null || client?.kind==='vibez') return;
     void engine.syncStore
       .saveIdentity({
         uid: profile.uid,
@@ -298,14 +298,14 @@ export default function ProfileScreen() {
       ? avatarUrl(client, {
           username: shownUsername,
           uid: uid ?? profile?.uid,
-          etag: client.kind==='rocketvibe'?knownEtag??profile?.avatarEtag:profile?.avatarEtag??knownEtag,
+          etag: client.kind==='vibez'?knownEtag??profile?.avatarEtag:profile?.avatarEtag??knownEtag,
         })
       : null;
   const isMe = profile?.uid?profile.uid===myId:shownUsername !== null && shownUsername === me;
   const errorBeforeProfile = profile === null && error !== null;
 
   return (
-    <ProfileBody c={c} bottom={bottomMargin} scrollable={client?.kind==='rocketvibe' && CryptoNative!==null && chat?.capabilities?.e2ee===true && chat.capabilities.device_sessions===true}>
+    <ProfileBody c={c} bottom={bottomMargin} scrollable={client?.kind==='vibez' && CryptoNative!==null && chat?.capabilities?.e2ee===true && chat.capabilities.device_sessions===true}>
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.header}>
@@ -374,11 +374,11 @@ export default function ProfileScreen() {
       {error !== null && (
         <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>
       )}
-      {client?.kind==='rocketvibe' && profile && !profile.bot && <EncryptedTrustSection c={c} user={profile.uid}/>}
+      {client?.kind==='vibez' && profile && !profile.bot && <EncryptedTrustSection c={c} user={profile.uid}/>}
       {client?.kind === 'rocketchat' && typeof dm === 'string' && sync.phase === 'ready' && (
         <RoomNotificationChoiceFor c={c} rid={dm} base={sync.base} actions={sync.actions} />
       )}
-      {client?.kind==='rocketvibe' && typeof cryptoRoom==='string' && sync.phase==='ready' && chat?.capabilities?.e2ee &&
+      {client?.kind==='vibez' && typeof cryptoRoom==='string' && sync.phase==='ready' && chat?.capabilities?.e2ee &&
         <RoomMembershipBound base={sync.base} rid={cryptoRoom}>{membership=>membership?<EncryptedGroupSection c={c} room={cryptoRoom} membership={membership}/>:null}</RoomMembershipBound>}
 
       {/* Actions present from the skeleton on (Message disabled while

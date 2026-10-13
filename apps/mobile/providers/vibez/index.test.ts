@@ -9,7 +9,7 @@ import type { Session } from '../../lib/auth.ts';
 import { RestClient } from '../../lib/rest.ts';
 import { createProvider } from '../index.ts';
 import { messageOrder } from '../../ui/messageOrder.ts';
-import { createRocketVibeProvider } from './index.ts';
+import { createVibezProvider } from './index.ts';
 import { NativeStore } from './store.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
 import { decodeNative } from './validation.ts';
@@ -20,14 +20,14 @@ import type { SQLInputValue } from 'node:sqlite';
 const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const room = decodeNative('Room',fixture.room);
 const message = decodeNative('Message',fixture.message);
-const account: Session = {kind:'rocketvibe',baseUrl:'http://localhost:3400',authToken:'test-token',userId:message.author.id,username:message.author.username,
+const account: Session = {kind:'vibez',baseUrl:'http://localhost:3400',authToken:'test-token',userId:message.author.id,username:message.author.username,
   nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch,siteUrl:null};
 
 test('the existing provider outbox carries native references and never trusts optimistic attachments',async()=>{
   const h=nativeTestDatabase(),queue=createWriteQueue(),store=new NativeStore(h.adapter,queue,account);
   const scoped={...room,read_state:{room_id:room.id,revision:'1',membership_version:'source-grant',favorite_revision:'1',root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}};
   await store.applySnapshot({protocol_version:1,rooms:[scoped],messages:[message],cursor:'initial'});
-  const provider=createRocketVibeProvider(account,new RestClient(account.baseUrl),()=> 'quoted-intent',store);
+  const provider=createVibezProvider(account,new RestClient(account.baseUrl),()=> 'quoted-intent',store);
   try {
     const selected=await store.quoteSelection(room.id,message.id);
     const outbox=provider.createOutbox(createOutboxStore(h.adapter as SQLiteDatabase,queue),async()=>{});
@@ -106,7 +106,7 @@ test('native history uses its decimal cursor and reports progress independently 
     },
   } as unknown as NativeTransport;
   const client = new RestClient(account.baseUrl);
-  const provider = createRocketVibeProvider(account,client,() => 'intent',store,{transport,socket:() => {
+  const provider = createVibezProvider(account,client,() => 'intent',store,{transport,socket:() => {
     const socket = {readyState:1,onopen:null,onclose:null,onerror:null,onmessage:null,close:() => {}} as unknown as WebSocket;
     queueMicrotask(() => socket.onopen?.(new Event('open')));
     return socket;

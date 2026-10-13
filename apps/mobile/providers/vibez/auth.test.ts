@@ -3,14 +3,14 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { checkIdentity, transportFor } from './auth.ts';
 import { NativeError, NativeTransport } from './transport.ts';
-import { discoverServer, NotRocketVibeError } from '../../lib/serverKind.ts';
+import { discoverServer, NotVibezError } from '../../lib/serverKind.ts';
 import { clientForSession } from '../../lib/sessionTransport.ts';
 import type { Session } from '../../lib/auth.ts';
 import { decodeNative } from './validation.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const discovery = decodeNative('Discovery',fixture.discovery);
-const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 test('identity and epoch mismatches fail before authenticated calls',() => {
   checkIdentity(session,discovery);
   assert.throws(() => checkIdentity(session,{...discovery,instance_id:'another'}),NativeError);
@@ -56,8 +56,8 @@ test('a chosen server kind is probed alone',async () => {
   const rocketChat = await discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketchat');
   assert.equal(rocketChat.version,'8.8');assert(!calls.includes('/.well-known/vibez'),'Rocket.Chat asks no discovery');
   calls.length = 0;
-  await assert.rejects(discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketvibe'),NotRocketVibeError);
-  assert.deepEqual(calls,['/.well-known/vibez'],'RocketVibe never falls back to the Rocket.Chat probe');
+  await assert.rejects(discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'vibez'),NotVibezError);
+  assert.deepEqual(calls,['/.well-known/vibez'],'Vibez never falls back to the Rocket.Chat probe');
 });
 test('the metadata client blocks legacy Rocket.Chat endpoints on a native account',async () => {
   const client = clientForSession(session,() => {});

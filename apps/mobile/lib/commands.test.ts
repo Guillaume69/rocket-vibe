@@ -42,7 +42,7 @@ describe('readCommands', () => {
     assert.equal(words('app-8b88-42.GIPHY_Search_Term', 'en'), 'GIPHY Search Term');
   });
 
-  test('a RocketVibe list keeps the core wording and shows a workflow command as sent', () => {
+  test('a Vibez list keeps the core wording and shows a workflow command as sent', () => {
     const native = {
       commands: [
         { command: 'shrug', params: 'your_message_optional', description: 'Slash_Shrug_Description', client_side: true },

@@ -4,7 +4,7 @@ import {setProviderCalls} from './call.ts';
 
 /**
  * Shared lifetime in the application and in the real HTTP/SQLite bench. A
- * RocketVibe server has no video conference: its rooms call through voice
+ * Vibez server has no video conference: its rooms call through voice
  * sessions (`lib/voice.ts`), so the native mount binds no call provider. A
  * provider with its own conferences (kChat's kMeet) brings them.
  */

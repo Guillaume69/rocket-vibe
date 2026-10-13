@@ -60,7 +60,7 @@ export default function RoomInfoScreen() {
     return null;
   }
   const content=(membership?:string|null)=>(
-    <RoomInfoContent key={JSON.stringify(sync.provider.identity)+rid} membership={membership} rid={rid} base={sync.base} client={state.client} actions={sync.actions} native={sync.provider.identity.kind==='rocketvibe'} favorites={sync.capabilities.roomFavorites!==false} e2e={sync.e2e} c={c} />
+    <RoomInfoContent key={JSON.stringify(sync.provider.identity)+rid} membership={membership} rid={rid} base={sync.base} client={state.client} actions={sync.actions} native={sync.provider.identity.kind==='vibez'} favorites={sync.capabilities.roomFavorites!==false} e2e={sync.e2e} c={c} />
   );
   return sync.provider.native?<RoomMembershipBound key={JSON.stringify(sync.provider.identity)+rid} base={sync.base} rid={rid}>{content}</RoomMembershipBound>:content();
 }
@@ -136,7 +136,7 @@ function RoomInfoContent({
         setDetails({version,value:r});
         // Rocket.Chat: the server's read-only flag, after a save from this sheet
         // above all, reaches the room row the composer reads without waiting
-        // for the rooms stream. RocketVibe's store owns its rows.
+        // for the rooms stream. Vibez's store owns its rows.
         if (!native && client.kind === 'rocketchat') {
           void base.update(rooms).set({ readOnly: r.readOnly }).where(and(eq(rooms.rid, rid), ne(rooms.readOnly, r.readOnly))).catch(() => {});
         }

@@ -23,7 +23,7 @@ import { type Colors, FONTS, LIST_PRESS_DELAY, useColors } from '../../ui/theme.
  * anyone else anyway.
  */
 
-const PRODUCTS = { rocketchat: 'Rocket.Chat', rocketvibe: 'RocketVibe' } as const;
+const PRODUCTS = { rocketchat: 'Rocket.Chat', vibez: 'Vibez' } as const;
 const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function AdminScreen() {
@@ -193,7 +193,7 @@ function Cards({ c, o, latest, units, refreshing, onRefresh, onReports }: { c: C
 }
 
 /**
- * RocketVibe with bots (RFC 0003): the instance switch that opens bot creation
+ * Vibez with bots (RFC 0003): the instance switch that opens bot creation
  * to every account. Hidden on Rocket.Chat and on a server without bots; the
  * switch shows the server's answer, never an unconfirmed state.
  */

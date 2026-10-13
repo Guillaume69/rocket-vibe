@@ -26,7 +26,7 @@ export const rooms = sqliteTable(
     /** End-to-end encrypted room: we do not write there, we do not show the preview. */
     encrypted: integer('encrypted', { mode: 'boolean' }).notNull().default(false),
     readOnly: integer('read_only', { mode: 'boolean' }).notNull().default(false),
-    /** A voice channel (RocketVibe server): opening it joins its voice session. */
+    /** A voice channel (Vibez server): opening it joins its voice session. */
     voice: integer('voice', { mode: 'boolean' }).notNull().default(false),
     /**
      * The OTHER participant of a two-person DM (from the Rooms document's
@@ -153,13 +153,13 @@ export const messages = sqliteTable(
     discussionLast: integer('discussion_last'),
     updatedAt: integer('updated_at').notNull().default(0),
     /**
-     * The author is a bot account (RocketVibe, RFC 0003): the row shows a
+     * The author is a bot account (Vibez, RFC 0003): the row shows a
      * "BOT" badge after the name. Written by the native store only, after its
      * upsert (`providers/vibez/store.ts`); always false on Rocket.Chat.
      */
     authorBot: integer('author_bot', { mode: 'boolean' }).notNull().default(false),
     /**
-     * The form a workflow posted with this message (RocketVibe, RFC 0004):
+     * The form a workflow posted with this message (Vibez, RFC 0004):
      * `Message.form` (`WorkflowForm`) as JSON, `null` without one. Written by
      * the native store only, after its upsert, like `author_bot`; drawn as a
      * card by `ui/messageRow.tsx` and answered in `app/answer-form.tsx`.

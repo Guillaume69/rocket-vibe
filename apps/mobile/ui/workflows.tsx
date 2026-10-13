@@ -1,5 +1,5 @@
 /**
- * "Workflows", a settings category on a RocketVibe server announcing
+ * "Workflows", a settings category on a Vibez server announcing
  * `workflows` (RFC 0004, `docs/protocol/WORKFLOWS.md`): my workflows, creating
  * one (when `create_bot` allows it, the same rule as bots), and an editor: a
  * name, the bot it acts through, a trigger and its settings, steps to add,

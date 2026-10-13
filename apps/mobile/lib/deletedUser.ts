@@ -1,5 +1,5 @@
 /**
- * A deleted RocketVibe account. Deletion tombstones the account: its messages,
+ * A deleted Vibez account. Deletion tombstones the account: its messages,
  * reactions and quotes keep it as author, its wire `User` carries
  * `deleted: true` and its username becomes `deleted-<id>`, a prefix the server
  * refuses to anyone else (creation, rename, invitation, import; see

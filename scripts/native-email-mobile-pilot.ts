@@ -23,7 +23,7 @@ async function main(){
   const discovery=await transport.discover(),login=await transport.login('owner',process.env.RV_EMAIL_PILOT_PASSWORD);
   assert.equal(discovery.capabilities.email_verification,true);
   const session:Session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,
-    siteUrl:null,kind:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+    siteUrl:null,kind:'vibez',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
   const chat=new NativeChat(session,store,()=>randomBytes(32).toString('hex'),{transport});
   const values=new Map<string,string>();let failReceipt=false;

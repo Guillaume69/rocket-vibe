@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Changed
+
+- The RocketVibe server is now called Vibez: the server choice at sign-in, labels and messages say Vibez. Saved accounts on such a server must be added again.
+
 ## [0.16.0] - 2026-10-13
 
 ### Added

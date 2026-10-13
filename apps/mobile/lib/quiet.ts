@@ -1,5 +1,5 @@
 /**
- * Do not disturb on a RocketVibe server (brain/features/do-not-disturb.md),
+ * Do not disturb on a Vibez server (brain/features/do-not-disturb.md),
  * the rule the server applies to push (`account_quiet`, migration 0055):
  * muted before `muted_until`, or inside the daily `quiet_hours` window read in
  * its own time zone (a window with start > end crosses midnight). The port of

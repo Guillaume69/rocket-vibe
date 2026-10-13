@@ -1,6 +1,6 @@
 /**
  * Video calls in the existing screens, with the session's provider.
- * RocketVibe uses the native binding below; Rocket.Chat keeps its REST
+ * Vibez uses the native binding below; Rocket.Chat keeps its REST
  * video-conference endpoints.
  *
  * The engine is the provider configured SERVER-SIDE (Jitsi on the target
@@ -55,7 +55,7 @@ function current(client:RestClient,binding:Binding|undefined,scope:CallScope={})
 }
 function check(client:RestClient,binding:Binding|undefined,scope:CallScope={}):void {
   if(!current(client,binding,scope))throw new Error('call_scope_closed');
-  if(client.kind==='rocketvibe'&&!binding?.calls)throw new Error('call_provider_unavailable');
+  if(client.kind==='vibez'&&!binding?.calls)throw new Error('call_provider_unavailable');
 }
 
 const asString = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -133,11 +133,11 @@ export function withoutToken(url: string): string {
  * room opening retries. When in doubt, return `false`: a missing button beats
  * a button that fails on tap.
  *
- * RocketVibe checks the current configuration and membership on every probe.
+ * Vibez checks the current configuration and membership on every probe.
  */
 export async function probeCallAvailable(client: RestClient,room?:string,membership?:string|null): Promise<boolean> {
   const binding=bindings.get(client);
-  if(binding?.calls || client.kind==='rocketvibe'){
+  if(binding?.calls || client.kind==='vibez'){
     if(!binding?.calls)return false;
     const available=await binding.calls.available(room,membership);
     return current(client,binding)&&available;
@@ -172,7 +172,7 @@ export function forgetCallAvailability(): void {
  */
 export function memoizedCallAvailable(client: RestClient): boolean {
   const calls=bindings.get(client)?.calls;
-  if(calls || client.kind==='rocketvibe')return calls?.memo()??false;
+  if(calls || client.kind==='vibez')return calls?.memo()??false;
   return availabilityByClient.get(client) ?? false;
 }
 
@@ -193,7 +193,7 @@ const STATUS_EXPIRED = 2;
  */
 export async function conferenceCheck(client: RestClient, callId: string): Promise<CallCheck | null> {
   if (bindings.get(client)?.calls) return null;
-  if (client.kind === 'rocketvibe') throw new Error('call_provider_unavailable');
+  if (client.kind === 'vibez') throw new Error('call_provider_unavailable');
   const r = await client.get<InfoResponse>('video-conference.info', { params: { callId } });
   const rid = asString(r.rid);
   const callerId = asString(r.createdBy?._id);

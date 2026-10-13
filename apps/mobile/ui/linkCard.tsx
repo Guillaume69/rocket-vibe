@@ -4,7 +4,7 @@
  * (`lib/linkPreview.ts`). No WebView, no scraping: we project what the
  * provider already projected into `message.urls`.
  *
- * Rocket.Chat images stay public; RocketVibe previews go through the private
+ * Rocket.Chat images stay public; Vibez previews go through the private
  * reader bound to the message, including in the viewer.
  */
 
@@ -41,7 +41,7 @@ export function LinkPreviews({
   onLongPress?: (() => void) | undefined;
 }) {
   const { width: screenWidth } = useWindowDimensions();
-  const previews = useMemo(() => linkPreviews(urls,3,client?.kind==='rocketvibe'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
+  const previews = useMemo(() => linkPreviews(urls,3,client?.kind==='vibez'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
   if (previews.length === 0) return null;
 
   // Same available width as attached images, see `availableBodyWidth`.

@@ -8,7 +8,7 @@ export type VoiceMember={identity:string;speaking:boolean;muted:boolean;deafened
 /** The process's one voice connection, as the native engine sees it. */
 export type VoiceSnapshot={
   state:VoiceState;
-  /** The RocketVibe room this connection belongs to; null once over. */
+  /** The Vibez room this connection belongs to; null once over. */
   room?:string|null;
   microphone?:boolean;
   deafened?:boolean;

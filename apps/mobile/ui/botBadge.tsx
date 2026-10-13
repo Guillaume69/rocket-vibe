@@ -4,7 +4,7 @@ import { useT } from './i18n.ts';
 import { type Colors, FONTS } from './theme.ts';
 
 /**
- * "BOT" after the name of a bot account (RocketVibe, RFC 0003): message
+ * "BOT" after the name of a bot account (Vibez, RFC 0003): message
  * header, profile card, room members. The look of the administration's
  * `Badge` (`ui/adminKit.tsx`), in the accent tone, small enough for a header.
  */

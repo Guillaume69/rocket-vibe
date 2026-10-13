@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DEFAULT_SERVER } from '../db/migrate.ts';
 import { requestEmailCode, prepareTwoFactorCode, logIn } from '../lib/auth.ts';
 import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../lib/rest.ts';
-import { discoverServer, NotMattermostError, NotRocketVibeError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
+import { discoverServer, NotMattermostError, NotVibezError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
 import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
 import { MmError } from '../providers/mattermost/client.ts';
 import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, KCHAT_REDIRECT } from '../providers/mattermost/kchatOAuth.ts';
@@ -164,7 +164,7 @@ export default function LoginScreen() {
       setPhase({ name: 'credentials', profile, client: new RestClient(profile.baseUrl) });
     } catch (e) {
       if (!controller.signal.aborted) {
-        setMessage(e instanceof NotRocketVibeError ? t('login.notRocketVibe') : e instanceof NotMattermostError ? t('login.notMattermost') : e instanceof Error ? e.message : t('login.serverUnreachable'));
+        setMessage(e instanceof NotVibezError ? t('login.notVibez') : e instanceof NotMattermostError ? t('login.notMattermost') : e instanceof Error ? e.message : t('login.serverUnreachable'));
       }
     } finally {
       inFlight.current = false;
@@ -451,7 +451,7 @@ export default function LoginScreen() {
         {phase.name !== 'server' && (
           <View style={[styles.serverChip, { backgroundColor: c.card, borderColor: c.border }]}>
             <Text style={[styles.chipText, { color: c.dimmed }]}>
-              {phase.client.baseUrl === KCHAT_DIRECTORY ? 'kChat' : <>{phase.client.baseUrl} · {phase.profile.native ? 'RocketVibe' : phase.profile.mattermost?.kind === 'kchat' ? 'kChat' : phase.profile.mattermost ? 'Mattermost' : 'Rocket.Chat'} {phase.profile.version}</>}
+              {phase.client.baseUrl === KCHAT_DIRECTORY ? 'kChat' : <>{phase.client.baseUrl} · {phase.profile.native ? 'Vibez' : phase.profile.mattermost?.kind === 'kchat' ? 'kChat' : phase.profile.mattermost ? 'Mattermost' : 'Rocket.Chat'} {phase.profile.version}</>}
             </Text>
           </View>
         )}
@@ -473,7 +473,7 @@ export default function LoginScreen() {
             />}
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
-              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['rocketvibe','login.kindRocketVibe'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat']] as const).map(([value,label]) => (
+              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat']] as const).map(([value,label]) => (
                 <Pressable key={value} onPress={() => setKind(value)} disabled={busy}
                   accessibilityRole="radio" accessibilityState={{checked:kind===value}}
                   style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>

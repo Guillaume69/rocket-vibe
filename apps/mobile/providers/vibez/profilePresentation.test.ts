@@ -4,7 +4,7 @@ import {test} from 'node:test';
 import {createWriteQueue} from '../../db/writeQueue.ts';
 import type {Session} from '../../lib/auth.ts';
 import {RestClient} from '../../lib/rest.ts';
-import {createRocketVibeProvider} from './index.ts';
+import {createVibezProvider} from './index.ts';
 import {NativeStore} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import type {NativeTransport} from './transport.ts';
@@ -14,7 +14,7 @@ import {nativeMyProfile} from './profileOperations.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return{promise,resolve};}
 async function bench(){
-  const session:Session={kind:'rocketvibe',baseUrl:'http://localhost:3400',authToken:'native-token',userId:fixture.session.user.id,username:fixture.session.user.username,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={kind:'vibez',baseUrl:'http://localhost:3400',authToken:'native-token',userId:fixture.session.user.id,username:fixture.session.user.username,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const database=nativeTestDatabase(),store=new NativeStore(database.adapter,createWriteQueue(),session);
   await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'before-profiles'});
   let profile:UserProfile={...fixture.own_profile.profile,user:fixture.session.user};
@@ -25,8 +25,8 @@ async function bench(){
     me:async()=>fixture.session.user,changes:async()=>({protocol_version:1,changes:[],cursor:'before-profiles',has_more:false}),socketUrl:async()=>'ws://localhost/fake',
     userProfile:async()=>profileRead??profile,lookupProfile:async()=>profileRead??profile,avatarBytes:async()=>avatarRead??new Uint8Array([137,80,78,71,13,10,26,10])} as unknown as NativeTransport;
   const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
-  const client=new RestClient(session.baseUrl,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='rocketvibe';
-  const provider=createRocketVibeProvider(session,client,()=> 'unused-profile-command',store,{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
+  const client=new RestClient(session.baseUrl,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='vibez';
+  const provider=createVibezProvider(session,client,()=> 'unused-profile-command',store,{transport,socket:()=>{queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;}});
   const chat=provider.native!.chat;await chat.connect();
   return {database,store,provider,chat,session,client,
     profile:()=>profile,setProfile:(value:UserProfile)=>{profile=value;},setRead:(value:Promise<UserProfile>|null)=>{profileRead=value;},setAvatar:(value:Promise<Uint8Array>)=>{avatarRead=value;},changeEpoch:()=>{epoch='other-generation';},

@@ -10,7 +10,7 @@ import type {CryptoConversationBridge} from '../../modules/crypto-native/index.t
 import type {Message,Room,SendMessage} from './protocol.generated.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe' as const,
+const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez' as const,
   siteUrl:null,nativeInstanceId:fixture.discovery.instance_id as string,nativeDataEpoch:fixture.discovery.data_epoch as string};
 const scope={instance_id:session.nativeInstanceId,data_epoch:session.nativeDataEpoch};
 const privateRoom='fixture-room',privateWords='private words retained only in native memory',admission='ab'.repeat(32);

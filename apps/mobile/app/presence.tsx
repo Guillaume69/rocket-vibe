@@ -47,7 +47,7 @@ export default function PresenceSheet() {
     setError('');
     try {
       let confirmed = status;
-      if (client.kind === 'rocketvibe') {
+      if (client.kind === 'vibez') {
         if (!chat?.status.online || !chat.capabilities?.profiles)
           throw new Error();
         const before = nativeMyProfile(await chat.ownProfile());

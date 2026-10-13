@@ -11,7 +11,7 @@ import {decodeNative} from './validation.ts';
 import {NativeChat} from './chat.ts';
 import type {NativeTransport} from './transport.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
 const details=()=>decodeNative('RoomDetails',fixture.parity.room_details);
 test('write hints persist on disk, follow actor rights and reject older room revisions',async()=>{
   const directory=mkdtempSync(join(tmpdir(),'rv-room-access-')),path=join(directory,'account.sqlite');

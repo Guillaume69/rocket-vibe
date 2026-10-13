@@ -18,7 +18,7 @@ export function subscriptionsUnread(response: unknown): boolean {
   });
 }
 
-/** A RocketVibe account's rooms (`GET /api/v1/rooms`): any read state with something to read. */
+/** A Vibez account's rooms (`GET /api/v1/rooms`): any read state with something to read. */
 export function nativeRoomsUnread(rooms: readonly Room[]): boolean {
   return rooms.some((room) => readBadges(room.read_state ?? null).alert);
 }

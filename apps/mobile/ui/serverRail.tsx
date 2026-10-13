@@ -33,7 +33,7 @@ const TILE = 44;
 
 /** One read of an account that is not open. Its token is never revoked from here. */
 async function accountUnread(session: Session): Promise<boolean> {
-  if (session.kind === 'rocketvibe') {
+  if (session.kind === 'vibez') {
     const fresh = await prepareNativeSession(session);
     return nativeRoomsUnread(await transportFor(fresh).rooms());
   }

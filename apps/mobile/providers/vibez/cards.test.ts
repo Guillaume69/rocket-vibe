@@ -26,7 +26,7 @@ test('existing attachment presentation distinguishes cards, files, quotes and sa
   assert.equal(integrationCard({...raw,title_link:'https://user:secret@example.org'} )!.url,null);
 });
 test('SQLite retains integration cards through quote refresh, failed batches, restart and revocation',async()=>{
-  const h=nativeTestDatabase(),session:Session={baseUrl:'http://localhost',authToken:'token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const h=nativeTestDatabase(),session:Session={baseUrl:'http://localhost',authToken:'token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const store=new NativeStore(h.adapter,createWriteQueue(),session);
   try{
     await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[message],cursor:'cards'});

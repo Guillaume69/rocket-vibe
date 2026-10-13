@@ -1,5 +1,5 @@
 /**
- * Server administration and reports on a RocketVibe server (`administration`
+ * Server administration and reports on a Vibez server (`administration`
  * and `reports` capabilities, contract in `docs/protocol/ADMINISTRATION.md`,
  * "In-app administration"), mapped to the neutral model of `lib/admin.ts`.
  * Every call goes through `NativeChat.administration` (verified session, same
@@ -35,7 +35,7 @@ import { NativeError } from './transport.ts';
 export function nativeOverview(o: NativeTypes['AdminOverview'], now: number): AdminOverview {
   const started = epoch(o.started_at);
   return {
-    product: 'rocketvibe',
+    product: 'vibez',
     asOf: null,
     version: o.server_version,
     uptimeSeconds: started === null ? null : Math.max(0, (now - started) / 1000),
@@ -145,7 +145,7 @@ export class NativeAdmin implements ProviderAdmin {
     await this.chat.administration('admin_invitations',(t,operation)=>t.revokeAccountInvitation(id,{operation_id:operation()}));
   }
 
-  readonly product = 'rocketvibe' as const;
+  readonly product = 'vibez' as const;
   private readonly chat: NativeChat;
 
   constructor(chat: NativeChat) {
@@ -252,7 +252,7 @@ export class NativeAdmin implements ProviderAdmin {
   }
 
   latestVersion(): Promise<string | null> {
-    return fetchLatestVersion('rocketvibe');
+    return fetchLatestVersion('vibez');
   }
 
   /** The instance switch of bot creation (`/admin/settings`), on a server announcing `bots`. */

@@ -12,7 +12,7 @@ import {nativeTestDatabase} from './testDatabase.ts';
 test('the mobile runner selects the verified HTTP device and fences storage on suspension or scope changes',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
   const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',
-    kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+    kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for(const scenario of ['normal','disabled','missing-current-device','changed-device','changed-user','changed-epoch','suspended-during-open'] as const){
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[],messages:[],cursor:'initial'});

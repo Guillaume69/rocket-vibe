@@ -286,7 +286,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       })().catch(() => { if (alive) setSync({phase:'error',message:translateCurrent('native.error')}); });
       return () => { alive = false; stop?.(); unmountUsage(); forgetSessionStores(); };
     }
-    if (session.kind === 'rocketvibe') {
+    if (session.kind === 'vibez') {
       clearCustomEmojis();
       clearRealNames();
       forgetIdentities();

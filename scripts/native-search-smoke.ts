@@ -5,7 +5,7 @@ import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 
 export async function searchSmoke():Promise<void> {
@@ -19,10 +19,10 @@ export async function searchSmoke():Promise<void> {
   const child=await owner.send(room.id,{operation_id:`search-child-${nonce}`,text:'provider needle reply',reply_to:root.id});
   const secret=await owner.createRoom({operation_id:`search-secret-${nonce}`,name:`Secret search ${nonce}`,private:true});
   await owner.send(secret.id,{operation_id:`search-hidden-${nonce}`,text:'hiddenneedle'});
-  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const database=nativeTestDatabase(),store=new NativeStore(database.adapter,createWriteQueue(),session);
-  const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='rocketvibe';
-  const provider=createRocketVibeProvider(session,client,()=>randomBytes(12).toString('hex'),store),chat=provider.native!.chat;
+  const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='vibez';
+  const provider=createVibezProvider(session,client,()=>randomBytes(12).toString('hex'),store),chat=provider.native!.chat;
   try {
     await chat.connect();assert(provider.capabilities.search);
     // A downloaded result outside the active history window remains ephemeral.

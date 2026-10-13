@@ -1,5 +1,5 @@
 /**
- * Voice on a RocketVibe server (docs/protocol/VOICE.md), as the screens see it:
+ * Voice on a Vibez server (docs/protocol/VOICE.md), as the screens see it:
  * the account's one voice session (`lib/voice.ts` over modules/voice), who is
  * connected in each room (the live snapshot), rings, and the shared widgets.
  */

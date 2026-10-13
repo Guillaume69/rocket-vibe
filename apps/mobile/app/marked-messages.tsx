@@ -18,7 +18,7 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 /**
  * The room's pinned messages and my favourites (starred) in this room. Like
  * search, the lists are rendered from the provider. Rocket.Chat keeps them
- * ephemeral; RocketVibe checks the pagination before updating the account's
+ * ephemeral; Vibez checks the pagination before updating the account's
  * cache. Each tab loads on its first opening.
  * Tapping a message closes the screen and scrolls the room to it
  * (`ui/messageJump.ts`); a thread reply opens its thread.

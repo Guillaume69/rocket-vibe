@@ -13,7 +13,7 @@ import type {Session} from '../../lib/auth.ts';
 import type {Message,Room,PreviewImage} from './protocol.generated.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session:Session={baseUrl:'http://localhost:3400',authToken:'saved-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'saved-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
 const png=new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=','base64'));
 const image:PreviewImage={file_id:'a'.repeat(64),sha256:createHash('sha256').update(png).digest('hex'),bytes:String(png.length),media_type:'image/png',width:1,height:1};
 const preview=linkPreview({url:'https://example.org/article',kind:'page',title:'An article',description:'Description',site:'Example',image});

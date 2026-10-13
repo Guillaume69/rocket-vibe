@@ -9,7 +9,7 @@ import type {Session} from '../../lib/auth.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 test('social cards survive snapshot quote refresh, vote updates and projection restart',async()=>{
  const h=nativeTestDatabase();
- const session:Session={baseUrl:'http://localhost',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+ const session:Session={baseUrl:'http://localhost',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
  const card=decodeNative('SocialCard',{kind:'poll',question:'Choose a game',multiple:false,closed:false,options:[{label:'Co-op',voters:[]},{label:'Racing',voters:[]}],closes_at:null});
  const message=decodeNative('Message',{...fixture.message,social:card});
  const store=new NativeStore(h.adapter,createWriteQueue(),session);

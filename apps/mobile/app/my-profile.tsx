@@ -87,7 +87,7 @@ function MyProfileForm({
   // of the next connection setup (`me`) will set the etag.
   const store = sync.phase === 'ready' ? sync.engine.syncStore : null;
   const chat=sync.phase==='ready'?sync.provider.native?.chat:null;
-  const native=client.kind==='rocketvibe';
+  const native=client.kind==='vibez';
   const profileVersion=chat?.profileVersionFor(state.phase==='connected'?state.session.userId:null);
   const online=chat?.status.online===true;
   const etags = useAvatarEtags();
@@ -159,7 +159,7 @@ function MyProfileForm({
   // Removing the photo is immediate, like the desktop's, after a confirmation:
   // nothing to stage for Save. Rocket.Chat `users.resetAvatar`, whose
   // `updateAvatar` event arrives without an etag (the no-photo marker set here
-  // at once); RocketVibe the avatar command without an image.
+  // at once); Vibez the avatar command without an image.
   const myEtag = etags.byUsername.get(username);
   const hasPhoto = localAvatar !== null || (myEtag != null && myEtag !== AVATAR_NO_PHOTO);
   const removable = (client.kind === 'rocketchat' || (native && chat?.capabilities?.profile_avatars === true)) && hasPhoto;

@@ -1,5 +1,5 @@
 /**
- * Scheduled messages on a RocketVibe server (`scheduled_messages`, contract in
+ * Scheduled messages on a Vibez server (`scheduled_messages`, contract in
  * `docs/protocol/SCHEDULED.md`), mapped to the neutral `lib/scheduled.ts`.
  *
  * Each schedule carries an `operation_id` kept until the server ANSWERS: a

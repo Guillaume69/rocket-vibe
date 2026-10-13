@@ -283,7 +283,7 @@ export default function MessageActionsScreen() {
         // Room row missing (deep link before sync): fall back to `c`/rid; the
         // server only reads the permalink's `?msg=` anyway.
         room: { type: roomRows[0]?.type ?? 'c', name: roomRows[0]?.name ?? null },
-        actions: client.kind === 'rocketvibe' ? [
+        actions: client.kind === 'vibez' ? [
           ...(nativeContext && provider?.capabilities.quotes ? ['reply'] as const : []),
           ...(raw.text ? ['copy', 'share'] as const : []),
           ...(nativePermissions?.edit && provider?.capabilities.editing ? ['edit'] as const : []),
@@ -341,7 +341,7 @@ export default function MessageActionsScreen() {
     [payload, myUsername],
   );
 
-  // A private RocketVibe conversation takes standard emoji only; elsewhere a
+  // A private Vibez conversation takes standard emoji only; elsewhere a
   // custom one counts if the server still has it.
   const standardOnly = isPrivate === '1';
   const customs = useCatalogueEmojis();
@@ -356,8 +356,8 @@ export default function MessageActionsScreen() {
   }, []);
   // Rocket.Chat reacts only with the codes of its own list: a glyph it has
   // no code for is left out of the quick row and the picker
-  // (`lib/rocketchatReactions.ts`); RocketVibe takes every standard emoji.
-  const onRocketChat = client?.kind !== 'rocketvibe';
+  // (`lib/rocketchatReactions.ts`); Vibez takes every standard emoji.
+  const onRocketChat = client?.kind !== 'vibez';
   const reactable = useCallback(
     (code: string) => !onRocketChat || rocketChatReaction(code) !== null,
     [onRocketChat],
@@ -440,7 +440,7 @@ export default function MessageActionsScreen() {
   const { message, room, actions } = payload;
   const isEditing = editing !== null;
   // Reporting: not my message, not a system one, and never a private
-  // (encrypted) RocketVibe conversation, whose messages the server does not
+  // (encrypted) Vibez conversation, whose messages the server does not
   // hold; the server also refuses what it cannot take.
   const reportable = isPrivate !== '1' && provider?.reports !== undefined && sync.phase === 'ready'
     && sync.capabilities.reports === true && message.authorId !== undefined && message.authorId !== me

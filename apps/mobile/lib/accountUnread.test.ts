@@ -13,7 +13,7 @@ test('a Rocket.Chat account is unread like the desktop room list', () => {
   assert.equal(subscriptionsUnread(null), false);
 });
 
-test('a RocketVibe account is unread when a read state has something to read', () => {
+test('a Vibez account is unread when a read state has something to read', () => {
   const state = (unread: string, mentions = '0') => ({
     favorite: false, group_mentions: '0', mentions, reply_position: '0', revision: '1',
     room_id: 'r1', root_position: '0', unread_replies: '0', unread_roots: unread,

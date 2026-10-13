@@ -147,8 +147,8 @@ export const MessageRow = memo(function MessageRow({
   const etags = useAvatarEtags();
   const t = useT();
   const username = (identities.get(message.authorId) ?? message.authorName) ?? '?';
-  // A deleted RocketVibe account keeps its messages (`lib/deletedUser.ts`).
-  const deletedAuthor = client.kind === 'rocketvibe' && isDeletedUsername(username);
+  // A deleted Vibez account keeps its messages (`lib/deletedUser.ts`).
+  const deletedAuthor = client.kind === 'vibez' && isDeletedUsername(username);
   const shownName = useDisplayNames().get(message.authorId);
   const statusEmoji = useStatusEmojis().get(message.authorId);
   const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username) + (statusEmoji ? ` ${statusEmoji}` : '');
@@ -174,7 +174,7 @@ export const MessageRow = memo(function MessageRow({
   // A form's message text is its title, for clients that cannot show the card:
   // shown above the card it would only say the title twice.
   const formTitle = useMemo(
-    () => (message.form != null && client.kind === 'rocketvibe' ? (parseForm(message.form)?.title ?? null) : null),
+    () => (message.form != null && client.kind === 'vibez' ? (parseForm(message.form)?.title ?? null) : null),
     [message.form, client.kind],
   );
   const textIsFormTitle = formTitle !== null && (message.text ?? '').trim() === formTitle.trim();
@@ -294,8 +294,8 @@ export const MessageRow = memo(function MessageRow({
             </MentionSelf.Provider>
           </MessageLongPress.Provider>
         )}
-        {client.kind==='rocketvibe' && attachments.map((a,i)=>{const value=socialValue(a);return value?<SocialMessage key={i} value={value} id={message.id} room={message.rid} author={message.authorId} c={c}/>:null;})}
-        {message.form != null && client.kind === 'rocketvibe' && <FormCard c={c} id={message.id} json={message.form} />}
+        {client.kind==='vibez' && attachments.map((a,i)=>{const value=socialValue(a);return value?<SocialMessage key={i} value={value} id={message.id} room={message.rid} author={message.authorId} c={c}/>:null;})}
+        {message.form != null && client.kind === 'vibez' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
             <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
         )}
@@ -521,7 +521,7 @@ function Quote({
   const identities = useIdentities();
   const named = typeof attachment.author_name === 'string' ? attachment.author_name : null;
   const current = named === null ? null : (identities.get(named) ?? named);
-  const author = client.kind === 'rocketvibe' && isDeletedUsername(current) ? t('common.deletedUser') : current;
+  const author = client.kind === 'vibez' && isDeletedUsername(current) ? t('common.deletedUser') : current;
   const nested = Array.isArray(attachment.attachments) ? attachment.attachments : [];
   const subQuotes =
     depth < MAX_QUOTE_DEPTH ? nested.filter((j) => isQuoteAttachment(j)) : [];
@@ -708,7 +708,7 @@ function AttachedImage({
 }
 
 /**
- * A form a workflow posted (RocketVibe, RFC 0004, `Message.form` stored as
+ * A form a workflow posted (Vibez, RFC 0004, `Message.form` stored as
  * JSON): its title, who it asks, its fields, then "Answer" for whoever may
  * (the recipient, or any member when there is none) while it is open, or who
  * answered. Answering opens the native sheet `app/answer-form.tsx`; the
@@ -764,7 +764,7 @@ function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;ri
   const t = useT();
   const {state}=useSession();
   // The meeting's link to share, without the joiner's token (Rocket.Chat only:
-  // a RocketVibe call has no external meeting).
+  // a Vibez call has no external meeting).
   const info =
     callId !== null && state.phase === 'connected' && state.client.kind === 'rocketchat'
       ? () => {
@@ -814,7 +814,7 @@ function CallCard({ c, callId,rid,title }: { c: Colors; callId: string | null;ri
 }
 
 /**
- * A RocketVibe call row: its outcome and, once over, how long it lasted. A
+ * A Vibez call row: its outcome and, once over, how long it lasted. A
  * call still going is joined; one that ended is called back (a DM rings).
  */
 function VoiceCallCard({ c, rid, type, param }: { c: Colors; rid: string; type: string; param: string }) {
@@ -925,7 +925,7 @@ function Attachments({
             />
           );
         }
-        if((client.kind==='rocketvibe'||client.kind==='whatsapp')&&typeof attachment.title_link==='string'){
+        if((client.kind==='vibez'||client.kind==='whatsapp')&&typeof attachment.title_link==='string'){
           return <NativeAttachment key={i} c={c} attachment={attachment} client={client} maxWidth={availableWidth} onLongPress={onLongPress}/>;
         }
         if (typeof attachment?.image_url === 'string') {

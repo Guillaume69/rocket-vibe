@@ -51,6 +51,6 @@ function valid(schema: Schema, value: unknown, depth=0): boolean {
 }
 
 export function decodeNative<K extends keyof NativeTypes>(name: K, value: unknown): NativeTypes[K] {
-  if (!valid(definitions[name], value)) throw new Error(`Invalid RocketVibe ${name}`);
+  if (!valid(definitions[name], value)) throw new Error(`Invalid Vibez ${name}`);
   return value as NativeTypes[K];
 }

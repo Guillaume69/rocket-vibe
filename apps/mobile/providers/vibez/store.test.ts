@@ -16,7 +16,7 @@ import { decodeNative } from './validation.ts';
 const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const message = decodeNative('Message',fixture.message);
 const room = decodeNative('Room',fixture.room);
-const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
+const session:Session = {baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
 const snapshot = {protocol_version:1,rooms:[room],messages:[message],cursor:'initial'};
 function setup() { const harness = nativeTestDatabase(); return {...harness,store:new NativeStore(harness.adapter,createWriteQueue(),session)}; }
 
@@ -81,7 +81,7 @@ test('a workflow form is stored natively as JSON and follows each update of its 
 });
 
 test('closing and reopening an on-disk SQLite database preserves the outbox and committed cursor',async () => {
-  const directory = mkdtempSync(join(tmpdir(),'rocketvibe-native-'));
+  const directory = mkdtempSync(join(tmpdir(),'vibez-native-'));
   const filename = join(directory,'account.sqlite');
   const original = nativeTestDatabase(filename);
   let reopened:ReturnType<typeof nativeTestDatabase> | undefined;
@@ -212,7 +212,7 @@ test('reset purges old confirmed history and rejects old responses while retaini
 });
 
 test('an unresolved action survives disk reopen and journal acknowledgement without changing intent or revision',async () => {
-  const directory=mkdtempSync(join(tmpdir(),'rocketvibe-command-')); const filename=join(directory,'account.sqlite');
+  const directory=mkdtempSync(join(tmpdir(),'vibez-command-')); const filename=join(directory,'account.sqlite');
   const original=nativeTestDatabase(filename); let resumed:ReturnType<typeof nativeTestDatabase>|undefined;
   try {
     const first=new NativeStore(original.adapter,createWriteQueue(),session); await first.applySnapshot(snapshot);

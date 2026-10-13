@@ -288,7 +288,7 @@ export function Composer({
   const gifOpen = useRef(false);
   const openGifs = useCallback((text: string) => {
     const caption = text.trim();
-    if (response !== null || pending.length || encrypted || !/^\/giphy(?:\s|$)/i.test(caption) || !['rocketchat', 'rocketvibe'].includes(client.kind)) return false;
+    if (response !== null || pending.length || encrypted || !/^\/giphy(?:\s|$)/i.test(caption) || !['rocketchat', 'vibez'].includes(client.kind)) return false;
     if (gifOpen.current) return true;
     gifOpen.current = true;
     const request = requestGifSelection();
@@ -333,7 +333,7 @@ export function Composer({
     let textToSend = response === null || response.native ? caption : quote(response.permalink, caption);
     // Staged attachments take the files path below, the caption with the first:
     // this text path dropped them.
-    if (client.kind === 'rocketvibe' && pending.length === 0) {
+    if (client.kind === 'vibez' && pending.length === 0) {
       if (nativeSend || caption === '' && !response?.native) return;
       // A slash command the server lists: a text command (`/shrug`) is written
       // here and goes out below, encrypted or not; another runs on the server,
@@ -501,7 +501,7 @@ export function Composer({
     openGifs,
   ]);
 
-  // Scheduled messages (RocketVibe, brain/features/scheduled-messages.md): the
+  // Scheduled messages (Vibez, brain/features/scheduled-messages.md): the
   // room's list behind the "N scheduled" chip, read on open and every minute.
   const provider = sync.phase === 'ready' ? sync.provider : null;
   useScheduledRefresh(provider, rid);
@@ -901,7 +901,7 @@ export function Composer({
               )}
             </Tappable>
           )}
-          {!encrypted && (client.kind==='rocketchat'||client.kind==='rocketvibe') && <SocialButton room={rid} thread={threadId}/>}
+          {!encrypted && (client.kind==='rocketchat'||client.kind==='vibez') && <SocialButton room={rid} thread={threadId}/>}
           <TextInput
             ref={fieldRef}
             value={draft}

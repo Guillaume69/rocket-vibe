@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { NativeError, NativeTransport } from './transport.ts';
 import { nativeScheduled, type ScheduledGate } from './scheduled.ts';
-import { effectiveCapabilities, ROCKETVIBE_CAPABILITIES } from './index.ts';
+import { effectiveCapabilities, VIBEZ_CAPABILITIES } from './index.ts';
 import type { NativeTypes } from './protocol.generated.ts';
 
 const pending: NativeTypes['ScheduledMessage'] = { id: 's-1', room_id: 'room id', text: 'see you', send_at: '2026-10-12T08:00:00Z', state: 'pending' };
@@ -95,5 +95,5 @@ test('the list keeps this room, soonest first, and says why a failed one failed'
 test('the app offers scheduling only when the server announces it', () => {
   assert.equal(effectiveCapabilities({ scheduled_messages: true } as NativeTypes['Capabilities']).scheduledMessages, true);
   assert.equal(effectiveCapabilities({} as NativeTypes['Capabilities']).scheduledMessages, false);
-  assert.equal(effectiveCapabilities({ scheduled_messages: true } as NativeTypes['Capabilities'], { ...ROCKETVIBE_CAPABILITIES, scheduledMessages: false }).scheduledMessages, false);
+  assert.equal(effectiveCapabilities({ scheduled_messages: true } as NativeTypes['Capabilities'], { ...VIBEZ_CAPABILITIES, scheduledMessages: false }).scheduledMessages, false);
 });

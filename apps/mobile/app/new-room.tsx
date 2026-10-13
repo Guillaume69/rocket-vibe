@@ -1,7 +1,7 @@
 /**
  * New room sheet, `presentation: 'formSheet'` (declared in `app/_layout.tsx`):
  * a name, private or public, and, when the server offers voice, a voice channel.
- * On the RocketVibe server the idempotent creation lives in NativeChat; on
+ * On the Vibez server the idempotent creation lives in NativeChat; on
  * Rocket.Chat it is `actions.createChannel` (a channel or a private group), its
  * room ingested before navigating so the room screen finds it (best effort: the
  * stream brings it too). A refusal's sentence is `lib/roomCreation.ts`.

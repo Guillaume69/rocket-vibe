@@ -108,6 +108,6 @@ export function decodeNative<K extends keyof NativeTypes>(
   value: unknown,
 ): NativeTypes[K] {
   if (!valid(definitions[name], value))
-    throw new Error(`Invalid RocketVibe ${name}`);
+    throw new Error(`Invalid Vibez ${name}`);
   return value as NativeTypes[K];
 }

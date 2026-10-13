@@ -7,7 +7,7 @@ import {createWriteQueue} from '../../db/writeQueue.ts';
 import {NativeStore,localMessage} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import type {Message,Room,ThreadPage} from './protocol.generated.ts';
-const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:'threads-instance',nativeDataEpoch:'epoch'};
+const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'vibez' as const,siteUrl:null,nativeInstanceId:'threads-instance',nativeDataEpoch:'epoch'};
 function room(grant='grant'):Room{return {id:'room',name:'Room',kind:'private',revision:'1',read_state:{room_id:'room',membership_version:grant,favorite_revision:'1',revision:'1',root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}};}
 function message(id:string,position:string,reply_to?:string):Message{return {id,room_id:'room',author:{id:'bob',username:'bob',display_name:'Bob'},text:id,created_at:'2026-10-03T08:00:00Z',position,revision:position,...(reply_to?{reply_to}:{})};}
 function page():ThreadPage{return {root:{...message('root','1'),revision:'9007199254740995',thread:{replies:'2',last_reply_at:'2026-10-03T08:00:00Z'}},messages:[message('second','9007199254740994','root'),message('first','9007199254740993','root')],has_more:false,read_state:{root_id:'root',room_id:'room',membership_version:'grant',position:'0',revision:'9007199254740995',unread:'2'}};}

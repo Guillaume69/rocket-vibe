@@ -1,6 +1,6 @@
 /**
  * The sentence for a refused room creation (`app/new-room.tsx`), as a key
- * translated at display time, so this stays loadable under Node. RocketVibe
+ * translated at display time, so this stays loadable under Node. Vibez
  * names its refusal `permission_denied`; Rocket.Chat answers 403 to
  * `channels.create` and `error-not-allowed` to `groups.create` without the
  * right (read in the 8.5 bundle), and refuses a taken or malformed name with

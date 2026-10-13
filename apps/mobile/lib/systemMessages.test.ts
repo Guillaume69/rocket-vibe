@@ -57,7 +57,7 @@ describe('systemPreview: room list label', () => {
   });
 });
 
-describe('RocketVibe call rows', () => {
+describe('Vibez call rows', () => {
   test('the outcome rides on the row type, the duration on its parameter', () => {
     const started = { kind: 'call_started', meeting_id: 'ring1' } as const;
     assert.deepEqual(nativeSystemMessage(started, { state: 'missed' }), { type: 'rv-call-missed', param: '' });

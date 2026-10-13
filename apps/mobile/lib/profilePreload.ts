@@ -71,7 +71,7 @@ export function setProfileReader(client:RestClient,read:(p:ProfileParams)=>Promi
 export function loadProfile(client:RestClient,p:ProfileParams):Promise<Record<string,unknown>|undefined> {
   const read=readers.get(client);
   if(read)return read(p);
-  if(client.kind==='rocketvibe')return Promise.reject(new Error('profile_provider_unavailable'));
+  if(client.kind==='vibez')return Promise.reject(new Error('profile_provider_unavailable'));
   return client.get<{user?:Record<string,unknown>}>('users.info',{params:p.uid?{userId:p.uid}:{username:p.username}}).then(r=>r.user);
 }
 
@@ -206,7 +206,7 @@ async function preloadThenOpen(p: ProfileParams): Promise<void> {
     }))
     .catch<RawProfile>((e: unknown) => ({
       user: undefined,
-      error: client.kind==='rocketvibe'?{key:'native.error'}:e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
+      error: client.kind==='vibez'?{key:'native.error'}:e instanceof Error ? { message: e.message } : { key: 'profile.profileNotFound' },
     }));
 
   // Deferred indicator: shows ONLY if the wait exceeds the threshold, and then

@@ -6,7 +6,7 @@
  * when accepted, else as an accepted code of the same glyph (our `alien_monster`
  * is its `space_invader`); a glyph with no accepted code cannot be a reaction
  * there and is hidden from the reaction picker and the quick row. The
- * composer's picker is unaffected (text takes any glyph), and so is RocketVibe.
+ * composer's picker is unaffected (text takes any glyph), and so is Vibez.
  *
  * Pure module: tested under Node (`lib/rocketchatReactions.test.ts`).
  */

@@ -48,12 +48,12 @@ test('optional list attributes retain bullets without NaN or phantom checkboxes'
 test('deep native documents are refused before recursive UI conversion',()=>{
   let node:NativeNode={kind:'text',text:'safe'};
   for(let i=0;i<70;i++)node={kind:'quote',children:[node]};
-  assert.throws(()=>decodeNative('Document',{format:'native1',nodes:[node]}),/Invalid RocketVibe/);
-  assert.throws(()=>decodeNative('Document',{format:'html',nodes:[]}),/Invalid RocketVibe/);
+  assert.throws(()=>decodeNative('Document',{format:'native1',nodes:[node]}),/Invalid Vibez/);
+  assert.throws(()=>decodeNative('Document',{format:'html',nodes:[]}),/Invalid Vibez/);
 });
 test('native SQLite replaces rich bodies by revision and clears them on deletion',async()=>{
   const {db,adapter}=nativeTestDatabase();
-  const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'self',username:'self',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
+  const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'self',username:'self',kind:'vibez' as const,siteUrl:null,nativeInstanceId:'fixture-instance',nativeDataEpoch:'fixture-epoch'};
   const store=new NativeStore(adapter,createWriteQueue(),session);
   const source=fixture.cases.find(c=>c.id==='styles')!;
   const message=decodeNative('Message',{id:'rich',room_id:'room',author:{id:'other',username:'alice',display_name:'Alice'},text:source.source,body:source.document,created_at:'2026-10-02T08:00:00Z',position:'1',revision:'1'});

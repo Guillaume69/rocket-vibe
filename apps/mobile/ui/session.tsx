@@ -330,7 +330,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const adoptRenewedSession=useCallback((previous:Session,fresh:Session)=>{
     const current=currentSession.current;
-    if(!current || currentToken.current!==previous.authToken || current.baseUrl!==previous.baseUrl || current.userId!==previous.userId || current.kind!=='rocketvibe' || fresh.baseUrl!==current.baseUrl || fresh.userId!==current.userId || fresh.nativeInstanceId!==current.nativeInstanceId || fresh.nativeDataEpoch!==current.nativeDataEpoch)return false;
+    if(!current || currentToken.current!==previous.authToken || current.baseUrl!==previous.baseUrl || current.userId!==previous.userId || current.kind!=='vibez' || fresh.baseUrl!==current.baseUrl || fresh.userId!==current.userId || fresh.nativeInstanceId!==current.nativeInstanceId || fresh.nativeDataEpoch!==current.nativeDataEpoch)return false;
     currentToken.current=fresh.authToken;currentSession.current=fresh;
     const client=clientFor(fresh,token=>revoke(fresh,token));
     setState({phase:'connected',session:fresh,client});return true;

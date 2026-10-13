@@ -1,7 +1,7 @@
 /**
  * Scheduled messages (brain/features/scheduled-messages.md): text the server
  * sends later for its author. The neutral shape the screens read, the
- * provider port (only the RocketVibe driver has one, behind
+ * provider port (only the Vibez driver has one, behind
  * `capabilities.scheduledMessages`), and the times the "Send later" sheet
  * offers. Node-pure: the choices are computed on the device's clock.
  */

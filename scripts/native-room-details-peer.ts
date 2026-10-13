@@ -4,7 +4,7 @@ import { NativeError, NativeTransport } from '../apps/mobile/providers/vibez/tra
 import type { RoomDetails, UpdateRoom } from '../apps/mobile/providers/vibez/protocol.generated.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import type {Session} from '../apps/mobile/lib/auth.ts';
@@ -34,7 +34,7 @@ assert.deepEqual(await owner.leaveRoom(room,leave),left);
 await assert.rejects(owner.roomDetails(room),(e:unknown)=>e instanceof NativeError && e.code==='not_found');
 await assert.rejects(peer.leaveRoom(room,{operation_id:'mobile-last-owner',expected_revision:(await peer.roomDetails(room)).revision}),(e:unknown)=>e instanceof NativeError && e.code==='last_room_owner');
 const discovery=await peer.discover();
-const account:Session={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,kind:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const account:Session={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,kind:'vibez',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const harness=nativeTestDatabase(),store=new NativeStore(harness.adapter,createWriteQueue(),account);
 let lost=false,writes=0;
 const transport=new NativeTransport(base,async(url,options)=>{
@@ -42,7 +42,7 @@ const transport=new NativeTransport(base,async(url,options)=>{
   if(options?.method==='PATCH'){writes++;if(!lost && response.ok){lost=true;throw new Error('Simulated dropped room acknowledgement');}}
   return response;
 });transport.restore(b.token);
-const provider=createRocketVibeProvider(account,new RestClient(base,{fetch:async()=>{throw new Error('Native room UI must not call Rocket.Chat');}}),()=> 'mobile-ui-original',store,{transport,socket:()=>{
+const provider=createVibezProvider(account,new RestClient(base,{fetch:async()=>{throw new Error('Native room UI must not call Rocket.Chat');}}),()=> 'mobile-ui-original',store,{transport,socket:()=>{
   const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
 }});
 try{
@@ -59,7 +59,7 @@ try{
   assert.equal(harness.db.prepare('SELECT read_only FROM rooms WHERE rid=?').get(room)?.read_only,0);
   await peer.addMember(room,a.user.id);
   const memberHarness=nativeTestDatabase(),memberStore=new NativeStore(memberHarness.adapter,createWriteQueue(),{...account,authToken:a.token,userId:a.user.id,username:a.user.username});
-  const memberProvider=createRocketVibeProvider({...account,authToken:a.token,userId:a.user.id,username:a.user.username},new RestClient(base,{fetch:async()=>{throw new Error('Native composer must not call Rocket.Chat');}}),()=> 'mobile-composer-original',memberStore,{transport:owner,socket:()=>{
+  const memberProvider=createVibezProvider({...account,authToken:a.token,userId:a.user.id,username:a.user.username},new RestClient(base,{fetch:async()=>{throw new Error('Native composer must not call Rocket.Chat');}}),()=> 'mobile-composer-original',memberStore,{transport:owner,socket:()=>{
     const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
   }});
   try{

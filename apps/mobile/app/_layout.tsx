@@ -128,7 +128,7 @@ export default function RootLayout() {
                       }}
                     />
                     {/* "Send later" (the times offered) and a room's scheduled
-                        messages, opened from the composer (RocketVibe). */}
+                        messages, opened from the composer (Vibez). */}
                     <Stack.Screen
                       name="send-later"
                       options={{
@@ -180,7 +180,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* A call's audio options, and someone's volume here (RocketVibe voice). */}
+                    {/* A call's audio options, and someone's volume here (Vibez voice). */}
                     <Stack.Screen
                       name="voice/menu"
                       options={{
@@ -205,7 +205,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* Answering a workflow's form (RocketVibe server): its
+                    {/* Answering a workflow's form (Vibez server): its
                         fields scroll, so a tall sheet rather than one fitted
                         to its content. */}
                     <Stack.Screen
@@ -224,7 +224,7 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
-                    {/* New room, voice channels included (RocketVibe server). */}
+                    {/* New room, voice channels included (Vibez server). */}
                     <Stack.Screen
                       name="new-room"
                       options={{
@@ -292,7 +292,7 @@ export default function RootLayout() {
                   <ProfileOpeningIndicator />
                   <ToastHost />
                   <AppUpdateHost />
-                  {/* Rings of direct calls and the end of a voice session (RocketVibe). */}
+                  {/* Rings of direct calls and the end of a voice session (Vibez). */}
                   <VoiceRingHost />
                   <CallRingHost />
                   {/* Redirects to the share screen as soon as an intent arrives. */}

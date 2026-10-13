@@ -26,7 +26,7 @@ test('search transport encodes literal text and checks the shared wire contract'
 });
 
 test('actual SQLite runner leaves results ephemeral and rejects stale grants, scope and session loss',async()=>{
-  const session={baseUrl:'http://localhost:3400',authToken:'token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session={baseUrl:'http://localhost:3400',authToken:'token',userId:fixture.session.user.id,username:'alice',kind:'vibez' as const,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
   const room={...fixture.room,read_state:{...fixture.parity.read_state,membership_version:'grant',room_id:fixture.room.id}};
   await store.applySnapshot({protocol_version:1,rooms:[room],messages:[],cursor:'initial'});

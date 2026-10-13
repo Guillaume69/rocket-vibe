@@ -5,7 +5,7 @@ import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {TypingEngine} from '../apps/mobile/lib/typing.ts';
 
@@ -19,10 +19,10 @@ export async function liveSmoke():Promise<void>{
   await owner.addMember(room.id,b.user.id);
   const dm=await owner.direct({user_id:b.user.id});
   async function provider(account:typeof a){
-    const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+    const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
     const database=nativeTestDatabase(),store=new NativeStore(database.adapter,createWriteQueue(),session);
-    const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='rocketvibe';
-    const p=createRocketVibeProvider(session,client,()=>randomBytes(12).toString('hex'),store);
+    const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected RC request');}});client.kind='vibez';
+    const p=createVibezProvider(session,client,()=>randomBytes(12).toString('hex'),store);
     await p.native!.chat.connect();return{database,store,p,chat:p.native!.chat};
   }
   const x=await provider(a),y=await provider(b);

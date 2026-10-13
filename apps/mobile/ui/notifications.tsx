@@ -177,7 +177,7 @@ function BadgeAndEncryptedTracking() {
     if(subscriptionRows===undefined)return;
     const toRemove: string[] = [];
     const present=new Set(subscriptionRows.map(a=>a.rid));
-    if(session.phase==='connected'&&session.session.kind==='rocketvibe')for(const rid of observedRooms.current)if(!present.has(rid))toRemove.push(rid);
+    if(session.phase==='connected'&&session.session.kind==='vibez')for(const rid of observedRooms.current)if(!present.has(rid))toRemove.push(rid);
     observedRooms.current=present;
     for (const a of subscriptionRows ?? []) {
       if (a.unread > 0) {

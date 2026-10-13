@@ -10,7 +10,7 @@ import {integrationCard} from '../apps/mobile/lib/integrationCards.ts';
 const base=process.env.RV_CARDS_TEST_SERVER!,room=process.env.RV_CARDS_TEST_ROOM!,id=process.env.RV_CARDS_TEST_MESSAGE!;
 const transport=new NativeTransport(base),discovery=await transport.discover();assert.equal(discovery.capabilities.structured_cards,true);
 const auth=await transport.login('cards-owner','disposable-cards-password');
-const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const h=nativeTestDatabase(),store=new NativeStore(h.adapter,createWriteQueue(),session),chat=new NativeChat(session,store,randomUUID,{transport});
 try {
   await chat.connect();

@@ -7,7 +7,7 @@ import {setNativeEmojis,nativeEmojiUri,revalidateNativeEmojis} from './nativeAva
 
 const png=new Uint8Array([137,80,78,71,13,10,26,10,0,127,255]);
 const id='a'.repeat(64);
-function client():RestClient {const c=new RestClient('https://native.example');c.kind='rocketvibe';return c;}
+function client():RestClient {const c=new RestClient('https://native.example');c.kind='vibez';return c;}
 function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return{promise,resolve};}
 
 test('protected avatar identifiers never contain credentials; visible reads are deduplicated and encoded correctly',async()=>{

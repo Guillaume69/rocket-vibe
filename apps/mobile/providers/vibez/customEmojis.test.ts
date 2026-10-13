@@ -15,7 +15,7 @@ import type {SetReaction} from './protocol.generated.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const catalog=emojiCatalog(fixture.emoji_catalog);
-const session:Session={baseUrl:'http://localhost:3400',authToken:'native-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'native-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
 
 test('catalogues reject reserved aliases, duplicate names, unsafe descriptors and imprecise revisions',()=>{
   assert.equal(catalog.items[0].aliases[0],'vibe_parrot');

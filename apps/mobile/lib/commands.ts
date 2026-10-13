@@ -8,7 +8,7 @@
  * `stream-notify-user` / `<uid>/message`, never in the REST response (probed on
  * 8.5). Same logic as `apps/desktop/crates/rv-core/src/commands.rs`.
  *
- * A RocketVibe server lists its commands in the same shape
+ * A Vibez server lists its commands in the same shape
  * (`GET /api/v1/commands`, `rv_protocol::commands`) and runs the server ones
  * (`NativeChat.runSlashCommand`). On both, the text commands (`/shrug`...)
  * are written here (`textCommand`) and sent as a message, so they work in an
@@ -90,7 +90,7 @@ const asString = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /**
  * The commands `commands.list` returns, their i18n keys put into words.
- * `native`: a RocketVibe server's list, whose core keys are all in `WORDS`
+ * `native`: a Vibez server's list, whose core keys are all in `WORDS`
  * and whose other entries are workflow commands described by the workflow's
  * name (RFC 0004), shown as sent.
  */
@@ -191,7 +191,7 @@ export function textCommand(name: string, params: string): CommandRun | null {
   }
 }
 
-/** The message key of what a RocketVibe server's refusal of a command means. */
+/** The message key of what a Vibez server's refusal of a command means. */
 export function commandErrorKey(
   code: string,
 ):

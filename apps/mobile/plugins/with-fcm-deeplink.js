@@ -962,7 +962,7 @@ private fun readSession(ctx: Context, host: String): JSONObject? {
         continue
       }
       if (session.optString("authToken").isEmpty() || session.optString("userId").isEmpty()) continue
-      if (session.optString("kind", session.optString("genre")) == "rocketvibe") continue
+      if (session.optString("kind", session.optString("genre")) == "vibez") continue
       if (originOf(session.optString("baseUrl")) == expected) return session
     }
     debugLog(ctx, "push: no session for " + expected)
@@ -1254,7 +1254,7 @@ private fun withoutTrailingSlash(u: String): String = u.trimEnd('/')
 
 // A call started in a direct room (lib/callRing.ts): no server rings a
 // third-party app, so the call message's push rings it over the lock screen
-// like a RocketVibe voice ring, once the server's record of the call names the
+// like a Vibez voice ring, once the server's record of the call names the
 // other member of a two-person room as its caller and says it still rings.
 // Any member can post a \`videoconf\` message: the record, not the message, decides.
 private const val CALL_RING_MS = 40_000L

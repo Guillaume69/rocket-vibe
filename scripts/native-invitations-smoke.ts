@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {nativeRegister,nativeRecover} from '../apps/mobile/providers/vibez/auth.ts';
 import {NativeTransport,NativeError} from '../apps/mobile/providers/vibez/transport.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
@@ -20,8 +20,8 @@ export async function invitationSmoke():Promise<void> {
   assert.equal(replay.userId,session.userId);
   transport.restore(session.authToken);assert.equal((await transport.me()).id,session.userId);
   const database=nativeTestDatabase(),queue=createWriteQueue(),store=new NativeStore(database.adapter,queue,session);
-  const rest=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat call during signup');}});rest.kind='rocketvibe';
-  const provider=createRocketVibeProvider(session,rest,()=>randomBytes(12).toString('hex'),store);
+  const rest=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat call during signup');}});rest.kind='vibez';
+  const provider=createVibezProvider(session,rest,()=>randomBytes(12).toString('hex'),store);
   try {
     await provider.native!.chat.connect();
     const room=await provider.native!.chat.createRoom('invited-mobile-room',false);
@@ -48,8 +48,8 @@ export async function recoverySmoke():Promise<void> {
   assert.equal(replay.userId,session.userId);
   const current=new NativeTransport(base);current.restore(session.authToken);assert.equal((await current.me()).id,session.userId);
   const database=nativeTestDatabase(),queue=createWriteQueue(),store=new NativeStore(database.adapter,queue,session);
-  const rest=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat recovery request');}});rest.kind='rocketvibe';
-  const provider=createRocketVibeProvider(session,rest,()=>randomBytes(12).toString('hex'),store);
+  const rest=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat recovery request');}});rest.kind='vibez';
+  const provider=createVibezProvider(session,rest,()=>randomBytes(12).toString('hex'),store);
   try {
     await provider.native!.chat.connect();
     assert((await store.rooms()).some(r=>r.rid===room.id));

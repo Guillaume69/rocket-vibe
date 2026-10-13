@@ -5,13 +5,13 @@ import type {Session} from '../../lib/auth.ts';
 import {createWriteQueue} from '../../db/writeQueue.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import {NativeStore} from './store.ts';
-import {createRocketVibeProvider} from './index.ts';
+import {createVibezProvider} from './index.ts';
 import {NativeError, type NativeTransport} from './transport.ts';
 import type {RestClient} from '../../lib/rest.ts';
 
 test('existing room information provider keeps scopes through removal, closing and restore',async()=>{
   const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   for(const scenario of ['normal','unsupported','foreign','removed','closed','epoch'] as const) {
     const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
     await store.applySnapshot({protocol_version:1,rooms:[fixture.room],messages:[],cursor:'initial'});
@@ -28,7 +28,7 @@ test('existing room information provider keeps scopes through removal, closing a
         return {...fixture.parity.room_details,read_only:true,room:{...fixture.room,id:scenario==='foreign'?'foreign-room':fixture.room.id}};
       },
     } as unknown as NativeTransport;
-    const provider=createRocketVibeProvider(session,client,()=>{throw new Error('A read must not create an operation');},store,{transport,socket:()=>{
+    const provider=createVibezProvider(session,client,()=>{throw new Error('A read must not create an operation');},store,{transport,socket:()=>{
       const socket={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
       queueMicrotask(()=>socket.onopen?.(new Event('open')));return socket;
     }});

@@ -22,7 +22,7 @@ export function sessionRejected(error: unknown): boolean {
 }
 export function resumeSession(client: RestClient, session: Session): Promise<Session> {
   switch (session.kind) {
-    case 'rocketvibe': return resumeNative(client, session);
+    case 'vibez': return resumeNative(client, session);
     case 'mattermost':
     case 'kchat': return resumeMattermost(session);
     case 'rocketchat': return resumeRocketChatSession(client,session.authToken);

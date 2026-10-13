@@ -32,7 +32,7 @@ import { useColors, type Colors, FONTS } from '../ui/theme.ts';
  * messages outside the window have no business there. A tap goes back to the
  * room at the message (a context window when it is old), or opens the thread
  * of a reply that lives there.
- * An encrypted RocketVibe room is searched on the device only, through its
+ * An encrypted Vibez room is searched on the device only, through its
  * private journal (`CryptoConversationAccess.search`); the server sees nothing.
  */
 

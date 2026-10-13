@@ -1,5 +1,5 @@
 /**
- * Read receipts in the room screen, on a RocketVibe account
+ * Read receipts in the room screen, on a Vibez account
  * (brain/features/read-receipts.md): the live frame's marks for this room,
  * the rule of `lib/readReceipts.ts`, and the dim line it puts under my most
  * recent confirmed root message. Main timeline only, never in a thread.
@@ -15,7 +15,7 @@ import { type Colors, FONTS } from './theme.ts';
 
 /**
  * Which message carries the line, and its text; `null` for nothing. `live` is
- * the RocketVibe live photo (absent elsewhere: no receipts), re-read whenever
+ * the Vibez live photo (absent elsewhere: no receipts), re-read whenever
  * a frame changes it.
  */
 export function useReadReceipt(input: {

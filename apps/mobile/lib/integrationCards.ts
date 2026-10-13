@@ -1,4 +1,4 @@
-/** Presentation shared by Rocket.Chat and RocketVibe attachments. */
+/** Presentation shared by Rocket.Chat and Vibez attachments. */
 export type IntegrationCard={author:string|null;title:string|null;url:string|null;text:string|null;color:string|null;fields:{title:string;value:string;short:boolean}[]};
 export function integrationCard(value:unknown):IntegrationCard|null {
   if(!value||typeof value!=='object'||Array.isArray(value))return null;

@@ -10,7 +10,7 @@ import type {NativeTransport} from './transport.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import {decodeNative} from './validation.ts';
 const f=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session:Session={baseUrl:'https://chat.test/native',kind:'rocketvibe',userId:f.session.user.id,username:'alice',authToken:'fixture-token',siteUrl:null,nativeInstanceId:f.discovery.instance_id,nativeDataEpoch:f.discovery.data_epoch};
+const session:Session={baseUrl:'https://chat.test/native',kind:'vibez',userId:f.session.user.id,username:'alice',authToken:'fixture-token',siteUrl:null,nativeInstanceId:f.discovery.instance_id,nativeDataEpoch:f.discovery.data_epoch};
 const room=decodeNative('Room',{...f.room,read_state:{room_id:f.room.id,membership_version:'grant',revision:'1',root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}});
 test('native links resolve authorized targets and refuse scope changes before committing to SQLite',async()=>{
   for(const scenario of ['normal','wrong-room','deleted','wrong-thread','rejoined','restored','closed'] as const){

@@ -1,5 +1,5 @@
 /**
- * Answering a workflow's form (RocketVibe, RFC 0004), a native sheet
+ * Answering a workflow's form (Vibez, RFC 0004), a native sheet
  * (`presentation: 'formSheet'`, declared in `app/_layout.tsx`, closed by a tap
  * outside like Back, sending nothing). Opened from the form card of
  * `ui/messageRow.tsx` with the message id; the form is read from the stored

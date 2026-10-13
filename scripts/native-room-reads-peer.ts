@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
@@ -50,7 +50,7 @@ const discovery=await reader.discover();
 const {db,adapter}=nativeTestDatabase();
 let chat:NativeChat|undefined;
 try {
-  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const cache=new NativeStore(adapter,createWriteQueue(),session);
   await cache.applySnapshot(await reader.snapshot());
   const originalState=(await cache.readState(room))!,projection=cache.projectionToken();
@@ -69,7 +69,7 @@ try {
   // scopes are exercised against the real PostgreSQL server.
   const socket=()=>{const ws={onopen:null,close:()=>{}} as unknown as WebSocket;queueMicrotask(()=>ws.onopen?.(new Event('open')));return ws;};
   const guardedRest=new RestClient(base,{fetch:async()=>{throw new Error('Rocket.Chat route in a native room state');}});
-  const provider=createRocketVibeProvider(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
+  const provider=createVibezProvider(session,guardedRest,()=> 'ts-queue-favorite',cache,{transport:queueTransport,socket});
   chat=provider.native!.chat;await chat.connect();
   assert.equal(provider.capabilities.roomFavorites,true);
   assert.equal(provider.capabilities.roomReads,true);

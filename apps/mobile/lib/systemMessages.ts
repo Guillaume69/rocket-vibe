@@ -116,7 +116,7 @@ export function callDuration(t: TranslateFn, seconds: number): string {
 }
 
 /**
- * A RocketVibe call row (`rv-call-<state>`, see providers/vibez/systemMessages.ts):
+ * A Vibez call row (`rv-call-<state>`, see providers/vibez/systemMessages.ts):
  * its outcome, with the duration once an answered call is over.
  */
 export function callSummaryText(t: TranslateFn, type: string, param: string): string {

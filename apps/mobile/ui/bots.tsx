@@ -1,5 +1,5 @@
 /**
- * "My bots", a settings category on a RocketVibe server announcing `bots`
+ * "My bots", a settings category on a Vibez server announcing `bots`
  * (RFC 0003, `docs/protocol/BOTS.md`): my bot accounts, creating one (when
  * `create_bot` allows it), its description and scopes, its keys, and deleting
  * it, its display name and its photo (picked and sent like my own,

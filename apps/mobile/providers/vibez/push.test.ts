@@ -7,7 +7,7 @@ import {NativeTransport,NativeError} from './transport.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 const discovery={...fixture.discovery,capabilities:{...fixture.discovery.capabilities,push:true}};
-const session:Session={baseUrl:'https://example.org/native',authToken:'opaque-test-bearer',kind:'rocketvibe',userId:'alice',username:'alice',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session:Session={baseUrl:'https://example.org/native',authToken:'opaque-test-bearer',kind:'vibez',userId:'alice',username:'alice',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const receipt={device_id:'family-device',instance_id:discovery.instance_id,data_epoch:discovery.data_epoch};
 
 test('FCM registration pins discovery and persists only the own device family after confirmation',async()=>{

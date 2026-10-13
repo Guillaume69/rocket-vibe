@@ -5,7 +5,7 @@ import type {Session} from '../../lib/auth.ts';
 import {renewCredentials,renewalDue,validRenewal,type CredentialRecord} from './renewal.ts';
 import {NativeError,NativeTransport} from './transport.ts';
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session:Session={baseUrl:'http://localhost:3400',authToken:'a'.repeat(64),userId:fixture.session.user.id,username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'a'.repeat(64),userId:fixture.session.user.id,username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
 const initial=():CredentialRecord=>({session:{...session},pending:null,expires_at:null});
 
 test('a lost renewal response recovers its saved successor without renewing twice or revoking the old session locally',async()=>{

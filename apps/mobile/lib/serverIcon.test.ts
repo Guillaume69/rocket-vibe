@@ -30,15 +30,15 @@ describe('server icon reads', () => {
     }) as typeof fetch;
     try {
       const base = 'https://rv.example';
-      assert.equal(await serverIconUri(base, 'rocketvibe'), 'https://rv.example/api/v1/instance/icon?v=3');
-      assert.equal(await serverIconUri(base + '/', 'rocketvibe'), 'https://rv.example/api/v1/instance/icon?v=3');
+      assert.equal(await serverIconUri(base, 'vibez'), 'https://rv.example/api/v1/instance/icon?v=3');
+      assert.equal(await serverIconUri(base + '/', 'vibez'), 'https://rv.example/api/v1/instance/icon?v=3');
       assert.equal(calls, 1);
       assert.equal(await serverIconUri('https://mm.example', 'mattermost'), null);
       answer = () => new Response('busy', { status: 503 });
       assert.equal(await serverIconUri('https://other.example', 'rocketchat'), undefined);
       forgetServerIcon(base);
       answer = () => new Response(JSON.stringify({}));
-      assert.equal(await serverIconUri(base, 'rocketvibe'), null);
+      assert.equal(await serverIconUri(base, 'vibez'), null);
     } finally {
       globalThis.fetch = real;
     }

@@ -7,7 +7,7 @@ import {liveSmoke} from './native-live-smoke.ts';
 import {searchSmoke} from './native-search-smoke.ts';
 import {randomBytes} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {createOutboxStore} from '../apps/mobile/db/store.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
@@ -29,12 +29,12 @@ const desktop=(await transport.users()).find(u=>u.username==='desktop')!;assert(
 const publicRoom=await transport.createRoom({name:'native-pilot',private:false});
 const privateRoom=await transport.createRoom({name:'native-withdrawal',private:true});
 await transport.addMember(publicRoom.id,desktop.id);await transport.addMember(privateRoom.id,desktop.id);
-const account={baseUrl:base,userId:login.user.id,username:'mobile',authToken:login.token,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const account={baseUrl:base,userId:login.user.id,username:'mobile',authToken:login.token,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const database=nativeTestDatabase();const queue=createWriteQueue();const store=new NativeStore(database.adapter,queue,account);
-const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request in native peer');}});client.kind='rocketvibe';
+const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request in native peer');}});client.kind='vibez';
 let credentials:CredentialRecord={session:account,pending:null,expires_at:login.expires_at};
 let renewals=0;
-const provider=createRocketVibeProvider(account,client,()=>randomBytes(12).toString('hex'),store,{
+const provider=createVibezProvider(account,client,()=>randomBytes(12).toString('hex'),store,{
   credentials:async()=>{
     if(renewalDue(credentials)) {
       credentials=await renewCredentials(credentials,{token:async()=>randomBytes(32).toString('hex'),save:async record=>{credentials=structuredClone(record);}});

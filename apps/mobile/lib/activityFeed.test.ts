@@ -54,7 +54,7 @@ describe('mentionsMe', () => {
     assert.equal(mentionsMe(null, null, 'alice'), false);
   });
 
-  it('a word @all or @here of the text counts beside a tree without it (RocketVibe renders @here as text)', () => {
+  it('a word @all or @here of the text counts beside a tree without it (Vibez renders @here as text)', () => {
     const plain = JSON.stringify([{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: '@here standup' }] }]);
     assert.equal(mentionsMe(plain, '@here standup', 'alice'), true);
     assert.equal(mentionsMe(plain, 'hey @all!', 'alice'), true);

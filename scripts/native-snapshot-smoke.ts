@@ -12,7 +12,7 @@ if (!base) throw new Error('RV_SMOKE_URL is required');
 const loginClient = new NativeTransport(base);
 const discovery = await loginClient.discover();
 const login = await loginClient.login('alice',process.env.RV_SMOKE_PASSWORD ?? 'test-password-2026');
-const session: Session = {kind:'rocketvibe',baseUrl:base,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session: Session = {kind:'vibez',baseUrl:base,siteUrl:null,authToken:login.token,userId:login.user.id,username:login.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const db = nativeTestDatabase();
 const store = new NativeStore(db.adapter,createWriteQueue(),session);
 let pages = 0;

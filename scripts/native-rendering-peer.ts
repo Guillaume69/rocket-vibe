@@ -16,7 +16,7 @@ for(const row of fixture.cases) {
 }
 const {db,adapter}=nativeTestDatabase();
 try {
-  const session={baseUrl:process.env.RV_ROOM_PEER_URL!,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session={baseUrl:process.env.RV_ROOM_PEER_URL!,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const cache=new NativeStore(adapter,createWriteQueue(),session);
   await cache.applySnapshot(await reader.snapshot());
   for(let i=0;i<posted.length;i++) {

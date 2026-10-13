@@ -9,7 +9,7 @@ import {createWriteQueue} from '../../db/writeQueue.ts';
 import type {Session} from '../../lib/auth.ts';
 import type {Snapshot,Message,RoomCommandReceipt} from './protocol.generated.ts';
 import type {SavedFavorite} from './readIntents.ts';
-const session:Session={baseUrl:'http://localhost:3400',authToken:'token',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'token',userId:'alice',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 function snapshot(membership='membership'):Snapshot {
   const message:Message={...fixture.message,id:'observed',room_id:'room',position:'9007199254740993'};

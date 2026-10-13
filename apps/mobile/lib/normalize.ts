@@ -75,12 +75,12 @@ export type LocalMessage = {
   discussionLast?: number | null;
   updatedAt: number;
   /**
-   * The author is a bot account (RocketVibe only, RFC 0003). Not written by
+   * The author is a bot account (Vibez only, RFC 0003). Not written by
    * the shared upsert: the native store sets the column itself.
    */
   authorBot?: boolean;
   /**
-   * A workflow's form (RocketVibe only, RFC 0004), `Message.form` as JSON.
+   * A workflow's form (Vibez only, RFC 0004), `Message.form` as JSON.
    * Like `authorBot`, set by the native store itself, never the shared upsert.
    */
   form?: string | null;
@@ -93,7 +93,7 @@ export type LocalRoom = {
   displayName: string | null;
   encrypted: boolean;
   readOnly: boolean;
-  /** A RocketVibe voice channel; Rocket.Chat rooms never are. */
+  /** A Vibez voice channel; Rocket.Chat rooms never are. */
   voice?: boolean;
   /** The other participant of a two-person DM, see `toRoom`. */
   dmOtherUid: string | null;

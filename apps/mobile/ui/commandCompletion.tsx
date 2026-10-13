@@ -42,9 +42,9 @@ export function useCommands(
 
   useEffect(() => {
     let canceled = false;
-    const native = client.kind === 'rocketvibe' && sync.phase === 'ready' ? sync.provider.native : undefined;
+    const native = client.kind === 'vibez' && sync.phase === 'ready' ? sync.provider.native : undefined;
     void (async () => {
-      // A RocketVibe server lists its commands in Rocket.Chat's shape and
+      // A Vibez server lists its commands in Rocket.Chat's shape and
       // checks rights when one runs: nothing to leave out here. Asked for this
       // room, so the workflow commands offered here come with the core ones.
       if (native !== undefined) {
@@ -70,7 +70,7 @@ export function useCommands(
     };
   }, [client, base, rid, sync]);
 
-  const native = client.kind === 'rocketvibe';
+  const native = client.kind === 'vibez';
   const commands = useMemo(() => readCommands(state.raw, language, native), [state.raw, language, native]);
   return { commands, granted: state.granted };
 }

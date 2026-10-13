@@ -51,7 +51,7 @@ function validate(record:LoginChallenge):void {
 function account(record:Pick<LoginChallenge,'baseUrl'|'instanceId'|'dataEpoch'>,session:Session,expected?:string):AccountSession {
   if(!token(session.token) || !session.user.id || session.user.id.length>128 || expected!==undefined && session.user.id!==expected
     || !timestamp(session.expires_at) || Date.parse(session.expires_at)<=Date.now())throw new NativeError(502,'invalid_native_session');
-  return {baseUrl:record.baseUrl,userId:session.user.id,username:session.user.username,authToken:session.token,kind:'rocketvibe',siteUrl:null,
+  return {baseUrl:record.baseUrl,userId:session.user.id,username:session.user.username,authToken:session.token,kind:'vibez',siteUrl:null,
     nativeInstanceId:record.instanceId,nativeDataEpoch:record.dataEpoch,nativeExpiresAt:session.expires_at};
 }
 

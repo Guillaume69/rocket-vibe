@@ -11,7 +11,7 @@ import {avatarBase64} from '../../lib/nativeAvatars.ts';
 import {avatarBytes,nativeMyProfile,profileIntent,profileOperation,type ProfileOperation} from './profileOperations.ts';
 
 const fixture=JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
-const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 const snapshot={protocol_version:1,rooms:[],messages:[],cursor:'initial'};
 const profile=(id='original',revision='original-revision'):ProfileOperation=>({kind:'profile',input:{operation_id:id,expected_revision:revision,username:'alice',display_name:'Alice',bio:'Desired bio',status:'busy',status_text:'Working'}});
 function setup(){const harness=nativeTestDatabase();return {...harness,store:new NativeStore(harness.adapter,createWriteQueue(),session)};}

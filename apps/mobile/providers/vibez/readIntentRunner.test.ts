@@ -32,7 +32,7 @@ async function fixtureServer(handler:(request:IncomingMessage,response:ServerRes
     if(!await handler(request,response,path))send(response,404,{code:'not_found',request_id:'fixture'});
   })().catch(error=>{errors.push(error);send(response,500,{code:'fixture_failure',request_id:'fixture'});});});
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const address=server.address();if(!address || typeof address==='string')throw new Error('No listener');
-  const session:Session={baseUrl:`http://127.0.0.1:${address.port}`,authToken:'fixture-token',userId:'alice-id',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session:Session={baseUrl:`http://127.0.0.1:${address.port}`,authToken:'fixture-token',userId:'alice-id',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   return {session,errors,async close(){server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }
 function disk(){const directory=mkdtempSync(join(tmpdir(),'rv-state-runner-'));return {filename:join(directory,'account.sqlite'),clean(){unlinkSync(join(directory,'account.sqlite'));rmdirSync(directory);}};}

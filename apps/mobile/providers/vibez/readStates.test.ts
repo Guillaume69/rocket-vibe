@@ -8,7 +8,7 @@ import {nativeTestDatabase} from './testDatabase.ts';
 import {createWriteQueue} from '../../db/writeQueue.ts';
 import type {Session} from '../../lib/auth.ts';
 import type {Room,Snapshot,SyncBatch} from './protocol.generated.ts';
-const session:Session={baseUrl:'http://localhost:3400',authToken:'token',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'token',userId:'alice',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 function room(revision='20',personal='9007199254740993',membership='same'):Room {
   return {id:'room',name:`Room ${revision}`,kind:'private',revision,read_state:{room_id:'room',revision:personal,membership_version:membership,favorite_revision:personal,root_position:'0',reply_position:'0',unread_roots:'1',unread_replies:'0',mentions:'1',group_mentions:'0',favorite:true}};
 }

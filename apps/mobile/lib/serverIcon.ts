@@ -1,7 +1,7 @@
 /**
  * The icon a server shows on the rail instead of its host's initial, read
  * without signing in: Rocket.Chat's `favicon_192` asset when an
- * administrator set one (its stock logo is not the server's own), RocketVibe's
+ * administrator set one (its stock logo is not the server's own), Vibez's
  * instance icon at the discovery's `icon_revision`. Mattermost and kChat keep
  * the initial. Same rule as the desktop's `rv_core::server_icon`.
  *
@@ -70,11 +70,11 @@ async function json(url: string): Promise<unknown> {
  */
 export async function serverIconUri(baseUrl: string, kind: ProviderKind): Promise<string | null | undefined> {
   const base = baseUrl.replace(/\/+$/, '');
-  if (kind !== 'rocketvibe' && kind !== 'rocketchat') return null;
+  if (kind !== 'vibez' && kind !== 'rocketchat') return null;
   if (known.has(base)) return known.get(base);
   let uri: string | null;
   try {
-    if (kind === 'rocketvibe') {
+    if (kind === 'vibez') {
       const revision = ((await json(`${base}/.well-known/vibez`)) as { icon_revision?: unknown }).icon_revision;
       uri = typeof revision === 'string' && revision !== '' ? `${base}/api/v1/instance/icon?v=${encodeURIComponent(revision)}` : null;
     } else {

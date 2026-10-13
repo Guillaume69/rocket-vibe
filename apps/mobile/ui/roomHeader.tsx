@@ -76,7 +76,7 @@ export function RoomHeader({
   const sync = useSync();
   const capabilities = sync.phase === 'ready' ? sync.capabilities : null;
   const unlocked = useE2EUnlocked(sync.phase === 'ready' ? sync.e2e : null);
-  // RocketVibe: every room calls through its voice session (a DM rings).
+  // Vibez: every room calls through its voice session (a DM rings).
   // Encrypted rooms wait for end-to-end encrypted voice.
   const joinVoice = useJoinVoice();
   const voice = useVoice();

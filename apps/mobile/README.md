@@ -6,8 +6,8 @@ on a self-hosted Rocket.Chat server. It also signs in to Mattermost and kChat se
 (`../../docs/MATTERMOST.md`).
 
 The app includes a [native mobile path](../../docs/NATIVE_MOBILE_PILOT.md)
-for the RocketVibe Rust server: login picks the account's provider and the same
-screens show Rocket.Chat or RocketVibe. Feature parity of the native server is
+for the Vibez Rust server: login picks the account's provider and the same
+screens show Rocket.Chat or Vibez. Feature parity of the native server is
 still in progress.
 
 > This README explains the mobile app and how to run it locally; **every command
@@ -20,7 +20,7 @@ still in progress.
 
 ## What it is
 
-A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the RocketVibe server),
+A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the Vibez server),
 with a bounded **server administration** screen for administrators (dashboard,
 moderation of reports, rooms, accounts, custom emoji, the server's icon), not a settings console. The server URL is entered on the login screen.
 

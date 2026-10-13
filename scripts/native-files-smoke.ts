@@ -51,7 +51,7 @@ for(const lost of ['prepare','bytes','complete','cancel']){
  };
  const remote=new NativeTransport(base,fetcher),auth=await remote.login(`mobile-${lost}`,'files-test-password'),discovery=await remote.discover();
  const room=await remote.createRoom({operation_id:randomUUID(),name:`Outbox ${lost}`,private:true});
- const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+ const session={baseUrl:base,authToken:auth.token,userId:auth.user.id,username:auth.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
  let h=nativeTestDatabase(database),store=new NativeStore(h.adapter,createWriteQueue(),session),chat=new NativeChat(session,store,randomUUID,{transport:remote});
  const io={copy:async()=>({uri:pathToFileURL(source).toString(),bytes:bytes.length,sha256:sha}),remove:async()=>{removed++;},
   send:async(url:string,headers:Record<string,string>,uri:string,signal:AbortSignal)=>{

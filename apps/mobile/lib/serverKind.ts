@@ -6,9 +6,9 @@ import { isKchatHost, probeMattermost } from '../providers/mattermost/auth.ts';
 /** `mattermost`: a Mattermost or kChat server, signed in through its own flow. */
 export type ServerProfile = BaseServerProfile & { native?: Discovery; mattermost?: { kind: 'mattermost' | 'kchat' } };
 /** Found by probing (`auto`), or forced when the probe gets it wrong behind an unusual proxy. */
-export type ServerKind = 'auto' | 'rocketchat' | 'rocketvibe' | 'mattermost' | 'kchat';
-/** The server is not RocketVibe although the user chose it. */
-export class NotRocketVibeError extends Error {}
+export type ServerKind = 'auto' | 'rocketchat' | 'vibez' | 'mattermost' | 'kchat';
+/** The server is not Vibez although the user chose it. */
+export class NotVibezError extends Error {}
 /** The server is not Mattermost although the user chose it. */
 export class NotMattermostError extends Error {}
 
@@ -47,7 +47,7 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
         native = typeof parsed === 'object' && parsed !== null && 'product' in parsed && parsed.product === 'vibez';
       } catch { /* An RC frontend may serve HTML for unknown routes. */ }
     }
-    // Only a 2xx naming the product identifies a RocketVibe server. Anything
+    // Only a 2xx naming the product identifies a Vibez server. Anything
     // else falls back to the Rocket.Chat probe, which has its own proofs: a
     // reverse proxy may well forbid `/.well-known/` (chat.barrut.me answers
     // 403), and a refusal used to hide the Rocket.Chat behind it.
@@ -55,7 +55,7 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
     clearTimeout(timer);
     signal?.removeEventListener('abort', relay);
   }
-  if (!native && kind === 'rocketvibe') throw new NotRocketVibeError('Not a RocketVibe server');
+  if (!native && kind === 'vibez') throw new NotVibezError('Not a Vibez server');
   if (!native) {
     const version = await probeMattermost(baseUrl, signal, fetcher);
     if (version !== null) return mattermostProfile(baseUrl, version, 'mattermost');

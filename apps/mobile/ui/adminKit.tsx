@@ -37,7 +37,7 @@ export function adminErrorKey(e: ProviderError): TranslationKey {
       return 'report.self';
     case 'message_deleted':
       return 'report.gone';
-    // RocketVibe: a bot is never an administrator, nor active in an encrypted room.
+    // Vibez: a bot is never an administrator, nor active in an encrypted room.
     case 'bot_privilege':
       return 'admin.errBotPrivilege';
     case 'bot_encrypted_room':

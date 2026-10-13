@@ -1,5 +1,5 @@
 /**
- * Voice sessions on a RocketVibe server (docs/protocol/VOICE.md): the server
+ * Voice sessions on a Vibez server (docs/protocol/VOICE.md): the server
  * grants, the native engine (modules/voice) speaks WebRTC to LiveKit. One
  * connection per account, so one controller per signed-in native chat.
  *

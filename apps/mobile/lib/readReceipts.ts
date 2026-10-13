@@ -1,5 +1,5 @@
 /**
- * Read receipts on a RocketVibe server (brain/features/read-receipts.md): the
+ * Read receipts on a Vibez server (brain/features/read-receipts.md): the
  * pure rule every app follows. The live frame carries the other members' read
  * positions (`LiveRoom.reads`); the room screen shows, under MY most recent
  * confirmed root message, who read at least that far.

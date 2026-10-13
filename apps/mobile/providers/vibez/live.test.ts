@@ -46,7 +46,7 @@ test('room and thread activity remain separate and native presence forgets an ex
 });
 
 test('actual native runner never persists live frames, fences old grants and serializes typing stop',async()=>{
-  const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
+  const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:fixture.session.user.id,username:'alice',kind:'vibez' as const,siteUrl:null,nativeInstanceId:fixture.discovery.instance_id,nativeDataEpoch:fixture.discovery.data_epoch};
   const {db,adapter}=nativeTestDatabase(),store=new NativeStore(adapter,createWriteQueue(),session);
   const room={...fixture.room,read_state:{...fixture.parity.read_state,membership_version:'grant',room_id:fixture.room.id}};
   await store.applySnapshot({protocol_version:1,rooms:[room],messages:[],cursor:'initial'});

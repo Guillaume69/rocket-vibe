@@ -1,9 +1,9 @@
 /** Appended to the existing FCM service by with-fcm-deeplink. CNG regenerates
- * Android sources; this is the authoritative native RocketVibe adaptation. */
+ * Android sources; this is the authoritative native Vibez adaptation. */
 module.exports = function nativePushSource() {
   return String.raw`
 
-// RocketVibe HTTP v1: no URL, bearer or chat content comes from FCM.
+// Vibez HTTP v1: no URL, bearer or chat content comes from FCM.
 private fun registerNativeTokenRotation(ctx: Context, token: String) {
   if (token.isEmpty() || token.length > 4096) return
   try {
@@ -11,7 +11,7 @@ private fun registerNativeTokenRotation(ctx: Context, token: String) {
     for ((key, value) in ctx.getSharedPreferences("SecureStore", Context.MODE_PRIVATE).all) {
       if (!key.startsWith("key_v1-session-")) continue
       val session = JSONObject(decryptSecureStore(value as? String ?: continue) ?: continue)
-      if (session.optString("kind", session.optString("genre")) != "rocketvibe") continue
+      if (session.optString("kind", session.optString("genre")) != "vibez") continue
       val scope = JSONObject().put("instanceId", session.optString("nativeInstanceId")).put("dataEpoch", session.optString("nativeDataEpoch"))
         .put("userId", session.optString("userId")).put("deviceId", session.optString("nativePushDeviceId"))
       if (!arrayOf("instanceId", "dataEpoch", "userId", "deviceId").all { isNativeIdentifier(scope.optString(it)) }) continue
@@ -52,7 +52,7 @@ private fun nativePushContext(extras: Bundle): JSONObject? {
   return scope
 }
 private fun nativeNotificationKey(scope: JSONObject, rid: String): String =
-  "rocketvibe:" + scope.optString("instanceId") + ":" + scope.optString("dataEpoch") + ":" + scope.optString("userId") + ":" + rid
+  "vibez:" + scope.optString("instanceId") + ":" + scope.optString("dataEpoch") + ":" + scope.optString("userId") + ":" + rid
 private fun nativePushKey(scope: JSONObject): String = nativeNotificationKey(scope, scope.optString("notificationId"))
 
 private fun readNativeSession(ctx: Context, scope: JSONObject): JSONObject? {
@@ -61,7 +61,7 @@ private fun readNativeSession(ctx: Context, scope: JSONObject): JSONObject? {
       if (!key.startsWith("key_v1-session-")) continue
       val clear = decryptSecureStore(value as? String ?: continue) ?: continue
       val session = JSONObject(clear)
-      if (session.optString("kind", session.optString("genre")) != "rocketvibe" || session.optString("authToken").isEmpty()) continue
+      if (session.optString("kind", session.optString("genre")) != "vibez" || session.optString("authToken").isEmpty()) continue
       if (session.optString("nativeInstanceId") != scope.optString("instanceId") ||
           session.optString("nativeDataEpoch") != scope.optString("dataEpoch") ||
           session.optString("userId") != scope.optString("userId") ||

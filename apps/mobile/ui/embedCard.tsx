@@ -9,7 +9,7 @@
  * (YouTube/Dailymotion) or the browser through `Linking`. No WebView, no
  * stream to extract.
  *
- * Rocket.Chat thumbnails stay public. RocketVibe uses the message's private
+ * Rocket.Chat thumbnails stay public. Vibez uses the message's private
  * image, through the same reader as article cards. Without an available image,
  * the "aurora" gradient banner stays the existing fallback.
  */
@@ -43,7 +43,7 @@ export function EmbedLinks({
   onLongPress?: (() => void) | undefined;
 }) {
   const links = useMemo(() => detectVideoLinks(text), [text]);
-  const metas = useMemo(() => videoMetas(urls,client?.kind==='rocketvibe'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
+  const metas = useMemo(() => videoMetas(urls,client?.kind==='vibez'?(message,image)=>nativePreviewUri(client,message,image):undefined), [urls,client]);
   if (links.length === 0) return null;
   return (
     <View style={styles.list}>
@@ -53,7 +53,7 @@ export function EmbedLinks({
           c={c}
           link={link}
           meta={metas.get(link.id) ?? null}
-          native={client?.kind==='rocketvibe'}
+          native={client?.kind==='vibez'}
           onLongPress={onLongPress}
         />
       ))}

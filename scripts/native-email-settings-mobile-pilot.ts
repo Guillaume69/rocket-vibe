@@ -21,7 +21,7 @@ async function main(){
   let session:Session;
   if(phase==='enable'){
     const discovery=await transport.discover(),login=await transport.login('gtk-email','native-pilot-test-password');
-    session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,siteUrl:null,kind:'rocketvibe',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+    session={baseUrl:base,authToken:login.token,userId:login.user.id,username:login.user.username,siteUrl:null,kind:'vibez',nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
     await writeFile(`${directory}/session`,JSON.stringify(session),{mode:0o600});
   } else {session=JSON.parse(await readFile(`${directory}/session`,'utf8'));transport.restore(session.authToken);}
   const {db,adapter}=nativeTestDatabase(`${directory}/projection.sqlite`,phase==='enable');

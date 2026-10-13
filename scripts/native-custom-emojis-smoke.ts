@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {mountProviderEmojis} from '../apps/mobile/lib/providerEmojis.ts';
@@ -15,10 +15,10 @@ assert(base&&password);
 const transport=new NativeTransport(base),account=await transport.login('desktop-files',password),discovery=await transport.discover();
 const room=await transport.createRoom({operation_id:randomUUID(),name:'Mobile custom emoji bench',private:true});
 const message=await transport.send(room.id,{operation_id:randomUUID(),text:':vibe_parrot:'});
-const session={baseUrl:base,siteUrl:null,kind:'rocketvibe' as const,authToken:account.token,userId:account.user.id,username:account.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const session={baseUrl:base,siteUrl:null,kind:'vibez' as const,authToken:account.token,userId:account.user.id,username:account.user.username,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const h=nativeTestDatabase(),store=new NativeStore(h.adapter,createWriteQueue(),session),client=new RestClient(base);
-client.kind='rocketvibe';
-const provider=createRocketVibeProvider(session,client,randomUUID,store,{transport}),chat=provider.native!.chat;
+client.kind='vibez';
+const provider=createVibezProvider(session,client,randomUUID,store,{transport}),chat=provider.native!.chat;
 const unmount=mountProviderEmojis(client,provider);
 async function until(check:()=>boolean|Promise<boolean>,timeout=20_000){const deadline=Date.now()+timeout;while(!await check()){assert(Date.now()<deadline,'Emoji live update timed out');await new Promise(r=>setTimeout(r,40));}}
 try{

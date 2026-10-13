@@ -8,7 +8,7 @@ import {nativeTestDatabase} from './testDatabase.ts';
 import {createWriteQueue} from '../../db/writeQueue.ts';
 import type {Room,Message,Upload} from './protocol.generated.ts';
 import type {UploadIntent} from './uploadIntents.ts';
-const session={baseUrl:'https://native.example',authToken:'token',userId:'alice',username:'alice',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session={baseUrl:'https://native.example',authToken:'token',userId:'alice',username:'alice',kind:'vibez' as const,siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 const room=(membership='grant'):Room=>({id:'room',name:'Room',kind:'private',revision:'1',read_state:{room_id:'room',membership_version:membership,revision:membership==='grant'?'1':'2',favorite_revision:'1',root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}});
 const snapshot=(membership='grant')=>({protocol_version:1,rooms:[room(membership)],messages:[],cursor:'initial'});
 const intent:UploadIntent={id:'prepare',room:'room',membership:'grant',uri:'file:///private/original',prepare:{operation_id:'prepare',room_id:'room',bytes:'3',sha256:'a'.repeat(64),filename:'original.pdf',media_type:'application/pdf',encrypted:false},complete:{operation_id:'confirm',content:{kind:'plain',markdown:'Caption',mentions:[],quotes:[],files:[]}}};

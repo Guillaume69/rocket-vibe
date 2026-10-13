@@ -14,7 +14,7 @@
 import { unicodeOfShortcode } from './emojis.ts';
 import type { FileToSend, TransportUpload } from './upload.ts';
 
-export type AdminProduct = 'rocketchat' | 'rocketvibe';
+export type AdminProduct = 'rocketchat' | 'vibez';
 export type AdminPresence = 'online' | 'away' | 'busy' | 'offline';
 
 export type AdminOverview = {
@@ -182,7 +182,7 @@ export interface ProviderAdmin {
   /** The newest published release of this server software; `null` = unknown. */
   latestVersion(): Promise<string | null>;
   /**
-   * RocketVibe with bots (RFC 0003): whether every account may create bots
+   * Vibez with bots (RFC 0003): whether every account may create bots
    * (administrators always may). Absent on Rocket.Chat; `null` when this
    * server offers no bots.
    */
@@ -196,7 +196,7 @@ export interface ProviderAdmin {
   /**
    * Adds one from a picked image. `io` carries what lives outside `lib/`: the
    * multipart transport (field `emoji`, Rocket.Chat) and the file's bytes
-   * (RocketVibe). The screen then reads the app's index again
+   * (Vibez). The screen then reads the app's index again
    * (`useSync().refreshCustomEmojis`).
    */
   createEmoji?(name: string, aliases: string[], image: FileToSend, io: AdminUploadIO): Promise<void>;
@@ -216,7 +216,7 @@ export type AdminEmoji = {
   id: string;
   name: string;
   aliases: string[];
-  /** RocketVibe's revision, which a removal names; '' on Rocket.Chat. */
+  /** Vibez's revision, which a removal names; '' on Rocket.Chat. */
   revision: string;
 };
 
@@ -276,7 +276,7 @@ export class AdminRefused extends Error {
   }
 }
 
-/** The largest image both servers take (RocketVibe's limit). */
+/** The largest image both servers take (Vibez's limit). */
 export const EMOJI_BYTES = 1024 * 1024;
 
 /**
@@ -429,12 +429,12 @@ export function updateStatus(current: string, latest: string | null): 'available
  */
 export const RELEASES: Record<AdminProduct, string> = {
   rocketchat: 'https://api.github.com/repos/RocketChat/Rocket.Chat/releases?per_page=30',
-  rocketvibe: 'https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=100',
+  vibez: 'https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=100',
 };
 
 /**
  * The newest version in a GitHub release list: the highest Rocket.Chat tag,
- * or the highest `vibez-vX.Y.Z` tag among RocketVibe's releases (the apps
+ * or the highest `vibez-vX.Y.Z` tag among Vibez's releases (the apps
  * publish there too, under other tags). Drafts and pre-releases (flagged, or
  * `-rc` tags) never count.
  */
@@ -445,7 +445,7 @@ export function latestFromReleases(product: AdminProduct, body: unknown): string
     if (typeof release !== 'object' || release === null) continue;
     const r = release as { tag_name?: unknown; draft?: unknown; prerelease?: unknown };
     if (typeof r.tag_name !== 'string' || r.draft === true || r.prerelease === true) continue;
-    if (product === 'rocketvibe' && !r.tag_name.startsWith('vibez-v')) continue;
+    if (product === 'vibez' && !r.tag_name.startsWith('vibez-v')) continue;
     const version = parseVersion(r.tag_name);
     if (version === null) continue;
     const plain = version.join('.');

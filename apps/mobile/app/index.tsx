@@ -165,7 +165,7 @@ function AccountFooter({ c }: { c: Colors }) {
     return () => { active = false; };
   }, [chat, client, revision, ownActivity]);
   const ownStatus = chosen?.client === client ? chosen?.status : null;
-  const status = ownActivityStatus(client?.kind === 'rocketvibe', ownStatus, livePresence);
+  const status = ownActivityStatus(client?.kind === 'vibez', ownStatus, livePresence);
   if (state.phase !== 'connected') return null;
   const username = state.session.username;
   return (
@@ -445,7 +445,7 @@ function RoomRow({
   // which case `lastMessageType` says which and the label is translated HERE,
   // at render: the language switches live, a sentence frozen in the database
   // would resist it.
-  // A RocketVibe call row keeps its duration as text: never shown raw.
+  // A Vibez call row keeps its duration as text: never shown raw.
   const callPreview = room.lastMessageType?.startsWith('rv-call')
     ? systemPreview(t, room.lastMessageType, room.lastMessage ?? '')
     : null;
@@ -535,7 +535,7 @@ function NewConversationRow({ c }: { c: Colors }) {
   const router = useRouter();
   const t = useT();
   const sync = useSync();
-  // RocketVibe creates natively, Rocket.Chat through `actions.createChannel`.
+  // Vibez creates natively, Rocket.Chat through `actions.createChannel`.
   const creates = sync.phase === 'ready' && (sync.provider.native !== undefined || sync.actions.createChannel !== undefined);
   return (
     <View>

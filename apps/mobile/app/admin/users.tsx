@@ -32,7 +32,7 @@ import { type Colors, LIST_PRESS_DELAY, useColors } from '../../ui/theme.ts';
  * Server administration, Users (`/admin/users`): every account, searched and
  * paged by the server, with its avatar, name, badges (admin, deactivated,
  * bot), presence, creation and last activity. Tapping one opens its actions:
- * admin right (never granted to a RocketVibe bot), activation, deletion
+ * admin right (never granted to a Vibez bot), activation, deletion
  * (confirmed). My own row offers none: the
  * server refuses an administrator changing their own account anyway.
  */
@@ -66,7 +66,7 @@ function Users({ c, admin, client, me }: { c: Colors; admin: ProviderAdmin; clie
   const remove = (user: AdminUser) =>
     confirmAction(
       t('admin.deleteUserTitle', { username: user.username }),
-      t(admin.product === 'rocketvibe' ? 'admin.deleteUserBodyNative' : 'admin.deleteUserBodyRc'),
+      t(admin.product === 'vibez' ? 'admin.deleteUserBodyNative' : 'admin.deleteUserBodyRc'),
       t('admin.deleteUser'),
       t('common.cancel'),
       () =>
@@ -145,8 +145,8 @@ function Users({ c, admin, client, me }: { c: Colors; admin: ProviderAdmin; clie
               <Text style={[adminStyles.sub, { color: c.secondaryText }]}>{t('admin.myself')}</Text>
             ) : (
               <View style={adminStyles.actions}>
-                {/* A RocketVibe bot never becomes an administrator (`bot_privilege`). */}
-                {(user.admin || !(user.bot && admin.product === 'rocketvibe')) && (
+                {/* A Vibez bot never becomes an administrator (`bot_privilege`). */}
+                {(user.admin || !(user.bot && admin.product === 'vibez')) && (
                   <ItemAction c={c} disabled={busy} label={t(user.admin ? 'admin.removeAdmin' : 'admin.makeAdmin')}
                     onPress={() => change(user, { admin: !user.admin }, user.admin ? 'admin.adminRemoved' : 'admin.adminGranted')} />
                 )}

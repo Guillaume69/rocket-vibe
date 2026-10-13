@@ -11,7 +11,7 @@ import {nativeTestDatabase} from './testDatabase.ts';
 import type {Message,Room,Snapshot,SyncBatch} from './protocol.generated.ts';
 import type {NativeQuoteAttachment,NativeQuoteSelection} from './quotes.ts';
 
-const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:'quote-instance',nativeDataEpoch:'epoch'};
+const session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice-id',username:'alice',kind:'vibez' as const,siteUrl:null,nativeInstanceId:'quote-instance',nativeDataEpoch:'epoch'};
 function room(id:string,revision='1',grant='source-grant'):Room {
   return {id,name:id,kind:'private',revision,read_state:{room_id:id,revision,membership_version:grant,favorite_revision:revision,root_position:'0',reply_position:'0',unread_roots:'0',unread_replies:'0',mentions:'0',group_mentions:'0',favorite:false}};
 }
@@ -222,8 +222,8 @@ test('quote resolutions preserve exact stamps and keep legacy views distinguisha
   assert.equal(old.source_membership_version,undefined);
   const current={...legacy,view_position:'9007199254740993',source_membership_version:'current-grant'};
   assert.deepEqual(decodeNative('MessageQuote',current),current);
-  assert.throws(()=>decodeNative('MessageQuote',{...current,view_position:9007199254740993}),/Invalid RocketVibe/);
-  assert.throws(()=>decodeNative('MessageQuote',{...current,source_membership_version:123}),/Invalid RocketVibe/);
+  assert.throws(()=>decodeNative('MessageQuote',{...current,view_position:9007199254740993}),/Invalid Vibez/);
+  assert.throws(()=>decodeNative('MessageQuote',{...current,source_membership_version:123}),/Invalid Vibez/);
 });
 
 test('mobile SQLite refreshes the existing cards independently of reply revisions',async()=>{

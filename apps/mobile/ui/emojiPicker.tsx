@@ -249,7 +249,7 @@ export function EmojiPicker({
 /**
  * Search, category tabs (plus the server's emoji) and the grid, at a fixed
  * `height`. `customs: false` leaves the server's emoji out of the tabs AND of
- * the search: a private RocketVibe conversation only takes standard emoji.
+ * the search: a private Vibez conversation only takes standard emoji.
  * `width` is the grid's own width when it is narrower than the window.
  * `standard` keeps only the standard emoji it accepts (Rocket.Chat reactions:
  * the glyphs its `chat.react` has a code for); the composer passes none.

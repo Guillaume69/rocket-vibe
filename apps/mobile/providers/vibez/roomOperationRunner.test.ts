@@ -20,7 +20,7 @@ function socket():WebSocket {
   const result={readyState:0,onopen:null,onclose:null,onerror:null,onmessage:null,close:()=>{}} as unknown as WebSocket;
   queueMicrotask(()=>result.onopen?.(new Event('open')));return result;
 }
-function account(baseUrl:string):Session{return {baseUrl,authToken:'test-token',userId:user.id,username:user.username,kind:'rocketvibe',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};}
+function account(baseUrl:string):Session{return {baseUrl,authToken:'test-token',userId:user.id,username:user.username,kind:'vibez',siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};}
 
 test('actual HTTP and SQLite recover all room forms after a lost acknowledgement and app restart',async()=>{
   for(const kind of ['settings','role','leave'] as const){

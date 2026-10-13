@@ -90,7 +90,7 @@ export function useMyName(client: RestClient): string | null {
   useEffect(() => {
     let alive = true;
     const read =
-      client.kind === 'rocketvibe'
+      client.kind === 'vibez'
         ? chat?.capabilities?.profiles
           ? chat.ownProfile().then((own) => own.profile.user.display_name ?? null)
           : Promise.resolve(null)
@@ -183,7 +183,7 @@ export function SettingsCategoryContent({
     case 'language':
       return <LanguageCategory c={c} client={account.client} />;
     case 'encryption':
-      return account.client.kind === 'rocketvibe' ? <EncryptedIdentitySection c={c} /> : <SectionE2E c={c} />;
+      return account.client.kind === 'vibez' ? <EncryptedIdentitySection c={c} /> : <SectionE2E c={c} />;
     case 'security':
       return <NativeSecuritySection c={c} />;
     case 'devices':
@@ -213,17 +213,17 @@ function AccountCategory({ c, account }: { c: Colors; account: SettingsAccount }
         account={account}
         name={name}
         link={t('settings.editProfile')}
-        disabled={account.client.kind === 'rocketvibe' && (sync.phase !== 'ready' || !sync.provider.native?.chat.capabilities?.profiles)}
+        disabled={account.client.kind === 'vibez' && (sync.phase !== 'ready' || !sync.provider.native?.chat.capabilities?.profiles)}
         onPress={() => router.push('/my-profile')}
       />
       {sidebar !== undefined && <SidebarSettingsCard c={c} source={sidebar} />}
-      {account.client.kind === 'rocketvibe' && <PrivacyCard c={c} />}
+      {account.client.kind === 'vibez' && <PrivacyCard c={c} />}
     </>
   );
 }
 
 /**
- * Privacy, on a RocketVibe account: whether read receipts are shared
+ * Privacy, on a Vibez account: whether read receipts are shared
  * (brain/features/read-receipts.md). Both ways: off, the others no longer see
  * how far I read, and I no longer see how far they did. The save sends that
  * field alone (`preferencesInput`), through the preferences' pending intent.
@@ -402,7 +402,7 @@ function usePreferencePush(client: RestClient,natives:ReturnType<typeof useNativ
       setValue(next);
       setError(null);
       try {
-        if(client.kind==='rocketvibe'){
+        if(client.kind==='vibez'){
           await natives.change({push_enabled:next!=='nothing',push_mentions_only:next==='mention'});
           return;
         }
@@ -419,9 +419,9 @@ function usePreferencePush(client: RestClient,natives:ReturnType<typeof useNativ
   );
 
   const p=natives.preferences;
-  return { value:client.kind==='rocketvibe'?(p?(!p.push_enabled?'nothing':p.push_mentions_only?'mention':'all'):null):value,
-    error:client.kind==='rocketvibe'?(natives.error?'settings.saveFailed' as const:null):error,
-    disabled:client.kind==='rocketvibe'&&(natives.busy||natives.intention!==null),set };
+  return { value:client.kind==='vibez'?(p?(!p.push_enabled?'nothing':p.push_mentions_only?'mention':'all'):null):value,
+    error:client.kind==='vibez'?(natives.error?'settings.saveFailed' as const:null):error,
+    disabled:client.kind==='vibez'&&(natives.busy||natives.intention!==null),set };
 }
 
 type MeResponse = { settings?: { preferences?: { pushNotifications?: string } } };
@@ -483,14 +483,14 @@ function ServerNotifications({ c, client }: { c: Colors; client: RestClient }) {
   const t = useT();
   const natives = useNatives();
   const push = usePreferencePush(client,natives);
-  const native = client.kind === 'rocketvibe';
+  const native = client.kind === 'vibez';
   return (
     <>
       <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
         <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.push')}</Text>
         <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.pushHelp')}</Text>
         <NotificationChoice c={c} push={push} />
-        {/* RocketVibe: one save state for both cards, below them. */}
+        {/* Vibez: one save state for both cards, below them. */}
         {!native && push.error !== null && (
           <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
         )}
@@ -523,8 +523,8 @@ function LanguageCategory({ c, client }: { c: Colors; client: RestClient }) {
   return (
     <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
       <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.languageHelp')}</Text>
-      <LanguagePicker c={c} t={t} natives={client.kind==='rocketvibe'?natives:undefined} />
-      {client.kind==='rocketvibe'&&<NativeSaveState c={c} natives={natives} error="native.error" />}
+      <LanguagePicker c={c} t={t} natives={client.kind==='vibez'?natives:undefined} />
+      {client.kind==='vibez'&&<NativeSaveState c={c} natives={natives} error="native.error" />}
     </View>
   );
 }
@@ -576,7 +576,7 @@ function AppCategory({ c, client }: { c: Colors; client: RestClient }) {
           {t('licenses.title')}
         </Link>
       )}
-      {client.kind !== 'rocketvibe' && <>
+      {client.kind !== 'vibez' && <>
         <Text style={[styles.sectionTitle, { color: c.dimmed }]}>{t('settings.sectionDiagnostics')}</Text>
         <FcmTokenSection c={c} t={t} />
       </>}

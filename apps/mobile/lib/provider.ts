@@ -1,12 +1,12 @@
 /**
  * Contract of a chat provider. Rocket.Chat is its first implementation,
- * RocketVibe the second. Everything in the app that names a `/api/v1/*`
+ * Vibez the second. Everything in the app that names a `/api/v1/*`
  * endpoint or a `stream-*` stream must eventually go through here; the rest
  * (`db/`, `Store`, rendering, `Reconnector`) is already neutral.
  *
  * Load-bearing choice: the sync core does not speak a server's wire format.
  * Each provider translates its feed into a neutral local projection.
- * Rocket.Chat uses `SyncChange`; RocketVibe applies its journal and cursor
+ * Rocket.Chat uses `SyncChange`; Vibez applies its journal and cursor
  * atomically. No Rocket.Chat document is ever requested from the native server.
  */
 
@@ -46,7 +46,7 @@ export type SyncChange =
  * A session's server type. Persisted with it: it decides which driver to
  * instantiate at startup. Older sessions stay Rocket.Chat.
  */
-export type ProviderKind = 'rocketchat' | 'rocketvibe' | 'mattermost' | 'kchat' | 'whatsapp';
+export type ProviderKind = 'rocketchat' | 'vibez' | 'mattermost' | 'kchat' | 'whatsapp';
 
 export type ProviderIdentity = {
   kind: ProviderKind;
@@ -66,7 +66,7 @@ export type ProviderError = {
   twoFactorChallenge: boolean;
 };
 
-const KINDS: readonly ProviderKind[] = ['rocketchat', 'rocketvibe', 'mattermost', 'kchat', 'whatsapp'];
+const KINDS: readonly ProviderKind[] = ['rocketchat', 'vibez', 'mattermost', 'kchat', 'whatsapp'];
 
 /**
  * Brings a stored value back to a known `ProviderKind`. Sessions from before
@@ -103,13 +103,13 @@ export type Capabilities = {
   quotes?: boolean;
   /** A thread reply can also be posted to the room (Rocket.Chat `tshow`). */
   alsoInRoom?: boolean;
-  /** Voice sessions in every room, voice channels and ringing DMs (RocketVibe). */
+  /** Voice sessions in every room, voice channels and ringing DMs (Vibez). */
   voice?: boolean;
   /** Server administration from the app (`Provider.admin`), for an administrator. */
   administration?: boolean;
   /** Members can report a message or an account (`Provider.reports`). */
   reports?: boolean;
-  /** Text the server sends later for its author (`Provider.scheduled`, RocketVibe). */
+  /** Text the server sends later for its author (`Provider.scheduled`, Vibez). */
   scheduledMessages?: boolean;
   typing: boolean;
   presence: boolean;
@@ -251,7 +251,7 @@ export interface ProviderActions {
   /**
    * Creates a channel, or a private group when `privateRoom`, owned by me and
    * with me as its only member. Same return as `openOrCreateDm`. Rocket.Chat
-   * only: the RocketVibe server creates through `provider.native.chat.createRoom`.
+   * only: the Vibez server creates through `provider.native.chat.createRoom`.
    */
   createChannel?(name: string, privateRoom: boolean): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
@@ -298,7 +298,7 @@ export type RoomRole = 'owner'|'moderator'|'member';
 export type RoomFields = {name:string;isPrivate:boolean;topic:string;description:string;announcement:string;readOnly:boolean;voice?:boolean};
 /** `canRemove` / `canInvite`: my room rights (`remove_member`, `invite`), outside a DM. */
 export type RoomSettings = RoomFields & {revision:string;canEdit:boolean;canChangeRoles:boolean;canLeave:boolean;canRemove:boolean;canInvite:boolean;role:RoomRole};
-/** `bot`: a bot account (RocketVibe, RFC 0003); absent on Rocket.Chat. */
+/** `bot`: a bot account (Vibez, RFC 0003); absent on Rocket.Chat. */
 export type ProviderRoomMember = {id:string;username:string;name:string|null;role:RoomRole;deactivated:boolean;bot?:boolean};
 export type ProviderRoomMemberPage = {revision:string;members:ProviderRoomMember[];continuation:string|null};
 export type RoomIntent = {key:string;type:'settings'|'role'|'leave';settings:RoomFields|null;target:string|null;role:RoomRole|null;failed:boolean;error:string|null};

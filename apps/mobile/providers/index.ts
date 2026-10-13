@@ -10,7 +10,7 @@ import type { Provider } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
-import { createRocketVibeProvider } from './vibez/index.ts';
+import { createVibezProvider } from './vibez/index.ts';
 import type { NativeStore } from './vibez/store.ts';
 
 export function createProvider(
@@ -18,14 +18,14 @@ export function createProvider(
   client: RestClient,
   generateId: () => string,
   nativeStore?: NativeStore,
-  nativeOptions:Parameters<typeof createRocketVibeProvider>[4]={},
+  nativeOptions:Parameters<typeof createVibezProvider>[4]={},
 ): Provider {
   switch (session.kind) {
     case 'rocketchat':
       return createRcProvider(session, client, generateId);
-    case 'rocketvibe':
+    case 'vibez':
       if (!nativeStore) throw new Error('Native provider requires its account store');
-      return createRocketVibeProvider(session,client,generateId,nativeStore,nativeOptions);
+      return createVibezProvider(session,client,generateId,nativeStore,nativeOptions);
     case 'mattermost':
     case 'kchat':
       return createMattermostProvider(session, client, generateId);

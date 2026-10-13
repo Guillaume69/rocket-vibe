@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import type {SQLiteDatabase} from 'expo-sqlite';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {NativeChat} from '../apps/mobile/providers/vibez/chat.ts';
 import {NativeError,NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
@@ -30,7 +30,7 @@ export async function threadSmoke():Promise<void>{
   const firstReply=await owner.send(room.id,{operation_id:`thread-first-${nonce}`,text:'Visible first-thread reply',reply_to:root.id});
   await owner.send(room.id,{operation_id:`thread-second-${nonce}`,text:'Other thread remains unread',reply_to:other.id});
   assert.equal((await reader.roomReadState(room.id)).unread_replies,'2');
-  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  const session={baseUrl:base,authToken:account.token,userId:account.user.id,username:account.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const dir=mkdtempSync(join(tmpdir(),'rv-thread-peer-')),filename=join(dir,'cache.sqlite');
   let h=nativeTestDatabase(filename),store=new NativeStore(h.adapter,createWriteQueue(),session);
   const chats:NativeChat[]=[];
@@ -46,7 +46,7 @@ export async function threadSmoke():Promise<void>{
     const losing=new NativeTransport(base);losing.restore(account.token);
     const attempts:SendMessage[]=[];
     losing.send=async(rid,input)=>{attempts.push(structuredClone(input));await reader.send(rid,input);throw new NativeError(503,'response_lost');};
-    const provider=createRocketVibeProvider(session,new RestClient(base),()=>`thread-send-${nonce}`,store,{transport:losing,socket});
+    const provider=createVibezProvider(session,new RestClient(base),()=>`thread-send-${nonce}`,store,{transport:losing,socket});
     const first=provider.native!.chat;chats.push(first);await first.connect();
     assert.equal(provider.capabilities.threads,true);assert.equal(provider.capabilities.threadTemplate,'root_id');
     await provider.loadThread({} as never,root.id,()=>false);
@@ -61,7 +61,7 @@ export async function threadSmoke():Promise<void>{
     assert.equal(await store.drafts().read(`${room.id}:${root.id}`),'Thread words');
     const restored=(await store.pending())[0];
     assert.deepEqual({operation_id:restored.id,text:restored.text,quotes:restored.quotes,reply_to:restored.reply_to},attempts[0]);
-    const secondProvider=createRocketVibeProvider(session,new RestClient(base),()=>`thread-fresh-${nonce}`,store,{transport:reader,socket});
+    const secondProvider=createVibezProvider(session,new RestClient(base),()=>`thread-fresh-${nonce}`,store,{transport:reader,socket});
     const second=secondProvider.native!.chat;chats.push(second);await second.connect();
     await secondProvider.loadThread({} as never,root.id,()=>false);
     const page=await reader.thread(root.id);

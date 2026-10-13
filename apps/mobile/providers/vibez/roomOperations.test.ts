@@ -9,7 +9,7 @@ import {NativeStore} from './store.ts';
 import {nativeTestDatabase} from './testDatabase.ts';
 import {roomOperation,sameRoomForm,type RoomOperation} from './roomOperations.ts';
 
-const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session:Session={baseUrl:'http://localhost:3400',authToken:'test-token',userId:'alice',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 const snapshot={protocol_version:1,rooms:[{id:'room',name:'Room',kind:'private' as const,revision:'1'}],messages:[],cursor:'initial'};
 function settings(id='original',revision='original-revision'):RoomOperation{return {kind:'settings',input:{operation_id:id,expected_revision:revision,name:'  Room  ',private:true,topic:'Private subject',description:'Description',announcement:'',read_only:false}};}
 function setup(){const harness=nativeTestDatabase();return {...harness,store:new NativeStore(harness.adapter,createWriteQueue(),session)};}

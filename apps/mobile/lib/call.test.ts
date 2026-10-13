@@ -31,7 +31,7 @@ test('Rocket.Chat availability belongs to an account client and uncertain failur
 });
 
 test('native call callbacks are fenced by provider mount and visible view, including reused clients',async()=>{
-  const client=new RestClient('https://native.example.test',{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request');}});client.kind='rocketvibe';
+  const client=new RestClient('https://native.example.test',{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request');}});client.kind='vibez';
   let release:(value:string)=>void=()=>{},entered:()=>void=()=>{},alive:()=>boolean=()=>false;
   const started=new Promise<void>(resolve=>{entered=resolve;});
   const calls:NativeCalls={available:async()=>true,memo:()=>true,start:async(room,membership,current)=>{

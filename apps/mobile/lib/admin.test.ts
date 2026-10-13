@@ -53,11 +53,11 @@ describe('versions', () => {
     assert.equal(latestFromReleases('rocketchat', null), null);
   });
 
-  test('RocketVibe: an -rc server tag is no release', () => {
-    assert.equal(latestFromReleases('rocketvibe', [{ tag_name: 'vibez-v0.4.0-rc.1' }, { tag_name: 'vibez-v0.3.0' }]), '0.3.0');
+  test('Vibez: an -rc server tag is no release', () => {
+    assert.equal(latestFromReleases('vibez', [{ tag_name: 'vibez-v0.4.0-rc.1' }, { tag_name: 'vibez-v0.3.0' }]), '0.3.0');
   });
 
-  test('RocketVibe: the highest server tag, app tags and drafts ignored', () => {
+  test('Vibez: the highest server tag, app tags and drafts ignored', () => {
     const releases = [
       { tag_name: 'mobile-v1.4.0' },
       { tag_name: 'vibez-v0.2.0' },
@@ -65,15 +65,15 @@ describe('versions', () => {
       { tag_name: 'vibez-v0.11.0', draft: true },
       { tag_name: 'desktop-v2.0.0' },
     ];
-    assert.equal(latestFromReleases('rocketvibe', releases), '0.10.0');
-    assert.equal(latestFromReleases('rocketvibe', [{ tag_name: 'mobile-v1.4.0' }]), null);
+    assert.equal(latestFromReleases('vibez', releases), '0.10.0');
+    assert.equal(latestFromReleases('vibez', [{ tag_name: 'mobile-v1.4.0' }]), null);
   });
 
   test('a failed fetch is unknown, never an error', async () => {
     assert.equal(await fetchLatestVersion('rocketchat', async () => { throw new Error('offline'); }), null);
     assert.equal(await fetchLatestVersion('rocketchat', async () => ({ ok: false, json: async () => ({}) })), null);
     const urls: string[] = [];
-    const latest = await fetchLatestVersion('rocketvibe', async (url) => {
+    const latest = await fetchLatestVersion('vibez', async (url) => {
       urls.push(url);
       return { ok: true, json: async () => [{ tag_name: 'vibez-v1.2.3' }] };
     });

@@ -5,7 +5,7 @@ import {randomBytes} from 'node:crypto';
 import {NativeTransport} from '../apps/mobile/providers/vibez/transport.ts';
 import {NativeStore} from '../apps/mobile/providers/vibez/store.ts';
 import {nativeTestDatabase} from '../apps/mobile/providers/vibez/testDatabase.ts';
-import {createRocketVibeProvider} from '../apps/mobile/providers/vibez/index.ts';
+import {createVibezProvider} from '../apps/mobile/providers/vibez/index.ts';
 import {createWriteQueue} from '../apps/mobile/db/writeQueue.ts';
 import {RestClient} from '../apps/mobile/lib/rest.ts';
 import {mountProviderProfiles} from '../apps/mobile/lib/providerProfiles.ts';
@@ -34,12 +34,12 @@ await owner.updateProfile({operation_id:id(),expected_revision:own.profile.revis
 own=await owner.ownProfile();
 await owner.setAvatar({operation_id:id(),expected_revision:own.profile.revision},{mime:'image/png',bytes:png});
 own=await owner.ownProfile();assert(own.profile.avatar_file_id);
-const account={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,kind:'rocketvibe' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+const account={baseUrl:base,authToken:b.token,userId:b.user.id,username:b.user.username,kind:'vibez' as const,siteUrl:null,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 const database=nativeTestDatabase(),store=new NativeStore(database.adapter,createWriteQueue(),account);
-const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request');}});client.kind='rocketvibe';
-const provider=createRocketVibeProvider(account,client,id,store,{transport:reader});
+const client=new RestClient(base,{fetch:async()=>{throw new Error('Unexpected Rocket.Chat request');}});client.kind='vibez';
+const provider=createVibezProvider(account,client,id,store,{transport:reader});
 const chat=provider.native!.chat,unmount=mountProviderProfiles(client,provider);
-let resumed:ReturnType<typeof createRocketVibeProvider>|null=null;
+let resumed:ReturnType<typeof createVibezProvider>|null=null;
 async function until(check:()=>boolean|Promise<boolean>){const deadline=Date.now()+20_000;while(!await check()){assert(Date.now()<deadline,'Profile provider timed out');await new Promise(r=>setTimeout(r,40));}}
 try{
   await chat.connect();
@@ -74,7 +74,7 @@ try{
   chat.stop();const saved=await store.profileOperations.get('profile');assert(saved);
   const committed=await reader.ownProfile();assert.equal(committed.profile.bio,'Saved before connection loss');
   await reader.updateProfile({operation_id:id(),expected_revision:committed.profile.revision,username:b.user.username,display_name:'More recent name',bio:'Newer remote bio',status:'away',status_text:'Other device'});
-  resumed=createRocketVibeProvider(account,client,id,store,{transport:reader});const fresh=resumed.native!.chat;await fresh.connect();
+  resumed=createVibezProvider(account,client,id,store,{transport:reader});const fresh=resumed.native!.chat;await fresh.connect();
   await until(async()=>await store.profileOperations.get('profile')===null);
   assert.equal(profileWrites[profileWrites.length-1],profileWrites[0]);
   assert.equal((await fresh.ownProfile()).profile.bio,'Newer remote bio','Replay must not undo a later update');

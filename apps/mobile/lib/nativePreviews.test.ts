@@ -8,7 +8,7 @@ import {subscribeNativePreview,loadNativePreview,exportNativePreview,mountNative
 const file='a'.repeat(64),png:Uint8Array=new Uint8Array([137,80,78,71]);
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return{promise,resolve};}
 function setup(){
-  const client=new RestClient('https://native.example');client.kind='rocketvibe';
+  const client=new RestClient('https://native.example');client.kind='vibez';
   let version=0,scope='same-membership',allowed=true,calls=0;
   const listeners=new Set<()=>void>();
   const access=(key:string):PreviewAccess=>({message:key.split('/')[0],room:'room',image:{file_id:key.split('/')[1],sha256:'b'.repeat(64),bytes:'4',width:1,height:1,media_type:'image/png'},scope});

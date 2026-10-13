@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {nativePushMatches,nativePushScope,nativePushServerUrl} from './nativePushNavigation.ts';
 import {roomNotificationId} from './notificationId.ts';
 import type {Session} from './auth.ts';
-const session:Session={baseUrl:'https://chat.example.org/native',authToken:'private-bearer',userId:'alice',username:'alice',kind:'rocketvibe',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
+const session:Session={baseUrl:'https://chat.example.org/native',authToken:'private-bearer',userId:'alice',username:'alice',kind:'vibez',siteUrl:null,nativeInstanceId:'instance',nativeDataEpoch:'epoch'};
 test('notification navigation binds the original account, instance and restore epoch',()=>{
   const scope=nativePushScope(JSON.stringify({instanceId:'instance',dataEpoch:'epoch',userId:'alice'}))!;
   assert(nativePushMatches(scope,session));

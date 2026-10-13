@@ -29,7 +29,7 @@ async function main(){
   };
   const transport=new NativeTransport(base,fetcher);transport.restore(token);
   const discovery=await transport.discover(),user=await transport.me();
-  const active:Session={baseUrl:base,authToken:token,userId:user.id,username:user.username,siteUrl:null,kind:'rocketvibe',
+  const active:Session={baseUrl:base,authToken:token,userId:user.id,username:user.username,siteUrl:null,kind:'vibez',
     nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
   const values=new Map<string,string>();
   const deps={hash:async(value:string)=>createHash('sha256').update(value).digest('hex'),token:async()=>randomBytes(32).toString('hex'),

@@ -73,7 +73,7 @@ const discovery = await alice.discover();
 const aliceLogin = await alice.login('alice',password);
 const bobLogin = await bob.login('bob',password);
 function appSession(login: typeof aliceLogin): AppSession {
-  return {baseUrl:base!,kind:'rocketvibe',siteUrl:null,userId:login.user.id,username:login.user.username,authToken:login.token,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
+  return {baseUrl:base!,kind:'vibez',siteUrl:null,userId:login.user.id,username:login.user.username,authToken:login.token,nativeInstanceId:discovery.instance_id,nativeDataEpoch:discovery.data_epoch};
 }
 async function until(check: () => Promise<boolean>) {
   const deadline = Date.now() + 7000;

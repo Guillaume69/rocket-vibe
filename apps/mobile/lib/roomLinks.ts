@@ -38,7 +38,7 @@ export function parseRoomLink(value:unknown):RoomLink|null {
   } catch {return null;}
 }
 export function roomLinkMatches(link:RoomLink,session:Session):boolean {
-  return (link.instanceId!==null?session.kind==='rocketvibe'&&link.instanceId===session.nativeInstanceId&&link.dataEpoch===session.nativeDataEpoch:session.kind!=='rocketvibe')
+  return (link.instanceId!==null?session.kind==='vibez'&&link.instanceId===session.nativeInstanceId&&link.dataEpoch===session.nativeDataEpoch:session.kind!=='vibez')
     && (link.host===null||link.host===serviceUrl(session.baseUrl)) && (link.userId===null||link.userId===session.userId);
 }
 export function roomLinkUrl(link:RoomLink):string {
@@ -47,7 +47,7 @@ export function roomLinkUrl(link:RoomLink):string {
   return url.toString();
 }
 export function nativeRoomPermalink(session:Session,rid:string,message:string|null=null,root:string|null=null):string|null {
-  if(session.kind!=='rocketvibe'||!id(rid)||[message,root].some(v=>v!==null&&!id(v)))return null;
+  if(session.kind!=='vibez'||!id(rid)||[message,root].some(v=>v!==null&&!id(v)))return null;
   const host=serviceUrl(session.baseUrl);
   if(!host||!session.nativeInstanceId||!session.nativeDataEpoch)return null;
   const url=new URL(`rocketvibe://room/${rid}`);

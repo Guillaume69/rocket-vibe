@@ -10,6 +10,7 @@ section here.
 ### Fixed
 
 - On Linux, numbers no longer turn into widely spaced grey digits after a font is installed or updated while the app runs: the app's fonts are registered again when fontconfig reloads.
+- After someone stopped sharing their screen with its sound in a call on a RocketVibe server, the others heard their voice twice: ending the share's sound made the app publish their microphone a second time.
 
 ## [0.19.3] - 2026-10-13
 

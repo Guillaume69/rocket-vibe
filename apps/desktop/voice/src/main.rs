@@ -511,6 +511,10 @@ impl Voice {
         if room.local_participant().permission().is_some_and(|p| !p.can_publish) {
             return;
         }
+        // One microphone track: a second one would carry the same voice again.
+        if self.track.is_some() {
+            return;
+        }
         let Some(audio) = &self.audio else { return };
         let track = LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(audio.source.clone()));
         let options =
@@ -632,10 +636,17 @@ impl Voice {
                 }
             }
             // Taken out by the SFU: someone else's share replaced this one.
+            // Only the microphone track itself is forgotten: the screen's sound
+            // unpublished at the end of a share once took the microphone with it,
+            // and the next permission change published a second one (the sharer
+            // heard twice).
             RoomEvent::LocalTrackUnpublished { publication, .. } => match publication.source() {
                 TrackSource::Screenshare => self.lost(Source::Screen, &publication.sid()),
                 TrackSource::Camera => self.lost(Source::Camera, &publication.sid()),
-                _ => self.track = None,
+                TrackSource::Microphone if self.track.as_ref().is_some_and(|t| t.sid() == publication.sid()) => {
+                    self.track = None
+                }
+                _ => {}
             },
             RoomEvent::ParticipantPermissionChanged { participant: Participant::Local(_), permission } => {
                 // The screen source revoked (another share took over): stop

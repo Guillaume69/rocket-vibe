@@ -31,13 +31,7 @@ pub fn open(
     activity: Merged<SessionInfo>,
     go: impl Fn(Target) + 'static,
 ) -> adw::Dialog {
-    let Merged { rooms, items } = activity;
-    let accounts: std::collections::HashSet<String> = rooms
-        .iter()
-        .map(|(info, _)| rv_core::supervisor::key(info))
-        .chain(items.iter().map(|(info, _)| rv_core::supervisor::key(info)))
-        .collect();
-    let several = accounts.len() > 1;
+    let Merged { rooms, items, several } = activity;
     let content =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(8).css_classes(["details"]).build();
     let view = adw::ToolbarView::new();

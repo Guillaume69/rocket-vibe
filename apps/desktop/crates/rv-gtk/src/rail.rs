@@ -74,9 +74,21 @@ fn now_ms() -> i64 {
     glib::real_time() / 1000
 }
 
+thread_local! {
+    /// The mutes as `mutes` last read them: notifications, rings and the badge
+    /// ask here, not the file, and compare a timed mute's end with the clock
+    /// (a computer that slept past it is no longer muted).
+    static MUTES: RefCell<HashMap<String, rv_core::account_mute::Mute>> = RefCell::default();
+}
+
 /// The account's mute now (`rv_core::account_mute`), shared with the SwiftUI app.
 pub fn mute_of(info: &SessionInfo) -> Option<rv_core::account_mute::Mute> {
-    rv_core::account_mute::muted(&config_dir(), &account_key(info), now_ms())
+    use rv_core::account_mute::Mute;
+    let mute = MUTES.with_borrow(|mutes| mutes.get(&account_key(info)).copied())?;
+    match mute {
+        Mute::Until(end) if end <= now_ms() => None,
+        _ => Some(mute),
+    }
 }
 
 /// Whether the account is muted now: no notification, sound or ring.
@@ -84,7 +96,8 @@ pub fn is_muted(info: &SessionInfo) -> bool {
     mute_of(info).is_some()
 }
 
-/// Mutes the account until `until` (ms), or until unmuted with None.
+/// Mutes the account until `until` (ms), or until unmuted with None; `mutes`
+/// reads it back.
 pub fn mute(info: &SessionInfo, until: Option<i64>) {
     rv_core::account_mute::mute(&config_dir(), &account_key(info), until);
 }
@@ -93,11 +106,21 @@ pub fn unmute(info: &SessionInfo) {
     rv_core::account_mute::unmute(&config_dir(), &account_key(info));
 }
 
-/// The muted accounts' keys now, and the earliest end of a timed mute.
+/// Reads the mutes (the SwiftUI app may have changed them): the muted
+/// accounts' keys now, and the earliest end of a timed mute.
 pub fn mutes() -> (std::collections::HashSet<String>, Option<i64>) {
-    let now = now_ms();
-    let keys = rv_core::account_mute::active(&config_dir(), now).into_keys().collect();
-    (keys, rv_core::account_mute::next_end(&config_dir(), now))
+    use rv_core::account_mute::Mute;
+    let active = rv_core::account_mute::active(&config_dir(), now_ms());
+    let next = active
+        .values()
+        .filter_map(|mute| match mute {
+            Mute::Until(end) => Some(*end),
+            Mute::Forever => None,
+        })
+        .min();
+    let keys = active.keys().cloned().collect();
+    MUTES.replace(active);
+    (keys, next)
 }
 
 /// The digit a Ctrl + key press means, whatever the layout: the key's own
@@ -116,7 +139,10 @@ pub fn shortcut_digit(
         return None;
     }
     let digit = |key: gtk::gdk::Key| key.to_unicode().and_then(|c| c.to_digit(10));
+    // Only a symbol key falls back to its shifted digit (AZERTY's `&`): a
+    // keypad key without NumLock (`KP_End`, `KP_Left`) moves the cursor.
     digit(key).or_else(|| {
+        key.to_unicode()?;
         display
             .map_keycode(code)
             .unwrap_or_default()
@@ -513,6 +539,14 @@ mod tests {
         assert_eq!(digit(Key::_7, M::CONTROL_MASK | M::SHIFT_MASK), None, "the composer's list shortcut");
         assert_eq!(digit(Key::_1, M::CONTROL_MASK | M::ALT_MASK), None);
         assert_eq!(digit(Key::k, M::CONTROL_MASK), None, "the room switcher");
+        // The keypad's 1 without NumLock is End: its key's shifted level is
+        // KP_1, which must not count (Ctrl+End moves the cursor). Xvfb's US
+        // layout has no AZERTY row, so the symbol fallback itself is not run here.
+        for moving in [Key::KP_End, Key::KP_Left] {
+            let code = display.map_keyval(moving).and_then(|k| k.first().map(|k| k.keycode()));
+            let code = code.expect("the layout has a keypad");
+            assert_eq!(shortcut_digit(&display, moving, code, M::CONTROL_MASK), None, "{moving:?}");
+        }
     }
 
     #[test]

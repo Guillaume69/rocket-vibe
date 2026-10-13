@@ -82,6 +82,8 @@ pub struct AppWindow {
     background_ring: RefCell<Option<BackgroundRing>>,
     /// Shows the accounts again when the earliest timed mute ends.
     mute_timer: RefCell<Option<glib::SourceId>>,
+    /// The accounts being signed out from the rail (`logout_account`).
+    leaving: RefCell<std::collections::HashSet<String>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -271,6 +273,7 @@ impl AppWindow {
             accounts,
             background_ring: RefCell::default(),
             mute_timer: RefCell::default(),
+            leaving: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
@@ -355,6 +358,9 @@ impl AppWindow {
             this.chat.whatsapp_presence();
             if window.is_active() {
                 this.chat.window_activated();
+                // Mutes ended while the computer slept (the timer counts awake
+                // time), or changed by the SwiftUI app: the rail follows.
+                this.apply_mutes();
             }
         });
         let weak = Rc::downgrade(&this);
@@ -565,19 +571,27 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         keys.connect_key_pressed(move |controller, key, code, state| {
             let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            if this.stack.visible_child_name().as_deref() != Some("chat") || this.window.visible_dialog().is_some() {
+                return glib::Propagation::Proceed;
+            }
+            // Ctrl+Shift+A, the Activity view: here, before a text field
+            // takes it for "unselect all".
+            use gtk::gdk::ModifierType as M;
+            let modifiers = state & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK | M::META_MASK);
+            if modifiers == M::CONTROL_MASK | M::SHIFT_MASK && key.to_lower() == gtk::gdk::Key::a {
+                this.open_activity();
+                return glib::Propagation::Stop;
+            }
             let slot = controller
                 .widget()
                 .and_then(|w| crate::rail::shortcut_digit(&w.display(), key, code, state))
                 .and_then(rv_core::server_rail::shortcut_slot);
             match slot {
-                Some(slot)
-                    if this.stack.visible_child_name().as_deref() == Some("chat")
-                        && this.window.visible_dialog().is_none() =>
-                {
+                Some(slot) => {
                     this.rail.open_slot(slot);
                     glib::Propagation::Stop
                 }
-                _ => glib::Propagation::Proceed,
+                None => glib::Propagation::Proceed,
             }
         });
         this.window.add_controller(keys);
@@ -1444,67 +1458,98 @@ impl AppWindow {
 
     /// Signs an account out from the rail. The open one goes the way the
     /// account menu's sign-out does; another one is told to its server, then
-    /// stops and leaves the keyring with its stored messages. A WhatsApp or
-    /// RocketVibe refusal keeps it and says so.
+    /// stops and leaves the keyring with its stored messages and files. A
+    /// WhatsApp or RocketVibe refusal keeps it and says so. While it runs the
+    /// account cannot be opened (`leaving`): its session goes at the end.
     fn logout_account(self: &Rc<Self>, info: SessionInfo) {
         let key = supervisor::key(&info);
         if self.open_account().is_some_and(|open| supervisor::key(&open) == key) {
             self.logout();
             return;
         }
+        crate::rail::unmute(&info);
+        self.apply_mutes();
+        if !self.leaving.borrow_mut().insert(key.clone()) {
+            return;
+        }
+        self.end_background_ring_of(&key);
         let this = self.clone();
         glib::spawn_future_local(async move {
-            match this.accounts.chat(&key) {
-                Some(Chat::WhatsApp(session)) => {
-                    let s = session.clone();
-                    if on_tokio(async move { s.unlink().await }).await.is_err() {
-                        this.chat.toast(t("wa.logout_failed").to_owned());
-                        return;
-                    }
-                    this.accounts.remove(&key);
-                    session.shutdown();
-                }
-                Some(Chat::Native(session)) => {
-                    let s = session.clone();
-                    if let Err(error) = on_tokio(async move { s.logout().await }).await
-                        && !matches!(error.code(), "session_rejected" | "server_identity_changed")
-                    {
-                        this.chat.toast(t("rail.logout_failed").to_owned());
-                        return;
-                    }
-                    this.accounts.remove(&key);
-                    session.shutdown();
-                    let _ = session.store.clear();
-                }
-                Some(Chat::Legacy(session)) => {
-                    let (s, i) = (session.clone(), info.clone());
-                    on_tokio(async move {
-                        if !s.logout().await {
-                            secrets::keep_logout(&i).await;
-                        }
-                    })
-                    .await;
-                    this.accounts.remove(&key);
-                    session.shutdown();
-                    session.store.close();
-                    rv_core::store::Store::remove_files(&database_path(&info));
-                }
-                None => {}
+            let kept = this.forget_account(&key, &info).await;
+            this.leaving.borrow_mut().remove(&key);
+            if kept {
+                return;
             }
-            this.rail.forget_unread(&key);
-            crate::badge::set_account(&key, None);
-            crate::reminders::forget(&info);
-            crate::rail::unmute(&info);
-            on_tokio(async move {
-                secrets::remove(&info).await;
-                if rv_core::whatsapp::is_whatsapp(&info) {
-                    secrets::forget_whatsapp(&info).await;
-                }
-            })
-            .await;
             this.apply_mutes();
             this.refresh_rail();
         });
+    }
+
+    /// `logout_account`'s work for an account not open; true when its server
+    /// refused and it stays.
+    async fn forget_account(&self, key: &str, info: &SessionInfo) -> bool {
+        match self.accounts.chat(key) {
+            Some(Chat::WhatsApp(session)) => {
+                let s = session.clone();
+                if on_tokio(async move { s.unlink().await }).await.is_err() {
+                    self.chat.toast(t("wa.logout_failed").to_owned());
+                    return true;
+                }
+                self.accounts.remove(key);
+                session.shutdown();
+            }
+            Some(Chat::Native(session)) => {
+                let s = session.clone();
+                if let Err(error) = on_tokio(async move { s.logout().await }).await
+                    && !matches!(error.code(), "session_rejected" | "server_identity_changed")
+                {
+                    self.chat.toast(t("rail.logout_failed").to_owned());
+                    return true;
+                }
+                self.accounts.remove(key);
+                session.shutdown();
+                let _ = session.store.clear();
+            }
+            Some(Chat::Legacy(session)) => {
+                let (s, i) = (session.clone(), info.clone());
+                on_tokio(async move {
+                    if !s.logout().await {
+                        secrets::keep_logout(&i).await;
+                    }
+                })
+                .await;
+                self.accounts.remove(key);
+                session.shutdown();
+                // As `stop_session`: the files it downloaded (decrypted ones
+                // included), then the store itself, released first for Windows.
+                crate::cards::clear_file_cache(&session);
+                session.store.close();
+                rv_core::store::Store::remove_files(&database_path(info));
+            }
+            // Not running (expired, or never started): nothing to tell its
+            // server now, but a Rocket.Chat or Mattermost token is revoked at
+            // the next start (`keep_logout`), and its stored messages go.
+            None if rv_core::whatsapp::is_whatsapp(info) => {}
+            None => {
+                if info.native.is_none() {
+                    let i = info.clone();
+                    on_tokio(async move { secrets::keep_logout(&i).await }).await;
+                }
+                rv_core::store::Store::remove_files(&database_path(info));
+            }
+        }
+        self.rail.forget_unread(key);
+        crate::badge::set_account(key, None);
+        crate::reminders::forget(info);
+        let info = info.clone();
+        on_tokio(async move {
+            secrets::remove(&info).await;
+            if rv_core::whatsapp::is_whatsapp(&info) {
+                secrets::forget_whatsapp(&info).await;
+            }
+        })
+        .await;
+        false
     }
 
     /// The Activity view of every running account (`activity_view`), read
@@ -1732,7 +1777,8 @@ impl AppWindow {
         self.chat.call_ring(&session, call.as_ref());
         let Some(notifier) = self.notifier.borrow().clone() else { return };
         match call {
-            Some(call) if !self.window.is_active() => {
+            // A muted account's call shows in the window only, silently.
+            Some(call) if !self.window.is_active() && !crate::rail::is_muted(&session.info) => {
                 let room = session.store.rooms().into_iter().find(|r| r.rid == call.rid).map(|r| r.name);
                 let caller = call.caller_name.or(room).unwrap_or_default();
                 notifier.show_call(&call.rid, &call.message_id, &caller);
@@ -1826,6 +1872,11 @@ impl AppWindow {
     fn logout(self: &Rc<Self>) {
         self.cancel_navigation();
         self.pending_link.take();
+        // A mute does not outlive the account: signing in again starts unmuted.
+        if let Some(info) = self.open_account() {
+            crate::rail::unmute(&info);
+            self.apply_mutes();
+        }
         // WhatsApp: the phone forgets this device first; a failure keeps the account.
         if let Some(session) = self.chat.whatsapp_session() {
             if self.unlinking.replace(true) {
@@ -2221,6 +2272,10 @@ impl AppWindow {
     }
 
     fn switch_to_for_link(self: &Rc<Self>, info: SessionInfo) {
+        // Being signed out from the rail: opening it now would lose it under the user.
+        if self.leaving.borrow().contains(&supervisor::key(&info)) {
+            return;
+        }
         secrets::set_active(&info);
         self.previous.replace(None);
         self.start_session(info);

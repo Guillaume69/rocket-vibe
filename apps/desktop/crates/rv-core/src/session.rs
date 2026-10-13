@@ -2150,7 +2150,10 @@ impl Session {
         };
         let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.sync.ingest_room(&room);
-        self.sync.catch_up_global().await?;
+        // The room exists once the server answered: a failed catch-up must not
+        // call it a failure (a retry would say the name is taken). The stream
+        // and the next catch-up bring its subscription.
+        let _ = self.sync.catch_up_global().await;
         Ok(rid)
     }
 

@@ -246,6 +246,8 @@ public final class AppModel {
         if !watchingAccounts {
             watchingAccounts = true
             client.watchAccounts(listener: AccountRelay { [weak self] in self?.handleAccount($0) })
+            // Here rather than in the rail, which a hidden rail never draws.
+            refreshMutes()
         }
         await client.keepAccountsConnected()
     }
@@ -255,22 +257,29 @@ public final class AppModel {
     public private(set) var mutedAccounts: Set<String> = []
     @ObservationIgnored private var muteEnd: Task<Void, Never>?
 
-    /// Reads the mutes again, and again when the earliest timed one ends.
+    /// Reads the mutes again (GTK may have changed them), and again when the
+    /// earliest timed one ends: a day at most apart, so a damaged end
+    /// far in the future never overflows the wait.
     public func refreshMutes() {
         mutedAccounts = Set(client.mutedAccounts())
         showAttention()
         muteEnd?.cancel()
         guard let end = client.nextMuteEnd() else { return }
-        let wait = max(0, end - Int64(Date().timeIntervalSince1970 * 1000)) + 500
+        let left = end - Int64(Date().timeIntervalSince1970 * 1000)
+        let wait = UInt64(min(max(0, left), 86_400_000) + 500)
         muteEnd = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000)
+            try? await Task.sleep(nanoseconds: wait * 1_000_000)
             guard !Task.isCancelled else { return }
             self?.refreshMutes()
         }
     }
 
-    /// Whether the account is muted now (an ended mute no longer counts).
-    public func isMuted(_ key: String) -> Bool { client.accountMute(account: key) != nil }
+    /// Whether the account is muted now, from the set `refreshMutes` keeps
+    /// (no file read per event).
+    public func isMuted(_ key: String) -> Bool { mutedAccounts.contains(key) }
+
+    /// Accounts being signed out from the rail: not opened meanwhile.
+    @ObservationIgnored private var leaving: Set<String> = []
 
     public func mute(_ target: Account, _ choice: MuteChoice) {
         client.muteAccount(account: target.key, choice: choice)
@@ -287,13 +296,16 @@ public final class AppModel {
     public func signOut(_ target: Account) async {
         if target.key == account?.key {
             await signOut()
-        } else {
-            do { try await client.signOutAccount(account: target.key) }
-            catch { notice = L("rail.logout_failed"); return }
-            unreadAccounts.remove(target.key)
-            accountAttention[target.key] = nil
-            accounts = await client.accounts()
+            return
         }
+        guard leaving.insert(target.key).inserted else { return }
+        defer { leaving.remove(target.key) }
+        if backgroundCall?.account == target.key { endBackgroundCall() }
+        do { try await client.signOutAccount(account: target.key) }
+        catch { notice = L("rail.logout_failed"); return }
+        unreadAccounts.remove(target.key)
+        accountAttention[target.key] = nil
+        accounts = await client.accounts()
         refreshMutes()
     }
 
@@ -385,7 +397,7 @@ public final class AppModel {
 
     /// From the server rail: the account opens, unless it is the open one.
     public func switchAccount(_ target: Account) async {
-        guard target.key != account?.key else { return }
+        guard target.key != account?.key, !leaving.contains(target.key) else { return }
         await resume(target)
     }
 
@@ -478,6 +490,11 @@ public final class AppModel {
         guard let provider else { return }
         cancelNotificationNavigation()
         pendingRoomLink = nil
+        // A mute does not outlive the account: signing in again starts unmuted.
+        if let key = account?.key {
+            client.unmuteAccount(account: key)
+            refreshMutes()
+        }
         let expected = sessionId
         do { try await provider.signOut() }
         catch { notice = error.localizedDescription; return }

@@ -976,14 +976,8 @@ impl ChatPage {
             glib::Propagation::Stop
         });
         keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>f"), Some(search)));
-        let w = weak.clone();
-        let activity = gtk::CallbackAction::new(move |_, _| {
-            if let Some(this) = w.upgrade() {
-                this.request_activity();
-            }
-            glib::Propagation::Stop
-        });
-        keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>a"), Some(activity)));
+        // Ctrl+Shift+A (the Activity view) is the window's (`AppWindow::new`):
+        // a text field here would take it for "unselect all" first.
         for (trigger, back) in [("<Alt>Left", true), ("<Alt>Right", false)] {
             let w = weak.clone();
             let action = gtk::CallbackAction::new(move |_, _| {

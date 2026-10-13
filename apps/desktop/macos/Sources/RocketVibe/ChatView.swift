@@ -270,7 +270,10 @@ struct RoomListView: View {
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .searchFocused($searchFocused)
         .task(id: query) { await search() }
-        .task(id: app.account?.key) { query = ""; found = []; creating = false }
+        // Another account (Cmd + digit under a sheet): this one's sheets go.
+        .task(id: app.account?.key) {
+            query = ""; found = []; creating = false; searchingMessages = false; showingActivity = false
+        }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
         .modalOverlay(isPresented: $searchingMessages, style: .sheet(width: 520, height: 640)) { LocalSearchSheet() }
         .modalOverlay(isPresented: $showingActivity, style: .sheet(width: 520, height: 640)) { ActivitySheet() }

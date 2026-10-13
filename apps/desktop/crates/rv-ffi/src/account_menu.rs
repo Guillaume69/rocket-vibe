@@ -35,16 +35,22 @@ pub enum AccountMute {
     Forever,
 }
 
-/// The menu's choices, in order.
+impl From<MuteFor> for MuteChoice {
+    fn from(choice: MuteFor) -> Self {
+        match choice {
+            MuteFor::OneHour => MuteChoice::OneHour,
+            MuteFor::FourHours => MuteChoice::FourHours,
+            MuteFor::UntilTomorrow => MuteChoice::UntilTomorrow,
+            MuteFor::OneWeek => MuteChoice::OneWeek,
+            MuteFor::UntilUnmuted => MuteChoice::UntilUnmuted,
+        }
+    }
+}
+
+/// The menu's choices, in the core's order.
 #[uniffi::export]
 pub fn mute_choices() -> Vec<MuteChoice> {
-    vec![
-        MuteChoice::OneHour,
-        MuteChoice::FourHours,
-        MuteChoice::UntilTomorrow,
-        MuteChoice::OneWeek,
-        MuteChoice::UntilUnmuted,
-    ]
+    MuteFor::ALL.into_iter().map(MuteChoice::from).collect()
 }
 
 /// A choice's catalog key, for `L`.
@@ -92,7 +98,24 @@ impl Client {
     /// refusal keeps it. The open account signs out through its own chat.
     pub async fn sign_out_account(&self, account: String) -> Result<(), RvError> {
         let Some(chat) = self.accounts.chat(&account) else {
-            return Err(RvError::local("unknown account"));
+            // Not running (expired, or never started): nothing to tell its
+            // server now, but a Rocket.Chat or Mattermost token is revoked at
+            // the next start (`keep_logout`), and its data goes.
+            let dirs = self.dirs.clone();
+            let key = account.clone();
+            let found = blocking(move || {
+                let info = accounts::load_all(&dirs).into_iter().find(|info| accounts::key(info) == key)?;
+                if info.native.is_none() {
+                    accounts::keep_logout(&dirs, &info);
+                }
+                rv_core::store::Store::remove_files(&dirs.database(&info));
+                accounts::remove(&dirs, &info);
+                Some(())
+            })
+            .await;
+            found.ok_or_else(|| RvError::local("unknown account"))?;
+            account_mute::unmute(&self.dirs.config, &account);
+            return Ok(());
         };
         let info = chat.info().clone();
         match chat {
@@ -122,7 +145,9 @@ impl Client {
                 }
                 self.accounts.remove(&account);
                 session.shutdown();
-                session.store.clear().map_err(RvError::local)?;
+                // Signed out on the server already: a cache that fails to
+                // clear must not keep the account (GTK ignores it the same way).
+                let _ = session.store.clear();
                 let (dirs, info) = (self.dirs.clone(), info.clone());
                 blocking(move || accounts::remove(&dirs, &info)).await;
             }

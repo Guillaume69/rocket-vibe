@@ -1964,7 +1964,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("activity.mention", "Vous a mentionné", "Mentioned you"),
     ("activity.reply", "A répondu dans un fil", "Replied in a thread"),
-    ("activity.reaction", "{names} a réagi {emojis}", "{names} reacted {emojis}"),
+    ("activity.reaction", "Réactions de {names} : {emojis}", "{names} reacted {emojis}"),
     ("activity.recent", "Récent", "Recent"),
     (
         "activity.empty",

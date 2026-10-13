@@ -101,8 +101,17 @@ pub fn muted(config: &Path, key: &str, now: i64) -> Option<Mute> {
     active(config, now).get(key).copied()
 }
 
+/// Whether a key fits one line of the file: a server chooses the user id in
+/// it, and a line break there would write a mute for another account.
+fn fits(key: &str) -> bool {
+    !key.is_empty() && !key.contains(['\n', '\r', '\t'])
+}
+
 /// Mutes the account until `until` (ms), or until unmuted with None.
 pub fn mute(config: &Path, key: &str, until: Option<i64>) {
+    if !fits(key) {
+        return;
+    }
     let mut mutes = read(config);
     mutes.insert(key.to_owned(), until.map_or(Mute::Forever, Mute::Until));
     write(config, &mutes);
@@ -165,6 +174,19 @@ mod tests {
         assert_eq!(next_end(&config, 1_000), None);
         unmute(&config, "https://b|u2");
         assert!(active(&config, 0).is_empty());
+        let _ = std::fs::remove_dir_all(config);
+    }
+
+    #[test]
+    fn a_key_never_writes_another_line() {
+        let config = dir("inject");
+        mute(&config, "https://evil|x\nhttps://other|u9", None);
+        mute(&config, "https://evil|x\tforever", None);
+        assert!(active(&config, 0).is_empty());
+        assert_eq!(muted(&config, "https://other|u9", 0), None);
+        // A file damaged by hand: unreadable lines are skipped, the rest holds.
+        std::fs::write(config.join(FILE), "garbage\nhttps://a|u1\tnot-a-number\nhttps://b|u2\tforever").unwrap();
+        assert_eq!(active(&config, 0).into_keys().collect::<Vec<_>>(), ["https://b|u2"]);
         let _ = std::fs::remove_dir_all(config);
     }
 }

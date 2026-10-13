@@ -44,6 +44,11 @@ pub fn mentions(md: Option<&str>, text: Option<&str>, me: &str) -> bool {
     if let Some(md) = md.and_then(|m| serde_json::from_str::<Value>(m).ok()) {
         return mentions_in(&md, &names);
     }
+    names_in_text(text, &names)
+}
+
+/// A word `@<name>` in the text, for one of `names` (split on whitespace and `,;:!?`).
+pub fn names_in_text(text: Option<&str>, names: &[&str]) -> bool {
     let text = text.unwrap_or_default();
     names
         .iter()

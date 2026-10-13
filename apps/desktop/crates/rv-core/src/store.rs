@@ -725,10 +725,12 @@ impl Store {
 
     /// What the Activity view sorts (`activity::gather`), oldest first, the
     /// newest `limit`: others' messages that may mention me (an `@` in their
-    /// words) or that reply in a thread, and mine that carry reactions.
+    /// words), reply in a thread, or are encrypted (stored without words, the
+    /// session opens them), and mine that carry reactions.
     pub fn activity_candidates(&self, me: &str, limit: i64) -> Vec<MessageRow> {
         self.message_rows(
-            "(m.author_id IS NOT ?1 AND m.text IS NOT NULL AND (m.text LIKE '%@%' OR m.thread_id IS NOT NULL))
+            "(m.author_id IS NOT ?1 AND (m.system_type IS NULL OR m.system_type = 'e2e')
+               AND (m.thread_id IS NOT NULL OR m.text LIKE '%@%' OR (m.system_type = 'e2e' AND m.text IS NULL)))
              OR (m.author_id = ?1 AND m.reactions IS NOT NULL AND m.reactions NOT IN ('', '{}'))",
             me,
             limit,
@@ -1919,6 +1921,17 @@ mod tests {
                 ..said("liked", "c1", 8, "me", "shipped")
             });
             w.upsert_message(&said("c3-mention", "c3", 9, "bob", "@all hello"));
+            // A thread I only follow (Rocket.Chat's `replies`), answered with a file alone.
+            w.upsert_message(&Message {
+                thread_followers: Some("carol,me".into()),
+                ..said("watched", "c1", 10, "carol", "a topic I follow")
+            });
+            w.upsert_message(&Message {
+                thread_id: Some("watched".into()),
+                text: None,
+                attachments: Some("[]".into()),
+                ..said("file-reply", "c1", 11, "dan", "")
+            });
         });
         let me = crate::activity::Me { id: "me", username: "me" };
         let rows = store.activity_candidates(me.id, crate::activity::CANDIDATES);
@@ -1928,7 +1941,14 @@ mod tests {
         use crate::activity::Kind::*;
         assert_eq!(
             items,
-            [("c3-mention", Mention), ("liked", Reaction), ("followed", Reply), ("answer", Reply), ("hello", Mention)]
+            [
+                ("file-reply", Reply),
+                ("c3-mention", Mention),
+                ("liked", Reaction),
+                ("followed", Reply),
+                ("answer", Reply),
+                ("hello", Mention)
+            ]
         );
         assert_eq!(activity.rooms.iter().map(|r| (r.rid.as_str(), r.count)).collect::<Vec<_>>(), [("c2", 2)]);
         drop(store);

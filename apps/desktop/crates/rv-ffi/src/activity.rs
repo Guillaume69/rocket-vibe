@@ -59,16 +59,8 @@ impl Client {
     pub async fn activity(&self) -> ActivityView {
         let accounts = self.accounts.clone();
         let merged = blocking(move || accounts.activity()).await;
-        let mut keys: Vec<String> = merged
-            .rooms
-            .iter()
-            .map(|(info, _)| supervisor::key(info))
-            .chain(merged.items.iter().map(|(info, _)| supervisor::key(info)))
-            .collect();
-        keys.sort();
-        keys.dedup();
         ActivityView {
-            several: keys.len() > 1,
+            several: merged.several,
             rooms: merged
                 .rooms
                 .into_iter()

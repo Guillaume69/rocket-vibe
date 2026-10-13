@@ -123,7 +123,7 @@ public final class LoginModel {
             if asked == address, expected == probeRevision { probeLine = nil }
         } catch let RvError.Server(_, _, errorCode, _, _, _) {
             guard asked == address, expected == probeRevision else { return }
-            probeLine = L(errorCode == "not_native" ? "login.not_rocketvibe" : "login.probe_failed")
+            probeLine = L(errorCode == "not_native" ? "login.not_vibez" : "login.probe_failed")
             probeBad = true
         } catch {
             guard asked == address, expected == probeRevision else { return }
@@ -325,7 +325,7 @@ public final class LoginModel {
         } catch let RvError.Server(status, message, errorCode, twoFactor, _, _) {
             guard current(expected, address: address, username: username) else { return nil }
             if let attempt = nativeAttempt, !attempt.methods().isEmpty { refreshNativeForm(attempt) }
-            if errorCode == "not_native" { error = L("login.not_rocketvibe"); return nil }
+            if errorCode == "not_native" { error = L("login.not_vibez"); return nil }
             if errorCode == "kchat_several_servers" {
                 do {
                     kchatServers = try await client.kchatServers(token: secret)

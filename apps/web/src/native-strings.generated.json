@@ -350,8 +350,8 @@
     "Encryption identity and devices"
   ],
   "crypto.explanation": [
-    "Préparez votre identité et associez vos appareils. Les salons chiffrés RocketVibe sont encore en validation.",
-    "Prepare your identity and link your devices. RocketVibe encrypted rooms are still being validated."
+    "Préparez votre identité et associez vos appareils. Les salons chiffrés Vibez sont encore en validation.",
+    "Prepare your identity and link your devices. Vibez encrypted rooms are still being validated."
   ],
   "crypto.loading": ["Chargement de l’identité…", "Loading identity…"],
   "crypto.missing": [
@@ -685,7 +685,7 @@
     "La connexion est indisponible. La demande conservée reste en attente.",
     "The connection is unavailable. The saved request remains pending."
   ],
-  "native.title": ["RocketVibe · pilote natif", "RocketVibe · native pilot"],
+  "native.title": ["Vibez · pilote natif", "Vibez · native pilot"],
   "native.online": ["En ligne", "Online"],
   "native.offline": [
     "Hors ligne · les envois restent en attente",
@@ -1305,7 +1305,7 @@
     "Ses messages suivent le réglage « Effacement des messages » du serveur, et Rocket.Chat supprime ses conversations directes. Action irréversible.",
     "Their messages follow the server’s “Message erasure” setting, and Rocket.Chat deletes their direct conversations. This cannot be undone."
   ],
-  "admin.delete_user_body_rv": [
+  "admin.delete_user_body_vibez": [
     "Ses messages restent, attribués à « Utilisateur supprimé ». Action irréversible.",
     "Their messages stay, shown as “Deleted user”. This cannot be undone."
   ],
@@ -1737,14 +1737,14 @@
     "Pas de Rocket.Chat joignable à cette adresse",
     "No Rocket.Chat reachable at this address"
   ],
-  "login.not_rocketvibe": [
-    "Pas de serveur RocketVibe à cette adresse",
-    "No RocketVibe server at this address"
+  "login.not_vibez": [
+    "Pas de serveur Vibez à cette adresse",
+    "No Vibez server at this address"
   ],
   "login.kind": ["Type de serveur", "Server type"],
   "login.kind_auto": ["Automatique", "Automatic"],
   "login.kind_rocketchat": ["Rocket.Chat", "Rocket.Chat"],
-  "login.kind_rocketvibe": ["RocketVibe", "RocketVibe"],
+  "login.kind_vibez": ["Vibez", "Vibez"],
   "login.kind_mattermost": ["Mattermost", "Mattermost"],
   "login.kind_kchat": ["kChat", "kChat"],
   "login.kchat_token": ["Jeton d'API Infomaniak", "Infomaniak API token"],

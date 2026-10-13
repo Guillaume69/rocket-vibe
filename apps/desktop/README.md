@@ -28,14 +28,14 @@ never on disk.
 What the Android app does and where this one stands: `brain/parity.md`.
 
 An experimental [native-server pilot](../../docs/NATIVE_DESKTOP_PILOT.md) is also
-available: discovery selects Rocket.Chat or RocketVibe per account in the same
+available: discovery selects Rocket.Chat or Vibez per account in the same
 GTK and SwiftUI chat interfaces, with isolated native caches, durable outboxes and drafts.
 The Rust engine is exposed to SwiftUI through an explicit UniFFI API.
 
 GTK's Room information dialog offers **Change channel image** on Rocket.Chat
-with `edit-room` permission and on RocketVibe for room owners when the server
+with `edit-room` permission and on Vibez for room owners when the server
 announces `room_avatars`. Pick a PNG or JPEG up to 2 MiB; channel photos refresh
-without restarting. RocketVibe keeps interrupted uploads available to resume.
+without restarting. Vibez keeps interrupted uploads available to resume.
 SwiftUI displays native channel photos but does not yet offer the image editor.
 
 ## Desktop integration

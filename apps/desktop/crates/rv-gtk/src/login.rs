@@ -150,7 +150,7 @@ impl LoginPage {
         let mut kinds = vec![
             t("login.kind_auto"),
             t("login.kind_rocketchat"),
-            t("login.kind_rocketvibe"),
+            t("login.kind_vibez"),
             t("login.kind_mattermost"),
             t("login.kind_kchat"),
         ];
@@ -471,7 +471,7 @@ impl LoginPage {
                             Err(e) => {
                                 probe.add_css_class("bad");
                                 probe.set_label(t(if e.error.as_deref() == Some("not_native") {
-                                    "login.not_rocketvibe"
+                                    "login.not_vibez"
                                 } else {
                                     "login.probe_failed"
                                 }));

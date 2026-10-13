@@ -341,7 +341,7 @@ test("factor-specific and transport failures retain the native actionable captio
 
 test("login errors retain native mode captions without exposing unknown technical messages", () => {
   for (const [status, code, caption] of [
-    [400, "not_native", "login.not_rocketvibe"],
+    [400, "not_native", "login.not_vibez"],
     [400, "factor_rejected", "login.bad_code"],
     [400, "invalid_factor_code", "login.bad_code"],
     [400, "factor_expired", "login.factor_expired"],

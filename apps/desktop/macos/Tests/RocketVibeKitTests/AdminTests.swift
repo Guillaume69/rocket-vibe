@@ -227,7 +227,7 @@ final class AdminTests: XCTestCase {
         XCTAssertEqual(model.reportCount, 2, "a figure refused counts as none")
         XCTAssertEqual(model.asOf, "Figures as of 7 Oct 2026")
         XCTAssertEqual(model.updateNote, "Update available: 1.0.0")
-        XCTAssertEqual(model.deleteUserBody, L("admin.delete_user_body_rv"))
+        XCTAssertEqual(model.deleteUserBody, L("admin.delete_user_body_vibez"))
         try await until { model.userBots != nil }
         XCTAssertEqual(model.userBots, false, "bots closed to members by default")
         await model.setUserBots(true)

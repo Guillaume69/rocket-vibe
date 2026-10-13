@@ -2,7 +2,7 @@
 
 Status: experimental, on `claude/whatsapp-feasibility` (continuing `codex/whatsapp-feasibility`). A WhatsApp account is an account of the GTK app; this is the local helper behind it. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
 
-This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), driven by the app's `WaSession` (`rv-core/src/whatsapp_session.rs`). It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or RocketVibe server relay.
+This is a linked-device connector for a personal WhatsApp account, using [whatsmeow](https://github.com/tulir/whatsmeow), driven by the app's `WaSession` (`rv-core/src/whatsapp_session.rs`). It runs on the user's computer. There is no WhatsApp Web embed, Business API credential, Matrix bridge or Vibez server relay.
 
 ## Build and launch
 

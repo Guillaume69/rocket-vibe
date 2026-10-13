@@ -1210,7 +1210,7 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
     delete.connect_activated(move |_| {
         let body = match s.admin.product() {
             Product::RocketChat => "admin.delete_user_body_rc",
-            Product::Vibez => "admin.delete_user_body_rv",
+            Product::Vibez => "admin.delete_user_body_vibez",
         };
         let (s2, u2, d2) = (s.clone(), u.clone(), done.clone());
         confirm(&s.host, t("admin.delete_user"), t(body), t("actions.delete"), move || {

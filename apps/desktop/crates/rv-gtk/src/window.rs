@@ -159,7 +159,7 @@ pub(crate) fn whatsapp_helper() -> Option<PathBuf> {
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
     match e.error.as_deref() {
-        Some("not_native") => return t("login.not_rocketvibe").into(),
+        Some("not_native") => return t("login.not_vibez").into(),
         Some("factor_rejected" | "invalid_factor_code") => return t("login.bad_code").into(),
         Some("factor_expired") => return t("login.factor_expired").into(),
         Some("factor_unavailable") => return t("login.factor_unavailable").into(),

@@ -123,7 +123,7 @@ export function loginErrorKey(
         ? "login.recovery_help"
         : "login.invitation_help";
     const codes: Record<string, string> = {
-      not_native: "login.not_rocketvibe",
+      not_native: "login.not_vibez",
       factor_rejected: "login.bad_code",
       invalid_factor_code: "login.bad_code",
       factor_expired: "login.factor_expired",

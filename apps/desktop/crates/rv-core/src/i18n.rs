@@ -34,8 +34,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("wa.qr", "Scanne le QR code depuis WhatsApp", "Scan the QR code from WhatsApp"),
     (
         "wa.local",
-        "La connexion reste sur cet ordinateur. Tes conversations ne transitent pas par le serveur RocketVibe.",
-        "The connection stays on this computer. Your conversations do not pass through the RocketVibe server.",
+        "La connexion reste sur cet ordinateur. Tes conversations ne transitent pas par le serveur Vibez.",
+        "The connection stays on this computer. Your conversations do not pass through the Vibez server.",
     ),
     ("wa.demo", "Démonstration avec des conversations fictives", "Demo with synthetic conversations"),
     ("wa.choose", "Choisis une conversation", "Choose a conversation"),
@@ -398,8 +398,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("crypto.title", "Identité chiffrée et appareils", "Encryption identity and devices"),
     (
         "crypto.explanation",
-        "Préparez votre identité et associez vos appareils. Les salons chiffrés RocketVibe sont encore en validation.",
-        "Prepare your identity and link your devices. RocketVibe encrypted rooms are still being validated.",
+        "Préparez votre identité et associez vos appareils. Les salons chiffrés Vibez sont encore en validation.",
+        "Prepare your identity and link your devices. Vibez encrypted rooms are still being validated.",
     ),
     ("crypto.loading", "Chargement de l’identité…", "Loading identity…"),
     ("crypto.missing", "Cet appareil n’a pas encore d’identité chiffrée", "This device has no encryption identity yet"),
@@ -703,7 +703,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "La demande n’a pas pu être confirmée. Reprenez-la lorsqu’elle est affichée.",
         "The request could not be confirmed. Resume it when it is displayed.",
     ),
-    ("native.title", "RocketVibe · pilote natif", "RocketVibe · native pilot"),
+    ("native.title", "Vibez · pilote natif", "Vibez · native pilot"),
     ("native.online", "En ligne", "Online"),
     ("native.offline", "Hors ligne · les envois restent en attente", "Offline · sends remain queued"),
     ("native.room_name", "Nom du salon", "Room name"),
@@ -1217,7 +1217,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "Their messages follow the server’s “Message erasure” setting, and Rocket.Chat deletes their direct conversations. This cannot be undone.",
     ),
     (
-        "admin.delete_user_body_rv",
+        "admin.delete_user_body_vibez",
         "Ses messages restent, attribués à « Utilisateur supprimé ». Action irréversible.",
         "Their messages stay, shown as “Deleted user”. This cannot be undone.",
     ),
@@ -1571,7 +1571,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "A little sparkle. When off: system sound, or silence for RocketVibe cards.",
     ),
     ("login.probe_failed", "Pas de Rocket.Chat joignable à cette adresse", "No Rocket.Chat reachable at this address"),
-    ("login.not_rocketvibe", "Pas de serveur RocketVibe à cette adresse", "No RocketVibe server at this address"),
+    ("login.not_vibez", "Pas de serveur Vibez à cette adresse", "No Vibez server at this address"),
     ("login.kind", "Type de serveur", "Server type"),
     ("rail.add", "Ajouter un serveur", "Add a server"),
     ("mute.title", "Mettre en sourdine", "Mute"),
@@ -1593,7 +1593,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rail.logout_failed", "La déconnexion a échoué.", "Couldn't log out."),
     ("login.kind_auto", "Automatique", "Automatic"),
     ("login.kind_rocketchat", "Rocket.Chat", "Rocket.Chat"),
-    ("login.kind_rocketvibe", "RocketVibe", "RocketVibe"),
+    ("login.kind_vibez", "Vibez", "Vibez"),
     ("login.kind_mattermost", "Mattermost", "Mattermost"),
     ("login.kind_kchat", "kChat", "kChat"),
     ("login.kchat_token", "Jeton d'API Infomaniak", "Infomaniak API token"),
@@ -2736,7 +2736,7 @@ pub fn call_duration(seconds: u64) -> String {
     }
 }
 
-/// A RocketVibe call row (`rv-call-<state>`, its parameter the duration in
+/// A Vibez call row (`rv-call-<state>`, its parameter the duration in
 /// seconds once known; `rv-call` without an outcome): what it says, standing
 /// alone. None for any other kind.
 pub fn call_summary(kind: &str, param: &str) -> Option<String> {

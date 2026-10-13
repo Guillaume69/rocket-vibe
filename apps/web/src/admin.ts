@@ -654,7 +654,7 @@ export async function administration(app: App): Promise<void> {
     const remove = actionRow(nt("admin.delete_user"), "", () =>
       confirmAction(
         nt("admin.delete_user"),
-        nt("admin.delete_user_body_rv"),
+        nt("admin.delete_user_body_vibez"),
         async () => {
           if (!valid() || !host.node.open || !page.isConnected) return;
           await app.api.request(

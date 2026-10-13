@@ -385,7 +385,7 @@ public final class AdminModel {
     }
     /// What deleting an account does to its messages, by server.
     public var deleteUserBody: String {
-        L(product == .rocketChat ? "admin.delete_user_body_rc" : "admin.delete_user_body_rv")
+        L(product == .rocketChat ? "admin.delete_user_body_rc" : "admin.delete_user_body_vibez")
     }
 
     /// Opens an item's page; a report's reasons are read now if the list did not carry them.

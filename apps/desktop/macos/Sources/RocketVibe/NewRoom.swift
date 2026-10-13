@@ -2,7 +2,7 @@ import RocketVibeKit
 import SwiftUI
 
 /// A new room, as GTK's dialogs make one: a name, private or not, and on a
-/// RocketVibe server a voice channel where it offers voice; on Rocket.Chat a
+/// Vibez server a voice channel where it offers voice; on Rocket.Chat a
 /// channel or a private group. Opened once the list carries it.
 struct NewRoomSheet: View {
     @Environment(AppModel.self) var app

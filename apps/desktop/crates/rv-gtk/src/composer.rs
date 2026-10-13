@@ -63,12 +63,12 @@ pub struct Composer {
     note_bar: gtk::Box,
     note_body: gtk::Box,
     note: RefCell<String>,
-    /// "Send later", by the send button (RocketVibe `scheduled_messages`).
+    /// "Send later", by the send button (Vibez `scheduled_messages`).
     later: gtk::MenuButton,
     /// "N scheduled", above the field: opens the list.
     scheduled_chip: gtk::Button,
     scheduler: RefCell<Option<Rc<crate::scheduled::Scheduler>>>,
-    /// The RocketVibe room (and thread root) bound, for `rearm_schedule`.
+    /// The Vibez room (and thread root) bound, for `rearm_schedule`.
     schedule_target: RefCell<Option<ScheduleTarget>>,
 }
 
@@ -835,7 +835,7 @@ impl Composer {
         }
         self.on_changed.replace(None);
         self.completion.popdown();
-        // A RocketVibe room gets its commands again with `load_native_commands`;
+        // A Vibez room gets its commands again with `load_native_commands`;
         // private notes belong to a Rocket.Chat room.
         self.note_bar.set_visible(false);
         self.commands.replace(Commands::default());
@@ -894,7 +894,7 @@ impl Composer {
         });
     }
 
-    /// The commands a RocketVibe server offers after `/` in this room, its
+    /// The commands a Vibez server offers after `/` in this room, its
     /// workflow commands included; it checks rights when one runs, so none
     /// are left out here.
     pub fn load_native_commands(self: &Rc<Self>, session: &Arc<rv_core::native::NativeSession>, rid: &str) {
@@ -1163,7 +1163,7 @@ impl Composer {
         }
     }
 
-    /// Arms "Send later" and the scheduled list for the bound RocketVibe room
+    /// Arms "Send later" and the scheduled list for the bound Vibez room
     /// when its server offers them and the room is not encrypted; disarms them
     /// otherwise. Called on binding and whenever the session changes.
     pub fn rearm_schedule(self: &Rc<Self>) {

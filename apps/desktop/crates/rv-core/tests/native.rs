@@ -506,9 +506,9 @@ async fn a_chosen_server_kind_is_probed_alone() {
     assert!(server.requests().iter().all(|r| r.path() != "/.well-known/vibez"), "Rocket.Chat asks no discovery");
     let info = |s: &FakeHttp| s.requests().iter().filter(|r| r.path() == "/api/info").count();
     let before = info(&server);
-    let native = rv_core::server::probe_as(&server.url, ServerKind::RocketVibe).await.unwrap_err();
+    let native = rv_core::server::probe_as(&server.url, ServerKind::Vibez).await.unwrap_err();
     assert_eq!(native.error.as_deref(), Some("not_native"));
-    assert_eq!(info(&server), before, "RocketVibe never falls back to the Rocket.Chat probe");
+    assert_eq!(info(&server), before, "Vibez never falls back to the Rocket.Chat probe");
 }
 
 #[tokio::test]

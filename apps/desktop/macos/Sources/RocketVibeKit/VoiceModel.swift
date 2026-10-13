@@ -17,7 +17,7 @@ public enum VoiceCue: Equatable { case join, leave, mute, unmute, missed }
 /// A looped sound: an incoming call rings, an outgoing one rings back.
 public enum VoiceTone: Equatable { case ringtone, ringback }
 
-/// Voice on a RocketVibe server (docs/protocol/VOICE.md), over rv-ffi's voice
+/// Voice on a Vibez server (docs/protocol/VOICE.md), over rv-ffi's voice
 /// API and the `rv-voice` sidecar the GTK app uses: the session this account is
 /// in, who is in each room's session, rings, the listening choices, the cues.
 /// The supervisor in Rust hangs up a declined call and a direct call the

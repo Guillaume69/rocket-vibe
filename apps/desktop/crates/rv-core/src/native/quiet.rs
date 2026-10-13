@@ -1,4 +1,4 @@
-//! Do not disturb on a RocketVibe account, as the server applies it to push
+//! Do not disturb on a Vibez account, as the server applies it to push
 //! and call rings (`account_quiet`): muted before `muted_until`, or inside the
 //! daily `quiet_hours` window read in the window's OWN time zone (a window
 //! with start > end crosses midnight). The desktop's own notifications follow

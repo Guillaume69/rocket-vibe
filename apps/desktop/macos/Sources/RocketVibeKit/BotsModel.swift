@@ -9,7 +9,7 @@ public func botFailure(_ error: Error) -> String {
     return L("bots.failed")
 }
 
-/// The bots of the open RocketVibe account (RFC 0003): the list, whether I
+/// The bots of the open Vibez account (RFC 0003): the list, whether I
 /// may create one, the API reference, and the keys of the bot I opened. A new
 /// key goes to `AppModel.botKey`, in memory only, until its sheet closes.
 @MainActor @Observable

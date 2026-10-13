@@ -30,7 +30,7 @@ pub enum RowEvent {
         link: Option<String>,
     },
     JoinCall(String),
-    /// A RocketVibe call row's button: the open room's voice, `ring` to call
+    /// A Vibez call row's button: the open room's voice, `ring` to call
     /// the other member of a direct room back.
     VoiceCall {
         ring: bool,
@@ -110,7 +110,7 @@ pub fn with_photo(tile: gtk::Widget, session: Option<&Arc<Session>>, path: Optio
     tile
 }
 /// A person's photo on whichever server the account speaks to: by username
-/// and photo version on Rocket.Chat and Mattermost, by file id on RocketVibe
+/// and photo version on Rocket.Chat and Mattermost, by file id on Vibez
 /// (`version` is the one or the other).
 pub fn person_photo(
     tile: gtk::Widget,
@@ -384,7 +384,7 @@ fn room_widget(
     let clear = r.last_encrypted.as_deref().zip(session).and_then(|(raw, s)| s.decrypt(&r.rid, raw));
     let preview = match (&r.last_message, r.encrypted) {
         _ if let Some(text) = &clear => label(&rv_core::runs::preview(text), &["room-preview"]),
-        // A RocketVibe call is a voice ring, not Rocket.Chat's video meeting.
+        // A Vibez call is a voice ring, not Rocket.Chat's video meeting.
         _ if native.is_some() && system == Some("videoconf") => label(t("voice_session.call"), &["room-preview"]),
         // Its outcome, standing alone: "📞 Missed call", "📞 Call · 12 min".
         _ if let Some(summary) =
@@ -719,7 +719,7 @@ fn message_from_provider(
     };
     let quote_provider = session
         .map(|s| media::Provider::RocketChat(s.clone()))
-        .or_else(|| native.map(|s| media::Provider::RocketVibe(s.clone())))
+        .or_else(|| native.map(|s| media::Provider::Vibez(s.clone())))
         .or_else(|| media_provider.clone());
     for q in content::quotes(row.attachments.as_deref()) {
         column.append(&cards::quote(quote_provider.as_ref(), &q, &me));
@@ -772,7 +772,7 @@ fn message_from_provider(
         }
     }
     if let Some(native) = native {
-        let provider = media::Provider::RocketVibe(native.clone());
+        let provider = media::Provider::Vibez(native.clone());
         if let Some(value) = rv_core::native::social::parse_attachment(row.attachments.as_deref()) {
             column.append(&crate::social::card(native, &row.rid, &row.id, value, &row.author_id, on_event.clone()));
         }

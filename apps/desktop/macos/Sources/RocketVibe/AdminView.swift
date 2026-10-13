@@ -517,7 +517,7 @@ struct AdminDashboard: View {
                         Button(L("admin.open_moderation")) { model.show(.moderation) }
                     }
                     if model.iconSupported { AdminIconCard(model: model) }
-                    // RocketVibe with bots only: the model leaves it nil elsewhere.
+                    // Vibez with bots only: the model leaves it nil elsewhere.
                     if let on = model.userBots {
                         AdminCard(title: L("admin.bots")) {
                             Toggle(isOn: Binding(get: { on }, set: { value in Task { await model.setUserBots(value) } })) {

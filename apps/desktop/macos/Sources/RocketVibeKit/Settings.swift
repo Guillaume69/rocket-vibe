@@ -16,15 +16,15 @@ public enum SettingsCategory: String, CaseIterable, Identifiable, Sendable {
         public var signedIn: Bool
         /// Rocket.Chat: the E2E key's lock.
         public var legacy: Bool
-        /// RocketVibe: this device's encryption, 2FA and factors, device sessions.
+        /// Vibez: this device's encryption, 2FA and factors, device sessions.
         public var crypto: Bool
         public var security: Bool
         public var devices: Bool
-        /// RocketVibe with bot accounts (RFC 0003): my bots and their keys.
+        /// Vibez with bot accounts (RFC 0003): my bots and their keys.
         public var bots: Bool
-        /// RocketVibe with workflows (RFC 0004): mine, their steps and runs.
+        /// Vibez with workflows (RFC 0004): mine, their steps and runs.
         public var workflows: Bool
-        /// RocketVibe with voice: the microphone, speakers and noise remover.
+        /// Vibez with voice: the microphone, speakers and noise remover.
         public var voice: Bool
 
         public init(signedIn: Bool = false, legacy: Bool = false, crypto: Bool = false, security: Bool = false, devices: Bool = false, bots: Bool = false, workflows: Bool = false, voice: Bool = false) {

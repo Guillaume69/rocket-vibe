@@ -15,10 +15,10 @@ public final class MyProfileModel {
     public private(set) var intentions: [NativeProfileIntention] = []
     public private(set) var language = "auto"
     public private(set) var desktopNotifications = "default"
-    /// Do not disturb on a RocketVibe account: the daily window and the mute's end.
+    /// Do not disturb on a Vibez account: the daily window and the mute's end.
     public private(set) var quietHours: NativeQuietHours?
     public private(set) var mutedUntil: Date?
-    /// Read receipts, both ways, on a RocketVibe account.
+    /// Read receipts, both ways, on a Vibez account.
     public private(set) var shareReadReceipts = true
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let provider: ChatProvider?

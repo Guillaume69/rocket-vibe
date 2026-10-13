@@ -184,7 +184,7 @@ fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {
     }
 }
 
-/// A burst of RocketVibe changes folded into one refresh.
+/// A burst of Vibez changes folded into one refresh.
 #[derive(Default)]
 struct Refresh {
     changes: u32,
@@ -1019,7 +1019,7 @@ impl AppWindow {
 
     /// Hears the account's events (`Chat::events`) on the main thread for as
     /// long as it is still the one on screen. A burst of reloads, as the
-    /// RocketVibe server sends them, becomes one.
+    /// Vibez server sends them, becomes one.
     fn listen(self: &Rc<Self>, visible: Chat) {
         let (mut rx, forward) = {
             let _guard = runtime().enter();
@@ -1063,7 +1063,7 @@ impl AppWindow {
         });
     }
 
-    /// How a RocketVibe change shows: the page reloads, or only the room list
+    /// How a Vibez change shows: the page reloads, or only the room list
     /// when the live traffic of the burst left the open room alone; pending
     /// links, notifications to follow and withdrawn notifications are looked
     /// at again either way.
@@ -1189,7 +1189,7 @@ impl AppWindow {
         }
     }
 
-    /// The RocketVibe server.
+    /// The Vibez server.
     fn start_native(self: &Rc<Self>, session: Arc<rv_core::native::NativeSession>, path: PathBuf) {
         self.db_path.replace(Some(path));
         self.chat.set_native_session(session.clone());
@@ -1459,7 +1459,7 @@ impl AppWindow {
     /// Signs an account out from the rail. The open one goes the way the
     /// account menu's sign-out does; another one is told to its server, then
     /// stops and leaves the keyring with its stored messages and files. A
-    /// WhatsApp or RocketVibe refusal keeps it and says so. While it runs the
+    /// WhatsApp or Vibez refusal keeps it and says so. While it runs the
     /// account cannot be opened (`leaving`): its session goes at the end.
     fn logout_account(self: &Rc<Self>, info: SessionInfo) {
         let key = supervisor::key(&info);

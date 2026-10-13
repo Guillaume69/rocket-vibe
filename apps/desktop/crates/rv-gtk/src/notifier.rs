@@ -609,7 +609,7 @@ impl Notifier {
             .then(|| if incoming.direct { incoming.author.clone() } else { format!("#{}", incoming.room_name) });
         // Under a header naming the room, the author alone says who wrote.
         let title = if header.is_some() { incoming.author.as_str() } else { summary };
-        // RocketVibe accounts route their actions by notification key: open and reply only.
+        // Vibez accounts route their actions by notification key: open and reply only.
         let quick = (in_room && link.is_none()).then(|| rv_native::QuickActions {
             reactions: &rv_native::QUICK_REACTIONS,
             mark_read: t("notify.mark_read"),

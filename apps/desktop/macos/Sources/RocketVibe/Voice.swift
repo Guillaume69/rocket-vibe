@@ -4,7 +4,7 @@ import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
-// Voice on a RocketVibe server, as the GTK app shows it (rv-gtk's
+// Voice on a Vibez server, as the GTK app shows it (rv-gtk's
 // chat_voice.rs): the people of each room's session under its row, the voice
 // page (tiles sharing the page, a shared screen on a stage), the "Voice
 // connected" panel, the menu beside the microphone, the share picker, the
@@ -704,7 +704,7 @@ struct SharePicker: View {
     }
 }
 
-/// A RocketVibe call row: Join while it goes on, Call back once over (rings in a direct room).
+/// A Vibez call row: Join while it goes on, Call back once over (rings in a direct room).
 struct VoiceCallCard: View {
     @Environment(AppModel.self) var app
     let rid: String

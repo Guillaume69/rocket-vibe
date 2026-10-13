@@ -25,7 +25,7 @@ public enum WorkflowSaveResult {
     case failed
 }
 
-/// The workflows of the open RocketVibe account (RFC 0004): mine, whether I
+/// The workflows of the open Vibez account (RFC 0004): mine, whether I
 /// may create one, my bots to act through, the rooms a trigger or a step may
 /// name, and each opened workflow's runs. A webhook URL goes to
 /// `AppModel.workflowWebhook`, in memory only, until its sheet closes.

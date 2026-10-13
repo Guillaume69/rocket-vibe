@@ -1,4 +1,4 @@
-//! Voice on a RocketVibe server for the SwiftUI app, over rv-core's voice
+//! Voice on a Vibez server for the SwiftUI app, over rv-core's voice
 //! controller and its `rv-voice` sidecar (the GTK app's engine): who is in each
 //! room's session, the session this account is in, rings, devices, listening
 //! choices, video frames and what to share. The choices live where the GTK app

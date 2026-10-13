@@ -1,7 +1,7 @@
 //! The icon a server shows on the rail instead of its host's initial, read
 //! without signing in for every account the rail lists: Rocket.Chat's
 //! `favicon_192` asset when an administrator set one (its default logo is
-//! not the server's own), RocketVibe's instance icon (`Discovery.icon_revision`).
+//! not the server's own), Vibez's instance icon (`Discovery.icon_revision`).
 //! Mattermost and kChat keep the initial. Read afresh on each rail rebuild:
 //! Rocket.Chat serves the asset at a fixed URL with no ETag.
 

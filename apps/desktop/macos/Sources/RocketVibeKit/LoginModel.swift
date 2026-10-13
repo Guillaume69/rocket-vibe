@@ -102,8 +102,8 @@ public final class LoginModel {
             let p = try await client.probe(server: asked, kind: kind)
             guard asked == address, expected == probeRevision else { return }
             tokenLogin = p.genre == "kchat"
-            canRegister = p.genre == "rocketvibe" && p.accountInvitations
-            canRecover = p.genre == "rocketvibe" && p.accountRecovery
+            canRegister = p.genre == "vibez" && p.accountInvitations
+            canRecover = p.genre == "vibez" && p.accountRecovery
             canEmailRecover = canRecover && p.emailRecovery
             if let instance = p.instanceId, let epoch = p.dataEpoch { recoveryIdentity = (instance, epoch) }
             else { recoveryIdentity = nil }
@@ -112,7 +112,7 @@ public final class LoginModel {
                 probeBad = true
                 return
             }
-            let product = ["rocketvibe": "RocketVibe", "mattermost": "Mattermost", "kchat": "kChat"][p.genre] ?? "Rocket.Chat"
+            let product = ["vibez": "Vibez", "mattermost": "Mattermost", "kchat": "kChat"][p.genre] ?? "Rocket.Chat"
             var facts = ["\(product) \(p.version)".trimmingCharacters(in: .whitespaces)]
             if tokenLogin { facts.append(L("login.kchat_help")) }
             if p.twoFactor { facts.append(L("login.probe_2fa")) }
@@ -283,7 +283,7 @@ public final class LoginModel {
                 guard current(expected, address: address, username: username) else { return nil }
                 let native = try await attempt.commit()
                 guard current(expected, address: address, username: username) else { native.shutdown(); return nil }
-                chat = .rocketVibe(native)
+                chat = .vibez(native)
             } else {
                 let native = try await client.isNativeServer(server: address, kind: kind)
                 guard current(expected, address: address, username: username) else { return nil }
@@ -303,7 +303,7 @@ public final class LoginModel {
                     }
                     let accepted = try await attempt.commit()
                     guard current(expected, address: address, username: username) else { accepted.shutdown(); return nil }
-                    chat = .rocketVibe(accepted)
+                    chat = .vibez(accepted)
                 } else {
                     chat = .rocketChat(try await client.login(
                         server: address, kind: kind, user: username, password: secret,

@@ -27,7 +27,7 @@ pub struct AdminInvitation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
 pub enum AdminProduct {
     RocketChat,
-    RocketVibe,
+    Vibez,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -50,7 +50,7 @@ pub struct AdminUserCounts {
     pub offline: u64,
 }
 
-/// Rooms or messages by type: discussions are Rocket.Chat's, encrypted ones RocketVibe's.
+/// Rooms or messages by type: discussions are Rocket.Chat's, encrypted ones Vibez's.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct AdminKindCounts {
     pub total: u64,
@@ -140,7 +140,7 @@ pub struct AdminReportedMessage {
     pub room_name: String,
     pub room_kind: AdminRoomKind,
     pub author: AdminUserLite,
-    /// The author's account revision (RocketVibe), to deactivate them.
+    /// The author's account revision (Vibez), to deactivate them.
     pub author_revision: Option<String>,
     pub text: String,
     /// From an encrypted Rocket.Chat room: `text` is empty, show "Encrypted message".
@@ -149,7 +149,7 @@ pub struct AdminReportedMessage {
     pub deleted: bool,
     pub count: u64,
     pub latest_at: String,
-    /// Known with the list (RocketVibe), else read by `message_reports`.
+    /// Known with the list (Vibez), else read by `message_reports`.
     pub reports: Option<Vec<AdminReport>>,
 }
 
@@ -317,7 +317,7 @@ fn overview(o: admin::Overview) -> AdminOverview {
     AdminOverview {
         product: match o.product {
             admin::Product::RocketChat => AdminProduct::RocketChat,
-            admin::Product::RocketVibe => AdminProduct::RocketVibe,
+            admin::Product::Vibez => AdminProduct::Vibez,
         },
         version: o.version,
         uptime_seconds: o.uptime_seconds,
@@ -402,7 +402,7 @@ pub struct ServerAdmin {
 
 impl ServerAdmin {
     /// A photo as the app's media store reads it: Rocket.Chat's avatar
-    /// route, RocketVibe's profile photo by id. None (the initials) when the
+    /// route, Vibez's profile photo by id. None (the initials) when the
     /// account has no photo: a version is the mark of one (D10).
     fn photo(&self, username: &str, version: Option<&str>) -> Option<String> {
         let version = version.filter(|v| !v.is_empty());
@@ -492,7 +492,7 @@ impl ServerAdmin {
     pub fn product(&self) -> AdminProduct {
         match self.admin.product() {
             admin::Product::RocketChat => AdminProduct::RocketChat,
-            admin::Product::RocketVibe => AdminProduct::RocketVibe,
+            admin::Product::Vibez => AdminProduct::Vibez,
         }
     }
     /// My account: the lists offer no action on it.
@@ -735,7 +735,7 @@ pub fn server_update_available(current: String, latest: String) -> bool {
     admin::update_available(&current, &latest)
 }
 
-/// A username the RocketVibe server reserves for deleted accounts: shown as
+/// A username the Vibez server reserves for deleted accounts: shown as
 /// "Deleted user". Rocket.Chat has no such reservation.
 #[uniffi::export]
 pub fn deleted_username(username: String) -> bool {

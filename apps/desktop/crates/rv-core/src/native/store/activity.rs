@@ -1,4 +1,4 @@
-//! What the Activity view sorts on a RocketVibe account (`crate::activity`).
+//! What the Activity view sorts on a Vibez account (`crate::activity`).
 use super::*;
 
 impl NativeStore {

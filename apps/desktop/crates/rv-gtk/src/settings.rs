@@ -79,7 +79,7 @@ fn dialog(parent: &gtk::Widget, admin: rv_core::admin::Admin, sign_out: impl Fn(
     dialog
 }
 
-/// The profile editor's account: the RocketVibe one carries the own profile
+/// The profile editor's account: the Vibez one carries the own profile
 /// its editor works on, so this stays its own enum rather than a bare `Chat`.
 #[derive(Clone)]
 enum ProfileSource {

@@ -3,7 +3,7 @@ use super::*;
 use rv_core::native::NativeSession;
 
 impl ChatPage {
-    /// The RocketVibe session changed something (its store or its live state):
+    /// The Vibez session changed something (its store or its live state):
     /// read the page again. The window calls it, a burst folded into one.
     pub fn on_native_change(self: &Rc<Self>) {
         let Some(session) = self.native_session() else { return };
@@ -448,7 +448,7 @@ impl ChatPage {
         }
     }
 
-    /// A slash command typed in a RocketVibe room or thread. A server command
+    /// A slash command typed in a Vibez room or thread. A server command
     /// runs here, a refusal putting the text back; a text command (`/shrug`)
     /// comes back written, to go out the way the composer sends, encrypted or
     /// not. None when nothing is left to send.
@@ -639,7 +639,7 @@ impl ChatPage {
                             &usage,
                             &mine,
                             None,
-                            crate::reactions::Server::RocketVibe,
+                            crate::reactions::Server::Vibez,
                             react,
                         ));
                     }
@@ -941,7 +941,7 @@ impl ChatPage {
                                 &usage,
                                 &mine,
                                 Some(custom),
-                                crate::reactions::Server::RocketVibe,
+                                crate::reactions::Server::Vibez,
                                 react,
                             ));
                         }

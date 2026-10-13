@@ -1,4 +1,4 @@
-//! Scheduled messages on a RocketVibe server (`scheduled_messages`): the
+//! Scheduled messages on a Vibez server (`scheduled_messages`): the
 //! "Send later" menu by the send button, the "N scheduled" chip above the
 //! composer and the list it opens. The rule every app follows is in
 //! `brain/features/scheduled-messages.md`; times and words come from

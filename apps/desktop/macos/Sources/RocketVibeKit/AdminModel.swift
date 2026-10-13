@@ -179,7 +179,7 @@ public final class AdminModel {
     public private(set) var latestVersion: String?
     /// Open reports, for the Moderation badge.
     public private(set) var reportCount: UInt64 = 0
-    /// RocketVibe with bots: whether every account may create one (an
+    /// Vibez with bots: whether every account may create one (an
     /// administrator always may); nil where the server has no bots.
     public private(set) var userBots: Bool?
     public private(set) var settingUserBots = false
@@ -587,10 +587,10 @@ extension AppModel {
         admin = nil
     }
 
-    /// Members may report here (RocketVibe: when the server takes reports).
+    /// Members may report here (Vibez: when the server takes reports).
     public var reportsSupported: Bool { provider?.supportsReports == true }
 
-    /// A RocketVibe account deleted by an administrator: its profile reads
+    /// A Vibez account deleted by an administrator: its profile reads
     /// "Deleted user". Rocket.Chat reserves no username.
     public func deletedAccount(username: String) -> Bool {
         native != nil && deletedUsername(username: username)

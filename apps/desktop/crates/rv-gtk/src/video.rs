@@ -270,7 +270,7 @@ pub fn card_provider(session: crate::media::Provider, f: &FileAttachment) -> gtk
     LAST.with_borrow_mut(|last| *last = Rc::downgrade(&player));
     let cached = match &session {
         crate::media::Provider::RocketChat(s) => !s.is_closed() && cache_path(s, f).exists(),
-        crate::media::Provider::RocketVibe(_) | crate::media::Provider::WhatsApp(_) => false,
+        crate::media::Provider::Vibez(_) | crate::media::Provider::WhatsApp(_) => false,
     };
     if f.size.is_some_and(|size| size <= POSTER_MAX_BYTES) || cached {
         let p = player.clone();

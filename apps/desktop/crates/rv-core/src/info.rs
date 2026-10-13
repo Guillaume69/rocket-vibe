@@ -76,7 +76,7 @@ pub struct Profile {
     pub utc_offset: Option<f64>,
     pub bio: Option<String>,
     pub avatar_etag: Option<String>,
-    /// A RocketVibe bot account (RFC 0003); false on Rocket.Chat.
+    /// A Vibez bot account (RFC 0003); false on Rocket.Chat.
     pub bot: bool,
     /// The username of the person who owns this bot.
     pub bot_owner: Option<String>,

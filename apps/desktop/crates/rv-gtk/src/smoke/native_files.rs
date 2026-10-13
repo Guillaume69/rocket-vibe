@@ -53,7 +53,7 @@ async fn run(window: Rc<AppWindow>) {
     let files = rv_core::content::files(row.attachments.as_deref());
     check("native manifest uses existing file card", files.len() == 1, files.len());
     let local =
-        crate::cards::local_copy(crate::media::Provider::RocketVibe(session.clone()), files[0].clone()).await.unwrap();
+        crate::cards::local_copy(crate::media::Provider::Vibez(session.clone()), files[0].clone()).await.unwrap();
     check(
         "native GTK protected reader",
         std::fs::read_to_string(local).unwrap() == "the existing GTK composer uploads this file",

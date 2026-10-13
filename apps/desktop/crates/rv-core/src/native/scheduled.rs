@@ -1,4 +1,4 @@
-//! Scheduled messages (RocketVibe `scheduled_messages`, docs/protocol/SCHEDULED.md):
+//! Scheduled messages (Vibez `scheduled_messages`, docs/protocol/SCHEDULED.md):
 //! text the server keeps and sends for me at a chosen time, whether or not an
 //! app runs then. Text only, never in an end-to-end encrypted room. An
 //! attempt's operation id is kept until the server answers, so a retry after a

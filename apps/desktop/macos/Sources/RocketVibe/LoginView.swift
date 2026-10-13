@@ -58,7 +58,7 @@ struct LoginView: View {
                     Picker(L("login.kind"), selection: $login.kind) {
                         Text(L("login.kind_auto")).tag(ServerChoice.auto)
                         Text(L("login.kind_rocketchat")).tag(ServerChoice.rocketChat)
-                        Text(L("login.kind_rocketvibe")).tag(ServerChoice.rocketVibe)
+                        Text(L("login.kind_rocketvibe")).tag(ServerChoice.vibez)
                         Text(L("login.kind_mattermost")).tag(ServerChoice.mattermost)
                         Text(L("login.kind_kchat")).tag(ServerChoice.kchat)
                     }

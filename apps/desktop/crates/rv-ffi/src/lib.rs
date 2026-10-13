@@ -120,7 +120,7 @@ pub enum Event {
         rid: String,
         text: String,
     },
-    /// The voice session, the rings or the listening choices moved (RocketVibe).
+    /// The voice session, the rings or the listening choices moved (Vibez).
     Voice,
     /// The call ringing here changed: `Chat::incoming_call`.
     CallRing,

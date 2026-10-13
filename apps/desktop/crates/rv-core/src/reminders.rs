@@ -3,7 +3,7 @@
 //! for every server kind. One JSON file per account under
 //! `<config>/rocket-vibe-rs/reminders/`, the directory GTK and SwiftUI share on
 //! a Mac like the quick-reaction counts: the file names its account (server,
-//! user, RocketVibe identity) so a fired reminder can open it whichever account
+//! user, Vibez identity) so a fired reminder can open it whichever account
 //! is on screen, and signing out deletes it. Every change re-reads the file
 //! under a process lock and an advisory file lock, then writes through a
 //! temporary file of its own name, so the two apps merge rather than overwrite
@@ -324,7 +324,7 @@ fn write(path: &Path, text: &str) -> std::io::Result<()> {
 }
 
 /// The link a fired reminder opens: the account (by server, user and
-/// RocketVibe identity), the room, the message, the thread for a reply.
+/// Vibez identity), the room, the message, the thread for a reply.
 pub fn link(owner: &Owner, reminder: &Reminder) -> Option<String> {
     let mut url = url::Url::parse(&format!("rocketvibe://room/{}", reminder.rid)).ok()?;
     {

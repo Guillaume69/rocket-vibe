@@ -1,4 +1,4 @@
-//! Scheduled messages (RocketVibe `scheduled_messages`) for the SwiftUI app:
+//! Scheduled messages (Vibez `scheduled_messages`) for the SwiftUI app:
 //! the same rule and words as GTK, from `rv_core::native::scheduled`. Times
 //! cross as Unix seconds; every sentence comes worded in the current language.
 use crate::{model::RvError, native::NativeChat, on_tokio};

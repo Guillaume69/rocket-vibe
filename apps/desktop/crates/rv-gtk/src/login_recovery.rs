@@ -113,7 +113,7 @@ impl RecoveryEmail {
         this
     }
     pub fn profile(self: &Rc<Self>, profile: &rv_core::server::ServerProfile) {
-        self.profile.replace(if profile.genre == "rocketvibe" && profile.account_recovery && profile.email_recovery {
+        self.profile.replace(if profile.genre == "vibez" && profile.account_recovery && profile.email_recovery {
             profile.native_identity.clone().map(|i| (profile.base_url.clone(), i))
         } else {
             None

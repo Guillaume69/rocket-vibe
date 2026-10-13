@@ -104,10 +104,10 @@ pub struct MessageRow {
     pub thread_last: Option<i64>,
     /// A thread root's followers, by id, comma-separated. Always None outside Rocket.Chat.
     pub thread_followers: Option<String>,
-    /// Written by a bot account (RocketVibe, RFC 0003): a "BOT" badge beside
+    /// Written by a bot account (Vibez, RFC 0003): a "BOT" badge beside
     /// the name. Always false on Rocket.Chat.
     pub author_bot: bool,
-    /// A form a workflow asks (RocketVibe, RFC 0004), as JSON: read it with
+    /// A form a workflow asks (Vibez, RFC 0004), as JSON: read it with
     /// `native::workflows::row_form`. Always None on Rocket.Chat.
     pub form: Option<String>,
     /// A `discussion-created` message's discussion (`drid`), its message

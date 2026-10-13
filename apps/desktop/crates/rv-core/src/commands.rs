@@ -68,7 +68,7 @@ pub fn complete<'a>(
     out
 }
 
-/// The commands a RocketVibe server lists (`rv_protocol::commands`), in the
+/// The commands a Vibez server lists (`rv_protocol::commands`), in the
 /// shape of Rocket.Chat's so both read alike. A `literal` command (a
 /// workflow's, described by its name) is shown as written, never through the
 /// i18n key catalogue.
@@ -103,7 +103,7 @@ pub fn text(name: &str, params: &str) -> Option<Run> {
     rv_protocol::commands::decorate(name, params).map(|text| text.map_or(Run::Done, Run::Message))
 }
 
-/// The i18n key of what a RocketVibe server's refusal of a command means.
+/// The i18n key of what a Vibez server's refusal of a command means.
 pub fn error_key(code: &str) -> Option<&'static str> {
     match code {
         "not_found" | "unknown_command" => Some("command.not_found"),
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rocketvibe_list_reads_like_rocket_chat_s() {
+    fn a_vibez_list_reads_like_rocket_chat_s() {
         let commands = parse_native(&rv_protocol::commands::catalogue(), Lang::En);
         let shrug = commands.iter().find(|c| c.name == "shrug").unwrap();
         assert_eq!(shrug.params, "your message (optional)");

@@ -17,7 +17,7 @@ pub struct Display {
     pub gutter_time: bool,
     /// The first message I have not read: "✦ New messages" above it.
     pub new_marker: bool,
-    /// The read receipt under my latest message ("Seen by Bob"), RocketVibe
+    /// The read receipt under my latest message ("Seen by Bob"), Vibez
     /// main timeline only (`native::receipts`).
     pub seen: Option<String>,
 }

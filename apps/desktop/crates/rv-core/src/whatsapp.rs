@@ -1,5 +1,5 @@
 //! Local WhatsApp desktop pilot. The sidecar owns encrypted state and the wire protocol.
-//! No WhatsApp content or credentials go through a RocketVibe server.
+//! No WhatsApp content or credentials go through a Vibez server.
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

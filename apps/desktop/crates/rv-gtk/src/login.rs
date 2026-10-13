@@ -122,7 +122,7 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     use rv_core::native::ServerKind;
     match kind.selected() {
         1 => ServerKind::RocketChat,
-        2 => ServerKind::RocketVibe,
+        2 => ServerKind::Vibez,
         3 => ServerKind::Mattermost,
         4 => ServerKind::Kchat,
         _ => ServerKind::Auto,
@@ -453,8 +453,8 @@ impl LoginPage {
                             }
                             Ok(p) => {
                                 recovery_email.profile(&p);
-                                signup.set_visible(p.genre == "rocketvibe" && p.account_invitations);
-                                recovery.set_visible(p.genre == "rocketvibe" && p.account_recovery);
+                                signup.set_visible(p.genre == "vibez" && p.account_invitations);
+                                recovery.set_visible(p.genre == "vibez" && p.account_recovery);
                                 let product = rv_core::server::product(&p.genre);
                                 let mut facts = vec![format!("{product} {}", p.version).trim_end().to_owned()];
                                 if token {
@@ -636,7 +636,7 @@ impl LoginPage {
         self.kind.set_selected(match kind {
             ServerKind::Auto => 0,
             ServerKind::RocketChat => 1,
-            ServerKind::RocketVibe => 2,
+            ServerKind::Vibez => 2,
             ServerKind::Mattermost => 3,
             ServerKind::Kchat => 4,
         });

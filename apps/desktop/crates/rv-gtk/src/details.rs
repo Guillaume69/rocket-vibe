@@ -477,12 +477,12 @@ pub struct ProfileActions {
     pub room: Option<String>,
 }
 
-/// The RocketVibe server's profile version, which moves when a profile
+/// The Vibez server's profile version, which moves when a profile
 /// changes there; Rocket.Chat and Mattermost profiles are read once.
 fn profile_version(chat: &Chat) -> Option<String> {
     chat.native().map(|s| s.profile_version())
 }
-/// The RocketVibe session was closed under the open dialog.
+/// The Vibez session was closed under the open dialog.
 fn closed(chat: &Chat) -> bool {
     chat.native().is_some_and(|s| s.is_closed())
 }
@@ -693,7 +693,7 @@ pub fn search_chat(
 ) -> adw::Dialog {
     search_with_source(parent, SearchSource::Chat(chat), rid, go)
 }
-/// Private search of an encrypted RocketVibe room, on this device only.
+/// Private search of an encrypted Vibez room, on this device only.
 pub fn search_private(
     parent: &impl IsA<gtk::Widget>,
     access: rv_core::native::crypto::enrollment::rooms::messages::Access,
@@ -716,7 +716,7 @@ impl SearchSource {
             Self::Private(_, username) => username,
         }
     }
-    /// The RocketVibe server's search version: results go stale when it moves.
+    /// The Vibez server's search version: results go stale when it moves.
     fn version(&self) -> Option<String> {
         match self {
             Self::Chat(chat) => chat.native().map(|s| s.search_version().unwrap_or_else(|_| "unavailable".into())),

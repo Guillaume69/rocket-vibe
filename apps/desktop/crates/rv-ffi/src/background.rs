@@ -43,11 +43,11 @@ pub struct BackgroundCall {
     pub account: String,
     /// Its server's host, to name it.
     pub server: String,
-    /// The Rocket.Chat or kChat call, or the RocketVibe ring.
+    /// The Rocket.Chat or kChat call, or the Vibez ring.
     pub id: String,
     pub rid: String,
     pub caller: String,
-    /// A RocketVibe voice ring (answered by the voice session), else a call link.
+    /// A Vibez voice ring (answered by the voice session), else a call link.
     pub voice: bool,
     /// The account is in do not disturb: the prompt shows without the ringtone.
     pub quiet: bool,

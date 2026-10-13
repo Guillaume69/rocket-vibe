@@ -208,7 +208,7 @@ pub fn send_all_provider(
                         .attach_in(&r, thread.as_deref(), &p, &n, &mime, caption.as_deref(), temporary)
                         .await
                         .map_err(|e| refusal_text(&e, &n)),
-                    crate::media::Provider::RocketVibe(s) => s
+                    crate::media::Provider::Vibez(s) => s
                         .attach_file_in(
                             &r,
                             thread.as_deref(),

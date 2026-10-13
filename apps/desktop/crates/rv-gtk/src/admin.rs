@@ -621,7 +621,7 @@ fn square_png(path: &std::path::Path, side: u32) -> Option<Vec<u8>> {
     scaled.save_to_bufferv("png", &[]).ok()
 }
 
-/// RocketVibe with bots: whether every account may create one. The card
+/// Vibez with bots: whether every account may create one. The card
 /// shows only once the server said (None: no bots there).
 fn bots_card(screen: &Screen, cards: &Cards) {
     let admin = screen.admin.clone();
@@ -1210,7 +1210,7 @@ fn user_page(screen: &Screen, reload: &Reload, user: AdminUser) {
     delete.connect_activated(move |_| {
         let body = match s.admin.product() {
             Product::RocketChat => "admin.delete_user_body_rc",
-            Product::RocketVibe => "admin.delete_user_body_rv",
+            Product::Vibez => "admin.delete_user_body_rv",
         };
         let (s2, u2, d2) = (s.clone(), u.clone(), done.clone());
         confirm(&s.host, t("admin.delete_user"), t(body), t("actions.delete"), move || {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The reload benchmark's trace as Markdown: how many RocketVibe refreshes of
+# The reload benchmark's trace as Markdown: how many Vibez refreshes of
 # each kind (the whole page, or the room list alone), how long they took
 # (median, p95, max) and how many changes they folded.
 # Usage: native-reload-summary.sh [artifacts/native-reload.log]
@@ -10,7 +10,7 @@ if [ -z "$lines" ]; then
   echo "The reload benchmark reported nothing."
   exit 0
 fi
-echo "### RocketVibe reload benchmark (GTK, Xvfb, one plain room open)"
+echo "### Vibez reload benchmark (GTK, Xvfb, one plain room open)"
 echo
 echo "| refresh | count | changes folded | median | p95 | max | total |"
 echo "|---|---|---|---|---|---|---|"

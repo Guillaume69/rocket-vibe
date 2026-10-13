@@ -160,7 +160,7 @@ public final class RoomModel {
     /// "Also send to the room" (Rocket.Chat): a thread's next reply only, unchecked once it goes.
     public var alsoInRoom = false
     public var supportsAlsoInRoom: Bool { active && threadId != nil && !privateMode && chat?.alsoInRoomAvailable() == true }
-    /// Invite links and discussions (Rocket.Chat), never in an encrypted RocketVibe room.
+    /// Invite links and discussions (Rocket.Chat), never in an encrypted Vibez room.
     public var supportsDiscussions: Bool { active && !privateMode && chat?.discussionsAvailable() == true }
     /// "Start a discussion" from a message: where it could be forwarded (quoted, on the server).
     public func canStartDiscussion(_ message: MessageItem) -> Bool { supportsDiscussions && forwardable(message) }
@@ -681,7 +681,7 @@ public final class RoomModel {
     /// history around it.
     public func jump(to id: String) async -> Bool {
         if let native = provider.native {
-            // RocketVibe: its rank says how far back to read, then pages to it.
+            // Vibez: its rank says how far back to read, then pages to it.
             if active, threadId == nil, let rank = try? native.messageRank(room: room.rid, message: id) {
                 limit = max(limit, Int64(rank) + historyPage)
                 reload()
@@ -725,7 +725,7 @@ public final class RoomModel {
     @discardableResult
     public func send() async -> String? {
         guard active else { return nil }
-        // RocketVibe: a server command runs; a text command (`/shrug`) is
+        // Vibez: a server command runs; a text command (`/shrug`) is
         // written here and goes out like the draft, encrypted or not. A quote
         // leads the message, so what follows it is text.
         if let native = provider.native, privateQuote == nil, nativeQuote == nil {
@@ -966,7 +966,7 @@ public final class RoomModel {
         guard let native = provider.native, native.supportedFeatures().contains("reactions") else { return [] }
         return native.quickReactions(custom: customReactionsAllowed)
     }
-    /// Report: someone else's message, sent, not a system line; on RocketVibe
+    /// Report: someone else's message, sent, not a system line; on Vibez
     /// when the server takes reports, never in a private conversation.
     public func canReport(_ message: MessageItem) -> Bool {
         guard active, !message.mine, message.system == nil, message.delivery == .sent else { return false }

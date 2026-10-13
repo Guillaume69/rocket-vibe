@@ -1,5 +1,5 @@
 //! Creating a room: the name, Private (on by default), a voice channel where
-//! the server offers voice, and Create, the same group for a RocketVibe
+//! the server offers voice, and Create, the same group for a Vibez
 //! server's new room (`ChatPage::native_conversation`, beside its direct
 //! message row) and a Rocket.Chat channel or private group (`open`). The
 //! caller's `Create` does the server call and opens the room.

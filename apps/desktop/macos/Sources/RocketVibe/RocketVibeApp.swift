@@ -89,7 +89,7 @@ struct RocketVibeApp: App {
             if tone == .ringtone && !muted && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
         }
         app.onCallRing = { [app] call in
-            // The voice model owns the tone while a RocketVibe account is shown.
+            // The voice model owns the tone while a Vibez account is shown.
             if app.voice == nil { VoiceSounds.shared.tone(call == nil || app.openMuted ? nil : .ringtone) }
             guard let call, !NSApp.isActive, !app.openMuted else {
                 notifier.withdrawCall()

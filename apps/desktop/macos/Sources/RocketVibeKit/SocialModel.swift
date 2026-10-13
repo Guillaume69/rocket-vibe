@@ -11,7 +11,7 @@ public extension RoomModel {
         try socialGuard()
         let result: [SocialMediaItem]
         switch provider {
-        case let .rocketVibe(chat): result = try await (gifs ? chat.socialGifs(query: query) : chat.socialStickers())
+        case let .vibez(chat): result = try await (gifs ? chat.socialGifs(query: query) : chat.socialStickers())
         case let .rocketChat(chat): if gifs { result = try await chat.socialGifs(room: rid, query: query) } else { result = try chat.socialStickers() }
         }
         try socialGuard(); return result
@@ -20,7 +20,7 @@ public extension RoomModel {
         try socialGuard()
         let title = String((item.title.isEmpty ? "GIF" : item.title).prefix(100))
         switch provider {
-        case let .rocketVibe(chat): try await chat.saveSticker(operation: operation, title: title, url: item.url)
+        case let .vibez(chat): try await chat.saveSticker(operation: operation, title: title, url: item.url)
         case let .rocketChat(chat): try chat.saveSticker(operation: operation, title: title, url: item.url)
         }
         try socialGuard()
@@ -28,7 +28,7 @@ public extension RoomModel {
     func socialRemove(_ id: String) async throws {
         try socialGuard()
         switch provider {
-        case let .rocketVibe(chat): try await chat.removeSticker(id: id)
+        case let .vibez(chat): try await chat.removeSticker(id: id)
         case let .rocketChat(chat): try chat.removeSticker(id: id)
         }
         try socialGuard()
@@ -36,7 +36,7 @@ public extension RoomModel {
     func socialSend(_ item: SocialMediaItem, operation: String, gif: Bool, query: String) async throws {
         try socialGuard()
         switch provider {
-        case let .rocketVibe(chat): try await chat.sendSocialImage(room: rid, root: threadId, operation: operation, title: item.title, url: item.url)
+        case let .vibez(chat): try await chat.sendSocialImage(room: rid, root: threadId, operation: operation, title: item.title, url: item.url)
         case let .rocketChat(chat): try await chat.sendSocialImage(room: rid, root: threadId, operation: operation, title: item.title, url: item.url, giphyId: gif ? item.id : nil, query: query)
         }
         try socialGuard()

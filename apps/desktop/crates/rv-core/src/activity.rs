@@ -88,7 +88,7 @@ pub fn gather(rows: Vec<MessageRow>, me: Me<'_>, my_threads: &HashSet<String>, r
             }
             let mine = message.author_id == me.id;
             if !mine {
-                // RocketVibe's tree renders `@here` as text: the words count too.
+                // Vibez's tree renders `@here` as text: the words count too.
                 let text = message.text.as_deref();
                 let mentioned = crate::notify::mentions(message.md.as_deref(), text, me.username)
                     || crate::notify::names_in_text(text, &["all", "here"]);
@@ -344,7 +344,7 @@ mod tests {
         let mut file_reply = message("p2", "c1", 51, "bob", "");
         file_reply.text = None;
         file_reply.thread_id = Some("root-mine".into());
-        // A RocketVibe tree: `@here` came out as plain text.
+        // A Vibez tree: `@here` came out as plain text.
         let mut here = message("p3", "c1", 52, "bob", "@here standup");
         here.md = Some(r#"[{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"@here standup"}]}]"#.into());
         let threads = HashSet::from(["root-mine".to_owned()]);

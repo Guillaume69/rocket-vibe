@@ -2,13 +2,13 @@
 //! operations both sessions offer, behind one type the UIs hold instead of
 //! choosing between `Session` and `NativeSession` at every call. `Legacy` is
 //! Rocket.Chat, Mattermost or kChat (`Session`, which picks among them through
-//! its own `Backend`); `Native` is the RocketVibe server (`NativeSession`);
+//! its own `Backend`); `Native` is the Vibez server (`NativeSession`);
 //! `WhatsApp` is a linked WhatsApp device driven by a local helper
 //! (`WaSession`), with no server of ours and far fewer features.
 //!
 //! Errors come back as `RestError`, the native ones through
 //! `native::rest_error`, which is what the UIs already display. What only one
-//! kind of server has (MLS on the RocketVibe server, Rocket.Chat's E2EE,
+//! kind of server has (MLS on the Vibez server, Rocket.Chat's E2EE,
 //! bots, workflows, voice) stays on its session: reach it with `legacy()` or
 //! `native()`.
 
@@ -31,11 +31,11 @@ use crate::whatsapp_session::{Notice, WaSession};
 pub enum ChatEvent {
     /// These rooms or messages changed: Rocket.Chat, Mattermost and kChat say which.
     Changed(Change),
-    /// Something changed without saying what (the RocketVibe server outside
+    /// Something changed without saying what (the Vibez server outside
     /// its live traffic), or changes were missed: read everything again. Arrives in
     /// bursts; a UI may fold a burst into one reload.
     Reload,
-    /// RocketVibe live traffic that touched only these rooms' rows and
+    /// Vibez live traffic that touched only these rooms' rows and
     /// messages: a UI showing none of them refreshes its room list alone.
     /// Arrives in bursts like `Reload`, and folds with it.
     Rooms(Vec<String>),

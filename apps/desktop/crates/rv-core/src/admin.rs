@@ -1,9 +1,9 @@
 //! Server administration for both providers, in one model both desktop UIs
 //! draw: the dashboard's overview, users, rooms, and the moderation of
-//! members' reports. Rocket.Chat is read over REST (`rc`), RocketVibe through
+//! members' reports. Rocket.Chat is read over REST (`rc`), Vibez through
 //! `NativeSession`. Reports themselves are open to every member.
 //!
-//! Admin rights never open a private conversation: a RocketVibe admin reads
+//! Admin rights never open a private conversation: a Vibez admin reads
 //! a message only through an open report, which its reporter disclosed.
 
 pub use rv_protocol::admin::{AccountInvitation, IssuedAccountInvitation};
@@ -21,7 +21,7 @@ pub const REASON_MAX: usize = 1000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Product {
     RocketChat,
-    RocketVibe,
+    Vibez,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -67,7 +67,7 @@ pub struct UserCounts {
 }
 
 /// Rooms, or messages, by type. Discussions are Rocket.Chat's, encrypted
-/// ones RocketVibe's (also counted under their type).
+/// ones Vibez's (also counted under their type).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct KindCounts {
     pub total: u64,
@@ -85,7 +85,7 @@ pub struct UploadCounts {
 }
 
 /// What is waiting in moderation; None when the server would not say.
-/// Rocket.Chat counts the authors of reported messages, RocketVibe the
+/// Rocket.Chat counts the authors of reported messages, Vibez the
 /// messages.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ReportCounts {
@@ -101,11 +101,11 @@ pub struct Overview {
     /// `MongoDB 8.0.32 (wiredTiger)`, `PostgreSQL 18.1`.
     pub database: String,
     pub migration: Option<String>,
-    /// `Node v22.22.3`; none on RocketVibe.
+    /// `Node v22.22.3`; none on Vibez.
     pub runtime: Option<String>,
     pub instance_id: Option<String>,
     /// When the figures were computed: Rocket.Chat's statistics are a
-    /// snapshot (RFC 3339); None when they are live (RocketVibe).
+    /// snapshot (RFC 3339); None when they are live (Vibez).
     pub as_of: Option<String>,
     pub users: UserCounts,
     pub rooms: KindCounts,
@@ -120,7 +120,7 @@ pub struct AdminUser {
     pub id: String,
     pub username: String,
     pub name: String,
-    /// The photo's version: Rocket.Chat's `avatarETag`, RocketVibe's avatar
+    /// The photo's version: Rocket.Chat's `avatarETag`, Vibez's avatar
     /// file id. None: no photo (draw the initials, never the bare URL).
     pub avatar: Option<String>,
     pub admin: bool,
@@ -130,7 +130,7 @@ pub struct AdminUser {
     pub status: Presence,
     pub created_at: Option<String>,
     pub last_seen_at: Option<String>,
-    /// RocketVibe's account revision, expected back by every change.
+    /// Vibez's account revision, expected back by every change.
     pub revision: Option<String>,
 }
 
@@ -187,10 +187,10 @@ pub struct AdminRoom {
     pub members: u64,
     pub messages: u64,
     pub created_at: Option<String>,
-    /// RocketVibe only: Rocket.Chat's admin list does not carry it.
+    /// Vibez only: Rocket.Chat's admin list does not carry it.
     pub last_message_at: Option<String>,
     pub read_only: bool,
-    /// RocketVibe only: Rocket.Chat's admin list does not carry it.
+    /// Vibez only: Rocket.Chat's admin list does not carry it.
     pub encrypted: bool,
     pub direct_members: Vec<UserLite>,
 }
@@ -214,7 +214,7 @@ pub struct ReportedMessage {
     pub message_id: String,
     pub room: ReportRoom,
     pub author: UserLite,
-    /// RocketVibe: the author's account revision, for deactivating them;
+    /// Vibez: the author's account revision, for deactivating them;
     /// None for a deleted author and on Rocket.Chat.
     pub author_revision: Option<String>,
     /// Empty when `encrypted` (show "Encrypted message") or `deleted`.
@@ -225,7 +225,7 @@ pub struct ReportedMessage {
     pub deleted: bool,
     pub count: u64,
     pub latest_at: String,
-    /// Already known (RocketVibe sends them with the list); otherwise read
+    /// Already known (Vibez sends them with the list); otherwise read
     /// with `Admin::message_reports` when the item opens.
     pub reports: Option<Vec<Report>>,
 }
@@ -355,16 +355,16 @@ pub fn update_available(current: &str, latest: &str) -> bool {
 
 /// The newest published server version: the highest Rocket.Chat release
 /// (`releases/latest` can name a backport), or the highest `vibez-v` tag of
-/// RocketVibe's repository. None when unknown.
+/// Vibez's repository. None when unknown.
 pub async fn latest_version(product: Product) -> Option<String> {
     let releases = match product {
         Product::RocketChat => "https://api.github.com/repos/RocketChat/Rocket.Chat/releases?per_page=30".to_owned(),
-        Product::RocketVibe => format!("https://api.github.com/repos/{}/releases?per_page=50", crate::update::REPO),
+        Product::Vibez => format!("https://api.github.com/repos/{}/releases?per_page=50", crate::update::REPO),
     };
     let list = crate::update::github_json(&releases).await.ok()?;
     match product {
         Product::RocketChat => highest_release(&list, ""),
-        Product::RocketVibe => latest_server_tag(&list),
+        Product::Vibez => latest_server_tag(&list),
     }
 }
 
@@ -389,18 +389,18 @@ pub fn latest_server_tag(releases: &Value) -> Option<String> {
     highest_release(releases, "vibez-")
 }
 
-/// The largest emoji image both servers take (RocketVibe's limit).
+/// The largest emoji image both servers take (Vibez's limit).
 pub const EMOJI_BYTES: usize = 1024 * 1024;
 
 /// A custom emoji as the administration lists it. `image` is what
 /// `Session::custom_emoji` gives for its name: a Rocket.Chat path or a
-/// RocketVibe `rv-emoji:` handle, loaded by the session's media cache.
+/// Vibez `rv-emoji:` handle, loaded by the session's media cache.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdminEmoji {
     pub id: String,
     pub name: String,
     pub aliases: Vec<String>,
-    /// RocketVibe's revision, which a removal names; empty on Rocket.Chat.
+    /// Vibez's revision, which a removal names; empty on Rocket.Chat.
     pub revision: String,
     pub image: String,
 }
@@ -442,7 +442,7 @@ impl Admin {
     pub fn product(&self) -> Product {
         match self {
             Self::RocketChat(_) => Product::RocketChat,
-            Self::Native(_) => Product::RocketVibe,
+            Self::Native(_) => Product::Vibez,
         }
     }
 
@@ -486,7 +486,7 @@ impl Admin {
 
     /// Whether this account administers the server, asked afresh each time
     /// (a right granted or removed meanwhile counts): Rocket.Chat's `admin`
-    /// role; RocketVibe's account permissions, on a server offering the
+    /// role; Vibez's account permissions, on a server offering the
     /// administration. False when it could not be asked.
     pub async fn is_admin(&self) -> bool {
         match self {
@@ -567,7 +567,7 @@ impl Admin {
 
     /// Deletes an account. Rocket.Chat handles its messages by its own
     /// "Message erasure" setting, deletes its direct conversations, and
-    /// first answers `user-last-owner` like a deactivation; RocketVibe keeps
+    /// first answers `user-last-owner` like a deactivation; Vibez keeps
     /// the messages, by a deleted user.
     pub async fn delete_user(&self, user: &AdminUser, relinquish: bool) -> Result<(), AdminError> {
         self.not_me(&user.id)?;
@@ -632,7 +632,7 @@ impl Admin {
     }
 
     /// Rocket.Chat: deletes all the author's reported messages and closes
-    /// their reports (the moderation's own action). RocketVibe refuses it:
+    /// their reports (the moderation's own action). Vibez refuses it:
     /// its moderation deletes one message.
     pub async fn delete_author_reported_messages(&self, item: &ReportedMessage) -> Result<(), AdminError> {
         match self {
@@ -712,7 +712,7 @@ impl Admin {
 
     /// The server's icon can be changed from the app: Rocket.Chat always (its
     /// `favicon_192` asset, `manage-assets` being an administrator's),
-    /// RocketVibe when it announces `instance_icon`.
+    /// Vibez when it announces `instance_icon`.
     pub fn icon_supported(&self) -> bool {
         match self {
             Self::RocketChat(_) => true,
@@ -722,7 +722,7 @@ impl Admin {
 
     /// Sets the server's icon from a square PNG of
     /// `server_icon::RC_SIDE` pixels (Rocket.Chat refuses any other size;
-    /// RocketVibe crops and scales by itself), or removes it with `None`.
+    /// Vibez crops and scales by itself), or removes it with `None`.
     pub async fn set_icon(&self, png: Option<Vec<u8>>) -> Result<(), AdminError> {
         match self {
             Self::RocketChat(s) => match png {
@@ -742,7 +742,7 @@ impl Admin {
     }
 
     /// The server lets this administrator manage custom emoji: Rocket.Chat
-    /// always (an administrator holds `manage-emoji`), RocketVibe when it
+    /// always (an administrator holds `manage-emoji`), Vibez when it
     /// announces `custom_emoji_admin`.
     pub fn emoji_supported(&self) -> bool {
         match self {
@@ -861,7 +861,7 @@ fn room_type(kind: &rv_protocol::RoomKind) -> RoomType {
 pub(crate) fn native_overview(o: &rv_protocol::admin::AdminOverview, now: chrono::DateTime<chrono::Utc>) -> Overview {
     let started = chrono::DateTime::parse_from_rfc3339(&o.started_at).ok();
     Overview {
-        product: Product::RocketVibe,
+        product: Product::Vibez,
         version: o.server_version.clone(),
         uptime_seconds: started.and_then(|s| u64::try_from((now - s.with_timezone(&chrono::Utc)).num_seconds()).ok()),
         database: format!("PostgreSQL {}", o.postgres_version),
@@ -1437,7 +1437,7 @@ mod tests {
             serde_json::from_value(fixture()["administration"]["overview"].clone()).unwrap();
         let now = chrono::DateTime::parse_from_rfc3339("2026-10-07T09:00:00+00:00").unwrap().to_utc();
         let o = native_overview(&overview, now);
-        assert_eq!((o.product, o.version.as_str(), o.uptime_seconds), (Product::RocketVibe, "0.1.0", Some(3600)));
+        assert_eq!((o.product, o.version.as_str(), o.uptime_seconds), (Product::Vibez, "0.1.0", Some(3600)));
         assert_eq!((o.database.as_str(), o.as_of.as_deref()), ("PostgreSQL 18.1", None));
         assert_eq!((o.users.admins, o.rooms.encrypted, o.rooms.discussions), (Some(2), Some(1), None));
         assert_eq!((o.uploads.bytes, o.reports.messages), (48211904, Some(1)));

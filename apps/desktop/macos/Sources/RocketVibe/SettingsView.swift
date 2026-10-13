@@ -240,7 +240,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Rocket.Chat: my E2E key, locked or not; RocketVibe: this device's encryption.
+    /// Rocket.Chat: my E2E key, locked or not; Vibez: this device's encryption.
     @ViewBuilder var encryption: some View {
         if app.chat != nil {
             Section(L("e2e.status")) {
@@ -366,7 +366,7 @@ struct NotificationPreference: View {
     }
 }
 
-/// Do not disturb on a RocketVibe account (`quiet_hours`, `muted_until`): the
+/// Do not disturb on a Vibez account (`quiet_hours`, `muted_until`): the
 /// server holds push and call rings back, and this app's notifications follow
 /// (`NativeSession::quiet_now` in rv-core).
 struct DoNotDisturbSection: View {
@@ -425,7 +425,7 @@ struct DoNotDisturbSection: View {
     private func save() { Task { await model.setQuietHours(enabled: true, from: from, to: to) } }
 }
 
-/// Read receipts on a RocketVibe account (`share_read_receipts`), both ways:
+/// Read receipts on a Vibez account (`share_read_receipts`), both ways:
 /// off, nobody sees how far I read and I see nobody's.
 struct PrivacySection: View {
     let model: MyProfileModel

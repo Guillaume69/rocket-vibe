@@ -247,7 +247,7 @@ final class NativeProviderTests: XCTestCase {
         XCTAssertNil(app.chat)
         let native = try XCTUnwrap(app.native)
         let account = try XCTUnwrap(app.account)
-        XCTAssertEqual(account.genre, "rocketvibe")
+        XCTAssertEqual(account.genre, "vibez")
         try await until(diagnostics: { "Native connection: \(native.status())" }) { app.connection == .online }
 
         let devices = DevicesModel(app: app)

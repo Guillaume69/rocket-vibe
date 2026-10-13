@@ -179,7 +179,7 @@ struct ProfileView: View {
         SheetFrame(title: L("info.profile")) {
             Form {
                 if let p = person,shownAccount==app.sessionId,app.provider?.supportsProfiles==true {
-                    // A RocketVibe account an administrator deleted: its name only.
+                    // A Vibez account an administrator deleted: its name only.
                     let deleted = app.deletedAccount(username: p.username)
                     HStack(spacing: 12) {
                         ZStack(alignment: .bottomTrailing) {

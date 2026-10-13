@@ -61,7 +61,7 @@ impl OpenRoom {
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
 /// A row of the room list: a section title, or a room.
-/// A RocketVibe room carries its peer's presence, read when its row is
+/// A Vibez room carries its peer's presence, read when its row is
 /// bound, so that a change of it replaces the row.
 #[derive(PartialEq)]
 enum RoomItem {
@@ -802,7 +802,7 @@ impl ChatPage {
             let owner = weak.upgrade()?;
             let (session, path) = if let Some(native) = owner.native_session() {
                 let path = native.custom_emoji(code)?;
-                (crate::media::Provider::RocketVibe(native), path)
+                (crate::media::Provider::Vibez(native), path)
             } else {
                 let legacy = owner.session()?;
                 let path = legacy.custom_emoji(code)?;
@@ -894,7 +894,7 @@ impl ChatPage {
                     }
                 }),
             )];
-            // Creating a room: RocketVibe and Rocket.Chat servers.
+            // Creating a room: Vibez and Rocket.Chat servers.
             if this.creates_channels() {
                 items.push((
                     "list-add-symbolic",
@@ -1253,7 +1253,7 @@ impl ChatPage {
             RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::OpenDiscussion(drid) => self.open_discussion(&drid),
             RowEvent::Profile(username) => self.show_profile(&username, false),
-            // RocketVibe call rows only.
+            // Vibez call rows only.
             RowEvent::VoiceCall { .. } => {}
             RowEvent::JoinCall(call_id) => {
                 let weak = Rc::downgrade(self);
@@ -1917,7 +1917,7 @@ impl ChatPage {
     }
 
     /// Search across rooms, on the device: a hit opens its room at the
-    /// message, or the thread of a reply. Not on RocketVibe servers, whose
+    /// message, or the thread of a reply. Not on Vibez servers, whose
     /// private conversations keep their own search per room.
     pub fn open_local_search(self: &Rc<Self>) -> Option<adw::Dialog> {
         if self.native_session().is_some() || self.whatsapp_session().is_some() {
@@ -2397,13 +2397,13 @@ impl ChatPage {
         );
     }
 
-    /// Whether this account creates channels from the app: a RocketVibe
+    /// Whether this account creates channels from the app: a Vibez
     /// server, or Rocket.Chat (`Session::channels_creatable`).
     fn creates_channels(&self) -> bool {
         self.native_session().is_some() || self.session().is_some_and(|s| s.channels_creatable())
     }
 
-    /// "Create a channel": the RocketVibe server's dialog, or Rocket.Chat's
+    /// "Create a channel": the Vibez server's dialog, or Rocket.Chat's
     /// (`new_channel.rs`); the new room opens.
     fn create_channel(self: &Rc<Self>) {
         if self.native_session().is_some() {
@@ -2413,7 +2413,7 @@ impl ChatPage {
         let Some(session) = self.session().filter(|s| s.channels_creatable()) else { return };
         let weak = Rc::downgrade(self);
         // The room opens unless the user went elsewhere meanwhile (another
-        // room, another account), as the RocketVibe server's dialog does.
+        // room, another account), as the Vibez server's dialog does.
         let create: crate::new_channel::Create = Rc::new(move |name, private, _voice| {
             let navigation = weak.upgrade().map(|this| {
                 this.user_navigation();
@@ -2571,7 +2571,7 @@ impl ChatPage {
             return;
         }
         let provider = if let Some(s) = self.native_session() {
-            crate::media::Provider::RocketVibe(s)
+            crate::media::Provider::Vibez(s)
         } else if let Some(s) = self.session() {
             crate::media::Provider::RocketChat(s)
         } else {
@@ -2733,7 +2733,7 @@ impl ChatPage {
     /// what they show also depends on Rocket.Chat presence, photos and the
     /// E2E lock. Otherwise only the rows between the unchanged head and tail
     /// of the list are replaced, so a message moving one room up rebuilds a
-    /// few rows, not all; a RocketVibe row's presence counts as a change.
+    /// few rows, not all; a Vibez row's presence counts as a change.
     fn load_rooms(&self, force: bool) {
         let started = std::time::Instant::now();
         let native = self.native_session();
@@ -3242,7 +3242,7 @@ impl ChatPage {
             return;
         }
         if self.native_session().is_some() {
-            // A RocketVibe room pages back through its history until it is there.
+            // A Vibez room pages back through its history until it is there.
             self.list.reveal(id);
             let (this, id) = (self.clone(), id.to_owned());
             glib::spawn_future_local(async move {

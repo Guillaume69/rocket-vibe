@@ -98,7 +98,7 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     let preview = rv_core::content::link_previews(row.urls.as_deref(), 3).remove(0);
     let integration = attachment_card(&rv_core::content::cards(row.attachments.as_deref()).remove(0));
     assert!(integration.has_css_class("attachment-card"));
-    let provider = media::Provider::RocketVibe(session.clone());
+    let provider = media::Provider::Vibez(session.clone());
     let card = link_preview_provider(provider.clone(), &preview);
     // An article card comes wrapped in the clamp that fits it to its natural width.
     let inner = card.downcast_ref::<adw::Clamp>().and_then(|c| c.child()).unwrap_or_else(|| card.clone());

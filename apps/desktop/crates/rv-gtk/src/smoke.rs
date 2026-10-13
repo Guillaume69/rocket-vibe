@@ -25,7 +25,7 @@
 //!   RV_SMOKE_GIPHY=1      types /giphy, selects, searches live, cancels and sends;
 //!                          `hold` leaves the refreshed selection for a screenshot
 //!   RV_SMOKE_FILES=1       fetches every file attached in the room to the local cache
-//!   RV_SMOKE_JOIN_VOICE=<n>  RocketVibe: joins the room's voice session as the header's call
+//!   RV_SMOKE_JOIN_VOICE=<n>  Vibez: joins the room's voice session as the header's call
 //!                          button does (ringing in a direct room), then checks it connected
 //!                          with n people in it
 //!   RV_SMOKE_VIDEO=1         with RV_SMOKE_JOIN_VOICE: then turns the camera on and shares the
@@ -68,7 +68,7 @@
 //!                          notification's click must open the second account on that room
 //!   RV_SMOKE_E2E=<password>  unlocks encrypted rooms (a wrong one first must be refused)
 //!   RV_SMOKE_VOICE=1       records two seconds (RV_AUDIO_SOURCE picks the source) and sends them
-//!   RV_SMOKE_SCHEDULE=<tag>  RocketVibe: types "scheduled <tag>", "Send later" must show; schedules
+//!   RV_SMOKE_SCHEDULE=<tag>  Vibez: types "scheduled <tag>", "Send later" must show; schedules
 //!                          it "In 1 hour": the field clears and the chip shows; cancels it from
 //!                          the list's data, then the list read again no longer has it
 //!                          (RV_SMOKE_SCHEDULE_HOLD=1: left scheduled, the list open, for a screenshot)
@@ -1309,11 +1309,11 @@ async fn switcher_checks(
     check("Enter opens it", chat.current_rid().as_deref() == Some(to.rid.as_str()), chat.current_rid());
 }
 
-/// "Send later" in a RocketVibe room: offered with text, scheduling clears the
+/// "Send later" in a Vibez room: offered with text, scheduling clears the
 /// field and shows the chip; cancelled, the server's list no longer has it.
 fn schedule_checks(chat: std::rc::Rc<crate::chat::ChatPage>, rid: String, tag: String) {
     let Some(session) = chat.native_session() else {
-        check("schedule: a RocketVibe session", false, "none");
+        check("schedule: a Vibez session", false, "none");
         return;
     };
     let composer = chat.composer_rc();

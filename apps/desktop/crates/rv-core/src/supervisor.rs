@@ -4,7 +4,7 @@
 //! The supervisor holds one `Chat` per account (`key`): the open one, which
 //! the UI also listens to, and the others in the background. Each account's
 //! session keeps its own socket and reconnects on its own (Rocket.Chat's DDP,
-//! Mattermost's or kChat's socket, the RocketVibe live socket); a session that
+//! Mattermost's or kChat's socket, the Vibez live socket); a session that
 //! could not even start is started again with a back-off. A background
 //! account subscribes to nothing more than its account-wide streams: rooms are
 //! opened only on screen.
@@ -88,7 +88,7 @@ pub fn from_account(mut incoming: Incoming, info: &SessionInfo) -> Incoming {
 /// Opens an account's session; called inside the runtime.
 pub type Starter = Arc<dyn Fn(&SessionInfo) -> Result<Chat, String> + Send + Sync>;
 
-/// A RocketVibe direct call ringing for me.
+/// A Vibez direct call ringing for me.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VoiceCall {
     pub id: String,
@@ -102,7 +102,7 @@ pub enum Notice {
     Incoming(Incoming),
     /// The Rocket.Chat or kChat call ringing on the account, or none any more.
     Call(Option<IncomingCall>),
-    /// The RocketVibe voice ring for me, or none any more.
+    /// The Vibez voice ring for me, or none any more.
     Voice(Option<VoiceCall>),
     /// Its rooms' unread state, as the app's badge counts it.
     Unread(Badge),
@@ -160,7 +160,7 @@ pub fn badge(chat: &Chat) -> Badge {
     }
 }
 
-/// The voice ring waiting for my answer on a RocketVibe account.
+/// The voice ring waiting for my answer on a Vibez account.
 pub fn voice_call(session: &crate::native::NativeSession) -> Option<VoiceCall> {
     let me = &session.info.user_id;
     session.rings().into_iter().find(|r| &r.callee.id == me && r.state == rv_protocol::voice::RingState::Ringing).map(

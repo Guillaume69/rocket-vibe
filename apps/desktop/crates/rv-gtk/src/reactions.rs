@@ -34,16 +34,16 @@ fn custom_image(code: &str) -> Option<gtk::Widget> {
 }
 
 /// What a server takes as a reaction: Rocket.Chat only standard emoji it has
-/// a name for (`rv_core::emoji::rc_reaction`), RocketVibe any standard one.
+/// a name for (`rv_core::emoji::rc_reaction`), Vibez any standard one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Server {
     RocketChat,
-    RocketVibe,
+    Vibez,
 }
 
 impl Server {
     fn takes(self, code: &str) -> bool {
-        self == Server::RocketVibe || rv_core::emoji::rc_reaction(code).is_some()
+        self == Server::Vibez || rv_core::emoji::rc_reaction(code).is_some()
     }
 }
 

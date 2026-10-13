@@ -132,19 +132,19 @@ pub enum ServerKind {
     #[default]
     Auto,
     RocketChat,
-    RocketVibe,
+    Vibez,
     Mattermost,
     /// Infomaniak's Mattermost: signed in with a token, never a password.
     Kchat,
 }
 
 /// `probe` under the user's choice: Rocket.Chat never asks for native
-/// discovery, RocketVibe requires it (`not_native` otherwise).
+/// discovery, Vibez requires it (`not_native` otherwise).
 pub async fn probe_as(base: &url::Url, kind: ServerKind) -> Result<Option<Discovery>, Error> {
     match kind {
         ServerKind::Auto => probe(base).await,
         ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat => Ok(None),
-        ServerKind::RocketVibe => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
+        ServerKind::Vibez => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
     }
 }
 
@@ -160,7 +160,7 @@ pub async fn probe(base: &url::Url) -> Result<Option<Discovery>, Error> {
         .send()
         .await
         .map_err(|_| Error::Protocol("discovery_unavailable"))?;
-    // Only a 2xx naming the product identifies a RocketVibe server. Anything
+    // Only a 2xx naming the product identifies a Vibez server. Anything
     // else falls back to the Rocket.Chat probe, which has its own proofs: a
     // reverse proxy may well forbid `/.well-known/` (chat.barrut.me answers
     // 403), and a refusal used to hide the Rocket.Chat behind it.
@@ -280,7 +280,7 @@ impl SessionInfo {
             }
             None => (None, None),
             Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
-            Some(Value::String(kind)) if kind == "rocketvibe" => (
+            Some(Value::String(kind)) if kind == "vibez" => (
                 Some(Identity { instance_id: field("nativeInstanceId")?, data_epoch: field("nativeDataEpoch")? }),
                 None,
             ),
@@ -301,13 +301,13 @@ impl SessionInfo {
             mattermost,
         })
     }
-    /// `rocketchat`, `rocketvibe`, `mattermost`, `kchat` or `whatsapp`.
+    /// `rocketchat`, `vibez`, `mattermost`, `kchat` or `whatsapp`.
     pub fn genre(&self) -> &'static str {
         if crate::whatsapp::is_whatsapp(self) {
             return "whatsapp";
         }
         match (&self.native, self.mattermost) {
-            (Some(_), _) => "rocketvibe",
+            (Some(_), _) => "vibez",
             (None, Some(flavor)) => flavor.genre(),
             (None, None) => "rocketchat",
         }

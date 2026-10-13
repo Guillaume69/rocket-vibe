@@ -666,7 +666,7 @@ pub fn call(call_id: Option<&str>, on_event: OnRowEvent) -> gtk::Widget {
     card.upcast()
 }
 
-/// A RocketVibe direct call's row (`rv-call-<state>`): its outcome and, once
+/// A Vibez direct call's row (`rv-call-<state>`): its outcome and, once
 /// over, how long it lasted. A call still going is joined, one that ended is
 /// called back (`joinable`: this installation carries voice); a row without
 /// an outcome (`rv-call`, or an older `videoconf`) has nothing to join.

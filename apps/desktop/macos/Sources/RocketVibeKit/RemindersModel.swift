@@ -7,25 +7,25 @@ extension ChatProvider {
     func setReminder(_ draft: ReminderDraft, due: Int64) throws -> String {
         switch self {
         case let .rocketChat(chat): return try chat.setReminder(draft: draft, due: due)
-        case let .rocketVibe(chat): return try chat.setReminder(draft: draft, due: due)
+        case let .vibez(chat): return try chat.setReminder(draft: draft, due: due)
         }
     }
     func reminder(_ messageId: String) -> ReminderItem? {
         switch self {
         case let .rocketChat(chat): return chat.reminder(messageId: messageId)
-        case let .rocketVibe(chat): return chat.reminder(messageId: messageId)
+        case let .vibez(chat): return chat.reminder(messageId: messageId)
         }
     }
     func reminders() -> [ReminderItem] {
         switch self {
         case let .rocketChat(chat): return chat.reminders()
-        case let .rocketVibe(chat): return chat.reminders()
+        case let .vibez(chat): return chat.reminders()
         }
     }
     func cancelReminder(_ messageId: String) throws -> String {
         switch self {
         case let .rocketChat(chat): return try chat.cancelReminder(messageId: messageId)
-        case let .rocketVibe(chat): return try chat.cancelReminder(messageId: messageId)
+        case let .vibez(chat): return try chat.cancelReminder(messageId: messageId)
         }
     }
 }

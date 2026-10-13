@@ -210,7 +210,7 @@ impl Client {
         on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await.into()
     }
 
-    /// Whether the address is a RocketVibe server, under the user's choice of kind.
+    /// Whether the address is a Vibez server, under the user's choice of kind.
     pub async fn is_native_server(&self, server: String, kind: crate::model::ServerChoice) -> Result<bool, RvError> {
         let url =
             rv_core::session::normalize_server(&server).ok_or_else(|| RvError::local("invalid server address"))?;
@@ -307,7 +307,7 @@ pub(crate) fn open_native(
     let (session, opening) = match supervisor.open_counted(&info).map_err(RvError::local)? {
         (rv_core::provider::Chat::Native(session), opening) => (session, opening),
         (rv_core::provider::Chat::Legacy(_) | rv_core::provider::Chat::WhatsApp(_), _) => {
-            return Err(RvError::local("not a RocketVibe account"));
+            return Err(RvError::local("not a Vibez account"));
         }
     };
     Ok(Arc::new(NativeChat {

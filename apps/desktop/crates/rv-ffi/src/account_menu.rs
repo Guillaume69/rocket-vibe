@@ -94,7 +94,7 @@ impl Client {
     }
 
     /// Signs out an account that is not open (the rail's "Log out"): told
-    /// to its server, then forgotten with its cache, unmuted. A RocketVibe
+    /// to its server, then forgotten with its cache, unmuted. A Vibez
     /// refusal keeps it. The open account signs out through its own chat.
     pub async fn sign_out_account(&self, account: String) -> Result<(), RvError> {
         let Some(chat) = self.accounts.chat(&account) else {

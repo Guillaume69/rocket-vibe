@@ -20,7 +20,7 @@ type Waiter = Box<dyn FnOnce(&gdk::Texture)>;
 #[derive(Clone)]
 pub enum Provider {
     RocketChat(Arc<Session>),
-    RocketVibe(Arc<rv_core::native::NativeSession>),
+    Vibez(Arc<rv_core::native::NativeSession>),
     /// Attachments the helper fetches and decrypts on demand (`wa-media:<id>`).
     WhatsApp(Arc<rv_core::whatsapp_session::WaSession>),
 }
@@ -61,11 +61,11 @@ impl Provider {
             Self::RocketChat(s) => {
                 format!("{}:{path}", rv_core::media::account_cache_key(&s.info.base_url, &s.info.user_id))
             }
-            Self::RocketVibe(s) if path.starts_with("rv-preview:") => {
+            Self::Vibez(s) if path.starts_with("rv-preview:") => {
                 format!("{}:{}:{}:{path}", s.info.base_url, s.info.user_id, s.preview_scope(path).unwrap_or_default())
             }
             Self::WhatsApp(s) => format!("{}:{}:{path}", s.info.base_url, s.info.user_id),
-            Self::RocketVibe(s) => format!(
+            Self::Vibez(s) => format!(
                 "{}:{}:{:?}:{}:{}:{}:{path}",
                 s.info.base_url,
                 s.info.user_id,
@@ -80,7 +80,7 @@ impl Provider {
         match self {
             Self::RocketChat(s) => !s.is_closed(),
             Self::WhatsApp(s) => !s.is_closed(),
-            Self::RocketVibe(s) => {
+            Self::Vibez(s) => {
                 if path.starts_with("rv-preview:") {
                     s.preview_current(path)
                 } else if path.starts_with("rv-emoji:") {
@@ -100,7 +100,7 @@ impl Provider {
                 let bytes = tokio::fs::read(file).await.ok()?;
                 Some(Arc::new(rv_core::media::Media { bytes, content_type: String::new() }))
             }
-            Self::RocketVibe(s) => {
+            Self::Vibez(s) => {
                 if path.starts_with("rv-preview:") {
                     s.preview_media(path).await.ok().map(Arc::new)
                 } else if path.starts_with("rv-emoji:") {
@@ -121,7 +121,7 @@ impl Provider {
                     Err(_) => false,
                 }
             }
-            Self::RocketVibe(s) => {
+            Self::Vibez(s) => {
                 if path.starts_with("rv-preview:") {
                     s.download_preview(path, dest).await.is_ok()
                 } else {
@@ -134,7 +134,7 @@ impl Provider {
         match self {
             Self::RocketChat(s) => crate::cards::legacy_local_copy(s.clone(), file.clone()).await,
             Self::WhatsApp(s) => whatsapp_file(s, &file.url).await,
-            Self::RocketVibe(s) => {
+            Self::Vibez(s) => {
                 let (s, path) = (s.clone(), file.url.clone());
                 on_tokio(async move { s.local_file(&path).await.ok() }).await
             }
@@ -179,7 +179,7 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
         return;
     }
     let cache_key = session.key(path);
-    let private_preview = matches!(session, Provider::RocketVibe(_)) && path.starts_with("rv-preview:");
+    let private_preview = matches!(session, Provider::Vibez(_)) && path.starts_with("rv-preview:");
     let cached = if private_preview {
         PREVIEW_TEXTURES.with_borrow_mut(|entries| {
             entries.iter().position(|(key, _)| key == &cache_key).map(|index| {
@@ -189,7 +189,7 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
                 Some(texture)
             })
         })
-    } else if matches!(session, Provider::RocketVibe(_)) {
+    } else if matches!(session, Provider::Vibez(_)) {
         None
     } else {
         TEXTURES.with_borrow(|t| t.get(&cache_key).cloned())

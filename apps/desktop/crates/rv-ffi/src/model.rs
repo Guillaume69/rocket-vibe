@@ -46,7 +46,7 @@ pub struct TwoFactor {
 pub enum ServerChoice {
     Auto,
     RocketChat,
-    RocketVibe,
+    Vibez,
     Mattermost,
     Kchat,
 }
@@ -56,7 +56,7 @@ impl From<ServerChoice> for rv_core::native::ServerKind {
         match choice {
             ServerChoice::Auto => Self::Auto,
             ServerChoice::RocketChat => Self::RocketChat,
-            ServerChoice::RocketVibe => Self::RocketVibe,
+            ServerChoice::Vibez => Self::Vibez,
             ServerChoice::Mattermost => Self::Mattermost,
             ServerChoice::Kchat => Self::Kchat,
         }
@@ -209,7 +209,7 @@ pub struct Room {
     pub read_only: bool,
     pub avatar: Option<String>,
     pub presence: Option<Presence>,
-    /// A voice channel (RocketVibe): selecting it joins its voice session.
+    /// A voice channel (Vibez): selecting it joins its voice session.
     pub voice: bool,
 }
 
@@ -434,9 +434,9 @@ pub struct MessageItem {
     pub thread_id: Option<String>,
     pub pinned: bool,
     pub starred: bool,
-    /// Written by a bot account (RocketVibe): a "BOT" badge beside the name.
+    /// Written by a bot account (Vibez): a "BOT" badge beside the name.
     pub author_bot: bool,
-    /// A form a workflow asks (RocketVibe, RFC 0004): its card and who may answer.
+    /// A form a workflow asks (Vibez, RFC 0004): its card and who may answer.
     pub form: Option<crate::native_workflows::FormItem>,
     pub social: Option<crate::social::SocialItem>,
     /// The name the header shows: the username, or on Mattermost the name
@@ -445,7 +445,7 @@ pub struct MessageItem {
     /// A `discussion-created` message's discussion, drawn as a card
     /// (Rocket.Chat); its name is `param`.
     pub discussion: Option<DiscussionCard>,
-    /// The read receipt under my latest message ("Seen by Bob"), RocketVibe
+    /// The read receipt under my latest message ("Seen by Bob"), Vibez
     /// room timeline only.
     pub seen: Option<String>,
 }

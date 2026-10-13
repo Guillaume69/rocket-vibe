@@ -80,7 +80,7 @@ public final class AppModel {
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
-    /// Voice on a RocketVibe server that offers it, the sidecar shipped.
+    /// Voice on a Vibez server that offers it, the sidecar shipped.
     public private(set) var voice: VoiceModel?
     /// A short message for the window's toast.
     public var notice: String?
@@ -193,8 +193,8 @@ public final class AppModel {
         selectionId = selected
         do {
             let provider: ChatProvider
-            if account.genre == "rocketvibe" {
-                provider = .rocketVibe(try await client.nativeResume(key: account.key))
+            if account.genre == "vibez" {
+                provider = .vibez(try await client.nativeResume(key: account.key))
             } else {
                 provider = .rocketChat(try await client.resume(key: account.key))
             }
@@ -418,7 +418,7 @@ public final class AppModel {
     }
 
     func begin(_ provider: ChatProvider) {
-        if case let .rocketVibe(native) = provider { native.activateAccount() }
+        if case let .vibez(native) = provider { native.activateAccount() }
         end()
         self.provider = provider
         let opened = provider.account()
@@ -1031,7 +1031,7 @@ public final class AppModel {
         }
     }
 
-    /// Whether this account creates channels from the app: a RocketVibe
+    /// Whether this account creates channels from the app: a Vibez
     /// server (`createRoom`) or Rocket.Chat (`createChannel`).
     public var createsChannels: Bool { native != nil || chat?.channelsCreatable() == true }
 
@@ -1071,7 +1071,7 @@ public final class AppModel {
         }
     }
 
-    /// Creates a room on a RocketVibe server (a voice channel with `voice`, which only a
+    /// Creates a room on a Vibez server (a voice channel with `voice`, which only a
     /// server offering voice takes), then opens it once listed. Nil once done, else what
     /// to tell.
     public func createRoom(name: String, private: Bool, voice: Bool) async -> String? {

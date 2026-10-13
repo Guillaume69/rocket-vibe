@@ -53,7 +53,7 @@ pub fn profile_from(base_url: &str, info: &Value, settings: &Value) -> Option<Se
 /// The product name a probe line shows.
 pub fn product(genre: &str) -> &'static str {
     match genre {
-        "rocketvibe" => "RocketVibe",
+        "vibez" => "Vibez",
         "mattermost" => "Mattermost",
         "kchat" => "kChat",
         _ => "Rocket.Chat",
@@ -94,7 +94,7 @@ pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<Ser
     }
     if let Some(native) = crate::native::probe_as(base, kind).await.map_err(crate::native::rest_error)? {
         return Ok(ServerProfile {
-            genre: "rocketvibe".into(),
+            genre: "vibez".into(),
             base_url: base.as_str().trim_end_matches('/').into(),
             version: native.server_version,
             password_login: true,

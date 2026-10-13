@@ -69,7 +69,7 @@ pub struct Person {
     pub local_time: Option<String>,
     pub bio: Option<String>,
     pub avatar: String,
-    /// A RocketVibe bot account; false on Rocket.Chat.
+    /// A Vibez bot account; false on Rocket.Chat.
     pub bot: bool,
     /// The username of the person who owns this bot.
     pub bot_owner: Option<String>,

@@ -353,7 +353,7 @@ struct RoomSections: View {
     let groups: [RoomGroup]
     let collapsed: Set<String>
     let toggle: (String) -> Void
-    /// Channels get a "+" only where a channel can be created (RocketVibe).
+    /// Channels get a "+" only where a channel can be created (Vibez).
     var canCreate = false
     /// The "+" of the Channels and Direct messages headers; none when absent.
     var add: ((RoomSection) -> Void)? = nil

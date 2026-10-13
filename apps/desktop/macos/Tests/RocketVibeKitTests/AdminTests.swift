@@ -17,7 +17,7 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
     var lastOwner: AdminLastOwner?
     /// Rocket.Chat deleting a reported message only with all of its author's.
     var bulkOnly: UInt64?
-    var product_: AdminProduct = .rocketVibe
+    var product_: AdminProduct = .vibez
     /// Nil: a server without bots.
     var userBots_: Bool? = false
 
@@ -50,7 +50,7 @@ final class FakeAdmin: ServerAdminProtocol, @unchecked Sendable {
         try refuse()
         let kinds = AdminKindCounts(total: 3, public: 1, private: 1, direct: 1, discussions: nil, encrypted: 0)
         return AdminOverview(
-            product: .rocketVibe, version: "0.9.0", uptimeSeconds: 90_000, database: "PostgreSQL 18.1", migration: "50",
+            product: .vibez, version: "0.9.0", uptimeSeconds: 90_000, database: "PostgreSQL 18.1", migration: "50",
             runtime: nil, instanceId: "i", users: AdminUserCounts(total: 3, active: 3, deactivated: 0, admins: 1, online: 1, away: 0, busy: 0, offline: 2),
             rooms: kinds, messages: kinds, uploadsCount: 1, uploadsBytes: 2048, reportedMessages: 2, reportedUsers: nil,
             asOf: "2026-10-07T09:00:00Z")
@@ -393,7 +393,7 @@ final class AdminTests: XCTestCase {
         XCTAssertFalse(app.reportsSupported)
         app.startReport(.message("m"))
         XCTAssertNil(app.reporting)
-        XCTAssertFalse(app.deletedAccount(username: "deleted-x"), "only RocketVibe reserves the name")
+        XCTAssertFalse(app.deletedAccount(username: "deleted-x"), "only Vibez reserves the name")
         XCTAssertTrue(deletedUsername(username: "deleted-x"))
     }
 }

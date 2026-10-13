@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import RocketVibeCore
 
-/// The scheduled messages of one room, or of one thread, on a RocketVibe
+/// The scheduled messages of one room, or of one thread, on a Vibez
 /// server (`scheduled_messages`, brain/features/scheduled-messages.md). The
 /// list is the server's: read when the room opens, after each schedule or
 /// cancel, and every minute while the room shows, since a sent one leaves
@@ -50,7 +50,7 @@ public final class ScheduledModel {
 }
 
 extension RoomModel {
-    /// "Send later": a RocketVibe server offering it, in a room that is not
+    /// "Send later": a Vibez server offering it, in a room that is not
     /// end-to-end encrypted (the server never holds its plaintext).
     public var supportsScheduling: Bool {
         active && !room.encrypted && provider.native?.canSchedule(room: room.rid) == true

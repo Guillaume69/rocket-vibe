@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-13
+
 ### Fixed
 
 - A WhatsApp chat read, then given a new message stamped in the same second as the previous one, kept its unread badge: opening it read nothing.
@@ -1232,7 +1234,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...HEAD
+[0.19.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0

@@ -179,7 +179,7 @@ is tracked separately from account acceptance.
 The final Fedora build.sh gate passes formatting, warnings-denied clippy, all 584
 desktop tests and the workspace binary build. Refreshing the core/async artifacts
 clears the observed native-room test crash without application-code changes. An optional
-RV_CARGO_TARGET_DIR lets the standard gates use an external host artifact cache.
+RV_BUILD_TARGET_DIR lets the standard gates use an external host artifact cache.
 
 GTK launches under Xvfb with isolated temporary configuration and no network. The
 smoke checks hidden state through eight icon activations, visibility/persistence on

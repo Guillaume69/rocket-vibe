@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-13
+
 ### Added
 
 - Create a channel or a private group on Rocket.Chat accounts, on GTK and SwiftUI: "Create a channel" in the "+" menu and on the Channels header, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
@@ -1226,7 +1228,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...HEAD
+[0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0

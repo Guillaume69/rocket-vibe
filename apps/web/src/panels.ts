@@ -36,7 +36,6 @@ import { personName, previewText } from "./presentation";
 import { metadataMarkdown } from "./markdown-text";
 import { securitySettings, recentProof } from "./security";
 import { administration, report } from "./admin-actions";
-import packageInfo from "../package.json";
 import {
   sidebarDialog,
   preferencesGroup,
@@ -1839,11 +1838,12 @@ export async function settings(
     );
   host.add("app", phrase("App", "Application"), "app", (page) => {
     const [about, rows] = preferencesGroup(phrase("About", "À propos"));
-    rows.append(actionRow(phrase("Version", "Version"), packageInfo.version));
+    const version = app.info?.server_version ?? "";
+    rows.append(actionRow(phrase("Version", "Version"), version));
     // The browser's stand-in for the desktop's logs folder.
     rows.append(
       actionRow(t("diagnostics"), t("diagnosticsHint"), () =>
-        downloadDiagnostics(packageInfo.version, app.connection),
+        downloadDiagnostics(version, app.connection),
       ),
     );
     page.append(about);

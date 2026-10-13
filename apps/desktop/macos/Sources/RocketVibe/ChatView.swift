@@ -83,6 +83,8 @@ struct ChatView: View {
 /// which keeps polling when Settings > Accounts hides the rail).
 struct ServerRail: View {
     @Environment(AppModel.self) var app
+    /// The account whose "Log out" waits for its confirmation.
+    @State private var leaving: Account?
 
     /// What the rail shows of a server: its host, without `www.`.
     static func host(_ account: Account) -> String {
@@ -92,16 +94,18 @@ struct ServerRail: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ForEach(app.railAccounts, id: \.key) { account in
+            ForEach(Array(app.railAccounts.enumerated()), id: \.element.key) { slot, account in
                 let open = account.key == app.account?.key
                 let host = Self.host(account)
-                // The open account's tile offers its server administration to
-                // an administrator; another one has no menu (a click switches).
-                if open && app.administrator {
-                    tile(account, open: open, host: host)
-                        .contextMenu { Button(L("admin.title")) { app.openAdmin() } }
-                } else {
-                    tile(account, open: open, host: host)
+                // Every tile's menu (`menu`): the open account's administration
+                // for an administrator, mute or unmute, log out last.
+                // A tile dragged onto another takes its place.
+                tile(account, open: open, host: host, slot: slot)
+                    .contextMenu { menu(account, open: open) }
+                .draggable(account.key)
+                .dropDestination(for: String.self) { keys, _ in
+                    guard let moved = keys.first else { return false }
+                    return app.moveRailAccount(moved, onto: account.key)
                 }
             }
             Button { app.showLogin(error: nil) } label: {
@@ -117,9 +121,48 @@ struct ServerRail: View {
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
         .background(Vibe.ink)
+        .task { app.refreshMutes() }
+        .confirmOverlay(
+            isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }),
+            title: leaving.map { L("rail.logout_title", ["server": Self.host($0)]) } ?? "",
+            message: leaving.map { L("rail.logout_body", ["user": $0.username]) },
+            actions: [ModalAction(title: L("rail.logout"), role: .destructive) {
+                if let target = leaving { Task { await app.signOut(target) } }
+            }]
+        )
     }
 
-    func tile(_ account: Account, open: Bool, host: String) -> some View {
+    /// A tile's menu: mute choices, or the mute's end and Unmute; Log out in red, last.
+    @ViewBuilder
+    func menu(_ account: Account, open: Bool) -> some View {
+        if open && app.administrator {
+            Button(L("admin.title")) { app.openAdmin() }
+            Divider()
+        }
+        if app.mutedAccounts.contains(account.key), let mute = app.client.accountMute(account: account.key) {
+            switch mute {
+            case .forever: Text(L("mute.muted"))
+            case let .until(end):
+                Text(L("mute.muted_until", ["when": "\(Formatting.day(end)) \(Formatting.time(end))"]))
+            }
+            Button(L("mute.unmute")) { app.unmute(account) }
+        } else {
+            Menu(L("mute.title")) {
+                ForEach(muteChoices(), id: \.self) { choice in
+                    Button(L(muteChoiceLabel(choice: choice))) { app.mute(account, choice) }
+                }
+            }
+        }
+        Divider()
+        Button(L("rail.logout"), role: .destructive) { leaving = account }
+    }
+
+    /// The Cmd + digit that opens the rail's `slot` (`AppCommands`), for its tooltip.
+    static func shortcut(_ slot: Int) -> String? {
+        railShortcutDigit(slot: UInt32(slot)).map { "⌘\($0)" }
+    }
+
+    func tile(_ account: Account, open: Bool, host: String, slot: Int) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
             Group {
                 // The server's own icon when it has one, else its initial.
@@ -136,16 +179,27 @@ struct ServerRail: View {
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
                 .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
+                .opacity(app.mutedAccounts.contains(account.key) ? 0.6 : 1)
                 .overlay(alignment: .topTrailing) {
-                    if !open && app.unreadAccounts.contains(account.key) {
+                    if !open && app.unreadAccounts.contains(account.key) && !app.mutedAccounts.contains(account.key) {
                         Circle().fill(Vibe.sun).frame(width: 12, height: 12)
                             .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
                             .offset(x: 3, y: -3)
                     }
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if app.mutedAccounts.contains(account.key) {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Vibe.muted)
+                            .padding(3)
+                            .background(Circle().fill(Vibe.ink))
+                            .offset(x: 4, y: 4)
+                    }
+                }
         }
         .buttonStyle(.plain)
-        .help("\(host) · @\(account.username)")
+        .help("\(host) · @\(account.username)" + (Self.shortcut(slot).map { " (\($0))" } ?? ""))
     }
 }
 
@@ -182,6 +236,8 @@ struct RoomListView: View {
     @State var creating = false
     /// Search across rooms, on the device.
     @State var searchingMessages = false
+    /// Every account's mentions, thread replies and reactions (`ActivitySheet`).
+    @State var showingActivity = false
     /// "New message" puts the cursor in the search, which finds people and channels.
     @FocusState var searchFocused: Bool
 
@@ -203,7 +259,7 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.native != nil, add: { section in
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.createsChannels, add: { section in
                     if section == .channels { creating = true } else { searchFocused = true }
                 })
             }
@@ -214,9 +270,13 @@ struct RoomListView: View {
         .searchable(text: $query, placement: .sidebar, prompt: L("spotlight.placeholder"))
         .searchFocused($searchFocused)
         .task(id: query) { await search() }
-        .task(id: app.account?.key) { query = ""; found = []; creating = false }
+        // Another account (Cmd + digit under a sheet): this one's sheets go.
+        .task(id: app.account?.key) {
+            query = ""; found = []; creating = false; searchingMessages = false; showingActivity = false
+        }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
         .modalOverlay(isPresented: $searchingMessages, style: .sheet(width: 520, height: 640)) { LocalSearchSheet() }
+        .modalOverlay(isPresented: $showingActivity, style: .sheet(width: 520, height: 640)) { ActivitySheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -227,6 +287,10 @@ struct RoomListView: View {
                     .help(L(app.railHidden ? "rail.show" : "rail.hide"))
                     Wordmark(size: 21)
                     Spacer()
+                    Button { showingActivity = true } label: { Image(systemName: "bell") }
+                        .buttonStyle(.borderless)
+                        .windowShortcut(KeyboardShortcut("a", modifiers: [.command, .shift]))
+                        .help(L("activity.title") + " (⌘⇧A)")
                     if app.supportsLocalSearch {
                         Button { searchingMessages = true } label: { Image(systemName: "text.magnifyingglass") }
                             .buttonStyle(.borderless)
@@ -235,7 +299,7 @@ struct RoomListView: View {
                     }
                     Menu {
                         Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
-                        if app.native != nil {
+                        if app.createsChannels {
                             Button { creating = true } label: { Label(L("rooms.new_channel"), systemImage: "number") }
                         }
                     } label: {

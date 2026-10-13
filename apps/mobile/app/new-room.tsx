@@ -1,12 +1,16 @@
 /**
- * New room sheet (RocketVibe server), `presentation: 'formSheet'` (declared in
- * `app/_layout.tsx`): a name, private or public, and, when the server offers
- * voice, a voice channel. The idempotent creation lives in NativeChat.
+ * New room sheet, `presentation: 'formSheet'` (declared in `app/_layout.tsx`):
+ * a name, private or public, and, when the server offers voice, a voice channel.
+ * On the RocketVibe server the idempotent creation lives in NativeChat; on
+ * Rocket.Chat it is `actions.createChannel` (a channel or a private group), its
+ * room ingested before navigating so the room screen finds it (best effort: the
+ * stream brings it too). A refusal's sentence is `lib/roomCreation.ts`.
  */
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { creationRefusal } from '../lib/roomCreation.ts';
 import { useT } from '../ui/i18n.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { useSync } from '../ui/sync.tsx';
@@ -20,6 +24,9 @@ export default function NewRoomScreen() {
   const router = useRouter();
   const t = useT();
   const chat = sync.phase === 'ready' ? sync.provider.native?.chat ?? null : null;
+  const rocketChat = sync.phase === 'ready' && chat === null && sync.actions.createChannel !== undefined
+    ? { create: sync.actions.createChannel.bind(sync.actions), engine: sync.engine }
+    : null;
   const voiceOffered = sync.phase === 'ready' && sync.capabilities.voice === true;
 
   const [name, setName] = useState('');
@@ -29,17 +36,25 @@ export default function NewRoomScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const submit = (): void => {
-    if (chat === null || busy || name.trim() === '') return;
+    if ((chat === null && rocketChat === null) || busy || name.trim() === '') return;
     setBusy(true);
     setError(null);
     void (async () => {
       try {
-        const rid = await chat.createRoom(name, privateRoom, voice && voiceOffered);
+        let rid: string;
+        if (chat !== null) rid = await chat.createRoom(name, privateRoom, voice && voiceOffered);
+        else {
+          const created = await rocketChat!.create(name, privateRoom);
+          // The room exists from here on: a failing ingest must not say "couldn't
+          // create" (a retry would then answer "name taken"). Best effort, the
+          // room also arrives by the stream.
+          await rocketChat!.engine.ingestRooms([created.rawRoom]).catch(() => undefined);
+          rid = created.rid;
+        }
         router.back();
         if (!voice) router.push({ pathname: '/room/[rid]', params: { rid } });
       } catch (e) {
-        const code = (e as { code?: unknown })?.code;
-        setError(t(code === 'permission_denied' ? 'newRoom.forbidden' : 'newRoom.failed'));
+        setError(t(creationRefusal(e)));
         setBusy(false);
       }
     })();
@@ -75,7 +90,7 @@ export default function NewRoomScreen() {
       {error !== null && <Text style={[styles.error, { color: c.errorText }]}>{error}</Text>}
       <Tappable
         onPress={submit}
-        disabled={busy || name.trim() === '' || chat === null}
+        disabled={busy || name.trim() === '' || (chat === null && rocketChat === null)}
         android_ripple={{ color: c.ripple }}
         unstable_pressDelay={LIST_PRESS_DELAY}
         style={[styles.button, { backgroundColor: c.accent }, (busy || name.trim() === '') && styles.inactive]}

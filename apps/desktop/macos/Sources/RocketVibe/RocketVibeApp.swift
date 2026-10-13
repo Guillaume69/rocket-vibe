@@ -81,15 +81,17 @@ struct RocketVibeApp: App {
             NSApp.dockTile.badgeLabel = count > 0 ? String(count) : nil
         }
         app.onVoiceCue = { VoiceSounds.shared.cue($0) }
-        app.onVoiceTone = { tone in
-            VoiceSounds.shared.tone(tone)
+        app.onVoiceTone = { [app] tone in
+            // A muted account's call shows in the window only, silently.
+            let muted = tone == .ringtone && app.openMuted
+            VoiceSounds.shared.tone(muted ? nil : tone)
             // A call ringing while the app is behind: the dock bounces.
-            if tone == .ringtone && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
+            if tone == .ringtone && !muted && !NSApp.isActive { NSApp.requestUserAttention(.criticalRequest) }
         }
         app.onCallRing = { [app] call in
             // The voice model owns the tone while a RocketVibe account is shown.
-            if app.voice == nil { VoiceSounds.shared.tone(call == nil ? nil : .ringtone) }
-            guard let call, !NSApp.isActive else {
+            if app.voice == nil { VoiceSounds.shared.tone(call == nil || app.openMuted ? nil : .ringtone) }
+            guard let call, !NSApp.isActive, !app.openMuted else {
                 notifier.withdrawCall()
                 return
             }
@@ -213,6 +215,17 @@ struct AppCommands: Commands {
             // Not over the settings or the administration, which cover the rooms.
             Button(L("switcher.title") + "…") { if !app.panelShown && app.account != nil { app.switching = true } }
                 .keyboardShortcut("k", modifiers: .command)
+            // Cmd + 1 to 9 opens the rail's first nine accounts, Cmd + 0 the
+            // tenth (GTK: Ctrl), hidden rail included; not over a panel.
+            Divider()
+            ForEach(Array(app.railAccounts.prefix(10).enumerated()), id: \.element.key) { slot, account in
+                if let digit = railShortcutDigit(slot: UInt32(slot)), let key = String(digit).first {
+                    Button("\(ServerRail.host(account)) · @\(account.username)") {
+                        if !app.panelShown && app.account != nil { Task { await app.openRailSlot(slot) } }
+                    }
+                    .keyboardShortcut(KeyEquivalent(key), modifiers: .command)
+                }
+            }
         }
     }
 }

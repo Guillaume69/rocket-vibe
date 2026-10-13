@@ -281,6 +281,8 @@ pub struct ChatPage {
     on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
+    /// The Activity view was asked for: the window, which holds every account, opens it.
+    on_activity: Callback<()>,
     forward_button: gtk::Button,
     /// Rooms opened, oldest first, and the position of the open one: mouse back and forward walk it.
     history: RefCell<Vec<String>>,
@@ -325,7 +327,12 @@ impl ChatPage {
                     item.set_selectable(false);
                     item.set_activatable(true);
                     let add = match section {
-                        Section::Channels if native_shared.borrow().is_some() => Some(t("rooms.new_channel")),
+                        Section::Channels
+                            if native_shared.borrow().is_some()
+                                || shared.borrow().as_ref().is_some_and(|s| s.channels_creatable()) =>
+                        {
+                            Some(t("rooms.new_channel"))
+                        }
                         Section::Direct => Some(t("rooms.new_message")),
                         _ => None,
                     }
@@ -411,6 +418,12 @@ impl ChatPage {
             .visible(false)
             .build();
         sidebar_header.pack_end(&local_search_button);
+        let activity_button = gtk::Button::builder()
+            .icon_name("preferences-system-notifications-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("activity.open"))
+            .build();
+        sidebar_header.pack_end(&activity_button);
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let account_name = label("", &["account-name"]);
@@ -651,6 +664,7 @@ impl ChatPage {
             on_user_navigation: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
+            on_activity: RefCell::default(),
             forward_button,
             history: RefCell::default(),
             history_at: Cell::new(0),
@@ -706,7 +720,7 @@ impl ChatPage {
         add_in_section.replace(Some(Rc::new(move |section| {
             let Some(this) = weak.upgrade() else { return };
             if section == Section::Channels {
-                this.native_conversation(false);
+                this.create_channel();
             } else {
                 this.new_conversation();
             }
@@ -769,6 +783,12 @@ impl ChatPage {
         local_search_button.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.open_local_search();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        activity_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.request_activity();
             }
         });
         let weak = Rc::downgrade(&this);
@@ -874,14 +894,14 @@ impl ChatPage {
                     }
                 }),
             )];
-            // Creating a room: RocketVibe servers.
-            if this.native_session().is_some() {
+            // Creating a room: RocketVibe and Rocket.Chat servers.
+            if this.creates_channels() {
                 items.push((
                     "list-add-symbolic",
                     t("rooms.new_channel").to_owned(),
                     Rc::new(move || {
                         if let Some(this) = w2.upgrade() {
-                            this.native_conversation(false);
+                            this.create_channel();
                         }
                     }),
                 ));
@@ -956,6 +976,8 @@ impl ChatPage {
             glib::Propagation::Stop
         });
         keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>f"), Some(search)));
+        // Ctrl+Shift+A (the Activity view) is the window's (`AppWindow::new`):
+        // a text field here would take it for "unselect all" first.
         for (trigger, back) in [("<Alt>Left", true), ("<Alt>Right", false)] {
             let w = weak.clone();
             let action = gtk::CallbackAction::new(move |_, _| {
@@ -1620,6 +1642,17 @@ impl ChatPage {
 
     pub fn connect_rooms_loaded(&self, f: impl Fn() + 'static) {
         self.on_rooms_loaded.borrow_mut().push(Box::new(move |()| f()));
+    }
+
+    /// The Activity view asked for (its header button, Ctrl+Shift+A).
+    pub fn connect_activity(&self, f: impl Fn() + 'static) {
+        self.on_activity.borrow_mut().push(Box::new(move |()| f()));
+    }
+
+    fn request_activity(&self) {
+        for f in self.on_activity.borrow().iter() {
+            f(());
+        }
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {
@@ -2343,11 +2376,11 @@ impl ChatPage {
     fn new_conversation(self: &Rc<Self>) {
         let Some(chat) = self.chat() else { return };
         let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
-        // The RocketVibe server creates channels from here too.
-        let create: Option<Rc<dyn Fn()>> = chat.native().map(|_| {
+        // The servers that create channels do it from here too.
+        let create: Option<Rc<dyn Fn()>> = self.creates_channels().then(|| {
             Rc::new(move || {
                 if let Some(this) = w3.upgrade() {
-                    this.native_conversation(false);
+                    this.create_channel();
                 }
             }) as Rc<dyn Fn()>
         });
@@ -2362,6 +2395,32 @@ impl ChatPage {
             },
             create,
         );
+    }
+
+    /// Whether this account creates channels from the app: a RocketVibe
+    /// server, or Rocket.Chat (`Session::channels_creatable`).
+    fn creates_channels(&self) -> bool {
+        self.native_session().is_some() || self.session().is_some_and(|s| s.channels_creatable())
+    }
+
+    /// "Create a channel": the RocketVibe server's dialog, or Rocket.Chat's
+    /// (`new_channel.rs`); the new room opens.
+    fn create_channel(self: &Rc<Self>) {
+        if self.native_session().is_some() {
+            self.native_conversation(false);
+            return;
+        }
+        let Some(session) = self.session().filter(|s| s.channels_creatable()) else { return };
+        let (weak, expected) = (Rc::downgrade(self), session.clone());
+        crate::new_channel::open(&self.split, session, move |rid| {
+            if let Some(this) = weak.upgrade()
+                && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+            {
+                this.user_navigation();
+                this.reload_rooms();
+                this.open_room(&rid);
+            }
+        });
     }
 
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.

@@ -54,6 +54,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | Doc | What's here |
 |---|---|
 | [scheduled-messages.md](scheduled-messages.md) | RocketVibe server: text sent later by the server, "Send later", the room's list and its cancel. |
+| [activity.md](activity.md) | The Activity view: mentions of me, replies in my threads and reactions to my messages from the stored messages, plus rooms with unread mentions not on the device; every account merged on desktop. |
 | [reminders.md](reminders.md) | "Remind me" about a message: personal reminders kept on the device, a local notification at the time, the list and its cancel. |
 | [read-receipts.md](read-receipts.md) | RocketVibe server: "Seen" / "Seen by" under my last message from the live frame's `reads`, shared both ways. |
 | [do-not-disturb.md](do-not-disturb.md) | RocketVibe server: quiet hours and a mute; push, rings and the apps' own alerts held back, `account_quiet`. |

@@ -1972,6 +1972,18 @@ impl Session {
         found
     }
 
+    /// The account's Activity view from its stored messages (`activity::gather`).
+    pub fn activity(&self) -> crate::activity::Activity {
+        let me = crate::activity::Me { id: &self.info.user_id, username: &self.info.username };
+        let rows = self
+            .store
+            .activity_candidates(me.id, crate::activity::CANDIDATES)
+            .into_iter()
+            .map(|row| self.open_row(row))
+            .collect();
+        crate::activity::gather(rows, me, &self.store.my_threads(me.id), &self.store.rooms())
+    }
+
     /// Whether rooms have invite links and discussions here: Rocket.Chat only.
     pub fn discussions_available(&self) -> bool {
         match self.backend() {
@@ -2110,6 +2122,38 @@ impl Session {
         let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.sync.ingest_room(&room);
         self.sync.catch_up_global().await?;
+        Ok(rid)
+    }
+
+    /// Whether this account creates channels and private groups from the app:
+    /// Rocket.Chat only (Mattermost and kChat channels are made on their own
+    /// servers' clients). The server still checks `create-c` / `create-p`.
+    pub fn channels_creatable(&self) -> bool {
+        match self.backend() {
+            Backend::RocketChat => true,
+            Backend::Mattermost(_) => false,
+        }
+    }
+
+    /// Creates a channel named `name`, or a private group when `private`, with
+    /// me as its owner and only member; stored and listed before it returns, so
+    /// it opens at once. Its rid. A refusal reads through
+    /// `rocketchat::actions::creation_refusal`.
+    pub async fn create_channel(&self, name: &str, private: bool) -> Result<String, RestError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RestError::incomplete("channel: no name"));
+        }
+        let room = match self.backend() {
+            Backend::RocketChat => rocketchat::actions::create_channel(&self.rest, name, private).await?,
+            Backend::Mattermost(_) => return Err(RestError::incomplete("channel: not on this server")),
+        };
+        let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        self.sync.ingest_room(&room);
+        // The room exists once the server answered: a failed catch-up must not
+        // call it a failure (a retry would say the name is taken). The stream
+        // and the next catch-up bring its subscription.
+        let _ = self.sync.catch_up_global().await;
         Ok(rid)
     }
 

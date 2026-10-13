@@ -374,12 +374,14 @@ dialog.time-picker-dialog.confirmation-dialog {
 .marked-dialog,
 .room-search-dialog,
 .local-search-dialog,
+.activity-feed-dialog,
 .threads-dialog {
   width: 440px;
   max-width: calc(100vw - 32px);
 }
 .marked-dialog .dialog-body,
 .room-search-dialog .dialog-body,
+.activity-feed-dialog .dialog-body,
 .threads-dialog .dialog-body {
   padding: 12px;
 }

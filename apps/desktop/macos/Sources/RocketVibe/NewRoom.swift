@@ -1,9 +1,9 @@
 import RocketVibeKit
 import SwiftUI
 
-/// A new room on a RocketVibe server, as GTK's dialog makes one: a name,
-/// private or not, and a voice channel where the server offers voice. Opened
-/// once the list carries it.
+/// A new room, as GTK's dialogs make one: a name, private or not, and on a
+/// RocketVibe server a voice channel where it offers voice; on Rocket.Chat a
+/// channel or a private group. Opened once the list carries it.
 struct NewRoomSheet: View {
     @Environment(AppModel.self) var app
     @Environment(\.closeModal) var dismiss
@@ -56,7 +56,12 @@ struct NewRoomSheet: View {
         error = nil
         let (title, hidden, channel) = (name, secret, voice && app.voice != nil)
         Task {
-            let failure = await app.createRoom(name: title, private: hidden, voice: channel)
+            let failure: String?
+            if app.native != nil {
+                failure = await app.createRoom(name: title, private: hidden, voice: channel)
+            } else {
+                failure = await app.createChannel(name: title, private: hidden)
+            }
             busy = false
             if let failure { error = failure } else { dismiss() }
         }

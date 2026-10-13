@@ -42,6 +42,7 @@
     "test:scheduled": "node tests/scheduled.mjs",
     "test:reminders": "node tests/reminders.mjs",
     "test:global-search": "node tests/global-search.mjs",
+    "test:activity-feed": "node tests/activity-feed.mjs",
     "test:logout-replay": "node tests/logout-replay.mjs",
     "test:notifications": "node tests/notifications.mjs",
     "test:threads": "node tests/threads.mjs",

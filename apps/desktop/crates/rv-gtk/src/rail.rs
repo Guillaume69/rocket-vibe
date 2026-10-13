@@ -37,6 +37,10 @@ pub struct Rail {
     /// Each button's account, key, overlay and initial tile, to read the icons again.
     slots: RefCell<Vec<Slot>>,
     unread: RefCell<HashMap<String, bool>>,
+    /// The muted accounts (`rv_core::account_mute`): dimmed, a muted mark, no dot.
+    muted: RefCell<std::collections::HashSet<String>>,
+    /// Each account's button and its muted mark, for the muted look.
+    muted_looks: RefCell<HashMap<String, (gtk::Button, gtk::Widget)>>,
     /// Bumped by each new account list: a late answer about a list that
     /// changed meanwhile is dropped.
     generation: Cell<u64>,
@@ -57,8 +61,94 @@ pub fn reload_icons() {
     }
 }
 
+/// Where the rail's order and visibility are kept, shared with the SwiftUI app.
+fn config_dir() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs")
+}
+
 fn hidden_file() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs").join("hide-server-rail")
+    config_dir().join("hide-server-rail")
+}
+
+fn now_ms() -> i64 {
+    glib::real_time() / 1000
+}
+
+thread_local! {
+    /// The mutes as `mutes` last read them: notifications, rings and the badge
+    /// ask here, not the file, and compare a timed mute's end with the clock
+    /// (a computer that slept past it is no longer muted).
+    static MUTES: RefCell<HashMap<String, rv_core::account_mute::Mute>> = RefCell::default();
+}
+
+/// The account's mute now (`rv_core::account_mute`), shared with the SwiftUI app.
+pub fn mute_of(info: &SessionInfo) -> Option<rv_core::account_mute::Mute> {
+    use rv_core::account_mute::Mute;
+    let mute = MUTES.with_borrow(|mutes| mutes.get(&account_key(info)).copied())?;
+    match mute {
+        Mute::Until(end) if end <= now_ms() => None,
+        _ => Some(mute),
+    }
+}
+
+/// Whether the account is muted now: no notification, sound or ring.
+pub fn is_muted(info: &SessionInfo) -> bool {
+    mute_of(info).is_some()
+}
+
+/// Mutes the account until `until` (ms), or until unmuted with None; `mutes`
+/// reads it back.
+pub fn mute(info: &SessionInfo, until: Option<i64>) {
+    rv_core::account_mute::mute(&config_dir(), &account_key(info), until);
+}
+
+pub fn unmute(info: &SessionInfo) {
+    rv_core::account_mute::unmute(&config_dir(), &account_key(info));
+}
+
+/// Reads the mutes (the SwiftUI app may have changed them): the muted
+/// accounts' keys now, and the earliest end of a timed mute.
+pub fn mutes() -> (std::collections::HashSet<String>, Option<i64>) {
+    use rv_core::account_mute::Mute;
+    let active = rv_core::account_mute::active(&config_dir(), now_ms());
+    let next = active
+        .values()
+        .filter_map(|mute| match mute {
+            Mute::Until(end) => Some(*end),
+            Mute::Forever => None,
+        })
+        .min();
+    let keys = active.keys().cloned().collect();
+    MUTES.replace(active);
+    (keys, next)
+}
+
+/// The digit a Ctrl + key press means, whatever the layout: the key's own
+/// symbol, or the digit the same physical key types with Shift (AZERTY types
+/// `&` there and `1` shifted), or a keypad digit. None with Shift, Alt or
+/// Super held: Ctrl+Shift+7 to 9 format the composer's text.
+pub fn shortcut_digit(
+    display: &gtk::gdk::Display,
+    key: gtk::gdk::Key,
+    code: u32,
+    state: gtk::gdk::ModifierType,
+) -> Option<u32> {
+    use gtk::gdk::ModifierType as M;
+    if !state.contains(M::CONTROL_MASK) || state.intersects(M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK | M::META_MASK)
+    {
+        return None;
+    }
+    let digit = |key: gtk::gdk::Key| key.to_unicode().and_then(|c| c.to_digit(10));
+    // Only a symbol key falls back to its shifted digit (AZERTY's `&`): a
+    // keypad key without NumLock (`KP_End`, `KP_Left`) moves the cursor.
+    digit(key).or_else(|| {
+        key.to_unicode()?;
+        display
+            .map_keycode(code)
+            .unwrap_or_default()
+            .into_iter()
+            .find_map(|(entry, key)| (entry.level() == 1).then(|| digit(key)).flatten())
+    })
 }
 
 /// The user's choice to hide the rail, shared with the SwiftUI app.
@@ -140,6 +230,8 @@ impl Rail {
             photo_sources: RefCell::default(),
             slots: RefCell::default(),
             unread: RefCell::default(),
+            muted: RefCell::default(),
+            muted_looks: RefCell::default(),
             generation: Cell::new(0),
             on_switch: RefCell::default(),
             on_add: RefCell::default(),
@@ -178,19 +270,30 @@ impl Rail {
         }
         self.dots.borrow_mut().clear();
         self.slots.borrow_mut().clear();
-        for info in &accounts {
+        self.muted_looks.borrow_mut().clear();
+        for (slot, info) in accounts.iter().enumerate() {
             let key = account_key(info);
             let open = active.as_deref() == Some(key.as_str());
+            let muted = self.muted.borrow().contains(&key);
             let server = host(info);
             let tile = widgets::tile(&key, &widgets::initial(&server), TileSize::Room, false);
             let dot = gtk::Box::builder()
                 .css_classes(["rail-dot"])
                 .halign(gtk::Align::End)
                 .valign(gtk::Align::Start)
-                .visible(!open && self.unread.borrow().get(&key).copied().unwrap_or(false))
+                .visible(!open && !muted && self.unread.borrow().get(&key).copied().unwrap_or(false))
+                .build();
+            let mark = gtk::Image::builder()
+                .icon_name("notifications-disabled-symbolic")
+                .pixel_size(14)
+                .css_classes(["rail-muted-mark"])
+                .halign(gtk::Align::End)
+                .valign(gtk::Align::End)
+                .visible(muted)
                 .build();
             let overlay = gtk::Overlay::builder().child(&tile).build();
             overlay.add_overlay(&dot);
+            overlay.add_overlay(&mark);
             if let Some(texture) = self.icons.borrow().get(&key) {
                 overlay.set_child(Some(&icon_image(Some(texture))));
             }
@@ -199,15 +302,29 @@ impl Rail {
                 self.load_icon(info, &key, &overlay, &tile);
             }
             self.slots.borrow_mut().push((info.clone(), key.clone(), overlay.downgrade(), tile.clone()));
+            // The first ten say their Ctrl + digit shortcut (`AppWindow::new`'s key handler).
+            // The digit keys are named after their digit ("1", "0").
+            let shortcut = rv_core::server_rail::shortcut_digit(slot)
+                .and_then(|digit| gtk::gdk::Key::from_name(digit.to_string()))
+                .map(|key| {
+                    let label = gtk::accelerator_get_label(key, gtk::gdk::ModifierType::CONTROL_MASK);
+                    format!(" ({label})")
+                })
+                .unwrap_or_default();
             let button = gtk::Button::builder()
                 .child(&overlay)
-                .tooltip_text(format!("{} · @{}", server, info.username))
+                .tooltip_text(format!("{} · @{}{shortcut}", server, info.username))
                 .css_classes(["rail-button"])
                 .halign(gtk::Align::Center)
                 .build();
+            self.reorderable(&button, &overlay, &key);
             if open {
                 button.add_css_class("rail-active");
             }
+            if muted {
+                button.add_css_class("rail-muted");
+            }
+            self.muted_looks.borrow_mut().insert(key.clone(), (button.clone(), mark.upcast()));
             let (weak, target) = (Rc::downgrade(self), info.clone());
             button.connect_clicked(move |_| {
                 let Some(this) = weak.upgrade() else { return };
@@ -247,13 +364,77 @@ impl Rail {
         self.apply_visibility();
     }
 
+    /// Opens the account at the rail's `slot` (Ctrl + digit), as its button
+    /// does: nothing past the last account or on the open one.
+    pub fn open_slot(&self, slot: usize) {
+        let Some(target) = self.accounts.borrow().get(slot).cloned() else { return };
+        if self.active.borrow().as_deref() == Some(account_key(&target).as_str()) {
+            return;
+        }
+        if let Some(f) = self.on_switch.borrow().clone() {
+            f(target);
+        }
+    }
+
+    /// A button dragged onto another takes its place (`server_rail::reordered`),
+    /// kept for the next launch and for the SwiftUI app.
+    fn reorderable(self: &Rc<Self>, button: &gtk::Button, overlay: &gtk::Overlay, key: &str) {
+        let source = gtk::DragSource::builder().actions(gtk::gdk::DragAction::MOVE).build();
+        source.set_content(Some(&gtk::gdk::ContentProvider::for_value(&key.to_value())));
+        let icon = overlay.downgrade();
+        source.connect_drag_begin(move |source, _| {
+            if let Some(overlay) = icon.upgrade() {
+                source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&overlay))), 22, 22);
+            }
+        });
+        button.add_controller(source);
+        let target = gtk::DropTarget::new(String::static_type(), gtk::gdk::DragAction::MOVE);
+        let (weak, key) = (Rc::downgrade(self), key.to_owned());
+        target.connect_drop(move |_, value, _, _| {
+            let (Some(this), Ok(moved)) = (weak.upgrade(), value.get::<String>()) else { return false };
+            let keys: Vec<String> = this.accounts.borrow().iter().map(account_key).collect();
+            let Some(order) = rv_core::server_rail::reordered(&keys, &moved, &key) else { return false };
+            rv_core::server_rail::save(&config_dir(), &order);
+            // Rebuilt once the drop is over: the buttons handling it go.
+            glib::idle_add_local_once(move || {
+                let mut accounts = this.accounts.borrow().clone();
+                accounts.sort_by_key(|info| order.iter().position(|k| *k == account_key(info)));
+                let active = this.active.borrow().clone();
+                let open = accounts.iter().find(|info| active.as_deref() == Some(account_key(info).as_str())).cloned();
+                this.set_accounts(accounts, open.as_ref());
+            });
+            true
+        });
+        button.add_controller(target);
+    }
+
     /// Whether the account has unread rooms; the open account's own shows in
     /// its room list, not here.
     pub fn set_unread(&self, key: &str, unread: bool) {
         self.unread.borrow_mut().insert(key.to_owned(), unread);
         let open = self.active.borrow().as_deref() == Some(key);
+        let muted = self.muted.borrow().contains(key);
         if let Some(dot) = self.dots.borrow().get(key) {
-            dot.set_visible(unread && !open);
+            dot.set_visible(unread && !open && !muted);
+        }
+    }
+
+    /// The muted accounts now: dimmed, marked, their dot held back.
+    pub fn set_muted(&self, keys: std::collections::HashSet<String>) {
+        self.muted.replace(keys);
+        let unread: Vec<(String, bool)> = self.unread.borrow().iter().map(|(k, u)| (k.clone(), *u)).collect();
+        for (key, unread) in unread {
+            self.set_unread(&key, unread);
+        }
+        let muted = self.muted.borrow();
+        for (key, (button, mark)) in self.muted_looks.borrow().iter() {
+            let on = muted.contains(key);
+            mark.set_visible(on);
+            if on {
+                button.add_css_class("rail-muted");
+            } else {
+                button.remove_css_class("rail-muted");
+            }
         }
     }
 
@@ -342,6 +523,31 @@ impl Rail {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn control_and_a_digit_name_a_rail_position() {
+        use gtk::gdk::{Key, ModifierType as M};
+        gtk::init().unwrap();
+        let display = gtk::gdk::Display::default().unwrap();
+        // A keycode no key of the layout uses: only the symbol speaks.
+        let digit = |key: Key, state: M| shortcut_digit(&display, key, 0, state);
+        assert_eq!(digit(Key::_1, M::CONTROL_MASK), Some(1));
+        assert_eq!(digit(Key::_0, M::CONTROL_MASK), Some(0));
+        assert_eq!(digit(Key::KP_9, M::CONTROL_MASK), Some(9));
+        assert_eq!(digit(Key::_1, M::empty()), None, "a digit typed alone");
+        assert_eq!(digit(Key::_7, M::CONTROL_MASK | M::SHIFT_MASK), None, "the composer's list shortcut");
+        assert_eq!(digit(Key::_1, M::CONTROL_MASK | M::ALT_MASK), None);
+        assert_eq!(digit(Key::k, M::CONTROL_MASK), None, "the room switcher");
+        // The keypad's 1 without NumLock is End: its key's shifted level is
+        // KP_1, which must not count (Ctrl+End moves the cursor). Xvfb's US
+        // layout has no AZERTY row, so the symbol fallback itself is not run here.
+        for moving in [Key::KP_End, Key::KP_Left] {
+            let code = display.map_keyval(moving).and_then(|k| k.first().map(|k| k.keycode()));
+            let code = code.expect("the layout has a keypad");
+            assert_eq!(shortcut_digit(&display, moving, code, M::CONTROL_MASK), None, "{moving:?}");
+        }
+    }
 
     #[test]
     #[ignore = "requires a GTK display; run under Xvfb"]

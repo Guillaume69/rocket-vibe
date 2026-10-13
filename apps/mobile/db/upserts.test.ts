@@ -54,8 +54,14 @@ import {
   CLEAR_ROOM_MESSAGES,
   SEARCH_MESSAGES,
   searchPattern,
+  ACTIVITY_CANDIDATES,
+  ACTIVITY_MENTIONED_ROOMS,
+  ACTIVITY_REPLIED_THREADS,
+  ACTIVITY_THREAD_ROOTS,
   UPDATE_USER_AVATAR,
   DELETE_MESSAGE,
+  DELETE_ROOM,
+  DELETE_SUBSCRIPTION,
   DELETE_OPTIMISTIC_MESSAGE,
   DELETE_OUTBOX,
   UPSERT_SUBSCRIPTION,
@@ -403,6 +409,61 @@ describe('upserts idempotents', () => {
     assert.deepEqual(ids('e_n'), ['g']);
     assert.deepEqual(ids('%'), ['g']);
     assert.deepEqual(db.prepare(SEARCH_MESSAGES).all(searchPattern('api'), 1).length, 1);
+  });
+
+  test('activity: candidates, thread roots, threads I replied in, rooms with mentions', () => {
+    const put = (o: Partial<LocalMessage> & { id: string; ts: number }) =>
+      db.prepare(UPSERT_MESSAGE).run(...msg({ updatedAt: o.ts, ...o }));
+    put({ id: 'a', ts: 100, authorId: 'me', text: 'mine, reacted', reactions: '{":+1:":{"usernames":["bob"]}}' });
+    put({ id: 'b', ts: 200, authorId: 'me', text: 'mine, no reaction' });
+    put({ id: 'c', ts: 300, authorId: 'bob', text: 'hey @alice' });
+    put({ id: 'd', ts: 400, authorId: 'bob', text: 'no at sign' });
+    put({ id: 'e', ts: 500, authorId: 'bob', text: 'a reply', threadId: 'root' });
+    put({ id: 'f', ts: 600, authorId: 'bob', text: '@alice joined', systemType: 'uj' });
+    put({ id: 'g', ts: 700, authorId: 'bob', text: null, systemType: 'e2e', threadId: 'root' });
+    put({ id: 'root', ts: 50, authorId: 'carol', text: 'root', threadFollowers: '["carol","me"]' });
+    put({ id: 'h', ts: 60, authorId: 'me', text: 'my reply', threadId: 'root' });
+    put({ id: 'i', ts: 800, authorId: 'bob', text: null, threadId: 'root', attachments: '[{"title":"a.png"}]' }); // a file only
+    put({ id: 'j', ts: 900, authorId: 'me', text: null, attachments: '[{"title":"b.png"}]', reactions: '{":tada:":{"usernames":["bob"]}}' });
+    // The rooms the list shows only: a stored room with no subscription or an open one.
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', updatedAt: 1 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'joined', updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'joined', updatedAt: 1 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'hidden', updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'hidden', open: false, updatedAt: 1 }));
+    put({ id: 'k', ts: 1000, rid: 'joined', authorId: 'bob', text: 'hi @alice' });
+    put({ id: 'l', ts: 1100, rid: 'hidden', authorId: 'bob', text: 'hi @alice' });
+    put({ id: 'm', ts: 1200, rid: 'left', authorId: 'bob', text: 'hi @alice' }); // a room I left: its messages stay
+    const candidates = db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 10).map(row);
+    assert.deepEqual(candidates.map((r) => r.id), ['k', 'j', 'i', 'e', 'c', 'a']);
+    db.prepare(DELETE_SUBSCRIPTION).run('rid-1');
+    db.prepare(DELETE_ROOM).run('rid-1');
+    assert.deepEqual(db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 10).map((r) => row(r).id), ['k']);
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', updatedAt: 2 }));
+    assert.deepEqual(
+      { authorId: candidates[2].authorId, threadId: candidates[2].threadId, threadShown: candidates[2].threadShown, text: candidates[2].text },
+      { authorId: 'bob', threadId: 'root', threadShown: 0, text: null },
+    );
+    assert.equal(db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 1).length, 1);
+    assert.deepEqual(db.prepare(ACTIVITY_THREAD_ROOTS).all('["root","gone"]').map(row), [
+      { id: 'root', authorId: 'carol', threadFollowers: '["carol","me"]' },
+    ]);
+    assert.deepEqual(db.prepare(ACTIVITY_REPLIED_THREADS).all('me', '["root","other"]').map(row), [{ threadId: 'root' }]);
+    assert.deepEqual(db.prepare(ACTIVITY_REPLIED_THREADS).all('bob', '["other"]').map(row), []);
+
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'r1', lastMessageTs: 900, updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r1', mentions: 2, updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r2', mentions: 1, updatedAt: 1 })); // room not stored yet
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r3', mentions: 0, updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'r4', mentions: 5, open: false, updatedAt: 1 })); // hidden
+    const rooms = db.prepare(ACTIVITY_MENTIONED_ROOMS).all().map(row);
+    assert.deepEqual(
+      rooms.sort((x, y) => String(x.rid).localeCompare(String(y.rid))),
+      [
+        { rid: 'r1', mentions: 2, lastActivity: 900 },
+        { rid: 'r2', mentions: 1, lastActivity: null },
+      ],
+    );
   });
 
   test('clearing a room keeps its optimistic messages and the other rooms', () => {

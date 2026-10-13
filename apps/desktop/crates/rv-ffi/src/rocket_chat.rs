@@ -85,6 +85,24 @@ impl Chat {
             .await?)
     }
 
+    /// Whether channels and private groups are created from the app (Rocket.Chat).
+    pub fn channels_creatable(&self) -> bool {
+        self.session.channels_creatable()
+    }
+
+    /// Creates a channel named `name` (required), or a private group when
+    /// `private`, listed when this returns its rid. A refusal is `Local` with
+    /// the catalog key of its reason (`new_channel.*`), for `L`.
+    pub async fn create_channel(&self, name: String, private: bool) -> Result<String, RvError> {
+        if name.trim().is_empty() {
+            return Err(RvError::local("new_channel.failed"));
+        }
+        let s = self.session.clone();
+        on_tokio(async move { s.create_channel(&name, private).await })
+            .await
+            .map_err(|e| RvError::local(rv_core::rocketchat::actions::creation_refusal(&e)))
+    }
+
     /// A discussion card's Open: listed, joined (a public one), or for its members.
     pub async fn open_discussion(&self, drid: String) -> Result<DiscussionAccess, RvError> {
         let s = self.session.clone();

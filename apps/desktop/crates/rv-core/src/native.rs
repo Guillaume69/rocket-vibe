@@ -1259,6 +1259,21 @@ impl NativeSession {
             self.store.search_token()
         ))
     }
+    /// The account's Activity view from its stored messages (`activity::gather`);
+    /// empty while the store cannot be read.
+    pub fn activity(&self) -> crate::activity::Activity {
+        let uid = self.info.user_id.as_str();
+        let me = crate::activity::Me { id: uid, username: &self.info.username };
+        let rows = self
+            .store
+            .activity_candidates(uid, crate::activity::CANDIDATES)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(rid, row)| row.presentation(&rid, uid))
+            .collect();
+        let threads = self.store.my_threads(uid).unwrap_or_default();
+        crate::activity::gather(rows, me, &threads, &self.room_rows().unwrap_or_default())
+    }
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, Error> {
         if !self.supported_features().iter().any(|f| f == "search") {
             return Err(Error::Protocol("unsupported_feature"));

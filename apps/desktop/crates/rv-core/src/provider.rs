@@ -112,6 +112,16 @@ impl Chat {
         }
     }
 
+    /// The Activity view's share of this account; None for WhatsApp, whose
+    /// messages carry no mentions or threads and whose reactors are phone ids.
+    pub fn activity(&self) -> Option<crate::activity::Activity> {
+        match self {
+            Chat::Legacy(session) => Some(session.activity()),
+            Chat::Native(session) => Some(session.activity()),
+            Chat::WhatsApp(_) => None,
+        }
+    }
+
     /// People and channels matching `query`, for "New conversation".
     pub async fn spotlight(&self, query: &str) -> Result<Vec<Found>, RestError> {
         match self {

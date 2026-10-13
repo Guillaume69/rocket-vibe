@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod actions_menu;
+mod activity_view;
 mod admin;
 mod admin_emoji;
 mod admin_invitations;
@@ -34,6 +35,7 @@ mod message_list;
 mod native_crypto;
 mod native_quote_cards;
 mod native_security;
+mod new_channel;
 mod notifier;
 mod player;
 mod rail;

@@ -95,6 +95,37 @@ pub async fn open_dm(rest: &RestClient, username: &str) -> Result<String, RestEr
         .ok_or_else(|| RestError::incomplete("im.create: no room"))
 }
 
+/// Creates a channel, or a private group when `private`, owned by me and with
+/// me as its only member (`channels.create` answers `{channel}`,
+/// `groups.create` `{group}`). The name goes as given: the server owns its
+/// rule. The new room's document.
+pub async fn create_channel(rest: &RestClient, name: &str, private: bool) -> Result<Value, RestError> {
+    let (route, key) = if private { ("groups.create", "group") } else { ("channels.create", "channel") };
+    let response = rest.post(route, CallOptions::body(json!({"name": name}))).await?;
+    response
+        .get(key)
+        .filter(|room| room.get("_id").and_then(Value::as_str).is_some())
+        .cloned()
+        .ok_or_else(|| RestError::incomplete(&format!("{route}: no room")))
+}
+
+/// The catalog key saying why a creation was refused. Without the right,
+/// `channels.create` answers 403 and `groups.create` `error-not-allowed` (read
+/// in the 8.5 bundle); a taken name is refused whatever the room's kind, a
+/// malformed one by the server's `UTF8_Channel_Names_Validation` (probed on
+/// 8.5.1).
+pub fn creation_refusal(error: &RestError) -> &'static str {
+    if error.status == 403 {
+        return "new_channel.forbidden";
+    }
+    match error.error_type.as_deref() {
+        Some("error-not-allowed") => "new_channel.forbidden",
+        Some("error-duplicate-channel-name") => "new_channel.name_taken",
+        Some("error-invalid-room-name") => "new_channel.name_invalid",
+        _ => "new_channel.failed",
+    }
+}
+
 pub async fn join(rest: &RestClient, rid: &str) -> Result<(), RestError> {
     rest.post("channels.join", CallOptions::body(json!({"roomId": rid}))).await.map(|_| ())
 }

@@ -28,6 +28,20 @@ public final class AppModel {
     /// Tile positions are independent of the active-first list used at startup.
     public private(set) var railAccounts: [Account] = []
 
+    /// Drops the account `moved` on `target`'s tile: it takes that place,
+    /// kept for the next launch and for GTK (`server-rail-order`).
+    public func moveRailAccount(_ moved: String, onto target: String) -> Bool {
+        guard let order = client.moveRailAccount(keys: railAccounts.map(\.key), moved: moved, target: target) else { return false }
+        railAccounts = Self.orderForRail(accounts, keys: order)
+        return true
+    }
+
+    /// Cmd + digit: the rail's account at `slot` (0 for Cmd+1), as its tile does.
+    public func openRailSlot(_ slot: Int) async {
+        guard railAccounts.indices.contains(slot) else { return }
+        await switchAccount(railAccounts[slot])
+    }
+
     static func orderForRail(_ accounts: [Account], keys: [String]) -> [Account] {
         accounts.enumerated().sorted { left, right in
             let a = keys.firstIndex(of: left.element.key) ?? keys.count
@@ -232,8 +246,67 @@ public final class AppModel {
         if !watchingAccounts {
             watchingAccounts = true
             client.watchAccounts(listener: AccountRelay { [weak self] in self?.handleAccount($0) })
+            // Here rather than in the rail, which a hidden rail never draws.
+            refreshMutes()
         }
         await client.keepAccountsConnected()
+    }
+
+    /// The muted accounts (`Client.muteAccount`, the file GTK reads too):
+    /// no notification, sound or ring, their dot and dock count held back.
+    public private(set) var mutedAccounts: Set<String> = []
+    @ObservationIgnored private var muteEnd: Task<Void, Never>?
+
+    /// Reads the mutes again (GTK may have changed them), and again when the
+    /// earliest timed one ends: a day at most apart, so a damaged end
+    /// far in the future never overflows the wait.
+    public func refreshMutes() {
+        mutedAccounts = Set(client.mutedAccounts())
+        showAttention()
+        muteEnd?.cancel()
+        guard let end = client.nextMuteEnd() else { return }
+        let left = end - Int64(Date().timeIntervalSince1970 * 1000)
+        let wait = UInt64(min(max(0, left), 86_400_000) + 500)
+        muteEnd = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: wait * 1_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refreshMutes()
+        }
+    }
+
+    /// Whether the account is muted now, from the set `refreshMutes` keeps
+    /// (no file read per event).
+    public func isMuted(_ key: String) -> Bool { mutedAccounts.contains(key) }
+
+    /// Accounts being signed out from the rail: not opened meanwhile.
+    @ObservationIgnored private var leaving: Set<String> = []
+
+    public func mute(_ target: Account, _ choice: MuteChoice) {
+        client.muteAccount(account: target.key, choice: choice)
+        refreshMutes()
+    }
+
+    public func unmute(_ target: Account) {
+        client.unmuteAccount(account: target.key)
+        refreshMutes()
+    }
+
+    /// The rail's "Log out": the open account as the account menu does it,
+    /// another one through `Client.signOutAccount`.
+    public func signOut(_ target: Account) async {
+        if target.key == account?.key {
+            await signOut()
+            return
+        }
+        guard leaving.insert(target.key).inserted else { return }
+        defer { leaving.remove(target.key) }
+        if backgroundCall?.account == target.key { endBackgroundCall() }
+        do { try await client.signOutAccount(account: target.key) }
+        catch { notice = L("rail.logout_failed"); return }
+        unreadAccounts.remove(target.key)
+        accountAttention[target.key] = nil
+        accounts = await client.accounts()
+        refreshMutes()
     }
 
     func handleAccount(_ event: AccountEvent) {
@@ -243,10 +316,10 @@ public final class AppModel {
             accountAttention[key] = attention
             showAttention()
         case let .incoming(key, scope, incoming):
-            guard key != account?.key else { return }
+            guard key != account?.key, !isMuted(key) else { return }
             onBackgroundIncoming?(incoming, scope)
         case let .call(key, call):
-            guard key != account?.key else { return }
+            guard key != account?.key, call == nil || !isMuted(key) else { return }
             if let call {
                 guard backgroundCall == nil, ringingCall == nil else { return }
                 backgroundCall = call
@@ -264,9 +337,13 @@ public final class AppModel {
 
     /// The dock's count: the open account's rooms and what the others hold.
     func showAttention() {
-        let others = accountAttention.filter { $0.key != account?.key }.values.reduce(0, +)
-        onAttention?((chat?.attention() ?? 0) + others)
+        let others = accountAttention.filter { $0.key != account?.key && !mutedAccounts.contains($0.key) }.values.reduce(0, +)
+        let own = account.map { mutedAccounts.contains($0.key) } == true ? 0 : (chat?.attention() ?? 0)
+        onAttention?(own + others)
     }
+
+    /// The open account is muted: its messages notify nothing, its calls ring silently.
+    public var openMuted: Bool { account.map { isMuted($0.key) } ?? false }
 
     private func endBackgroundCall() {
         backgroundCall = nil
@@ -320,7 +397,7 @@ public final class AppModel {
 
     /// From the server rail: the account opens, unless it is the open one.
     public func switchAccount(_ target: Account) async {
-        guard target.key != account?.key else { return }
+        guard target.key != account?.key, !leaving.contains(target.key) else { return }
         await resume(target)
     }
 
@@ -413,6 +490,11 @@ public final class AppModel {
         guard let provider else { return }
         cancelNotificationNavigation()
         pendingRoomLink = nil
+        // A mute does not outlive the account: signing in again starts unmuted.
+        if let key = account?.key {
+            client.unmuteAccount(account: key)
+            refreshMutes()
+        }
         let expected = sessionId
         do { try await provider.signOut() }
         catch { notice = error.localizedDescription; return }
@@ -495,7 +577,7 @@ public final class AppModel {
             e2eUnlocked = chat?.e2eUnlocked() ?? false
             later(everything: true)
         case let .incoming(incoming):
-            onIncoming?(incoming)
+            if !openMuted { onIncoming?(incoming) }
         case .callRing:
             ringingCall = chat?.incomingCall()
             onCallRing?(ringingCall)
@@ -888,6 +970,32 @@ public final class AppModel {
         return account == sessionId && selected == selectionId
     }
 
+    /// The Activity view of every running account (`Client.activity`).
+    public func activity() async -> ActivityView {
+        await client.activity()
+    }
+
+    /// An Activity entry picked: its account opens, then its message (in its
+    /// thread for a reply) or its room.
+    public func openActivity(account target: String, rid: String, message: String?, thread: String?) async {
+        if account?.key != target {
+            guard let other = accounts.first(where: { $0.key == target }) else {
+                notice = L("links.unavailable")
+                return
+            }
+            await switchAccount(other)
+            guard account?.key == target else { return }
+        }
+        if let message, let thread {
+            open(rid)
+            if room?.rid == rid { openThread(thread, message: message) }
+        } else if let message {
+            await open(rid, message: message)
+        } else {
+            open(rid)
+        }
+    }
+
     /// Search across rooms, on the device (Rocket.Chat, Mattermost): newest first.
     public var supportsLocalSearch: Bool { chat != nil }
     public func searchLocal(_ text: String) async -> [LocalHit] {
@@ -920,6 +1028,27 @@ public final class AppModel {
             return nil
         } catch {
             return L("discussion.failed")
+        }
+    }
+
+    /// Whether this account creates channels from the app: a RocketVibe
+    /// server (`createRoom`) or Rocket.Chat (`createChannel`).
+    public var createsChannels: Bool { native != nil || chat?.channelsCreatable() == true }
+
+    /// Creates a channel, or a private group with `private`, on a Rocket.Chat
+    /// server, then opens it. Nil once done, else what to tell.
+    public func createChannel(name: String, private: Bool) async -> String? {
+        guard let chat, chat.channelsCreatable() else { return L("new_channel.failed") }
+        let (account, selected) = (sessionId, UUID())
+        selectionId = selected
+        do {
+            let rid = try await chat.createChannel(name: name, private: `private`)
+            if await waitListed(rid, account: account, selected: selected) { open(rid) }
+            return nil
+        } catch let RvError.Local(message) {
+            return L(message)
+        } catch {
+            return L("new_channel.failed")
         }
     }
 

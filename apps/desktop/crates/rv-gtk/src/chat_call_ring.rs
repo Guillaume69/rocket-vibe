@@ -29,7 +29,8 @@ impl ChatPage {
             }
             None => self.close_call_ring(),
         }
-        self.voice.set_tone(call.map(|_| Sound::Ringtone));
+        // A muted account's call shows its prompt silently.
+        self.voice.set_tone(call.filter(|_| !crate::rail::is_muted(&session.info)).map(|_| Sound::Ringtone));
     }
 
     /// A call or voice ring prompt is on screen.

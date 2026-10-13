@@ -2052,6 +2052,61 @@ progress {
 .local-search-scope {
   margin: 4px 0 8px;
 }
+.activity-feed-dialog .details-section:first-child {
+  margin-top: 0;
+}
+.activity-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.activity-feed-room {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 6px;
+  border-radius: 6px;
+  text-align: left;
+}
+.activity-feed-room:hover {
+  background: #242138;
+}
+.activity-feed-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.activity-feed-title {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-feed-what {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-feed-where {
+  margin-top: 1px;
+}
+.activity-feed-where .author {
+  color: inherit;
+}
+.activity-feed-excerpt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-feed-empty {
+  margin: 12px 4px;
+}
 .tabs button[aria-selected="true"] {
   background: #2c2946;
 }

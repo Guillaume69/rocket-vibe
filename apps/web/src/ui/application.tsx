@@ -133,6 +133,12 @@ function Shell({ app }: { app: App }) {
             <Brand />
           </div>
           <IconButton
+            name="notifications"
+            label={nt("activity.open")}
+            className="flat activity-feed-button"
+            action={() => app.openActivity()}
+          />
+          <IconButton
             name="plus"
             label={t("new")}
             aria-haspopup="menu"

@@ -7,6 +7,11 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Create a channel or a private group on Rocket.Chat accounts: "Create a room" in the room list, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
+- Activity: a bell in the home header lists the messages that mention you, replies in your threads and your messages others reacted to, newest first, from the messages already on the phone, with the rooms that have unread mentions above them. A tap opens the message, or its thread.
+
 ### Changed
 
 - The app's own sounds (incoming call ringtone, ringback, voice session cues) play 30 % quieter.

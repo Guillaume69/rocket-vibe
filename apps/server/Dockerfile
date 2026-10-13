@@ -16,8 +16,8 @@ LABEL org.opencontainers.image.source="https://github.com/Guillaume69/rocket-vib
 RUN useradd --system --uid 10001 --no-create-home rocketvibe
 RUN mkdir -p /var/lib/rocketvibe/objects && chown -R 10001:10001 /var/lib/rocketvibe
 ENV RV_OBJECTS_DIR=/var/lib/rocketvibe/objects
-COPY --from=build /src/target/release/rv-server /usr/local/bin/rv-server
+COPY --from=build /src/target/release/vibez /usr/local/bin/vibez
 USER 10001
 EXPOSE 3400
-ENTRYPOINT ["rv-server"]
+ENTRYPOINT ["vibez"]
 CMD ["serve"]

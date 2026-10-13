@@ -5,10 +5,10 @@ use rv_protocol::{
     Session,
     parity::{AuthenticationStep, FactorBackupCodes, FactorSetup, FinishFactor, SecondFactor},
 };
-use rv_server::{App, auth, factor_crypto::AuthKey};
 use serde_json::{Value, json};
 use sha1::Sha1;
 use sqlx::PgPool;
+use vibez::{App, auth, factor_crypto::AuthKey};
 
 const PASSWORD: &str = "factor-test-password-2026";
 struct Server {
@@ -2111,7 +2111,7 @@ async fn restore_password_reset_and_account_changes_fence_challenges_but_preserv
     let (_, codes) = enroll(&server, &enrolling).await;
     reset_limits(&pool).await;
     let challenge = server.challenge().await;
-    let recovery = rv_server::recovery::issue(&app, "owner", 1).await.unwrap();
+    let recovery = vibez::recovery::issue(&app, "owner", 1).await.unwrap();
     let recovered = server.post("/auth/recovery",None,json!({"token":recovery.token,"username":"owner","new_password":"changed-password-2026"})).await;
     assert_eq!(recovered.status(), StatusCode::OK);
     assert_eq!(

@@ -1,8 +1,8 @@
 use reqwest::{Client, StatusCode};
 use rv_protocol::{User, parity::AcceptInvitation};
-use rv_server::{App, invitations};
 use serde_json::json;
 use sqlx::PgPool;
+use vibez::{App, invitations};
 
 struct Server {
     base: String,
@@ -59,7 +59,7 @@ async fn invitation_race_replay_has_one_account_no_session_or_admin(pool: PgPool
         .await
         .unwrap();
     assert_ne!(stored, invite.token);
-    assert_eq!(stored, rv_server::auth::hash_token(&invite.token));
+    assert_eq!(stored, vibez::auth::hash_token(&invite.token));
     let server = Server::start(app.clone()).await;
     let claim = input(invite.token, "new-user");
     let (a, b) = tokio::join!(server.accept(&claim), server.accept(&claim));
@@ -108,7 +108,7 @@ async fn invitation_race_replay_has_one_account_no_session_or_admin(pool: PgPool
             .status(),
         StatusCode::NOT_FOUND
     );
-    let session = rv_server::auth::login(&app, claim.username, claim.password)
+    let session = vibez::auth::login(&app, claim.username, claim.password)
         .await
         .unwrap();
     assert_eq!(session.user.id, a.id);
@@ -216,7 +216,7 @@ async fn waiting_claim_rechecks_expiration_and_does_not_create_an_account(pool: 
 #[sqlx::test]
 async fn invitation_quota_is_persistent_and_shared_with_login(pool: PgPool) {
     let app = App::from_pool(pool.clone()).await.unwrap();
-    let token = rv_server::auth::random_token();
+    let token = vibez::auth::random_token();
     for i in 0..10 {
         assert_eq!(
             invitations::accept(&app, input(token.clone(), &format!("name-{i}")), None)

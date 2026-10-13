@@ -14,7 +14,6 @@ use rv_protocol::{
     live::LiveFrame,
     voice::{AnswerRing, JoinVoice, RingState},
 };
-use rv_server::{App, auth, livekit::LiveKit};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use sqlx::PgPool;
@@ -23,6 +22,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use vibez::{App, auth, livekit::LiveKit};
 
 const SECRET: &str = "native-livekit-disposable-shared-secret-2026";
 const PASSWORD: &str = "native-voice-disposable-password";
@@ -204,7 +204,7 @@ impl Bench {
         }
     }
     async fn reconcile(&self) {
-        rv_server::voice::reconcile(&self.app).await.unwrap();
+        vibez::voice::reconcile(&self.app).await.unwrap();
     }
 }
 

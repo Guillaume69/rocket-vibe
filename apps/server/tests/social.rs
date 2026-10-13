@@ -1,7 +1,7 @@
 use rv_client::NativeClient;
 use rv_protocol::{CreateRoom, social::*};
-use rv_server::{App, auth};
 use sqlx::PgPool;
+use vibez::{App, auth};
 struct Bench {
     app: App,
     base: String,
@@ -291,7 +291,7 @@ async fn voice_reactions_require_live_participation_and_expire(pool: PgPool) {
     let _ = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::ERROR)
         .try_init();
-    use rv_server::livekit::LiveKit;
+    use vibez::livekit::LiveKit;
     let livekit=LiveKit::parse(br#"{"url":"ws://127.0.0.1:7880","api_url":"http://127.0.0.1:7880","api_key":"test-key","api_secret":"test-livekit-secret-with-32-characters"}"#).unwrap();
     let app = App::from_pool(pool)
         .await
@@ -376,8 +376,8 @@ async fn voice_reactions_require_live_participation_and_expire(pool: PgPool) {
 }
 #[sqlx::test]
 async fn configured_giphy_is_advertised_without_exposing_the_key(pool: PgPool) {
-    let g = rv_server::giphy::Giphy::parse(br#"{"api_key":"disposable-test-key","rating":"pg"}"#)
-        .unwrap();
+    let g =
+        vibez::giphy::Giphy::parse(br#"{"api_key":"disposable-test-key","rating":"pg"}"#).unwrap();
     let b = Bench::from_app(App::from_pool(pool).await.unwrap().with_giphy(Some(g))).await;
     let (owner, _) = b.user("configured-giphy").await;
     let discovery = owner.discover().await.unwrap();

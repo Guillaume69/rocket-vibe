@@ -23,7 +23,7 @@ npm run build
 The build synchronizes GTK design values, the feature catalog and refusal wording and generates dependency licence notices before compiling. Commit `dist` and the generated design/licence files alongside source changes. Cargo embeds these committed files, so a fresh server checkout or Docker build needs no Node runtime. Rebuild the server after changing the web bundle:
 
 ```sh
-cargo build --locked -p rv-server
+cargo build --locked -p vibez
 ```
 
 For development, `RV_WEB_API_URL=http://127.0.0.1:3400 npm run dev` proxies the native API and WebSocket. Production requires HTTPS for browser media, Web Crypto, Web Locks and the worker; loopback is an allowed development exception. The existing server deployment serves the application automatically.

@@ -1,6 +1,6 @@
 name: server-release
 
-# A `server-vX.Y.Z` tag publishes the RocketVibe server: the server gate, then
+# A `vibez-vX.Y.Z` tag publishes the RocketVibe server: the server gate, then
 # one Docker build whose image goes to ghcr.io (`X.Y.Z` and `latest`) and whose
 # binary becomes the Linux archive, then the GitHub Release with that version's
 # changelog section.
@@ -8,7 +8,7 @@ name: server-release
 # publishing anything: the tag only lands on a flow already seen green.
 on:
   push:
-    tags: ['server-v*']
+    tags: ['vibez-v*']
     branches: ['release/**']
   workflow_dispatch:
 
@@ -46,11 +46,11 @@ jobs:
         name: Version, tag and changelog agree
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            version=$(node scripts/version.mjs server --tag "$GITHUB_REF_NAME")
+            version=$(node scripts/version.mjs vibez --tag "$GITHUB_REF_NAME")
           else
-            version=$(node scripts/version.mjs server)
+            version=$(node scripts/version.mjs vibez)
           fi
-          node scripts/changelog.mjs server "$version" > /dev/null
+          node scripts/changelog.mjs vibez "$version" > /dev/null
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
@@ -81,16 +81,16 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Build the image
-        run: docker build -f apps/server/Dockerfile -t "rocketvibe-server:$VERSION" .
+        run: docker build -f apps/server/Dockerfile -t "vibez:$VERSION" .
       - name: The image's binary as the Linux archive
         run: |
           mkdir -p dist package
-          id=$(docker create "rocketvibe-server:$VERSION")
-          docker cp "$id:/usr/local/bin/rv-server" package/rv-server
+          id=$(docker create "vibez:$VERSION")
+          docker cp "$id:/usr/local/bin/vibez" package/vibez
           docker rm "$id"
           cp apps/server/README.md apps/server/CHANGELOG.md package/
-          name="rocketvibe-server-$VERSION-linux-x86_64"
-          tar -C package -czf "dist/$name.tar.gz" rv-server README.md CHANGELOG.md
+          name="vibez-$VERSION-linux-x86_64"
+          tar -C package -czf "dist/$name.tar.gz" vibez README.md CHANGELOG.md
           (cd dist && sha256sum *.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -102,10 +102,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vibez"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker tag "rocketvibe-server:$VERSION" "$image:$VERSION"
-          docker tag "rocketvibe-server:$VERSION" "$image:latest"
+          docker tag "vibez:$VERSION" "$image:$VERSION"
+          docker tag "vibez:$VERSION" "$image:latest"
           docker push "$image:$VERSION"
           docker push "$image:latest"
 
@@ -127,8 +127,8 @@ jobs:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          node scripts/changelog.mjs server "$VERSION" > "$RUNNER_TEMP/notes.md"
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server:$VERSION"
+          node scripts/changelog.mjs vibez "$VERSION" > "$RUNNER_TEMP/notes.md"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vibez:$VERSION"
           printf '\n\nDocker image: `%s`\n' "$image" >> "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --verify-tag \
             --title "RocketVibe server $VERSION" --notes-file "$RUNNER_TEMP/notes.md"

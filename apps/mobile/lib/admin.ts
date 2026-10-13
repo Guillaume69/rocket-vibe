@@ -397,11 +397,11 @@ export function count(value: unknown): number {
 }
 
 /**
- * `8.8.1`, `v8.8.1`, `server-v0.3.0` as numbers; `null` when it is not a
+ * `8.8.1`, `v8.8.1`, `vibez-v0.3.0` as numbers; `null` when it is not a
  * version (a pre-release such as `8.9.0-rc.1` is not one: never offered).
  */
 export function parseVersion(tag: string): number[] | null {
-  const match = /^(?:server-)?v?(\d+(?:\.\d+)*)$/.exec(tag.trim());
+  const match = /^(?:vibez-)?v?(\d+(?:\.\d+)*)$/.exec(tag.trim());
   return match ? match[1]!.split('.').map(Number) : null;
 }
 
@@ -434,7 +434,7 @@ export const RELEASES: Record<AdminProduct, string> = {
 
 /**
  * The newest version in a GitHub release list: the highest Rocket.Chat tag,
- * or the highest `server-vX.Y.Z` tag among RocketVibe's releases (the apps
+ * or the highest `vibez-vX.Y.Z` tag among RocketVibe's releases (the apps
  * publish there too, under other tags). Drafts and pre-releases (flagged, or
  * `-rc` tags) never count.
  */
@@ -445,7 +445,7 @@ export function latestFromReleases(product: AdminProduct, body: unknown): string
     if (typeof release !== 'object' || release === null) continue;
     const r = release as { tag_name?: unknown; draft?: unknown; prerelease?: unknown };
     if (typeof r.tag_name !== 'string' || r.draft === true || r.prerelease === true) continue;
-    if (product === 'rocketvibe' && !r.tag_name.startsWith('server-v')) continue;
+    if (product === 'rocketvibe' && !r.tag_name.startsWith('vibez-v')) continue;
     const version = parseVersion(r.tag_name);
     if (version === null) continue;
     const plain = version.join('.');

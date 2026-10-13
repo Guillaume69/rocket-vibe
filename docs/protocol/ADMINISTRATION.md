@@ -1,6 +1,6 @@
 # Native administration (P23)
 
-The `rv-server` CLI uses the operator's `DATABASE_URL`. This operating right
+The `vibez` CLI uses the operator's `DATABASE_URL`. This operating right
 is distinct from the administrator role in an application: no HTTP route
 lets this role implicitly read a private conversation. The room commands
 read neither messages, nor files, nor encryption keys.
@@ -19,11 +19,11 @@ name, active status, administrator role, creation rights and policy
 version. Email, password hash, bearer and factors are excluded.
 
 ```sh
-rv-server set-user <uid> --disabled true --operation-id suspend-account-001
-rv-server set-user <uid> --disabled false --operation-id restore-account-001
-rv-server set-user <uid> --admin true --revision <revision> --operation-id grant-admin-001
-rv-server set-user <uid> --create-public-room false --operation-id creation-policy-001
-rv-server set-instance --user-bots true
+vibez set-user <uid> --disabled true --operation-id suspend-account-001
+vibez set-user <uid> --disabled false --operation-id restore-account-001
+vibez set-user <uid> --admin true --revision <revision> --operation-id grant-admin-001
+vibez set-user <uid> --create-public-room false --operation-id creation-policy-001
+vibez set-instance --user-bots true
 ```
 
 `set-instance --user-bots true|false` opens bot creation to every account
@@ -50,10 +50,10 @@ returns UID, username, name, role and deactivation. These lists accept `--after`
 `--limit` (1 to 100). UIDs are used to act even after a rename.
 
 ```sh
-rv-server create-room <owner-uid> 'Team' --private --operation-id create-team-001
-rv-server set-room <rid> --revision <revision> --topic 'Planning' --read-only true --operation-id team-settings-001
-rv-server set-member <rid> <uid> --revision <revision> --role moderator --operation-id team-moderator-001
-rv-server set-member <rid> <uid> --revision <revision> --remove --operation-id team-remove-001
+vibez create-room <owner-uid> 'Team' --private --operation-id create-team-001
+vibez set-room <rid> --revision <revision> --topic 'Planning' --read-only true --operation-id team-settings-001
+vibez set-member <rid> <uid> --revision <revision> --role moderator --operation-id team-moderator-001
+vibez set-member <rid> <uid> --revision <revision> --remove --operation-id team-remove-001
 ```
 
 Settings / member changes require the current version. The server

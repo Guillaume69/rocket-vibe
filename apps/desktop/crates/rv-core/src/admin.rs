@@ -354,7 +354,7 @@ pub fn update_available(current: &str, latest: &str) -> bool {
 }
 
 /// The newest published server version: the highest Rocket.Chat release
-/// (`releases/latest` can name a backport), or the highest `server-v` tag of
+/// (`releases/latest` can name a backport), or the highest `vibez-v` tag of
 /// RocketVibe's repository. None when unknown.
 pub async fn latest_version(product: Product) -> Option<String> {
     let releases = match product {
@@ -384,9 +384,9 @@ pub fn highest_release(releases: &Value, prefix: &str) -> Option<String> {
         .map(|(_, version)| version.to_owned())
 }
 
-/// The newest `server-vX.Y.Z` of a GitHub release list.
+/// The newest `vibez-vX.Y.Z` of a GitHub release list.
 pub fn latest_server_tag(releases: &Value) -> Option<String> {
-    highest_release(releases, "server-")
+    highest_release(releases, "vibez-")
 }
 
 /// The largest emoji image both servers take (RocketVibe's limit).
@@ -1469,10 +1469,10 @@ mod tests {
         assert!(update_available("8.5.1", "8.8.1") && !update_available("8.5.1", "8.5.1"));
         let releases = json!([
             {"tag_name": "desktop-v0.9.0"},
-            {"tag_name": "server-v0.2.0", "prerelease": true},
-            {"tag_name": "server-v0.3.0-rc.1"},
-            {"tag_name": "server-v0.1.3"},
-            {"tag_name": "server-v0.1.10"}
+            {"tag_name": "vibez-v0.2.0", "prerelease": true},
+            {"tag_name": "vibez-v0.3.0-rc.1"},
+            {"tag_name": "vibez-v0.1.3"},
+            {"tag_name": "vibez-v0.1.10"}
         ]);
         assert_eq!(latest_server_tag(&releases).as_deref(), Some("0.1.10"));
         assert_eq!(latest_server_tag(&json!([{"tag_name": "desktop-v1.0.0"}])), None);

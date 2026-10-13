@@ -4,10 +4,10 @@ use axum::{
 };
 use rv_client::NativeClient;
 use rv_protocol::{CreateRoom, SendMessage, parity::SetReaction};
-use rv_server::{App, auth, custom_emojis, objects::LocalObjects};
 use sqlx::PgPool;
 use std::{io::Cursor, path::PathBuf};
 use tower::ServiceExt;
+use vibez::{App, auth, custom_emojis, objects::LocalObjects};
 struct Bench {
     app: App,
     root: PathBuf,

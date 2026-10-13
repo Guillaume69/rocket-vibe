@@ -1,7 +1,7 @@
 use rv_client::NativeClient;
 use rv_protocol::{CreateRoom, commands::RunCommand};
-use rv_server::{App, auth};
 use sqlx::PgPool;
+use vibez::{App, auth};
 
 struct Bench {
     app: App,

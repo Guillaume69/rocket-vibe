@@ -4,11 +4,11 @@ use rv_protocol::{
     admin::{AdminOperation, DeleteAdminUser, ReportInput, UpdateAdminUser},
     live::PresenceStatus,
 };
-use rv_server::{
+use sqlx::PgPool;
+use vibez::{
     App, auth,
     operator::{self, Command, UserChanges},
 };
-use sqlx::PgPool;
 
 const PASSWORD: &str = "administration-test-password";
 

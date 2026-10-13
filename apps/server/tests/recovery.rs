@@ -1,8 +1,8 @@
 use reqwest::{Client, StatusCode};
 use rv_protocol::{Session, User, parity::RecoverAccount};
-use rv_server::{App, auth, recovery};
 use serde_json::json;
 use sqlx::PgPool;
+use vibez::{App, auth, recovery};
 
 struct Server {
     base: String,

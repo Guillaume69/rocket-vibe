@@ -1,6 +1,6 @@
 # RocketVibe server
 
-`apps/server` is a chat server of its own (crate `rv-server`): Rust, Axum 0.8 with WebSockets, tokio, PostgreSQL through SQLx. It shares no code and no API with Rocket.Chat. Its contract is `crates/rv-protocol` ([shared-crates.md](shared-crates.md)); the three client apps reach it through a separate "rocketvibe" provider next to their Rocket.Chat and Mattermost ones, and it serves the web client itself ([web-client.md](web-client.md)). The design and its scope are in `docs/rfcs/0001-rocketvibe-rust-server.md`; installing one is `docs/DEPLOY-SERVER.md` (in French).
+`apps/server` is a chat server of its own (crate `vibez`): Rust, Axum 0.8 with WebSockets, tokio, PostgreSQL through SQLx. It shares no code and no API with Rocket.Chat. Its contract is `crates/rv-protocol` ([shared-crates.md](shared-crates.md)); the three client apps reach it through a separate "rocketvibe" provider next to their Rocket.Chat and Mattermost ones, and it serves the web client itself ([web-client.md](web-client.md)). The design and its scope are in `docs/rfcs/0001-rocketvibe-rust-server.md`; installing one is `docs/DEPLOY-SERVER.md` (in French).
 
 ## Process
 
@@ -65,7 +65,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 
 - About 50 plain tests and 150 `#[sqlx::test]` inside `src/`, and 166 more `#[sqlx::test]` in `tests/` driving real HTTP and WebSockets, through `rv-client` and the mobile TypeScript transport. `#[sqlx::test]` needs `DATABASE_URL` and creates a database per test: `cargo test` without PostgreSQL fails on all of them.
 - `apps/server/scripts/check.sh` is the gate: fmt, clippy `-D warnings` and the tests of the root workspace, the crypto vectors re-verified with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile RocketVibe provider tests. Locally it runs in the Compose `check` profile; in CI in `native-server.yml` (`verify`, with `postgres:18-alpine`) and `server-release.yml`. `web-client.yml` also runs the server's clippy and unit tests.
-- A `server-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, the same build's image pushed to `ghcr.io/guillaume69/rocketvibe-server` (`X.Y.Z` and `latest`), and the release with its changelog section. `server-image.yml`, dispatched with a tag, republishes an older version.
+- A `server-vX.Y.Z` tag runs `server-release.yml`: the gate, a Docker build (Debian bookworm, so glibc 2.36 or newer), the binary as `vibez-X.Y.Z-linux-x86_64.tar.gz` with `SHA256SUMS`, the same build's image pushed to `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`), and the release with its changelog section. `server-image.yml`, dispatched with a tag, republishes an older version.
 
 ## Footguns
 

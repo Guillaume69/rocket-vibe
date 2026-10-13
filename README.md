@@ -90,7 +90,7 @@ release tag, or by hand through `workflow_dispatch`.
   platform keystores.
 - **`server-release`**: on a `server-vX.Y.Z` tag, the server gate, then one Docker build: its
   binary as a Linux x86_64 archive with SHA-256 checksums and its image pushed to
-  `ghcr.io/guillaume69/rocketvibe-server` (`X.Y.Z` and `latest`). A `release/**` branch runs it
+  `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`). A `release/**` branch runs it
   without publishing; `server-image` republishes the image of an existing tag.
 - **`web-client`**: committed-bundle verification, server fmt/clippy/tests and real browser
   scenarios. A `web-vX.Y.Z` tag publishes the verified frontend as `.tar.gz`, `.zip` and SHA-256

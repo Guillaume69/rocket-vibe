@@ -24,7 +24,7 @@ Ce guide installe un serveur RocketVibe sur un serveur dédié, derrière un nom
 Apps (Android, GTK, SwiftUI)
    │ HTTPS / WSS
    ▼
-Caddy :443 ──── chat.example.org  ──▶ rv-server 127.0.0.1:3400 ──▶ PostgreSQL (réseau Docker interne)
+Caddy :443 ──── chat.example.org  ──▶ vibez 127.0.0.1:3400 ──▶ PostgreSQL (réseau Docker interne)
            └─── voice.example.org ──▶ LiveKit   127.0.0.1:7880 (signalisation)
 
 Apps ◀──── média vocal ────▶ LiveKit 7881/tcp, 50000-50020/udp (ouverts sur Internet)

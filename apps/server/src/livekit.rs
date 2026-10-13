@@ -174,7 +174,7 @@ impl LiveKit {
             video["room"] = json!(room);
         }
         self.sign(&json!({
-            "iss": self.key, "sub": "rocketvibe-server",
+            "iss": self.key, "sub": "vibez",
             "nbf": now.timestamp() - 5, "exp": (now + Duration::seconds(ADMIN_SECONDS)).timestamp(),
             "video": video,
         }))

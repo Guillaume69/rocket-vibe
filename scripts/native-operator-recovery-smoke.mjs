@@ -2,7 +2,7 @@
 import {spawnSync} from 'node:child_process';
 import assert from 'node:assert/strict';
 if (process.env.DATABASE_URL !== 'postgres://pilot:native-pilot-disposable-db-password@postgres/pilot') throw new Error('Disposable pilot database required');
-const run = args => spawnSync('/src/target/debug/rv-server',args,{encoding:'utf8'});
+const run = args => spawnSync('/src/target/debug/vibez',args,{encoding:'utf8'});
 const issued = run(['recover-user','mobile-recovery','--hours','1']);
 if (issued.status !== 0) throw new Error('Recovery issuance failed');
 const value = JSON.parse(issued.stdout);

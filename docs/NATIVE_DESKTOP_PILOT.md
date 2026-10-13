@@ -1,6 +1,6 @@
 # Native RocketVibe in the existing desktop client
 
-Branch: `feature/rocketvibe-server`. The sign-in form recognizes Rocket.Chat or
+Branch: `feature/vibez`. The sign-in form recognizes Rocket.Chat or
 RocketVibe before authentication. Both providers feed the same GTK `ChatPage`: room
 list, headers, Markdown, message list, composer and navigation. There is no longer
 a parallel native chat page.

@@ -51,11 +51,11 @@ async function latestServerVersion(): Promise<string | undefined> {
         ("prerelease" in release && release.prerelease) ||
         !("tag_name" in release) ||
         typeof release.tag_name !== "string" ||
-        !release.tag_name.startsWith("server-v") ||
+        !release.tag_name.startsWith("vibez-v") ||
         !versionParts(release.tag_name)
       )
         continue;
-      const found = release.tag_name.slice(8);
+      const found = release.tag_name.slice("vibez-v".length);
       if (!latest || newerVersion(found, latest)) latest = found;
     }
     return latest;

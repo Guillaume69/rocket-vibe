@@ -48,7 +48,7 @@ for (const name of names)
       "-e",
       "RV_USER_PASSWORD=web-client-disposable-password",
       apiContainer,
-      ".cache/server-target/debug/rv-server",
+      ".cache/server-target/debug/vibez",
       "create-user",
       name,
       "--admin",

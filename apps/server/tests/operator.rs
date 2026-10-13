@@ -1,10 +1,10 @@
 use rv_client::NativeClient;
-use rv_server::{
+use serde_json::json;
+use sqlx::PgPool;
+use vibez::{
     App, auth,
     operator::{self, Command, RoomChanges, UserChanges},
 };
-use serde_json::json;
-use sqlx::PgPool;
 
 struct Bench {
     app: App,
@@ -384,17 +384,15 @@ async fn existing_operator_secrets_stay_out_of_the_atomic_audit_and_epoch_replay
     let user = auth::create_user(&app, "audit-user", "operator-test-password".into(), false)
         .await
         .unwrap();
-    let invitation = rv_server::invitations::issue(&app, 1).await.unwrap();
-    rv_server::invitations::revoke(&app, &invitation.invitation.id)
+    let invitation = vibez::invitations::issue(&app, 1).await.unwrap();
+    vibez::invitations::revoke(&app, &invitation.invitation.id)
         .await
         .unwrap();
-    rv_server::invitations::revoke(&app, &invitation.invitation.id)
+    vibez::invitations::revoke(&app, &invitation.invitation.id)
         .await
         .unwrap();
-    let recovery = rv_server::recovery::issue(&app, "audit-user", 1)
-        .await
-        .unwrap();
-    rv_server::recovery::revoke(&app, &recovery.recovery.id)
+    let recovery = vibez::recovery::issue(&app, "audit-user", 1).await.unwrap();
+    vibez::recovery::revoke(&app, &recovery.recovery.id)
         .await
         .unwrap();
     let records = operator::audit(&app, None, 100).await.unwrap();
@@ -446,7 +444,7 @@ async fn installed_cli_parses_policy_flags_and_emits_only_operator_metadata(pool
         let url = url.to_owned();
         let args = args.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         let output = tokio::task::spawn_blocking(move || {
-            std::process::Command::new(env!("CARGO_BIN_EXE_rv-server"))
+            std::process::Command::new(env!("CARGO_BIN_EXE_vibez"))
                 .args(args)
                 .env("DATABASE_URL", url)
                 .env("RV_USER_PASSWORD", "operator-test-password")

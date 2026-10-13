@@ -3,8 +3,8 @@ use rv_protocol::{
     CreateRoom, SendMessage,
     parity::{DeleteMessage, EditMessage, MessageContent},
 };
-use rv_server::{App, auth};
 use sqlx::PgPool;
+use vibez::{App, auth};
 
 #[sqlx::test]
 async fn cards_use_normal_permissions_receipts_sync_search_edit_and_erasure(pool: PgPool) {

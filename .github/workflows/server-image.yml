@@ -1,7 +1,7 @@
 name: server-image
 
 # On demand only: builds the RocketVibe server image of an existing
-# `server-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
+# `vibez-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
 # archive comes from, with the current Dockerfile's labels) and pushes it to
 # ghcr.io as `X.Y.Z` and `latest`.
 # server-release.yml already pushes it on each tag: this one backfills or
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Server tag to publish (server-vX.Y.Z)
+        description: Server tag to publish (vibez-vX.Y.Z)
         required: true
       latest:
         description: Also move the latest tag
@@ -45,25 +45,25 @@ jobs:
         env:
           TAG: ${{ inputs.tag }}
         run: |
-          version=$(node scripts/version.mjs server --tag "$TAG")
+          version=$(node scripts/version.mjs vibez --tag "$TAG")
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          docker build -f apps/server/Dockerfile -t "rocketvibe-server:$version" .
+          docker build -f apps/server/Dockerfile -t "vibez:$version" .
           # An older tag's Dockerfile may predate the labels: layer today's on top.
-          { echo "FROM rocketvibe-server:$version"; grep '^LABEL ' current/apps/server/Dockerfile; } \
-            | docker build -t "rocketvibe-server:$version" -
-          docker image inspect "rocketvibe-server:$version" \
+          { echo "FROM vibez:$version"; grep '^LABEL ' current/apps/server/Dockerfile; } \
+            | docker build -t "vibez:$version" -
+          docker image inspect "vibez:$version" \
             --format '{{ index .Config.Labels "org.opencontainers.image.description" }}' | grep .
       - name: Push to ghcr.io
         env:
           GH_TOKEN: ${{ github.token }}
           LATEST: ${{ inputs.latest }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/rocketvibe-server"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/vibez"
           echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker tag "rocketvibe-server:$VERSION" "$image:$VERSION"
+          docker tag "vibez:$VERSION" "$image:$VERSION"
           docker push "$image:$VERSION"
           if [ "$LATEST" = true ]; then
-            docker tag "rocketvibe-server:$VERSION" "$image:latest"
+            docker tag "vibez:$VERSION" "$image:latest"
             docker push "$image:latest"
           fi
           echo "Pushed \`$image:$VERSION\`" >> "$GITHUB_STEP_SUMMARY"

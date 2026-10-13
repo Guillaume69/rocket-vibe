@@ -11,8 +11,8 @@ use rv_protocol::{
         HttpMethod, RunState, Step, Trigger, UpdateWorkflow,
     },
 };
-use rv_server::{App, auth};
 use sqlx::PgPool;
+use vibez::{App, auth};
 
 const PASSWORD: &str = "workflow-test-password-2026";
 
@@ -77,9 +77,7 @@ impl Bench {
     /// Ticks the engine until nothing is due.
     async fn drain(&self) {
         for _ in 0..5 {
-            rv_server::workflows::engine::drain(&self.app)
-                .await
-                .unwrap();
+            vibez::workflows::engine::drain(&self.app).await.unwrap();
         }
     }
 }

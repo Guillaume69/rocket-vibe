@@ -47,7 +47,7 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning | More |
 |---|---|---|
-| RocketVibe server, native server | The project's own chat server, `apps/server` (crate `rv-server`); "native" names everything that speaks its protocol rather than Rocket.Chat's or Mattermost's. | [server](architecture/server.md) |
+| RocketVibe server, native server | The project's own chat server, `apps/server` (crate `vibez`); "native" names everything that speaks its protocol rather than Rocket.Chat's or Mattermost's. | [server](architecture/server.md) |
 | Native provider | A client's backend for the RocketVibe server: mobile `providers/rocketvibe/`, desktop `rv-core::native` (`NativeSession`), and the web app as a whole. | [overview](architecture/overview.md) |
 | `rv-protocol` | The native v1 wire types, the source of `docs/protocol/v1.schema.json` and of the generated TypeScript. | [shared-crates](architecture/shared-crates.md) |
 | `rv-client` | The Rust HTTP client of the native protocol (`NativeClient`), used by the desktop. | [shared-crates](architecture/shared-crates.md) |

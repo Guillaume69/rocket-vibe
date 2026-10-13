@@ -4,9 +4,9 @@ use rv_protocol::{
     Change, CreateRoom, SendMessage,
     parity::{DeleteMessage, LeaveRoom, MarkRead, SetRoomFavorite},
 };
-use rv_server::{App, auth};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use vibez::{App, auth};
 struct Bench {
     app: App,
     base: String,

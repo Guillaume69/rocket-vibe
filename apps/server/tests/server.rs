@@ -4,10 +4,10 @@ use rv_protocol::{
     Change, Discovery, Message, MessagePage, Room, Session, Snapshot, SnapshotPage, SocketTicket,
     SyncBatch,
 };
-use rv_server::{App, auth};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::time::Duration;
+use vibez::{App, auth};
 
 struct Server {
     base: String,

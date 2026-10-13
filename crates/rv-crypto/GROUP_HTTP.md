@@ -228,7 +228,7 @@ To replay it under Linux with `DATABASE_URL` pointing to a disposable PostgreSQL
 
 ```sh
 cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
-RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p rv-server --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
+RV_CRYPTO_HTTP_SMOKE_BINARY="$PWD/target/native-crypto/debug/examples/delivery_smoke" cargo test --locked -p vibez --lib protected_http_worker_publishes_joins_rotates_and_reconciles_real_postgres -- --ignored --nocapture
 ```
 
 The journal now authenticates old expired leaves without

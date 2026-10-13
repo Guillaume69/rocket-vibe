@@ -164,7 +164,7 @@ a need is measured; Redis is not required by the first milestones.
 
 ```mermaid
 flowchart TD
-    A[Android: RocketVibe provider] -->|HTTPS / WebSocket| S[rv-server]
+    A[Android: RocketVibe provider] -->|HTTPS / WebSocket| S[vibez]
     B[rv-core: RocketVibe provider] -->|HTTPS / WebSocket| S
     B --> G[GTK interface]
     B --> F[rv-ffi then SwiftUI]
@@ -179,7 +179,7 @@ flowchart TD
 ```
 
 ```text
-apps/server/                       Rust package rv-server, CLI and SQL migrations
+apps/server/                       Rust package vibez, CLI and SQL migrations
 crates/rv-protocol/                 Rust contract independent of GTK, SQLite and SQLx
 docs/protocol/                     Specification, schemas and conformance examples
 docs/rfcs/                         Architecture proposals
@@ -194,7 +194,7 @@ independent package consumed by path dependency; the CI verifies each consumer.
 It does not take over the desktop's product version. Merging the Rust workspaces is
 a later maintenance decision, not a prerequisite for this RFC.
 
-`rv-server` contains accounts, rooms, messages, files, synchronization,
+`vibez` contains accounts, rooms, messages, files, synchronization,
 notifications, E2EE, calls and administration modules. Their business logic depends neither on Axum
 nor on the Rocket.Chat shapes. The routes validate input, call the domain and
 produce the protocol DTOs. The SQL transactions carry the invariants.

@@ -4,9 +4,9 @@ use rv_protocol::{
     live::PresenceStatus,
     profiles::{AvatarCommand, DesktopNotifications, UpdatePreferences, UpdateProfile},
 };
-use rv_server::{App, auth, objects::LocalObjects};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use vibez::{App, auth, objects::LocalObjects};
 
 struct Bench {
     app: App,

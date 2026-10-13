@@ -1,6 +1,6 @@
 # Native RocketVibe server: RFC 0001 workstream
 
-Experimental Rust server, developed on `feature/rocketvibe-server`. The foundation
+Experimental Rust server, developed on `feature/vibez`. The foundation
 is independent of Rocket.Chat: Axum / Tokio, PostgreSQL, `rv-protocol` contracts and
 the reusable Rust transport `rv-client`. The native workspace at the root excludes
 the existing desktop workspace.
@@ -70,9 +70,9 @@ The server binary now embeds [apps/web](../web/README.md). Open its origin at `/
 ## Releases
 
 A `server-vX.Y.Z` tag publishes the server (`.github/workflows/server-release.yml`): a GitHub
-Release with `rocketvibe-server-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
+Release with `vibez-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
 `Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`, and
-pushes that build's image to `ghcr.io/guillaume69/rocketvibe-server` as `X.Y.Z` and `latest`
+pushes that build's image to `ghcr.io/guillaume69/vibez` as `X.Y.Z` and `latest`
 (`server-image.yml`, dispatched with a tag, republishes an older one). The version lives in
 `Cargo.toml`, the notes are its section of [CHANGELOG.md](CHANGELOG.md). Each release embeds
 the web client of its commit. The apps' administration Dashboard compares the server's version

@@ -1,6 +1,6 @@
 # RocketVibe native server workstream
 
-Launch date: 30 September 2026. Branch: `feature/rocketvibe-server`.
+Launch date: 30 September 2026. Branch: `feature/vibez`.
 Destination: [RFC 0001](rfcs/0001-rocketvibe-rust-server.md).
 
 ## Summary status as of 5 October 2026
@@ -666,7 +666,7 @@ The external criteria still open remain exit criteria of the RFC.
 
 ## First increment: server foundation and pilot transports
 
-- [x] Native Rust workspace independent of the desktop, `rv-server`, `rv-protocol`, `rv-client`.
+- [x] Native Rust workspace independent of the desktop, `vibez`, `rv-protocol`, `rv-client`.
 - [x] Compose, database and volumes isolated from the Rocket.Chat bench; local listening.
 - [x] JSON Schema contract, TypeScript generation and shared fixtures.
 - [x] Accounts created by CLI, Argon2id, hashed sessions and revocation.

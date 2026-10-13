@@ -8,11 +8,11 @@ use rv_protocol::{
     CreateRoom, SendMessage,
     parity::{CompleteUpload, MessageContent, PrepareUpload, Upload, UploadState},
 };
-use rv_server::{App, auth, objects::LocalObjects};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceExt;
+use vibez::{App, auth, objects::LocalObjects};
 
 #[sqlx::test]
 async fn portable_mobile_transport_recovers_lost_byte_and_message_acknowledgements(pool: PgPool) {

@@ -84,7 +84,7 @@ if (!users[0] || !users[1]) {
         "-e",
         "RV_USER_PASSWORD=web-client-disposable-password",
         container,
-        ".cache/server-target/debug/rv-server",
+        ".cache/server-target/debug/vibez",
         "create-user",
         users[i],
         "--admin",

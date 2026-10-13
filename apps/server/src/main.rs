@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
-use rv_server::App;
 use std::net::SocketAddr;
+use vibez::App;
 
 #[derive(Parser)]
 #[command(about = "RocketVibe native server and operator CLI")]
@@ -219,10 +219,10 @@ fn operator_output(value: Result<impl serde::Serialize, impl std::fmt::Debug>) -
 async fn apply_operator(
     app: &App,
     operation: Option<String>,
-    command: rv_server::operator::Command,
+    command: vibez::operator::Command,
 ) -> CliResult {
-    let operation = operation.unwrap_or_else(rv_server::auth::random_token);
-    let receipt = rv_server::operator::apply(app, &operation, command)
+    let operation = operation.unwrap_or_else(vibez::auth::random_token);
+    let receipt = vibez::operator::apply(app, &operation, command)
         .await
         .map_err(|e| format!("Operator command failed: {}", e.code))?;
     output(receipt)
@@ -233,19 +233,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rv_server=info".into()),
+                .unwrap_or_else(|_| "vibez=info".into()),
         )
         .init();
     let args = Args::parse();
     let auth_key = args
         .auth_key_file
         .as_deref()
-        .map(rv_server::factor_crypto::AuthKey::from_file)
+        .map(vibez::factor_crypto::AuthKey::from_file)
         .transpose()?;
     let mail = args
         .smtp_config_file
         .as_deref()
-        .map(rv_server::mail::Sender::from_file)
+        .map(vibez::mail::Sender::from_file)
         .transpose()?;
     let app = App::connect_with_auth_key(&args.database_url, auth_key)
         .await?
@@ -253,29 +253,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_push(
             args.fcm_config_file
                 .as_deref()
-                .map(rv_server::push::Sender::from_file)
+                .map(vibez::push::Sender::from_file)
                 .transpose()?,
         )
         .with_livekit(
             args.livekit_config_file
                 .as_deref()
-                .map(rv_server::livekit::LiveKit::from_file)
+                .map(vibez::livekit::LiveKit::from_file)
                 .transpose()?,
         )
         .with_giphy(
             args.giphy_config_file
                 .as_deref()
-                .map(rv_server::giphy::Giphy::from_file)
+                .map(vibez::giphy::Giphy::from_file)
                 .transpose()?,
         )
         .with_e2ee(args.e2ee)
         .with_private_http(args.workflow_private_http)
-        .with_trusted_proxies(rv_server::client_address::TrustedProxies::parse(
+        .with_trusted_proxies(vibez::client_address::TrustedProxies::parse(
             &args.trusted_proxies,
         )?);
     match args.command {
         Command::Emoji { command } => match command {
-            EmojiCommand::List => operator_output(rv_server::custom_emojis::catalog(&app).await)?,
+            EmojiCommand::List => operator_output(vibez::custom_emojis::catalog(&app).await)?,
             EmojiCommand::Put {
                 name,
                 file,
@@ -287,15 +287,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mut bytes = Vec::new();
                 tokio::fs::File::open(file)
                     .await?
-                    .take((rv_server::custom_emojis::MAX_BYTES + 1) as u64)
+                    .take((vibez::custom_emojis::MAX_BYTES + 1) as u64)
                     .read_to_end(&mut bytes)
                     .await?;
-                let app =
-                    app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
+                let app = app.with_objects(vibez::objects::LocalObjects::open(&args.objects_dir)?);
                 operator_output(
-                    rv_server::custom_emojis::put(
+                    vibez::custom_emojis::put(
                         &app,
-                        &operation_id.unwrap_or_else(rv_server::auth::random_token),
+                        &operation_id.unwrap_or_else(vibez::auth::random_token),
                         &name,
                         aliases,
                         revision.as_deref(),
@@ -309,9 +308,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 revision,
                 operation_id,
             } => operator_output(
-                rv_server::custom_emojis::remove(
+                vibez::custom_emojis::remove(
                     &app,
-                    &operation_id.unwrap_or_else(rv_server::auth::random_token),
+                    &operation_id.unwrap_or_else(vibez::auth::random_token),
                     &name,
                     &revision,
                 )
@@ -319,14 +318,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )?,
         },
         Command::Serve { bind } => {
-            let app = app.with_objects(rv_server::objects::LocalObjects::open(&args.objects_dir)?);
+            let app = app.with_objects(vibez::objects::LocalObjects::open(&args.objects_dir)?);
             app.cleanup().await?;
             let delivery_app = app.clone();
             let mail_worker = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::email_delivery::drain(&delivery_app).await {
+                    if let Err(error) = vibez::email_delivery::drain(&delivery_app).await {
                         tracing::error!(code = error.code, "email delivery iteration failed");
                     }
                 }
@@ -337,7 +336,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::push::drain(&push_app).await {
+                    if let Err(error) = vibez::push::drain(&push_app).await {
                         tracing::error!(code = error.code, "push delivery iteration failed");
                     }
                 }
@@ -348,7 +347,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::voice::reconcile(&voice_app).await {
+                    if let Err(error) = vibez::voice::reconcile(&voice_app).await {
                         tracing::error!(code = error.code, "voice worker iteration failed");
                     }
                 }
@@ -359,7 +358,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::workflows::engine::drain(&workflow_app).await {
+                    if let Err(error) = vibez::workflows::engine::drain(&workflow_app).await {
                         tracing::error!(code = error.code, "workflow iteration failed");
                     }
                 }
@@ -370,7 +369,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::scheduled::drain(&scheduled_app).await {
+                    if let Err(error) = vibez::scheduled::drain(&scheduled_app).await {
                         tracing::error!(code = error.code, "scheduled messages iteration failed");
                     }
                 }
@@ -380,7 +379,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
                 loop {
                     tick.tick().await;
-                    if let Err(error) = rv_server::link_previews::drain(&preview_app).await {
+                    if let Err(error) = vibez::link_previews::drain(&preview_app).await {
                         tracing::error!(code = error.code, "link preview iteration failed");
                     }
                 }
@@ -417,49 +416,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Command::CreateUser { username, admin } => {
             let password = std::env::var("RV_USER_PASSWORD")
                 .map_err(|_| "RV_USER_PASSWORD is required (minimum 12 bytes)")?;
-            match rv_server::auth::create_user(&app, &username, password, admin).await {
+            match vibez::auth::create_user(&app, &username, password, admin).await {
                 Ok(user) => println!("Created {} ({})", user.username, user.id),
                 Err(e) => return Err(format!("Cannot create user: {}", e.code).into()),
             }
         }
         Command::Invite { hours } => {
-            let issued = rv_server::invitations::issue(&app, hours)
+            let issued = vibez::invitations::issue(&app, hours)
                 .await
                 .map_err(|e| format!("Cannot issue invitation: {}", e.code))?;
             println!("{}", serde_json::to_string(&issued)?);
         }
         Command::ListInvitations => {
-            let invitations = rv_server::invitations::list(&app)
+            let invitations = vibez::invitations::list(&app)
                 .await
                 .map_err(|e| format!("Cannot list invitations: {}", e.code))?;
             println!("{}", serde_json::to_string(&invitations)?);
         }
         Command::RevokeInvitation { id } => {
-            rv_server::invitations::revoke(&app, &id)
+            vibez::invitations::revoke(&app, &id)
                 .await
                 .map_err(|e| format!("Cannot revoke invitation: {}", e.code))?;
             println!("Invitation revoked");
         }
         Command::RecoverUser { username, hours } => {
-            let issued = rv_server::recovery::issue(&app, &username, hours)
+            let issued = vibez::recovery::issue(&app, &username, hours)
                 .await
                 .map_err(|e| format!("Cannot issue recovery code: {}", e.code))?;
             println!("{}", serde_json::to_string(&issued)?);
         }
         Command::ListRecoveryCodes => {
-            let codes = rv_server::recovery::list(&app)
+            let codes = vibez::recovery::list(&app)
                 .await
                 .map_err(|e| format!("Cannot list recovery codes: {}", e.code))?;
             println!("{}", serde_json::to_string(&codes)?);
         }
         Command::RevokeRecoveryCode { id } => {
-            rv_server::recovery::revoke(&app, &id)
+            vibez::recovery::revoke(&app, &id)
                 .await
                 .map_err(|e| format!("Cannot revoke recovery code: {}", e.code))?;
             println!("Recovery code revoked");
         }
         Command::ListUsers { after, limit } => {
-            operator_output(rv_server::operator::users(&app, after.as_deref(), limit).await)?
+            operator_output(vibez::operator::users(&app, after.as_deref(), limit).await)?
         }
         Command::SetUser {
             id,
@@ -473,10 +472,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             apply_operator(
                 &app,
                 operation_id,
-                rv_server::operator::Command::User {
+                vibez::operator::Command::User {
                     id,
                     expected: revision,
-                    changes: rv_server::operator::UserChanges {
+                    changes: vibez::operator::UserChanges {
                         disabled,
                         admin,
                         create_public_room,
@@ -487,7 +486,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await?;
         }
         Command::ListRooms { after, limit } => {
-            operator_output(rv_server::operator::rooms(&app, after.as_deref(), limit).await)?
+            operator_output(vibez::operator::rooms(&app, after.as_deref(), limit).await)?
         }
         Command::CreateRoom {
             owner_id,
@@ -499,7 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             apply_operator(
                 &app,
                 operation_id,
-                rv_server::operator::Command::CreateRoom {
+                vibez::operator::Command::CreateRoom {
                     owner: owner_id,
                     name,
                     private,
@@ -523,10 +522,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             apply_operator(
                 &app,
                 operation_id,
-                rv_server::operator::Command::Room {
+                vibez::operator::Command::Room {
                     id,
                     expected: revision,
-                    changes: rv_server::operator::RoomChanges {
+                    changes: vibez::operator::RoomChanges {
                         name,
                         private,
                         read_only,
@@ -539,9 +538,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             )
             .await?;
         }
-        Command::ListMembers { room, after, limit } => operator_output(
-            rv_server::operator::members(&app, &room, after.as_deref(), limit).await,
-        )?,
+        Command::ListMembers { room, after, limit } => {
+            operator_output(vibez::operator::members(&app, &room, after.as_deref(), limit).await)?
+        }
         Command::SetMember {
             room,
             user_id,
@@ -553,7 +552,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             apply_operator(
                 &app,
                 operation_id,
-                rv_server::operator::Command::Member {
+                vibez::operator::Command::Member {
                     room,
                     user: user_id,
                     expected: revision,
@@ -563,11 +562,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await?
         }
         Command::Audit { after, limit } => {
-            operator_output(rv_server::operator::audit(&app, after.as_deref(), limit).await)?
+            operator_output(vibez::operator::audit(&app, after.as_deref(), limit).await)?
         }
-        Command::Health => operator_output(rv_server::operator::health(&app).await)?,
+        Command::Health => operator_output(vibez::operator::health(&app).await)?,
         Command::SetInstance { user_bots } => {
-            rv_server::bots::set_user_bots(&app, user_bots)
+            vibez::bots::set_user_bots(&app, user_bots)
                 .await
                 .map_err(|e| format!("Cannot change the instance settings: {}", e.code))?;
             println!("Bots for every account: {user_bots}");

@@ -77,7 +77,7 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
 
 - **web**: from `apps/web/`, `npm version <x.y.z> --no-git-tag-version`, then
   `npm run build` and commit the rebuilt `dist/` (the version is in the bundle).
-- **server**: `[package] version` in `apps/server/Cargo.toml` and the `rv-server`
+- **server**: `[package] version` in `apps/server/Cargo.toml` and the `vibez`
   entry of the root `Cargo.lock`. Its tag runs `server-release.yml` (gate, Docker
   build, binary archive, image pushed to ghcr.io, release); the `release/**` branch push
   runs the same without publishing, so wait for it to be green before tagging.

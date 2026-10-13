@@ -8,11 +8,11 @@ use rv_protocol::{
     CreateRoom, SendMessage,
     parity::{ChangeRoomRole, LeaveRoom, RoomDetails, RoomRole, UpdateRoom},
 };
-use rv_server::{App, auth};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::time::Duration;
 use tower::ServiceExt;
+use vibez::{App, auth};
 
 struct Bench {
     app: App,
@@ -29,10 +29,7 @@ impl Bench {
     async fn start(pool: PgPool) -> Self {
         Self::start_with_livekit(pool, None).await
     }
-    async fn start_with_livekit(
-        pool: PgPool,
-        livekit: Option<rv_server::livekit::LiveKit>,
-    ) -> Self {
+    async fn start_with_livekit(pool: PgPool, livekit: Option<vibez::livekit::LiveKit>) -> Self {
         let app = App::from_pool(pool).await.unwrap().with_livekit(livekit);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -127,7 +124,7 @@ fn code<T>(result: Result<T, rv_client::Error>, expected: &str) {
 async fn metadata_and_voice_edits_preserve_authority_but_policy_changes_rotate_it(pool: PgPool) {
     // Enabling the voice flag only needs a configured SFU. This test never
     // joins or starts its worker, so no media or service fixture is required.
-    let livekit = rv_server::livekit::LiveKit::parse(
+    let livekit = vibez::livekit::LiveKit::parse(
         &serde_json::to_vec(&json!({
             "url": "ws://127.0.0.1:7880",
             "api_url": "http://127.0.0.1:7880",

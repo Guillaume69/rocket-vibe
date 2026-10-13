@@ -10,10 +10,10 @@ to its generation; it grants no right on a room. The additive capability
 The operator CLI works on the database and volume configured for the server:
 
 ```sh
-rv-server emoji list
-rv-server emoji put party_parrot ./parrot.gif --alias vibe_parrot --operation-id import-parrot
-rv-server emoji put party_parrot ./replacement.png --alias vibe_parrot --revision 1 --operation-id replace-parrot
-rv-server emoji remove party_parrot --revision 2 --operation-id remove-parrot
+vibez emoji list
+vibez emoji put party_parrot ./parrot.gif --alias vibe_parrot --operation-id import-parrot
+vibez emoji put party_parrot ./replacement.png --alias vibe_parrot --revision 1 --operation-id replace-parrot
+vibez emoji remove party_parrot --revision 2 --operation-id remove-parrot
 ```
 
 An administrator (`users.admin`) does the same from the apps when the server

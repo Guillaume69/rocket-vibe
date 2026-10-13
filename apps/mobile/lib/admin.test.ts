@@ -23,7 +23,7 @@ describe('versions', () => {
   test('reads plain, v-prefixed and server tags, refuses pre-releases', () => {
     assert.deepEqual(parseVersion('8.8.1'), [8, 8, 1]);
     assert.deepEqual(parseVersion('v8.8.1'), [8, 8, 1]);
-    assert.deepEqual(parseVersion('server-v0.3.0'), [0, 3, 0]);
+    assert.deepEqual(parseVersion('vibez-v0.3.0'), [0, 3, 0]);
     assert.equal(parseVersion('8.9.0-rc.1'), null);
     assert.equal(parseVersion('mobile-v1.0.0'), null);
   });
@@ -54,15 +54,15 @@ describe('versions', () => {
   });
 
   test('RocketVibe: an -rc server tag is no release', () => {
-    assert.equal(latestFromReleases('rocketvibe', [{ tag_name: 'server-v0.4.0-rc.1' }, { tag_name: 'server-v0.3.0' }]), '0.3.0');
+    assert.equal(latestFromReleases('rocketvibe', [{ tag_name: 'vibez-v0.4.0-rc.1' }, { tag_name: 'vibez-v0.3.0' }]), '0.3.0');
   });
 
   test('RocketVibe: the highest server tag, app tags and drafts ignored', () => {
     const releases = [
       { tag_name: 'mobile-v1.4.0' },
-      { tag_name: 'server-v0.2.0' },
-      { tag_name: 'server-v0.10.0' },
-      { tag_name: 'server-v0.11.0', draft: true },
+      { tag_name: 'vibez-v0.2.0' },
+      { tag_name: 'vibez-v0.10.0' },
+      { tag_name: 'vibez-v0.11.0', draft: true },
       { tag_name: 'desktop-v2.0.0' },
     ];
     assert.equal(latestFromReleases('rocketvibe', releases), '0.10.0');
@@ -75,7 +75,7 @@ describe('versions', () => {
     const urls: string[] = [];
     const latest = await fetchLatestVersion('rocketvibe', async (url) => {
       urls.push(url);
-      return { ok: true, json: async () => [{ tag_name: 'server-v1.2.3' }] };
+      return { ok: true, json: async () => [{ tag_name: 'vibez-v1.2.3' }] };
     });
     assert.equal(latest, '1.2.3');
     assert.match(urls[0]!, /Guillaume69\/rocket-vibe\/releases/);

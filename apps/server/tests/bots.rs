@@ -5,8 +5,8 @@ use rv_protocol::{
     CreateRoom, SendMessage,
     bots::{BotScope, CreateBot, CreateBotKey, UpdateBot, UpdateInstanceSettings},
 };
-use rv_server::{App, auth, objects::LocalObjects};
 use sqlx::PgPool;
+use vibez::{App, auth, objects::LocalObjects};
 
 const PASSWORD: &str = "bot-test-password-2026";
 
@@ -651,7 +651,7 @@ async fn a_bot_never_holds_a_person_session_even_with_a_password(pool: PgPool) {
         "session_rejected",
     );
     assert!(
-        rv_server::recovery::issue(&bench.app, "pw-bot", 1)
+        vibez::recovery::issue(&bench.app, "pw-bot", 1)
             .await
             .is_err()
     );
@@ -796,9 +796,7 @@ async fn each_scope_opens_its_routes_and_profiles_stay_the_owners(pool: PgPool) 
         "bot_forbidden",
     );
     // The operator switch is the same setting.
-    rv_server::bots::set_user_bots(&bench.app, false)
-        .await
-        .unwrap();
+    vibez::bots::set_user_bots(&bench.app, false).await.unwrap();
     assert!(!admin.instance_settings().await.unwrap().user_bots);
 }
 

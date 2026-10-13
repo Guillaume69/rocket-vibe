@@ -3,10 +3,10 @@ use axum::{
     http::{Request, StatusCode},
 };
 use rv_client::NativeClient;
-use rv_server::{App, auth, objects::LocalObjects};
 use sqlx::PgPool;
 use std::{io::Cursor, path::PathBuf};
 use tower::ServiceExt;
+use vibez::{App, auth, objects::LocalObjects};
 
 struct Bench {
     app: App,

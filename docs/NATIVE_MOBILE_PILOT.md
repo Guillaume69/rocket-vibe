@@ -1,6 +1,6 @@
 # Native RocketVibe in the existing mobile app
 
-Branch: `feature/rocketvibe-server`. The sign-in flow recognizes Rocket.Chat or
+Branch: `feature/vibez`. The sign-in flow recognizes Rocket.Chat or
 RocketVibe. Both providers use the same home and room screens, the same message
 list, the same composer and the existing settings. The former `/native` route
 redirects to home; it is no longer a separate messaging client.

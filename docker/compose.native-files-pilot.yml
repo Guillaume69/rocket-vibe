@@ -21,7 +21,7 @@ services:
       DATABASE_URL: postgres://files:disposable-native-files-password@postgres/files
       RV_USER_PASSWORD: disposable-native-files-password
     entrypoint: [/bin/sh, -ec]
-    command: ['rv-server create-user desktop-files && rv-server create-user files-outsider']
+    command: ['vibez create-user desktop-files && vibez create-user files-outsider']
     depends_on:
       postgres: {condition: service_healthy}
   server:

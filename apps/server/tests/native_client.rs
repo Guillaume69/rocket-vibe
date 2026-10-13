@@ -1,7 +1,7 @@
 use rv_client::NativeClient;
 use rv_protocol::SendMessage;
-use rv_server::{App, auth};
 use sqlx::PgPool;
+use vibez::{App, auth};
 
 #[tokio::test]
 async fn rust_snapshot_bounds_chunked_wire_bodies_before_json_decoding() {

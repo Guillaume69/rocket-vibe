@@ -1,7 +1,7 @@
 import { nt } from "./native-i18n";
 import { language } from "./i18n";
 export function versionParts(text: string): bigint[] | undefined {
-  const match = /^(?:server-v|v)?(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  const match = /^(?:vibez-v|v)?(\d+)\.(\d+)\.(\d+)$/.exec(text);
   return match?.slice(1).map(BigInt);
 }
 export function newerVersion(latest: string, current: string): boolean {

@@ -67,11 +67,11 @@ jobs:
       - name: Build the actual server distribution
         run: |
           cargo fmt --all --check
-          cargo clippy --locked -p rv-server --all-targets -- -D warnings
-          cargo test --locked -p rv-server --lib
-          cargo test --locked -p rv-server --test room_details
-          cargo test --locked -p rv-server --test bots a_key_reaches_only_the_routes_of_its_scopes
-          cargo build --locked -p rv-server
+          cargo clippy --locked -p vibez --all-targets -- -D warnings
+          cargo test --locked -p vibez --lib
+          cargo test --locked -p vibez --test room_details
+          cargo test --locked -p vibez --test bots a_key_reaches_only_the_routes_of_its_scopes
+          cargo build --locked -p vibez
       - name: Start isolated SMTP, SFU and server
         run: |
           mkdir -p .cache/web-shots .cache/web-objects
@@ -82,57 +82,57 @@ jobs:
           export RV_OBJECTS_DIR="$PWD/.cache/web-objects"
           export RV_SMTP_CONFIG_FILE="$PWD/.cache/smtp.json"
           export RV_LIVEKIT_CONFIG_FILE="$PWD/.cache/livekit.json"
-          target/debug/rv-server create-user webcryptoalice --admin
-          target/debug/rv-server create-user webcryptobob --admin
-          target/debug/rv-server create-user webalice --admin
-          target/debug/rv-server create-user webshell
-          target/debug/rv-server create-user webvoicefailure
-          target/debug/rv-server create-user webconnection
-          target/debug/rv-server create-user webconnectionpeer
-          target/debug/rv-server create-user webvoicelifecycle
-          target/debug/rv-server create-user webvoicelifecyclepeer
-          target/debug/rv-server create-user webread
-          target/debug/rv-server create-user webreadpeer
-          target/debug/rv-server create-user webprofile
-          target/debug/rv-server create-user webprofilepeer
-          target/debug/rv-server create-user webreadowner --admin
-          target/debug/rv-server create-user webbob
-          target/debug/rv-server create-user websecurity
-          target/debug/rv-server create-user websecpendingci
-          target/debug/rv-server create-user websecpendingemailci
-          target/debug/rv-server create-user websecfactorci
-          target/debug/rv-server create-user websecfactoremailci
-          target/debug/rv-server create-user webcomposer --admin
-          target/debug/rv-server create-user webrail
-          target/debug/rv-server create-user webquiet
-          target/debug/rv-server create-user webreceipts
-          target/debug/rv-server create-user webreceiptspeer
-          target/debug/rv-server create-user webscheduled
-          target/debug/rv-server create-user webreminders
-          target/debug/rv-server create-user webglobalsearch
-          target/debug/rv-server create-user weblogoutreplay
-          target/debug/rv-server create-user webnotify
-          target/debug/rv-server create-user webnotifypeer
-          target/debug/rv-server create-user webthreads
-          target/debug/rv-server create-user webthreadspeer
-          target/debug/rv-server create-user webvisual --admin
-          target/debug/rv-server create-user webadminlayout --admin
-          target/debug/rv-server create-user webadminlayoutpeer
-          target/debug/rv-server create-user webgtkforms
-          target/debug/rv-server create-user webgtkformspeer
-          target/debug/rv-server create-user webincoming
-          target/debug/rv-server create-user webincomingpeer
-          target/debug/rv-server create-user webemojipreview
-          target/debug/rv-server create-user webemojipreviewadmin --admin
-          target/debug/rv-server create-user webworkflows --admin
-          target/debug/rv-server create-user socialweb --admin
-          target/debug/rv-server create-user webmedia --admin
-          target/debug/rv-server create-user webmediapeer --admin
-          target/debug/rv-server create-user webimage --admin
-          target/debug/rv-server create-user webimagepeer --admin
-          target/debug/rv-server create-user webvideo --admin
-          target/debug/rv-server create-user webvideopeer --admin
-          target/debug/rv-server serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
+          target/debug/vibez create-user webcryptoalice --admin
+          target/debug/vibez create-user webcryptobob --admin
+          target/debug/vibez create-user webalice --admin
+          target/debug/vibez create-user webshell
+          target/debug/vibez create-user webvoicefailure
+          target/debug/vibez create-user webconnection
+          target/debug/vibez create-user webconnectionpeer
+          target/debug/vibez create-user webvoicelifecycle
+          target/debug/vibez create-user webvoicelifecyclepeer
+          target/debug/vibez create-user webread
+          target/debug/vibez create-user webreadpeer
+          target/debug/vibez create-user webprofile
+          target/debug/vibez create-user webprofilepeer
+          target/debug/vibez create-user webreadowner --admin
+          target/debug/vibez create-user webbob
+          target/debug/vibez create-user websecurity
+          target/debug/vibez create-user websecpendingci
+          target/debug/vibez create-user websecpendingemailci
+          target/debug/vibez create-user websecfactorci
+          target/debug/vibez create-user websecfactoremailci
+          target/debug/vibez create-user webcomposer --admin
+          target/debug/vibez create-user webrail
+          target/debug/vibez create-user webquiet
+          target/debug/vibez create-user webreceipts
+          target/debug/vibez create-user webreceiptspeer
+          target/debug/vibez create-user webscheduled
+          target/debug/vibez create-user webreminders
+          target/debug/vibez create-user webglobalsearch
+          target/debug/vibez create-user weblogoutreplay
+          target/debug/vibez create-user webnotify
+          target/debug/vibez create-user webnotifypeer
+          target/debug/vibez create-user webthreads
+          target/debug/vibez create-user webthreadspeer
+          target/debug/vibez create-user webvisual --admin
+          target/debug/vibez create-user webadminlayout --admin
+          target/debug/vibez create-user webadminlayoutpeer
+          target/debug/vibez create-user webgtkforms
+          target/debug/vibez create-user webgtkformspeer
+          target/debug/vibez create-user webincoming
+          target/debug/vibez create-user webincomingpeer
+          target/debug/vibez create-user webemojipreview
+          target/debug/vibez create-user webemojipreviewadmin --admin
+          target/debug/vibez create-user webworkflows --admin
+          target/debug/vibez create-user socialweb --admin
+          target/debug/vibez create-user webmedia --admin
+          target/debug/vibez create-user webmediapeer --admin
+          target/debug/vibez create-user webimage --admin
+          target/debug/vibez create-user webimagepeer --admin
+          target/debug/vibez create-user webvideo --admin
+          target/debug/vibez create-user webvideopeer --admin
+          target/debug/vibez serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
             sleep 1

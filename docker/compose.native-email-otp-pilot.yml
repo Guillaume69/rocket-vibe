@@ -5,7 +5,7 @@ services:
     environment:
       DATABASE_URL: postgres://pilot:native-pilot-disposable-db-password@postgres/pilot
       RV_USER_PASSWORD: native-pilot-test-password
-    entrypoint: [rv-server, create-user, gtk-email]
+    entrypoint: [vibez, create-user, gtk-email]
     depends_on:
       bootstrap: {condition: service_completed_successfully}
   otp-policy:

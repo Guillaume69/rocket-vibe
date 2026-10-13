@@ -1,7 +1,7 @@
 # A separate fresh project; never share its ACK-loss proxy with the GTK bench.
 services:
   otp-user:
-    entrypoint: [rv-server, create-user, swift-email]
+    entrypoint: [vibez, create-user, swift-email]
   factor-seed:
     environment: {RV_PILOT_OTP_USER: swift-email}
   otp-swift:

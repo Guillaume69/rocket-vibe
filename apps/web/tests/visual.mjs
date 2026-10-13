@@ -371,12 +371,12 @@ try {
   const expectedUpdate = `${nextMajor}.3.0`;
   releaseFixture = [
     { tag_name: `desktop-v${nextMajor + 99}.0.0` },
-    { tag_name: `server-v${nextMajor}.1.5` },
-    { tag_name: `server-v${expectedUpdate}` },
-    { tag_name: `server-v${nextMajor}.1.9` },
-    { tag_name: `server-v${nextMajor + 9}.0.0`, draft: true },
-    { tag_name: `server-v${nextMajor + 8}.0.0`, prerelease: true },
-    { tag_name: `server-v${nextMajor + 7}.0.0-rc.1` },
+    { tag_name: `vibez-v${nextMajor}.1.5` },
+    { tag_name: `vibez-v${expectedUpdate}` },
+    { tag_name: `vibez-v${nextMajor}.1.9` },
+    { tag_name: `vibez-v${nextMajor + 9}.0.0`, draft: true },
+    { tag_name: `vibez-v${nextMajor + 8}.0.0`, prerelease: true },
+    { tag_name: `vibez-v${nextMajor + 7}.0.0-rc.1` },
   ];
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.evaluate(() => localStorage.setItem("rv-language", "fr"));

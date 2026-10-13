@@ -122,7 +122,7 @@ React 19.3.0, TypeScript 6, Vite 8, `livekit-client` 2.22, Prettier 3.9.9, Playw
 
 ## Server (`apps/server`) and shared crates
 
-`rv-server`: Rust edition 2024, Axum 0.8.9 (with WebSockets), tokio, SQLx 0.8.6 on PostgreSQL 18, OpenMLS 0.9.0 (verification only), Argon2, lettre for SMTP, `gcp_auth` for FCM. Built and shipped from `rust:1.97-bookworm` into `debian:bookworm-slim` (`apps/server/Dockerfile`). The root `Cargo.toml` is a resolver-3 workspace of the server, `rv-protocol`, `rv-client` and `rv-crypto-public`; the other shared crates keep workspaces of their own. See [architecture/server.md](architecture/server.md) and [architecture/shared-crates.md](architecture/shared-crates.md).
+`vibez`: Rust edition 2024, Axum 0.8.9 (with WebSockets), tokio, SQLx 0.8.6 on PostgreSQL 18, OpenMLS 0.9.0 (verification only), Argon2, lettre for SMTP, `gcp_auth` for FCM. Built and shipped from `rust:1.97-bookworm` into `debian:bookworm-slim` (`apps/server/Dockerfile`). The root `Cargo.toml` is a resolver-3 workspace of the server, `rv-protocol`, `rv-client` and `rv-crypto-public`; the other shared crates keep workspaces of their own. See [architecture/server.md](architecture/server.md) and [architecture/shared-crates.md](architecture/shared-crates.md).
 
 ## Test server (`docker/compose.yml`)
 

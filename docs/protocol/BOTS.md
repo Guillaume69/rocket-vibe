@@ -113,7 +113,7 @@ Apps show a "BOT" badge next to the name.
 
 `GET /api/v1/admin/settings` → `InstanceSettings{user_bots}`;
 `PATCH /api/v1/admin/settings` with `UpdateInstanceSettings{operation_id, user_bots?}`,
-administrators only. CLI: `rv-server set-instance --user-bots true|false`.
+administrators only. CLI: `vibez set-instance --user-bots true|false`.
 
 ## Audit
 

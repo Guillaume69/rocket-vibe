@@ -290,10 +290,7 @@ fn operation(user: &str, id: &str) -> Result<String> {
     if !packet::identifier(user) || !packet::identifier(id) {
         return Err(Error::Changed);
     }
-    Ok(HEXLOWER.encode(&fingerprint(
-        "rocketvibe-message-operation-v1",
-        &(user, id),
-    )?))
+    Ok(HEXLOWER.encode(&fingerprint("vibez-message-operation-v1", &(user, id))?))
 }
 fn valid_hash(value: &str) -> bool {
     value.len() == 64
@@ -303,7 +300,7 @@ fn valid_hash(value: &str) -> bool {
 }
 fn receipt_hash(receipt: &packet::Receipt) -> Result<String> {
     receipt.validate()?;
-    Ok(HEXLOWER.encode(&fingerprint("rocketvibe-message-receipt-v1", receipt)?))
+    Ok(HEXLOWER.encode(&fingerprint("vibez-message-receipt-v1", receipt)?))
 }
 fn cancellation(proof: &packet::Proof) -> Result<MessageCancellation> {
     Ok(MessageCancellation {
@@ -316,7 +313,7 @@ fn cancellation_hash(receipt: &MessageCancellation) -> Result<String> {
     if receipt.fingerprint == [0; 32] {
         return Err(Error::Receipt);
     }
-    Ok(HEXLOWER.encode(&fingerprint("rocketvibe-message-cancellation-v1", receipt)?))
+    Ok(HEXLOWER.encode(&fingerprint("vibez-message-cancellation-v1", receipt)?))
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -694,7 +691,7 @@ impl Coordinator {
         }
         let plaintext = payload(message)?;
         let intent = HEXLOWER.encode(&fingerprint(
-            "rocketvibe-message-intent-v1",
+            "vibez-message-intent-v1",
             &(&observation.roster, &observation.head, digest(&plaintext)),
         )?);
         let id = operation(&self.manager.scope().user, &message.operation_id)?;

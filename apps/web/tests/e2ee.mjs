@@ -578,7 +578,7 @@ try {
         iv: current.iv,
         additionalData: new TextEncoder().encode(
           JSON.stringify([
-            "rocketvibe-browser-vault-v1",
+            "vibez-browser-vault-v1",
             scopes[0],
             current.revision,
           ]),

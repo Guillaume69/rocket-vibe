@@ -108,8 +108,8 @@ impl Manager {
         if !scope.valid() || !private_directory(&directory) {
             return Err(Error::Scope);
         }
-        let tuple = serde_json::to_vec(&("rocketvibe-crypto-protected-v1", &scope))
-            .map_err(|_| Error::Scope)?;
+        let tuple =
+            serde_json::to_vec(&("vibez-crypto-protected-v1", &scope)).map_err(|_| Error::Scope)?;
         let hash = Sha256::digest(tuple)
             .iter()
             .map(|b| format!("{b:02x}"))
@@ -129,7 +129,7 @@ impl Manager {
         // send state under a different lock while sharing a keystore entry.
         let canonical = location(&self.directory)?;
         let mut hash = Sha256::new();
-        hash.update(b"rocketvibe-crypto-location-v1");
+        hash.update(b"vibez-crypto-location-v1");
         hash.update(canonical.as_os_str().as_encoded_bytes());
         Ok(hash.finalize().into())
     }

@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
-const DOMAIN: &str = "rocketvibe-root-recovery-v1";
-const CODE_DOMAIN: &[u8] = b"rocketvibe-recovery-code-v1\0";
+const DOMAIN: &str = "vibez-root-recovery-v1";
+const CODE_DOMAIN: &[u8] = b"vibez-recovery-code-v1\0";
 const PACKET_LIMIT: usize = 24 * 1024;
 const RESTORE_RECORD: &str = "crypto-recovery-import-v1";
 impl Issuer {

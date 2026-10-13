@@ -21,7 +21,7 @@ without already being enrolled in E2EE. This download creates no key or trust.
 It gives no access to the receipts of another device.
 
 The JSON publication contains the opaque package and an Ed25519 signature of the
-root over `rocketvibe-root-backup-publication-v1`, NUL, then the compact JSON
+root over `vibez-root-backup-publication-v1`, NUL, then the compact JSON
 of the body in v1 order: version, scope, operation, device, incarnation,
 certificate revision, expected active version, SHA-256 of the canonical package.
 Revisions are exact positive decimal strings, up to `i64::MAX`.

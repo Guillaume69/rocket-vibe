@@ -50,7 +50,7 @@ The wire contract is `docs/protocol/VOICE.md`; the essentials:
   so plaintext and encrypted participants never meet (the worker evicts one left from before
   the group existed; `voice_sessions.e2ee`). The key never reaches the server: each device
   exports it from the room's MLS group at the current epoch
-  (`rv_crypto::groups::Coordinator::voice_key`, label `rocketvibe voice v1`, 32 bytes) and
+  (`rv_crypto::groups::Coordinator::voice_key`, label `vibez voice v1`, 32 bytes) and
   gives LiveKit its standard base64 as the **shared key, index 0**, with LiveKit's defaults
   (PBKDF2, salt `LKFrameEncryptionKey`), the same bytes on Android and in Rust. A device
   behind the server's group head (a change not accepted yet, not welcomed) has no key and

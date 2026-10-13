@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 pub const PLAIN_LIMIT: usize = 64 * 1024;
 pub const CIPHERTEXT_LIMIT: usize = PLAIN_LIMIT + 16;
 pub const WIRE_LIMIT: usize = 384 * 1024;
-pub const DOMAIN: &str = "rocketvibe-archive-document-proof-v1";
+pub const DOMAIN: &str = "vibez-archive-document-proof-v1";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -79,7 +79,7 @@ impl Header {
     }
     pub fn aad(&self) -> Result<Vec<u8>, Error> {
         self.validate()?;
-        signing_bytes("rocketvibe-archive-document-aad-v1", self)
+        signing_bytes("vibez-archive-document-aad-v1", self)
     }
 }
 
@@ -162,7 +162,7 @@ impl Packet {
     }
     pub fn digest(&self) -> Result<Fingerprint, Error> {
         let mut digest = Sha256::new();
-        digest.update(b"rocketvibe-archive-document-fingerprint-v1\0");
+        digest.update(b"vibez-archive-document-fingerprint-v1\0");
         digest.update(self.to_bytes()?);
         Ok(digest.finalize().into())
     }

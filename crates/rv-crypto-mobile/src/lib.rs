@@ -201,7 +201,7 @@ impl CryptoInstallation {
             Arc::new(Platform(keystore)),
         )?;
         let fingerprint = data_encoding::HEXLOWER.encode(&Sha256::digest(
-            serde_json::to_vec(&("rocketvibe-mobile-account-v1", &account))
+            serde_json::to_vec(&("vibez-mobile-account-v1", &account))
                 .map_err(|_| CryptoBridgeError::Changed)?,
         ));
         Ok(Arc::new(Self {

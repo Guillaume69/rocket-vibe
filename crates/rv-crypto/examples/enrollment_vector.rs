@@ -35,15 +35,15 @@ fn main() {
     };
     let request = Request {
         signature: leaf
-            .sign(&frame("rocketvibe-device-request-v1", &body))
+            .sign(&frame("vibez-device-request-v1", &body))
             .to_bytes()
             .to_vec(),
         body,
     };
-    let fingerprint = Sha256::digest(frame("rocketvibe-request-fingerprint-v1", &request)).into();
+    let fingerprint = Sha256::digest(frame("vibez-request-fingerprint-v1", &request)).into();
     let signature = root
         .sign(&frame(
-            "rocketvibe-device-grant-v1",
+            "vibez-device-grant-v1",
             &(fingerprint, &certificate),
         ))
         .to_bytes()

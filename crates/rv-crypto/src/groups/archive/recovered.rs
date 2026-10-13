@@ -62,10 +62,7 @@ const PREFIX: &str = "crypto-recovered-archive-v1/";
 fn key(source: &Source) -> Result<String> {
     Ok(format!(
         "{PREFIX}{}",
-        HEXLOWER.encode(&fingerprint(
-            "rocketvibe-recovered-archive-source-v1",
-            source
-        )?)
+        HEXLOWER.encode(&fingerprint("vibez-recovered-archive-source-v1", source)?)
     ))
 }
 fn read_head(bytes: &[u8]) -> Result<RecoveredHead> {

@@ -67,7 +67,7 @@ impl Coordinator {
             return Err(Error::Changed);
         }
         let hash = fingerprint(
-            "rocketvibe-private-draft-v1",
+            "vibez-private-draft-v1",
             &(
                 &roster.scope,
                 grant,

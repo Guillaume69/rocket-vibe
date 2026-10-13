@@ -37,7 +37,7 @@ Private blocks are referenced by `(id, digest)` from protected records and from
 other blocks (the archive's skip lists), where the digest covers the block's sealed
 bytes. Re-sealing a block would change its digest. A renewal therefore seals each
 block again as an envelope `digest ‖ content` under the new key, with the additional
-data `(rocketvibe-private-blob-rekeyed-v1, scope, id)`, and marks its row `rekeyed`.
+data `(vibez-private-blob-rekeyed-v1, scope, id)`, and marks its row `rekeyed`.
 Reading a rekeyed block authenticates it under the current key and compares the
 digest it carries with the reference, so every existing reference stays valid and
 a block still cannot be swapped for another. Blocks written after a renewal use the

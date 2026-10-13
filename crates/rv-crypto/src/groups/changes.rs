@@ -34,7 +34,7 @@ fn intent(request: &Change) -> Result<Fingerprint> {
     let mut packages: Vec<_> = request.packages.iter().map(|p| digest(p)).collect();
     packages.sort();
     fingerprint(
-        "rocketvibe-local-group-change-v1",
+        "vibez-local-group-change-v1",
         &(
             &request.roster,
             &request.head,
@@ -213,7 +213,7 @@ impl Coordinator {
             let state = consent_state(Some(&state))?;
             let own = context.certificate.fingerprint()?;
             let fingerprint = fingerprint(
-                "rocketvibe-local-group-confirmation-v1",
+                "vibez-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
             )?;
             Ok((

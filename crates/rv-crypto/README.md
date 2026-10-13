@@ -23,7 +23,7 @@ must not escape these callbacks. This Rust API is internal to the future engine,
 not an FFI surface that would let the UI modify keys directly.
 
 - XChaCha20Poly1305, 32-byte key, 24-byte OS-random nonce per commit.
-  The `rocketvibe-mls-vault-v1` domain, the instance / generation / account /
+  The `vibez-mls-vault-v1` domain, the instance / generation / account /
   device / incarnation scope and the revision are the authenticated associated data.
   [Pinned RustCrypto implementation](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
 - An authenticated JSON document contains the OpenMLS storage entries, the

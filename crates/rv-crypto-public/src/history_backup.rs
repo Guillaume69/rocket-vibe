@@ -7,10 +7,10 @@ use crate::recovery::Scope;
 
 pub const PACKAGE_LIMIT: usize = 4096;
 pub const PUBLICATION_LIMIT: usize = 16 * 1024;
-pub const PUBLICATION_DOMAIN: &str = "rocketvibe-history-key-publication-v1";
-pub const CHECKPOINT_DOMAIN: &str = "rocketvibe-history-backup-checkpoint-v1";
-pub const KEY_DOMAIN: &str = "rocketvibe-history-key-v1";
-pub const PERIOD_DOMAIN: &str = "rocketvibe-history-backup-period-v1";
+pub const PUBLICATION_DOMAIN: &str = "vibez-history-key-publication-v1";
+pub const CHECKPOINT_DOMAIN: &str = "vibez-history-backup-checkpoint-v1";
+pub const KEY_DOMAIN: &str = "vibez-history-key-v1";
+pub const PERIOD_DOMAIN: &str = "vibez-history-backup-period-v1";
 
 /// Positions, counts and times stay exact for a JavaScript verifier.
 mod decimal {

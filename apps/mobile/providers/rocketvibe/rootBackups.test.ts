@@ -38,13 +38,13 @@ test('OpenSSL independently verifies the root backup vector and exact packet pur
   const key=createPublicKey({key:Buffer.concat([Buffer.from('302a300506032b6570032100','hex'),Buffer.from(root.public_key)]),format:'der',type:'spki'});
   const frame=(domain:string,value:unknown)=>Buffer.concat([Buffer.from(domain+'\0'),Buffer.from(JSON.stringify(value))]);
   const signature=Buffer.from(publication.signature);
-  assert(verify(null,frame('rocketvibe-root-backup-publication-v1',publication.body),key,signature));
-  assert(!verify(null,frame('rocketvibe-device-revocation-v1',publication.body),key,signature));
-  assert(!verify(null,frame('rocketvibe-root-backup-publication-v1',{...publication.body,expected_revision:null}),key,signature));
+  assert(verify(null,frame('vibez-root-backup-publication-v1',publication.body),key,signature));
+  assert(!verify(null,frame('vibez-device-revocation-v1',publication.body),key,signature));
+  assert(!verify(null,frame('vibez-root-backup-publication-v1',{...publication.body,expected_revision:null}),key,signature));
   const packetDigest=createHash('sha256').update(JSON.stringify(publication.packet)).digest();
   assert.deepEqual([...packetDigest],publication.body.packet_digest);
   assert.equal(packetDigest.toString('hex'),receipt.packet_digest);
-  assert.equal(createHash('sha256').update(frame('rocketvibe-root-fingerprint-v1',root)).digest('hex'),receipt.root_fingerprint);
+  assert.equal(createHash('sha256').update(frame('vibez-root-fingerprint-v1',root)).digest('hex'),receipt.root_fingerprint);
   assert.equal(publication.body.device_revision,'9007199254740993');
 });
 test('lost backup result is readable by its original receipt and by a fresh device without a second POST',async()=>{

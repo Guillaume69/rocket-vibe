@@ -10,16 +10,16 @@ use ed25519_dalek::Signature;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const REQUEST_DOMAIN: &str = "rocketvibe-history-request-v1";
-pub const SHARE_DOMAIN: &str = "rocketvibe-history-share-v1";
-pub const CHAIN_DOMAIN: &str = "rocketvibe-history-chain-v1";
+pub const REQUEST_DOMAIN: &str = "vibez-history-request-v1";
+pub const SHARE_DOMAIN: &str = "vibez-history-share-v1";
+pub const CHAIN_DOMAIN: &str = "vibez-history-chain-v1";
 /// A request stays answerable for at most 7 days.
 pub const REQUEST_LIFETIME: u64 = 7 * 86400;
 pub const MAX_PERIODS: usize = 1024;
 pub const SHARE_LIMIT: usize = 1024 * 1024;
 pub const ENVELOPE_LIMIT: usize = 64 * 1024;
-pub const RECORD_DOMAIN: &str = "rocketvibe-history-record-v1";
-pub const RECORD_AAD_DOMAIN: &str = "rocketvibe-history-record-aad-v1";
+pub const RECORD_DOMAIN: &str = "vibez-history-record-v1";
+pub const RECORD_AAD_DOMAIN: &str = "vibez-history-record-aad-v1";
 
 /// Positions, counts and bounds stay exact for a JavaScript verifier.
 mod decimal {
@@ -99,11 +99,7 @@ impl Request {
         Ok(())
     }
     pub fn fingerprint(&self) -> Result<Fingerprint, Error> {
-        Ok(Sha256::digest(signing_bytes(
-            "rocketvibe-history-request-fingerprint-v1",
-            self,
-        )?)
-        .into())
+        Ok(Sha256::digest(signing_bytes("vibez-history-request-fingerprint-v1", self)?).into())
     }
 }
 
@@ -167,7 +163,7 @@ impl Manifest {
             return Err(Error::Limit);
         }
         let mut hash = Sha256::new();
-        hash.update(b"rocketvibe-history-manifest-v1\0");
+        hash.update(b"vibez-history-manifest-v1\0");
         hash.update(&bytes);
         Ok(hash.finalize().into())
     }
@@ -206,7 +202,7 @@ impl Envelope {
             return Err(Error::Invalid);
         }
         let mut hash = Sha256::new();
-        hash.update(b"rocketvibe-history-envelope-v1\0");
+        hash.update(b"vibez-history-envelope-v1\0");
         hash.update(self.kem_output.as_slice());
         hash.update(self.ciphertext.as_slice());
         Ok(hash.finalize().into())
@@ -356,7 +352,7 @@ impl Record {
     }
     pub fn digest(&self) -> Result<Fingerprint, Error> {
         let mut digest = Sha256::new();
-        digest.update(b"rocketvibe-history-record-fingerprint-v1\0");
+        digest.update(b"vibez-history-record-fingerprint-v1\0");
         digest.update(self.to_bytes()?);
         Ok(digest.finalize().into())
     }

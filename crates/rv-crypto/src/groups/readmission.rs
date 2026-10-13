@@ -7,7 +7,7 @@ fn intent(admission: &Admission) -> Result<(Transition, Fingerprint)> {
     let (transition, _) = check_admission(admission)?;
     Ok((
         transition,
-        fingerprint("rocketvibe-local-group-readmission-v1", admission)?,
+        fingerprint("vibez-local-group-readmission-v1", admission)?,
     ))
 }
 impl Coordinator {
@@ -70,7 +70,7 @@ impl Coordinator {
             let own = context.certificate.fingerprint()?;
             let state = consent_state(Some(&state))?;
             let fingerprint = fingerprint(
-                "rocketvibe-local-group-confirmation-v1",
+                "vibez-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
             )?;
             Ok((

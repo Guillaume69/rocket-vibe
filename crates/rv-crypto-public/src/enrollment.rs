@@ -3,8 +3,8 @@ use super::{Certificate, Error, Fingerprint, Root, label, signing_bytes, verifyi
 use ed25519_dalek::Signature;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-pub const REQUEST_DOMAIN: &str = "rocketvibe-device-request-v1";
-const GRANT_DOMAIN: &str = "rocketvibe-device-grant-v1";
+pub const REQUEST_DOMAIN: &str = "vibez-device-request-v1";
+const GRANT_DOMAIN: &str = "vibez-device-grant-v1";
 pub const REQUEST_LIFETIME: u64 = 600;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +63,7 @@ impl Request {
         Ok(())
     }
     pub fn fingerprint(&self) -> Result<Fingerprint, Error> {
-        Ok(Sha256::digest(signing_bytes("rocketvibe-request-fingerprint-v1", self)?).into())
+        Ok(Sha256::digest(signing_bytes("vibez-request-fingerprint-v1", self)?).into())
     }
 }
 

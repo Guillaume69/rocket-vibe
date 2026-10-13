@@ -14,7 +14,7 @@ const key=Buffer.from(vector.key,'base64url');
 assert.equal(key.length,32);
 const prefix=Buffer.from(vector.prefix,'hex');
 assert.equal(prefix.length,19);
-const CHUNK=65536,AAD=Buffer.from('rocketvibe-file-v1');
+const CHUNK=65536,AAD=Buffer.from('vibez-file-v1');
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const nonce=(i,last)=>{const n=Buffer.alloc(24);prefix.copy(n);n.writeUInt32BE(i,19);n[23]=last?1:0;return n;};
 

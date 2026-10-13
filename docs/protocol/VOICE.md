@@ -39,7 +39,7 @@ has end-to-end encrypted voice: the SFU forwards frames it cannot read.
   so plaintext and encrypted participants never meet: one connected before the
   room's group existed is evicted by the worker and rejoins encrypted.
 - **The key** never reaches the server. Each device exports it from the
-  room's MLS group at the current epoch: `MLS-Exporter("rocketvibe voice v1",
+  room's MLS group at the current epoch: `MLS-Exporter("vibez voice v1",
   group_id, 32)`. LiveKit's frame encryption (AES-GCM) takes it as its
   **shared key**, at key index 0, as the ASCII bytes of its standard padded
   base64 (`setSharedKey(String)` on Android and Swift, `Vec<u8>` in Rust: the

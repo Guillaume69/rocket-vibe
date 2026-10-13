@@ -35,7 +35,7 @@ const CONFIG: HpkeConfig = HpkeConfig(
     HpkeAeadType::ChaCha20Poly1305,
 );
 const RECORD: &str = "crypto-history-request-v1";
-const DOCUMENT_DOMAIN: &str = "rocketvibe-history-document-v1";
+const DOCUMENT_DOMAIN: &str = "vibez-history-document-v1";
 const MAX_DOCUMENTS: usize = 100_000;
 
 #[derive(Debug, thiserror::Error)]

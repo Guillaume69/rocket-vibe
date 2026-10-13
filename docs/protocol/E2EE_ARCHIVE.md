@@ -128,15 +128,15 @@ ambiguous versions / numbers before accepting the packet.
 
 A random 32-byte OS key encrypts a single document with
 XChaCha20-Poly1305. The associated data is
-`rocketvibe-archive-document-aad-v1`, a null byte, then the canonical JSON of the
+`vibez-archive-document-aad-v1`, a null byte, then the canonical JSON of the
 header. The decrypted document keeps operation / thread / quotes / cards and
 the same validations as the message codec. Its limit is 64 KiB; that
 of the ciphertext is 64 KiB + 16 bytes, and the JSON packet is bounded to 384 KiB.
 
-The signature binds `rocketvibe-archive-document-proof-v1`, a null byte, then the
+The signature binds `vibez-archive-document-proof-v1`, a null byte, then the
 JSON tuple: header, fingerprint of the original certificate, fingerprint of the archive
 certificate, SHA-256 of the ciphertext. The packet fingerprint binds another domain,
-`rocketvibe-archive-document-fingerprint-v1`, to its complete canonical bytes.
+`vibez-archive-document-fingerprint-v1`, to its complete canonical bytes.
 Both certificates are authenticated; the archive certificate must be
 currently valid for a new publication. An expired original
 certificate remains a historical reference. A renewed or recovered leaf of
@@ -172,7 +172,7 @@ below keeps a proof distinct from the portable packet signed by the author.
 The vault can now keep immutable blocks in `private_blobs`,
 in the same SQLite database as the MLS state. Each block is encrypted under the vault
 key with XChaCha20-Poly1305, a 24-byte OS nonce and a 16-byte OS identifier.
-The AAD binds the domain `rocketvibe-private-blob-v1`, the full scope of the
+The AAD binds the domain `vibez-private-blob-v1`, the full scope of the
 account / device / epoch / incarnation and this identifier. A reference
 binds SHA-256 of the AAD, of the nonce and of the ciphertext. It contains no public
 hash of the cleartext document.

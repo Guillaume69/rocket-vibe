@@ -16,7 +16,7 @@ receive it. The adapter will also have to wipe its view state on lock.
 
 The code has 78 characters: `rvk1-`, 64 hexadecimal digits, `-`, then 8 checksum
 digits. The latter is made of the first four bytes of
-`SHA256("rocketvibe-recovery-code-v1\0" || key)`. It detects typing errors,
+`SHA256("vibez-recovery-code-v1\0" || key)`. It detects typing errors,
 without authenticating an account. The parser bounds the size before allocation and
 accepts lowercase / uppercase hexadecimal; a password is not a code.
 
@@ -35,7 +35,7 @@ The [ordered JSON rules](IDENTITY.md) apply. The package has the fields
 `backup_id` has 16 non-zero bytes, `created_at` is a Unix timestamp in seconds.
 Root and byte arrays follow the v1 encoding of the identities.
 
-- AAD: `UTF8("rocketvibe-root-recovery-v1") || 0x00 || JSON_compact(header)`.
+- AAD: `UTF8("vibez-root-recovery-v1") || 0x00 || JSON_compact(header)`.
 - Plaintext: object `root, seed`, with the 32-byte Ed25519 seed; it is bounded
   to 4096 bytes and wiped on drop, as is the temporary decoding buffer.
 - Nonce: 24 bytes; ciphertext: at most 4096 bytes plus the 16 bytes of the tag.

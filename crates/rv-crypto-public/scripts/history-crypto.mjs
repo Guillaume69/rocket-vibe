@@ -11,8 +11,8 @@ export const empty=Buffer.alloc(0);
 export const ed=bytes=>createPublicKey({format:'jwk',key:{kty:'OKP',crv:'Ed25519',x:Buffer.from(bytes).toString('base64url')}});
 /** Checks the root signature of a device certificate and returns its fingerprint. */
 export const certificate=c=>{
-  assert(verify(null,frame('rocketvibe-device-certificate-v1',c.device),ed(c.device.root.public_key),Buffer.from(c.signature)));
-  return list(sha(frame('rocketvibe-certificate-fingerprint-v1',c)));
+  assert(verify(null,frame('vibez-device-certificate-v1',c.device),ed(c.device.root.public_key),Buffer.from(c.signature)));
+  return list(sha(frame('vibez-certificate-fingerprint-v1',c)));
 };
 export const hmac=(key,...parts)=>{const h=createHmac('sha256',key);for(const p of parts)h.update(p);return h.digest();};
 export const extract=(salt,ikm)=>hmac(salt.length?salt:Buffer.alloc(32),ikm);
@@ -67,18 +67,18 @@ assert.equal(hchacha(Buffer.from('000102030405060708090a0b0c0d0e0f10111213141516
 /** Key, key id and nonce of a period's `rank`-th document. */
 export const material=(periodSecret,rank)=>{
   const rankBytes=Buffer.alloc(8);rankBytes.writeBigUInt64BE(BigInt(rank));
-  const okm=expand(extract(empty,periodSecret),Buffer.concat([Buffer.from('rocketvibe-history-document-v1\0'),rankBytes]),72);
+  const okm=expand(extract(empty,periodSecret),Buffer.concat([Buffer.from('vibez-history-document-v1\0'),rankBytes]),72);
   return {key:okm.subarray(0,32),keyId:list(okm.subarray(32,48)),nonce:okm.subarray(48,72)};
 };
 /** The signed body of a history record. */
-export const recordBody=r=>frame('rocketvibe-history-record-v1',[r.header,certificate(r.original_certificate),certificate(r.certificate),r.observed_at,list(sha(Buffer.from(r.ciphertext)))]);
-export const recordFingerprint=r=>list(sha(Buffer.from('rocketvibe-history-record-fingerprint-v1\0'),Buffer.from(JSON.stringify(r))));
-export const chainStart=()=>sha(frame('rocketvibe-history-chain-v1',null));
-export const chainNext=(head,fingerprint)=>sha(frame('rocketvibe-history-chain-v1',[list(head),fingerprint]));
+export const recordBody=r=>frame('vibez-history-record-v1',[r.header,certificate(r.original_certificate),certificate(r.certificate),r.observed_at,list(sha(Buffer.from(r.ciphertext)))]);
+export const recordFingerprint=r=>list(sha(Buffer.from('vibez-history-record-fingerprint-v1\0'),Buffer.from(JSON.stringify(r))));
+export const chainStart=()=>sha(frame('vibez-history-chain-v1',null));
+export const chainNext=(head,fingerprint)=>sha(frame('vibez-history-chain-v1',[list(head),fingerprint]));
 /** Opens a record with its rank's material and returns its payload. */
 export const openRecord=(record,periodSecret,rank)=>{
   const {key,keyId,nonce}=material(periodSecret,rank);
   assert.deepEqual(record.header.key_id,keyId);
   assert.deepEqual(list(nonce),record.header.nonce);
-  return JSON.parse(xopen(key,nonce,Buffer.from(record.ciphertext),frame('rocketvibe-history-record-aad-v1',record.header)));
+  return JSON.parse(xopen(key,nonce,Buffer.from(record.ciphertext),frame('vibez-history-record-aad-v1',record.header)));
 };

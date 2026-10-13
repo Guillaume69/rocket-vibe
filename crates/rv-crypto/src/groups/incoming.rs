@@ -69,7 +69,7 @@ pub(super) fn commit_aad(plan: &Plan) -> Result<Vec<u8>> {
     if payload.len() > public::WIRE_LIMIT {
         return Err(Error::Limit);
     };
-    let mut aad = b"rocketvibe-mls-commit-routing-v1\0".to_vec();
+    let mut aad = b"vibez-mls-commit-routing-v1\0".to_vec();
     aad.extend(payload);
     Ok(aad)
 }
@@ -94,7 +94,7 @@ pub(super) fn checked(commit: &Commit) -> Result<(Transition, Fingerprint)> {
     };
     Ok((
         transition,
-        fingerprint("rocketvibe-local-group-incoming-v1", commit)?,
+        fingerprint("vibez-local-group-incoming-v1", commit)?,
     ))
 }
 fn same_admission(old: &Plan, new: &Plan, participant: &Participant) -> bool {
@@ -147,7 +147,7 @@ impl Coordinator {
             let state = consent_state(Some(&state))?;
             let own = context.certificate.fingerprint()?;
             let fingerprint = fingerprint(
-                "rocketvibe-local-group-confirmation-v1",
+                "vibez-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
             )?;
             Ok((

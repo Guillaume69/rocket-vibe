@@ -7,23 +7,23 @@ const packet=JSON.parse(readFileSync(new URL('../fixtures/archive-document-v1.js
 const frame=(purpose,value)=>Buffer.concat([Buffer.from(purpose+'\0'),Buffer.from(JSON.stringify(value))]);
 const key=bytes=>createPublicKey({format:'jwk',key:{kty:'OKP',crv:'Ed25519',x:Buffer.from(bytes).toString('base64url')}});
 const certificate=packet.certificate;
-assert(verify(null,frame('rocketvibe-device-certificate-v1',certificate.device),key(certificate.device.root.public_key),Buffer.from(certificate.signature)));
+assert(verify(null,frame('vibez-device-certificate-v1',certificate.device),key(certificate.device.root.public_key),Buffer.from(certificate.signature)));
 const original=packet.original_certificate;
-assert(verify(null,frame('rocketvibe-device-certificate-v1',original.device),key(original.device.root.public_key),Buffer.from(original.signature)));
+assert(verify(null,frame('vibez-device-certificate-v1',original.device),key(original.device.root.public_key),Buffer.from(original.signature)));
 assert.deepEqual(certificate.device.root,original.device.root);
-const certificateDigest=c=>[...createHash('sha256').update(frame('rocketvibe-certificate-fingerprint-v1',c)).digest()];
+const certificateDigest=c=>[...createHash('sha256').update(frame('vibez-certificate-fingerprint-v1',c)).digest()];
 assert.deepEqual(certificateDigest(original),packet.header.origin.header.certificate);
 assert.equal(packet.header.origin.position,'9007199254740995');
 // The origin's id derives from its proof fingerprint (E2EE_MESSAGES.md), never from the server.
-assert.equal(packet.header.origin.message,createHash('sha256').update(Buffer.concat([Buffer.from('rocketvibe-mls-message-id-v1\0'),Buffer.from(packet.header.origin.fingerprint)])).digest('hex').slice(0,32));
+assert.equal(packet.header.origin.message,createHash('sha256').update(Buffer.concat([Buffer.from('vibez-mls-message-id-v1\0'),Buffer.from(packet.header.origin.fingerprint)])).digest('hex').slice(0,32));
 assert.equal(packet.header.origin.header.group_revision,'9007199254740993');
 assert.equal(packet.header.origin.header.epoch,'9007199254740994');
 const ciphertext=()=>[...createHash('sha256').update(Buffer.from(packet.ciphertext)).digest()];
 const leaf=key(certificate.device.signature_key);
 const signature=Buffer.from(packet.signature);
 const body=header=>[header,certificateDigest(original),certificateDigest(certificate),ciphertext()];
-assert(verify(null,frame('rocketvibe-archive-document-proof-v1',body(packet.header)),leaf,signature));
-assert(!verify(null,frame('rocketvibe-mls-application-proof-v1',body(packet.header)),leaf,signature));
+assert(verify(null,frame('vibez-archive-document-proof-v1',body(packet.header)),leaf,signature));
+assert(!verify(null,frame('vibez-mls-application-proof-v1',body(packet.header)),leaf,signature));
 const changes=[
   h=>h.origin.header.scope.room='foreign', h=>h.origin.header.scope.data_epoch='restored',
   h=>h.origin.header.scope.incarnation[0]^=1, h=>h.origin.header.author='bob',
@@ -35,8 +35,8 @@ const changes=[
 ];
 for(const change of changes) {
   const changed=structuredClone(packet.header);change(changed);
-  assert(!verify(null,frame('rocketvibe-archive-document-proof-v1',body(changed)),leaf,signature));
+  assert(!verify(null,frame('vibez-archive-document-proof-v1',body(changed)),leaf,signature));
 }
 packet.ciphertext[0]^=1;
-assert(!verify(null,frame('rocketvibe-archive-document-proof-v1',body(packet.header)),leaf,signature));
+assert(!verify(null,frame('vibez-archive-document-proof-v1',body(packet.header)),leaf,signature));
 console.log('Public archive vector: root/device signatures, exact positions, packet binding and substitutions verified independently');

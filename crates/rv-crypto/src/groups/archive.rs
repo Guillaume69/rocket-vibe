@@ -47,10 +47,7 @@ struct Node {
 fn key(binding: &Binding) -> Result<String> {
     Ok(format!(
         "crypto-observed-archive-v1/{}",
-        HEXLOWER.encode(&fingerprint(
-            "rocketvibe-observed-archive-binding-v1",
-            binding
-        )?)
+        HEXLOWER.encode(&fingerprint("vibez-observed-archive-binding-v1", binding)?)
     ))
 }
 fn head(records: &Records, binding: &Binding) -> Result<Option<Head>> {

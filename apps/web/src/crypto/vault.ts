@@ -61,7 +61,7 @@ export async function saveEnvelope(
 }
 function aad(scope: string, revision: number): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(
-    JSON.stringify(["rocketvibe-browser-vault-v1", scope, revision]),
+    JSON.stringify(["vibez-browser-vault-v1", scope, revision]),
   );
 }
 export async function unseal(scope: string, value: Envelope): Promise<string> {

@@ -94,7 +94,7 @@ of an old epoch is rejected, with no implicit remapping.
 
 [`rv-crypto-public::groups`](../../crates/rv-crypto-public/src/groups.rs) defines
 the `Plan` and the `Transition`. The author's leaf signs
-`rocketvibe-group-transition-v1\0` followed by the UTF-8 JSON of the typed `Plan`: order of the
+`vibez-group-transition-v1\0` followed by the UTF-8 JSON of the typed `Plan`: order of the
 fields of the Rust structure, without spaces, member arrays sorted by UID,
 participants sorted by leaf index and Welcomes by device ID. The
 internal integers are `u64` verified on the Rust side; the JavaScript transports
@@ -109,9 +109,9 @@ The proof binds:
   admission reference of each recipient;
 - SHA-256 of the TLS bytes of the GroupContext, the commit, the tree and the Welcomes.
 
-The MLS ID is the SHA-256 of the typed Scope framed by `rocketvibe-group-id-v1\0`.
+The MLS ID is the SHA-256 of the typed Scope framed by `vibez-group-id-v1\0`.
 The fingerprint of a transition covers certificate, plan and signature, with the
-distinct domain `rocketvibe-group-transition-fingerprint-v1\0`.
+distinct domain `vibez-group-transition-fingerprint-v1\0`.
 The [public vector](../../crates/rv-crypto-public/fixtures/group-transition-v1.json)
 and its [Node/OpenSSL verifier](../../crates/rv-crypto-public/scripts/verify-group-vector.mjs)
 check this framing independently. The TLS digests of this vector are

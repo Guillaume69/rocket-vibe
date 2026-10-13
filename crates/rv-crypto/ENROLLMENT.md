@@ -58,9 +58,9 @@ The JSON / NUL domain rules of [IDENTITY.md](IDENTITY.md) apply:
 
 | Object | Payload order | Domain |
 | --- | --- | --- |
-| Request body | `version, root, device, incarnation, request_id, signature_key, issued_at, expires_at` | `rocketvibe-device-request-v1`, leaf signature |
-| Request | `body, signature` | `rocketvibe-request-fingerprint-v1`, SHA-256 |
-| Grant | array `[request_fingerprint, certificate]` | `rocketvibe-device-grant-v1`, root signature |
+| Request body | `version, root, device, incarnation, request_id, signature_key, issued_at, expires_at` | `vibez-device-request-v1`, leaf signature |
+| Request | `body, signature` | `vibez-request-fingerprint-v1`, SHA-256 |
+| Grant | array `[request_fingerprint, certificate]` | `vibez-device-grant-v1`, root signature |
 
 The network Grant JSON contains `request, certificate, signature`. The explicit
 `from_bytes` decoders are bounded to 4096 bytes for a request and

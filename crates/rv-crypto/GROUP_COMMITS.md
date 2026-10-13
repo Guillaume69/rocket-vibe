@@ -85,7 +85,7 @@ by this installation; the server also keeps its spent references.
 
 The genesis prepared by the vault now uses the AAD of this profile for
 its add commit. Reception requires these same authenticated bytes. The AAD
-are the UTF-8 prefix `rocketvibe-mls-commit-routing-v1`, a null byte, then the
+are the UTF-8 prefix `vibez-mls-commit-routing-v1`, a null byte, then the
 compact JSON serialized in this order:
 
 `version`, `scope`, `operation`, `expected_revision`, `expected_epoch`, `epoch`,

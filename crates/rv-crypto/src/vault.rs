@@ -18,7 +18,7 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
-const DOMAIN: &str = "rocketvibe-mls-vault-v1";
+const DOMAIN: &str = "vibez-mls-vault-v1";
 const LIMIT: usize = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 65536;
 pub mod blobs;

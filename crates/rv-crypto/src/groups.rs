@@ -242,7 +242,7 @@ fn consent_state(state: Option<&State>) -> Result<Fingerprint> {
     if let Some(object) = neutral.as_object_mut() {
         object.insert("clock".into(), 0.into());
     }
-    fingerprint("rocketvibe-local-group-state-v1", &neutral)
+    fingerprint("vibez-local-group-state-v1", &neutral)
 }
 fn fingerprint(domain: &str, value: &impl Serialize) -> Result<Fingerprint> {
     let value = serde_json::to_vec(value).map_err(|_| Error::Changed)?;
@@ -365,7 +365,7 @@ fn request_fingerprint(request: &Genesis) -> Result<Fingerprint> {
         .collect::<Vec<_>>();
     packages.sort();
     fingerprint(
-        "rocketvibe-local-group-intent-v1",
+        "vibez-local-group-intent-v1",
         &(&request.roster, &request.operation, packages),
     )
 }
@@ -507,7 +507,7 @@ impl Coordinator {
         let certificate = Certificate::from_credential(&credential.credential)?;
         let pins = Pins::load(records, &self.root.instance)?;
         pins.check_local(&certificate, now)?;
-        let pins_fingerprint = fingerprint("rocketvibe-local-group-pins-v1", &pins)?;
+        let pins_fingerprint = fingerprint("vibez-local-group-pins-v1", &pins)?;
         Ok(Context {
             local,
             certificate,
@@ -592,7 +592,7 @@ impl Coordinator {
                 .unwrap_or(now)
                 .min(now.saturating_add(300));
             let fingerprint = fingerprint(
-                "rocketvibe-local-group-confirmation-v1",
+                "vibez-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
             )?;
             Ok((
@@ -937,7 +937,7 @@ impl Coordinator {
                 )
                 .min(now.saturating_add(300));
             let fingerprint = fingerprint(
-                "rocketvibe-local-group-confirmation-v1",
+                "vibez-local-group-confirmation-v1",
                 &(intent, state, context.pins_fingerprint, own, expires),
             )?;
             Ok((
@@ -1303,7 +1303,7 @@ impl Coordinator {
     }
 }
 /// Distinct from every other exporter use: a voice key opens no message.
-const VOICE_LABEL: &str = "rocketvibe voice v1";
+const VOICE_LABEL: &str = "vibez voice v1";
 fn check_admission(admission: &Admission) -> Result<(Transition, Fingerprint)> {
     let welcome = &admission.welcome;
     if admission.transition.len() > public::WIRE_LIMIT
@@ -1333,7 +1333,7 @@ fn check_admission(admission: &Admission) -> Result<(Transition, Fingerprint)> {
     {
         return Err(Error::Changed);
     }
-    let intent = fingerprint("rocketvibe-local-group-admission-v1", admission)?;
+    let intent = fingerprint("vibez-local-group-admission-v1", admission)?;
     Ok((transition, intent))
 }
 fn check_participants(

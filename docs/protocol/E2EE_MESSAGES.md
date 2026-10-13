@@ -100,7 +100,7 @@ PostgreSQL keeps only the proof, the ciphertext, routing metadata and the
 receipt. The receipt holds the canonical Header in base64url, the fingerprint of the
 proof, the message ID and an exact decimal position. The message ID is not chosen
 by the server: it is the first 16 bytes, in lowercase hex, of
-SHA-256(`rocketvibe-mls-message-id-v1\0` ‖ proof fingerprint)
+SHA-256(`vibez-mls-message-id-v1\0` ‖ proof fingerprint)
 (`rv-crypto-public::messages::message_id`), and every client refuses a receipt
 whose ID differs. A thread root, an amendment target or a file link therefore
 names exactly the message its author signed; the server cannot give two

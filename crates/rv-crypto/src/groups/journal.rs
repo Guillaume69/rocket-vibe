@@ -172,7 +172,7 @@ impl Coordinator {
         // Certificate renewal keeps the admission. Leaf/package/root/key
         // incarnation and personal grant changes require a fresh admission.
         fingerprint(
-            "rocketvibe-journal-admission-v1",
+            "vibez-journal-admission-v1",
             &(
                 &plan.scope,
                 grant,

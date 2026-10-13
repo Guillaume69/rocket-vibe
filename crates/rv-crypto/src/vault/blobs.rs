@@ -4,8 +4,8 @@
 use super::*;
 
 pub const LIMIT: usize = 1024 * 1024;
-const DOMAIN: &str = "rocketvibe-private-blob-v1";
-const REKEYED: &str = "rocketvibe-private-blob-rekeyed-v1";
+const DOMAIN: &str = "vibez-private-blob-v1";
+const REKEYED: &str = "vibez-private-blob-rekeyed-v1";
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Reference {

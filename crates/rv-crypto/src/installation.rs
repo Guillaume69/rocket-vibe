@@ -60,7 +60,7 @@ impl Installation {
         {
             return Err(Error::Scope);
         }
-        let tuple = serde_json::to_vec(&("rocketvibe-crypto-installation-v1", &account))
+        let tuple = serde_json::to_vec(&("vibez-crypto-installation-v1", &account))
             .map_err(|_| Error::Scope)?;
         Ok(Self {
             directory,
@@ -75,7 +75,7 @@ impl Installation {
     fn location(&self) -> Result<[u8; 32], Error> {
         let path = protected::location(&self.directory)?;
         let mut hash = Sha256::new();
-        hash.update(b"rocketvibe-crypto-installation-location-v1");
+        hash.update(b"vibez-crypto-installation-location-v1");
         hash.update(path.as_os_str().as_encoded_bytes());
         Ok(hash.finalize().into())
     }

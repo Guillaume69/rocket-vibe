@@ -39,10 +39,10 @@ requires a new version.
 
 | Object | Payload order | Domain |
 | --- | --- | --- |
-| Root | `version, instance, user, generation, public_key` | `rocketvibe-root-fingerprint-v1` for SHA-256 |
-| Device | `version, root, device, incarnation, serial, suite, signature_key, issued_at, expires_at` | `rocketvibe-device-certificate-v1` for the signature |
-| Certificate | `device, signature` | `rocketvibe-certificate-fingerprint-v1` for SHA-256 |
-| Revocation | array `[root, device, incarnation]` | `rocketvibe-device-revocation-v1` for the signature |
+| Root | `version, instance, user, generation, public_key` | `vibez-root-fingerprint-v1` for SHA-256 |
+| Device | `version, root, device, incarnation, serial, suite, signature_key, issued_at, expires_at` | `vibez-device-certificate-v1` for the signature |
+| Certificate | `device, signature` | `vibez-certificate-fingerprint-v1` for SHA-256 |
+| Revocation | array `[root, device, incarnation]` | `vibez-device-revocation-v1` for the signature |
 
 The nested root respects its own order. Signatures are arrays
 of 64 bytes. The [public vector](fixtures/identity-certificate-v1.json) is produced

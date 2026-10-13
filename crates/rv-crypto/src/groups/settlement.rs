@@ -177,8 +177,8 @@ impl Coordinator {
             };
         }
         if let Some(entry) = ledger.unresolved.get(operation) {
-            if fingerprint("rocketvibe-group-original-v1", &entry.submission)?
-                != fingerprint("rocketvibe-group-original-v1", &pending.submission)?
+            if fingerprint("vibez-group-original-v1", &entry.submission)?
+                != fingerprint("vibez-group-original-v1", &pending.submission)?
             {
                 return Err(Error::Conflict);
             }

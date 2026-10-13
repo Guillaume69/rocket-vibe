@@ -14,8 +14,8 @@ pub mod messages;
 pub mod recovery;
 pub const WIRE_LIMIT: usize = 4096;
 pub const MAX_LIFETIME: u64 = 90 * 86400;
-pub const CERT_DOMAIN: &str = "rocketvibe-device-certificate-v1";
-pub const REVOKE_DOMAIN: &str = "rocketvibe-device-revocation-v1";
+pub const CERT_DOMAIN: &str = "vibez-device-certificate-v1";
+pub const REVOKE_DOMAIN: &str = "vibez-device-revocation-v1";
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -92,7 +92,7 @@ impl Root {
     }
     pub fn fingerprint(&self) -> Result<Fingerprint, Error> {
         self.validate()?;
-        Ok(Sha256::digest(signing_bytes("rocketvibe-root-fingerprint-v1", self)?).into())
+        Ok(Sha256::digest(signing_bytes("vibez-root-fingerprint-v1", self)?).into())
     }
 }
 
@@ -158,11 +158,7 @@ impl Certificate {
         if self.signature.len() != 64 {
             return Err(Error::Signature);
         }
-        Ok(Sha256::digest(signing_bytes(
-            "rocketvibe-certificate-fingerprint-v1",
-            self,
-        )?)
-        .into())
+        Ok(Sha256::digest(signing_bytes("vibez-certificate-fingerprint-v1", self)?).into())
     }
     pub fn credential(&self) -> Result<Credential, Error> {
         let bytes = serde_json::to_vec(self).map_err(|_| Error::Invalid)?;

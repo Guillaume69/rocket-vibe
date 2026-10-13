@@ -14,18 +14,18 @@ const {request,share,records}=vector;
 // Request: signed by the new device, whose certificate carries the account root.
 const phone=request.body.certificate;
 certificate(phone);
-assert(verify(null,frame('rocketvibe-history-request-v1',request.body),ed(phone.device.signature_key),Buffer.from(request.signature)));
+assert(verify(null,frame('vibez-history-request-v1',request.body),ed(phone.device.signature_key),Buffer.from(request.signature)));
 assert(BigInt(request.body.expires_at)-BigInt(request.body.issued_at)<=7n*86400n);
-const requestFingerprint=list(sha(frame('rocketvibe-history-request-fingerprint-v1',request)));
+const requestFingerprint=list(sha(frame('vibez-history-request-fingerprint-v1',request)));
 
 // Share: another device of the same account, signed over request, manifest, envelope.
 const desktop=share.certificate;
 const desktopFingerprint=certificate(desktop);
 assert.deepEqual(desktop.device.root,phone.device.root);
 assert.notEqual(desktop.device.device,phone.device.device);
-const manifestDigest=m=>sha(Buffer.from('rocketvibe-history-manifest-v1\0'),Buffer.from(JSON.stringify(m)));
-const envelopeDigest=sha(Buffer.from('rocketvibe-history-envelope-v1\0'),Buffer.from(share.envelope.kem_output),Buffer.from(share.envelope.ciphertext));
-const shareBody=m=>frame('rocketvibe-history-share-v1',[m.request,list(manifestDigest(m)),list(envelopeDigest),desktopFingerprint]);
+const manifestDigest=m=>sha(Buffer.from('vibez-history-manifest-v1\0'),Buffer.from(JSON.stringify(m)));
+const envelopeDigest=sha(Buffer.from('vibez-history-envelope-v1\0'),Buffer.from(share.envelope.kem_output),Buffer.from(share.envelope.ciphertext));
+const shareBody=m=>frame('vibez-history-share-v1',[m.request,list(manifestDigest(m)),list(envelopeDigest),desktopFingerprint]);
 const shareSignature=Buffer.from(share.signature);
 assert.deepEqual(share.manifest.request,requestFingerprint);
 assert(verify(null,shareBody(share.manifest),ed(desktop.device.signature_key),shareSignature));
@@ -49,7 +49,7 @@ assert.deepEqual(list(pkR),request.body.recipient);
 const enc=Buffer.from(share.envelope.kem_output);
 const dh=diffieHellman({privateKey:x25519Private,publicKey:createPublicKey({format:'jwk',key:{kty:'OKP',crv:'X25519',x:enc.toString('base64url')}})});
 const sharedSecret=labeledExpand(kemSuite,labeledExtract(kemSuite,empty,'eae_prk',dh),'shared_secret',Buffer.concat([enc,pkR]),32);
-const info=Buffer.concat([Buffer.from('rocketvibe-history-share-v1\0'),Buffer.from(requestFingerprint)]);
+const info=Buffer.concat([Buffer.from('vibez-history-share-v1\0'),Buffer.from(requestFingerprint)]);
 const context=Buffer.concat([Buffer.from([0]),labeledExtract(hpkeSuite,empty,'psk_id_hash',empty),labeledExtract(hpkeSuite,empty,'info_hash',info)]);
 const secret=labeledExtract(hpkeSuite,sharedSecret,'secret',empty);
 const envelopeKey=labeledExpand(hpkeSuite,secret,'key',context,32);
@@ -65,7 +65,7 @@ assert.throws(()=>open(envelopeKey,baseNonce,Buffer.from(share.envelope.cipherte
 
 // Records: rank-bound material, sharing-device attestation, author certificate, chain.
 const period=share.manifest.periods[0];
-let chain=sha(frame('rocketvibe-history-chain-v1',null));
+let chain=sha(frame('vibez-history-chain-v1',null));
 let previous=0n;
 const periodSecret=Buffer.from(secrets[0],'hex');
 records.forEach((record,index)=>{
@@ -80,7 +80,7 @@ records.forEach((record,index)=>{
   assert.deepEqual(certificate(record.original_certificate),route.certificate);
   assert.equal(author.root.user,record.header.author_membership.user);
   // The origin's id derives from its proof fingerprint, never from the server.
-  assert.equal(record.header.origin.message,sha(Buffer.concat([Buffer.from('rocketvibe-mls-message-id-v1\0'),Buffer.from(record.header.origin.fingerprint)])).subarray(0,16).toString('hex'));
+  assert.equal(record.header.origin.message,sha(Buffer.concat([Buffer.from('vibez-mls-message-id-v1\0'),Buffer.from(record.header.origin.fingerprint)])).subarray(0,16).toString('hex'));
   const position=BigInt(record.header.origin.position);
   assert(position>previous&&position>=BigInt(period.first)&&position<=BigInt(period.last));
   previous=position;
@@ -89,7 +89,7 @@ records.forEach((record,index)=>{
   // The sharing device's observation time is attested, as an exact decimal.
   assert.match(record.observed_at,/^[1-9][0-9]*$/);
   assert(!verify(null,recordBody({...record,observed_at:String(BigInt(record.observed_at)+1n)}),ed(desktop.device.signature_key),signature));
-  assert(!verify(null,frame('rocketvibe-archive-document-proof-v1',JSON.parse(recordBody(record).subarray('rocketvibe-history-record-v1\0'.length))),ed(desktop.device.signature_key),signature));
+  assert(!verify(null,frame('vibez-archive-document-proof-v1',JSON.parse(recordBody(record).subarray('vibez-history-record-v1\0'.length))),ed(desktop.device.signature_key),signature));
   for(const change of [h=>h.origin.header.scope.room='foreign',h=>h.origin.header.author='mallory',h=>h.origin.position='9007199254740999',h=>h.origin.header.thread='another-thread',h=>h.author_membership.access_version='other',h=>h.key_id[0]^=1,h=>h.nonce[0]^=1]) {
     const changed=structuredClone(record);change(changed.header);
     assert(!verify(null,recordBody(changed),ed(desktop.device.signature_key),signature));
@@ -99,16 +99,16 @@ records.forEach((record,index)=>{
   assert.deepEqual(list(nonce),record.header.nonce);
   // Served at another rank, the record does not match the derived material.
   assert.notDeepEqual(material(periodSecret,index+2).keyId,record.header.key_id);
-  const aad=frame('rocketvibe-history-record-aad-v1',record.header);
+  const aad=frame('vibez-history-record-aad-v1',record.header);
   const payload=JSON.parse(xopen(key,nonce,Buffer.from(record.ciphertext),aad));
   assert.equal(payload.version,1);
   assert.equal(payload.message.operation_id,route.operation);
   assert.equal(payload.message.reply_to??null,route.thread);
   assert.match(payload.message.text,/^recovered words general \d$/);
   const moved=structuredClone(record.header);moved.origin.header.scope.room='foreign';
-  assert.throws(()=>xopen(key,nonce,Buffer.from(record.ciphertext),frame('rocketvibe-history-record-aad-v1',moved)));
-  const fingerprint=list(sha(Buffer.from('rocketvibe-history-record-fingerprint-v1\0'),Buffer.from(JSON.stringify(record))));
-  chain=sha(frame('rocketvibe-history-chain-v1',[list(chain),fingerprint]));
+  assert.throws(()=>xopen(key,nonce,Buffer.from(record.ciphertext),frame('vibez-history-record-aad-v1',moved)));
+  const fingerprint=list(sha(Buffer.from('vibez-history-record-fingerprint-v1\0'),Buffer.from(JSON.stringify(record))));
+  chain=sha(frame('vibez-history-chain-v1',[list(chain),fingerprint]));
 });
 assert.equal(BigInt(period.count),BigInt(records.length));
 assert.deepEqual(list(chain),period.chain);

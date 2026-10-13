@@ -63,9 +63,9 @@ strings.
 | `request_id` | Random 32-byte OS identifier |
 | `recipient` | X25519 public key generated for this request only |
 | `issued_at`, `expires_at` | Window of at most 7 days |
-| `signature` | Requesting leaf, domain `rocketvibe-history-request-v1` |
+| `signature` | Requesting leaf, domain `vibez-history-request-v1` |
 
-The request fingerprint is SHA-256 under `rocketvibe-history-request-fingerprint-v1`.
+The request fingerprint is SHA-256 under `vibez-history-request-fingerprint-v1`.
 The X25519 private key lives only in the encrypted vault records of the new
 device (`crypto-history-request-v1`), with the request. An expired or answered
 request is replaced by a new one with a new key.
@@ -76,11 +76,11 @@ A share answers exactly one request fingerprint. It contains:
 
 - `manifest`: per room and period, the source binding, the first and last position,
   the record count and a chain digest: SHA-256 under
-  `rocketvibe-history-chain-v1` folded over the record fingerprints in position
+  `vibez-history-chain-v1` folded over the record fingerprints in position
   order. The new device refuses a missing, extra, reordered or duplicated record.
 - `envelope`: HPKE base mode (RFC 9180) to the request's `recipient` key, suite
   DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20-Poly1305, `info` =
-  `rocketvibe-history-share-v1` NUL request fingerprint, `aad` = canonical manifest.
+  `vibez-history-share-v1` NUL request fingerprint, `aad` = canonical manifest.
   The plaintext is the JSON object `{secrets, history_key}`: one random 32-byte
   period secret per manifest entry (lowercase hex), and the account history key
   `{generation, key}` of [path B](E2EE_HISTORY_BACKUP.md) when the sharing device
@@ -90,7 +90,7 @@ A share answers exactly one request fingerprint. It contains:
   an ordinary share omits it.
 - `certificate` and `signature`: current certificate of the sharing device and its
   leaf signature over request fingerprint, manifest and envelope, domain
-  `rocketvibe-history-share-v1`.
+  `vibez-history-share-v1`.
 
 ### Records
 
@@ -105,18 +105,18 @@ shared history is mostly other people's messages. A record holds:
 | `original_certificate` | The author's original certificate, whose fingerprint, device and incarnation must match the receipt route |
 | `certificate` | Current certificate of the sharing device, which attests the observation |
 | `observed_at` | When the sharing device observed the document (its local clock, Unix seconds, decimal string): a display time, never a signed send time |
-| `ciphertext` | XChaCha20-Poly1305 of the document payload, AAD = canonical header under `rocketvibe-history-record-aad-v1` |
-| `signature` | Leaf signature of the sharing device, domain `rocketvibe-history-record-v1`, over header, original certificate fingerprint, sharing certificate fingerprint, `observed_at` and SHA-256 of the ciphertext |
+| `ciphertext` | XChaCha20-Poly1305 of the document payload, AAD = canonical header under `vibez-history-record-aad-v1` |
+| `signature` | Leaf signature of the sharing device, domain `vibez-history-record-v1`, over header, original certificate fingerprint, sharing certificate fingerprint, `observed_at` and SHA-256 of the ciphertext |
 
 The sharing device must be on the receipt's instance; it need not share the
 author's root. Whether it belongs to the receiver's account is the receiver's
 check: it must be the share's certificate. Record fingerprints (for the chain)
-are SHA-256 under `rocketvibe-history-record-fingerprint-v1` NUL canonical bytes,
+are SHA-256 under `vibez-history-record-fingerprint-v1` NUL canonical bytes,
 and a record's canonical bytes stay under the archive wire limit.
 
 A record's key, `key_id` and nonce are not random: they are the 72 bytes of
 HKDF-SHA256 of the period secret (empty salt) with `info` =
-`rocketvibe-history-document-v1` NUL the document's rank in the period (from 1, as
+`vibez-history-document-v1` NUL the document's rank in the period (from 1, as
 a big-endian u64). Only the period secrets travel, inside the envelope; the records
 are useless without it. The receiver derives the material for the rank it expects
 and checks `key_id` and nonce: a record omitted, repeated or served at another rank

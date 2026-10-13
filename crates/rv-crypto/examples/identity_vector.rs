@@ -22,7 +22,7 @@ fn main() {
         issued_at: 1_900_000_000,
         expires_at: 1_900_003_600,
     };
-    let mut frame = b"rocketvibe-device-certificate-v1\0".to_vec();
+    let mut frame = b"vibez-device-certificate-v1\0".to_vec();
     frame.extend(serde_json::to_vec(&device).unwrap());
     let certificate = Certificate {
         device,

@@ -17,7 +17,7 @@ of `n` bytes has `c = max(1, ceil(n / 65536))` chunks. The object is:
 |---|---|
 | 4 | `RVF1` |
 | 19 | random nonce prefix |
-| then, per chunk `i` (from 0) | XChaCha20-Poly1305 of the chunk under the key, nonce `prefix ‖ BE32(i) ‖ last` (`last` = 1 for chunk `c-1`, else 0), additional data `rocketvibe-file-v1`, tag of 16 bytes |
+| then, per chunk `i` (from 0) | XChaCha20-Poly1305 of the chunk under the key, nonce `prefix ‖ BE32(i) ‖ last` (`last` = 1 for chunk `c-1`, else 0), additional data `vibez-file-v1`, tag of 16 bytes |
 
 Its size is exactly `23 + n + 16c`, and at most 100 MiB like any object, so a
 plaintext is at most 104,831,977 bytes. A reader decrypts the chunks in order and

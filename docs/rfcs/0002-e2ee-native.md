@@ -157,7 +157,7 @@ does not meet this requirement. [OpenMLS persistence contract](https://book.open
 The isolated crate [`rv-crypto`](../../crates/rv-crypto/README.md) implements a
 SQLite row containing the MLS provider and the operation records, sealed
 together by XChaCha20Poly1305. 32-byte key, 24-byte OS random nonce,
-AAD `(rocketvibe-mls-vault-v1, scope, revision)`; JSON document bounded to 16 MiB.
+AAD `(vibez-mls-vault-v1, scope, revision)`; JSON document bounded to 16 MiB.
 The scope comprises instance, generation, account, device and incarnation.
 [RustCrypto AEAD 0.10.1](https://docs.rs/chacha20poly1305/0.10.1/chacha20poly1305/).
 

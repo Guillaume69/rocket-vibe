@@ -16,7 +16,7 @@ pub const MAGIC: &[u8; 4] = b"RVF1";
 pub const CHUNK: usize = 65_536;
 const PREFIX: usize = 19;
 const TAG: usize = 16;
-const AAD: &[u8] = b"rocketvibe-file-v1";
+const AAD: &[u8] = b"vibez-file-v1";
 /// The largest object the server stores (FILES.md).
 pub const MAX_OBJECT: u64 = 100 * 1024 * 1024;
 

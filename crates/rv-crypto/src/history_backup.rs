@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
-const CODE_DOMAIN: &[u8] = b"rocketvibe-history-code-v1\0";
+const CODE_DOMAIN: &[u8] = b"vibez-history-code-v1\0";
 
 fn random<const N: usize>() -> Result<[u8; N]> {
     let mut bytes = [0; N];

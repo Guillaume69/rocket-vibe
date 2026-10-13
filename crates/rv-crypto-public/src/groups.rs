@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 pub const WIRE_LIMIT: usize = 256 * 1024;
 pub const MAX_MEMBERS: usize = 128;
 pub const MAX_DEVICES: usize = 256;
-const DOMAIN: &str = "rocketvibe-group-transition-v1";
+const DOMAIN: &str = "vibez-group-transition-v1";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -85,7 +85,7 @@ impl Scope {
         {
             return Err(Error::Invalid);
         }
-        Ok(Sha256::digest(frame("rocketvibe-group-id-v1", self)?).into())
+        Ok(Sha256::digest(frame("vibez-group-id-v1", self)?).into())
     }
 }
 fn frame(domain: &str, value: &impl Serialize) -> Result<Vec<u8>, Error> {
@@ -243,6 +243,6 @@ impl Transition {
             .map_err(|_| Error::Signature)
     }
     pub fn fingerprint(&self) -> Result<Fingerprint, Error> {
-        Ok(Sha256::digest(frame("rocketvibe-group-transition-fingerprint-v1", self)?).into())
+        Ok(Sha256::digest(frame("vibez-group-transition-fingerprint-v1", self)?).into())
     }
 }

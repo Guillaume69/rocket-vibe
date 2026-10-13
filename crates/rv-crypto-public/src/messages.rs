@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 pub const PROOF_LIMIT: usize = 16 * 1024;
 pub const CIPHERTEXT_LIMIT: usize = 128 * 1024;
-pub const DOMAIN: &str = "rocketvibe-mls-application-proof-v1";
+pub const DOMAIN: &str = "vibez-mls-application-proof-v1";
 
 pub fn identifier(value: &str) -> bool {
     !value.is_empty()
@@ -88,7 +88,7 @@ impl Header {
     }
     pub fn aad(&self) -> Result<Vec<u8>, Error> {
         self.validate()?;
-        let mut result = b"rocketvibe-mls-application-routing-v1\0".to_vec();
+        let mut result = b"vibez-mls-application-routing-v1\0".to_vec();
         result.extend(serde_json::to_vec(self).map_err(|_| Error::Invalid)?);
         if result.len() > PROOF_LIMIT {
             return Err(Error::Limit);
@@ -194,7 +194,7 @@ impl Proof {
     }
     pub fn fingerprint(&self) -> Result<Fingerprint, Error> {
         let mut digest = Sha256::new();
-        digest.update(b"rocketvibe-mls-application-fingerprint-v1\0");
+        digest.update(b"vibez-mls-application-fingerprint-v1\0");
         digest.update(self.to_bytes()?);
         Ok(digest.finalize().into())
     }
@@ -205,7 +205,7 @@ impl Proof {
 /// reply or a file names exactly the message its author signed.
 pub fn message_id(fingerprint: &Fingerprint) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"rocketvibe-mls-message-id-v1\0");
+    digest.update(b"vibez-mls-message-id-v1\0");
     digest.update(fingerprint);
     digest.finalize()[..16]
         .iter()

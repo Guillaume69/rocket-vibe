@@ -28,7 +28,7 @@ class ProtectedInstallationTest {
   /** The id the server derives for an accepted message (E2EE_MESSAGES.md). */
   private fun acceptedId(fingerprint: String): String {
     val digest = java.security.MessageDigest.getInstance("SHA-256")
-    digest.update("rocketvibe-mls-message-id-v1\u0000".toByteArray(Charsets.UTF_8))
+    digest.update("vibez-mls-message-id-v1\u0000".toByteArray(Charsets.UTF_8))
     digest.update(fingerprint.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
     return digest.digest().copyOf(16).joinToString("") { "%02x".format(it.toInt() and 255) }
   }
@@ -132,7 +132,7 @@ class ProtectedInstallationTest {
       val proofBytes = Base64.decode(message.getString("proof"), flags)
       val proof = JSONObject(String(proofBytes, Charsets.UTF_8))
       val digest = java.security.MessageDigest.getInstance("SHA-256")
-      digest.update("rocketvibe-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
+      digest.update("vibez-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
       val messageFingerprint = digest.digest(proofBytes).joinToString("") { "%02x".format(it.toInt() and 255) }
       val messageId = acceptedId(messageFingerprint)
       val header = Base64.encodeToString(proof.getJSONObject("header").toString().toByteArray(Charsets.UTF_8), flags)
@@ -167,7 +167,7 @@ class ProtectedInstallationTest {
       val replyProof = JSONObject(String(replyProofBytes, Charsets.UTF_8))
       assertEquals(messageId, replyProof.getJSONObject("header").getString("thread"))
       digest.reset()
-      digest.update("rocketvibe-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
+      digest.update("vibez-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
       val replyFingerprint = digest.digest(replyProofBytes).joinToString("") { "%02x".format(it.toInt() and 255) }
       val replyId = acceptedId(replyFingerprint)
       val replyReceipt = JSONObject().put("scope", scope).put("room_id", "room").put("operation_id", replyOperation)
@@ -212,7 +212,7 @@ class ProtectedInstallationTest {
       val quoteProofBytes = Base64.decode(quoteMessage.getString("proof"), flags)
       val quoteProof = JSONObject(String(quoteProofBytes, Charsets.UTF_8))
       digest.reset()
-      digest.update("rocketvibe-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
+      digest.update("vibez-mls-application-fingerprint-v1\u0000".toByteArray(Charsets.UTF_8))
       val quoteFingerprint = digest.digest(quoteProofBytes).joinToString("") { "%02x".format(it.toInt() and 255) }
       val quoteId = acceptedId(quoteFingerprint)
       val quoteReceipt = JSONObject().put("scope", scope).put("room_id", "room").put("operation_id", quoteOperation)

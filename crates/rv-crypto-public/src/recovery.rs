@@ -2,7 +2,7 @@
 use super::*;
 pub const PACKET_LIMIT: usize = 24 * 1024;
 pub const PUBLICATION_LIMIT: usize = 32 * 1024;
-pub const PUBLICATION_DOMAIN: &str = "rocketvibe-root-backup-publication-v1";
+pub const PUBLICATION_DOMAIN: &str = "vibez-root-backup-publication-v1";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Header {

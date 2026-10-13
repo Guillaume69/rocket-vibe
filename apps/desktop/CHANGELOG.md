@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-10-13
+
 ### Fixed
 
 - Voice on a RocketVibe server lagged by seconds on Linux: the speakers and the microphone now ask the sound server for a few milliseconds of buffering instead of its 2-second default. On every system, a stall of the microphone no longer adds to the call's delay for the rest of the call.
@@ -1238,7 +1240,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...HEAD
+[0.19.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2
 [0.19.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0

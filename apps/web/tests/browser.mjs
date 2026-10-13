@@ -320,7 +320,7 @@ try {
   const accounts = await page.evaluate(
     () =>
       new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web");
+        const request = indexedDB.open("vibez-web");
         request.onsuccess = () => {
           const get = request.result
             .transaction("accounts")

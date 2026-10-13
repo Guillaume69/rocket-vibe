@@ -297,7 +297,7 @@ function open(): Promise<IDBDatabase> {
     );
     let request: IDBOpenDBRequest;
     try {
-      request = indexedDB.open("rocket-vibe-web", 6);
+      request = indexedDB.open("vibez-web", 6);
     } catch (error) {
       fail(error);
       return;

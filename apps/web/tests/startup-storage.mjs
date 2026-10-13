@@ -5,13 +5,8 @@ import { chromium } from "playwright";
 export async function startupStorage(browser, base) {
   assert.ok(["localhost", "127.0.0.1"].includes(new URL(base).hostname));
   for (const [locale, heading, retry, username] of [
-    ["en-US", "Unable to open RocketVibe", "Retry", "Username or email"],
-    [
-      "fr-FR",
-      "Impossible d’ouvrir RocketVibe",
-      "Réessayer",
-      "Identifiant ou email",
-    ],
+    ["en-US", "Unable to open Vibez", "Retry", "Username or email"],
+    ["fr-FR", "Impossible d’ouvrir Vibez", "Réessayer", "Identifiant ou email"],
   ]) {
     const context = await browser.newContext({ locale });
     try {
@@ -26,7 +21,7 @@ export async function startupStorage(browser, base) {
       await holder.evaluate(
         () =>
           new Promise((resolve, reject) => {
-            const request = indexedDB.open("rocket-vibe-web", 5);
+            const request = indexedDB.open("vibez-web", 5);
             request.onupgradeneeded = () => {
               for (const name of [
                 "accounts",
@@ -65,8 +60,8 @@ export async function startupStorage(browser, base) {
       assert.match(
         await failure.innerText(),
         locale === "en-US"
-          ? /Close other RocketVibe tabs or windows/
-          : /Fermez les autres onglets ou fenêtres RocketVibe/,
+          ? /Close other Vibez tabs or windows/
+          : /Fermez les autres onglets ou fenêtres Vibez/,
       );
       await failure.getByRole("button", { name: retry, exact: true }).click();
       await failure
@@ -79,7 +74,7 @@ export async function startupStorage(browser, base) {
       const result = await holder.evaluate(
         () =>
           new Promise((resolve, reject) => {
-            const request = indexedDB.open("rocket-vibe-web", 7);
+            const request = indexedDB.open("vibez-web", 7);
             const timer = setTimeout(
               () =>
                 reject(

@@ -658,7 +658,7 @@ try {
   await info.waitFor({ state: "detached" });
   await page.waitForFunction(async (roomId) => {
     const db = await new Promise((resolve, reject) => {
-      const open = indexedDB.open("rocket-vibe-web");
+      const open = indexedDB.open("vibez-web");
       open.onsuccess = () => resolve(open.result);
       open.onerror = () => reject(open.error);
     });

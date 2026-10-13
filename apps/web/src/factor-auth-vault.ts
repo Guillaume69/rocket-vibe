@@ -40,7 +40,7 @@ export function factorAuthVault(
   const locked = <T>(run: () => Promise<T>) => {
     if (!navigator.locks || !crypto.subtle)
       throw Error("crypto_storage_unavailable");
-    return navigator.locks.request("rocket-vibe-factor-auth:" + scope, run);
+    return navigator.locks.request("vibez-factor-auth:" + scope, run);
   };
   return {
     valid,

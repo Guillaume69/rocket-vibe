@@ -25,7 +25,7 @@ const context: ReauthenticationContext = {
 const setup: FactorSetup = {
   setup_id: "setup",
   secret: "PRIVATE-SETUP-SECRET",
-  provisioning_uri: "otpauth://totp/RocketVibe?secret=PRIVATE-SETUP-SECRET",
+  provisioning_uri: "otpauth://totp/Vibez?secret=PRIVATE-SETUP-SECRET",
   expires_at: "2099-01-01T00:00:00Z",
 };
 const codes: FactorBackupCodes = {

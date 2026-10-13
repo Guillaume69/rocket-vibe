@@ -69,7 +69,7 @@ export function diagnosticsText(context: {
   now?: Date;
 }): string {
   return [
-    "RocketVibe web " + context.version,
+    "Vibez " + context.version,
     "Generated: " + (context.now ?? new Date()).toISOString(),
     "User agent: " + context.userAgent,
     "Language: " + context.language,
@@ -120,7 +120,7 @@ export function downloadDiagnostics(version: string, connection: string): void {
   const link = document.createElement("a");
   link.href = url;
   link.download =
-    "rocketvibe-web-diagnostics-" +
+    "vibez-diagnostics-" +
     new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-") +
     ".txt";
   document.body.append(link);

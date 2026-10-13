@@ -23,8 +23,8 @@ const version = createHash("sha256")
 writeFileSync(
   "dist/manifest.webmanifest",
   JSON.stringify({
-    name: "rocket-vibe",
-    short_name: "rocket-vibe",
+    name: "Vibez",
+    short_name: "Vibez",
     start_url: "/",
     display: "standalone",
     background_color: "#0C0B16",

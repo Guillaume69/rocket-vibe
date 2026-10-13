@@ -4,7 +4,7 @@ export class MicrophoneGain implements TrackProcessor<
   Track.Kind.Audio,
   AudioProcessorOptions
 > {
-  name = "RocketVibe microphone level";
+  name = "Vibez microphone level";
   processedTrack?: MediaStreamTrack;
   gain?: GainNode;
   analyser?: AnalyserNode;

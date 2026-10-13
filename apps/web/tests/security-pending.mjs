@@ -92,7 +92,7 @@ const acknowledge = async (page) => click(page, "I have saved my codes");
 const api = async (page, path) =>
   page.evaluate(async (path) => {
     const db = await new Promise((resolve) => {
-      const request = indexedDB.open("rocket-vibe-web", 6);
+      const request = indexedDB.open("vibez-web", 6);
       request.onsuccess = () => resolve(request.result);
     });
     const accounts = await new Promise((resolve) => {
@@ -112,7 +112,7 @@ const api = async (page, path) =>
 const sealed = async (page, forbidden = []) => {
   const snapshot = await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
-      const request = indexedDB.open("rocket-vibe-web", 6);
+      const request = indexedDB.open("vibez-web", 6);
       request.onsuccess = () => resolve(request.result);
     });
     const result = { text: "", sealed: [] };

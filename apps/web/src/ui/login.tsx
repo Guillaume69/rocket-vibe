@@ -75,12 +75,7 @@ export function LoginScreen({ app }: { app: App }) {
     [],
   );
   const discover = () =>
-    app.api.request<Discovery>(
-      "/.well-known/vibez",
-      "GET",
-      undefined,
-      true,
-    );
+    app.api.request<Discovery>("/.well-known/vibez", "GET", undefined, true);
   if (app.loginChallenge) return <FactorScreen app={app} />;
   const submit = async () => {
     if (submitting.current) return;

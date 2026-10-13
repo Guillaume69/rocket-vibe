@@ -64,12 +64,7 @@ if (!users[0] || !users[1]) {
   assert.equal(
     execFileSync(
       "docker",
-      [
-        "inspect",
-        "-f",
-        '{{ index .Config.Labels "rocketvibe.task" }}',
-        container,
-      ],
+      ["inspect", "-f", '{{ index .Config.Labels "vibez.task" }}', container],
       { encoding: "utf8" },
     ).trim(),
     "web-e2ee",
@@ -188,7 +183,7 @@ try {
   );
   const ordinary = await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
-      const request = indexedDB.open("rocket-vibe-web");
+      const request = indexedDB.open("vibez-web");
       request.onsuccess = () => resolve(request.result);
     });
     try {
@@ -542,7 +537,7 @@ try {
   );
   await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
-      const r = indexedDB.open("rocket-vibe-private");
+      const r = indexedDB.open("vibez-private");
       r.onsuccess = () => resolve(r.result);
     });
     const entries = await new Promise((resolve) => {
@@ -555,7 +550,7 @@ try {
   await page.getByRole("button", { name: "Renew now", exact: true }).click();
   await page.waitForFunction(async () => {
     const db = await new Promise((resolve) => {
-      const r = indexedDB.open("rocket-vibe-private");
+      const r = indexedDB.open("vibez-private");
       r.onsuccess = () => resolve(r.result);
     });
     try {

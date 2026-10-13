@@ -23,7 +23,7 @@ export interface PendingLogout {
   expires: string;
 }
 
-/** The longest a session lives on the RocketVibe server (`sessions.rs`). */
+/** The longest a session lives on the Vibez server (`sessions.rs`). */
 export const SESSION_DAYS = 30;
 
 /**

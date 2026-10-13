@@ -34,13 +34,10 @@ export function securityVault<T>(
     async locked<R>(run: () => Promise<R>): Promise<R> {
       if (!navigator.locks || !crypto.subtle)
         throw Error("crypto_storage_unavailable");
-      return navigator.locks.request(
-        "rocket-vibe-security:" + scope,
-        async () => {
-          check();
-          return run();
-        },
-      );
+      return navigator.locks.request("vibez-security:" + scope, async () => {
+        check();
+        return run();
+      });
     },
     async read(): Promise<T | undefined> {
       check();

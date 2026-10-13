@@ -29,12 +29,7 @@ const names = ["webgtk" + tag, "gtkweb" + tag];
 assert.equal(
   execFileSync(
     "docker",
-    [
-      "inspect",
-      "-f",
-      '{{ index .Config.Labels "rocketvibe.task" }}',
-      apiContainer,
-    ],
+    ["inspect", "-f", '{{ index .Config.Labels "vibez.task" }}', apiContainer],
     { encoding: "utf8" },
   ).trim(),
   taskLabel,
@@ -132,7 +127,7 @@ try {
       "--name",
       container,
       "--label",
-      "rocketvibe.task=" + taskLabel,
+      "vibez.task=" + taskLabel,
       "-v",
       root + ":/workspace",
       "-v",
@@ -270,12 +265,7 @@ try {
     assert.equal(
       execFileSync(
         "docker",
-        [
-          "inspect",
-          "-f",
-          '{{ index .Config.Labels "rocketvibe.task" }}',
-          container,
-        ],
+        ["inspect", "-f", '{{ index .Config.Labels "vibez.task" }}', container],
         { encoding: "utf8" },
       ).trim(),
       taskLabel,

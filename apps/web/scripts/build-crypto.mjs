@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
-const image = "rocketvibe-web-e2ee-build";
+const image = "vibez-web-e2ee-build";
 const run = (program, args) =>
   execFileSync(program, args, {
     cwd: root,
@@ -31,13 +31,13 @@ run("docker", [
   "run",
   "--rm",
   "--label",
-  "rocketvibe.task=web-e2ee",
+  "vibez.task=web-e2ee",
   "-v",
   root + ":/workspace",
   "-v",
   cache + ":/cargo",
   "-e",
-  "RUSTFLAGS=--remap-path-prefix=/workspace=/rocketvibe",
+  "RUSTFLAGS=--remap-path-prefix=/workspace=/vibez",
   "-w",
   "/workspace",
   image,

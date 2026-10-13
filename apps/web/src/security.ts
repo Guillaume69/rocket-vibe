@@ -278,7 +278,7 @@ export function backupCodes(
       );
       const link = el("a");
       link.href = url;
-      link.download = "rocket-vibe-recovery-codes.txt";
+      link.download = "vibez-recovery-codes.txt";
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }),

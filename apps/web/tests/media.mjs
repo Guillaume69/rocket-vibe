@@ -109,7 +109,7 @@ try {
       draw.fillRect(0, 0, 320, 180);
       draw.fillStyle = "#171529";
       draw.font = "24px sans-serif";
-      draw.fillText("RocketVibe " + frame++, 24, 90);
+      draw.fillText("Vibez " + frame++, 24, 90);
     }, 50);
     const parts = [],
       recorder = new MediaRecorder(stream, {

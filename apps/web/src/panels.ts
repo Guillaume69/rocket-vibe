@@ -1682,7 +1682,7 @@ export async function settings(
           Notification.permission === "granted" ||
           (await Notification.requestPermission()) === "granted";
         if (allowed)
-          new Notification("rocket-vibe", { body: nt("notify.test_body") });
+          new Notification("Vibez", { body: nt("notify.test_body") });
       },
     );
     test.append(sendNotification);

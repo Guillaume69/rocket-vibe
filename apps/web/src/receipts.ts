@@ -1,5 +1,5 @@
 /**
- * Read receipts (RocketVibe): under my most recent root message, "Seen" in a
+ * Read receipts (Vibez): under my most recent root message, "Seen" in a
  * direct room, "Seen by Bob, Carol" in a group, from the live frame's
  * `reads`. The rule shared by every app: brain/features/read-receipts.md.
  */

@@ -33,7 +33,7 @@ const server = tls.createServer(
   { key, cert: readFileSync("apps/server/tests/fixtures/mail-cert.pem") },
   (socket) => {
     socket.setEncoding("utf8");
-    socket.write("220 localhost RocketVibe fixture\r\n");
+    socket.write("220 localhost Vibez fixture\r\n");
     let buffer = "",
       data = false,
       content = "";

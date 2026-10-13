@@ -266,7 +266,7 @@ export async function privateQuoteSearch(page, bob, room, packets) {
 
   const stored = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open("rocket-vibe-web");
+      const request = indexedDB.open("vibez-web");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

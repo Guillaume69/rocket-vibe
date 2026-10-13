@@ -17,7 +17,7 @@ try {
   await page.locator(".status-dot.online").waitFor();
   const room = await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
-      const req = indexedDB.open("rocket-vibe-web");
+      const req = indexedDB.open("vibez-web");
       req.onsuccess = () => resolve(req.result);
     });
     const cache = await new Promise((resolve) => {
@@ -44,7 +44,7 @@ try {
   // fake server-side MLS group. It is deliberately not a crypto protocol test.
   await page.evaluate(async (room) => {
     const db = await new Promise((resolve) => {
-      const req = indexedDB.open("rocket-vibe-web");
+      const req = indexedDB.open("vibez-web");
       req.onsuccess = () => resolve(req.result);
     });
     await new Promise((resolve, reject) => {

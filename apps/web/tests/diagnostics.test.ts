@@ -62,7 +62,7 @@ test("the file names the app and browser, then the events", () => {
     connection: "online",
     now: new Date("2026-10-11T00:00:00Z"),
   });
-  assert.match(text, /^RocketVibe web 9\.9\.9\n/);
+  assert.match(text, /^Vibez 9\.9\.9\n/);
   assert.match(text, /User agent: TestAgent\/1/);
   assert.match(text, /connection online/);
 });

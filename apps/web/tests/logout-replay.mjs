@@ -27,7 +27,7 @@ const stores = (name) =>
   page.evaluate(
     (name) =>
       new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web");
+        const request = indexedDB.open("vibez-web");
         request.onsuccess = () => {
           const db = request.result;
           if (!db.objectStoreNames.contains(name)) {
@@ -141,12 +141,9 @@ try {
   const download = page.waitForEvent("download");
   await page.locator(".action-row", { hasText: "Diagnostics" }).click();
   const file = await download;
-  assert.match(
-    file.suggestedFilename(),
-    /^rocketvibe-web-diagnostics-.*\.txt$/,
-  );
+  assert.match(file.suggestedFilename(), /^vibez-diagnostics-.*\.txt$/);
   const text = await readFile(await file.path(), "utf8");
-  assert.match(text, /^RocketVibe web \d+\.\d+\.\d+/);
+  assert.match(text, /^Vibez \d+\.\d+\.\d+/);
   assert.match(text, /User agent: /);
   assert.match(text, /connection online/);
   // The page was reloaded since the first sign-out: its start replayed one.

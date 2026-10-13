@@ -57,7 +57,7 @@ export function RoomList({ app }: { app: App }) {
   const titled = groups.filter(([, values]) => values.length > 0).length > 1;
   const total = rooms.reduce((sum, room) => sum + unread(room), 0);
   useEffect(() => {
-    document.title = (total ? "(" + total + ") " : "") + "rocket-vibe";
+    document.title = (total ? "(" + total + ") " : "") + "Vibez";
   }, [total]);
   return (
     <div

@@ -10,7 +10,7 @@ page.on("pageerror", (error) => errors.push(error.message));
 async function saved(page) {
   return page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open("rocket-vibe-web");
+      const req = indexedDB.open("vibez-web");
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
@@ -41,7 +41,7 @@ async function devices(page) {
 async function due(page) {
   await page.evaluate(async () => {
     const db = await new Promise((resolve) => {
-      const req = indexedDB.open("rocket-vibe-web");
+      const req = indexedDB.open("vibez-web");
       req.onsuccess = () => resolve(req.result);
     });
     await new Promise((resolve, reject) => {

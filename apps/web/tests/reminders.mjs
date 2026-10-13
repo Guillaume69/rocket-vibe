@@ -82,7 +82,7 @@ try {
   await picker.getByRole("button", { name: "Cancel", exact: true }).click();
   const stored = () =>
     page.evaluate(async () => {
-      const request = indexedDB.open("rocket-vibe-web");
+      const request = indexedDB.open("vibez-web");
       const db = await new Promise((resolve, reject) => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
@@ -144,7 +144,7 @@ try {
   await page.evaluate(
     async ({ account, message, room, roomName }) => {
       const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web");
+        const request = indexedDB.open("vibez-web");
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
@@ -179,7 +179,7 @@ try {
   const left = await page.evaluate(
     async (key) =>
       new Promise((resolve) => {
-        const request = indexedDB.open("rocket-vibe-web");
+        const request = indexedDB.open("vibez-web");
         request.onsuccess = () => {
           const get = request.result
             .transaction("reminders")

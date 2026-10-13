@@ -10,7 +10,7 @@ export interface Envelope {
 }
 export function privateDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("rocket-vibe-private", 1);
+    const request = indexedDB.open("vibez-private", 1);
     request.onupgradeneeded = () => request.result.createObjectStore("vaults");
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

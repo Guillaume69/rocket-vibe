@@ -75,7 +75,7 @@ async function db(page, action, argument) {
   return page.evaluate(
     async ({ action, argument }) => {
       const database = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web", 6);
+        const request = indexedDB.open("vibez-web", 6);
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });

@@ -14,7 +14,7 @@ export class ShareAudioMixer implements TrackProcessor<
   Track.Kind.Audio,
   AudioProcessorOptions
 > {
-  name = "RocketVibe shared sound";
+  name = "Vibez shared sound";
   processedTrack?: MediaStreamTrack;
   context?: AudioContext;
   destination?: MediaStreamAudioDestinationNode;

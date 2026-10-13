@@ -81,7 +81,7 @@ function harness(origin = "http://127.0.0.1:3417") {
     info: {
       instance_id: "instance",
       data_epoch: "epoch",
-      product: "RocketVibe",
+      product: "Vibez",
       protocol_versions: [1],
       api_path: "/api/v1",
       server_version: "1",
@@ -175,7 +175,7 @@ test("login-factor receipts use authenticated ciphertext, a nonextractable key a
   );
   assert.ok(!JSON.stringify(envelope).includes("PRIVATE-FINISH"));
   assert.deepEqual(await vault.read(), intent);
-  assert.ok(state.locks[0].startsWith("rocket-vibe-factor-auth:"));
+  assert.ok(state.locks[0].startsWith("vibez-factor-auth:"));
   await vault.save({
     finish: { operation_id: "replacement", next_token: "d".repeat(64) },
   });

@@ -43,7 +43,7 @@ async function open(account: CryptoAccount): Promise<unknown> {
   return invoke("status", []);
 }
 async function invoke(method: string, args: string[]): Promise<unknown> {
-  return navigator.locks.request("rocket-vibe-crypto:" + scope, async () => {
+  return navigator.locks.request("vibez-crypto:" + scope, async () => {
     if (closed || !bridge) throw Error("crypto_view_closed");
     const old = await loadEnvelope(scope),
       before = old ? await unseal(scope, old) : empty;

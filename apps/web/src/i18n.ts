@@ -104,13 +104,10 @@ const phrases = {
   react: ["React", "Réagir"],
   copy: ["Copy text", "Copier le texte"],
   loading: ["Loading…", "Chargement…"],
-  startupStorageTitle: [
-    "Unable to open RocketVibe",
-    "Impossible d’ouvrir RocketVibe",
-  ],
+  startupStorageTitle: ["Unable to open Vibez", "Impossible d’ouvrir Vibez"],
   startupStorageBlocked: [
-    "Close other RocketVibe tabs or windows, then retry. Your saved conversations and drafts are kept.",
-    "Fermez les autres onglets ou fenêtres RocketVibe, puis réessayez. Vos conversations et brouillons enregistrés sont conservés.",
+    "Close other Vibez tabs or windows, then retry. Your saved conversations and drafts are kept.",
+    "Fermez les autres onglets ou fenêtres Vibez, puis réessayez. Vos conversations et brouillons enregistrés sont conservés.",
   ],
   startupStorageUnavailable: [
     "Browser storage is unavailable. Allow storage for this site, then retry. Your saved data has not been removed.",
@@ -218,7 +215,7 @@ const phrases = {
   notifyLike: ["Like", "J’aime"],
   notifyReply: ["Reply", "Répondre"],
   notifyReplyPlaceholder: ["Reply…", "Répondre…"],
-  notifySound: ["rocket-vibe sound", "Son de rocket-vibe"],
+  notifySound: ["Vibez sound", "Son de Vibez"],
   notifySoundHint: [
     "A little sparkle instead of the system's sound",
     "Un petit scintillement à la place du son du système",

@@ -306,7 +306,7 @@ try {
   await page
     .getByRole("button", { name: "Notifications", exact: true })
     .click();
-  const soundSwitch = page.getByLabel("rocket-vibe sound");
+  const soundSwitch = page.getByLabel("Vibez sound");
   assert.equal(await soundSwitch.isChecked(), true);
   await soundSwitch.uncheck();
   await page.keyboard.press("Escape");

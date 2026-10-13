@@ -129,7 +129,7 @@ test("security intentions are authenticated ciphertext with a nonextractable acc
   );
   assert.ok(!JSON.stringify(envelope).includes("private-operation"));
   assert.deepEqual(await vault.read(), intention);
-  assert.ok(state.locks[0].startsWith("rocket-vibe-security:"));
+  assert.ok(state.locks[0].startsWith("vibez-security:"));
   await vault.save({ ...intention, operation_id: "next-operation" });
   const next = state.rows.get(key)!;
   assert.equal(next.revision, envelope.revision + 1);

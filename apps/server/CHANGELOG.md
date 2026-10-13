@@ -16,6 +16,12 @@ everything before it is under that section.
 
 ### Changed
 
+- The RocketVibe server is now **Vibez**, and the web client ships under its version (no more separate `web-v` releases). Binary `vibez`, image `ghcr.io/guillaume69/vibez`, release tags `vibez-vX.Y.Z`, archive `vibez-X.Y.Z-linux-x86_64.tar.gz`.
+- Breaking: discovery moves to `/.well-known/vibez` and the server names itself product `vibez` there and in push data; apps older than this release no longer recognise it.
+- Breaking: every E2EE signature, fingerprint and sealed store uses `vibez-*` domains. Encrypted rooms, device certificates, history backups and archives made before this release no longer verify: reset the instance's E2EE state when upgrading.
+- Breaking: environment variables are `VIBEZ_*` (for example `VIBEZ_BIND`, `VIBEZ_OBJECTS_DIR`, `VIBEZ_E2EE`); the image runs as user `vibez` and stores files under `/var/lib/vibez/objects`, so move the objects volume's mount when upgrading. The Compose file is `docker/compose.vibez.yml`, its database and user `vibez`.
+- Emails, the TOTP issuer (`Vibez-<instance>`, new authenticator entries only), the link preview user agent and the default device label say Vibez.
+- Web client: the title, install name and brand say Vibez, and its browser storage is renamed, so each browser signs in again and re-enrolls its device once.
 - Web client: The app's own sounds (incoming call ringtone, ringback, voice session cues, new message sound) play 30 % quieter.
 
 ### Fixed

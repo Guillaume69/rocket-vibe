@@ -1,5 +1,5 @@
 /**
- * Scheduled messages (RocketVibe): the times "Send later" offers and the
+ * Scheduled messages (Vibez): the times "Send later" offers and the
  * bounds the server accepts (docs/protocol/SCHEDULED.md).
  */
 import type { ScheduledMessage } from "./protocol";

@@ -6,7 +6,7 @@ export async function fixture(target, path, method = "GET", input) {
   return target.evaluate(
     async ({ path, method, input }) => {
       const db = await new Promise((resolve, reject) => {
-        const request = indexedDB.open("rocket-vibe-web");
+        const request = indexedDB.open("vibez-web");
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });

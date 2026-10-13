@@ -95,7 +95,7 @@ export function IconButton({
 }
 
 export function Brand({ size = "header" }: { size?: string }) {
-  return <span className={"brand brand-" + size}>rocket-vibe</span>;
+  return <span className={"brand brand-" + size}>vibez</span>;
 }
 
 function gradient(name: string): number {

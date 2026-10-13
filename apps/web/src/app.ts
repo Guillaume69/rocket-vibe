@@ -254,7 +254,7 @@ export class App implements RowActions {
   retentionDue = false;
   loading = false;
   voice = new Voice(this);
-  channel = new BroadcastChannel("rocket-vibe-web");
+  channel = new BroadcastChannel("vibez-web");
   mount = document.querySelector<HTMLDivElement>("#app")!;
   constructor() {
     this.api.expired = () => {

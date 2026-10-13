@@ -1981,7 +1981,26 @@ impl Session {
             .into_iter()
             .map(|row| self.open_row(row))
             .collect();
-        crate::activity::gather(rows, me, &self.store.my_threads(me.id), &self.store.rooms())
+        let mut activity = crate::activity::gather(rows, me, &self.store.my_threads(me.id), &self.store.rooms());
+        // People named as the room list and the timeline name them.
+        let real_names = self.store.real_names();
+        for item in &mut activity.items {
+            item.author_label = self.person_label(&item.message.author_id);
+            if item.reactors.is_empty() {
+                continue;
+            }
+            let names = crate::activity::reaction_names(item.message.reactions.as_deref());
+            for reactor in &mut item.reactors {
+                let shown = match self.backend() {
+                    Backend::Mattermost(mm) => mm.directory.name_of(reactor),
+                    Backend::RocketChat => names.get(reactor.as_str()).filter(|_| real_names).cloned(),
+                };
+                if let Some(shown) = shown {
+                    *reactor = shown;
+                }
+            }
+        }
+        activity
     }
 
     /// Whether rooms have invite links and discussions here: Rocket.Chat only.

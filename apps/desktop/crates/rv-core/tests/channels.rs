@@ -3,7 +3,7 @@
 //! comes back, and each refusal read as the reason the user sees.
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{FakeHttp, Request, Response, dropped, respond};
@@ -30,7 +30,24 @@ fn created(id: &str, kind: &str, name: &str) -> String {
     .to_string()
 }
 
-fn server(request: &Request) -> Response {
+/// `ROOMS` or `SUBSCRIPTIONS` with the rooms created since, as a server lists
+/// them: the session's reconciliation drops a stored room its server no
+/// longer lists, so a fake that forgot them would race the test.
+fn listed(base: &str, made: &[(String, String, String)], subscription: bool) -> String {
+    let mut list: Value = serde_json::from_str(base).unwrap();
+    let update = list["update"].as_array_mut().unwrap();
+    for (id, kind, name) in made {
+        let at = "2026-10-13T09:00:00.000Z";
+        update.push(if subscription {
+            json!({"_id": format!("s-{id}"), "rid": id, "t": kind, "name": name, "open": true, "_updatedAt": at})
+        } else {
+            json!({"_id": id, "t": kind, "name": name, "_updatedAt": at})
+        });
+    }
+    list.to_string()
+}
+
+fn server(request: &Request, made: &Mutex<Vec<(String, String, String)>>) -> Response {
     let path = request.path();
     if path.ends_with("/websocket") {
         return dropped();
@@ -39,9 +56,13 @@ fn server(request: &Request) -> Response {
         .ok()
         .and_then(|b| b.get("name").and_then(Value::as_str).map(str::to_owned))
         .unwrap_or_default();
+    let create = |id: &str, kind: &str| {
+        made.lock().unwrap().push((id.to_owned(), kind.to_owned(), name.clone()));
+        respond(200, &created(id, kind, &name))
+    };
     match (path.trim_start_matches("/api/v1/"), name.as_str()) {
-        ("rooms.get", _) => respond(200, ROOMS),
-        ("subscriptions.get", _) => respond(200, SUBSCRIPTIONS),
+        ("rooms.get", _) => respond(200, &listed(ROOMS, &made.lock().unwrap(), false)),
+        ("subscriptions.get", _) => respond(200, &listed(SUBSCRIPTIONS, &made.lock().unwrap(), true)),
         ("channels.create" | "groups.create", "dev") => respond(
             400,
             r#"{"success":false,"error":"A channel with name 'dev' exists [error-duplicate-channel-name]","errorType":"error-duplicate-channel-name"}"#,
@@ -55,8 +76,8 @@ fn server(request: &Request) -> Response {
             400,
             r#"{"success":false,"error":"Not allowed [error-not-allowed]","errorType":"error-not-allowed"}"#,
         ),
-        ("channels.create", "team") => respond(200, &created("c9", "c", "team")),
-        ("groups.create", "core") => respond(200, &created("p9", "p", "core")),
+        ("channels.create", "team") => create("c9", "c"),
+        ("groups.create", "core") => create("p9", "p"),
         // A success without the room the kind names.
         ("channels.create", "hollow") => respond(200, &created("p8", "p", "hollow")),
         _ => respond(200, r#"{"success":true}"#),
@@ -70,7 +91,8 @@ struct Bench {
 }
 
 async fn bench() -> Bench {
-    let server = FakeHttp::start(server).await;
+    let made = Mutex::new(Vec::new());
+    let server = FakeHttp::start(move |request: &Request| server(request, &made)).await;
     let dir = tempfile::tempdir().unwrap();
     let info = SessionInfo {
         base_url: server.url.to_string(),

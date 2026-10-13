@@ -2426,13 +2426,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 489,
+      "line": 491,
       "kind": "resource",
       "surface": "/file-upload/{…}/%"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/store.rs",
-      "line": 490,
+      "line": 492,
       "kind": "url",
       "surface": "/api/v4/files/{…}"
     },
@@ -2822,7 +2822,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/new_channel.rs",
-      "line": 20,
+      "line": 70,
       "kind": "endpoint",
       "surface": "rooms.new_channel"
     },

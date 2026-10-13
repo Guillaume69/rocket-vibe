@@ -8,12 +8,11 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use rv_core::activity::{Item, Kind, Merged, RoomMentions};
-use rv_core::markdown;
 use rv_core::session::SessionInfo;
 
 use crate::i18n::{t, tf, tn};
-use crate::markdown_view;
-use crate::rows::{label, local};
+use crate::local_search::{self, clickable};
+use crate::rows::label;
 
 /// Where an entry leads: the account, the room, the message (None: the
 /// room itself) and the thread it replies in.
@@ -78,38 +77,29 @@ pub fn open(
     dialog
 }
 
-/// An entry's frame: clickable, leading to `target`.
-fn entry(name: String, target: Target, go: Rc<dyn Fn(Target)>) -> gtk::Box {
-    let entry =
-        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["search-hit"]).build();
-    entry.set_widget_name(&name);
-    entry.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
-    let click = gtk::GestureClick::new();
+/// Goes to `target` on the first click only (the dialog closes on it).
+fn once(target: Target, go: Rc<dyn Fn(Target)>) -> impl Fn() + 'static {
     let target = std::cell::RefCell::new(Some(target));
-    click.connect_released(move |_, _, _, _| {
+    move || {
         if let Some(target) = target.borrow_mut().take() {
             go(target);
         }
-    });
-    entry.add_controller(click);
-    entry
+    }
 }
 
 /// The room's name, after its server when several accounts are shown.
-fn where_label(info: &SessionInfo, room: &str, several: bool) -> gtk::Label {
-    let text = if several { format!("{} · {room}", rv_core::supervisor::server_label(info)) } else { room.to_owned() };
-    let label = label(&text, &["room-subtitle", "local-hit-room"]);
-    label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    label
+fn where_text(info: &SessionInfo, room: &str, several: bool) -> String {
+    if several { format!("{} · {room}", rv_core::supervisor::server_label(info)) } else { room.to_owned() }
 }
 
 fn room_entry(info: SessionInfo, room: RoomMentions, several: bool, go: Rc<dyn Fn(Target)>) -> gtk::Widget {
+    let place = where_text(&info, &room.room, several);
     let name = format!("activity-room-{}", room.rid);
-    let place = where_label(&info, &room.room, several);
+    let count = tn("activity.room_mentions", room.count);
     let target = Target { account: info, rid: room.rid, message: None, thread: None };
-    let entry = entry(name, target, go);
-    entry.append(&place);
-    entry.append(&label(&tn("activity.room_mentions", room.count), &["author"]));
+    let entry = clickable(&name, once(target, go));
+    entry.append(&local_search::place(&place));
+    entry.append(&label(&count, &["author"]));
     entry.upcast()
 }
 
@@ -124,21 +114,15 @@ fn item_entry(info: SessionInfo, item: Item, several: bool, go: Rc<dyn Fn(Target
             tf("activity.reaction", &[("names", &item.reactors.join(", ")), ("emojis", &emojis.join(" "))])
         }
     };
-    let place = where_label(&info, &item.room, several);
+    let author = item.author_label.or_else(|| row.author.clone()).unwrap_or_default();
+    let mut head = vec![(what.as_str(), "author")];
+    if item.kind != Kind::Reaction {
+        head.push((author.as_str(), "message-time"));
+    }
+    let place = where_text(&info, &item.room, several);
     let me = info.username.clone();
     let target =
         Target { account: info, rid: row.rid.clone(), message: Some(row.id.clone()), thread: row.thread_id.clone() };
-    let entry = entry(format!("activity-item-{}", row.id), target, go);
-    entry.append(&place);
-    let head = gtk::Box::builder().spacing(8).build();
-    head.append(&label(&what, &["author"]));
-    if item.kind != Kind::Reaction {
-        head.append(&label(row.author.as_deref().unwrap_or_default(), &["message-time"]));
-    }
-    head.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
-    entry.append(&head);
-    let md = row.md.as_deref().filter(|_| row.system_type.is_none());
-    let blocks = markdown::render(md, row.text.as_deref(), &markdown::Context { me: &me });
-    entry.append(&markdown_view::view(&blocks, &[]));
-    entry.upcast()
+    local_search::message_entry(&format!("activity-item-{}", row.id), &place, &head, &row, &me, once(target, go))
+        .upcast()
 }

@@ -90,7 +90,7 @@ impl Client {
                         room: item.room,
                         message_id: row.id,
                         thread_id: row.thread_id,
-                        author: row.author.unwrap_or_default(),
+                        author: item.author_label.or(row.author).unwrap_or_default(),
                         text,
                         ts: row.ts,
                         reactors: item.reactors,

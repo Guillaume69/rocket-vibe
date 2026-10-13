@@ -105,27 +105,61 @@ fn clear(results: &gtk::Box) {
 
 /// One message found: its room's name, author and date, then its words.
 fn hit(session: &Arc<Session>, row: MessageRow, go: Rc<dyn Fn(String, String, Option<String>)>) -> gtk::Widget {
-    let hit =
-        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["search-hit"]).build();
-    hit.set_widget_name(&format!("local-hit-{}", row.id));
     let room = session.store.room_name(&row.rid).map(|(name, _)| name).unwrap_or_else(|| "…".to_owned());
-    let room = label(&room, &["room-subtitle", "local-hit-room"]);
-    room.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    hit.append(&room);
-    let head = gtk::Box::builder().spacing(8).build();
     let author = session.person_label(&row.author_id).or_else(|| row.author.clone()).unwrap_or_default();
-    head.append(&label(&author, &["author"]));
-    head.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
-    hit.append(&head);
-    let me = session.info.username.clone();
-    // An encrypted message's words were opened by the search; its stored `md` is the server's.
-    let md = row.md.as_deref().filter(|_| row.system_type.is_none());
-    let blocks = markdown::render(md, row.text.as_deref(), &markdown::Context { me: &me });
-    hit.append(&markdown_view::view(&blocks, &[]));
-    hit.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
-    let click = gtk::GestureClick::new();
     let (rid, id, thread) = (row.rid.clone(), row.id.clone(), row.thread_id.clone());
-    click.connect_released(move |_, _, _, _| go(rid.clone(), id.clone(), thread.clone()));
-    hit.add_controller(click);
-    hit.upcast()
+    message_entry(
+        &format!("local-hit-{}", row.id),
+        &room,
+        &[(&author, "author")],
+        &row,
+        &session.info.username,
+        move || go(rid.clone(), id.clone(), thread.clone()),
+    )
+    .upcast()
+}
+
+/// A clickable entry of a list across rooms (this search, the Activity
+/// view): `open` runs on a click.
+pub(crate) fn clickable(name: &str, open: impl Fn() + 'static) -> gtk::Box {
+    let entry =
+        gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(2).css_classes(["search-hit"]).build();
+    entry.set_widget_name(name);
+    entry.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
+    let click = gtk::GestureClick::new();
+    click.connect_released(move |_, _, _, _| open());
+    entry.add_controller(click);
+    entry
+}
+
+/// Where an entry is: a room's name, cut to the width.
+pub(crate) fn place(text: &str) -> gtk::Label {
+    let place = label(text, &["room-subtitle", "local-hit-room"]);
+    place.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    place
+}
+
+/// A message entry: `place`, a head of `(text, style class)` labels then
+/// the message's date, then its words (`me` highlights my mentions).
+pub(crate) fn message_entry(
+    name: &str,
+    place_text: &str,
+    head_labels: &[(&str, &str)],
+    row: &MessageRow,
+    me: &str,
+    open: impl Fn() + 'static,
+) -> gtk::Box {
+    let entry = clickable(name, open);
+    entry.append(&place(place_text));
+    let head = gtk::Box::builder().spacing(8).build();
+    for (text, class) in head_labels {
+        head.append(&label(text, &[class]));
+    }
+    head.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
+    entry.append(&head);
+    // An encrypted message's words were opened by the session; its stored `md` is the server's.
+    let md = row.md.as_deref().filter(|_| row.system_type.is_none());
+    let blocks = markdown::render(md, row.text.as_deref(), &markdown::Context { me });
+    entry.append(&markdown_view::view(&blocks, &[]));
+    entry
 }

@@ -21,7 +21,8 @@ impl NativeStore {
         .collect()
     }
 
-    /// The thread roots I take part in: I wrote the root or a reply.
+    /// The thread roots I take part in: I wrote the root or a reply, or I
+    /// follow it (`Message.personal_follow`, kept in `followed`).
     pub fn my_threads(&self, me: &str) -> rusqlite::Result<std::collections::HashSet<String>> {
         let conn = self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !self.same(&conn)? {
@@ -30,7 +31,8 @@ impl NativeStore {
         conn.prepare(
             "SELECT DISTINCT reply_to FROM native_messages WHERE reply_to IS NOT NULL AND author_id = ?1
              UNION SELECT r.reply_to FROM native_messages r JOIN native_messages m ON m.id = r.reply_to WHERE m.author_id = ?1
-             UNION SELECT id FROM native_messages WHERE author_id = ?1 AND thread_replies > 0",
+             UNION SELECT id FROM native_messages WHERE author_id = ?1 AND thread_replies > 0
+             UNION SELECT id FROM native_messages WHERE followed = 1",
         )?
         .query_map([me], |r| r.get(0))?
         .collect()

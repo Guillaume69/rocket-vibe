@@ -1,63 +1,75 @@
-//! Creating a channel or a private group on a Rocket.Chat account: the same
-//! name and Private switch as a RocketVibe server's new room
-//! (`ChatPage::native_conversation`), created by `Session::create_channel`.
+//! Creating a room: the name, Private (on by default), a voice channel where
+//! the server offers voice, and Create, the same group for a RocketVibe
+//! server's new room (`ChatPage::native_conversation`, beside its direct
+//! message row) and a Rocket.Chat channel or private group (`open`). The
+//! caller's `Create` does the server call and opens the room.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::rocketchat::actions::creation_refusal;
-use rv_core::session::Session;
 
 use crate::i18n::t;
-use crate::on_tokio;
 
-/// The dialog. Create makes the room, which the store already lists when
-/// `created` gets its rid; a refusal says why in the dialog, which keeps what
-/// was typed. Closes on its backdrop, as Cancel.
-pub fn open(parent: &impl IsA<gtk::Widget>, session: Arc<Session>, created: impl Fn(String) + 'static) {
-    let dialog = adw::PreferencesDialog::builder().title(t("rooms.new_channel")).build();
-    let page = adw::PreferencesPage::new();
+/// Creates the room named so, private or not, a voice channel or not, and
+/// opens it; a refusal is the catalog key of its reason.
+pub type Create = Rc<dyn Fn(String, bool, bool) -> Pin<Box<dyn Future<Output = Result<(), &'static str>>>>>;
+
+/// The group, in `dialog`: Create (or Enter in the name) runs `create`;
+/// success closes the dialog, a refusal says why in it, which keeps what was
+/// typed. `voice` shows the voice channel switch.
+pub fn group(dialog: &adw::PreferencesDialog, voice: bool, create: Create) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
     let name = adw::EntryRow::builder().title(t("native.room_name")).build();
     let private = adw::SwitchRow::builder().title(t("native.private")).active(true).build();
-    let create = adw::ButtonRow::builder().title(t("native.create")).sensitive(false).build();
+    let voice_row = adw::SwitchRow::builder()
+        .title(t("voice_session.channel"))
+        .subtitle(t("voice_session.channel_hint"))
+        .visible(voice)
+        .build();
+    let button = adw::ButtonRow::builder().title(t("native.create")).sensitive(false).build();
     group.add(&name);
     group.add(&private);
-    group.add(&create);
-    page.add(&group);
-    dialog.add(&page);
+    group.add(&voice_row);
+    group.add(&button);
 
-    let button = create.clone();
-    name.connect_changed(move |entry| button.set_sensitive(!entry.text().trim().is_empty()));
-    // Enter in the name creates, as the button does.
-    let button = create.clone();
+    let b = button.clone();
+    name.connect_changed(move |entry| b.set_sensitive(!entry.text().trim().is_empty()));
+    let b = button.clone();
     name.connect_entry_activated(move |_| {
-        button.activate();
+        b.activate();
     });
-    let created = Rc::new(created);
     let d = dialog.clone();
-    let submit = move |button: &adw::ButtonRow| {
+    button.connect_activated(move |button| {
         let typed = name.text().trim().to_owned();
         if typed.is_empty() || !button.is_sensitive() {
             return;
         }
         button.set_sensitive(false);
-        let (s, d, b, created, private) =
-            (session.clone(), d.clone(), button.clone(), created.clone(), private.is_active());
+        let (d, b) = (d.clone(), button.clone());
+        let created = create(typed, private.is_active(), voice_row.is_visible() && voice_row.is_active());
         glib::spawn_future_local(async move {
-            let result = on_tokio(async move { s.create_channel(&typed, private).await }).await;
+            let result = created.await;
             b.set_sensitive(true);
             match result {
-                Ok(rid) => {
+                Ok(()) => {
                     d.close();
-                    created(rid);
                 }
-                Err(e) => d.add_toast(adw::Toast::new(t(creation_refusal(&e)))),
+                Err(key) => d.add_toast(adw::Toast::new(t(key))),
             }
         });
-    };
-    create.connect_activated(submit);
+    });
+    group
+}
+
+/// "Create a channel" on a Rocket.Chat account: the group alone. Closes on
+/// its backdrop, as Cancel.
+pub fn open(parent: &impl IsA<gtk::Widget>, create: Create) {
+    let dialog = adw::PreferencesDialog::builder().title(t("rooms.new_channel")).build();
+    let page = adw::PreferencesPage::new();
+    page.add(&group(&dialog, false, create));
+    dialog.add(&page);
     crate::widgets::present(&dialog, Some(parent));
 }

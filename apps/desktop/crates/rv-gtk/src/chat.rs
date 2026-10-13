@@ -2411,16 +2411,31 @@ impl ChatPage {
             return;
         }
         let Some(session) = self.session().filter(|s| s.channels_creatable()) else { return };
-        let (weak, expected) = (Rc::downgrade(self), session.clone());
-        crate::new_channel::open(&self.split, session, move |rid| {
-            if let Some(this) = weak.upgrade()
-                && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
-            {
+        let weak = Rc::downgrade(self);
+        // The room opens unless the user went elsewhere meanwhile (another
+        // room, another account), as the RocketVibe server's dialog does.
+        let create: crate::new_channel::Create = Rc::new(move |name, private, _voice| {
+            let navigation = weak.upgrade().map(|this| {
                 this.user_navigation();
-                this.reload_rooms();
-                this.open_room(&rid);
-            }
+                this.navigation_generation.get()
+            });
+            let (weak, s) = (weak.clone(), session.clone());
+            Box::pin(async move {
+                let expected = s.clone();
+                let rid = on_tokio(async move { s.create_channel(&name, private).await })
+                    .await
+                    .map_err(|e| rv_core::rocketchat::actions::creation_refusal(&e))?;
+                if let Some(this) = weak.upgrade()
+                    && Some(this.navigation_generation.get()) == navigation
+                    && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                {
+                    this.reload_rooms();
+                    this.open_room(&rid);
+                }
+                Ok(())
+            })
         });
+        crate::new_channel::open(&self.split, create);
     }
 
     /// A person: their DM, created if needed. A channel: joined if needed. Then opened.

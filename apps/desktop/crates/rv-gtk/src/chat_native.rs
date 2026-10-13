@@ -1121,50 +1121,29 @@ impl ChatPage {
         });
         page.add(&group);
         if !invite {
-            let group = adw::PreferencesGroup::new();
-            let name = adw::EntryRow::builder().title(t("native.room_name")).build();
-            let private = adw::SwitchRow::builder().title(t("native.private")).active(true).build();
-            let voice = adw::SwitchRow::builder()
-                .title(t("voice_session.channel"))
-                .subtitle(t("voice_session.channel_hint"))
-                .visible(session.voice_supported())
-                .build();
-            let create = adw::ButtonRow::builder().title(t("native.create")).build();
-            group.add(&name);
-            group.add(&private);
-            group.add(&voice);
-            group.add(&create);
-            let (weak, d, s) = (Rc::downgrade(self), dialog.clone(), session.clone());
-            create.connect_activated(move |b| {
-                let Some(this) = weak.upgrade() else { return };
-                this.user_navigation();
-                let navigation = this.navigation_generation.get();
-                b.set_sensitive(false);
-                let (weak, d, s, name, private, b) =
-                    (weak.clone(), d.clone(), s.clone(), name.text().to_string(), private.is_active(), b.clone());
-                let (expected, voice) = (s.clone(), voice.is_visible() && voice.is_active());
-                glib::spawn_future_local(async move {
-                    let result = on_tokio(async move { s.create_room(&name, private, voice).await }).await;
-                    b.set_sensitive(true);
-                    let Some(this) = weak.upgrade() else {
-                        return;
-                    };
-                    if this.navigation_generation.get() != navigation
-                        || this.native_session().is_none_or(|s| !Arc::ptr_eq(&s, &expected))
-                    {
-                        return;
-                    }
-                    match result {
-                        Ok(rid) => {
-                            d.close();
-                            this.reload_rooms();
-                            this.open_room(&rid);
-                        }
-                        Err(e) => d.add_toast(adw::Toast::new(t(native_error_key(e.code())))),
-                    }
+            let (weak, s) = (Rc::downgrade(self), session.clone());
+            let create: crate::new_channel::Create = Rc::new(move |name, private, voice| {
+                let navigation = weak.upgrade().map(|this| {
+                    this.user_navigation();
+                    this.navigation_generation.get()
                 });
+                let (weak, s) = (weak.clone(), s.clone());
+                Box::pin(async move {
+                    let expected = s.clone();
+                    let rid = on_tokio(async move { s.create_room(&name, private, voice).await })
+                        .await
+                        .map_err(|e| native_error_key(e.code()))?;
+                    if let Some(this) = weak.upgrade()
+                        && Some(this.navigation_generation.get()) == navigation
+                        && this.native_session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
+                    {
+                        this.reload_rooms();
+                        this.open_room(&rid);
+                    }
+                    Ok(())
+                })
             });
-            page.add(&group);
+            page.add(&crate::new_channel::group(&dialog, session.voice_supported(), create));
         }
         dialog.add(&page);
         crate::widgets::present(&dialog, Some(&self.split));

@@ -34,7 +34,11 @@ pub struct Item {
     /// The room's shown name.
     pub room: String,
     pub message: MessageRow,
-    /// For a reaction: who reacted (not me), in order, once each.
+    /// The author as the account names people (`Session::person_label`:
+    /// Rocket.Chat real names, Mattermost display names); None: the username.
+    pub author_label: Option<String>,
+    /// For a reaction: who reacted (not me), in order, once each; usernames
+    /// from `gather`, shown names once the session names them.
     pub reactors: Vec<String>,
     /// For a reaction: the emojis they used, as shortcodes (`:+1:`).
     pub emojis: Vec<String>,
@@ -95,10 +99,24 @@ pub fn gather(rows: Vec<MessageRow>, me: Me<'_>, my_threads: &HashSet<String>, r
                 } else {
                     return None;
                 };
-                return Some(Item { kind, room, message, reactors: Vec::new(), emojis: Vec::new() });
+                return Some(Item {
+                    kind,
+                    room,
+                    message,
+                    author_label: None,
+                    reactors: Vec::new(),
+                    emojis: Vec::new(),
+                });
             }
             let (reactors, emojis) = others_reactions(message.reactions.as_deref(), me.username);
-            (!reactors.is_empty()).then_some(Item { kind: Kind::Reaction, room, message, reactors, emojis })
+            (!reactors.is_empty()).then_some(Item {
+                kind: Kind::Reaction,
+                room,
+                message,
+                author_label: None,
+                reactors,
+                emojis,
+            })
         })
         .collect();
     items.sort_by(|a, b| (b.message.ts, &b.message.id).cmp(&(a.message.ts, &a.message.id)));
@@ -146,6 +164,29 @@ fn others_reactions(json: Option<&str>, me: &str) -> (Vec<String>, Vec<String>) 
         }
     }
     (reactors, emojis)
+}
+
+/// The real names Rocket.Chat stores beside a reaction's usernames
+/// (`{":e:": {"usernames": [...], "names": [...]}}`, in the same order, sent
+/// when the server shows real names), by username.
+pub fn reaction_names(json: Option<&str>) -> HashMap<String, String> {
+    let Some(map) = json.and_then(|j| serde_json::from_str::<serde_json::Map<String, Value>>(j).ok()) else {
+        return HashMap::new();
+    };
+    let list = |entry: &Value, key: &str| -> Vec<String> {
+        entry
+            .get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
+    map.values()
+        .flat_map(|entry| list(entry, "usernames").into_iter().zip(list(entry, "names")))
+        .filter(|(_, name)| !name.is_empty())
+        .collect()
 }
 
 /// Several accounts' activities as one view, each room and item with its
@@ -251,6 +292,16 @@ mod tests {
             (item.kind, item.reactors.clone(), item.emojis.clone()),
             (Kind::Reaction, vec!["bob".to_owned(), "carol".to_owned()], vec![":+1:".to_owned(), ":tada:".to_owned()])
         );
+    }
+
+    #[test]
+    fn reaction_names_pair_with_their_usernames() {
+        let json = r#"{":+1:":{"usernames":["bob","carol"],"names":["Bob Lee","Carol"]},":tada:":{"usernames":["dan"]},":eyes:":{"usernames":["eve"],"names":[""]}}"#;
+        let names = reaction_names(Some(json));
+        assert_eq!(names.get("bob").map(String::as_str), Some("Bob Lee"));
+        assert_eq!(names.get("carol").map(String::as_str), Some("Carol"));
+        assert_eq!((names.get("dan"), names.get("eve")), (None, None), "no name, or an empty one");
+        assert!(reaction_names(Some("not json")).is_empty());
     }
 
     #[test]

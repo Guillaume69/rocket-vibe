@@ -262,6 +262,8 @@ const MIGRATIONS: &[&str] = &[
     // Existing file ids may already have been confirmed by the old client.
     "ALTER TABLE uploads ADD COLUMN confirm_started INTEGER NOT NULL DEFAULT 0;
      UPDATE uploads SET confirm_started = 1 WHERE file_id IS NOT NULL",
+    // The Activity view reads every room newest first and stops at its limit.
+    "CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts)",
 ];
 
 /// How many messages a search across rooms answers at most.
@@ -1342,10 +1344,12 @@ mod tests {
         {
             let old = Connection::open(&path).unwrap();
             old.execute_batch(SCHEMA).unwrap();
-            for step in &MIGRATIONS[..MIGRATIONS.len() - 1] {
+            // A database from just before the confirm guard, whatever came after it.
+            let guard = MIGRATIONS.iter().position(|step| step.contains("confirm_started")).unwrap();
+            for step in &MIGRATIONS[..guard] {
                 old.execute_batch(step).unwrap();
             }
-            old.pragma_update(None, "user_version", (MIGRATIONS.len() - 1) as i64).unwrap();
+            old.pragma_update(None, "user_version", guard as i64).unwrap();
             old.execute_batch(
                 "INSERT INTO uploads(id,rid,path,name,mime,status,created_at,file_id)
                 VALUES ('known','r','/tmp/a','a','text/plain','sending',1,'file1'),

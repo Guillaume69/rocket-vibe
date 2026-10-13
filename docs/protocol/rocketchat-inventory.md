@@ -302,8 +302,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | endpoint | chat.sendMessage |
 | [apps/desktop/crates/rv-core/src/social.rs:96](../../apps/desktop/crates/rv-core/src/social.rs#L96) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/social.rs:96](../../apps/desktop/crates/rv-core/src/social.rs#L96) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/store.rs:489](../../apps/desktop/crates/rv-core/src/store.rs#L489) | resource | /file-upload/{…}/% |
-| [apps/desktop/crates/rv-core/src/store.rs:490](../../apps/desktop/crates/rv-core/src/store.rs#L490) | url | /api/v4/files/{…} |
+| [apps/desktop/crates/rv-core/src/store.rs:491](../../apps/desktop/crates/rv-core/src/store.rs#L491) | resource | /file-upload/{…}/% |
+| [apps/desktop/crates/rv-core/src/store.rs:492](../../apps/desktop/crates/rv-core/src/store.rs#L492) | url | /api/v4/files/{…} |
 | [apps/desktop/crates/rv-core/src/sync.rs:14](../../apps/desktop/crates/rv-core/src/sync.rs#L14) | stream | stream-room-messages |
 | [apps/desktop/crates/rv-core/src/sync.rs:15](../../apps/desktop/crates/rv-core/src/sync.rs#L15) | stream | stream-notify-user |
 | [apps/desktop/crates/rv-core/src/sync.rs:16](../../apps/desktop/crates/rv-core/src/sync.rs#L16) | stream | stream-notify-room |
@@ -368,7 +368,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:438](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L438) | endpoint | rooms.role |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:446](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L446) | endpoint | rooms.apply_role |
 | [apps/desktop/crates/rv-gtk/src/login.rs:134](../../apps/desktop/crates/rv-gtk/src/login.rs#L134) | endpoint | chat.example.com |
-| [apps/desktop/crates/rv-gtk/src/new_channel.rs:20](../../apps/desktop/crates/rv-gtk/src/new_channel.rs#L20) | endpoint | rooms.new_channel |
+| [apps/desktop/crates/rv-gtk/src/new_channel.rs:70](../../apps/desktop/crates/rv-gtk/src/new_channel.rs#L70) | endpoint | rooms.new_channel |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:324](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L324) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:426](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L426) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:44](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L44) | endpoint | im.reply-with-text |

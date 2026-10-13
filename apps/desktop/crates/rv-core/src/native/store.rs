@@ -258,11 +258,15 @@ impl NativeStore {
             ("social", "TEXT"),
             ("author_bot", "INTEGER NOT NULL DEFAULT 0"),
             ("form", "TEXT"),
+            ("followed", "INTEGER NOT NULL DEFAULT 0"),
+            ("follow_revision", "TEXT NOT NULL DEFAULT '0'"),
         ] {
             if !columns.iter().any(|c| c == name) {
                 conn.execute_batch(&format!("ALTER TABLE native_messages ADD COLUMN {name} {declaration}"))?;
             }
         }
+        // The Activity view reads every room newest first and stops at its limit.
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS native_messages_ts ON native_messages(ts);")?;
         Ok(Self {
             conn: Mutex::new(conn),
             identity,
@@ -639,6 +643,19 @@ impl NativeStore {
                 tx.execute(
                     "UPDATE native_messages SET starred=?2,star_revision=?3 WHERE id=?1",
                     params![message.id, star.present, star.revision],
+                )?;
+            }
+        }
+        // Following a thread root, versioned like the star: a copy without it
+        // (another reader's view, an older page) keeps what is stored.
+        if let Some(follow) = message.personal_follow.as_deref().filter(|_| !message.deleted) {
+            let incoming = decimal(&follow.revision)?;
+            let previous: String =
+                tx.query_row("SELECT follow_revision FROM native_messages WHERE id=?1", [&message.id], |r| r.get(0))?;
+            if incoming >= decimal(&previous)? {
+                tx.execute(
+                    "UPDATE native_messages SET followed=?2,follow_revision=?3 WHERE id=?1",
+                    params![message.id, follow.present, follow.revision],
                 )?;
             }
         }
@@ -1520,6 +1537,35 @@ mod tests {
             .unwrap();
         assert!(!state.0);
         assert_eq!(state.1, "6");
+    }
+    #[test]
+    fn a_followed_root_makes_its_replies_activity_until_unfollowed() {
+        let store = store();
+        let initial = snapshot();
+        store.snapshot(&initial).unwrap();
+        let root = initial.messages[0].clone();
+        let mut reply = root.clone();
+        reply.id = "reply-of-followed-root".into();
+        reply.reply_to = Some(root.id.clone());
+        reply.author.id = "someone-else".into();
+        reply.text = "an answer".into();
+        store.ingest(&[reply.clone()]).unwrap();
+        let me = "me-not-the-author";
+        let follows = |present: bool, revision: &str| {
+            let mut copy = root.clone();
+            copy.personal_follow = Some(Box::new(rv_protocol::PersonalFollow { present, revision: revision.into() }));
+            copy
+        };
+        assert!(!store.my_threads(me).unwrap().contains(&root.id), "neither mine nor followed");
+        store.ingest(&[follows(true, "3")]).unwrap();
+        assert!(store.my_threads(me).unwrap().contains(&root.id));
+        let candidates = store.activity_candidates(me, 10).unwrap();
+        assert!(candidates.iter().any(|(_, row)| row.id == reply.id), "the reply is a candidate");
+        // A copy without the reader's follow, then an older one, keep it.
+        store.ingest(&[root.clone(), follows(false, "2")]).unwrap();
+        assert!(store.my_threads(me).unwrap().contains(&root.id));
+        store.ingest(&[follows(false, "5")]).unwrap();
+        assert!(!store.my_threads(me).unwrap().contains(&root.id), "unfollowed");
     }
     #[test]
     fn deleted_authors_and_reactors_read_as_deleted_users() {

@@ -286,6 +286,11 @@ export function searchPattern(term: string): string {
  * Only the rooms the list shows (`ui/homeSections.ts`: a stored room whose
  * subscription is not `open = 0`): a room I left keeps its messages here.
  * Parameters: my user id, twice, then the limit.
+ *
+ * The unary `+` on `rid` is load-bearing: it keeps the planner off
+ * `idx_messages_room_ts` (one probe per shown room, then a sort of every
+ * matching row), so it walks `idx_messages_ts` newest first and stops at the
+ * `LIMIT` (checked by `EXPLAIN QUERY PLAN` in `db/upserts.test.ts`).
  */
 export const ACTIVITY_CANDIDATES = `
 SELECT id, rid, text, ts, author_id AS authorId, author_name AS authorName, system_type AS systemType,
@@ -294,7 +299,7 @@ FROM messages
 WHERE (system_type IS NULL OR (system_type = 'e2e' AND text IS NOT NULL))
   AND ((author_id = ? AND reactions IS NOT NULL)
     OR (author_id <> ? AND (thread_id IS NOT NULL OR text LIKE '%@%')))
-  AND rid IN (SELECT r.rid FROM rooms r LEFT JOIN subscriptions s ON s.rid = r.rid WHERE s.open IS NULL OR s.open = 1)
+  AND +rid IN (SELECT r.rid FROM rooms r LEFT JOIN subscriptions s ON s.rid = r.rid WHERE s.open IS NULL OR s.open = 1)
 ORDER BY ts DESC, id DESC
 LIMIT ?
 `;

@@ -9,7 +9,7 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 
 import {
   cursors, drafts, emojiUsage, customEmojis, messages, outbox, rooms, subscriptions, uploads, users,
-  nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
+  nativeSyncState, nativePositions, nativeStarStates, nativeFollowStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
 } from './schema.ts';
 
 /**
@@ -111,6 +111,7 @@ describe('migrations', () => {
       'native_commands',
       'native_emoji_catalog',
       'native_favorite_intents',
+      'native_follow_states',
       'native_outbox_quotes',
       'native_positions',
       'native_profile_operations',
@@ -146,8 +147,10 @@ describe('migrations', () => {
     assert.deepEqual(index, [
       'idx_messages_room_ts',
       'idx_messages_thread',
+      'idx_messages_ts',
       'idx_native_command_message',
       'idx_native_favorite_operation',
+      'idx_native_follow_room',
       'idx_native_positions_room',
       'idx_native_profile_operation_slot',
       'idx_native_quote_origins',
@@ -418,7 +421,7 @@ describe('English names (0016)', () => {
     const db = migratedDb();
     for (const table of [
       rooms, subscriptions, messages, outbox, uploads, drafts, emojiUsage, customEmojis, users, cursors,
-      nativeSyncState, nativePositions, nativeStarStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
+      nativeSyncState, nativePositions, nativeStarStates, nativeFollowStates, nativeRoomCreations, nativeMessageCommands, nativeRoomOperations, nativeProfileOperations, nativeUploadIntents, nativeRoomAccess, nativeReadStates, nativeReadIntents, nativeThreadStates, nativeThreadReadIntents, nativeFavoriteIntents, nativeQuoteReferences, nativeQuoteSources, nativeOutboxQuotes, nativeEmojiCatalog,
     ]) {
       const config = getTableConfig(table);
       const actual = db

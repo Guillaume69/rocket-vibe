@@ -218,6 +218,20 @@
       "when": 1791718193879,
       "tag": "0030_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1791887006830,
+      "tag": "0031_messages_ts",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1791887211491,
+      "tag": "0032_native_follow_states",
+      "breakpoints": true
     }
   ]
 }

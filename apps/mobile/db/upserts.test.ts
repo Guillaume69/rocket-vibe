@@ -466,6 +466,25 @@ describe('upserts idempotents', () => {
     );
   });
 
+  test('activity and search walk messages newest first through idx_messages_ts', () => {
+    // Without it both sorted every candidate row of the table before keeping
+    // their LIMIT; the `+rid` of ACTIVITY_CANDIDATES keeps the planner off the
+    // per-room index, which would sort again.
+    const plan = (sql: string) =>
+      db
+        .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+        .all()
+        .map((r) => String(row(r).detail))
+        .join(' | ');
+    for (const sql of [ACTIVITY_CANDIDATES, SEARCH_MESSAGES]) {
+      const p = plan(sql);
+      assert.match(p, /SCAN messages USING INDEX idx_messages_ts/, p);
+      assert.doesNotMatch(p, /idx_messages_room_ts/, p);
+      // Only ties on `ts` are sorted (by `id`), never the whole result.
+      assert.doesNotMatch(p, /USE TEMP B-TREE FOR ORDER BY/, p);
+    }
+  });
+
   test('clearing a room keeps its optimistic messages and the other rooms', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'a', rid: 'r1', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'pending', rid: 'r1', updatedAt: 0 }));

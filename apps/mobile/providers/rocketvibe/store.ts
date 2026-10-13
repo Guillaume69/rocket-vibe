@@ -68,7 +68,12 @@ export function localMessage(message: Message, selfId?: string): LocalMessage {
     md: message.deleted||system?null:nativeMarkdown(message.body), attachments: nativeAttachments(message), reactions: nativeReactions(message.reactions), urls: nativeUrls(message),
     callId: null,
     encryptedRaw: null, pinned: message.pinned ?? false,
-    starred: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null, updatedAt: time,
+    starred: message.personal_star?.present && selfId ? JSON.stringify([selfId]) : null,
+    // Rocket.Chat's `replies` shape (`lib/marks.ts`), reduced to what this
+    // reader knows: whether I follow the root. `NativeStore` replaces it with
+    // the versioned state, so a copy without the field keeps the stored one.
+    threadFollowers: message.personal_follow?.present && selfId ? JSON.stringify([selfId]) : null,
+    updatedAt: time,
     authorBot: message.author.bot === true,
     form: message.form == null ? null : JSON.stringify(message.form),
   };
@@ -229,7 +234,7 @@ export class NativeStore {
   prepare(): Promise<void> {
     return this.atomic(async () => {
       if (await this.sameGeneration()) return;
-      for (const table of ['reminders','rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+      for (const table of ['reminders','rooms','subscriptions','messages','outbox','uploads','drafts','native_positions','native_sync_state','cursors','users','native_room_creations','native_commands','native_star_states','native_follow_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
     });
   }
   private async membershipMatches(rid:string,membership:string|null):Promise<boolean> {
@@ -322,17 +327,32 @@ export class NativeStore {
       }
     }
     const stars=personal?.present?JSON.stringify([this.session.userId]):null;
+    // Following a root, versioned the same way: a copy without
+    // `personal_follow` (an older page, another projection) keeps what is
+    // stored, and only a newer personal revision moves it.
+    let follow=await this.db.getFirstAsync<{revision:string;present:number}>('SELECT revision,present FROM native_follow_states WHERE id=?',[message.id]);
+    if (!message.deleted && message.personal_follow) {
+      const next=message.personal_follow;
+      if (!/^(0|[1-9]\d*)$/.test(next.revision)) throw new Error('Invalid personal revision');
+      if (!follow || BigInt(next.revision)>=BigInt(follow.revision)) {
+        await this.db.runAsync('INSERT INTO native_follow_states(id,rid,revision,present) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,present=excluded.present',[message.id,message.room_id,next.revision,Number(next.present)]);
+        follow={revision:next.revision,present:Number(next.present)};
+      }
+    }
+    const followers=follow?.present?JSON.stringify([this.session.userId]):null;
     if (!publicFresh) {
       await this.quotes.project(message,false);
-      await this.db.runAsync('UPDATE messages SET starred=? WHERE id=?',[stars,message.id]);
+      await this.db.runAsync('UPDATE messages SET starred=?,thread_followers=? WHERE id=?',[stars,followers,message.id]);
       return;
     }
     const local = localMessage(message,this.session.userId);
     if((message.deleted || message.revision!==message.position) && existing?.revision!==message.revision)this.searchRevision++;
     local.starred=stars;
+    local.threadFollowers=followers;
     if (message.deleted) {
       await this.db.runAsync('DELETE FROM messages WHERE id=?',[message.id]);
       await this.db.runAsync('DELETE FROM native_star_states WHERE id=?',[message.id]);
+      await this.db.runAsync('DELETE FROM native_follow_states WHERE id=?',[message.id]);
     } else {
       await this.db.runAsync(NATIVE_UPSERT_MESSAGE, messageParams(local));
       // Native only: the shared upsert, also Rocket.Chat's, never names them.
@@ -345,7 +365,7 @@ export class NativeStore {
     await this.preview(message.room_id);
   }
   private async remove(rid: string,keepMetadata=false): Promise<void> {
-    for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'native_positions','native_commands','native_star_states','native_room_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
+    for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'native_positions','native_commands','native_star_states','native_follow_states','native_room_operations','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) {
       if(keepMetadata && table==='rooms')continue;
       await this.db.runAsync(`DELETE FROM ${table} WHERE rid=?`, [rid]);
     }
@@ -359,7 +379,7 @@ export class NativeStore {
       const old = await this.db.getFirstAsync<NativeState>('SELECT instance_id,data_epoch,cursor FROM native_sync_state WHERE singleton=1', []);
       if (!old || old.instance_id !== this.session.nativeInstanceId || old.data_epoch !== this.session.nativeDataEpoch) {
         // A fresh login to a different generation must never replay its predecessor's outbox.
-        for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'drafts', 'native_positions', 'cursors', 'users', 'native_room_creations','native_commands','native_star_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
+        for (const table of ['rooms', 'subscriptions', 'messages', 'outbox', 'uploads', 'drafts', 'native_positions', 'cursors', 'users', 'native_room_creations','native_commands','native_star_states','native_follow_states','native_room_operations','native_profile_operations','native_emoji_catalog','native_upload_intents','native_room_access','native_read_states','native_read_intents','native_favorite_intents','native_quote_references','native_quote_sources','native_outbox_quotes','native_thread_states','native_thread_read_intents']) await this.db.runAsync(`DELETE FROM ${table}`, []);
       } else {
         const live = new Set(snapshot.rooms.map(room => room.id));
         const known = await this.db.getAllAsync<{rid:string}>('SELECT rid FROM rooms', []);
@@ -369,6 +389,7 @@ export class NativeStore {
         await this.db.runAsync('DELETE FROM messages WHERE id IN (SELECT id FROM native_positions)',[]);
         await this.db.runAsync('DELETE FROM native_positions',[]);
         await this.db.runAsync('DELETE FROM native_star_states',[]);
+        await this.db.runAsync('DELETE FROM native_follow_states',[]);
       }
       for (const room of snapshot.rooms) await this.room(room);
       for (const message of snapshot.messages) await this.message(message);

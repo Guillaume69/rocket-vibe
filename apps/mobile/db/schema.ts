@@ -166,8 +166,15 @@ export const messages = sqliteTable(
      */
     form: text('form'),
   },
-  // The index covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
-  (t) => [index('idx_messages_room_ts').on(t.rid, t.ts), index('idx_messages_thread').on(t.threadId)],
+  // `idx_messages_room_ts` covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
+  // `idx_messages_ts` lets the cross-room reads (`ACTIVITY_CANDIDATES`,
+  // `SEARCH_MESSAGES` in `db/upserts.ts`) walk newest first and stop at their
+  // `LIMIT` instead of sorting the whole table.
+  (t) => [
+    index('idx_messages_room_ts').on(t.rid, t.ts),
+    index('idx_messages_thread').on(t.threadId),
+    index('idx_messages_ts').on(t.ts),
+  ],
 );
 
 /**
@@ -394,6 +401,18 @@ export const nativeStarStates = sqliteTable('native_star_states', {
   revision: text('revision').notNull(),
   present: integer('present',{mode:'boolean'}).notNull(),
 }, (t) => [index('idx_native_star_room').on(t.rid)]);
+
+/**
+ * My follow of a thread root (`Message.personal_follow`), versioned like the
+ * star: the root's `thread_followers` is projected from it (`[me]` or `null`),
+ * and a copy of the root without the field keeps it.
+ */
+export const nativeFollowStates = sqliteTable('native_follow_states', {
+  id: text('id').primaryKey(),
+  rid: text('rid').notNull(),
+  revision: text('revision').notNull(),
+  present: integer('present',{mode:'boolean'}).notNull(),
+}, (t) => [index('idx_native_follow_room').on(t.rid)]);
 
 export const nativeRoomCreations = sqliteTable('native_room_creations', {
   id: text('id').primaryKey(),

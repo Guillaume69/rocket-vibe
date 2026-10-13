@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { createWriteQueue } from '../../db/writeQueue.ts';
 import type { Session } from '../../lib/auth.ts';
 import { NativeStore, localMessage } from './store.ts';
+import { ACTIVITY_CANDIDATES, ACTIVITY_REPLIED_THREADS, ACTIVITY_THREAD_ROOTS } from '../../db/upserts.ts';
+import { activityFeed, type FeedMessage, type FeedRoot } from '../../lib/activityFeed.ts';
 import {systemText} from '../../lib/systemMessages.ts';
 import {translate} from '../../ui/messages.ts';
 import { nativeTestDatabase } from './testDatabase.ts';
@@ -279,5 +281,60 @@ test('personal stars keep their own revision through public updates and never re
     await store.ingest([privateAdd]);
     assert.deepEqual(await store.messages(room.id),[]);
     assert.equal(db.prepare('SELECT count(*) AS n FROM native_star_states').get()!.n,0);
+  } finally { db.close(); }
+});
+
+test('following a thread root projects me into thread_followers, versioned, and makes the replies of others Activity',async()=>{
+  const {db,store}=setup();
+  try {
+    const carol={id:'carol-id',username:'carol',display_name:'Carol'},bob={id:'bob-id',username:'bob',display_name:'Bob'};
+    const root=decodeNative('Message',{...message,id:'root-id',author:carol,text:'A question',position:'10',revision:'10',
+      thread:{replies:'1',last_reply_at:'2026-09-30T12:05:00+00:00'},personal_follow:{present:true,revision:'2'}});
+    const reply=decodeNative('Message',{...message,id:'reply-id',author:bob,text:'An answer',reply_to:root.id,
+      created_at:'2026-09-30T12:05:00+00:00',position:'11',revision:'11'});
+    await store.applySnapshot({...snapshot,messages:[root,reply]});
+    const followers=()=>db.prepare('SELECT thread_followers FROM messages WHERE id=?').get(root.id)!.thread_followers;
+    const kinds=()=>{
+      const messages=(db.prepare(ACTIVITY_CANDIDATES).all(session.userId,session.userId,100) as unknown as (FeedMessage&{threadShown:number})[]).map(m=>({...m}));
+      const threads=JSON.stringify([...new Set(messages.flatMap(m=>m.threadId===null?[]:[m.threadId]))]);
+      const roots=(db.prepare(ACTIVITY_THREAD_ROOTS).all(threads) as unknown as FeedRoot[]).map(r=>({...r}));
+      const replied=(db.prepare(ACTIVITY_REPLIED_THREADS).all(session.userId,threads) as {threadId:string}[]).map(r=>r.threadId);
+      return activityFeed({messages,roots,repliedThreads:replied,rooms:[],me:{userId:session.userId,username:session.username}}).items.map(i=>`${i.kind}:${i.message.id}`);
+    };
+    assert.deepEqual(JSON.parse(followers() as string),[session.userId]);
+    assert.deepEqual(kinds(),['reply:reply-id']);
+    // A copy of the root without the field (an edit, a page) keeps the follow.
+    const edited={...root,text:'A better question',revision:'12'};
+    delete (edited as {personal_follow?:unknown}).personal_follow;
+    await store.ingest([edited]);
+    assert.equal(db.prepare('SELECT text FROM messages WHERE id=?').get(root.id)!.text,'A better question');
+    assert.deepEqual(JSON.parse(followers() as string),[session.userId]);
+    // An older personal revision, even on a newer public copy, does not move it.
+    await store.ingest([{...edited,revision:'13',personal_follow:{present:false,revision:'1'}}]);
+    assert.deepEqual(JSON.parse(followers() as string),[session.userId]);
+    // Unfollowed: no follower, no Reply item; a stale public copy keeps that too.
+    await store.ingest([{...edited,revision:'13',personal_follow:{present:false,revision:'3'}}]);
+    assert.equal(followers(),null);
+    assert.deepEqual(kinds(),[]);
+    await store.ingest([{...root,personal_follow:{present:true,revision:'2'}}]);
+    assert.equal(followers(),null);
+    assert.equal(db.prepare('SELECT revision FROM native_follow_states WHERE id=?').get(root.id)!.revision,'3');
+    // A deleted root takes its follow state with it.
+    await store.ingest([{...edited,revision:'14',deleted:true,text:'',thread:null}]);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM native_follow_states').get()!.n,0);
+  } finally { db.close(); }
+});
+
+test('a root never followed, or whose follow is absent, has no follower',async()=>{
+  const {db,store}=setup();
+  try {
+    const carol={id:'carol-id',username:'carol',display_name:'Carol'};
+    const root=decodeNative('Message',{...message,id:'root-id',author:carol,position:'10',revision:'10',
+      thread:{replies:'1'},personal_follow:{present:false,revision:'0'}});
+    await store.applySnapshot({...snapshot,messages:[root]});
+    assert.equal(db.prepare('SELECT thread_followers FROM messages WHERE id=?').get(root.id)!.thread_followers,null);
+    assert.equal(localMessage(root,session.userId).threadFollowers,null);
+    assert.deepEqual(JSON.parse(localMessage({...root,personal_follow:{present:true,revision:'1'}},session.userId).threadFollowers!),[session.userId]);
+    assert.equal(localMessage({...root,personal_follow:{present:true,revision:'1'}}).threadFollowers,null,'no reader, no follower');
   } finally { db.close(); }
 });

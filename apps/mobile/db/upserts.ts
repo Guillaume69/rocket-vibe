@@ -279,19 +279,22 @@ export function searchPattern(term: string): string {
 
 /**
  * The Activity view's candidates (`lib/activityFeed.ts` classifies them),
- * newest first: my readable messages that carry reactions, and the others'
- * that can mention me (an `@` in the text) or reply in a thread. A locked
- * encrypted message has no text and a system message is never one.
+ * newest first: my messages that carry reactions, and the others' that can
+ * mention me (an `@` in the text) or reply in a thread. An attachment-only
+ * message (text `null`, not encrypted) is one: a reply or a reaction. A locked
+ * encrypted message (text `null`, type `e2e`) and a system message never are.
+ * Only the rooms the list shows (`ui/homeSections.ts`: a stored room whose
+ * subscription is not `open = 0`): a room I left keeps its messages here.
  * Parameters: my user id, twice, then the limit.
  */
 export const ACTIVITY_CANDIDATES = `
 SELECT id, rid, text, ts, author_id AS authorId, author_name AS authorName, system_type AS systemType,
   thread_id AS threadId, thread_shown AS threadShown, md, reactions
 FROM messages
-WHERE text IS NOT NULL
-  AND (system_type IS NULL OR system_type = 'e2e')
+WHERE (system_type IS NULL OR (system_type = 'e2e' AND text IS NOT NULL))
   AND ((author_id = ? AND reactions IS NOT NULL)
     OR (author_id <> ? AND (thread_id IS NOT NULL OR text LIKE '%@%')))
+  AND rid IN (SELECT r.rid FROM rooms r LEFT JOIN subscriptions s ON s.rid = r.rid WHERE s.open IS NULL OR s.open = 1)
 ORDER BY ts DESC, id DESC
 LIMIT ?
 `;

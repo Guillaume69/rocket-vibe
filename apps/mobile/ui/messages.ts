@@ -1456,7 +1456,7 @@ const fr = {
   'activity.room_mentions': '{n} mention non lue | {n} mentions non lues',
   'activity.mention': 'Vous a mentionné',
   'activity.reply': 'A répondu dans un fil',
-  'activity.reaction': '{names} a réagi {emojis}',
+  'activity.reaction': 'Réactions de {names} : {emojis}',
   'activity.recent': 'Récent',
   'activity.empty': "Rien pour l'instant. Les mentions, les réponses dans vos fils et les réactions à vos messages apparaissent ici.",
   'forward.placeholder': 'Chercher un salon',

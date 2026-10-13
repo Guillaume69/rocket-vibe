@@ -60,6 +60,8 @@ import {
   ACTIVITY_THREAD_ROOTS,
   UPDATE_USER_AVATAR,
   DELETE_MESSAGE,
+  DELETE_ROOM,
+  DELETE_SUBSCRIPTION,
   DELETE_OPTIMISTIC_MESSAGE,
   DELETE_OUTBOX,
   UPSERT_SUBSCRIPTION,
@@ -421,11 +423,26 @@ describe('upserts idempotents', () => {
     put({ id: 'g', ts: 700, authorId: 'bob', text: null, systemType: 'e2e', threadId: 'root' });
     put({ id: 'root', ts: 50, authorId: 'carol', text: 'root', threadFollowers: '["carol","me"]' });
     put({ id: 'h', ts: 60, authorId: 'me', text: 'my reply', threadId: 'root' });
+    put({ id: 'i', ts: 800, authorId: 'bob', text: null, threadId: 'root', attachments: '[{"title":"a.png"}]' }); // a file only
+    put({ id: 'j', ts: 900, authorId: 'me', text: null, attachments: '[{"title":"b.png"}]', reactions: '{":tada:":{"usernames":["bob"]}}' });
+    // The rooms the list shows only: a stored room with no subscription or an open one.
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', updatedAt: 1 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'joined', updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'joined', updatedAt: 1 }));
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'hidden', updatedAt: 1 }));
+    db.prepare(UPSERT_SUBSCRIPTION).run(...sub({ rid: 'hidden', open: false, updatedAt: 1 }));
+    put({ id: 'k', ts: 1000, rid: 'joined', authorId: 'bob', text: 'hi @alice' });
+    put({ id: 'l', ts: 1100, rid: 'hidden', authorId: 'bob', text: 'hi @alice' });
+    put({ id: 'm', ts: 1200, rid: 'left', authorId: 'bob', text: 'hi @alice' }); // a room I left: its messages stay
     const candidates = db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 10).map(row);
-    assert.deepEqual(candidates.map((r) => r.id), ['e', 'c', 'a']);
+    assert.deepEqual(candidates.map((r) => r.id), ['k', 'j', 'i', 'e', 'c', 'a']);
+    db.prepare(DELETE_SUBSCRIPTION).run('rid-1');
+    db.prepare(DELETE_ROOM).run('rid-1');
+    assert.deepEqual(db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 10).map((r) => row(r).id), ['k']);
+    db.prepare(UPSERT_ROOM).run(...room({ rid: 'rid-1', updatedAt: 2 }));
     assert.deepEqual(
-      { authorId: candidates[0].authorId, threadId: candidates[0].threadId, threadShown: candidates[0].threadShown },
-      { authorId: 'bob', threadId: 'root', threadShown: 0 },
+      { authorId: candidates[2].authorId, threadId: candidates[2].threadId, threadShown: candidates[2].threadShown, text: candidates[2].text },
+      { authorId: 'bob', threadId: 'root', threadShown: 0, text: null },
     );
     assert.equal(db.prepare(ACTIVITY_CANDIDATES).all('me', 'me', 1).length, 1);
     assert.deepEqual(db.prepare(ACTIVITY_THREAD_ROOTS).all('["root","gone"]').map(row), [

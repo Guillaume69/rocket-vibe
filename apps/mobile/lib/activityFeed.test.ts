@@ -54,6 +54,14 @@ describe('mentionsMe', () => {
     assert.equal(mentionsMe(null, null, 'alice'), false);
   });
 
+  it('a word @all or @here of the text counts beside a tree without it (RocketVibe renders @here as text)', () => {
+    const plain = JSON.stringify([{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: '@here standup' }] }]);
+    assert.equal(mentionsMe(plain, '@here standup', 'alice'), true);
+    assert.equal(mentionsMe(plain, 'hey @all!', 'alice'), true);
+    assert.equal(mentionsMe(plain, 'cc @alice', 'alice'), false, 'my name still comes from the tree only');
+    assert.equal(mentionsMe(plain, 'mail here@example.com', 'alice'), false);
+  });
+
   it('falls back to the text on an unreadable tree', () => {
     assert.equal(mentionsMe('{oops', 'hi @alice', 'alice'), true);
   });
@@ -87,10 +95,20 @@ describe('activityFeed', () => {
     const { items } = feed([
       msg('m1', { authorId: me.userId, text: '@alice note to self', threadId: 't1' }),
       msg('m2', { systemType: 'uj', text: '@alice' }),
-      msg('m3', { text: null, md: mention('alice'), systemType: 'e2e' }),
+      msg('m3', { text: null, md: mention('alice'), systemType: 'e2e', threadId: 't1' }),
       msg('m4', { text: '@alice decrypted', systemType: 'e2e' }),
+      msg('m5', { text: null, systemType: 'e2e', authorId: me.userId, reactions: JSON.stringify({ ':+1:': { usernames: ['bob'] } }) }),
     ], { replied: ['t1'] });
     assert.deepEqual(items.map((i) => i.message.id), ['m4']);
+  });
+
+  it('lists an attachment-only message (no text): a reply in my thread, my photo others reacted to', () => {
+    const { items } = feed([
+      msg('m1', { text: null, threadId: 't1' }),
+      msg('m2', { text: null, authorId: me.userId, reactions: JSON.stringify({ ':tada:': { usernames: ['bob'] } }) }),
+      msg('m3', { text: null }),
+    ], { replied: ['t1'] });
+    assert.deepEqual(items.map((i) => [i.kind, i.message.id]), [['reaction', 'm2'], ['reply', 'm1']]);
   });
 
   it('lists a reply in a thread whose root I wrote', () => {
@@ -143,8 +161,8 @@ describe('activityFeed', () => {
     assert.equal(feed(many, { limit: 3 }).items.length, 3);
   });
 
-  it('lists the rooms with unread mentions but no mention item, newest activity first', () => {
-    const { rooms } = feed([msg('m1', { rid: 'r1', text: '@alice' })], {
+  it('lists the rooms with more unread mentions than mention items, newest activity first', () => {
+    const { rooms } = feed([msg('m1', { rid: 'r1', text: '@alice' }), msg('m2', { rid: 'r1', text: '@alice again' })], {
       rooms: [
         { rid: 'r1', mentions: 2, lastActivity: 50 },
         { rid: 'r2', mentions: 1, lastActivity: 10 },
@@ -154,6 +172,14 @@ describe('activityFeed', () => {
       ],
     });
     assert.deepEqual(rooms.map((r) => r.rid), ['r4', 'r2', 'r5']);
+  });
+
+  it('an old, read mention item does not hide newer unread mentions of its room', () => {
+    const { items, rooms } = feed([msg('m1', { rid: 'r1', text: '@alice' })], {
+      rooms: [{ rid: 'r1', mentions: 3, lastActivity: 50 }],
+    });
+    assert.deepEqual(items.map((i) => i.message.id), ['m1']);
+    assert.deepEqual(rooms.map((r) => r.rid), ['r1']);
   });
 
   it('a room whose only mention fell past the limit still gets its row', () => {

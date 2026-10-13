@@ -23,7 +23,7 @@ import { type Colors, FONTS, LIST_PRESS_DELAY, useColors } from '../ui/theme.ts'
 /**
  * Activity: what happened to me in the open account, from this device only
  * (`ui/localSearch.ts`, no server call). First the rooms whose server counts
- * unread mentions the device does not hold, then the mentions, the replies in
+ * more unread mentions than the list shows for them, then the mentions, the replies in
  * my threads and the reactions to my messages, newest first
  * (`lib/activityFeed.ts`). A tap opens the room at the message, or the thread
  * of a reply that lives there, like the local search. Re-read on each focus.
@@ -175,7 +175,8 @@ function Activity({ c, base, me, none }: { c: Colors; base: LocalDatabase; me: {
           }
           const { item } = row;
           const m = item.message;
-          const excerpt = textPreview(stripQuotePrefix(m.text ?? ''));
+          // No text left (a locked one is never an item): attachments only, as the reply banner says it.
+          const excerpt = m.text === null ? t('common.attachment') : textPreview(stripQuotePrefix(m.text));
           return (
             <View style={styles.rowWrapper}>
               <Tappable

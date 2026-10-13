@@ -3,14 +3,15 @@
  * a name, private or public, and, when the server offers voice, a voice channel.
  * On the RocketVibe server the idempotent creation lives in NativeChat; on
  * Rocket.Chat it is `actions.createChannel` (a channel or a private group), its
- * room ingested before navigating so the room screen finds it.
+ * room ingested before navigating so the room screen finds it (best effort: the
+ * stream brings it too). A refusal's sentence is `lib/roomCreation.ts`.
  */
 import { Stack, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { creationRefusal } from '../lib/roomCreation.ts';
 import { useT } from '../ui/i18n.ts';
-import type { TranslationKey } from '../ui/messages.ts';
 import { useSheetBottomMargin } from '../ui/sheetMargin.ts';
 import { useSync } from '../ui/sync.tsx';
 import { LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
@@ -44,7 +45,10 @@ export default function NewRoomScreen() {
         if (chat !== null) rid = await chat.createRoom(name, privateRoom, voice && voiceOffered);
         else {
           const created = await rocketChat!.create(name, privateRoom);
-          await rocketChat!.engine.ingestRooms([created.rawRoom]);
+          // The room exists from here on: a failing ingest must not say "couldn't
+          // create" (a retry would then answer "name taken"). Best effort, the
+          // room also arrives by the stream.
+          await rocketChat!.engine.ingestRooms([created.rawRoom]).catch(() => undefined);
           rid = created.rid;
         }
         router.back();
@@ -97,23 +101,6 @@ export default function NewRoomScreen() {
       </Tappable>
     </View>
   );
-}
-
-/**
- * The sentence for a refused creation. RocketVibe names its refusal
- * `permission_denied`; Rocket.Chat answers 403 to `channels.create` and
- * `error-not-allowed` to `groups.create` without the right (read in the 8.5
- * bundle), and refuses a taken or malformed name with its own types (probed on
- * 8.5.1).
- */
-function creationRefusal(e: unknown): TranslationKey {
-  const refusal = e as { code?: unknown; status?: unknown; errorType?: unknown } | null;
-  if (refusal?.code === 'permission_denied' || refusal?.status === 403 || refusal?.errorType === 'error-not-allowed') {
-    return 'newRoom.forbidden';
-  }
-  if (refusal?.errorType === 'error-duplicate-channel-name') return 'newRoom.nameTaken';
-  if (refusal?.errorType === 'error-invalid-room-name') return 'newRoom.nameInvalid';
-  return 'newRoom.failed';
 }
 
 const styles = StyleSheet.create({

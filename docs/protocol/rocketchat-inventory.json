@@ -493,6 +493,7 @@
     "apps/mobile/lib/reminders.ts",
     "apps/mobile/lib/rest.ts",
     "apps/mobile/lib/rocketchatReactions.ts",
+    "apps/mobile/lib/roomCreation.ts",
     "apps/mobile/lib/roomFilter.ts",
     "apps/mobile/lib/roomLink.ts",
     "apps/mobile/lib/roomLinks.ts",

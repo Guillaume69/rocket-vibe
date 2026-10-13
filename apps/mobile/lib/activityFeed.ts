@@ -4,17 +4,22 @@
  * call). Three kinds of item, one per message, newest first, at most `limit`:
  *
  * - **mention**: someone else's message (room or thread) naming me, `@all` or
- *   `@here`: a `MENTION_USER` node of the parsed tree (`md`) when there is one,
- *   else (Mattermost, kChat: no tree) a word `@<name>` of the text, the rule of
- *   the desktop's `rv_core::notify::mentions`;
+ *   `@here`: a `MENTION_USER` node of the parsed tree (`md`) for my username,
+ *   `all` or `here` when there is one, else (Mattermost, kChat: no tree) a word
+ *   `@<name>` of the text, the rule of the desktop's `rv_core::notify::mentions`;
+ *   a word `@all` or `@here` of the text counts even beside a tree (the
+ *   RocketVibe tree renders `@here` as plain text, `providers/rocketvibe/markdown.ts`);
  * - **reply**: someone else's thread reply, in a thread I take part in (I wrote
  *   its root, I replied there, or I follow it on Rocket.Chat);
  * - **reaction**: my message others reacted to, with who and which emojis.
  *
- * Precedence mention > reply > reaction. Rooms whose server mention counter
- * is above zero but with no mention item in the list come first, as their own
- * rows. The SQL candidates come from `ACTIVITY_CANDIDATES` (`db/upserts.ts`),
- * the screen is `app/activity.tsx`.
+ * Precedence mention > reply > reaction. A message without text (attachments
+ * only) can be a reply or a reaction; a locked encrypted one (text `null`,
+ * type `e2e`) and a system message never are an item. Rooms whose server
+ * mention counter is greater than the number of mention items listed for them
+ * come first, as their own rows: an old, read mention must not hide new unread
+ * ones. The SQL candidates come from `ACTIVITY_CANDIDATES` (`db/upserts.ts`,
+ * rooms the list shows only), the screen is `app/activity.tsx`.
  */
 
 import { followedBy } from './marks.ts';
@@ -22,7 +27,7 @@ import { followedBy } from './marks.ts';
 export type FeedMessage = {
   id: string;
   rid: string;
-  /** `null` for a locked encrypted message: never an item. */
+  /** `null` for a locked encrypted message (never an item) or an attachment-only one. */
   text: string | null;
   ts: number;
   authorId: string;
@@ -68,7 +73,17 @@ function mentionsIn(node: unknown, names: readonly string[]): boolean {
   return Object.values(map).some((v) => mentionsIn(v, names));
 }
 
-/** `@me`, `@all` or `@here`: from the parsed tree, else from the text's words. */
+function wordMentions(text: string | null, names: readonly string[]): boolean {
+  return (text ?? '')
+    .split(/[\s,;:!?]/)
+    .some((word) => word.startsWith('@') && names.includes(word.slice(1)));
+}
+
+/**
+ * `@me`, `@all` or `@here`: from the parsed tree, else from the text's words.
+ * A word `@all` or `@here` of the text counts even when the tree has no node
+ * for it (RocketVibe renders `@here` as plain text).
+ */
 export function mentionsMe(md: string | null, text: string | null, username: string): boolean {
   const names = [username, 'all', 'here'];
   if (md !== null) {
@@ -78,11 +93,9 @@ export function mentionsMe(md: string | null, text: string | null, username: str
     } catch {
       tree = undefined;
     }
-    if (tree !== undefined) return mentionsIn(tree, names);
+    if (tree !== undefined) return mentionsIn(tree, names) || wordMentions(text, ['all', 'here']);
   }
-  return (text ?? '')
-    .split(/[\s,;:!?]/)
-    .some((word) => word.startsWith('@') && names.includes(word.slice(1)));
+  return wordMentions(text, names);
 }
 
 /** The other people's reactions to a message: who, and with what. */
@@ -109,9 +122,9 @@ export function othersReactions(raw: string | null, username: string): { reactor
   return { reactors, emojis };
 }
 
-/** An ordinary message (or a decrypted one) with readable text. */
+/** An ordinary message, attachment-only included, or a decrypted one: not a system nor a locked message. */
 function eligible(m: FeedMessage): boolean {
-  return m.text !== null && (m.systemType === null || m.systemType === 'e2e');
+  return m.systemType === null || (m.systemType === 'e2e' && m.text !== null);
 }
 
 export function activityFeed<M extends FeedMessage, R extends FeedRoom>(input: {
@@ -148,9 +161,10 @@ export function activityFeed<M extends FeedMessage, R extends FeedRoom>(input: {
       items.push({ kind: 'reply', message });
     }
   }
-  const mentioned = new Set(items.filter((i) => i.kind === 'mention').map((i) => i.message.rid));
+  const listed = new Map<string, number>();
+  for (const item of items) if (item.kind === 'mention') listed.set(item.message.rid, (listed.get(item.message.rid) ?? 0) + 1);
   const rooms = input.rooms
-    .filter((r) => r.mentions > 0 && !mentioned.has(r.rid))
+    .filter((r) => r.mentions > (listed.get(r.rid) ?? 0))
     .sort((a, b) => (b.lastActivity ?? Number.MIN_SAFE_INTEGER) - (a.lastActivity ?? Number.MIN_SAFE_INTEGER));
   return { rooms, items };
 }

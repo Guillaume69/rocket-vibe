@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- A WhatsApp chat read, then given a new message stamped in the same second as the previous one, kept its unread badge: opening it read nothing.
+
 ## [0.19.0] - 2026-10-13
 
 ### Added

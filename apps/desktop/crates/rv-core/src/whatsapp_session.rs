@@ -65,10 +65,10 @@ struct Local {
     returned: Vec<(String, String)>,
     /// Sends whose outcome the helper's exit left unknown.
     uncertain: usize,
-    /// The last read sent: the chat, its count and its newest message from
-    /// someone else. A new message brings the same count back (1 again) and
-    /// must be read again.
-    read_sent: Option<(String, u32, String)>,
+    /// The last read sent: the chat, its count, how many messages from
+    /// someone else it holds and the newest of them. A new message brings the
+    /// same count back (1 again) and must be read again.
+    read_sent: Option<(String, u32, usize, String)>,
     rooms: Option<(u64, Arc<Vec<RoomRow>>)>,
     drafts: HashMap<String, String>,
     expired: bool,
@@ -387,14 +387,14 @@ impl WaSession {
         if count == 0 || s.state != "connected" {
             return;
         }
-        let newest = s
-            .messages
-            .values()
-            .filter(|m| m.chat == chat && !m.mine)
-            .max_by(|a, b| (a.ts, &a.id).cmp(&(b.ts, &b.id)))
-            .map(|m| m.id.clone())
-            .unwrap_or_default();
-        let key = Some((chat.to_owned(), count, newest));
+        // How many messages from others, beside the newest: a new one counts
+        // even when it shares the newest's timestamp (WhatsApp's are whole
+        // seconds), where the newest alone is decided by an arbitrary id.
+        let others: Vec<&crate::whatsapp::WireMessage> =
+            s.messages.values().filter(|m| m.chat == chat && !m.mine).collect();
+        let newest =
+            others.iter().max_by(|a, b| (a.ts, &a.id).cmp(&(b.ts, &b.id))).map(|m| m.id.clone()).unwrap_or_default();
+        let key = Some((chat.to_owned(), count, others.len(), newest));
         if self.local().read_sent == key {
             return;
         }

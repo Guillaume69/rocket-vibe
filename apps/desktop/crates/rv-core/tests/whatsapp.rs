@@ -114,7 +114,7 @@ mod session {
     use std::sync::Arc;
     use std::time::Duration;
 
-    async fn until(s: &WaSession, condition: impl Fn(&WaSession) -> bool) {
+    async fn until(s: &WaSession, what: &str, condition: impl Fn(&WaSession) -> bool) {
         let mut changes = s.subscribe();
         tokio::time::timeout(Duration::from_secs(6), async {
             while !condition(s) {
@@ -126,7 +126,7 @@ mod session {
             }
         })
         .await
-        .expect("session state");
+        .unwrap_or_else(|_| panic!("timed out waiting for {what}"));
     }
 
     fn keys() -> KeySource {
@@ -143,7 +143,7 @@ mod session {
         let info = account_info("t1", "33600000000@s.whatsapp.net", "Moi-même");
         let s = WaSession::start(info, program, data.path().into(), keys());
         let mut notices = s.notices();
-        until(&s, |s| s.snapshot().state == "connected" && s.room_rows().len() == 2).await;
+        until(&s, "connected with both chats", |s| s.snapshot().state == "connected" && s.room_rows().len() == 2).await;
         let rows = s.room_rows();
         let alice = rows.iter().find(|r| r.rid == "alice@s.whatsapp.net").unwrap();
         assert_eq!((alice.name.as_str(), alice.kind.as_str()), ("Alice Martin", "d"));
@@ -164,7 +164,7 @@ mod session {
         );
         // Opening the group reads it.
         s.mark_read("friends@g.us");
-        until(&s, |s| s.room_rows().iter().all(|r| r.unread == 0)).await;
+        until(&s, "the group read", |s| s.room_rows().iter().all(|r| r.unread == 0)).await;
         // Nothing was notified for what was there; an answer is.
         s.send("ping@s.whatsapp.net", "ping", None).unwrap();
         assert!(s.send("ping@s.whatsapp.net", "again", None).is_err() || !s.sending("ping@s.whatsapp.net"));
@@ -178,16 +178,16 @@ mod session {
         .await
         .expect("a notification");
         assert_eq!((notice.rid.as_str(), notice.body.as_deref()), ("ping@s.whatsapp.net", Some("pong")));
-        until(&s, |s| !s.sending("ping@s.whatsapp.net")).await;
+        until(&s, "the ping sent", |s| !s.sending("ping@s.whatsapp.net")).await;
         // Read, then a new message brings the same count back: read again.
         let unread = |s: &WaSession| s.room_rows().iter().find(|r| r.rid == "ping@s.whatsapp.net").map(|r| r.unread);
-        until(&s, |s| unread(s) == Some(1)).await;
+        until(&s, "the pong unread", |s| unread(s) == Some(1)).await;
         s.mark_read("ping@s.whatsapp.net");
-        until(&s, |s| unread(s) == Some(0)).await;
+        until(&s, "the pong read", |s| unread(s) == Some(0)).await;
         s.send("ping@s.whatsapp.net", "ping again", None).unwrap();
-        until(&s, |s| unread(s) == Some(1)).await;
+        until(&s, "the second pong unread", |s| unread(s) == Some(1)).await;
         s.mark_read("ping@s.whatsapp.net");
-        until(&s, |s| unread(s) == Some(0)).await;
+        until(&s, "the second pong read", |s| unread(s) == Some(0)).await;
         s.unlink().await.expect("unlinked");
         assert!(s.is_closed());
     }
@@ -218,7 +218,7 @@ mod session {
         let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
         let s =
             WaSession::start(account_info("t2", "33600000000@s.whatsapp.net", ""), program, data.path().into(), keys());
-        until(&s, |s| s.snapshot().state == "connected").await;
+        until(&s, "connected", |s| s.snapshot().state == "connected").await;
         s.shutdown();
         s.exited(Duration::from_secs(6)).await;
         assert!(s.snapshot().exited && s.snapshot().state == "stopped");

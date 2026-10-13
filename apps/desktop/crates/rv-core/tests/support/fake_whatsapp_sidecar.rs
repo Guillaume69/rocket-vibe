@@ -189,14 +189,16 @@ fn main() {
                     }})
                 );
                 println!("{}", json!({"type":"sent","id":command["id"],"state":""}));
-                // A contact who answers at once: a new message to notify.
+                // A contact who answers at once: a new message to notify,
+                // stamped in whole seconds as WhatsApp does, so two answers
+                // in a row share a timestamp.
                 if command["chat"] == "ping@s.whatsapp.net" {
                     println!(
                         "{}",
                         json!({"type":"message","message":{
                             "id":format!("ping@s.whatsapp.net:pong-{}", command["id"].as_str().unwrap()),
                             "chat":"ping@s.whatsapp.net","name":"Ping",
-                            "sender":"ping@s.whatsapp.net","author":"Ping","text":"pong","ts":now(),"mine":false
+                            "sender":"ping@s.whatsapp.net","author":"Ping","text":"pong","ts":now() / 1000 * 1000,"mine":false
                         }})
                     );
                     println!("{}", json!({"type":"chat","jid":"ping@s.whatsapp.net","unread":1}));

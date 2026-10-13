@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-10-13
+
 ### Fixed
 
 - Voice on a RocketVibe server cut out for a split second every few seconds on Windows, both in what you said and in what you heard: a harmless glitch report from the microphone made the app reopen the speakers and the microphone, again and again.
@@ -1244,7 +1246,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...HEAD
+[0.19.3]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...desktop-v0.19.3
 [0.19.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2
 [0.19.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0

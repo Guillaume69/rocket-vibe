@@ -84,10 +84,10 @@ All commands run from `apps/desktop/`.
 | `scripts/install.sh` | End-user Linux install, no root: downloads the newest `desktop-v*` release's AppImage to `~/.local/bin/rocket-vibe.AppImage`, adds a launcher entry, icons and the link handler; `--uninstall` removes them but keeps accounts and messages in `~/.config/rocket-vibe-rs` and `~/.local/share/rocket-vibe-rs`. |
 | `node scripts/generate-emojis.mjs [emoji-toolkit dir]` | Regenerates `crates/rv-core/data/emojis.tsv`. |
 
-For constrained Windows Docker worktree builds, build.sh passes through the optional
-CARGO_BUILD_JOBS and CARGO_INCREMENTAL variables. CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0
-limits peak concurrency and avoids large incremental graphs on bind-mounted storage;
-unset variables retain Cargo defaults. RV_CARGO_TARGET_DIR optionally binds an
+For constrained Windows Docker worktree builds, build.sh passes through
+CARGO_BUILD_JOBS (2 when unset) and the optional CARGO_INCREMENTAL. CARGO_BUILD_JOBS=1
+CARGO_INCREMENTAL=0 limits peak concurrency and avoids large incremental graphs on
+bind-mounted storage. RV_BUILD_TARGET_DIR (also read by smoke.sh) optionally binds an
 absolute host cache directory at the container's usual target path, preserving
 all four gates. This keeps large artifacts off a nearly full worktree drive;
 with it set, the host executable lives under that cache rather than target/.

@@ -94,7 +94,7 @@ node scripts/teams-browser-signin.mjs --smoke
 CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 scripts/build.sh
 ~~~
 
-On a constrained worktree drive, set RV_CARGO_TARGET_DIR to an absolute host
+On a constrained worktree drive, set RV_BUILD_TARGET_DIR to an absolute host
 cache directory before invoking build.sh. Its optional nested mount changes only
 the artifact location, retaining formatting, clippy, tests and build gates.
 

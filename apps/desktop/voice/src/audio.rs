@@ -505,9 +505,17 @@ fn failed(mix: &Mix, side: &str, error: cpal::Error) {
     if std::env::var("RV_VOICE_DEBUG").as_deref() == Ok("1") {
         crate::diagnose(&format!("{side}: {:?} {error}", error.kind()));
     }
-    if !matches!(error.kind(), cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied) {
+    if !survived(error.kind()) {
         mix.broken.store(true, Ordering::Relaxed);
     }
+}
+
+/// News a stream keeps running through: rerouted, refused real-time scheduling,
+/// or an xrun. WASAPI flags a discontinuity in a microphone's buffers as an
+/// xrun, a freshly opened one included: reopened for it, both devices went
+/// silent for a moment every 2 s, for as long as the call lasted.
+fn survived(kind: cpal::ErrorKind) -> bool {
+    matches!(kind, cpal::ErrorKind::DeviceChanged | cpal::ErrorKind::RealtimeDenied | cpal::ErrorKind::Xrun)
 }
 
 /// What opening a microphone or speakers came to.
@@ -1004,6 +1012,17 @@ mod tests {
         }
         assert!(mix.activity("", true).0, "the unpublished input still detects speech");
         assert_eq!(mix.input_level(), 0.0, "the published microphone meter remains silent");
+    }
+
+    #[test]
+    fn an_xrun_leaves_the_devices_open_and_a_vanished_device_reopens_them() {
+        let mix = Mix::new();
+        for kind in [cpal::ErrorKind::Xrun, cpal::ErrorKind::DeviceChanged, cpal::ErrorKind::RealtimeDenied] {
+            failed(&mix, "microphone", kind.into());
+            assert!(!mix.broken.load(Ordering::Relaxed), "{kind:?}");
+        }
+        failed(&mix, "speakers", cpal::ErrorKind::DeviceNotAvailable.into());
+        assert!(mix.broken.load(Ordering::Relaxed));
     }
 
     #[test]

@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Voice on a RocketVibe server cut out for a split second every few seconds on Windows, both in what you said and in what you heard: a harmless glitch report from the microphone made the app reopen the speakers and the microphone, again and again.
+
 ## [0.19.2] - 2026-10-13
 
 ### Fixed

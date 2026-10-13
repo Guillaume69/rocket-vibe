@@ -1,4 +1,4 @@
-//! Native RocketVibe v1 wire types. No UI, database, or Rocket.Chat dependencies.
+//! Native Vibez v1 wire types. No UI, database, or Rocket.Chat dependencies.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

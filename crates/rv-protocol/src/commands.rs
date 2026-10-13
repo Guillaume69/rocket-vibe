@@ -96,7 +96,7 @@ const CATALOGUE: &[(&str, &str, &str, bool)] = &[
     ),
 ];
 
-/// Every command a RocketVibe server offers.
+/// Every command a Vibez server offers.
 pub fn catalogue() -> CommandList {
     CommandList {
         commands: CATALOGUE

@@ -1,6 +1,6 @@
 name: server-image
 
-# On demand only: builds the RocketVibe server image of an existing
+# On demand only: builds the Vibez server image of an existing
 # `vibez-vX.Y.Z` tag (apps/server/Dockerfile, the same build the release
 # archive comes from, with the current Dockerfile's labels) and pushes it to
 # ghcr.io as `X.Y.Z` and `latest`.

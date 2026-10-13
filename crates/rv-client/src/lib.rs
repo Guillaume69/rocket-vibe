@@ -20,7 +20,7 @@ use url::Url;
 pub enum Error {
     #[error("invalid server URL")]
     InvalidUrl,
-    #[error("unsupported RocketVibe protocol")]
+    #[error("unsupported Vibez protocol")]
     UnsupportedProtocol,
     #[error("invalid or oversized native snapshot")]
     InvalidSnapshot,

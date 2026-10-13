@@ -9,6 +9,9 @@ export const search = (...args: Parameters<typeof import("./panels").search>) =>
 export const localSearch = (
   ...args: Parameters<typeof import("./panels").localSearch>
 ) => import("./panels").then((panel) => panel.localSearch(...args));
+export const activityFeed = (
+  ...args: Parameters<typeof import("./panels").activityFeed>
+) => import("./panels").then((panel) => panel.activityFeed(...args));
 export const marked = (...args: Parameters<typeof import("./panels").marked>) =>
   import("./panels").then((panel) => panel.marked(...args));
 export const threads = (

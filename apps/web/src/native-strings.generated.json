@@ -2143,6 +2143,21 @@
     "Also send to the room"
   ],
   "rooms.quoted_message": ["↪ Message cité", "↪ Quoted message"],
+  "activity.title": ["Activité", "Activity"],
+  "activity.open": ["Activité (Ctrl+Maj+A)", "Activity (Ctrl+Shift+A)"],
+  "activity.rooms": ["Mentions non lues", "Unread mentions"],
+  "activity.room_mentions": [
+    "{n} mention non lue | {n} mentions non lues",
+    "{n} unread mention | {n} unread mentions"
+  ],
+  "activity.mention": ["Vous a mentionné", "Mentioned you"],
+  "activity.reply": ["A répondu dans un fil", "Replied in a thread"],
+  "activity.reaction": ["{names} a réagi {emojis}", "{names} reacted {emojis}"],
+  "activity.recent": ["Récent", "Recent"],
+  "activity.empty": [
+    "Rien pour l'instant. Les mentions, les réponses dans vos fils et les réactions à vos messages apparaissent ici.",
+    "Nothing yet. Mentions, replies in your threads and reactions to your messages show up here."
+  ],
   "thread.not_found": ["Fil introuvable.", "Thread not found."],
   "thread.follow": ["Suivre ce fil", "Follow this thread"],
   "thread.unfollow": ["Ne plus suivre ce fil", "Unfollow this thread"],

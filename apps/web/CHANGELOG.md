@@ -7,6 +7,7 @@ All notable changes are documented here in English.
 ### Added
 
 - Room owners can change channel images from room information, with protected, revisioned images in the room header and list.
+- Activity: a bell beside "+" (or Ctrl+Shift+A) lists the messages that mention you, replies in your threads and your messages others reacted to, newest first, from the messages the page already holds, with the rooms that have unread mentions above them. A click opens the message, or its thread.
 
 ### Changed
 

@@ -3,6 +3,7 @@
 
 pub mod account;
 pub mod actions;
+pub mod activity;
 pub mod admin;
 pub mod animation;
 pub mod call;

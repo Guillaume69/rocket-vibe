@@ -195,6 +195,8 @@ struct RoomListView: View {
     @State var creating = false
     /// Search across rooms, on the device.
     @State var searchingMessages = false
+    /// Every account's mentions, thread replies and reactions (`ActivitySheet`).
+    @State var showingActivity = false
     /// "New message" puts the cursor in the search, which finds people and channels.
     @FocusState var searchFocused: Bool
 
@@ -230,6 +232,7 @@ struct RoomListView: View {
         .task(id: app.account?.key) { query = ""; found = []; creating = false }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
         .modalOverlay(isPresented: $searchingMessages, style: .sheet(width: 520, height: 640)) { LocalSearchSheet() }
+        .modalOverlay(isPresented: $showingActivity, style: .sheet(width: 520, height: 640)) { ActivitySheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -240,6 +243,10 @@ struct RoomListView: View {
                     .help(L(app.railHidden ? "rail.show" : "rail.hide"))
                     Wordmark(size: 21)
                     Spacer()
+                    Button { showingActivity = true } label: { Image(systemName: "bell") }
+                        .buttonStyle(.borderless)
+                        .windowShortcut(KeyboardShortcut("a", modifiers: [.command, .shift]))
+                        .help(L("activity.title") + " (⌘⇧A)")
                     if app.supportsLocalSearch {
                         Button { searchingMessages = true } label: { Image(systemName: "text.magnifyingglass") }
                             .buttonStyle(.borderless)

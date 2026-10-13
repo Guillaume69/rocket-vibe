@@ -1,4 +1,5 @@
 //! Fallible transactions: a failed projection never acknowledges its cursor or outbox echo.
+mod activity;
 mod custom_emojis;
 mod files;
 mod link_previews;

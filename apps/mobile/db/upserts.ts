@@ -277,6 +277,44 @@ export function searchPattern(term: string): string {
   return `%${term.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 }
 
+/**
+ * The Activity view's candidates (`lib/activityFeed.ts` classifies them),
+ * newest first: my readable messages that carry reactions, and the others'
+ * that can mention me (an `@` in the text) or reply in a thread. A locked
+ * encrypted message has no text and a system message is never one.
+ * Parameters: my user id, twice, then the limit.
+ */
+export const ACTIVITY_CANDIDATES = `
+SELECT id, rid, text, ts, author_id AS authorId, author_name AS authorName, system_type AS systemType,
+  thread_id AS threadId, thread_shown AS threadShown, md, reactions
+FROM messages
+WHERE text IS NOT NULL
+  AND (system_type IS NULL OR system_type = 'e2e')
+  AND ((author_id = ? AND reactions IS NOT NULL)
+    OR (author_id <> ? AND (thread_id IS NOT NULL OR text LIKE '%@%')))
+ORDER BY ts DESC, id DESC
+LIMIT ?
+`;
+
+/** The stored roots of these threads (a JSON array of ids): who wrote each, who follows it. */
+export const ACTIVITY_THREAD_ROOTS = `
+SELECT id, author_id AS authorId, thread_followers AS threadFollowers
+FROM messages WHERE id IN (SELECT value FROM json_each(?))
+`;
+
+/** Which of these threads (a JSON array of ids) I replied in. Parameters: my user id, the ids. */
+export const ACTIVITY_REPLIED_THREADS = `
+SELECT DISTINCT thread_id AS threadId FROM messages
+WHERE author_id = ? AND thread_id IN (SELECT value FROM json_each(?))
+`;
+
+/** The rooms whose server mention counter is above zero (the list's `@` badge), with their last activity. */
+export const ACTIVITY_MENTIONED_ROOMS = `
+SELECT s.rid AS rid, s.mentions AS mentions, r.last_message_ts AS lastActivity
+FROM subscriptions s LEFT JOIN rooms r ON r.rid = s.rid
+WHERE s.mentions > 0 AND s.open = 1
+`;
+
 /** Re-masks every encrypted message on lock: the local plaintext disappears,
  *  attachments included (they carry each file's key), the ciphertext
  *  (`encrypted_raw`) stays to decrypt again at the next unlock.

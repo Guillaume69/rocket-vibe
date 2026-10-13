@@ -19,6 +19,7 @@ import {
   search,
   newConversation,
   threads,
+  activityFeed,
 } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
@@ -132,6 +133,12 @@ function Shell({ app }: { app: App }) {
             <span className="unicorn-header">🦄</span>
             <Brand />
           </div>
+          <IconButton
+            name="notifications"
+            label={nt("activity.open")}
+            className="flat activity-feed-button"
+            action={() => activityFeed(app)}
+          />
           <IconButton
             name="plus"
             label={t("new")}

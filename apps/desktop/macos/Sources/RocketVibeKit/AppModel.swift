@@ -902,6 +902,32 @@ public final class AppModel {
         return account == sessionId && selected == selectionId
     }
 
+    /// The Activity view of every running account (`Client.activity`).
+    public func activity() async -> ActivityView {
+        await client.activity()
+    }
+
+    /// An Activity entry picked: its account opens, then its message (in its
+    /// thread for a reply) or its room.
+    public func openActivity(account target: String, rid: String, message: String?, thread: String?) async {
+        if account?.key != target {
+            guard let other = accounts.first(where: { $0.key == target }) else {
+                notice = L("links.unavailable")
+                return
+            }
+            await switchAccount(other)
+            guard account?.key == target else { return }
+        }
+        if let message, let thread {
+            open(rid)
+            if room?.rid == rid { openThread(thread, message: message) }
+        } else if let message {
+            await open(rid, message: message)
+        } else {
+            open(rid)
+        }
+    }
+
     /// Search across rooms, on the device (Rocket.Chat, Mattermost): newest first.
     public var supportsLocalSearch: Bool { chat != nil }
     public func searchLocal(_ text: String) async -> [LocalHit] {

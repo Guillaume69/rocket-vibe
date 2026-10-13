@@ -2,6 +2,7 @@
 //! Every future runs on this crate's tokio runtime, whatever polls it.
 
 mod accounts;
+pub mod activity;
 mod admin;
 mod background;
 mod context;

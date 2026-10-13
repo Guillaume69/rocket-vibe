@@ -34,11 +34,17 @@ fn mentions_in(node: &Value, names: &[&str]) -> bool {
 
 /// `@me`, `@all` or `@here`, from the parsed markdown, else from the text.
 pub fn mentions_me(message: &Message, me: &str) -> bool {
+    mentions(message.md.as_deref(), message.text.as_deref(), me)
+}
+
+/// `mentions_me` over a message's parsed markdown (`md`) and text, as a
+/// stored row keeps them (`activity`).
+pub fn mentions(md: Option<&str>, text: Option<&str>, me: &str) -> bool {
     let names = [me, "all", "here"];
-    if let Some(md) = message.md.as_deref().and_then(|m| serde_json::from_str::<Value>(m).ok()) {
+    if let Some(md) = md.and_then(|m| serde_json::from_str::<Value>(m).ok()) {
         return mentions_in(&md, &names);
     }
-    let text = message.text.as_deref().unwrap_or_default();
+    let text = text.unwrap_or_default();
     names
         .iter()
         .any(|n| text.split(|c: char| c.is_whitespace() || ",;:!?".contains(c)).any(|w| w.strip_prefix('@') == Some(n)))

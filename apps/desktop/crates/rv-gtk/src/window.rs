@@ -550,6 +550,12 @@ impl AppWindow {
                 this.switch_to(info);
             }
         });
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_activity(move || {
+            if let Some(this) = weak.upgrade() {
+                this.open_activity();
+            }
+        });
         // Ctrl + 1 to 9 opens the rail's first nine accounts, Ctrl + 0 the
         // tenth, hidden rail included; not on the sign-in page nor under a dialog.
         let keys = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
@@ -1315,6 +1321,48 @@ impl AppWindow {
                 notifier.show(&incoming, &crate::notifier::Pictures::default());
             }
         }
+    }
+
+    /// The Activity view of every running account (`activity_view`), read
+    /// off the interface's thread.
+    fn open_activity(self: &Rc<Self>) {
+        let (this, accounts) = (self.clone(), self.accounts.clone());
+        glib::spawn_future_local(async move {
+            let activity = on_tokio(async move { accounts.activity() }).await;
+            let weak = Rc::downgrade(&this);
+            crate::activity_view::open(&this.window, activity, move |target| {
+                if let Some(this) = weak.upgrade() {
+                    this.open_activity_entry(target);
+                }
+            });
+        });
+    }
+
+    /// An Activity entry picked: its account opens, at its message (in its
+    /// thread for a reply) or at its room.
+    fn open_activity_entry(self: &Rc<Self>, target: crate::activity_view::Target) {
+        let account = supervisor::key(&target.account);
+        if self.open_account().is_some_and(|open| supervisor::key(&open) == account) {
+            match target.message {
+                Some(id) => self.chat.open_search_hit(&target.rid, &id, target.thread),
+                None => self.chat.open_room(&target.rid),
+            }
+            return;
+        }
+        let Some(info) = self.accounts.running().into_iter().find(|i| supervisor::key(i) == account) else {
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        };
+        self.cancel_navigation();
+        self.pending_link.replace(Some(rv_core::links::RoomLink {
+            rid: target.rid,
+            host: rv_core::links::service_url(&info.base_url),
+            native: info.native.clone(),
+            user_id: Some(info.user_id.clone()),
+            message: target.message,
+            root: target.thread,
+        }));
+        self.switch_to_for_link(info);
     }
 
     /// A background account's notification clicked: that account opens on the message.

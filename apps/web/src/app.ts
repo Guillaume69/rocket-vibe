@@ -79,7 +79,13 @@ import { composer } from "./composer";
 import { cached, cacheMedia } from "./media";
 import { previewText, decorate } from "./presentation";
 import { canonical, categories, glyphs, emojiGlyph } from "./emoji";
-import { settings, roomSwitcher, profile, localSearch } from "./panel-actions";
+import {
+  settings,
+  roomSwitcher,
+  profile,
+  localSearch,
+  activityFeed,
+} from "./panel-actions";
 import { quietNow } from "./quiet";
 import {
   LIKE,
@@ -355,6 +361,16 @@ export class App implements RowActions {
         ) {
           event.preventDefault();
           void localSearch(this).catch(toast);
+        }
+        // The Activity view, as GTK's Ctrl+Shift+A.
+        if (
+          (event.ctrlKey || event.metaKey) &&
+          event.shiftKey &&
+          event.key.toLowerCase() === "a" &&
+          !document.querySelector("dialog[open]")
+        ) {
+          event.preventDefault();
+          void activityFeed(this).catch(toast);
         }
         // Escape closes the topmost layer only: an open dialog takes it first.
         if (

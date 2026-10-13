@@ -382,6 +382,15 @@ impl Supervisor {
         self.0.entries.lock().unwrap().values().filter(|e| e.chat.is_some()).map(|e| e.info.clone()).collect()
     }
 
+    /// Every running account's Activity view as one (`activity::merge`),
+    /// each room and item with its account. Reads the stores: run it off
+    /// the interface's thread.
+    pub fn activity(&self) -> crate::activity::Merged<SessionInfo> {
+        let chats: Vec<(SessionInfo, Chat)> =
+            self.0.entries.lock().unwrap().values().filter_map(|e| Some((e.info.clone(), e.chat.clone()?))).collect();
+        crate::activity::merge(chats.into_iter().filter_map(|(info, chat)| Some((info, chat.activity()?))).collect())
+    }
+
     /// Every session stops: the app is quitting.
     pub fn shutdown(&self) {
         *self.0.active.lock().unwrap() = None;

@@ -723,6 +723,33 @@ impl Store {
         rows
     }
 
+    /// What the Activity view sorts (`activity::gather`), oldest first, the
+    /// newest `limit`: others' messages that may mention me (an `@` in their
+    /// words) or that reply in a thread, and mine that carry reactions.
+    pub fn activity_candidates(&self, me: &str, limit: i64) -> Vec<MessageRow> {
+        self.message_rows(
+            "(m.author_id IS NOT ?1 AND m.text IS NOT NULL AND (m.text LIKE '%@%' OR m.thread_id IS NOT NULL))
+             OR (m.author_id = ?1 AND m.reactions IS NOT NULL AND m.reactions NOT IN ('', '{}'))",
+            me,
+            limit,
+        )
+    }
+
+    /// The thread roots I take part in: I wrote the root or a reply, or I
+    /// follow it (Rocket.Chat's `replies`, the comma-separated `thread_followers`).
+    pub fn my_threads(&self, me: &str) -> std::collections::HashSet<String> {
+        self.read(|c| {
+            let mut q = c.prepare(
+                "SELECT DISTINCT thread_id FROM messages WHERE thread_id IS NOT NULL AND author_id = ?1
+                 UNION SELECT r.thread_id FROM messages r JOIN messages m ON m.id = r.thread_id WHERE m.author_id = ?1
+                 UNION SELECT id FROM messages WHERE author_id = ?1 AND thread_count > 0
+                 UNION SELECT id FROM messages WHERE ',' || thread_followers || ',' LIKE '%,' || ?1 || ',%'",
+            )?;
+            q.query_map([me], |r| r.get(0))?.collect()
+        })
+        .unwrap_or_default()
+    }
+
     /// Every encrypted message stored without its words, oldest first.
     pub fn sealed_messages(&self) -> Vec<MessageRow> {
         self.message_rows("m.system_type = ?1 AND m.text IS NULL AND m.encrypted_raw IS NOT NULL", "e2e", i64::MAX)
@@ -1841,5 +1868,70 @@ mod tests {
         assert_eq!(count(&store, "outbox"), 0);
         store.write(|w| w.insert_outbox("o2", "r", "again", None));
         assert_eq!(count(&store, "outbox"), 1);
+    }
+
+    #[test]
+    fn activity_reads_mentions_thread_replies_and_reactions_from_the_store() {
+        let dir = std::env::temp_dir().join(format!("rv-activity-{:x}", fastrand::u64(..)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Store::open(&dir.join("account.sqlite")).unwrap();
+        let said = |id: &str, rid: &str, ts: i64, author: &str, text: &str| Message {
+            id: id.into(),
+            rid: rid.into(),
+            text: Some(text.into()),
+            ts,
+            author_id: author.into(),
+            author_name: Some(author.into()),
+            updated_at: ts,
+            ..Default::default()
+        };
+        store.write(|w| {
+            for (rid, mentions) in [("c1", 0), ("c2", 2), ("c3", 1)] {
+                w.upsert_room(&Room {
+                    rid: rid.into(),
+                    kind: "c".into(),
+                    name: Some(rid.into()),
+                    ..Default::default()
+                });
+                w.upsert_subscription(&Subscription { rid: rid.into(), open: true, mentions, ..Default::default() });
+            }
+            w.upsert_message(&said("hello", "c1", 1, "bob", "hello @me"));
+            w.upsert_message(&said("root", "c1", 2, "me", "my question"));
+            w.upsert_message(&Message {
+                thread_id: Some("root".into()),
+                ..said("answer", "c1", 3, "bob", "an answer")
+            });
+            w.upsert_message(&said("their-root", "c1", 4, "bob", "their topic"));
+            w.upsert_message(&Message {
+                thread_id: Some("their-root".into()),
+                ..said("joined", "c1", 5, "me", "me too")
+            });
+            w.upsert_message(&Message {
+                thread_id: Some("their-root".into()),
+                ..said("followed", "c1", 6, "carol", "and then")
+            });
+            w.upsert_message(&Message {
+                thread_id: Some("elsewhere".into()),
+                ..said("unrelated", "c1", 7, "carol", "not my thread")
+            });
+            w.upsert_message(&Message {
+                reactions: Some(r#"{":tada:":{"usernames":["bob"]}}"#.into()),
+                ..said("liked", "c1", 8, "me", "shipped")
+            });
+            w.upsert_message(&said("c3-mention", "c3", 9, "bob", "@all hello"));
+        });
+        let me = crate::activity::Me { id: "me", username: "me" };
+        let rows = store.activity_candidates(me.id, crate::activity::CANDIDATES);
+        let activity = crate::activity::gather(rows, me, &store.my_threads(me.id), &store.rooms());
+        let items: Vec<(&str, crate::activity::Kind)> =
+            activity.items.iter().map(|i| (i.message.id.as_str(), i.kind)).collect();
+        use crate::activity::Kind::*;
+        assert_eq!(
+            items,
+            [("c3-mention", Mention), ("liked", Reaction), ("followed", Reply), ("answer", Reply), ("hello", Mention)]
+        );
+        assert_eq!(activity.rooms.iter().map(|r| (r.rid.as_str(), r.count)).collect::<Vec<_>>(), [("c2", 2)]);
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

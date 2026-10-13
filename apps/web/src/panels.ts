@@ -25,6 +25,8 @@ import { operation, segment } from "./api";
 import { el, button, field, tile, dialog, toast, actionMenu } from "./dom";
 import { matchRooms } from "./room-match";
 import { searchLocal } from "./local-search";
+import { collectActivity } from "./activity-feed";
+import { emojiGlyph } from "./emoji";
 import { downloadDiagnostics } from "./diagnostics";
 import { clock, minuteOf, nextMorning } from "./quiet";
 import { ownSound, setOwnSound } from "./notifications";
@@ -306,6 +308,122 @@ export function localSearch(app: App): void {
   });
   node.addEventListener("close", () => clearTimeout(timer));
   input.focus();
+}
+/**
+ * The Activity view (Ctrl+Shift+A, or the bell of the sidebar header), as GTK
+ * builds it: the rooms with unread mentions this browser holds none of, then
+ * the mentions, the replies in my threads and the reactions to my messages
+ * (`collectActivity`), read from the model when it opens. A room row opens
+ * the room; an item opens its message as a local search hit does (`jumpTo`).
+ */
+export function activityFeed(app: App): void {
+  const account = app.account;
+  if (!account) return;
+  const key = account.key,
+    me = account.session.user;
+  const [node, body] = dialog(nt("activity.title"));
+  node.classList.add("activity-feed-dialog");
+  const { rooms, items } = collectActivity(
+    app.model.messages.values(),
+    app.model.rooms,
+    { id: me.id, username: me.username },
+  );
+  const go = async (open: () => Promise<void>) => {
+    node.close();
+    if (key === app.account?.key) await open();
+  };
+  const roomName = (room: Room) =>
+    (room.kind === "direct" ? "" : "#") + room.name;
+  if (!rooms.length && !items.length) {
+    body.append(el("p", "dim activity-feed-empty", nt("activity.empty")));
+    return;
+  }
+  if (rooms.length) {
+    const list = el("div", "activity-feed-list");
+    list.append(
+      ...rooms.map(({ room, mentions }) => {
+        const row = button(
+          "",
+          () => go(() => app.openRoom(room.id)),
+          "flat activity-feed-room",
+        );
+        row.dataset.room = room.id;
+        const text = el("div", "activity-feed-text");
+        text.append(
+          el("span", "activity-feed-title", roomName(room)),
+          el("span", "dim", nt("activity.room_mentions", { n: mentions })),
+        );
+        row.append(
+          tile(room.name, "message", room.kind === "direct" ? undefined : "#"),
+          text,
+          el("span", "badge badge-mention", String(mentions)),
+        );
+        return row;
+      }),
+    );
+    body.append(el("h3", "details-section", nt("activity.rooms")), list);
+  }
+  if (items.length) {
+    const list = el("div", "activity-feed-list");
+    list.append(
+      ...items.map((item) => {
+        const { message, room } = item;
+        const row = button(
+          "",
+          () => go(() => app.jumpTo(message)),
+          "flat conversation-preview activity-feed-item",
+        );
+        row.dataset.id = message.id;
+        row.dataset.kind = item.kind;
+        row.setAttribute("aria-label", t("openMessage"));
+        const what =
+          item.kind === "reaction"
+            ? nt("activity.reaction", {
+                names: item.reactors.join(", "),
+                emojis: item.emojis.map(emojiGlyph).join(" "),
+              })
+            : nt("activity." + item.kind);
+        const head = el("div", "message-heading");
+        head.append(
+          el("span", "activity-feed-what", what),
+          el(
+            "time",
+            "message-time",
+            new Date(message.created_at).toLocaleString(language, {
+              day: "2-digit",
+              month: "2-digit",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            }),
+          ),
+        );
+        const where = el("div", "room-subtitle activity-feed-where");
+        where.append(el("span", "", roomName(room)));
+        if (item.kind !== "reaction")
+          where.append(
+            el(
+              "span",
+              "author",
+              message.author.display_name || message.author.username,
+            ),
+          );
+        row.append(
+          head,
+          where,
+          el(
+            "div",
+            "message-body activity-feed-excerpt",
+            previewText(message).replace(/\s+/g, " ").trim() ||
+              nt("marked.attachment"),
+          ),
+        );
+        return row;
+      }),
+    );
+    body.append(el("h3", "details-section", nt("activity.recent")), list);
+  }
 }
 export async function marked(app: App): Promise<void> {
   if (!app.room) return;

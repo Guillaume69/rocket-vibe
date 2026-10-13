@@ -80,7 +80,7 @@ export default function HomeScreen() {
   );
 }
 
-/** Top banner: server-bar toggle, brand and message search. */
+/** Top banner: server-bar toggle, brand, activity and message search. */
 function ListHeader({ c }: { c: Colors }) {
   const railHidden = useServerRailHidden();
   const router = useRouter();
@@ -88,6 +88,8 @@ function ListHeader({ c }: { c: Colors }) {
   // The global catch-up (app opening, return to foreground) lights the bar:
   // the cache is already there, this says we are refreshing it.
   const syncing = useActivity('global');
+  const { state } = useSession();
+  const whatsapp = state.phase === 'connected' && state.session.kind === 'whatsapp';
   return (
     <View style={[styles.header, { borderBottomColor: c.softBorder }]}>
       <Tappable
@@ -103,16 +105,32 @@ function ListHeader({ c }: { c: Colors }) {
         <Text style={styles.headerUnicorn}>🦄</Text>
         <Brand c={c} size={20} />
       </View>
-      <Tappable
-        onPress={() => router.push('/search-messages')}
-        android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel={t('searchMessages.title')}
-        style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
-      >
-        <Icon name="system-search" size={21} color={c.secondaryText} />
-      </Tappable>
+      <View style={styles.headerEnd}>
+        {/* Mentions, replies in my threads, reactions to my messages, read
+            from this device (`app/activity.tsx`). WhatsApp has none of them. */}
+        {!whatsapp && (
+          <Tappable
+            onPress={() => router.push('/activity')}
+            android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel={t('activity.open')}
+            style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
+          >
+            <Icon name="preferences-system-notifications" size={21} color={c.secondaryText} />
+          </Tappable>
+        )}
+        <Tappable
+          onPress={() => router.push('/search-messages')}
+          android_ripple={{ color: c.ripple, borderless: true, radius: 22 }}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('searchMessages.title')}
+          style={({ pressed }) => [styles.headerWheel, { opacity: pressed ? 0.55 : 1 }]}
+        >
+          <Icon name="system-search" size={21} color={c.secondaryText} />
+        </Tappable>
+      </View>
       <SyncBar c={c} active={syncing} />
     </View>
   );
@@ -581,6 +599,7 @@ const styles = StyleSheet.create({
   headerBrand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   headerUnicorn: { fontSize: 22 },
   headerWheel: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  headerEnd: { flexDirection: 'row', alignItems: 'center' },
   content: { paddingBottom: 8 },
   // The radius lives on the WRAPPER: its clip (`overflow`) cuts the ripple;
   // borderRadius on the Pressable itself is ignored by the ripple mask under

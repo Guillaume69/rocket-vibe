@@ -18,6 +18,7 @@ import type { UploadStore, UploadRow } from '../lib/uploadQueue.ts';
 import type { Store, StoreWrites } from '../lib/sync.ts';
 import { KEPT_CODES, canonicalEmojiCode, type EmojiUse } from '../lib/emojiUsage.ts';
 import type { Reminder, ReminderRows } from '../lib/reminders.ts';
+import type { FeedMessage, FeedRoom, FeedRoot } from '../lib/activityFeed.ts';
 import type { WriteQueue } from './writeQueue.ts';
 import {
   APPLY_RETENTION,
@@ -63,6 +64,10 @@ import {
   CLEAR_ROOM_MESSAGES,
   SEARCH_MESSAGES,
   searchPattern,
+  ACTIVITY_CANDIDATES,
+  ACTIVITY_MENTIONED_ROOMS,
+  ACTIVITY_REPLIED_THREADS,
+  ACTIVITY_THREAD_ROOTS,
   HIDE_ENCRYPTED_MESSAGES,
   UPDATE_ENCRYPTED_PREVIEW,
   HIDE_ENCRYPTED_PREVIEW,
@@ -576,8 +581,27 @@ export function createReminderStore(raw: SQLiteDatabase, serially: WriteQueue): 
   };
 }
 
-/** Ids of the messages containing `term`, newest first. */
-export type LocalSearch = { search(term: string, limit: number): Promise<string[]> };
+/** An Activity candidate, with what opening it needs (a reply shown in the room or not). */
+export type ActivityMessage = FeedMessage & { threadShown: boolean };
+
+/** What the Activity view classifies (`lib/activityFeed.ts`), read from this device only. */
+export type ActivitySource = {
+  messages: ActivityMessage[];
+  roots: FeedRoot[];
+  repliedThreads: string[];
+  rooms: FeedRoom[];
+};
+
+/**
+ * Reads across rooms on the device: `search` gives the ids of the messages
+ * containing `term`, newest first; `activity` the Activity view's candidates
+ * (the newest `scan`), the stored roots of their threads, the threads among
+ * them I replied in, and the rooms with unread mentions.
+ */
+export type LocalSearch = {
+  search(term: string, limit: number): Promise<string[]>;
+  activity(userId: string, scan: number): Promise<ActivitySource>;
+};
 
 /** Search across rooms on the device (`SEARCH_MESSAGES`, `ui/localSearch.ts`). A read: no queue. */
 export function createLocalSearch(raw: SQLiteDatabase): LocalSearch {
@@ -585,6 +609,20 @@ export function createLocalSearch(raw: SQLiteDatabase): LocalSearch {
     async search(term, limit) {
       const rows = await raw.getAllAsync<{ id: string }>(SEARCH_MESSAGES, [searchPattern(term), limit]);
       return rows.map((r) => r.id);
+    },
+    async activity(userId, scan) {
+      const found = await raw.getAllAsync<Omit<ActivityMessage, 'threadShown'> & { threadShown: number }>(
+        ACTIVITY_CANDIDATES,
+        [userId, userId, scan],
+      );
+      const messages = found.map((m) => ({ ...m, threadShown: m.threadShown !== 0 }));
+      const threads = JSON.stringify([...new Set(messages.flatMap((m) => (m.threadId === null ? [] : [m.threadId])))]);
+      const [roots, replied, rooms] = await Promise.all([
+        raw.getAllAsync<FeedRoot>(ACTIVITY_THREAD_ROOTS, [threads]),
+        raw.getAllAsync<{ threadId: string }>(ACTIVITY_REPLIED_THREADS, [userId, threads]),
+        raw.getAllAsync<FeedRoom>(ACTIVITY_MENTIONED_ROOMS),
+      ]);
+      return { messages, roots, repliedThreads: replied.map((r) => r.threadId), rooms };
     },
   };
 }

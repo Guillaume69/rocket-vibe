@@ -1972,6 +1972,18 @@ impl Session {
         found
     }
 
+    /// The account's Activity view from its stored messages (`activity::gather`).
+    pub fn activity(&self) -> crate::activity::Activity {
+        let me = crate::activity::Me { id: &self.info.user_id, username: &self.info.username };
+        let rows = self
+            .store
+            .activity_candidates(me.id, crate::activity::CANDIDATES)
+            .into_iter()
+            .map(|row| self.open_row(row))
+            .collect();
+        crate::activity::gather(rows, me, &self.store.my_threads(me.id), &self.store.rooms())
+    }
+
     /// Whether rooms have invite links and discussions here: Rocket.Chat only.
     pub fn discussions_available(&self) -> bool {
         match self.backend() {

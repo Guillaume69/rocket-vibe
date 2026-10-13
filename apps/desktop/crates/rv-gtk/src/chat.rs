@@ -281,6 +281,8 @@ pub struct ChatPage {
     on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
+    /// The Activity view was asked for: the window, which holds every account, opens it.
+    on_activity: Callback<()>,
     forward_button: gtk::Button,
     /// Rooms opened, oldest first, and the position of the open one: mouse back and forward walk it.
     history: RefCell<Vec<String>>,
@@ -416,6 +418,12 @@ impl ChatPage {
             .visible(false)
             .build();
         sidebar_header.pack_end(&local_search_button);
+        let activity_button = gtk::Button::builder()
+            .icon_name("preferences-system-notifications-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("activity.open"))
+            .build();
+        sidebar_header.pack_end(&activity_button);
 
         let account_tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         let account_name = label("", &["account-name"]);
@@ -656,6 +664,7 @@ impl ChatPage {
             on_user_navigation: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
+            on_activity: RefCell::default(),
             forward_button,
             history: RefCell::default(),
             history_at: Cell::new(0),
@@ -774,6 +783,12 @@ impl ChatPage {
         local_search_button.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.open_local_search();
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        activity_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.request_activity();
             }
         });
         let weak = Rc::downgrade(&this);
@@ -961,6 +976,14 @@ impl ChatPage {
             glib::Propagation::Stop
         });
         keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>f"), Some(search)));
+        let w = weak.clone();
+        let activity = gtk::CallbackAction::new(move |_, _| {
+            if let Some(this) = w.upgrade() {
+                this.request_activity();
+            }
+            glib::Propagation::Stop
+        });
+        keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control><Shift>a"), Some(activity)));
         for (trigger, back) in [("<Alt>Left", true), ("<Alt>Right", false)] {
             let w = weak.clone();
             let action = gtk::CallbackAction::new(move |_, _| {
@@ -1625,6 +1648,17 @@ impl ChatPage {
 
     pub fn connect_rooms_loaded(&self, f: impl Fn() + 'static) {
         self.on_rooms_loaded.borrow_mut().push(Box::new(move |()| f()));
+    }
+
+    /// The Activity view asked for (its header button, Ctrl+Shift+A).
+    pub fn connect_activity(&self, f: impl Fn() + 'static) {
+        self.on_activity.borrow_mut().push(Box::new(move |()| f()));
+    }
+
+    fn request_activity(&self) {
+        for f in self.on_activity.borrow().iter() {
+            f(());
+        }
     }
 
     pub fn set_session(&self, session: Option<Arc<Session>>) {

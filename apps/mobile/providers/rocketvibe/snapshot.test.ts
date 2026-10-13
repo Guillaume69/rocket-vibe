@@ -7,7 +7,7 @@ const page = (index: number) => ({protocol_version:1,snapshot_id:'immutable-view
 function client(pages: unknown[]) {
   let calls = 0;
   const c = new NativeTransport('https://example.org',async url => {
-    if (String(url).endsWith('/.well-known/rocketvibe')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
+    if (String(url).endsWith('/.well-known/vibez')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
     calls++;
     return Response.json(pages.shift());
   });
@@ -44,7 +44,7 @@ test('broken page order, identities, duplicate messages, missing rooms and prema
 test('expired or withdrawn pages never return a partially assembled snapshot',async () => {
   let calls = 0;
   const c = new NativeTransport('https://example.org',async url => {
-    if (String(url).endsWith('/.well-known/rocketvibe')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
+    if (String(url).endsWith('/.well-known/vibez')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
     calls++;
     return calls===1 ? Response.json({...page(0),rooms:[fixture.room],next:'page-next'})
       : Response.json({code:'sync_reset_required',request_id:'expired-page'},{status:409});
@@ -60,7 +60,7 @@ test('an older v1 native server keeps its original snapshot route',async () => {
   const paths: string[] = [];
   const c = new NativeTransport('https://example.org',async url => {
     paths.push(String(url));
-    return Response.json(String(url).endsWith('/.well-known/rocketvibe') ? fixture.discovery : fixture.snapshot);
+    return Response.json(String(url).endsWith('/.well-known/vibez') ? fixture.discovery : fixture.snapshot);
   });
   c.restore('token');
   assert.deepEqual(await c.snapshot(),fixture.snapshot);
@@ -71,7 +71,7 @@ test('page wire size includes whitespace and an oversized length cancels before 
   for (const header of [true,false]) {
     let read = false;
     const c = new NativeTransport('https://example.org',async url => {
-      if (String(url).endsWith('/.well-known/rocketvibe')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
+      if (String(url).endsWith('/.well-known/vibez')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,snapshot_paging:true}});
       const response = new Response(' '.repeat(1_100_000)+JSON.stringify({...page(0),cursor:'end'}),{headers:header ? {'content-length':'1100000'} : {}});
       const original = response.text.bind(response);
       response.text = () => { read = true; return original(); };

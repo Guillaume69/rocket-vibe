@@ -71,7 +71,7 @@ describe('native protocol contract', () => {
   test('the Rust fixture is understood without rounding sequence numbers', () => {
     assert.equal(decodeNative('Message',fixture.message).position,'9007199254740993');
     assert.equal(decodeNative('Room',fixture.room).revision,'9007199254740993');
-    assert.equal(decodeNative('Discovery',fixture.discovery).product,'rocketvibe');
+    assert.equal(decodeNative('Discovery',fixture.discovery).product,'vibez');
     assert.equal(decodeNative('SyncBatch',fixture.sync_batch).changes[0].type,'room_removed');
   });
   test('malformed messages, unknown events and forged input fields are rejected', () => {

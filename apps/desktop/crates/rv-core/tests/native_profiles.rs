@@ -212,7 +212,7 @@ async fn native_profile_replay_retains_the_original_form_and_reads_current_priva
     let writes = Arc::new(Mutex::new(Vec::<Value>::new()));
     let (data, posted) = (current.clone(), writes.clone());
     let server = FakeHttp::start(move |request| match (request.method.as_str(), request.path()) {
-        (_, "/.well-known/rocketvibe") => respond(200, &discovery.to_string()),
+        (_, "/.well-known/vibez") => respond(200, &discovery.to_string()),
         ("GET", "/api/v1/me") => respond(200, &f["session"]["user"].to_string()),
         (_, "/api/v1/sync/changes") => {
             respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"original","has_more":false}).to_string())

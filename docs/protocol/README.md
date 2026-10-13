@@ -42,7 +42,7 @@ The [temporary presence and typing contract](LIVE.md) defines the two
 PUT routes, `GET /api/v1/live` and the WebSocket snapshots negotiated with `live=true`.
 These snapshots modify neither the journal nor the resumption cursor.
 
-- Discovery: `GET /.well-known/rocketvibe`, product `rocketvibe`, protocol `1`,
+- Discovery: `GET /.well-known/vibez`, product `vibez`, protocol `1`,
   persistent identity and generation, effective capabilities.
 - HTTP base: `/api/v1`, UTF-8 JSON, credentials `Authorization: Bearer <token>`.
 - Development listens on loopback. Use HTTPS through a proxy for a device.

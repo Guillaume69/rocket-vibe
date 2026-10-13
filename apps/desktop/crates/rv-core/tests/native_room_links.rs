@@ -38,7 +38,7 @@ async fn links_resolve_real_http_messages_and_fence_room_thread_membership_and_e
         let server = FakeHttp::start(move |req| {
             let path = req.path().strip_prefix("/native").unwrap_or(req.path());
             match path {
-                "/.well-known/rocketvibe" => {
+                "/.well-known/vibez" => {
                     let mut d = f["discovery"].clone();
                     if epoch.load(Ordering::SeqCst) {
                         d["data_epoch"] = json!("restored");

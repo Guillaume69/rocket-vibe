@@ -28,7 +28,7 @@ async fn encrypted_room_sync_refuses_plaintext_posts_and_preserves_the_old_outbo
     let rid = room.id.clone();
     let responses = Arc::new(fixture);
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe"=>respond(200,&responses["discovery"].to_string()),
+        "/.well-known/vibez"=>respond(200,&responses["discovery"].to_string()),
         "/api/v1/me"=>respond(200,&responses["session"]["user"].to_string()),
         "/api/v1/sync/changes"=>respond(200,&json!({"protocol_version":1,"changes":[rv_protocol::Change::RoomUpsert(room.clone())],"cursor":"encrypted","has_more":false}).to_string()),
         "/api/v1/sync/ticket"=>respond(200,&responses["socket_ticket"].to_string()),
@@ -83,7 +83,7 @@ async fn reaction_intentions_survive_restart_and_normalize_aliases_before_retryi
     let confirmed = permit.clone();
     let responses = fixture.clone();
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = responses["discovery"].clone();
             discovery["capabilities"]["reactions"] = json!(true);
             respond(200, &discovery.to_string())
@@ -195,7 +195,7 @@ async fn pin_and_star_intentions_survive_restart_without_becoming_toggles() {
         let permit = accepted.clone();
         let responses = fixture.clone();
         let server = FakeHttp::start(move |request| match request.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = responses["discovery"].clone();
                 discovery["capabilities"]["pins"] = json!(true);
                 discovery["capabilities"]["stars"] = json!(true);
@@ -294,7 +294,7 @@ async fn message_commands_survive_restart_with_the_original_revision_and_reject_
     let permit = confirm.clone();
     let responses = fixture.clone();
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = responses["discovery"].clone();
             for feature in ["editing", "deletion", "fine_permissions"] {
                 discovery["capabilities"][feature] = json!(true);
@@ -405,7 +405,7 @@ async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
     let count = Arc::new(AtomicUsize::new(0));
     let attempts = count.clone();
     let server = FakeHttp::start(move |r| match r.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut d = replies["discovery"].clone();
             d["capabilities"]["idempotent_room_creation"] = json!(true);
             d["capabilities"]["room_discovery"] = json!(true);
@@ -482,7 +482,7 @@ async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
 #[tokio::test]
 async fn a_proxy_refusing_well_known_still_finds_the_rocket_chat_behind_it() {
     let server = FakeHttp::start(|r| match r.path() {
-        "/.well-known/rocketvibe" => respond(403, ""),
+        "/.well-known/vibez" => respond(403, ""),
         "/api/info" => respond(200, r#"{"version":"8.8","success":true}"#),
         "/api/v1/settings.public" => respond(200, r#"{"success":true,"settings":[]}"#),
         _ => respond(404, "{}"),
@@ -503,7 +503,7 @@ async fn a_chosen_server_kind_is_probed_alone() {
     .await;
     let rocket_chat = rv_core::server::probe_as(&server.url, ServerKind::RocketChat).await.unwrap();
     assert_eq!(rocket_chat.genre, "rocketchat");
-    assert!(server.requests().iter().all(|r| r.path() != "/.well-known/rocketvibe"), "Rocket.Chat asks no discovery");
+    assert!(server.requests().iter().all(|r| r.path() != "/.well-known/vibez"), "Rocket.Chat asks no discovery");
     let info = |s: &FakeHttp| s.requests().iter().filter(|r| r.path() == "/api/info").count();
     let before = info(&server);
     let native = rv_core::server::probe_as(&server.url, ServerKind::RocketVibe).await.unwrap_err();
@@ -514,7 +514,7 @@ async fn a_chosen_server_kind_is_probed_alone() {
 #[tokio::test]
 async fn official_rocket_chat_discovery_and_password_login_keep_their_original_contract() {
     let server = FakeHttp::start(|r| match r.path() {
-        "/.well-known/rocketvibe" => respond(404, "{}"),
+        "/.well-known/vibez" => respond(404, "{}"),
         "/api/info" => respond(200, r#"{"version":"8.5","success":true}"#),
         "/api/v1/settings.public" => respond(200, r#"{"success":true,"settings":[{"_id":"E2E_Enable","value":true}]}"#),
         "/api/v1/login" => respond(
@@ -538,10 +538,7 @@ async fn official_rocket_chat_discovery_and_password_login_keep_their_original_c
         json!({"user":"alice","password":"fixture-password"})
     );
     assert!(
-        requests
-            .iter()
-            .filter(|r| r.path() == "/.well-known/rocketvibe")
-            .all(|r| r.method == "GET" && r.body.is_empty())
+        requests.iter().filter(|r| r.path() == "/.well-known/vibez").all(|r| r.method == "GET" && r.body.is_empty())
     );
 }
 
@@ -572,12 +569,15 @@ async fn native_diagnostics_survive_the_provider_error_without_treating_a_gatewa
 
 #[tokio::test]
 async fn a_positive_incompatible_native_protocol_never_sends_rc_credentials() {
-    let server=FakeHttp::start(|_|respond(200,r#"{"product":"rocketvibe","instance_id":"i","data_epoch":"e","server_version":"0.1","protocol_versions":[99],"api_path":"/api/v1","capabilities":{"text_messages":true,"private_rooms":true,"direct_messages":true,"durable_sync":true,"threads":false,"reactions":false,"uploads":false,"push":false,"e2ee":false,"calls":false}}"#)).await;
+    let server=FakeHttp::start(|_|respond(200,r#"{"product":"vibez","instance_id":"i","data_epoch":"e","server_version":"0.1","protocol_versions":[99],"api_path":"/api/v1","capabilities":{"text_messages":true,"private_rooms":true,"direct_messages":true,"durable_sync":true,"threads":false,"reactions":false,"uploads":false,"push":false,"e2ee":false,"calls":false}}"#)).await;
     assert!(rv_core::session::login(&server.url, "alice", "password", None).await.is_err());
     assert!(!server.requests().is_empty());
-    assert!(server.requests().iter().all(|r| r.path() == "/.well-known/rocketvibe"
-        && r.method == "GET"
-        && !r.headers.contains_key("authorization")));
+    assert!(
+        server
+            .requests()
+            .iter()
+            .all(|r| r.path() == "/.well-known/vibez" && r.method == "GET" && !r.headers.contains_key("authorization"))
+    );
 }
 #[test]
 fn keychain_sessions_pin_the_native_identity_and_migrate_legacy_accounts() {
@@ -615,7 +615,7 @@ async fn prepared_delivery_conflict_keeps_the_desktop_intention_retryable() {
     let confirmation = can_confirm.clone();
     let responses = fixture.clone();
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => respond(200, &responses["discovery"].to_string()),
+        "/.well-known/vibez" => respond(200, &responses["discovery"].to_string()),
         "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
         "/api/v1/sync/changes" => respond(
             200,

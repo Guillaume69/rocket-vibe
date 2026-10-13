@@ -20,7 +20,7 @@ async fn signup_and_recovery_are_anonymous_and_fence_generation_capability_and_a
             let server = FakeHttp::start(move |request| {
                 assert!(!request.headers.contains_key("authorization"));
                 match request.path() {
-                    "/.well-known/rocketvibe" => {
+                    "/.well-known/vibez" => {
                         let n = r.fetch_add(1, Ordering::SeqCst) + 1;
                         let mut discovery = f["discovery"].clone();
                         discovery["capabilities"]["account_invitations"] = json!(scenario != "capability");

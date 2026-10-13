@@ -123,7 +123,7 @@ test("anonymous discovery and login omit the bearer and all requests omit cookie
   );
   const api = new Api();
   api.token = "private";
-  await api.request("/.well-known/rocketvibe", "GET", undefined, true);
+  await api.request("/.well-known/vibez", "GET", undefined, true);
   await api.request("/api/v1/auth/start", "POST", {}, true);
   await api.request("/api/v1/me");
   assert.equal(new Headers(inputs[0].headers).has("Authorization"), false);

@@ -37,7 +37,7 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
         let mut pictured = bots["bot"].clone();
         pictured["avatar_file_id"] = json!(PHOTO);
         match (request.method.as_str(), request.path()) {
-            (_, "/.well-known/rocketvibe") => {
+            (_, "/.well-known/vibez") => {
                 let mut discovery = responses["discovery"].clone();
                 discovery["capabilities"]["administration"] = json!(true);
                 discovery["capabilities"]["bots"] = json!(true);

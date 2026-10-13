@@ -71,7 +71,7 @@ pub fn router(app: App) -> Router {
         )
         .route("/api/v1/uploads/{id}/complete", post(complete_upload))
         .route("/api/v1/files/{id}", get(file_download))
-        .route("/.well-known/rocketvibe", get(discovery))
+        .route("/.well-known/vibez", get(discovery))
         .route("/api/v1/me/presence", put(set_presence))
         .route("/api/v1/rooms/{room}/typing", put(set_typing))
         .route("/api/v1/live", get(live_state))
@@ -522,7 +522,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             .fetch_one(&app.pool)
             .await?;
     Ok(Json(Discovery {
-        product: "rocketvibe".into(),
+        product: "vibez".into(),
         instance_id,
         data_epoch,
         server_version: env!("CARGO_PKG_VERSION").into(),

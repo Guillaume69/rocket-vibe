@@ -80,7 +80,7 @@ async fn a_lost_renewal_ack_recovers_the_durable_successor_without_a_second_rota
     let renews = Arc::new(AtomicUsize::new(0));
     let sent = renews.clone();
     let server=FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe"=>{
+        "/.well-known/vibez"=>{
             let mut discovery=responses["discovery"].clone();discovery["capabilities"]["session_rotation"]=json!(true);
             respond(200,&discovery.to_string())
         },

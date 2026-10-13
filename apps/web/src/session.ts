@@ -108,7 +108,7 @@ async function renewLocked(
   )
     throw new Error("Invalid renewed session");
   const info = await transport.request<Discovery>(
-    "/.well-known/rocketvibe",
+    "/.well-known/vibez",
     "GET",
     undefined,
     true,

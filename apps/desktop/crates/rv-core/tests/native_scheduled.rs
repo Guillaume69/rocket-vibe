@@ -39,7 +39,7 @@ async fn schedule_replays_its_operation_until_answered_lists_one_room_and_cancel
     let posts = Arc::new(AtomicUsize::new(0));
     let (discovery, counter) = (advertised.clone(), posts.clone());
     let server = FakeHttp::start(move |r| match (r.method.as_str(), r.path()) {
-        (_, "/.well-known/rocketvibe") => respond(200, &discovery.lock().unwrap().to_string()),
+        (_, "/.well-known/vibez") => respond(200, &discovery.lock().unwrap().to_string()),
         (_, "/api/v1/me") => respond(200, &f["session"]["user"].to_string()),
         (_, "/api/v1/sync/changes") => respond(
             200,

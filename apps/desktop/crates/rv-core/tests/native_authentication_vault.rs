@@ -150,7 +150,7 @@ async fn email_server(memory: Arc<Memory>, lose: bool, cancel: Option<Guard>) ->
     let http = FakeHttp::start(move |request| {
         assert!(!request.headers.contains_key("authorization"), "Delivery cannot install a login bearer");
         match request.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut value = discovery(); value["capabilities"]["email_factor_delivery"] = json!(true);
                 respond(200, &value.to_string())
             }
@@ -291,7 +291,7 @@ async fn lost_ack_and_parallel_recreated_vaults_recover_one_session_without_anot
     let calls = Arc::new(AtomicUsize::new(0));
     let (stored, accepted, count) = (memory.clone(), commits.clone(), calls.clone());
     let server=FakeHttp::start(move |request|match request.path(){
-        "/.well-known/rocketvibe"=>respond(200,&discovery().to_string()),
+        "/.well-known/vibez"=>respond(200,&discovery().to_string()),
         "/api/v1/auth/factors/verify"=>{
             count.fetch_add(1,Ordering::SeqCst);let input:Value=serde_json::from_str(&request.body).unwrap();
             let token=input["next_token"].as_str().unwrap().to_owned();
@@ -333,7 +333,7 @@ async fn lost_ack_and_parallel_recreated_vaults_recover_one_session_without_anot
 #[tokio::test]
 async fn pending_candidate_survives_fresh_proof_until_authoritative_expiry_barrier() {
     let server = FakeHttp::start(|request| match request.path() {
-        "/.well-known/rocketvibe" => respond(200, &discovery().to_string()),
+        "/.well-known/vibez" => respond(200, &discovery().to_string()),
         "/api/v1/me" => respond(401, &json!({"code":"session_rejected","request_id":"fixture"}).to_string()),
         _ => panic!("Unexpected route"),
     })
@@ -363,7 +363,7 @@ async fn pending_candidate_survives_fresh_proof_until_authoritative_expiry_barri
 #[tokio::test]
 async fn ambiguous_probe_or_changed_identity_never_overwrites_a_pending_record() {
     let server = FakeHttp::start(|request| match request.path() {
-        "/.well-known/rocketvibe" => respond(200, &discovery().to_string()),
+        "/.well-known/vibez" => respond(200, &discovery().to_string()),
         "/api/v1/me" => respond(401, &json!({"message":"Proxy authentication"}).to_string()),
         _ => panic!("Unexpected route"),
     })
@@ -459,7 +459,7 @@ async fn secure_write_failure_sends_no_code_and_releases_lease_for_later_stage()
     let count = requests.clone();
     let server = FakeHttp::start(move |request| {
         count.fetch_add(1, Ordering::SeqCst);
-        assert_eq!(request.path(), "/.well-known/rocketvibe");
+        assert_eq!(request.path(), "/.well-known/vibez");
         respond(200, &discovery().to_string())
     })
     .await;

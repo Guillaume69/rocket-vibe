@@ -11,7 +11,7 @@ test('invitation signup resumes a lost acknowledgement without persisting a secr
   let accepts=0;let lose=true;
   const fetcher:typeof fetch=async(url,options)=>{
     assert.equal(new Headers(options?.headers).has('authorization'),false);
-    if(String(url).endsWith('/.well-known/rocketvibe'))return Response.json(discovery);
+    if(String(url).endsWith('/.well-known/vibez'))return Response.json(discovery);
     if(String(url).endsWith('/invitations/accept')){
       accepts++;assert.deepEqual(JSON.parse(String(options?.body)),{token:'a'.repeat(64),username:'alice',password:credentials.password});
       if(lose){lose=false;throw new Error('lost acknowledgement');}return Response.json(fixture.session.user);
@@ -28,7 +28,7 @@ test('signup checks capability, generation before and after acceptance, and the 
   for(const scenario of ['capability','before','after','uid','after-login']){
     let reads=0,accepts=0,logins=0;
     const fetcher:typeof fetch=async url=>{
-      if(String(url).endsWith('/.well-known/rocketvibe')){
+      if(String(url).endsWith('/.well-known/vibez')){
         reads++;
         return Response.json({...discovery,capabilities:{...discovery.capabilities,account_invitations:scenario!=='capability'},data_epoch:
           scenario==='before'||scenario==='after'&&reads>=2||scenario==='after-login'&&reads>=4?'changed':discovery.data_epoch});

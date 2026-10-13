@@ -74,7 +74,7 @@ async fn protected_custom_images_resolve_aliases_and_refuse_a_retired_cached_ima
     let image_reads = Arc::new(AtomicUsize::new(0));
     let (remote, reads) = (current.clone(), image_reads.clone());
     let server = FakeHttp::start(move |r| match r.path() {
-        "/.well-known/rocketvibe" => respond(200, &discovery.lock().unwrap().to_string()),
+        "/.well-known/vibez" => respond(200, &discovery.lock().unwrap().to_string()),
         "/api/v1/me" => respond(200, &f["session"]["user"].to_string()),
         "/api/v1/sync/changes" => respond(
             200,

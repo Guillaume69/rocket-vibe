@@ -134,10 +134,10 @@ jobs:
           target/debug/vibez create-user webvideopeer --admin
           target/debug/vibez serve --bind 127.0.0.1:3417 > .cache/web-server.log 2>&1 &
           for i in {1..60}; do
-            if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null; then break; fi
+            if curl --fail --silent "$RV_WEB_TEST_URL/.well-known/vibez" > /dev/null; then break; fi
             sleep 1
           done
-          curl --fail --silent "$RV_WEB_TEST_URL/.well-known/rocketvibe" > /dev/null
+          curl --fail --silent "$RV_WEB_TEST_URL/.well-known/vibez" > /dev/null
       - name: Exercise real browser conversations and devices
         working-directory: apps/web
         env:

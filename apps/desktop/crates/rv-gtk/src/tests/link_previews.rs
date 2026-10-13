@@ -55,7 +55,7 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     let reads = Arc::new(AtomicUsize::new(0));
     let (remote, count) = (current.clone(), reads.clone());
     let server = runtime.block_on(http::FakeHttp::start(move |r| match r.path() {
-        "/.well-known/rocketvibe" => http::respond(200, &discovery.to_string()),
+        "/.well-known/vibez" => http::respond(200, &discovery.to_string()),
         "/api/v1/me" => http::respond(200, &fixture["session"]["user"].to_string()),
         "/api/v1/sync/changes" => http::respond(
             200,

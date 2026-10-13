@@ -156,7 +156,7 @@ pub async fn probe(base: &url::Url) -> Result<Option<Discovery>, Error> {
         .build()
         .map_err(|_| Error::Protocol("invalid_client"))?;
     let response = client
-        .get(format!("{}/.well-known/rocketvibe", base.as_str().trim_end_matches('/')))
+        .get(format!("{}/.well-known/vibez", base.as_str().trim_end_matches('/')))
         .send()
         .await
         .map_err(|_| Error::Protocol("discovery_unavailable"))?;
@@ -168,7 +168,7 @@ pub async fn probe(base: &url::Url) -> Result<Option<Discovery>, Error> {
         return Ok(None);
     }
     let body = response.text().await.map_err(|_| Error::Protocol("discovery_unavailable"))?;
-    let native = serde_json::from_str::<Value>(&body).ok().is_some_and(|v| v["product"] == "rocketvibe");
+    let native = serde_json::from_str::<Value>(&body).ok().is_some_and(|v| v["product"] == "vibez");
     if !native {
         return Ok(None);
     }

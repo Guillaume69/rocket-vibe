@@ -33,12 +33,12 @@ test('unsupported advertised native versions never fall back to RC discovery',as
   await assert.rejects(discoverServer(session.baseUrl,undefined,async url => {
     calls.push(String(url)); return Response.json({...discovery,protocol_versions:[99]});
   }));
-  assert(calls.every(url => url.endsWith('/.well-known/rocketvibe')));
+  assert(calls.every(url => url.endsWith('/.well-known/vibez')));
 });
 test('a proxy refusing /.well-known still finds the Rocket.Chat behind it',async () => {
   const profile = await discoverServer(session.baseUrl,undefined,async url => {
     const path = new URL(String(url)).pathname;
-    if (path === '/.well-known/rocketvibe') return new Response('',{status:403});
+    if (path === '/.well-known/vibez') return new Response('',{status:403});
     if (path === '/api/info') return Response.json({version:'8.8',success:true});
     if (path === '/api/v1/settings.public') return Response.json({success:true,settings:[]});
     return new Response('',{status:404});
@@ -54,10 +54,10 @@ test('a chosen server kind is probed alone',async () => {
     return new Response('',{status:404});
   };
   const rocketChat = await discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketchat');
-  assert.equal(rocketChat.version,'8.8');assert(!calls.includes('/.well-known/rocketvibe'),'Rocket.Chat asks no discovery');
+  assert.equal(rocketChat.version,'8.8');assert(!calls.includes('/.well-known/vibez'),'Rocket.Chat asks no discovery');
   calls.length = 0;
   await assert.rejects(discoverServer(session.baseUrl,undefined,fetcher as typeof fetch,'rocketvibe'),NotRocketVibeError);
-  assert.deepEqual(calls,['/.well-known/rocketvibe'],'RocketVibe never falls back to the Rocket.Chat probe');
+  assert.deepEqual(calls,['/.well-known/vibez'],'RocketVibe never falls back to the Rocket.Chat probe');
 });
 test('the metadata client blocks legacy Rocket.Chat endpoints on a native account',async () => {
   const client = clientForSession(session,() => {});

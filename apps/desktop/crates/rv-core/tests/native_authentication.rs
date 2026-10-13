@@ -52,7 +52,7 @@ async fn account_codes_follow_full_factor_login_and_cannot_redirect_to_another_u
             let server=FakeHttp::start(move |request| {
             assert!(!request.headers.contains_key("authorization"));
             match request.path() {
-                "/.well-known/rocketvibe"=>{let mut d=discovery(&f);d["capabilities"]["account_recovery"]=json!(scenario!="capability");d["capabilities"]["account_invitations"]=json!(scenario!="capability");respond(200,&d.to_string())},
+                "/.well-known/vibez"=>{let mut d=discovery(&f);d["capabilities"]["account_recovery"]=json!(scenario!="capability");d["capabilities"]["account_invitations"]=json!(scenario!="capability");respond(200,&d.to_string())},
                 "/api/v1/auth/start"=>respond(200,&json!({"kind":"challenge","user":f["session"]["user"],"challenge":{"challenge_id":"a".repeat(64),"methods":["totp"],"expires_at":expiry(),"resend_after_seconds":0}}).to_string()),
                 "/api/v1/auth/recovery"|"/api/v1/auth/invitations/accept"=>{
                     assert_eq!(request.path(),if recovery {"/api/v1/auth/recovery"} else {"/api/v1/auth/invitations/accept"});seen.fetch_add(1,Ordering::SeqCst);
@@ -102,7 +102,7 @@ async fn lost_factor_response_recovers_its_durable_candidate_after_challenge_exp
     let (stored, done, count) = (saved.clone(), committed.clone(), submits.clone());
     let f = fixture();
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => respond(200, &discovery(&f).to_string()),
+        "/.well-known/vibez" => respond(200, &discovery(&f).to_string()),
         "/api/v1/auth/factors/verify" => {
             assert!(!request.headers.contains_key("authorization"));
             let body: Value = serde_json::from_str(&request.body).unwrap();
@@ -161,7 +161,7 @@ async fn failed_vault_write_prevents_factor_mutation() {
     let seen = calls.clone();
     let f = fixture();
     let server = FakeHttp::start(move |request| {
-        assert_eq!(request.path(), "/.well-known/rocketvibe");
+        assert_eq!(request.path(), "/.well-known/vibez");
         seen.fetch_add(1, Ordering::SeqCst);
         respond(200, &discovery(&f).to_string())
     })
@@ -188,7 +188,7 @@ async fn only_a_structured_candidate_rejection_allows_replaying_the_original_ope
         let reads = discoveries.clone();
         let f = fixture();
         let server = FakeHttp::start(move |request| match request.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut value = discovery(&f);
                 if scenario == "after" && reads.fetch_add(1, Ordering::SeqCst) > 0 {
                     value["data_epoch"] = json!("restored");
@@ -248,7 +248,7 @@ async fn malformed_pending_is_rejected_before_network_and_login_pins_both_identi
         let f = fixture();
         let server=FakeHttp::start(move |request| {
             assert!(!request.headers.contains_key("authorization"));
-            if request.path()=="/.well-known/rocketvibe" {
+            if request.path()=="/.well-known/vibez" {
                 let mut d=discovery(&f);let n=reads.fetch_add(1,Ordering::SeqCst);
                 if scenario=="legacy" {d["capabilities"]["second_factors"]=json!(false);}
                 if scenario=="before" || scenario=="after" && n>0 {d["data_epoch"]=json!("restored");}

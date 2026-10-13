@@ -30,7 +30,7 @@ test("signup accepts the user response then authenticates, including second-fact
         ): Promise<T> {
           paths.push(path);
           assert.equal(anonymous, true);
-          if (path === "/.well-known/rocketvibe") return info as T;
+          if (path === "/.well-known/vibez") return info as T;
           if (path === "/api/v1/auth/start") {
             assert.deepEqual(input, {
               username: "alice",
@@ -68,7 +68,7 @@ test("signup rejects a server generation change and an authenticated account mis
     let login = 0;
     const api = {
       async request<T>(path: string): Promise<T> {
-        if (path === "/.well-known/rocketvibe")
+        if (path === "/.well-known/vibez")
           return {
             ...info,
             data_epoch: scenario === "epoch" ? "changed" : info.data_epoch,

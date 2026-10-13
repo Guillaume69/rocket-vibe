@@ -24,7 +24,7 @@ async fn device_management_keeps_recent_auth_errors_and_blocks_closed_providers(
     let (responses, name, count, recent, broken) =
         (fixture.clone(), label.clone(), mutations.clone(), allow.clone(), corrupt.clone());
     let server=FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe"=>{
+        "/.well-known/vibez"=>{
             let mut discovery=responses["discovery"].clone();discovery["capabilities"]["device_sessions"]=json!(true);
             respond(200,&discovery.to_string())
         },

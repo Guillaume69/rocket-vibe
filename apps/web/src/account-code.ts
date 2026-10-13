@@ -31,7 +31,7 @@ export async function accountCodeLogin(
   );
   const check = async () => {
     const fresh = await api.request<Discovery>(
-      "/.well-known/rocketvibe",
+      "/.well-known/vibez",
       "GET",
       undefined,
       true,

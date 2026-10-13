@@ -36,7 +36,7 @@ export default defineConfig({
     },
     proxy: {
       "/api": { target: backend, ws: true },
-      "/.well-known/rocketvibe": { target: backend },
+      "/.well-known/vibez": { target: backend },
     },
   },
   build: { target: "es2022" },

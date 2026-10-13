@@ -178,7 +178,7 @@ impl Pilot {
                 if lose_reply.load(Ordering::SeqCst) { respond(503, r#"{"code":"response_lost","request_id":"crypto-pilot"}"#) }
                 else { respond(200, &receipt.to_string()) }
             }
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = data["discovery"].clone();
                 discovery["capabilities"]["e2ee"] = json!(capable.load(Ordering::SeqCst));
                 if handler.is_some() {

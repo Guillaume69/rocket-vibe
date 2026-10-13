@@ -42,7 +42,7 @@ fn native_login_modes_fit_narrow_windows_and_scroll_to_their_submit() {
     discovery["capabilities"]["account_invitations"] = serde_json::json!(true);
     discovery["capabilities"]["account_recovery"] = serde_json::json!(true);
     let server = executor.block_on(http::FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => http::respond(200, &discovery.to_string()),
+        "/.well-known/vibez" => http::respond(200, &discovery.to_string()),
         _ => http::respond(404, "{}"),
     }));
     let app = adw::Application::builder().application_id("me.rocketvibe.LoginLayoutTest").build();

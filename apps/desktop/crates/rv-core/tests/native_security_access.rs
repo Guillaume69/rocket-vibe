@@ -81,7 +81,7 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
         mutations.clone(),
     );
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = data["discovery"].clone();
             discovery["capabilities"]["reauthentication"] = json!(true);
             discovery["capabilities"]["reauthentication_retirement"] = json!(true);

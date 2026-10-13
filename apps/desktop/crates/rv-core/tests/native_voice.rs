@@ -29,7 +29,7 @@ fn snapshot() -> Snapshot {
 fn ordinary(req: &common::Request) -> Response {
     let f = fixture();
     match req.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = f["discovery"].clone();
             discovery["capabilities"]["voice"] = json!(true);
             respond(200, &discovery.to_string())

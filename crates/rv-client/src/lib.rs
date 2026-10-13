@@ -767,9 +767,9 @@ impl NativeClient {
 
     pub async fn discover(&self) -> Result<Discovery, Error> {
         let info: Discovery = self
-            .request(Method::GET, "/.well-known/rocketvibe", None::<&()>, true)
+            .request(Method::GET, "/.well-known/vibez", None::<&()>, true)
             .await?;
-        if info.product != "rocketvibe"
+        if info.product != "vibez"
             || !info.protocol_versions.contains(&rv_protocol::VERSION)
             || info.api_path != "/api/v1"
         {

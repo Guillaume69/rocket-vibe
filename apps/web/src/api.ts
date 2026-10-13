@@ -23,7 +23,7 @@ export class Api {
     anonymous = false,
     revalidations = 0,
   ): Promise<T> {
-    if (!path.startsWith("/api/") && path !== "/.well-known/rocketvibe")
+    if (!path.startsWith("/api/") && path !== "/.well-known/vibez")
       throw new Error("Invalid API path");
     const token = this.token;
     const headers = new Headers();

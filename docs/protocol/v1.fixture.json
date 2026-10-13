@@ -5,7 +5,7 @@
   "avatar_command": { "operation_id": "avatar-operation", "expected_revision": "profile-revision" },
   "profile_receipt": { "operation_id": "profile-operation", "applied_revision": "next-profile-revision" },
   "discovery": {
-    "product": "rocketvibe",
+    "product": "vibez",
     "instance_id": "fixture-instance",
     "data_epoch": "fixture-epoch",
     "server_version": "0.1.0",

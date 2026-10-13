@@ -13,7 +13,7 @@ test('a lost renewal response recovers its saved successor without renewing twic
   const factory=(record:Session)=>{
     const transport=new NativeTransport(record.baseUrl,async(url,options)=>{
       const path=String(url);const token=(options?.headers as Record<string,string>).authorization?.slice(7);
-      if (path.endsWith('/.well-known/rocketvibe')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,session_rotation:true,device_sessions:true}});
+      if (path.endsWith('/.well-known/vibez')) return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,session_rotation:true,device_sessions:true}});
       if (path.endsWith('/auth/renew')) {
         requests++;const input=JSON.parse(String(options?.body));
         assert(stored.pending);

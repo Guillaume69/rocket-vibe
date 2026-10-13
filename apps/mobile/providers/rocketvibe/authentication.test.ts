@@ -13,7 +13,7 @@ test('lost factor ACK survives recreation and expiry without spending another co
   let stored=initial();let random=0,writes=0,submits=0;let committed=false;
   const fetcher:typeof fetch=async(url,options)=>{
     const path=String(url);
-    if(path.endsWith('/.well-known/rocketvibe'))return Response.json(discovery());
+    if(path.endsWith('/.well-known/vibez'))return Response.json(discovery());
     if(path.endsWith('/auth/factors/verify')){
       submits++;assert(stored.pending);const body=JSON.parse(String(options?.body));
       assert.equal(body.next_token,stored.pending.next_token);assert.equal(body.operation_id,stored.pending.operation_id);
@@ -37,7 +37,7 @@ test('lost factor ACK survives recreation and expiry without spending another co
 test('an uncommitted durable candidate resends exactly the original factor operation',async()=>{
   const stored={...initial(),pending:intent};let submits=0;
   const fetcher:typeof fetch=async(url,options)=>{
-    if(String(url).endsWith('/.well-known/rocketvibe'))return Response.json(discovery());
+    if(String(url).endsWith('/.well-known/vibez'))return Response.json(discovery());
     if(String(url).endsWith('/me'))return Response.json({code:'session_rejected',request_id:'fixture'},{status:401});
     submits++;assert.deepEqual(JSON.parse(String(options?.body)),{challenge_id:stored.challenge.challenge_id,method:'recovery_code',code:'BACKUP',...intent});
     return Response.json({...fixture.session,token:intent.next_token,expires_at:expires()});
@@ -49,7 +49,7 @@ test('an uncommitted durable candidate resends exactly the original factor opera
 test('secure storage failure and invalid CSPRNG output prevent factor mutations',async()=>{
   let submits=0,writes=0;
   const fetcher:typeof fetch=async(url)=>{
-    if(!String(url).endsWith('/.well-known/rocketvibe'))submits++;
+    if(!String(url).endsWith('/.well-known/vibez'))submits++;
     return Response.json(discovery());
   };
   await assert.rejects(finishNativeFactor(initial(),'totp','123456',{fetcher,token:async()=>'b'.repeat(64),save:async()=>{writes++;throw new Error('Vault unavailable');}}),/Vault unavailable/);
@@ -73,7 +73,7 @@ test('ambiguous candidate probes never fall through to reuse a second factor',as
     let submits=0;
     const fetcher:typeof fetch=async(url)=>{
       const path=String(url);
-      if(path.endsWith('/.well-known/rocketvibe'))return Response.json(discovery());
+      if(path.endsWith('/.well-known/vibez'))return Response.json(discovery());
       if(path.endsWith('/auth/factors/verify')){submits++;throw new Error('Unexpected factor mutation');}
       if(path.endsWith('/me')){
         if(scenario==='proxy')return Response.json({message:'Proxy authentication'},{status:401});
@@ -91,7 +91,7 @@ test('bad factor responses cannot install a different UID, bearer, expiry or gen
   for(const scenario of ['uid','token','expiry','after']){
     let discoveries=0;
     const fetcher:typeof fetch=async(url)=>{
-      if(String(url).endsWith('/.well-known/rocketvibe'))return Response.json({...discovery(),data_epoch:scenario==='after' && ++discoveries>1?'restored':fixture.discovery.data_epoch});
+      if(String(url).endsWith('/.well-known/vibez'))return Response.json({...discovery(),data_epoch:scenario==='after' && ++discoveries>1?'restored':fixture.discovery.data_epoch});
       if(String(url).endsWith('/me'))return Response.json({code:'session_rejected',request_id:'fixture'},{status:401});
       return Response.json({...fixture.session,token:scenario==='token'?'d'.repeat(64):intent.next_token,user:{...fixture.session.user,id:scenario==='uid'?'other':fixture.session.user.id},expires_at:scenario==='expiry'?'invalid':expires()});
     };
@@ -107,7 +107,7 @@ test('starting login pins discovery and preserves the legacy route on an older n
     const fetcher:typeof fetch=async(url,options)=>{
       const path=String(url);requests.push(path);
       assert.equal(new Headers(options?.headers).has('authorization'),false);
-      if(path.endsWith('/.well-known/rocketvibe'))return Response.json({...discovery(),capabilities:{...discovery().capabilities,second_factors:nativeFactors}});
+      if(path.endsWith('/.well-known/vibez'))return Response.json({...discovery(),capabilities:{...discovery().capabilities,second_factors:nativeFactors}});
       return Response.json(nativeFactors?{kind:'challenge',user:fixture.session.user,challenge:initial().challenge}:{...fixture.session,token:'e'.repeat(64),expires_at:expires()});
     };
     const step=await startNativeLogin('https://example.org',discovery(),{user:'alice',password:'transient-password'},fetcher);
@@ -122,7 +122,7 @@ test('signup and password recovery follow full factor login and pin the account 
     let accepted=0;
     const fetcher:typeof fetch=async(url,options)=>{
       const path=String(url);assert.equal(new Headers(options?.headers).has('authorization'),false);
-      if(path.endsWith('/.well-known/rocketvibe'))return Response.json({...discovery(),capabilities:{...discovery().capabilities,account_recovery:scenario!=='capability',account_invitations:scenario!=='capability'}});
+      if(path.endsWith('/.well-known/vibez'))return Response.json({...discovery(),capabilities:{...discovery().capabilities,account_recovery:scenario!=='capability',account_invitations:scenario!=='capability'}});
       if(path.endsWith('/auth/start'))return Response.json({kind:'challenge',user:fixture.session.user,challenge:initial().challenge});
       accepted++;assert(path.endsWith(recovery?'/auth/recovery':'/auth/invitations/accept'));
       return Response.json({...fixture.session.user,id:scenario==='uid'?'another':fixture.session.user.id});

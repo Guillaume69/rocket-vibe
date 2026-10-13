@@ -19,7 +19,7 @@ async fn room_information_uses_existing_model_and_rejects_late_cross_scope_paylo
         let epoch = changed.clone();
         let replies = fixture.clone();
         let server = FakeHttp::start(move |request| match request.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = replies["discovery"].clone();
                 discovery["capabilities"]["room_info"] = json!(scenario != "unsupported");
                 if epoch.load(Ordering::SeqCst) {
@@ -113,9 +113,7 @@ async fn room_information_uses_existing_model_and_rejects_late_cross_scope_paylo
             assert_eq!(result.unwrap_err().code(), expected);
         }
         common::close_native(session).await;
-        assert!(
-            server.requests().iter().all(|r| r.path() == "/.well-known/rocketvibe" || r.path().starts_with("/api/v1/"))
-        );
+        assert!(server.requests().iter().all(|r| r.path() == "/.well-known/vibez" || r.path().starts_with("/api/v1/")));
         std::fs::remove_file(path).unwrap();
     }
 }

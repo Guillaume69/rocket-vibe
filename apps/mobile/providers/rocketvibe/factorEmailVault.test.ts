@@ -25,7 +25,7 @@ function authHarness(){
       if(failWrite || failReceipt && JSON.parse(value).email?.status)throw new Error('Secure storage unavailable');values.set(key,value);
     }},fetcher:async(url,options)=>{
       const path=new URL(String(url)).pathname;
-      if(path.endsWith('/.well-known/rocketvibe'))return Response.json({...fixture.discovery,data_epoch:epoch,capabilities:{...fixture.discovery.capabilities,email_factors:true,email_factor_delivery:smtp}});
+      if(path.endsWith('/.well-known/vibez'))return Response.json({...fixture.discovery,data_epoch:epoch,capabilities:{...fixture.discovery.capabilities,email_factors:true,email_factor_delivery:smtp}});
       const input=JSON.parse(String(options?.body)) as RequestFactorEmail;
       assert.equal(new Headers(options?.headers).has('authorization'),false);
       if(path.endsWith('/resume')){

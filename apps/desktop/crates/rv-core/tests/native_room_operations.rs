@@ -47,7 +47,7 @@ fn seed(path: &std::path::Path) -> NativeStore {
 }
 fn routine(request: &common::Request, data: &Value) -> common::Response {
     match request.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = data["discovery"].clone();
             for key in ["room_info", "room_settings", "room_roles", "room_leave"] {
                 discovery["capabilities"][key] = json!(true);
@@ -180,7 +180,7 @@ async fn room_runner_does_not_mutate_on_ambiguous_receipts_or_lifetime_changes()
         let epoch = changed.clone();
         let data = fixture();
         let server=FakeHttp::start(move|request|{
-            if request.path()=="/.well-known/rocketvibe" && epoch.load(Ordering::SeqCst){let mut response=routine(request,&data);let mut discovery:Value=serde_json::from_str(&response.body).unwrap();discovery["data_epoch"]=json!("replacement");response.body=discovery.to_string();return response;}
+            if request.path()=="/.well-known/vibez" && epoch.load(Ordering::SeqCst){let mut response=routine(request,&data);let mut discovery:Value=serde_json::from_str(&response.body).unwrap();discovery["data_epoch"]=json!("replacement");response.body=discovery.to_string();return response;}
             if request.path()=="/api/v1/rooms/room-id/commands/original" {
                 let session=callback.lock().unwrap().as_ref().unwrap().upgrade().unwrap();
                 match scenario {

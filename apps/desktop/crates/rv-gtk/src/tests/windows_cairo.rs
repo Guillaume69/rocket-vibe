@@ -123,7 +123,7 @@ fn windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback() {
     initial["rooms"] = serde_json::json!([fixture["room"].clone(), other]);
     initial["messages"] = serde_json::json!([]);
     let server = executor.block_on(http::FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => http::respond(200, &fixture["discovery"].to_string()),
+        "/.well-known/vibez" => http::respond(200, &fixture["discovery"].to_string()),
         "/api/v1/me" => http::respond(200, &fixture["session"]["user"].to_string()),
         "/api/v1/sync/changes" => {
             http::respond(200, r#"{"protocol_version":1,"changes":[],"cursor":"fixture","has_more":false}"#)

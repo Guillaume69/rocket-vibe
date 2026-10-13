@@ -247,7 +247,7 @@ default behavior targets the existing badges, without copying an observed incons
 
 ## 8. HTTP protocol and discovery
 
-An anonymous discovery route, `GET /.well-known/rocketvibe`, exposes `product`,
+An anonymous discovery route, `GET /.well-known/vibez`, exposes `product`,
 `instance_id`, `data_epoch`, the server version, the accepted protocol versions,
 the API base URL and the available sign-in methods. It exposes no secret.
 

@@ -28,7 +28,7 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
         }
         let administration = &responses["administration"];
         match request.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = responses["discovery"].clone();
                 discovery["capabilities"]["administration"] = json!(true);
                 discovery["capabilities"]["reports"] = json!(true);

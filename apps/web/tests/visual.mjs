@@ -362,7 +362,7 @@ try {
   await page.locator(".settings-dialog").waitFor({ state: "detached" });
   assert.equal(await page.locator(".settings-dialog").count(), 0);
   console.log("PASS narrow settings can close from the category pane");
-  const discovery = await fetch(base + "/.well-known/rocketvibe").then((r) =>
+  const discovery = await fetch(base + "/.well-known/vibez").then((r) =>
     r.json(),
   );
   const currentMajor = Number(discovery.server_version.split(".")[0]);

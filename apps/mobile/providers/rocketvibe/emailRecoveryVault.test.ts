@@ -14,7 +14,7 @@ function harness(){
   let writing:()=>Promise<void>=async()=>{};let posting:()=>Promise<void>=async()=>{};
   const fetcher:typeof fetch=async(url,options)=>{
     assert.equal(new Headers(options?.headers).has('authorization'),false);assert.equal(options?.redirect,'error');
-    if(String(url).endsWith('/.well-known/rocketvibe')){
+    if(String(url).endsWith('/.well-known/vibez')){
       reads++;
       return Response.json({...discovery,data_epoch:mode==='before' || mode==='staged' && reads>=2 || mode==='after' && posts>0?'changed':discovery.data_epoch,
         capabilities:{...discovery.capabilities,email_recovery:mode!=='unsupported' && !(mode==='smtp-gone' && posts>0)}});

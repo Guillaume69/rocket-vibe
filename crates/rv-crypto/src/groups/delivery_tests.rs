@@ -213,7 +213,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
         } else {
             other.as_str()
         };
-        if request.path == "/.well-known/rocketvibe" {
+        if request.path == "/.well-known/vibez" {
             assert!(
                 !request
                     .headers
@@ -221,7 +221,7 @@ fn server(alice: &Account, bob: &Account, drop_once: bool) -> (Server, Arc<Mutex
                     .contains("authorization:")
             );
             return json(&rv_protocol::Discovery {
-                product: "rocketvibe".into(),
+                product: "vibez".into(),
                 instance_id: "instance".into(),
                 data_epoch: "epoch".into(),
                 server_version: "fixture".into(),
@@ -1426,8 +1426,8 @@ async fn stop_is_shared_and_scope_changes_prevent_any_vault_or_crypto_request() 
         let server = Server::new(move |request| {
             recorded.fetch_add(1, Ordering::SeqCst);
             match request.path.as_str() {
-                "/.well-known/rocketvibe" => json(&rv_protocol::Discovery {
-                    product: "rocketvibe".into(),
+                "/.well-known/vibez" => json(&rv_protocol::Discovery {
+                    product: "vibez".into(),
                     instance_id: "instance".into(),
                     data_epoch: if field == 0 {
                         "changed".into()

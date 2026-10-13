@@ -120,7 +120,7 @@ async fn actual_live_socket_emits_once_and_scopes_persisted_notification_replies
     let wire = serde_json::to_value(&socket_batch).unwrap();
     let responses = f.clone();
     let server = FakeHttp::start(move |req| match req.path() {
-        "/.well-known/rocketvibe" => respond(200, &responses["discovery"].to_string()),
+        "/.well-known/vibez" => respond(200, &responses["discovery"].to_string()),
         "/api/v1/me" => respond(200, &json!({"id":"bob","username":"bob","display_name":"Bob"}).to_string()),
         "/api/v1/sync/changes" => {
             respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string())
@@ -298,7 +298,7 @@ async fn durable_notification_click_revalidates_after_restart_and_keeps_only_tra
         let capture_info = late_info.clone();
         let capture_path = path.clone();
         let server = FakeHttp::start(move |req| match req.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = f["discovery"].clone();
                 if scenario == "restored" { discovery["data_epoch"] = json!("restored"); }
                 respond(200, &discovery.to_string())
@@ -457,7 +457,7 @@ async fn offline_notification_reply_reopens_with_uncached_root_and_refuses_delet
         let f = fixture();
         let endpoint = format!("/api/v1/rooms/{}/messages", room().id);
         let server = FakeHttp::start(move |req| match req.path() {
-            "/.well-known/rocketvibe" => {
+            "/.well-known/vibez" => {
                 let mut discovery = f["discovery"].clone();
                 if scenario == "restored" {
                     discovery["data_epoch"] = json!("restored");
@@ -555,7 +555,7 @@ async fn offline_notification_reply_confirms_lost_send_after_restart_even_when_o
     let delivered = committed.clone();
     let endpoint = format!("/api/v1/rooms/{}/messages", room().id);
     let server = FakeHttp::start(move |req| match req.path() {
-        "/.well-known/rocketvibe" => respond(200, &f["discovery"].to_string()),
+        "/.well-known/vibez" => respond(200, &f["discovery"].to_string()),
         "/api/v1/me" => respond(200, &json!({"id":"bob","username":"bob","display_name":"Bob"}).to_string()),
         "/api/v1/sync/changes" => {
             respond(200, &json!({"protocol_version":1,"changes":[],"cursor":"next","has_more":false}).to_string())

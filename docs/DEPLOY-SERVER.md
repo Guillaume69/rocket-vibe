@@ -154,7 +154,7 @@ Recharger, puis vérifier :
 ```bash
 sudo systemctl reload caddy
 curl -f https://chat.example.org/health/ready
-curl https://chat.example.org/.well-known/rocketvibe
+curl https://chat.example.org/.well-known/vibez
 ```
 
 La seconde réponse annonce les capacités du serveur : `voice` doit y valoir `true` si LiveKit est configuré.
@@ -296,7 +296,7 @@ rv up --build -d
 - [ ] `docker/compose.prod.yml` créé, alias `rv` en place
 - [ ] `rv up --build -d`, tous les services en marche
 - [ ] Caddyfile chargé, `/health/ready` répond en HTTPS
-- [ ] `voice: true` dans `/.well-known/rocketvibe`
+- [ ] `voice: true` dans `/.well-known/vibez`
 - [ ] Pare-feu : 22, 80, 443, 7881/tcp, 50000-50020/udp
 - [ ] Compte admin créé, connexion depuis une app
 - [ ] Un appel vocal entre deux appareils sur des réseaux différents

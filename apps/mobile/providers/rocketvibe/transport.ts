@@ -275,8 +275,8 @@ export class NativeTransport {
   }
 
   async discover(signal?: AbortSignal): Promise<Discovery> {
-    const discovery = await this.request('Discovery', '/.well-known/rocketvibe', undefined, true, signal);
-    if (discovery.product !== 'rocketvibe' || !discovery.protocol_versions.includes(1) || discovery.api_path !== '/api/v1') throw new Error('Unsupported RocketVibe protocol');
+    const discovery = await this.request('Discovery', '/.well-known/vibez', undefined, true, signal);
+    if (discovery.product !== 'vibez' || !discovery.protocol_versions.includes(1) || discovery.api_path !== '/api/v1') throw new Error('Unsupported RocketVibe protocol');
     this.snapshotPaging = discovery.capabilities.snapshot_paging === true;
     return discovery;
   }

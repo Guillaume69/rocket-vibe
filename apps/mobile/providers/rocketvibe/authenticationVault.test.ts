@@ -21,7 +21,7 @@ function harness() {
   const storage:AuthenticationStorage={read:async key=>values.get(key)??null,write:async(key,value)=>{if(failWrite)throw new Error('Secure storage unavailable');values.set(key,value);},remove:async key=>{values.delete(key);}};
   const fetcher:typeof fetch=async(url,options)=>{
     const path=String(url);
-    if(path.endsWith('/.well-known/rocketvibe'))return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,second_factors:true,device_sessions:true}});
+    if(path.endsWith('/.well-known/vibez'))return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,second_factors:true,device_sessions:true}});
     if(path.endsWith('/me'))return committed
       ? Response.json(fixture.session.user)
       : Response.json({code:'session_rejected',request_id:'fixture'},{status:401});

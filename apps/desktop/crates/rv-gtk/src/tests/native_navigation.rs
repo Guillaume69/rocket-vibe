@@ -44,7 +44,7 @@ fn new_direct_and_public_rooms_open_after_sync_without_stealing_later_navigation
     let receipt_seen = Arc::new(Mutex::new(String::new()));
     let (pending, seen) = (announced.clone(), receipt_seen.clone());
     let server = executor.block_on(http::FakeHttp::start(move |r| match (r.method.as_str(), r.path()) {
-        (_, "/.well-known/rocketvibe") => http::respond(200, &discovery.to_string()),
+        (_, "/.well-known/vibez") => http::respond(200, &discovery.to_string()),
         (_, "/api/v1/me") => http::respond(200, &fixture["session"]["user"].to_string()),
         (_, "/api/v1/sync/changes") => {
             let room = pending.lock().unwrap().take();

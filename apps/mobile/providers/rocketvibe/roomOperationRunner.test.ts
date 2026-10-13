@@ -28,7 +28,7 @@ test('actual HTTP and SQLite recover all room forms after a lost acknowledgement
     const server=createServer((request,response)=>{void(async()=>{
       const path=new URL(request.url!,'http://localhost').pathname,method=request.method!;
       const send=(status:number,body:unknown)=>{response.writeHead(status,{'content-type':'application/json'});response.end(JSON.stringify(body));};
-      if(path==='/.well-known/rocketvibe'){send(200,{...discovery,capabilities:{...discovery.capabilities,room_info:true,room_settings:true,room_roles:true,room_leave:true}});return;}
+      if(path==='/.well-known/vibez'){send(200,{...discovery,capabilities:{...discovery.capabilities,room_info:true,room_settings:true,room_roles:true,room_leave:true}});return;}
       assert.equal(request.headers.authorization,'Bearer test-token');
       if(path==='/api/v1/me'){send(200,user);return;}
       if(path==='/api/v1/sync/changes'){send(200,{protocol_version:1,changes:[],cursor:'initial',has_more:false});return;}

@@ -169,7 +169,7 @@ public enumeration to request a code.
 Discovery and status:
 
 ```sh
-curl http://127.0.0.1:3400/.well-known/rocketvibe
+curl http://127.0.0.1:3400/.well-known/vibez
 curl -f http://127.0.0.1:3400/health/ready
 ```
 

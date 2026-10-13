@@ -45,7 +45,7 @@ const page = await browser.newPage({
 page.on("pageerror", (e) => errors.push(e.message));
 // Search and media are controlled fixtures: the key stays on the server, and
 // API writes, journals, voting, persistence and room changes are real.
-await page.route("**/.well-known/rocketvibe", async (route) => {
+await page.route("**/.well-known/vibez", async (route) => {
   const response = await route.fetch();
   const value = await response.json();
   value.capabilities.giphy = true;

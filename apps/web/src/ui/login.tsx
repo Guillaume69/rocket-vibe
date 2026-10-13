@@ -76,7 +76,7 @@ export function LoginScreen({ app }: { app: App }) {
   );
   const discover = () =>
     app.api.request<Discovery>(
-      "/.well-known/rocketvibe",
+      "/.well-known/vibez",
       "GET",
       undefined,
       true,

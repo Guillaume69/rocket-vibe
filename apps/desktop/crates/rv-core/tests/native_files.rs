@@ -144,7 +144,7 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
     let (prepared, delivered) = (allow_prepare.clone(), allow_receipt.clone());
     let (stage, saved, key, fixture) = (phase.clone(), original.clone(), complete.clone(), f.clone());
     let server=FakeHttp::start(move |request|match request.path(){
-        "/.well-known/rocketvibe"=>{let mut d=fixture["discovery"].clone();d["capabilities"]["uploads"]=json!(true);respond(200,&d.to_string())},
+        "/.well-known/vibez"=>{let mut d=fixture["discovery"].clone();d["capabilities"]["uploads"]=json!(true);respond(200,&d.to_string())},
         "/api/v1/me"=>respond(200,&fixture["session"]["user"].to_string()),
         "/api/v1/sync/changes"=>respond(200,&json!({"protocol_version":1,"changes":[],"cursor":"initial","has_more":false}).to_string()),
         "/api/v1/sync/ticket"=>respond(200,&fixture["socket_ticket"].to_string()),

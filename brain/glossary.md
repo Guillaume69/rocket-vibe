@@ -54,7 +54,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `rv-crypto`, `rv-crypto-public` | The MLS engine with its vault (clients only), and the public proof formats the server verifies. | [shared-crates](architecture/shared-crates.md) |
 | `rv-crypto-mobile`, `rv-crypto-web` | The engine's bridges: UniFFI for Android, wasm for the browser. | [shared-crates](architecture/shared-crates.md) |
 | `rv-voice-mobile` | RNNoise over JNI for the Android voice module. | [shared-crates](architecture/shared-crates.md) |
-| Capabilities | The flags `/.well-known/rocketvibe` announces (uploads, push, voice, e2ee...); a client shows a feature only when its flag is on. | [server](architecture/server.md) |
+| Capabilities | The flags `/.well-known/vibez` announces (uploads, push, voice, e2ee...); a client shows a feature only when its flag is on. | [server](architecture/server.md) |
 | Journal | The server's ordered log of room and message changes (`journal`, `instance.position`); clients follow it rather than reading state "as of now". | [server](architecture/server.md) |
 | Cursor | An opaque token for a place in the journal, 7 days; an expired one answers `sync_reset_required` and the client restarts from a snapshot. | [server](architecture/server.md) |
 | Socket ticket | `SocketTicket`, from `POST /api/v1/sync/ticket`: a 30-second single-use pass, given in the URL that opens the sync WebSocket. | [server](architecture/server.md) |

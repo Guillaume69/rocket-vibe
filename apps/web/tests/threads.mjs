@@ -30,7 +30,7 @@ const peer = await call("/api/v1/auth/login", null, {
   username: peerName,
   password,
 });
-const discovery = await call("/.well-known/rocketvibe");
+const discovery = await call("/.well-known/vibez");
 for (const capability of [
   "thread_list",
   "thread_follow",

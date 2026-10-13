@@ -256,7 +256,7 @@ async fn reopening_a_paused_native_account_resumes_its_existing_outbox_without_r
     let fixture: Value = serde_json::from_str(include_str!("../../../../../docs/protocol/v1.fixture.json")).unwrap();
     let responses = fixture.clone();
     let server = FakeHttp::start(move |request| match request.path() {
-        "/.well-known/rocketvibe" => respond(200, &responses["discovery"].to_string()),
+        "/.well-known/vibez" => respond(200, &responses["discovery"].to_string()),
         "/api/v1/me" => respond(200, &responses["session"]["user"].to_string()),
         "/api/v1/sync/snapshot" => respond(
             200,

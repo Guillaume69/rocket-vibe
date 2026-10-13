@@ -39,12 +39,12 @@ export async function discoverServer(input: string, signal?: AbortSignal, fetche
   const timer = setTimeout(() => controller.abort(), 15_000);
   let native = false;
   try {
-    const response = await fetcher(`${baseUrl}/.well-known/rocketvibe`, {signal:controller.signal,redirect:'error'});
+    const response = await fetcher(`${baseUrl}/.well-known/vibez`, {signal:controller.signal,redirect:'error'});
     if (response.ok) {
       const body: unknown = await response.text();
       try {
         const parsed: unknown = JSON.parse(String(body));
-        native = typeof parsed === 'object' && parsed !== null && 'product' in parsed && parsed.product === 'rocketvibe';
+        native = typeof parsed === 'object' && parsed !== null && 'product' in parsed && parsed.product === 'vibez';
       } catch { /* An RC frontend may serve HTML for unknown routes. */ }
     }
     // Only a 2xx naming the product identifies a RocketVibe server. Anything

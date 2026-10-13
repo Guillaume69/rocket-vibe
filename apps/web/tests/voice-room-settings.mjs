@@ -5,7 +5,7 @@ import { base, fixture } from "./crypto-browser.mjs";
 
 export async function voiceRoomSettings(page) {
   const discovery = await page.evaluate(() =>
-    fetch("/.well-known/rocketvibe").then((response) => response.json()),
+    fetch("/.well-known/vibez").then((response) => response.json()),
   );
   if (!discovery.capabilities.voice) return;
   await page

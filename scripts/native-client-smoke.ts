@@ -16,7 +16,7 @@ const password = process.env.RV_SMOKE_PASSWORD;
 if (!base || !password) throw new Error('The integration harness must provide URL and password');
 const alice = new NativeTransport(base);
 const bob = new NativeTransport(base);
-assert.equal((await alice.discover()).product,'rocketvibe');
+assert.equal((await alice.discover()).product,'vibez');
 await alice.login('alice',password);
 const session = await bob.login('bob',password);
 const room = await alice.direct({user_id:session.user.id});

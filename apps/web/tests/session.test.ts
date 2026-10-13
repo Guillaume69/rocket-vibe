@@ -74,7 +74,7 @@ test("logout waits for rotation and revokes its committed successor", async (con
         expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
       });
     }
-    if (path === "/.well-known/rocketvibe")
+    if (path === "/.well-known/vibez")
       return Response.json({ instance_id: "instance", data_epoch: "epoch" });
     assert.equal(path, "/api/v1/auth/logout");
     assert.equal(
@@ -107,7 +107,7 @@ test("logout recovers a durable successor after a lost rotation response", async
   const paths: string[] = [];
   context.mock.method(globalThis, "fetch", async (path, init) => {
     paths.push(path);
-    if (path !== "/.well-known/rocketvibe")
+    if (path !== "/.well-known/vibez")
       assert.equal(
         new Headers(init.headers).get("Authorization"),
         "Bearer " + successor,
@@ -120,7 +120,7 @@ test("logout recovers a durable successor after a lost rotation response", async
           expires_at: new Date(Date.now() + 30 * 86400000).toISOString(),
         },
       ]);
-    if (path === "/.well-known/rocketvibe")
+    if (path === "/.well-known/vibez")
       return Response.json({ instance_id: "instance", data_epoch: "epoch" });
     assert.equal(path, "/api/v1/auth/logout");
     return new Response(null, { status: 204 });
@@ -139,7 +139,7 @@ test("logout recovers a durable successor after a lost rotation response", async
   assert.deepEqual(paths, [
     "/api/v1/me",
     "/api/v1/me/sessions",
-    "/.well-known/rocketvibe",
+    "/.well-known/vibez",
     "/api/v1/auth/logout",
   ]);
   assert.equal((await all("accounts")).length, 0);

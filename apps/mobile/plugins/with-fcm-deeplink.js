@@ -191,7 +191,7 @@ class ${SERVICE_CLASS} : ExpoFirebaseMessagingService() {
         }
       }
       intent.replaceExtras(extras)
-      if (extras.getString("product") == "rocketvibe") {
+      if (extras.getString("product") == "vibez") {
         if (extras.getString("type")?.startsWith("voice_ring") == true) receiveVoicePush(this, extras)
         else receiveNativePush(this, extras)
         return

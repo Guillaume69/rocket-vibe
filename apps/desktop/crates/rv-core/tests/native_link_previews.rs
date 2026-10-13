@@ -64,7 +64,7 @@ async fn existing_cards_and_private_reader_keep_cache_across_reactions_and_fence
     let image = initial.messages[0].previews[0].image.as_ref().unwrap();
     let bytes = png();
     let server = FakeHttp::start(move |r| match r.path() {
-        "/.well-known/rocketvibe" => respond(200, &discovery.to_string()),
+        "/.well-known/vibez" => respond(200, &discovery.to_string()),
         "/api/v1/me" => respond(200, &f["session"]["user"].to_string()),
         "/api/v1/sync/changes" => respond(
             200,

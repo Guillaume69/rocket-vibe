@@ -19,7 +19,7 @@ const request = async (path, token, body) => {
   assert.ok(response.ok, JSON.stringify(value));
   return value;
 };
-const discovery = await request("/.well-known/rocketvibe");
+const discovery = await request("/.well-known/vibez");
 assert.equal(
   discovery.capabilities.voice,
   true,

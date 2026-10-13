@@ -56,7 +56,7 @@ fn account(server: &FakeHttp) -> SessionInfo {
 fn routine(request: &common::Request) -> common::Response {
     let data = fixture();
     match request.path() {
-        "/.well-known/rocketvibe" => {
+        "/.well-known/vibez" => {
             let mut discovery = data["discovery"].clone();
             for key in ["read_markers", "favorites"] {
                 discovery["capabilities"][key] = json!(true);
@@ -308,7 +308,7 @@ async fn favorite_runner_fences_foreign_receipts_and_missed_rejoin_before_any_pu
                 } else if scenario == "conflict" {
                     session.store.favorite_intent("room-id").unwrap().is_some_and(|s| s.phase == "failed")
                 } else {
-                    server.requests().iter().filter(|r| r.path() == "/.well-known/rocketvibe").count() >= 3
+                    server.requests().iter().filter(|r| r.path() == "/.well-known/vibez").count() >= 3
                 }
         })
         .await;

@@ -688,7 +688,7 @@ export class App implements RowActions {
     this.socket?.close();
     this.setConnection("connecting");
     try {
-      const info = await this.api.request<Discovery>("/.well-known/rocketvibe");
+      const info = await this.api.request<Discovery>("/.well-known/vibez");
       if (generation !== this.generation) return;
       if (
         info.instance_id !== this.account.instance ||

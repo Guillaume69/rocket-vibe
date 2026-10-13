@@ -113,7 +113,7 @@ impl Harness {
             (memory.clone(), posts.clone(), reads.clone(), lose.clone(), mode.clone(), cancel.clone());
         let server = FakeHttp::start(move |req| {
             assert!(!req.headers.contains_key("authorization"));
-            if req.path() == "/.well-known/rocketvibe" {
+            if req.path() == "/.well-known/vibez" {
                 let n = r.fetch_add(1, Ordering::SeqCst) + 1;
                 let mode = state.lock().unwrap().clone();
                 let mut discovery = discovery();
@@ -361,7 +361,7 @@ async fn transport_mail_recovery_cooldown_is_shared_by_clones_without_blocking_d
     let posts = Arc::new(AtomicUsize::new(0));
     let count = posts.clone();
     let server = FakeHttp::start(move |req| {
-        if req.path() == "/.well-known/rocketvibe" {
+        if req.path() == "/.well-known/vibez" {
             return respond(200, &serde_json::to_string(&discovery()).unwrap());
         }
         assert!(!req.headers.contains_key("authorization"));

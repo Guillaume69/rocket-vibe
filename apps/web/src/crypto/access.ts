@@ -27,7 +27,7 @@ export async function cryptoAccess(app: App, alive: () => boolean) {
         if (!current()) throw new ApiError(0, "session_closed");
         const [info, devices] = await Promise.all([
           app.api.request<Discovery>(
-            "/.well-known/rocketvibe",
+            "/.well-known/vibez",
             "GET",
             undefined,
             true,

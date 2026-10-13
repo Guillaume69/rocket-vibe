@@ -29,7 +29,7 @@ Implementations: mobile `apps/mobile/providers/mattermost/`, desktop
 | Anything else (404, HTML, timeout) | Not Mattermost |
 
 In automatic mode the apps try, in order: kChat host, RocketVibe discovery
-(`/.well-known/rocketvibe`), the Mattermost ping, then Rocket.Chat
+(`/.well-known/vibez`), the Mattermost ping, then Rocket.Chat
 (`/api/info`). A forced server type probes only that type. Probe timeout: 10 s.
 
 ## 2. REST conventions

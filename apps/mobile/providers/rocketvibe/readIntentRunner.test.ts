@@ -24,7 +24,7 @@ async function fixtureServer(handler:(request:IncomingMessage,response:ServerRes
   const errors:unknown[]=[];
   const server=createServer((request,response)=>{void(async()=>{
     const path=new URL(request.url!,'http://localhost').pathname;
-    if(path==='/.well-known/rocketvibe'){send(response,200,{...fixture.discovery,capabilities:{...fixture.discovery.capabilities,read_markers:true,favorites:true}});return;}
+    if(path==='/.well-known/vibez'){send(response,200,{...fixture.discovery,capabilities:{...fixture.discovery.capabilities,read_markers:true,favorites:true}});return;}
     assert.equal(request.headers.authorization,'Bearer fixture-token');
     if(path==='/api/v1/me'){send(response,200,fixture.session.user);return;}
     if(path==='/api/v1/sync/changes'){send(response,200,{protocol_version:1,changes:[],cursor:'initial',has_more:false});return;}

@@ -70,7 +70,7 @@ fn the_editor_and_the_form_card_follow_the_contract() {
         }
         let flows = &fixture["workflows"];
         match (r.method.as_str(), r.path()) {
-            (_, "/.well-known/rocketvibe") => http::respond(200, &discovery.to_string()),
+            (_, "/.well-known/vibez") => http::respond(200, &discovery.to_string()),
             (_, "/api/v1/me") => http::respond(200, &fixture["session"]["user"].to_string()),
             (_, "/api/v1/me/permissions") => {
                 let mut permissions = fixture["parity"]["account_permissions"].clone();

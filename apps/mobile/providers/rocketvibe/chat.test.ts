@@ -463,7 +463,7 @@ test('room creation keeps its persisted ID after a lost response and reuses exis
   const intentions:string[]=[];
   const transport=new NativeTransport(session.baseUrl,async (url,options) => {
     const path=new URL(String(url)).pathname;
-    if (path==='/.well-known/rocketvibe') return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,idempotent_room_creation:true,room_discovery:true}});
+    if (path==='/.well-known/vibez') return Response.json({...fixture.discovery,capabilities:{...fixture.discovery.capabilities,idempotent_room_creation:true,room_discovery:true}});
     if (path==='/api/v1/me') return Response.json(fixture.session.user);
     if (path==='/api/v1/sync/changes') return Response.json({protocol_version:1,changes:[],cursor:'initial',has_more:false});
     if (path==='/api/v1/sync/ticket') return Response.json(fixture.socket_ticket);

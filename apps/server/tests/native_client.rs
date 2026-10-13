@@ -18,7 +18,7 @@ async fn rust_snapshot_bounds_chunked_wire_bodies_before_json_decoding() {
     discovery["capabilities"]["snapshot_paging"] = json!(true);
     let router = Router::new()
         .route(
-            "/.well-known/rocketvibe",
+            "/.well-known/vibez",
             get(move || {
                 let discovery = discovery.clone();
                 async move { Json(discovery) }
@@ -106,7 +106,7 @@ async fn rust_snapshot_rejects_corrupted_or_incomplete_page_sequences() {
         let start = first.clone();
         let router = Router::new()
             .route(
-                "/.well-known/rocketvibe",
+                "/.well-known/vibez",
                 get(move || {
                     let info = info.clone();
                     async move { Json(info) }
@@ -167,7 +167,7 @@ async fn rust_client_exchanges_and_replays_on_real_server(pool: PgPool) {
     });
     let mut alice = NativeClient::new(&base).unwrap();
     let mut bob = NativeClient::new(&base).unwrap();
-    assert_eq!(alice.discover().await.unwrap().product, "rocketvibe");
+    assert_eq!(alice.discover().await.unwrap().product, "vibez");
     let alice_session = alice.login("alice", "test-password-2026").await.unwrap();
     let bob_session = bob.login("bob", "test-password-2026").await.unwrap();
     let room = alice.direct(&bob_session.user.id).await.unwrap();

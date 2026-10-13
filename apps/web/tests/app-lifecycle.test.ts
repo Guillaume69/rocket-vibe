@@ -345,7 +345,7 @@ test("superseded initial and recovery snapshots cannot replace newer model state
     target.model.cursor = recovery ? "old-cursor" : "";
     target.api = {
       request: async (path: string) => {
-        if (path === "/.well-known/rocketvibe")
+        if (path === "/.well-known/vibez")
           return { instance_id: "instance", data_epoch: "epoch" };
         if (path.startsWith("/api/v1/sync/changes")) throw new ApiError(409);
         return {
@@ -391,7 +391,7 @@ test("a delayed profile response from another generation cannot change preferenc
     profile = deferred<unknown>(),
     started = deferred();
   target.api.request = async (path) => {
-    if (path === "/.well-known/rocketvibe")
+    if (path === "/.well-known/vibez")
       return { instance_id: "instance", data_epoch: "epoch" };
     started.resolve(undefined);
     return profile.promise;

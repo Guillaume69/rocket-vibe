@@ -110,11 +110,11 @@ private fun nativeHttp(session: JSONObject, path: String, body: JSONObject? = nu
   return if (!anonymous && result.code == 401 && successor.matches(Regex("[a-f0-9]{64}"))) perform(successor) else result
 }
 private fun checkNativeServer(session: JSONObject, scope: JSONObject): Int {
-  val response = nativeHttp(session, "/.well-known/rocketvibe", anonymous = true)
+  val response = nativeHttp(session, "/.well-known/vibez", anonymous = true)
   val discovery = response.body ?: return if (response.code in arrayOf(400, 401, 403, 404)) 409 else 0
   val versions = discovery.optJSONArray("protocol_versions") ?: return 409
   val supported = (0 until versions.length()).any { versions.optInt(it) == 1 }
-  return if (supported && discovery.optString("product") == "rocketvibe" && discovery.optString("api_path") == "/api/v1" &&
+  return if (supported && discovery.optString("product") == "vibez" && discovery.optString("api_path") == "/api/v1" &&
     discovery.optString("instance_id") == scope.optString("instanceId") && discovery.optString("data_epoch") == scope.optString("dataEpoch")) 200 else 409
 }
 private fun nativeLink(session: JSONObject, scope: JSONObject): String =

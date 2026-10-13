@@ -2360,7 +2360,7 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     );
     let identity: Discovery = server
         .client
-        .get(format!("{}/.well-known/rocketvibe", server.base))
+        .get(format!("{}/.well-known/vibez", server.base))
         .send()
         .await
         .unwrap()
@@ -2380,7 +2380,7 @@ async fn exchange_replay_restart_and_privacy(pool: PgPool) {
     assert_eq!(first, after);
     let after_identity: Discovery = restarted
         .client
-        .get(format!("{}/.well-known/rocketvibe", restarted.base))
+        .get(format!("{}/.well-known/vibez", restarted.base))
         .send()
         .await
         .unwrap()
@@ -2887,14 +2887,14 @@ async fn auth_validation_and_generation_reset(pool: PgPool) {
     let server = Server::start(pool.clone()).await;
     let discovery: Discovery = server
         .client
-        .get(format!("{}/.well-known/rocketvibe", server.base))
+        .get(format!("{}/.well-known/vibez", server.base))
         .send()
         .await
         .unwrap()
         .json()
         .await
         .unwrap();
-    assert_eq!(discovery.product, "rocketvibe");
+    assert_eq!(discovery.product, "vibez");
     // On by default; an operator may turn it off (`RV_E2EE=false`).
     assert!(discovery.capabilities.e2ee);
     assert!(!discovery.capabilities.uploads);
@@ -3869,7 +3869,7 @@ async fn an_operator_can_turn_e2ee_off(pool: PgPool) {
         .await
         .unwrap();
     });
-    let discovery: Discovery = reqwest::get(format!("{base}/.well-known/rocketvibe"))
+    let discovery: Discovery = reqwest::get(format!("{base}/.well-known/vibez"))
         .await
         .unwrap()
         .json()

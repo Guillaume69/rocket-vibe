@@ -75,7 +75,7 @@ export async function serverIconUri(baseUrl: string, kind: ProviderKind): Promis
   let uri: string | null;
   try {
     if (kind === 'rocketvibe') {
-      const revision = ((await json(`${base}/.well-known/rocketvibe`)) as { icon_revision?: unknown }).icon_revision;
+      const revision = ((await json(`${base}/.well-known/vibez`)) as { icon_revision?: unknown }).icon_revision;
       uri = typeof revision === 'string' && revision !== '' ? `${base}/api/v1/instance/icon?v=${encodeURIComponent(revision)}` : null;
     } else {
       const answer = await json(`${base}/api/v1/settings.public?_id=Assets_favicon_192`);

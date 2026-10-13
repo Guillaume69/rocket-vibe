@@ -35,7 +35,7 @@ async fn workflows_forms_and_room_commands_follow_the_contract() {
         let mut off = flows["workflow"].clone();
         off["enabled"] = json!(false);
         match (request.method.as_str(), request.path()) {
-            (_, "/.well-known/rocketvibe") => {
+            (_, "/.well-known/vibez") => {
                 let mut discovery = responses["discovery"].clone();
                 for capability in ["bots", "workflows", "slash_commands"] {
                     discovery["capabilities"][capability] = json!(true);

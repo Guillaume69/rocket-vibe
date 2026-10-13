@@ -81,7 +81,7 @@ struct Lease {
     attempts: i32,
 }
 fn payload(job: &Lease) -> Value {
-    let mut data = json!({"product":"rocketvibe","instanceId":job.instance_id,
+    let mut data = json!({"product":"vibez","instanceId":job.instance_id,
         "dataEpoch":job.data_epoch,"userId":job.user_id,"deviceId":job.device_id,
         "notificationId":job.id,"rid":job.room_id,"messageId":job.message_id});
     if let Some(root) = &job.reply_to {
@@ -292,7 +292,7 @@ fn voice_payload(job: &VoiceLease) -> Value {
     } else {
         "voice_ring_end"
     };
-    json!({"message":{"token":job.token,"data":{"product":"rocketvibe","type":kind,
+    json!({"message":{"token":job.token,"data":{"product":"vibez","type":kind,
         "instanceId":job.instance_id,"dataEpoch":job.data_epoch,"userId":job.user_id,
         "deviceId":job.device_id,"ringId":job.ring_id,"rid":job.room_id},
         "android":{"priority":"high","ttl":"30s"}}})

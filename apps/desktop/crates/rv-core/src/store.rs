@@ -690,6 +690,20 @@ impl Store {
         self.message_rows(ROOM_SHOWN, rid, limit)
     }
 
+    /// The first, by id, of the messages the room shows at the instant `ts`.
+    pub fn first_shown_at(&self, rid: &str, ts: i64) -> Option<String> {
+        self.read(|c| {
+            c.query_row(
+                &format!("SELECT m.id FROM messages m WHERE {ROOM_SHOWN} AND m.ts = ?2 ORDER BY m.id LIMIT 1"),
+                params![rid, ts],
+                |r| r.get(0),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten()
+    }
+
     /// How many of the room's messages `messages` would show from `ts` on.
     pub fn count_since(&self, rid: &str, ts: i64) -> i64 {
         self.read(|c| {

@@ -136,6 +136,8 @@ pub enum ServerKind {
     Mattermost,
     /// Infomaniak's Mattermost: signed in with a token, never a password.
     Kchat,
+    /// A Slack browser session: never found by probing an address.
+    Slack,
 }
 
 /// `probe` under the user's choice: Rocket.Chat never asks for native
@@ -143,7 +145,7 @@ pub enum ServerKind {
 pub async fn probe_as(base: &url::Url, kind: ServerKind) -> Result<Option<Discovery>, Error> {
     match kind {
         ServerKind::Auto => probe(base).await,
-        ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat => Ok(None),
+        ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat | ServerKind::Slack => Ok(None),
         ServerKind::Vibez => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
     }
 }
@@ -188,6 +190,7 @@ pub async fn login(
     check(&identity, &client.discover().await?)?;
     Ok(SessionInfo {
         mattermost: None,
+        slack: None,
         base_url: base.as_str().trim_end_matches('/').into(),
         user_id: session.user.id,
         username: session.user.username,
@@ -276,8 +279,10 @@ impl SessionInfo {
                     auth_token: String::new(),
                     native: None,
                     mattermost: None,
+                    slack: None,
                 });
             }
+            Some(Value::String(kind)) if kind == "slack" => return crate::slack::account::from_secret(value),
             None => (None, None),
             Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
             Some(Value::String(kind)) if kind == "vibez" => (
@@ -299,12 +304,16 @@ impl SessionInfo {
             auth_token: field("authToken")?,
             native,
             mattermost,
+            slack: None,
         })
     }
-    /// `rocketchat`, `vibez`, `mattermost`, `kchat` or `whatsapp`.
+    /// `rocketchat`, `vibez`, `mattermost`, `kchat`, `slack` or `whatsapp`.
     pub fn genre(&self) -> &'static str {
         if crate::whatsapp::is_whatsapp(self) {
             return "whatsapp";
+        }
+        if self.slack.is_some() {
+            return "slack";
         }
         match (&self.native, self.mattermost) {
             (Some(_), _) => "vibez",
@@ -317,6 +326,9 @@ impl SessionInfo {
         if let Some(identity) = &self.native {
             value["nativeInstanceId"] = json!(identity.instance_id);
             value["nativeDataEpoch"] = json!(identity.data_epoch);
+        }
+        if let Some(account) = &self.slack {
+            crate::slack::account::write_secret(account, &mut value);
         }
         value
     }

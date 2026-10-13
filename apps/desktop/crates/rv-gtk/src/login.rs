@@ -676,7 +676,7 @@ impl LoginPage {
     pub fn set_server_kind(&self, kind: rv_core::native::ServerKind) {
         use rv_core::native::ServerKind;
         self.kind.set_selected(match kind {
-            ServerKind::Auto => 0,
+            ServerKind::Auto | ServerKind::Slack => 0,
             ServerKind::RocketChat => 1,
             ServerKind::Vibez => 2,
             ServerKind::Mattermost => 3,

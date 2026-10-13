@@ -63,6 +63,7 @@ async fn device_management_keeps_recent_auth_errors_and_blocks_closed_providers(
     drop(store);
     let info = SessionInfo {
         mattermost: None,
+        slack: None,
         base_url: server.url.as_str().into(),
         user_id: fixture["session"]["user"]["id"].as_str().unwrap().into(),
         username: "alice".into(),

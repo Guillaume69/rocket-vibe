@@ -171,6 +171,7 @@ async fn lost_prepare_and_confirmation_responses_reopen_the_original_intention_a
     drop(store);
     let info = SessionInfo {
         mattermost: None,
+        slack: None,
         base_url: server.url.as_str().into(),
         user_id: "alice-id".into(),
         username: "alice".into(),

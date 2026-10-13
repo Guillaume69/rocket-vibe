@@ -213,6 +213,7 @@ fn session_info(base: &Url, token: &str, me: &Value, flavor: Flavor) -> Result<S
         auth_token: token.to_owned(),
         native: None,
         mattermost: Some(flavor),
+        slack: None,
     })
 }
 

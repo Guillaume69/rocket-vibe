@@ -107,6 +107,7 @@ async fn bots_keys_and_the_instance_setting_follow_the_contract() {
         auth_token: "fixture-token".into(),
         native: Some(identity),
         mattermost: None,
+        slack: None,
     };
     let session = native::NativeSession::start(info, &path).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {

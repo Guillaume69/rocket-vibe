@@ -246,6 +246,7 @@ impl Pilot {
         let session = native::NativeSession::start(
             SessionInfo {
                 mattermost: None,
+                slack: None,
                 base_url: server.url.as_str().into(),
                 user_id: user.into(),
                 username: "alice".into(),

@@ -1,0 +1,440 @@
+//! Slack into the store: the conversation list with its counts and previews,
+//! the history paged by exact `ts`, threads and single messages. No live
+//! events yet: a catch-up runs at start and on each explicit refresh.
+
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex};
+
+use serde_json::Value;
+
+use super::directory::{Directory, User};
+use super::translate::{self, Translator, first_ts_of, last_ts_of, split_id, ts_ms};
+use crate::info::{Profile, RoomInfo};
+use crate::normalize::Message;
+use crate::rest::{CallOptions, RestClient, RestError};
+use crate::store::Store;
+use crate::sync::{HISTORY_PAGE, HistoryPage};
+
+const PREVIEWS: usize = 40;
+const PREVIEW_CONCURRENCY: usize = 4;
+const ROSTER_PAGE: &str = "200";
+const MAX_PAGES: usize = 50;
+const ROOM_CATCH_UP_PAGES: usize = 4;
+const THREAD_PAGE: &str = "200";
+const THREAD_PAGES: usize = 20;
+const GONE: [&str; 4] = ["channel_not_found", "thread_not_found", "message_not_found", "not_in_channel"];
+
+fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+    v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
+}
+
+fn is(v: &Value, key: &str) -> bool {
+    v.get(key).and_then(Value::as_bool) == Some(true)
+}
+
+fn list(v: &Value, key: &str) -> Vec<Value> {
+    v.get(key).and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+/// A page's `next_cursor`, None at the end; the same cursor twice is a loop.
+fn next_cursor(body: &Value, seen: &mut Vec<String>, method: &str) -> Result<Option<String>, RestError> {
+    let Some(cursor) = body.pointer("/response_metadata/next_cursor").and_then(Value::as_str).filter(|c| !c.is_empty())
+    else {
+        return Ok(None);
+    };
+    if seen.iter().any(|c| c == cursor) {
+        return Err(RestError::incomplete(&format!("{method}: repeated cursor")));
+    }
+    seen.push(cursor.to_owned());
+    Ok(Some(cursor.to_owned()))
+}
+
+pub struct SlackSync {
+    store: Arc<Store>,
+    rest: RestClient,
+    pub directory: Arc<Directory>,
+    me: String,
+    conversations: Mutex<HashMap<String, Value>>,
+    names: Mutex<HashMap<String, String>>,
+}
+
+impl SlackSync {
+    pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_username: &str) -> Self {
+        let directory = Arc::new(Directory::default());
+        directory.remember(User { id: me.to_owned(), username: me_username.to_owned(), ..Default::default() });
+        SlackSync {
+            store,
+            rest,
+            directory,
+            me: me.to_owned(),
+            conversations: Mutex::default(),
+            names: Mutex::default(),
+        }
+    }
+
+    pub fn translate(&self, channel: &str, raw: &Value) -> Option<Message> {
+        let names = self.names.lock().unwrap();
+        Translator { directory: &self.directory, channels: &names }.message(channel, raw)
+    }
+
+    /// The people and bots a page names, read before it is translated.
+    async fn resolve(&self, messages: &[Value]) {
+        let people: Vec<String> = messages.iter().flat_map(translate::people).collect();
+        let bots: Vec<String> = messages.iter().filter_map(|m| text(m, "bot_id").map(str::to_owned)).collect();
+        tokio::join!(self.directory.ensure(&self.rest, people), self.directory.ensure_bots(&self.rest, bots));
+    }
+
+    fn ingest(&self, channel: &str, messages: &[Value]) -> Option<i64> {
+        let rows: Vec<Message> = messages.iter().filter_map(|m| self.translate(channel, m)).collect();
+        self.store.write(|w| {
+            rows.iter().for_each(|m| w.upsert_message(m));
+            rows.iter().map(|m| m.updated_at).max()
+        })
+    }
+
+    async fn call(&self, method: &str, params: Vec<(&str, String)>) -> Result<Value, RestError> {
+        self.rest.post(method, CallOptions::params(params)).await
+    }
+
+    /// Every conversation I am in, archived ones left out.
+    pub async fn roster(&self) -> Result<Vec<Value>, RestError> {
+        let mut out = Vec::new();
+        let (mut cursor, mut seen) = (None::<String>, Vec::new());
+        for _ in 0..MAX_PAGES {
+            let mut params = vec![
+                ("types", "public_channel,private_channel,mpim,im".to_owned()),
+                ("exclude_archived", "true".to_owned()),
+                ("limit", ROSTER_PAGE.to_owned()),
+            ];
+            params.extend(cursor.take().map(|c| ("cursor", c)));
+            let body = self.call("users.conversations", params).await?;
+            out.extend(list(&body, "channels").into_iter().filter(|c| text(c, "id").is_some()));
+            match next_cursor(&body, &mut seen, "users.conversations")? {
+                Some(next) => cursor = Some(next),
+                None => return Ok(out),
+            }
+        }
+        Err(RestError::incomplete("users.conversations: too many pages"))
+    }
+
+    /// `client.counts` by conversation id; None when Slack would not tell.
+    async fn counts(&self) -> Option<HashMap<String, Value>> {
+        let body = self.call("client.counts", Vec::new()).await.ok()?;
+        let entries = ["channels", "mpims", "ims"].into_iter().flat_map(|key| list(&body, key));
+        Some(entries.filter_map(|e| Some((text(&e, "id")?.to_owned(), e))).collect())
+    }
+
+    fn remember(&self, roster: &[Value]) {
+        let names: HashMap<String, String> = roster
+            .iter()
+            .filter(|c| !is(c, "is_im") && !is(c, "is_mpim"))
+            .filter_map(|c| Some((text(c, "id")?.to_owned(), text(c, "name")?.to_owned())))
+            .collect();
+        *self.names.lock().unwrap() = names;
+        *self.conversations.lock().unwrap() =
+            roster.iter().filter_map(|c| Some((text(c, "id")?.to_owned(), c.clone()))).collect();
+    }
+
+    /// The list, its counts, and the newest message of the 40 rooms most
+    /// recently written to, four at a time.
+    pub async fn catch_up_global(&self) -> Result<(), RestError> {
+        let snapshot = chrono::Utc::now().timestamp_millis();
+        let (roster, counts) = tokio::join!(self.roster(), self.counts());
+        let roster = roster?;
+        self.remember(&roster);
+        let peers: Vec<String> = roster.iter().filter_map(|c| text(c, "user").map(str::to_owned)).collect();
+        self.directory.ensure(&self.rest, std::iter::once(self.me.clone()).chain(peers)).await;
+        let latest =
+            |rid: &str| counts.as_ref().and_then(|c| c.get(rid)).and_then(|e| text(e, "latest")).and_then(ts_ms);
+        let shown: HashMap<String, (i64, bool)> =
+            self.store.rooms().into_iter().map(|r| (r.rid, (r.last_ts, r.last_message.is_some()))).collect();
+        let mut recent: Vec<(&str, i64)> =
+            roster.iter().filter_map(|c| text(c, "id")).filter_map(|rid| Some((rid, latest(rid)?))).collect();
+        recent.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+        let stale: Vec<&str> = recent
+            .into_iter()
+            .take(PREVIEWS)
+            .filter(|(rid, at)| shown.get(*rid).is_none_or(|(last, known)| !known || last < at))
+            .map(|(rid, _)| rid)
+            .collect();
+        let previews = self.previews(&stale).await;
+        let rooms: Vec<_> = {
+            let names = self.names.lock().unwrap();
+            let t = Translator { directory: &self.directory, channels: &names };
+            roster
+                .iter()
+                .filter_map(|c| {
+                    let rid = text(c, "id")?;
+                    let room = t.room(&self.me, c, latest(rid), previews.get(rid))?;
+                    let counts = counts.as_ref().and_then(|map| map.get(rid));
+                    let open = !is(c, "is_user_deleted");
+                    Some((room, translate::subscription(rid, counts, snapshot, open)))
+                })
+                .collect()
+        };
+        self.store.write(|w| {
+            for (room, subscription) in &rooms {
+                w.upsert_room(room);
+                w.upsert_subscription(subscription);
+            }
+        });
+        Ok(())
+    }
+
+    async fn previews(&self, rids: &[&str]) -> HashMap<String, Message> {
+        let mut out = HashMap::new();
+        for chunk in rids.chunks(PREVIEW_CONCURRENCY) {
+            let fetches = chunk.iter().map(|rid| async move {
+                let (page, _) = self.history(rid, vec![("limit", "1".to_owned())]).await.ok()?;
+                let newest = page.into_iter().find(|m| !translate::skipped(m))?;
+                Some((rid.to_string(), self.translate(rid, &newest)?))
+            });
+            out.extend(futures_util::future::join_all(fetches).await.into_iter().flatten());
+        }
+        out
+    }
+
+    pub async fn reconcile_rooms(&self) -> Result<(), RestError> {
+        let roster = self.roster().await?;
+        let live: Vec<String> = roster.iter().filter_map(|c| text(c, "id").map(str::to_owned)).collect();
+        if !live.is_empty() {
+            self.remember(&roster);
+            self.store.write(|w| w.purge_rooms_except(&live));
+        }
+        Ok(())
+    }
+
+    /// One `conversations.history` page, newest first, its people resolved; and whether more follow.
+    async fn history(
+        &self,
+        rid: &str,
+        mut params: Vec<(&str, String)>,
+    ) -> Result<(Vec<Value>, Option<String>), RestError> {
+        params.push(("channel", rid.to_owned()));
+        let body = self.call("conversations.history", params).await?;
+        let messages = list(&body, "messages");
+        self.resolve(&messages).await;
+        let more = is(&body, "has_more");
+        let cursor = body.pointer("/response_metadata/next_cursor").and_then(Value::as_str).filter(|c| !c.is_empty());
+        Ok((messages, if more { cursor.map(str::to_owned) } else { None }))
+    }
+
+    /// What was written after the room's newest stored message. When more
+    /// than a few pages came since, the cache no longer joins up with the
+    /// server: it is cleared and the newest page read in its place.
+    pub async fn catch_up_room(&self, rid: &str) -> Result<(), RestError> {
+        let newest = self.store.messages(rid, 1).pop();
+        let Some(since) = newest.as_ref().and_then(|m| split_id(&m.id)).map(|(_, ts)| ts.to_owned()) else {
+            return Ok(());
+        };
+        let (mut gathered, mut cursor, mut seen) = (Vec::new(), None::<String>, Vec::new());
+        for _ in 0..ROOM_CATCH_UP_PAGES {
+            let mut params = vec![("oldest", since.clone()), ("limit", HISTORY_PAGE.to_string())];
+            params.extend(cursor.take().map(|c| ("cursor", c)));
+            let (page, next) = self.history(rid, params).await?;
+            gathered.extend(page);
+            match next {
+                Some(next) if !seen.contains(&next) => {
+                    seen.push(next.clone());
+                    cursor = Some(next);
+                }
+                Some(_) => return Err(RestError::incomplete("conversations.history: repeated cursor")),
+                None => {
+                    self.ingest(rid, &gathered);
+                    return Ok(());
+                }
+            }
+        }
+        let (first, _) = self.history(rid, vec![("limit", HISTORY_PAGE.to_string())]).await?;
+        let rows: Vec<Message> = first.iter().filter_map(|m| self.translate(rid, m)).collect();
+        self.store.write(|w| {
+            w.clear_room_messages(rid);
+            rows.iter().for_each(|m| w.upsert_message(m));
+        });
+        Ok(())
+    }
+
+    /// `latest`: the exact `ts` of the stored message shown at that instant,
+    /// excluded; without one, the millisecond's last `ts`, included.
+    fn before(&self, rid: &str, bound: i64) -> Vec<(&'static str, String)> {
+        let exact = self.store.first_shown_at(rid, bound);
+        match exact.as_deref().and_then(split_id).filter(|(channel, _)| *channel == rid) {
+            Some((_, ts)) => vec![("latest", ts.to_owned())],
+            None => vec![("latest", last_ts_of(bound)), ("inclusive", "true".to_owned())],
+        }
+    }
+
+    pub async fn load_history(&self, rid: &str, latest: Option<i64>) -> Result<HistoryPage, RestError> {
+        let mut params = vec![("limit", HISTORY_PAGE.to_string())];
+        if let Some(bound) = latest {
+            params.extend(self.before(rid, bound));
+        }
+        let (messages, _) = self.history(rid, params).await?;
+        self.ingest(rid, &messages);
+        let instants = messages.iter().filter_map(|m| text(m, "ts").and_then(ts_ms));
+        Ok(HistoryPage { count: messages.len(), oldest_ts: instants.min() })
+    }
+
+    /// Up to a page of messages in `[oldest, latest]`, newest first, never stored.
+    pub async fn history_range(
+        &self,
+        rid: &str,
+        latest: Option<i64>,
+        oldest: Option<i64>,
+    ) -> Result<Vec<Message>, RestError> {
+        let mut params = vec![("limit", HISTORY_PAGE.to_string()), ("inclusive", "true".to_owned())];
+        params.extend(latest.map(|l| ("latest", last_ts_of(l))));
+        params.extend(oldest.map(|o| ("oldest", first_ts_of(o))));
+        let (messages, _) = self.history(rid, params).await?;
+        Ok(messages.iter().filter_map(|m| self.translate(rid, m)).collect())
+    }
+
+    /// The server's copy of one message, not stored: from the room's
+    /// history, else from its thread.
+    pub async fn fetch_message(&self, id: &str) -> Result<Option<Message>, RestError> {
+        let Some((rid, ts)) = split_id(id) else { return Ok(None) };
+        let gone = |e: RestError| if e.error.as_deref().is_some_and(|c| GONE.contains(&c)) { Ok(None) } else { Err(e) };
+        let exact = vec![
+            ("latest", ts.to_owned()),
+            ("oldest", ts.to_owned()),
+            ("inclusive", "true".to_owned()),
+            ("limit", "1".to_owned()),
+        ];
+        let page = match self.history(rid, exact).await {
+            Ok((page, _)) => page,
+            Err(e) => return gone(e),
+        };
+        if let Some(found) = page.iter().find(|m| text(m, "ts") == Some(ts)) {
+            return Ok(self.translate(rid, found));
+        }
+        let params = vec![("channel", rid.to_owned()), ("ts", ts.to_owned()), ("limit", "1".to_owned())];
+        let replies = match self.call("conversations.replies", params).await {
+            Ok(body) => list(&body, "messages"),
+            Err(e) => return gone(e),
+        };
+        let Some(found) = replies.into_iter().find(|m| text(m, "ts") == Some(ts)) else { return Ok(None) };
+        self.resolve(std::slice::from_ref(&found)).await;
+        Ok(self.translate(rid, &found))
+    }
+
+    /// The whole thread. Slack repeats the root at the top of every page.
+    pub async fn load_thread(&self, root: &str) -> Result<(), RestError> {
+        let Some((rid, ts)) = split_id(root) else { return Err(RestError::incomplete("thread: not a Slack id")) };
+        let mut thread: BTreeMap<(i64, String), Value> = BTreeMap::new();
+        let (mut cursor, mut seen) = (None::<String>, Vec::new());
+        for _ in 0..THREAD_PAGES {
+            let mut params =
+                vec![("channel", rid.to_owned()), ("ts", ts.to_owned()), ("limit", THREAD_PAGE.to_owned())];
+            params.extend(cursor.take().map(|c| ("cursor", c)));
+            let body = self.call("conversations.replies", params).await?;
+            for message in list(&body, "messages") {
+                if let Some(at) = text(&message, "ts").filter(|t| ts_ms(t).is_some()) {
+                    thread.insert((ts_ms(at).unwrap_or(0), at.to_owned()), message.clone());
+                }
+            }
+            match next_cursor(&body, &mut seen, "conversations.replies")? {
+                Some(next) if is(&body, "has_more") => cursor = Some(next),
+                _ => break,
+            }
+        }
+        let messages: Vec<Value> = thread.into_values().collect();
+        self.resolve(&messages).await;
+        self.ingest(rid, &messages);
+        Ok(())
+    }
+
+    pub fn channel_name(&self, rid: &str) -> Option<String> {
+        self.names.lock().unwrap().get(rid).cloned()
+    }
+
+    /// From the list read at the last catch-up: no request.
+    pub fn room_info(&self, rid: &str) -> Option<RoomInfo> {
+        let conversations = self.conversations.lock().unwrap();
+        let c = conversations.get(rid)?;
+        let value = |key: &str| c.pointer(&format!("/{key}/value")).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let kind = if is(c, "is_im") || is(c, "is_mpim") {
+            "d"
+        } else if is(c, "is_private") {
+            "p"
+        } else {
+            "c"
+        };
+        let name = match text(c, "name") {
+            Some(name) if !is(c, "is_im") => name.to_owned(),
+            _ => text(c, "user").and_then(|u| self.directory.username(u)).unwrap_or_else(|| rid.to_owned()),
+        };
+        Some(RoomInfo {
+            id: rid.to_owned(),
+            name,
+            kind: kind.to_owned(),
+            topic: value("topic").map(str::to_owned),
+            announcement: None,
+            description: value("purpose").map(str::to_owned),
+            members: c.get("num_members").and_then(Value::as_i64),
+            read_only: false,
+            encrypted: false,
+            archived: is(c, "is_archived"),
+            default: is(c, "is_general"),
+        })
+    }
+
+    pub fn room_by_name(&self, name: &str) -> Option<RoomInfo> {
+        let name = name.trim_start_matches('#');
+        let rid = self.names.lock().unwrap().iter().find(|(_, n)| n.as_str() == name).map(|(rid, _)| rid.clone())?;
+        self.room_info(&rid)
+    }
+
+    /// A person as the directory knows them, by username or by id.
+    pub async fn profile(&self, key: &str, by_id: bool) -> Option<Profile> {
+        let id = if by_id { key.to_owned() } else { self.directory.id_of(key)? };
+        self.directory.ensure(&self.rest, [id.clone()]).await;
+        let user = self.directory.user(&id)?;
+        Some(Profile {
+            id: user.id,
+            username: user.username,
+            name: user.display,
+            presence: None,
+            status_text: None,
+            roles: Vec::new(),
+            utc_offset: None,
+            bio: None,
+            avatar_etag: None,
+            bot: false,
+            bot_owner: None,
+        })
+    }
+
+    /// A Slack permalink, from the message id alone.
+    pub fn permalink(base_url: &str, rid: &str, msg_id: &str) -> String {
+        let ts = split_id(msg_id).map(|(_, ts)| ts.replace('.', "")).unwrap_or_default();
+        format!("{}/archives/{rid}/p{ts}", base_url.trim_end_matches('/'))
+    }
+
+    pub fn me(&self) -> &str {
+        &self.me
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cursors_end_or_loop() {
+        let mut seen = Vec::new();
+        let page = |c: &str| json!({"response_metadata": {"next_cursor": c}});
+        assert_eq!(next_cursor(&page("a"), &mut seen, "m").unwrap().as_deref(), Some("a"));
+        assert_eq!(next_cursor(&page(""), &mut seen, "m").unwrap(), None);
+        assert_eq!(next_cursor(&json!({}), &mut seen, "m").unwrap(), None);
+        assert!(next_cursor(&page("a"), &mut seen, "m").is_err());
+    }
+
+    #[test]
+    fn permalinks_carry_the_exact_ts() {
+        assert_eq!(
+            SlackSync::permalink("https://t000.slack.com", "C001", "C001:1700000000.000100"),
+            "https://t000.slack.com/archives/C001/p1700000000000100"
+        );
+    }
+}

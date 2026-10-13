@@ -133,6 +133,7 @@ mod tests {
             auth_token: "never-persist-this-token".into(),
             native: None,
             mattermost: None,
+            slack: None,
         }
     }
 

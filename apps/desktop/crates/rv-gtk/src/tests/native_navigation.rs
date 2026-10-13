@@ -95,6 +95,7 @@ fn new_direct_and_public_rooms_open_after_sync_without_stealing_later_navigation
             auth_token: "fixture-token".into(),
             native: Some(identity),
             mattermost: None,
+            slack: None,
         },
         &path,
     )

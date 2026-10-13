@@ -24,6 +24,7 @@ async fn shutdown_during_reconnect_backoff_stays_shut() {
         auth_token: "tok".into(),
         native: None,
         mattermost: None,
+        slack: None,
     };
     let session = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {

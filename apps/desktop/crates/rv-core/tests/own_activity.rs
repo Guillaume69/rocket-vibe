@@ -38,6 +38,7 @@ async fn activity_changes_preserve_custom_status_and_confirm_without_a_broadcast
                 auth_token: "tok".into(),
                 native: None,
                 mattermost: flavor,
+                slack: None,
             },
             &dir.path().join("account.sqlite"),
         )

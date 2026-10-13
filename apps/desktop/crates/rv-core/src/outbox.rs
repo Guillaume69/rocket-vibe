@@ -147,6 +147,11 @@ impl Outbox {
             Backend::Mattermost(mm) => {
                 return self.pass_mattermost(mm).await;
             }
+            Backend::Slack(_) => {
+                let (pending, refused) = (self.store.pending_outbox(), crate::slack::not_supported("send").message);
+                self.store.write(|w| pending.iter().for_each(|e| w.mark_outbox_failed(&e.id, &refused)));
+                return true;
+            }
             Backend::RocketChat => {}
         }
         for entry in self.store.pending_outbox() {

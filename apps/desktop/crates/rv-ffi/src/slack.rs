@@ -1,5 +1,7 @@
-//! Transient Slack preview for SwiftUI. Secret fields are never returned as DTOs.
-use crate::{Client, model::RvError, on_tokio};
+//! Slack for SwiftUI: the saved, read-only account (`slack_login`,
+//! `slack_pair`) and the transient preview. Secret fields are never returned as DTOs.
+use crate::{Chat, Client, accounts, blocking, model::RvError, on_tokio};
+use rv_core::session::SessionInfo;
 use std::sync::Arc;
 #[derive(Clone, uniffi::Record)]
 pub struct SlackIdentity {
@@ -61,6 +63,24 @@ impl Client {
         }
         Ok(())
     }
+    /// Signs in with a browser session's `xoxc` token and `d` cookie, checked
+    /// by Slack, then saves and opens the account.
+    pub async fn slack_login(&self, token: String, cookie: String) -> Result<Arc<Chat>, RvError> {
+        let info = on_tokio(async move { rv_core::slack::login(&token, &cookie, None).await }).await?;
+        self.keep_slack(info).await
+    }
+
+    /// Opens the encrypted answer `code` of the browser bridge with `pairing`,
+    /// then saves and opens the account it names.
+    pub async fn slack_pair(&self, pairing: Arc<SlackPairing>, code: String) -> Result<Arc<Chat>, RvError> {
+        let session = pairing.pairing.open(&code).map_err(error)?;
+        if pairing.closed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(RvError::local("Slack: cancelled"));
+        }
+        let info = on_tokio(async move { rv_core::slack::login_paired(&session).await }).await?;
+        self.keep_slack(info).await
+    }
+
     pub async fn slack_preview(&self, token: String, cookie: String) -> Result<Arc<SlackPreview>, RvError> {
         on_tokio(async move {
             let reader = rv_core::slack::Reader::new(token, cookie).map_err(error)?;
@@ -175,5 +195,13 @@ impl SlackPairing {
 impl Drop for SlackPairing {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+impl Client {
+    async fn keep_slack(&self, info: SessionInfo) -> Result<Arc<Chat>, RvError> {
+        let (dirs, saved) = (self.dirs.clone(), info.clone());
+        blocking(move || accounts::save(&dirs, &saved, None)).await.map_err(RvError::local)?;
+        self.start(info)
     }
 }

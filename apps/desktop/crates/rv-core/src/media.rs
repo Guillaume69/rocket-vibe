@@ -166,6 +166,8 @@ pub struct MediaCache {
     rest: RestClient,
     /// A Mattermost account: photos are served by user id only.
     directory: Option<Arc<crate::mattermost::directory::Directory>>,
+    /// A Slack account: photos are public CDN URLs, read without the session.
+    slack: Option<Arc<crate::slack::directory::Directory>>,
     entries: Mutex<HashMap<String, Arc<Media>>>,
     /// Files of encrypted rooms by path: the server holds only their ciphertext.
     keys: Mutex<HashMap<String, crate::e2e::FileEncryption>>,
@@ -173,16 +175,23 @@ pub struct MediaCache {
 
 impl MediaCache {
     pub fn new(rest: RestClient) -> Self {
-        MediaCache { rest, directory: None, entries: Mutex::default(), keys: Mutex::default() }
+        MediaCache { rest, directory: None, slack: None, entries: Mutex::default(), keys: Mutex::default() }
     }
 
     pub fn for_mattermost(rest: RestClient, directory: Arc<crate::mattermost::directory::Directory>) -> Self {
         MediaCache { directory: Some(directory), ..Self::new(rest) }
     }
 
+    pub fn for_slack(rest: RestClient, directory: Arc<crate::slack::directory::Directory>) -> Self {
+        MediaCache { slack: Some(directory), ..Self::new(rest) }
+    }
+
     /// The Mattermost route of a Rocket.Chat avatar path, the one the screens
     /// build. A room has no photo there.
     fn server_path(&self, path_or_url: &str) -> Result<String, RestError> {
+        if let Some(slack) = &self.slack {
+            return slack_path(slack, path_or_url);
+        }
         let Some(directory) = &self.directory else { return Ok(path_or_url.to_owned()) };
         let Some(avatar) = path_or_url.strip_prefix("/avatar/") else { return Ok(path_or_url.to_owned()) };
         let (target, etag) = avatar.split_once("?etag=").map_or((avatar, None), |(t, e)| (t, Some(e)));
@@ -197,7 +206,23 @@ impl MediaCache {
             None => format!("/api/v4/users/{uid}/image"),
         })
     }
+}
 
+/// The profile image of the person a Rocket.Chat avatar path names. A room has
+/// no photo there, and nothing else of the server's is read this way.
+fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
+    let none = || RestError::incomplete(&format!("{path_or_url}: no photo"));
+    let avatar = path_or_url.strip_prefix("/avatar/").ok_or_else(none)?;
+    let target = avatar.split_once("?etag=").map_or(avatar, |(t, _)| t);
+    let uid = match target.strip_prefix("uid/") {
+        Some(uid) => Some(uid.to_owned()),
+        None if target.starts_with("room/") => None,
+        None => directory.id_of(target),
+    };
+    uid.and_then(|uid| directory.avatar(&uid)).ok_or_else(none)
+}
+
+impl MediaCache {
     /// The keys of a decrypted message's files, each under every path that
     /// designates it: fetched from then on, they come out in clear.
     pub fn learn_keys(&self, attachments: &Value) {

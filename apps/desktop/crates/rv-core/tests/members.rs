@@ -91,6 +91,7 @@ async fn bench() -> Bench {
         auth_token: "tok".into(),
         native: None,
         mattermost: None,
+        slack: None,
     };
     let session = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
     for _ in 0..100 {

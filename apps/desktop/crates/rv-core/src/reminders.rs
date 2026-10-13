@@ -421,6 +421,7 @@ mod tests {
             auth_token: "secret".into(),
             native: native.then(|| Identity { instance_id: "inst".into(), data_epoch: "epoch".into() }),
             mattermost: None,
+            slack: None,
         }
     }
 

@@ -95,6 +95,7 @@ async fn existing_cards_and_private_reader_keep_cache_across_reactions_and_fence
     let session = NativeSession::start(
         SessionInfo {
             mattermost: None,
+            slack: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

@@ -42,6 +42,8 @@ pub struct SessionInfo {
     pub native: Option<crate::native::Identity>,
     /// Set for a Mattermost or kChat account.
     pub mattermost: Option<crate::mattermost::Flavor>,
+    /// Set for a Slack account: its team and `d` cookie.
+    pub slack: Option<crate::slack::SlackAccount>,
 }
 
 impl std::fmt::Debug for SessionInfo {
@@ -53,6 +55,7 @@ impl std::fmt::Debug for SessionInfo {
             .field("auth_token", &"[redacted]")
             .field("native", &self.native)
             .field("mattermost", &self.mattermost)
+            .field("slack", &self.slack)
             .finish()
     }
 }
@@ -135,6 +138,8 @@ pub async fn login(
 }
 
 /// `login` under the user's choice of server kind (`native::probe_as`).
+/// Slack, never found by probing, takes the `xoxc` token as `user` and the
+/// `d` cookie as `password`.
 pub async fn login_as(
     server: &Url,
     kind: crate::native::ServerKind,
@@ -143,6 +148,9 @@ pub async fn login_as(
     two_factor: Option<TwoFactorCode>,
 ) -> Result<SessionInfo, RestError> {
     use crate::native::ServerKind;
+    if kind == ServerKind::Slack {
+        return crate::slack::login(user, password, None).await;
+    }
     if kind == ServerKind::Kchat || (kind == ServerKind::Auto && mattermost::is_kchat_host(server)) {
         return mattermost::login_kchat(server, password).await;
     }
@@ -167,6 +175,7 @@ pub async fn login_as(
     let field = |pointer: &str| data.pointer(pointer).and_then(Value::as_str).unwrap_or_default().to_owned();
     let info = SessionInfo {
         mattermost: None,
+        slack: None,
         base_url: server.to_string().trim_end_matches('/').to_owned(),
         user_id: field("/userId"),
         username: field("/me/username"),
@@ -244,11 +253,13 @@ fn reconnect_delay(attempt: u32) -> u64 {
     (base + fastrand::u64(0..1000)).min(MAX_RECONNECT_DELAY_MS)
 }
 
-/// Rocket.Chat's DDP, or the socket of a Mattermost or kChat account.
+/// Rocket.Chat's DDP, the socket of a Mattermost or kChat account, or the
+/// live feed of a Slack account.
 #[derive(Clone)]
 enum Transport {
     Ddp(DdpHandle),
     Live(LiveHandle),
+    Slack(crate::slack::live::LiveHandle),
 }
 
 impl Transport {
@@ -256,6 +267,7 @@ impl Transport {
         match self {
             Transport::Ddp(ddp) => ddp.open(token),
             Transport::Live(live) => live.open(),
+            Transport::Slack(live) => live.open(),
         }
     }
 
@@ -263,6 +275,7 @@ impl Transport {
         match self {
             Transport::Ddp(ddp) => ddp.close(),
             Transport::Live(live) => live.close(),
+            Transport::Slack(live) => live.close(),
         }
     }
 
@@ -304,11 +317,15 @@ pub enum UnlockError {
     Key(crate::e2e::E2eError),
 }
 
-/// The server's sign-out. kChat's token belongs to Infomaniak: never revoked
-/// from here, so always settled. Anything but success or a refused token
-/// (offline, a 5xx while the server restarts, the rate limit) is worth another try.
-async fn server_logout(rest: &RestClient, flavor: Option<Flavor>) -> bool {
-    let answer = match flavor {
+/// The server's sign-out. kChat's token belongs to Infomaniak and Slack's to
+/// the browser it came from: never revoked from here, so always settled.
+/// Anything but success or a refused token (offline, a 5xx while the server
+/// restarts, the rate limit) is worth another try.
+async fn server_logout(rest: &RestClient, info: &SessionInfo) -> bool {
+    if info.slack.is_some() {
+        return true;
+    }
+    let answer = match info.mattermost {
         Some(Flavor::Kchat) => return true,
         Some(Flavor::Mattermost) => rest.post("users/logout", CallOptions::default()).await,
         None => rest.post("logout", CallOptions::default()).await,
@@ -343,13 +360,16 @@ impl Session {
         if crate::whatsapp::is_whatsapp(info) {
             return true;
         }
+        if info.slack.is_some() {
+            return true;
+        }
         let Ok(base) = info.base_url.parse::<Url>() else { return true };
         let rest = match info.mattermost {
             Some(flavor) => mattermost::client(base, Some(flavor)),
             None => RestClient::new(base),
         };
         rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
-        server_logout(&rest, info.mattermost).await
+        server_logout(&rest, info).await
     }
 
     pub fn start(info: SessionInfo, db_path: &Path) -> rusqlite::Result<Arc<Session>> {
@@ -360,20 +380,26 @@ impl Session {
         let base: Url = info.base_url.parse().expect("stored base URL");
         let store = Arc::new(Store::open(db_path)?);
         let flavor = info.mattermost;
-        let rest = match flavor {
-            Some(flavor) => mattermost::client(base.clone(), Some(flavor)),
-            None => RestClient::new(base.clone()),
+        let rest = match (&info.slack, flavor) {
+            (Some(account), _) => crate::slack::account::client(&info, account),
+            (None, Some(flavor)) => mattermost::client(base.clone(), Some(flavor)),
+            (None, None) => RestClient::new(base.clone()),
         };
         rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
-        let sync = Arc::new(match flavor {
-            Some(flavor) => {
+        let sync = Arc::new(match (&info.slack, flavor) {
+            (Some(_), _) => SyncEngine::for_slack(store.clone(), rest.clone(), &info.username, &info.user_id),
+            (None, Some(flavor)) => {
                 SyncEngine::for_mattermost(store.clone(), rest.clone(), &info.username, &info.user_id, flavor)
             }
-            None => SyncEngine::new(store.clone(), rest.clone(), &info.username, &info.user_id),
+            (None, None) => SyncEngine::new(store.clone(), rest.clone(), &info.username, &info.user_id),
         });
         let outbox = Arc::new(Outbox::new(store.clone(), rest.clone(), sync.clone(), &info.user_id, &info.username));
-        let (transport, incoming) = match flavor {
-            Some(flavor) => {
+        let (transport, incoming) = match (info.slack.is_some(), flavor) {
+            (true, _) => {
+                let (live, events) = crate::slack::live::spawn();
+                (Transport::Slack(live), Feed::Live(events))
+            }
+            (false, Some(flavor)) => {
                 let dialect = if flavor == Flavor::Kchat {
                     live_socket::Dialect::Kchat
                 } else {
@@ -382,7 +408,7 @@ impl Session {
                 let (live, events) = live_socket::spawn(dialect, rest.clone(), info.auth_token.clone());
                 (Transport::Live(live), Feed::Live(events))
             }
-            None => {
+            (false, None) => {
                 let (ddp, ddp_events) = ddp::spawn(websocket_url(&base), Timeouts::default());
                 ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
                 ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
@@ -397,6 +423,7 @@ impl Session {
 
         let media = Arc::new(match sync.backend() {
             Backend::Mattermost(mm) => MediaCache::for_mattermost(rest.clone(), mm.directory.clone()),
+            Backend::Slack(slack) => MediaCache::for_slack(rest.clone(), slack.directory.clone()),
             Backend::RocketChat => MediaCache::new(rest.clone()),
         });
         let uploads = Arc::new(Uploads::new(store.clone(), rest.clone(), sync.clone()));
@@ -443,7 +470,10 @@ impl Session {
 
         session.transport.open(&session.info.auth_token);
         // The read the user sees: not sequenced behind the socket negotiation.
-        session.spawn_catch_up();
+        // Slack's feed asks for it as it opens.
+        if !matches!(session.transport, Transport::Slack(_)) {
+            session.spawn_catch_up();
+        }
         Ok(session)
     }
 
@@ -724,6 +754,7 @@ impl Session {
                 let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
                 (list, true)
             }
+            Backend::Slack(_) => return,
             Backend::RocketChat => {
                 let Ok(list) = rocketchat::actions::presence(&self.rest).await else { return };
                 (list, false)
@@ -738,6 +769,7 @@ impl Session {
     pub async fn call_available(&self) -> bool {
         match self.backend() {
             Backend::Mattermost(_) => return self.info.mattermost == Some(mattermost::Flavor::Kchat),
+            Backend::Slack(_) => return false,
             Backend::RocketChat => {}
         }
         if let Some(known) = *self.call_available.lock().unwrap() {
@@ -766,6 +798,9 @@ impl Session {
     pub async fn room_info(&self, rid: &str) -> Result<info::RoomInfo, RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::room_info(&self.rest, rid).await,
+            Backend::Slack(slack) => {
+                slack.room_info(rid).ok_or_else(|| RestError::incomplete("room info: unknown room"))
+            }
             Backend::RocketChat => rocketchat::actions::room_info(&self.rest, rid).await,
         }
     }
@@ -773,6 +808,9 @@ impl Session {
     pub async fn room_by_name(&self, name: &str) -> Result<info::RoomInfo, RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::room_by_name(&self.rest, name).await,
+            Backend::Slack(slack) => {
+                slack.room_by_name(name).ok_or_else(|| RestError::incomplete("room info: unknown room"))
+            }
             Backend::RocketChat => rocketchat::actions::room_by_name(&self.rest, name).await,
         }
     }
@@ -781,6 +819,9 @@ impl Session {
     pub async fn profile(&self, key: &str, by_id: bool) -> Result<info::Profile, RestError> {
         let profile = match self.backend() {
             Backend::Mattermost(mm) => return mattermost::actions::profile(&self.rest, mm, key, by_id).await,
+            Backend::Slack(slack) => {
+                return slack.profile(key, by_id).await.ok_or_else(|| RestError::incomplete("profile: unknown person"));
+            }
             Backend::RocketChat => rocketchat::actions::profile(&self.rest, key, by_id).await?,
         };
         if let Some(etag) = &profile.avatar_etag {
@@ -792,6 +833,7 @@ impl Session {
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::search(&self.rest, mm, rid, text).await,
+            Backend::Slack(_) => Err(crate::slack::not_supported("search")),
             Backend::RocketChat => rocketchat::actions::search(&self.rest, rid, text).await,
         }
     }
@@ -801,7 +843,7 @@ impl Session {
     pub async fn e2e_unlock(&self, password: &str) -> Result<(), UnlockError> {
         // Rocket.Chat's E2EE only: Mattermost has no encrypted rooms.
         match self.backend() {
-            Backend::Mattermost(_) => {
+            Backend::Mattermost(_) | Backend::Slack(_) => {
                 return Err(UnlockError::Server(RestError::incomplete("e2e: not on this server")));
             }
             Backend::RocketChat => {}
@@ -901,6 +943,7 @@ impl Session {
     pub fn person_label(&self, uid: &str) -> Option<String> {
         let mattermost = match self.backend() {
             Backend::Mattermost(mm) => mm,
+            Backend::Slack(slack) => return slack.directory.display_name(uid),
             Backend::RocketChat => return self.store.real_names().then(|| self.store.person_name(uid)).flatten(),
         };
         let directory = &mattermost.directory;
@@ -919,7 +962,7 @@ impl Session {
     /// The account's conversation list settings, kept on the server (Mattermost and kChat).
     pub async fn sidebar_settings(&self) -> Result<mattermost::actions::SidebarSettings, RestError> {
         match self.backend() {
-            Backend::RocketChat => {
+            Backend::RocketChat | Backend::Slack(_) => {
                 return Err(RestError::incomplete("sidebar settings: not on this server"));
             }
             Backend::Mattermost(_) => {}
@@ -934,7 +977,7 @@ impl Session {
         dm_limit: Option<usize>,
     ) -> Result<(), RestError> {
         match self.backend() {
-            Backend::RocketChat => {
+            Backend::RocketChat | Backend::Slack(_) => {
                 return Err(RestError::incomplete("sidebar settings: not on this server"));
             }
             Backend::Mattermost(_) => {}
@@ -946,7 +989,7 @@ impl Session {
     pub fn status_emoji(&self, uid: &str) -> Option<String> {
         match self.backend() {
             Backend::Mattermost(mm) => mm.directory.status_emoji(uid),
-            Backend::RocketChat => None,
+            Backend::Slack(_) | Backend::RocketChat => None,
         }
     }
 
@@ -971,6 +1014,7 @@ impl Session {
     pub async fn me(&self) -> Result<crate::account::Me, RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::me(&self.rest).await,
+            Backend::Slack(_) => Err(crate::slack::not_supported("me")),
             Backend::RocketChat => rocketchat::actions::me(&self.rest).await,
         }
     }
@@ -982,6 +1026,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await?
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("status")),
             Backend::RocketChat => rocketchat::actions::set_status(&self.rest, status, message).await?,
         }
         if let Some(status) = live::Presence::parse(status) {
@@ -995,6 +1040,7 @@ impl Session {
         let started = self.presence.lock().unwrap().revision();
         let confirmed = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::set_activity(&self.rest, &self.info.user_id, chosen).await?,
+            Backend::Slack(_) => return Err(crate::slack::not_supported("activity")),
             Backend::RocketChat => {
                 let before = self.me().await?;
                 if self.closed.load(Ordering::Acquire) {
@@ -1024,6 +1070,7 @@ impl Session {
     ) -> Result<(), RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::update_basic_info(&self.rest, &data, password).await,
+            Backend::Slack(_) => Err(crate::slack::not_supported("profile")),
             Backend::RocketChat => {
                 let hashed = password.map(|p| two_factor_code("password", p).code);
                 rocketchat::actions::update_basic_info(&self.rest, data, hashed, two_factor).await
@@ -1036,6 +1083,7 @@ impl Session {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "avatar".into());
         let path = match self.backend() {
             Backend::Mattermost(_) => format!("users/{}/image", self.info.user_id),
+            Backend::Slack(_) => return Err(crate::slack::not_supported("avatar")),
             Backend::RocketChat => "users.setAvatar".to_owned(),
         };
         self.rest.upload(&path, "image", bytes, &name, mime, Vec::new(), |_, _| {}).await.map(|_| ())
@@ -1071,6 +1119,7 @@ impl Session {
                 let path = format!("users/{}/image", self.info.user_id);
                 self.rest.delete(&path, CallOptions::default()).await.map(|_| ())
             }
+            Backend::Slack(_) => Err(crate::slack::not_supported("avatar")),
             Backend::RocketChat => rocketchat::actions::reset_avatar(&self.rest).await,
         }
     }
@@ -1080,7 +1129,9 @@ impl Session {
             (Backend::Mattermost(_), Some(v)) if key == "desktopNotifications" => {
                 mattermost::actions::set_desktop_notifications(&self.rest, v).await?
             }
-            (Backend::Mattermost(_), _) => return Err(RestError::incomplete(&format!("{key}: not on this server"))),
+            (Backend::Mattermost(_) | Backend::Slack(_), _) => {
+                return Err(RestError::incomplete(&format!("{key}: not on this server")));
+            }
             (Backend::RocketChat, _) => rocketchat::actions::set_preference(&self.rest, key, &value).await?,
         }
         if key == "desktopNotifications"
@@ -1094,6 +1145,7 @@ impl Session {
     pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::spotlight(&self.rest, mm, query).await,
+            Backend::Slack(_) => Err(crate::slack::not_supported("spotlight")),
             Backend::RocketChat => rocketchat::actions::spotlight(&self.rest, query).await,
         }
     }
@@ -1107,6 +1159,7 @@ impl Session {
                 mm.reveal(&rid);
                 rid
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("direct message")),
             Backend::RocketChat => rocketchat::actions::open_dm(&self.rest, username).await?,
         };
         self.sync.catch_up_global().await?;
@@ -1116,6 +1169,7 @@ impl Session {
     pub async fn join_channel(&self, rid: &str) -> Result<(), RestError> {
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::join(&self.rest, &self.info.user_id, rid).await?,
+            Backend::Slack(_) => return Err(crate::slack::not_supported("join")),
             Backend::RocketChat => rocketchat::actions::join(&self.rest, rid).await?,
         }
         self.sync.catch_up_global().await
@@ -1124,6 +1178,7 @@ impl Session {
     pub async fn mark_read(&self, rid: &str) {
         let _ = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::mark_read(&self.rest, rid).await,
+            Backend::Slack(_) => return,
             Backend::RocketChat => rocketchat::actions::mark_read(&self.rest, rid).await,
         };
     }
@@ -1221,6 +1276,11 @@ impl Session {
                 self.retain();
                 return;
             }
+            Backend::Slack(_) => {
+                let _ = self.sync.reconcile_rooms().await;
+                self.retain();
+                return;
+            }
             Backend::RocketChat => {}
         }
         let _ = self.refresh_custom_emojis().await;
@@ -1258,7 +1318,9 @@ impl Session {
         // Mattermost's custom emoji are read once per session by `MmSync`; its
         // server has no `emoji-custom.list`, which used to answer a 404 here.
         match self.backend() {
-            Backend::Mattermost(_) => return Err(RestError::incomplete("custom emoji: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("custom emoji: not on this server"));
+            }
             Backend::RocketChat => {}
         }
         let list = self.rest.get("emoji-custom.list", CallOptions::default()).await?;
@@ -1301,17 +1363,20 @@ impl Session {
         let rest = self.rest.clone();
         let read = CallOptions::body(json!({"rid": rid}));
         let mattermost = match self.backend() {
-            Backend::Mattermost(_) => true,
-            Backend::RocketChat => false,
+            Backend::Mattermost(_) => Some(true),
+            Backend::RocketChat => Some(false),
+            Backend::Slack(_) => None,
         };
         let room = rid.to_owned();
-        tokio::spawn(async move {
-            if mattermost {
-                let _ = mattermost::actions::mark_read(&rest, &room).await;
-            } else {
-                let _ = rest.post("subscriptions.read", read).await;
-            }
-        });
+        if let Some(mattermost) = mattermost {
+            tokio::spawn(async move {
+                if mattermost {
+                    let _ = mattermost::actions::mark_read(&rest, &room).await;
+                } else {
+                    let _ = rest.post("subscriptions.read", read).await;
+                }
+            });
+        }
         let page = self.sync.load_history(rid, kind, None).await;
         if !self.synced.lock().unwrap().contains(rid) {
             let (sync, rid) = (self.sync.clone(), rid.to_owned());
@@ -1347,7 +1412,7 @@ impl Session {
     /// otherwise the server session stays open until it expires.
     pub async fn logout(&self) -> bool {
         self.shutdown();
-        server_logout(&self.rest, self.info.mattermost).await
+        server_logout(&self.rest, &self.info).await
     }
 
     /// The server's public settings, read once per session.
@@ -1355,7 +1420,7 @@ impl Session {
         self.settings
             .get_or_init(|| async {
                 match self.backend() {
-                    Backend::Mattermost(_) => {
+                    Backend::Mattermost(_) | Backend::Slack(_) => {
                         ServerSettings { site_url: Some(self.info.base_url.clone()), ..ServerSettings::from_list(&[]) }
                     }
                     Backend::RocketChat => ServerSettings::fetch(&self.rest).await,
@@ -1381,7 +1446,7 @@ impl Session {
 
     async fn access(&self) -> Option<&(Vec<actions::PermissionRoles>, Vec<String>)> {
         match self.backend() {
-            Backend::Mattermost(_) => {
+            Backend::Mattermost(_) | Backend::Slack(_) => {
                 return None;
             }
             Backend::RocketChat => {}
@@ -1409,7 +1474,7 @@ impl Session {
             .commands
             .get_or_try_init(|| async {
                 match self.backend() {
-                    Backend::Mattermost(_) => {
+                    Backend::Mattermost(_) | Backend::Slack(_) => {
                         return Ok(Vec::new());
                     }
                     Backend::RocketChat => {}
@@ -1457,6 +1522,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::permalink(&self.info.base_url, msg_id);
             }
+            Backend::Slack(_) => return crate::slack::sync::SlackSync::permalink(&self.info.base_url, rid, msg_id),
             Backend::RocketChat => {}
         }
         let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
@@ -1468,7 +1534,7 @@ impl Session {
     pub fn forwarding_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -1496,6 +1562,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("reactions")),
             Backend::RocketChat => {}
         }
         actions::react(&self.rest, msg_id, shortcode, add).await
@@ -1509,6 +1576,7 @@ impl Session {
                 mm.ingest(&[post]);
                 return Ok(());
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("edit")),
             Backend::RocketChat => {}
         }
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
@@ -1535,6 +1603,7 @@ impl Session {
         }
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
+            Backend::Slack(_) => return Err(crate::slack::not_supported("delete")),
             Backend::RocketChat => actions::delete(&self.rest, rid, msg_id).await?,
         }
         self.store.write(|w| w.delete_message(msg_id));
@@ -1548,6 +1617,7 @@ impl Session {
                 mattermost::actions::favorite(&self.rest, mm.me(), rid, on).await?;
                 mm.note_favorite(rid, on);
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("favorite")),
             Backend::RocketChat => {
                 actions::favorite(&self.rest, rid, on).await?;
             }
@@ -1562,6 +1632,7 @@ impl Session {
                 mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, true).await?]);
                 return Ok(());
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("pin")),
             Backend::RocketChat => {}
         }
         actions::pin(&self.rest, msg_id).await?;
@@ -1575,6 +1646,7 @@ impl Session {
                 mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, false).await?]);
                 return Ok(());
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("pin")),
             Backend::RocketChat => {}
         }
         actions::unpin(&self.rest, msg_id).await?;
@@ -1589,6 +1661,7 @@ impl Session {
                 mm.set_flagged(&[msg_id.to_owned()], on).await;
                 return Ok(());
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("star")),
             Backend::RocketChat => {}
         }
         actions::star(&self.rest, msg_id, on).await?;
@@ -1624,6 +1697,7 @@ impl Session {
                     posts.iter().filter_map(|p| p.get("id").and_then(Value::as_str)).map(str::to_owned).collect();
                 return Ok(self.store.messages_by_id(&ids));
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("marked messages")),
             Backend::RocketChat => {}
         }
         let docs = actions::marked(&self.rest, rid, starred).await?;
@@ -1638,7 +1712,7 @@ impl Session {
     pub fn threads_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -1678,7 +1752,7 @@ impl Session {
     pub fn unread_marks_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -1710,7 +1784,7 @@ impl Session {
     pub fn room_notifications_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -1763,6 +1837,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::start_conference(&self.rest, rid).await;
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
             Backend::RocketChat => {}
         }
         let call_id = actions::start_call(&self.rest, rid).await?;
@@ -1785,10 +1860,11 @@ impl Session {
     /// `video-conference.cancel`, which only its licensed direct calls accept.
     pub async fn decline_call(&self, call_id: &str) -> Result<(), RestError> {
         self.dismiss_call();
-        if matches!(self.backend(), Backend::Mattermost(_)) {
-            return mattermost::actions::decline_conference(&self.rest, call_id).await;
+        match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::decline_conference(&self.rest, call_id).await,
+            Backend::Slack(_) => Err(crate::slack::not_supported("calls")),
+            Backend::RocketChat => actions::cancel_call(&self.rest, call_id).await,
         }
-        actions::cancel_call(&self.rest, call_id).await
     }
 
     fn call_signal(self: &Arc<Self>, signal: crate::call_ring::CallSignal) {
@@ -1816,8 +1892,9 @@ impl Session {
     /// The server's record of a call: Rocket.Chat's `video-conference.info`,
     /// None on Mattermost, where the post is the record.
     async fn call_check(&self, call_id: &str) -> Result<Option<crate::call_ring::CallCheck>, RestError> {
-        if matches!(self.backend(), Backend::Mattermost(_)) {
-            return Ok(None);
+        match self.backend() {
+            Backend::Mattermost(_) | Backend::Slack(_) => return Ok(None),
+            Backend::RocketChat => {}
         }
         let info = self.rest.get("video-conference.info", CallOptions::params([("callId", call_id)])).await?;
         crate::call_ring::rocketchat_check(&info).map(Some).ok_or_else(|| RestError::incomplete("no call record"))
@@ -1869,6 +1946,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::answer_conference(&self.rest, call_id).await;
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
             Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
@@ -1882,6 +1960,7 @@ impl Session {
                     .await
                     .map(|url| crate::call::meeting_link(&url));
             }
+            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
             Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {
@@ -1898,6 +1977,7 @@ impl Session {
             Backend::Mattermost(mm) => {
                 return mm.load_thread(root_id).await;
             }
+            Backend::Slack(slack) => return slack.load_thread(root_id).await,
             Backend::RocketChat => {}
         }
         const PAGE: usize = 100;
@@ -1945,7 +2025,7 @@ impl Session {
     pub fn also_in_room_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2000,6 +2080,7 @@ impl Session {
             for reactor in &mut item.reactors {
                 let shown = match self.backend() {
                     Backend::Mattermost(mm) => mm.directory.name_of(reactor),
+                    Backend::Slack(slack) => slack.directory.name_of(reactor),
                     Backend::RocketChat => names.get(reactor.as_str()).filter(|_| real_names).cloned(),
                 };
                 if let Some(shown) = shown {
@@ -2014,7 +2095,7 @@ impl Session {
     pub fn discussions_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2033,7 +2114,9 @@ impl Session {
     pub async fn invite_link(&self, rid: &str) -> Result<String, RestError> {
         let id = match self.backend() {
             Backend::RocketChat => rocketchat::actions::find_or_create_invite(&self.rest, rid).await?,
-            Backend::Mattermost(_) => return Err(RestError::incomplete("invite: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("invite: not on this server"));
+            }
         };
         let base = self.settings().await.site_url.clone().unwrap_or_else(|| self.info.base_url.clone());
         Ok(actions::invite_link(&base, &id))
@@ -2045,7 +2128,7 @@ impl Session {
     pub async fn may_post_read_only(&self, rid: &str) -> bool {
         match self.backend() {
             Backend::RocketChat => {}
-            Backend::Mattermost(_) => return false,
+            Backend::Mattermost(_) | Backend::Slack(_) => return false,
         }
         self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == actions::POST_READONLY_PERMISSION))
     }
@@ -2055,7 +2138,7 @@ impl Session {
     pub fn members_available(&self, rid: &str) -> bool {
         match self.backend() {
             Backend::RocketChat => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2063,7 +2146,9 @@ impl Session {
     fn member_room(&self, rid: &str) -> Result<String, RestError> {
         match self.backend() {
             Backend::RocketChat => {}
-            Backend::Mattermost(_) => return Err(RestError::incomplete("members: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("members: not on this server"));
+            }
         }
         self.store
             .room_kind(rid)
@@ -2143,7 +2228,9 @@ impl Session {
         }
         let room = match self.backend() {
             Backend::RocketChat => rocketchat::actions::create_discussion(&self.rest, prid, name, pmid, reply).await?,
-            Backend::Mattermost(_) => return Err(RestError::incomplete("discussion: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("discussion: not on this server"));
+            }
         };
         let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.sync.ingest_room(&room);
@@ -2157,7 +2244,7 @@ impl Session {
     pub fn channels_creatable(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
-            Backend::Mattermost(_) => false,
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2172,7 +2259,9 @@ impl Session {
         }
         let room = match self.backend() {
             Backend::RocketChat => rocketchat::actions::create_channel(&self.rest, name, private).await?,
-            Backend::Mattermost(_) => return Err(RestError::incomplete("channel: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("channel: not on this server"));
+            }
         };
         let rid = room.get("_id").and_then(Value::as_str).unwrap_or_default().to_owned();
         self.sync.ingest_room(&room);
@@ -2188,7 +2277,9 @@ impl Session {
     pub async fn open_discussion(&self, drid: &str) -> Result<DiscussionAccess, RestError> {
         match self.backend() {
             Backend::RocketChat => {}
-            Backend::Mattermost(_) => return Err(RestError::incomplete("discussion: not on this server")),
+            Backend::Mattermost(_) | Backend::Slack(_) => {
+                return Err(RestError::incomplete("discussion: not on this server"));
+            }
         }
         if self.store.listed(drid) {
             return Ok(DiscussionAccess::Listed);

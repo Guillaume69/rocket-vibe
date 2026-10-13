@@ -249,6 +249,7 @@ async fn native_profile_replay_retains_the_original_form_and_reads_current_priva
     let session = NativeSession::start(
         SessionInfo {
             mattermost: None,
+            slack: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

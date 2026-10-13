@@ -1,5 +1,15 @@
-//! Slack session-mode read preview. Fixed API origin, no writes or persistent credentials.
+//! Slack in session mode: the transient read preview (`Reader`) and the
+//! saved, read-only account kind (`account`, `sync`).
+pub mod account;
+pub mod api;
+pub mod directory;
 pub mod handoff;
+pub mod live;
+pub mod sync;
+pub mod translate;
+
+pub use account::{SlackAccount, login, login_at, login_paired};
+pub use api::{METHODS, NOT_SUPPORTED, RATE_LIMITED, RESPONSE_CAP, SESSION_REJECTED, interpret, not_supported};
 
 use serde_json::Value;
 use std::sync::{

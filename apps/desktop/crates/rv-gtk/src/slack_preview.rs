@@ -2,8 +2,8 @@
 use crate::{i18n::t, widgets};
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::slack::{Conversation, Reader};
 use rv_core::slack::handoff::Pairing;
+use rv_core::slack::{Conversation, Reader};
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;

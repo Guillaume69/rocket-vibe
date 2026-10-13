@@ -86,6 +86,9 @@ pub async fn probe_as(base: &Url, kind: crate::native::ServerKind) -> Result<Ser
     if kind == ServerKind::Kchat || (kind == ServerKind::Auto && crate::mattermost::is_kchat_host(base)) {
         return Ok(mattermost("kchat", String::new()));
     }
+    if kind == ServerKind::Slack {
+        return Ok(ServerProfile { password_login: false, ..mattermost("slack", String::new()) });
+    }
     if kind == ServerKind::Mattermost {
         return crate::mattermost::probe(base)
             .await

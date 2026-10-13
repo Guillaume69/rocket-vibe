@@ -554,7 +554,9 @@ jobs:
             fi
             exit 1
           fi
-          xcrun stapler staple "$dmg"
+          # The stapler fetches the ticket from Apple's CloudKit, whose connection
+          # drops now and then ("The network connection was lost", error 68).
+          for try in 1 2 3 4 5; do xcrun stapler staple "$dmg" && break; [ "$try" = 5 ] && exit 1; sleep 30; done
           rm "$RUNNER_TEMP/notary.p8"
       - name: What Gatekeeper will say
         if: env.APPLE_SIGNING == 'true'
@@ -563,7 +565,8 @@ jobs:
           spctl --assess --type execute -vv dist/rocket-vibe.app
           if [ "$APPLE_NOTARY" = true ]; then
             spctl --assess --type open --context context:primary-signature -vv dist/*.dmg
-            xcrun stapler validate dist/*.dmg
+            # Apple's CloudKit again, as for stapling.
+            for try in 1 2 3 4 5; do xcrun stapler validate dist/*.dmg && break; [ "$try" = 5 ] && exit 1; sleep 30; done
           fi
       # Homebrew moved aside: a library the bundle still took from it fails here.
       - name: The bundle starts on its own

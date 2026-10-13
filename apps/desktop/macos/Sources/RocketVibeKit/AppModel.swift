@@ -250,6 +250,53 @@ public final class AppModel {
         await client.keepAccountsConnected()
     }
 
+    /// The muted accounts (`Client.muteAccount`, the file GTK reads too):
+    /// no notification, sound or ring, their dot and dock count held back.
+    public private(set) var mutedAccounts: Set<String> = []
+    @ObservationIgnored private var muteEnd: Task<Void, Never>?
+
+    /// Reads the mutes again, and again when the earliest timed one ends.
+    public func refreshMutes() {
+        mutedAccounts = Set(client.mutedAccounts())
+        showAttention()
+        muteEnd?.cancel()
+        guard let end = client.nextMuteEnd() else { return }
+        let wait = max(0, end - Int64(Date().timeIntervalSince1970 * 1000)) + 500
+        muteEnd = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(wait) * 1_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refreshMutes()
+        }
+    }
+
+    /// Whether the account is muted now (an ended mute no longer counts).
+    public func isMuted(_ key: String) -> Bool { client.accountMute(account: key) != nil }
+
+    public func mute(_ target: Account, _ choice: MuteChoice) {
+        client.muteAccount(account: target.key, choice: choice)
+        refreshMutes()
+    }
+
+    public func unmute(_ target: Account) {
+        client.unmuteAccount(account: target.key)
+        refreshMutes()
+    }
+
+    /// The rail's "Log out": the open account as the account menu does it,
+    /// another one through `Client.signOutAccount`.
+    public func signOut(_ target: Account) async {
+        if target.key == account?.key {
+            await signOut()
+        } else {
+            do { try await client.signOutAccount(account: target.key) }
+            catch { notice = L("rail.logout_failed"); return }
+            unreadAccounts.remove(target.key)
+            accountAttention[target.key] = nil
+            accounts = await client.accounts()
+        }
+        refreshMutes()
+    }
+
     func handleAccount(_ event: AccountEvent) {
         switch event {
         case let .unread(key, unread, attention):
@@ -257,10 +304,10 @@ public final class AppModel {
             accountAttention[key] = attention
             showAttention()
         case let .incoming(key, scope, incoming):
-            guard key != account?.key else { return }
+            guard key != account?.key, !isMuted(key) else { return }
             onBackgroundIncoming?(incoming, scope)
         case let .call(key, call):
-            guard key != account?.key else { return }
+            guard key != account?.key, call == nil || !isMuted(key) else { return }
             if let call {
                 guard backgroundCall == nil, ringingCall == nil else { return }
                 backgroundCall = call
@@ -278,9 +325,13 @@ public final class AppModel {
 
     /// The dock's count: the open account's rooms and what the others hold.
     func showAttention() {
-        let others = accountAttention.filter { $0.key != account?.key }.values.reduce(0, +)
-        onAttention?((chat?.attention() ?? 0) + others)
+        let others = accountAttention.filter { $0.key != account?.key && !mutedAccounts.contains($0.key) }.values.reduce(0, +)
+        let own = account.map { mutedAccounts.contains($0.key) } == true ? 0 : (chat?.attention() ?? 0)
+        onAttention?(own + others)
     }
+
+    /// The open account is muted: its messages notify nothing, its calls ring silently.
+    public var openMuted: Bool { account.map { isMuted($0.key) } ?? false }
 
     private func endBackgroundCall() {
         backgroundCall = nil
@@ -509,7 +560,7 @@ public final class AppModel {
             e2eUnlocked = chat?.e2eUnlocked() ?? false
             later(everything: true)
         case let .incoming(incoming):
-            onIncoming?(incoming)
+            if !openMuted { onIncoming?(incoming) }
         case .callRing:
             ringingCall = chat?.incomingCall()
             onCallRing?(ringingCall)

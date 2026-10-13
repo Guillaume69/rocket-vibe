@@ -1269,7 +1269,7 @@ impl ChatPage {
         }
         // Do not disturb: the prompt shows, silently, as the server rings no device.
         self.voice.set_tone(if incoming.is_some() {
-            (!session.quiet_now()).then_some(Sound::Ringtone)
+            (!session.quiet_now() && !crate::rail::is_muted(&session.info)).then_some(Sound::Ringtone)
         } else if outgoing {
             Some(Sound::Ringback)
         } else {

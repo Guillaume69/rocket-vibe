@@ -12,6 +12,7 @@ section here.
 - Create a channel or a private group on Rocket.Chat accounts, on GTK and SwiftUI: "Create a channel" in the "+" menu and on the Channels header, with a name and the Private switch. The new room opens at once, and a refused name says why (already taken, or not accepted by the server).
 - Switch servers from the keyboard: Ctrl + 1 to 9 opens the server rail's first nine accounts and Ctrl + 0 the tenth on GTK (Cmd on SwiftUI, also listed in the menu bar), each tile's tooltip naming its shortcut. The digit row works without Shift on AZERTY keyboards.
 - Reorder the server rail by dragging a tile onto another, on GTK and SwiftUI; the order is kept across restarts and shared by both apps.
+- Right-click a server in the rail, on GTK and SwiftUI: mute it for 1 hour, 4 hours, until tomorrow 09:00, a week or until you unmute it (no notification, ring, dot or badge count meanwhile, its tile dimmed), unmute it, or log out of it, in red at the bottom, after a confirmation. Logging out of an account that is not open no longer requires switching to it first.
 - Activity, on GTK and SwiftUI: a bell in the room list (Ctrl+Shift+A, Cmd+Shift+A) lists the messages that mention you, replies in your threads and your messages others reacted to across every signed-in account, newest first, from the messages already on this computer, with the rooms that have unread mentions above them. A click opens the right account at the message, or its thread.
 
 ### Changed

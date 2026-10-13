@@ -14,6 +14,14 @@ thread_local! {
     static OPEN: Cell<Badge> = const { Cell::new(Badge::None) };
     static OPEN_KEY: RefCell<Option<String>> = const { RefCell::new(None) };
     static ACCOUNTS: RefCell<HashMap<String, Badge>> = RefCell::default();
+    /// Muted accounts (`rv_core::account_mute`): their count is held back.
+    static MUTED: RefCell<std::collections::HashSet<String>> = RefCell::default();
+}
+
+/// The muted accounts now, the open one included.
+pub fn set_muted(keys: std::collections::HashSet<String>) {
+    MUTED.replace(keys);
+    show();
 }
 
 /// The open account's badge, from its room list.
@@ -41,10 +49,16 @@ pub fn set_account(key: &str, badge: Option<Badge>) {
 
 fn show() {
     let open = OPEN_KEY.with_borrow(Clone::clone);
+    let muted = MUTED.with_borrow(Clone::clone);
     let others = ACCOUNTS.with_borrow(|accounts| {
-        accounts.iter().filter(|(key, _)| open.as_deref() != Some(key.as_str())).map(|(_, b)| *b).collect::<Vec<_>>()
+        accounts
+            .iter()
+            .filter(|(key, _)| open.as_deref() != Some(key.as_str()) && !muted.contains(key.as_str()))
+            .map(|(_, b)| *b)
+            .collect::<Vec<_>>()
     });
-    let badge = Badge::merge(std::iter::once(OPEN.get()).chain(others));
+    let own = if open.as_ref().is_some_and(|key| muted.contains(key)) { Badge::None } else { OPEN.get() };
+    let badge = Badge::merge(std::iter::once(own).chain(others));
     if SHOWN.replace(Some(badge)) == Some(badge) {
         return;
     }

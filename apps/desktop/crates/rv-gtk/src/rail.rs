@@ -37,6 +37,10 @@ pub struct Rail {
     /// Each button's account, key, overlay and initial tile, to read the icons again.
     slots: RefCell<Vec<Slot>>,
     unread: RefCell<HashMap<String, bool>>,
+    /// The muted accounts (`rv_core::account_mute`): dimmed, a muted mark, no dot.
+    muted: RefCell<std::collections::HashSet<String>>,
+    /// Each account's button and its muted mark, for the muted look.
+    muted_looks: RefCell<HashMap<String, (gtk::Button, gtk::Widget)>>,
     /// Bumped by each new account list: a late answer about a list that
     /// changed meanwhile is dropped.
     generation: Cell<u64>,
@@ -64,6 +68,36 @@ fn config_dir() -> std::path::PathBuf {
 
 fn hidden_file() -> std::path::PathBuf {
     config_dir().join("hide-server-rail")
+}
+
+fn now_ms() -> i64 {
+    glib::real_time() / 1000
+}
+
+/// The account's mute now (`rv_core::account_mute`), shared with the SwiftUI app.
+pub fn mute_of(info: &SessionInfo) -> Option<rv_core::account_mute::Mute> {
+    rv_core::account_mute::muted(&config_dir(), &account_key(info), now_ms())
+}
+
+/// Whether the account is muted now: no notification, sound or ring.
+pub fn is_muted(info: &SessionInfo) -> bool {
+    mute_of(info).is_some()
+}
+
+/// Mutes the account until `until` (ms), or until unmuted with None.
+pub fn mute(info: &SessionInfo, until: Option<i64>) {
+    rv_core::account_mute::mute(&config_dir(), &account_key(info), until);
+}
+
+pub fn unmute(info: &SessionInfo) {
+    rv_core::account_mute::unmute(&config_dir(), &account_key(info));
+}
+
+/// The muted accounts' keys now, and the earliest end of a timed mute.
+pub fn mutes() -> (std::collections::HashSet<String>, Option<i64>) {
+    let now = now_ms();
+    let keys = rv_core::account_mute::active(&config_dir(), now).into_keys().collect();
+    (keys, rv_core::account_mute::next_end(&config_dir(), now))
 }
 
 /// The digit a Ctrl + key press means, whatever the layout: the key's own
@@ -170,6 +204,8 @@ impl Rail {
             photo_sources: RefCell::default(),
             slots: RefCell::default(),
             unread: RefCell::default(),
+            muted: RefCell::default(),
+            muted_looks: RefCell::default(),
             generation: Cell::new(0),
             on_switch: RefCell::default(),
             on_add: RefCell::default(),
@@ -208,19 +244,30 @@ impl Rail {
         }
         self.dots.borrow_mut().clear();
         self.slots.borrow_mut().clear();
+        self.muted_looks.borrow_mut().clear();
         for (slot, info) in accounts.iter().enumerate() {
             let key = account_key(info);
             let open = active.as_deref() == Some(key.as_str());
+            let muted = self.muted.borrow().contains(&key);
             let server = host(info);
             let tile = widgets::tile(&key, &widgets::initial(&server), TileSize::Room, false);
             let dot = gtk::Box::builder()
                 .css_classes(["rail-dot"])
                 .halign(gtk::Align::End)
                 .valign(gtk::Align::Start)
-                .visible(!open && self.unread.borrow().get(&key).copied().unwrap_or(false))
+                .visible(!open && !muted && self.unread.borrow().get(&key).copied().unwrap_or(false))
+                .build();
+            let mark = gtk::Image::builder()
+                .icon_name("notifications-disabled-symbolic")
+                .pixel_size(14)
+                .css_classes(["rail-muted-mark"])
+                .halign(gtk::Align::End)
+                .valign(gtk::Align::End)
+                .visible(muted)
                 .build();
             let overlay = gtk::Overlay::builder().child(&tile).build();
             overlay.add_overlay(&dot);
+            overlay.add_overlay(&mark);
             if let Some(texture) = self.icons.borrow().get(&key) {
                 overlay.set_child(Some(&icon_image(Some(texture))));
             }
@@ -248,6 +295,10 @@ impl Rail {
             if open {
                 button.add_css_class("rail-active");
             }
+            if muted {
+                button.add_css_class("rail-muted");
+            }
+            self.muted_looks.borrow_mut().insert(key.clone(), (button.clone(), mark.upcast()));
             let (weak, target) = (Rc::downgrade(self), info.clone());
             button.connect_clicked(move |_| {
                 let Some(this) = weak.upgrade() else { return };
@@ -336,8 +387,28 @@ impl Rail {
     pub fn set_unread(&self, key: &str, unread: bool) {
         self.unread.borrow_mut().insert(key.to_owned(), unread);
         let open = self.active.borrow().as_deref() == Some(key);
+        let muted = self.muted.borrow().contains(key);
         if let Some(dot) = self.dots.borrow().get(key) {
-            dot.set_visible(unread && !open);
+            dot.set_visible(unread && !open && !muted);
+        }
+    }
+
+    /// The muted accounts now: dimmed, marked, their dot held back.
+    pub fn set_muted(&self, keys: std::collections::HashSet<String>) {
+        self.muted.replace(keys);
+        let unread: Vec<(String, bool)> = self.unread.borrow().iter().map(|(k, u)| (k.clone(), *u)).collect();
+        for (key, unread) in unread {
+            self.set_unread(&key, unread);
+        }
+        let muted = self.muted.borrow();
+        for (key, (button, mark)) in self.muted_looks.borrow().iter() {
+            let on = muted.contains(key);
+            mark.set_visible(on);
+            if on {
+                button.add_css_class("rail-muted");
+            } else {
+                button.remove_css_class("rail-muted");
+            }
         }
     }
 

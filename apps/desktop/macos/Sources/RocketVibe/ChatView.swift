@@ -83,6 +83,8 @@ struct ChatView: View {
 /// which keeps polling when Settings > Accounts hides the rail).
 struct ServerRail: View {
     @Environment(AppModel.self) var app
+    /// The account whose "Log out" waits for its confirmation.
+    @State private var leaving: Account?
 
     /// What the rail shows of a server: its host, without `www.`.
     static func host(_ account: Account) -> String {
@@ -95,17 +97,11 @@ struct ServerRail: View {
             ForEach(Array(app.railAccounts.enumerated()), id: \.element.key) { slot, account in
                 let open = account.key == app.account?.key
                 let host = Self.host(account)
-                // The open account's tile offers its server administration to
-                // an administrator; another one has no menu (a click switches).
+                // Every tile's menu (`menu`): the open account's administration
+                // for an administrator, mute or unmute, log out last.
                 // A tile dragged onto another takes its place.
-                Group {
-                    if open && app.administrator {
-                        tile(account, open: open, host: host, slot: slot)
-                            .contextMenu { Button(L("admin.title")) { app.openAdmin() } }
-                    } else {
-                        tile(account, open: open, host: host, slot: slot)
-                    }
-                }
+                tile(account, open: open, host: host, slot: slot)
+                    .contextMenu { menu(account, open: open) }
                 .draggable(account.key)
                 .dropDestination(for: String.self) { keys, _ in
                     guard let moved = keys.first else { return false }
@@ -125,6 +121,40 @@ struct ServerRail: View {
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
         .background(Vibe.ink)
+        .task { app.refreshMutes() }
+        .confirmOverlay(
+            isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }),
+            title: leaving.map { L("rail.logout_title", ["server": Self.host($0)]) } ?? "",
+            message: leaving.map { L("rail.logout_body", ["user": $0.username]) },
+            actions: [ModalAction(title: L("rail.logout"), role: .destructive) {
+                if let target = leaving { Task { await app.signOut(target) } }
+            }]
+        )
+    }
+
+    /// A tile's menu: mute choices, or the mute's end and Unmute; Log out in red, last.
+    @ViewBuilder
+    func menu(_ account: Account, open: Bool) -> some View {
+        if open && app.administrator {
+            Button(L("admin.title")) { app.openAdmin() }
+            Divider()
+        }
+        if app.mutedAccounts.contains(account.key), let mute = app.client.accountMute(account: account.key) {
+            switch mute {
+            case .forever: Text(L("mute.muted"))
+            case let .until(end):
+                Text(L("mute.muted_until", ["when": "\(Formatting.day(end)) \(Formatting.time(end))"]))
+            }
+            Button(L("mute.unmute")) { app.unmute(account) }
+        } else {
+            Menu(L("mute.title")) {
+                ForEach(muteChoices(), id: \.self) { choice in
+                    Button(L(muteChoiceLabel(choice: choice))) { app.mute(account, choice) }
+                }
+            }
+        }
+        Divider()
+        Button(L("rail.logout"), role: .destructive) { leaving = account }
     }
 
     /// The Cmd + digit that opens the rail's `slot` (`AppCommands`), for its tooltip.
@@ -149,11 +179,22 @@ struct ServerRail: View {
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
                 .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
+                .opacity(app.mutedAccounts.contains(account.key) ? 0.6 : 1)
                 .overlay(alignment: .topTrailing) {
-                    if !open && app.unreadAccounts.contains(account.key) {
+                    if !open && app.unreadAccounts.contains(account.key) && !app.mutedAccounts.contains(account.key) {
                         Circle().fill(Vibe.sun).frame(width: 12, height: 12)
                             .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
                             .offset(x: 3, y: -3)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if app.mutedAccounts.contains(account.key) {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Vibe.muted)
+                            .padding(3)
+                            .background(Circle().fill(Vibe.ink))
+                            .offset(x: 4, y: 4)
                     }
                 }
         }

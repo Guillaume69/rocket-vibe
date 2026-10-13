@@ -80,6 +80,8 @@ pub struct AppWindow {
     /// Every signed-in account's session, the open one and the others.
     accounts: Supervisor,
     background_ring: RefCell<Option<BackgroundRing>>,
+    /// Shows the accounts again when the earliest timed mute ends.
+    mute_timer: RefCell<Option<glib::SourceId>>,
 }
 
 fn data_dir() -> PathBuf {
@@ -268,6 +270,7 @@ impl AppWindow {
             notification_request: RefCell::default(),
             accounts,
             background_ring: RefCell::default(),
+            mute_timer: RefCell::default(),
         });
         let weak = Rc::downgrade(&this);
         glib::spawn_future_local(async move {
@@ -584,39 +587,25 @@ impl AppWindow {
                 this.add_account();
             }
         });
-        // The open account's button offers its server administration to an
-        // administrator; another account's has no menu (a click switches to it).
+        // Every account's button has a menu (`rail_menu`): mute or unmute it,
+        // log out of it; the open account's also offers its server
+        // administration to an administrator.
         let weak = Rc::downgrade(&this);
         this.rail.connect_menu(move |(anchor, info)| {
             let Some(this) = weak.upgrade() else { return };
-            let open = this.open_account();
-            if open.is_none_or(|open| crate::secrets::account_key(&open) != crate::secrets::account_key(&info)) {
-                return;
-            }
-            let Some(admin) = this.chat.admin() else { return };
-            let chat = this.chat.clone();
+            let open = this.open_account().is_some_and(|open| supervisor::key(&open) == supervisor::key(&info));
+            let admin = if open { this.chat.admin() } else { None };
             glib::spawn_future_local(async move {
-                if !crate::on_tokio(async move { admin.is_admin().await }).await || anchor.root().is_none() {
-                    return;
+                let admin = match admin {
+                    Some(admin) => crate::on_tokio(async move { admin.is_admin().await }).await,
+                    None => false,
+                };
+                if anchor.root().is_some() {
+                    this.rail_menu(&anchor, &info, admin);
                 }
-                let popover = gtk::Popover::builder().css_classes(["actions-menu", "rail-menu"]).build();
-                popover.set_parent(&anchor);
-                let label = gtk::Label::builder().label(crate::i18n::t("admin.title")).xalign(0.0).build();
-                let button =
-                    gtk::Button::builder().child(&label).css_classes(["flat", "menu-action", "rail-admin"]).build();
-                let menu = popover.clone();
-                button.connect_clicked(move |_| {
-                    menu.popdown();
-                    chat.open_admin();
-                });
-                popover.set_child(Some(&button));
-                popover.connect_closed(|p| {
-                    let p = p.clone();
-                    glib::idle_add_local_once(move || p.unparent());
-                });
-                popover.popup();
             });
         });
+        this.apply_mutes();
         let weak = Rc::downgrade(&this);
         crate::updater::set_presenter(move |release| {
             let Some(this) = weak.upgrade() else { return };
@@ -1293,6 +1282,9 @@ impl AppWindow {
     /// A background account's message, as its own window would show it,
     /// naming its server; a click opens that account on the message.
     fn notify_background(self: &Rc<Self>, info: &SessionInfo, incoming: rv_core::notify::Incoming) {
+        if crate::rail::is_muted(info) {
+            return;
+        }
         let key = supervisor::key(info);
         let (Some(chat), Some(notifier)) = (self.accounts.chat(&key), self.notifier.borrow().clone()) else { return };
         let incoming = supervisor::from_account(incoming, info);
@@ -1321,6 +1313,198 @@ impl AppWindow {
                 notifier.show(&incoming, &crate::notifier::Pictures::default());
             }
         }
+    }
+
+    /// A rail button's menu: the server administration (the open account,
+    /// for an administrator), mute for a while or unmute, then log out, in
+    /// red, last.
+    fn rail_menu(self: &Rc<Self>, anchor: &gtk::Widget, info: &SessionInfo, admin: bool) {
+        let popover = gtk::Popover::builder().css_classes(["actions-menu", "rail-menu"]).build();
+        popover.set_parent(anchor);
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let item = |text: &str, classes: &[&str], action: Box<dyn Fn()>| {
+            let label = gtk::Label::builder().label(text).xalign(0.0).build();
+            let mut all = vec!["flat", "menu-action"];
+            all.extend_from_slice(classes);
+            let button = gtk::Button::builder().child(&label).css_classes(all).build();
+            let menu = popover.clone();
+            button.connect_clicked(move |_| {
+                menu.popdown();
+                action();
+            });
+            list.append(&button);
+        };
+        if admin {
+            let chat = self.chat.clone();
+            item(t("admin.title"), &["rail-admin"], Box::new(move || chat.open_admin()));
+        }
+        let heading = |text: &str| {
+            list.append(&gtk::Label::builder().label(text).xalign(0.0).css_classes(["mute-heading"]).build());
+        };
+        match crate::rail::mute_of(info) {
+            Some(mute) => {
+                heading(&match mute {
+                    rv_core::account_mute::Mute::Forever => t("mute.muted").to_owned(),
+                    rv_core::account_mute::Mute::Until(end) => {
+                        tf("mute.muted_until", &[("when", &crate::rows::local(end).format("%d/%m %H:%M").to_string())])
+                    }
+                });
+                let (weak, info) = (Rc::downgrade(self), info.clone());
+                item(
+                    t("mute.unmute"),
+                    &["rail-unmute"],
+                    Box::new(move || {
+                        crate::rail::unmute(&info);
+                        if let Some(this) = weak.upgrade() {
+                            this.apply_mutes();
+                        }
+                    }),
+                );
+            }
+            None => {
+                heading(t("mute.title"));
+                for choice in rv_core::account_mute::MuteFor::ALL {
+                    let (weak, info) = (Rc::downgrade(self), info.clone());
+                    item(
+                        t(choice.label()),
+                        &["rail-mute"],
+                        Box::new(move || {
+                            crate::rail::mute(&info, choice.until(&chrono::Local::now()));
+                            if let Some(this) = weak.upgrade() {
+                                this.apply_mutes();
+                            }
+                        }),
+                    );
+                }
+            }
+        }
+        list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let (weak, target) = (Rc::downgrade(self), info.clone());
+        item(
+            t("rail.logout"),
+            &["rail-logout"],
+            Box::new(move || {
+                if let Some(this) = weak.upgrade() {
+                    this.confirm_logout(target.clone());
+                }
+            }),
+        );
+        popover.set_child(Some(&list));
+        popover.connect_closed(|p| {
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
+    }
+
+    /// Shows the muted accounts as muted (rail, app badge), and again when
+    /// the earliest timed mute ends.
+    fn apply_mutes(self: &Rc<Self>) {
+        let (keys, next) = crate::rail::mutes();
+        self.rail.set_muted(keys.clone());
+        crate::badge::set_muted(keys);
+        if let Some(timer) = self.mute_timer.take() {
+            timer.remove();
+        }
+        if let Some(end) = next {
+            let wait = (end - glib::real_time() / 1000).max(0) as u64 + 500;
+            let weak = Rc::downgrade(self);
+            let timer = glib::timeout_add_local_once(std::time::Duration::from_millis(wait), move || {
+                if let Some(this) = weak.upgrade() {
+                    this.mute_timer.take();
+                    this.apply_mutes();
+                }
+            });
+            self.mute_timer.replace(Some(timer));
+        }
+    }
+
+    /// "Log out" from the rail: asked first, then that account leaves this
+    /// computer (the open one as the account menu does it). Backdrop: Cancel.
+    fn confirm_logout(self: &Rc<Self>, info: SessionInfo) {
+        let dialog = adw::AlertDialog::builder()
+            .heading(tf("rail.logout_title", &[("server", &supervisor::server_label(&info))]))
+            .body(tf("rail.logout_body", &[("user", &info.username)]))
+            .close_response("cancel")
+            .default_response("cancel")
+            .build();
+        dialog.add_response("cancel", t("actions.cancel"));
+        dialog.add_response("logout", t("rail.logout"));
+        dialog.set_response_appearance("logout", adw::ResponseAppearance::Destructive);
+        let weak = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response == "logout"
+                && let Some(this) = weak.upgrade()
+            {
+                this.logout_account(info.clone());
+            }
+        });
+        crate::widgets::present(&dialog, Some(&self.window));
+    }
+
+    /// Signs an account out from the rail. The open one goes the way the
+    /// account menu's sign-out does; another one is told to its server, then
+    /// stops and leaves the keyring with its stored messages. A WhatsApp or
+    /// RocketVibe refusal keeps it and says so.
+    fn logout_account(self: &Rc<Self>, info: SessionInfo) {
+        let key = supervisor::key(&info);
+        if self.open_account().is_some_and(|open| supervisor::key(&open) == key) {
+            self.logout();
+            return;
+        }
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            match this.accounts.chat(&key) {
+                Some(Chat::WhatsApp(session)) => {
+                    let s = session.clone();
+                    if on_tokio(async move { s.unlink().await }).await.is_err() {
+                        this.chat.toast(t("wa.logout_failed").to_owned());
+                        return;
+                    }
+                    this.accounts.remove(&key);
+                    session.shutdown();
+                }
+                Some(Chat::Native(session)) => {
+                    let s = session.clone();
+                    if let Err(error) = on_tokio(async move { s.logout().await }).await
+                        && !matches!(error.code(), "session_rejected" | "server_identity_changed")
+                    {
+                        this.chat.toast(t("rail.logout_failed").to_owned());
+                        return;
+                    }
+                    this.accounts.remove(&key);
+                    session.shutdown();
+                    let _ = session.store.clear();
+                }
+                Some(Chat::Legacy(session)) => {
+                    let (s, i) = (session.clone(), info.clone());
+                    on_tokio(async move {
+                        if !s.logout().await {
+                            secrets::keep_logout(&i).await;
+                        }
+                    })
+                    .await;
+                    this.accounts.remove(&key);
+                    session.shutdown();
+                    session.store.close();
+                    rv_core::store::Store::remove_files(&database_path(&info));
+                }
+                None => {}
+            }
+            this.rail.forget_unread(&key);
+            crate::badge::set_account(&key, None);
+            crate::reminders::forget(&info);
+            crate::rail::unmute(&info);
+            on_tokio(async move {
+                secrets::remove(&info).await;
+                if rv_core::whatsapp::is_whatsapp(&info) {
+                    secrets::forget_whatsapp(&info).await;
+                }
+            })
+            .await;
+            this.apply_mutes();
+            this.refresh_rail();
+        });
     }
 
     /// The Activity view of every running account (`activity_view`), read
@@ -1416,7 +1600,8 @@ impl AppWindow {
         quiet: bool,
     ) {
         let key = supervisor::key(info);
-        if self.background_ring.borrow().is_some() || self.chat.ringing() {
+        // A muted account rings nowhere; its call stays on its other devices.
+        if self.background_ring.borrow().is_some() || self.chat.ringing() || crate::rail::is_muted(info) {
             return;
         }
         let dialog = crate::widgets::incoming_call_alert(&tf(
@@ -1558,6 +1743,9 @@ impl AppWindow {
 
     /// Unless I am looking at that very room.
     fn notify(&self, incoming: &rv_core::notify::Incoming) {
+        if self.open_account().is_some_and(|open| crate::rail::is_muted(&open)) {
+            return;
+        }
         let watching = |window: &adw::ApplicationWindow, chat: &ChatPage, rid: &str| {
             window.is_active() && chat.shows_room() && chat.current_rid().as_deref() == Some(rid)
         };

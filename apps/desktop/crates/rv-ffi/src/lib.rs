@@ -1,6 +1,7 @@
 //! rv-core for Swift, through UniFFI: the macOS app's view of a session.
 //! Every future runs on this crate's tokio runtime, whatever polls it.
 
+pub mod account_menu;
 mod accounts;
 pub mod activity;
 mod admin;

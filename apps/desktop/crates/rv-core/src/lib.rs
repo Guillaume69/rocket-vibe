@@ -2,6 +2,7 @@
 //! Port of the Android app's `lib/`, whose tests are the spec.
 
 pub mod account;
+pub mod account_mute;
 pub mod actions;
 pub mod activity;
 pub mod admin;

@@ -1,13 +1,17 @@
 # Changelog
 
-Notable changes to the RocketVibe server and the web client compiled into it (entries marked
-"Web client", which had their own `web-v` releases up to 0.6.0). Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version lives
-in `apps/server/Cargo.toml`; a `server-vX.Y.Z` tag publishes the release (a Linux x86_64
-binary and the `ghcr.io/guillaume69/rocketvibe-server` image), whose notes are the version's section here. 0.2.0 is the first release:
-everything before it is under that section.
+Notable changes to Vibez, the server formerly named RocketVibe, and the web client compiled into
+it (entries marked "Web client", which had their own `web-v` releases up to 0.6.0). Format:
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The version lives in
+`apps/server/Cargo.toml`; a `vibez-vX.Y.Z` tag publishes the release (the Linux x86_64 binary
+`vibez-X.Y.Z-linux-x86_64.tar.gz` and the `ghcr.io/guillaume69/vibez` image; up to 0.5.0, `server-v`
+tags and the `rocketvibe-server` image), whose notes are the version's section here. 0.2.0 is the
+first release: everything before it is under that section.
 
 ## [Unreleased]
+
+## [0.7.0] - 2026-10-14
 
 ### Added
 
@@ -218,7 +222,8 @@ everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...HEAD
+[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...vibez-v0.7.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...server-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...server-v0.4.0
 [0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.2.0...server-v0.3.0

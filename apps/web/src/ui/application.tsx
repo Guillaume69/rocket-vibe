@@ -19,7 +19,6 @@ import {
   search,
   newConversation,
   threads,
-  activityFeed,
 } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
@@ -137,7 +136,7 @@ function Shell({ app }: { app: App }) {
             name="notifications"
             label={nt("activity.open")}
             className="flat activity-feed-button"
-            action={() => activityFeed(app)}
+            action={() => app.openActivity()}
           />
           <IconButton
             name="plus"

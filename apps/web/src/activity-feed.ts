@@ -3,8 +3,9 @@
  * rooms and messages), as the native apps build theirs from their local
  * store: what mentions me, the replies in threads I take part in, and the
  * reactions others left on my messages, newest first; then the rooms whose
- * server mention counter is above zero with no mention among those items
- * (the mention is older than what the browser keeps).
+ * server mention counter is above the number of mention items listed for
+ * them (the unread mentions are older than what the browser keeps, or an old,
+ * already read mention is listed while newer ones are not).
  *
  * Encrypted rooms bring no item: their messages never enter the model in
  * clear (`crypto/chat.ts`), as for the local search (`local-search.ts`). Their
@@ -35,7 +36,10 @@ export interface ActivityRoom {
 }
 
 export interface Activity {
-  /** Rooms with unread mentions and no mention item, latest activity first. */
+  /**
+   * Rooms whose unread mentions outnumber their mention items, latest
+   * activity first.
+   */
   rooms: ActivityRoom[];
   items: ActivityItem[];
 }
@@ -154,13 +158,14 @@ export function collectActivity(
     }
     if (reactors.length) item("reaction", reactors, emojis);
   }
-  const mentioned = new Set(
-    items.filter((item) => item.kind === "mention").map((item) => item.room.id),
-  );
+  const mentioned = new Map<string, number>();
+  for (const item of items)
+    if (item.kind === "mention")
+      mentioned.set(item.room.id, (mentioned.get(item.room.id) ?? 0) + 1);
   const listed: ActivityRoom[] = [];
   for (const room of rooms.values()) {
     const mentions = Number(room.read_state?.mentions) || 0;
-    if (mentions > 0 && !mentioned.has(room.id))
+    if (mentions > (mentioned.get(room.id) ?? 0))
       listed.push({ room, mentions });
   }
   listed.sort(

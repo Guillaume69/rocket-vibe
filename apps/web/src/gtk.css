@@ -130,6 +130,10 @@ button.cta:active, button.cta:disabled { opacity: 0.75; }
 .action-menu-row { padding: 6px 10px; border-radius: 8px; }
 .rail-dot { min-width: 12px; min-height: 12px; border-radius: 6px; background: #FFD34E; border: 2px solid #08070F; margin: -3px -3px 0 0; }
 .rail-add { border-radius: 15px; background: #171529; color: #34E1D0; }
+.rail-muted { opacity: 0.6; }
+.rail-muted-mark { min-width: 18px; min-height: 18px; border-radius: 9px; background: #08070F; color: #8F89AB; margin: 0 -4px -4px 0; }
+.rail-menu .mute-heading { padding: 6px 10px 2px; color: #8F89AB; font-size: 12px; font-weight: 700; }
+.rail-menu .rail-logout { color: #FF5C7A; }
 .badge { border-radius: 11px; min-width: 22px; min-height: 22px; padding: 0 7px; font-weight: 800; font-size: 12px; }
 .badge-unread { background: #FFD34E; color: #0B0913; }
 .badge-mention { background: #FF5FA2; color: #0B0913; }

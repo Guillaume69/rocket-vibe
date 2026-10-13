@@ -218,9 +218,10 @@ test("keeps the limit, among the newest scanned messages", () => {
   );
 });
 
-test("rooms with unread mentions and no mention item, latest first", () => {
+test("rooms with more unread mentions than mention items, latest first", () => {
   const list = new Map([
-    ["general", room("general", mentions(2))],
+    ["general", room("general", mentions(1))],
+    ["busy", room("busy", mentions(3))],
     ["random", room("random", mentions(1))],
     ["quiet", room("quiet", mentions(3))],
     ["secret", room("secret", { encrypted: true, ...mentions(4) })],
@@ -229,8 +230,10 @@ test("rooms with unread mentions and no mention item, latest first", () => {
   const activity = feed(
     [
       message("g", "general", 1, { personal_mention: true }),
+      // An old, already read mention does not hide three newer unread ones.
+      message("b", "busy", 4, { personal_mention: true }),
       message("q", "quiet", 2),
-      message("s", "secret", 5),
+      message("s", "secret", 6),
       message("r", "random", 3),
     ],
     list,
@@ -239,12 +242,26 @@ test("rooms with unread mentions and no mention item, latest first", () => {
     activity.rooms.map((entry) => [entry.room.id, entry.mentions]),
     [
       ["secret", 4],
+      ["busy", 3],
       ["random", 1],
       ["quiet", 3],
     ],
   );
   assert.deepEqual(
     activity.items.map((item) => item.message.id),
-    ["g"],
+    ["b", "g"],
   );
+});
+
+test("a room's mention items covering its counter list no room row", () => {
+  const list = new Map([["general", room("general", mentions(2))]]);
+  const activity = feed(
+    [
+      message("1", "general", 1, { personal_mention: true }),
+      message("2", "general", 2, { personal_mention: true }),
+    ],
+    list,
+  );
+  assert.deepEqual(activity.rooms, []);
+  assert.equal(activity.items.length, 2);
 });

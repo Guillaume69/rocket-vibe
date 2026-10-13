@@ -311,17 +311,19 @@ export function localSearch(app: App): void {
 }
 /**
  * The Activity view (Ctrl+Shift+A, or the bell of the sidebar header), as GTK
- * builds it: the rooms with unread mentions this browser holds none of, then
- * the mentions, the replies in my threads and the reactions to my messages
+ * builds it: the rooms with more unread mentions than this browser lists
+ * mention items for, then the mentions, the replies in my threads and the reactions to my messages
  * (`collectActivity`), read from the model when it opens. A room row opens
  * the room; an item opens its message as a local search hit does (`jumpTo`).
+ * `closed` runs when it closes, so the caller lets the next opening through.
  */
-export function activityFeed(app: App): void {
+export function activityFeed(app: App, closed: () => void): void {
   const account = app.account;
-  if (!account) return;
+  if (!account) return closed();
   const key = account.key,
     me = account.session.user;
   const [node, body] = dialog(nt("activity.title"));
+  node.addEventListener("close", closed);
   node.classList.add("activity-feed-dialog");
   const { rooms, items } = collectActivity(
     app.model.messages.values(),

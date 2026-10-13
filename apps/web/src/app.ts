@@ -139,6 +139,8 @@ export class App implements RowActions {
   roomOpening = 0;
   /** A room switcher is loading (its panel is imported lazily) or shown. */
   switching = false;
+  /** An Activity view is loading (its panel is imported lazily) or shown. */
+  activityShown = false;
   root?: string;
   firstUnread?: string;
   newPill = button(
@@ -362,7 +364,7 @@ export class App implements RowActions {
           event.preventDefault();
           void localSearch(this).catch(toast);
         }
-        // The Activity view, as GTK's Ctrl+Shift+A.
+        // The Activity view, as GTK's Ctrl+Shift+A; a held key repeats nothing.
         if (
           (event.ctrlKey || event.metaKey) &&
           event.shiftKey &&
@@ -370,7 +372,7 @@ export class App implements RowActions {
           !document.querySelector("dialog[open]")
         ) {
           event.preventDefault();
-          void activityFeed(this).catch(toast);
+          if (!event.repeat) void this.openActivity().catch(toast);
         }
         // Escape closes the topmost layer only: an open dialog takes it first.
         if (
@@ -383,6 +385,24 @@ export class App implements RowActions {
       },
       { signal: this.lifetime.signal },
     );
+  }
+  /**
+   * Opens the Activity view, from Ctrl+Shift+A or the sidebar's bell, at most
+   * once: decided now, not once the lazily imported panel is loaded, so a
+   * second press while the import is pending opens no second dialog. Cleared
+   * when the dialog closes or the opening fails.
+   */
+  openActivity(): Promise<void> {
+    if (this.activityShown || document.querySelector("dialog[open]"))
+      return Promise.resolve();
+    this.activityShown = true;
+    const closed = () => {
+      this.activityShown = false;
+    };
+    return activityFeed(this, closed).catch((error: unknown) => {
+      closed();
+      throw error;
+    });
   }
   async dispose(): Promise<void> {
     this.lifetime.abort();

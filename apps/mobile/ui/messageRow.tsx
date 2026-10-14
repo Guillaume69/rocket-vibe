@@ -49,6 +49,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl, protectedFileUrl } from '../lib/upload.ts';
 import { EmbedLinks } from './embedCard.tsx';
 import { LinkPreviews } from './linkCard.tsx';
+import { XPosts } from './xPostCard.tsx';
 import {integrationCard} from '../lib/integrationCards.ts';
 import {SocialMessage,socialValue} from './social.tsx';
 import {IntegrationCard} from './integrationCard.tsx';
@@ -298,6 +299,9 @@ export const MessageRow = memo(function MessageRow({
         {message.form != null && client.kind === 'vibez' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
             <EmbedLinks c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
+        )}
+        {message.systemType === null && (
+          <XPosts c={c} client={client} text={message.text} urls={message.urls} onLongPress={longPress} />
         )}
         {message.systemType === null && (
           <LinkPreviews c={c} client={client} urls={message.urls} onLongPress={longPress} />

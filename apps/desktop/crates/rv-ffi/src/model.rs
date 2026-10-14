@@ -373,6 +373,16 @@ pub struct Card {
     pub video: bool,
     /// The video's player page, loaded at `player_origin()`: the card plays it in place.
     pub player: Option<String>,
+    /// An X post: `title` is the author's name, `description` the text,
+    /// `image` its picture (`video` for a video's first image).
+    pub x_post: bool,
+    /// The X author's handle, without `@`.
+    pub handle: Option<String>,
+    /// The X author's photo.
+    pub avatar: Option<String>,
+    /// X may be asked about this post (`Chat::x_post_details`): never for a
+    /// link in an encrypted message, which the server itself never saw.
+    pub x_lookup: bool,
     pub integration: bool,
     pub color: Option<String>,
     pub fields: Vec<CardField>,
@@ -509,6 +519,21 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             ..Default::default()
         })
         .collect();
+    cards.extend(content::x_posts(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3).into_iter().map(
+        |p| Card {
+            url: p.url,
+            title: p.name,
+            description: p.text,
+            image: p.media,
+            site: Some("X".into()),
+            video: p.video,
+            x_post: true,
+            handle: p.handle,
+            avatar: p.avatar,
+            x_lookup: !encrypted,
+            ..Default::default()
+        },
+    ));
     cards.extend(content::link_previews(row.urls.as_deref(), 3).into_iter().map(|p| match p {
         LinkPreview::Image { url } => Card { image: Some(url.clone()), url, ..Default::default() },
         LinkPreview::Card { url, title, description, image, site } => {

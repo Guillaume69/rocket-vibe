@@ -91,6 +91,7 @@ beta does.
 | Mentions open the profile | done | done | done | partial | Web: The shared profile card and author/avatar navigation are qualified in tests/profiles.mjs; mention-specific navigation still needs a dedicated case. |
 | Link previews from `message.urls` | done | done | done | partial | Web: Native preview rendering and protected media are implemented. Generic link-preview variants still need dedicated cases; vendor cards have their separate qualification below. |
 | YouTube / Dailymotion / Vimeo cards | mapped | done | done | partial | Desktop plays in the card; mobile opens the app or the browser. Web: Native-style canonical cards, protected preview images, origin-only embed identity and live retention are qualified with intercepted provider responses. Real vendor streaming remains unqualified. |
+| X (Twitter) post cards: author, text, picture, opened on X - [x-posts](features/x-posts.md) | done | done | done | partial | Detected in the text, filled from the server's link metadata. Rocket.Chat 8.5 gets nothing from X (its Googlebot user agent is refused), so on Rocket.Chat accounts only, the app reads the post from X's syndication endpoint (mobile `lib/xSyndication.ts`, rv-core `x_syndication.rs` for GTK and, over FFI, SwiftUI). On a Vibez server (and so on the web) the preview has no author photo or video flag, so the card shows a monogram and no play badge. SwiftUI checked by the macOS CI build only. Never asked of X for a link in an encrypted message. Web: implemented and its detection unit-tested (`tests/x-links.test.ts`); no browser case renders the card yet. |
 | Video and audio attachments, voice messages (player) | done | done | done | done | SwiftUI plays them in a modal overlay, GTK in place. Web: Actual protected video playback/seek/volume/fullscreen, live retention and access withdrawal; same fixture plays in Fedora GTK. Inline audio qualified in tests/features.mjs. |
 | Other files: download, open | done | done | done | mapped | Web: Protected local-copy download maps GTK's default-application action; browsers cannot directly launch arbitrary installed applications. |
 | Quotes as cards (nested up to 2) | done | done | done | partial | Web: Native quote actions, safe excerpts and cross-room source references are qualified in tests/features.mjs and tests/conversation-parity.mjs. Nested-depth variants remain unqualified. |
@@ -380,7 +381,7 @@ are product gaps, listed last.
   custom notification cards.
 - **Web**: custom notification cards, closed-tab Web Push and the dedicated game-night pre-event reminder shortcut remain missing.
   Qualification debt is specific: mention navigation, generic link-preview and
-  nested-quote variants, call outcomes/callback cards, upload refusal states,
+  nested-quote variants, X post cards, call outcomes/callback cards, upload refusal states,
   dead-socket timeouts and whole-room purge.
   OS notification delivery/actions, physical device switching, browser noise
   suppression versus RNNoise and platform program-sound exclusion remain

@@ -561,6 +561,8 @@ struct MessageRow: View, Equatable {
         ForEach(Array(message.cards.enumerated()), id: \.offset) { _, card in
             if let page = card.player {
                 VideoCard(card: card, page: page)
+            } else if card.xPost {
+                XPostCard(card: card, chat: model?.provider.legacy)
             } else {
                 LinkCard(card: card)
             }
@@ -1048,6 +1050,79 @@ struct LinkCard: View {
             else { rows.append([field]) }
         }
         return rows
+    }
+}
+
+/// An X post: the author's photo, name and handle, the text, and its picture
+/// or video's first image, as rv-core read them from the server's metadata.
+/// On a Rocket.Chat account, whose server gets nothing from X, rv-core asks
+/// X itself when the text is missing (`xPostDetails`, None on any other
+/// account). The card opens the post in the browser.
+struct XPostCard: View {
+    @Environment(\.openURL) var openURL
+    let card: Card
+    let chat: Chat?
+    @State private var details: XPostDetails?
+
+    var body: some View {
+        Button {
+            if let url = URL(string: card.url) { openURL(url) }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    if let avatar {
+                        RemoteImage(path: avatar, width: 36, height: 36).clipShape(Circle())
+                    } else {
+                        Circle().fill(Vibe.soft.opacity(0.15)).frame(width: 36, height: 36)
+                            .overlay(Text(initial).font(.vibe(15, .heavy)).foregroundStyle(Vibe.soft))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(name ?? handle ?? L("xpost.post")).font(.vibe(13.5, .heavy)).lineLimit(1)
+                        if name != nil, let handle {
+                            Text(handle).font(.vibe(12)).foregroundStyle(Vibe.muted).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text("X").font(.vibe(16, .heavy))
+                }
+                if let text {
+                    Text(text).font(.vibe(13.5)).lineLimit(8)
+                } else {
+                    Text(L("xpost.open_on_x")).font(.vibe(12)).foregroundStyle(Vibe.soft)
+                }
+                if let image {
+                    ZStack {
+                        RemoteImage(path: image, width: 300, height: 169)
+                        if video {
+                            Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white)
+                        }
+                    }
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .padding(10)
+            .frame(maxWidth: 360, alignment: .leading)
+            .vibeCard()
+        }
+        .buttonStyle(.plain)
+        .help(card.url)
+        .task(id: card.url) {
+            // An edited message keeps this view: the previous post's answer must not show under the new link.
+            details = nil
+            guard card.xLookup, card.description == nil, let chat else { return }
+            details = await chat.xPostDetails(url: card.url)
+        }
+    }
+
+    var name: String? { details?.name ?? card.title }
+    var handle: String? { (details?.handle ?? card.handle).map { "@" + $0 } }
+    var text: String? { details?.text ?? card.description }
+    var avatar: String? { details?.avatar ?? card.avatar }
+    var image: String? { details?.media ?? card.image }
+    var video: Bool { details?.media != nil ? details?.video == true : card.video }
+
+    var initial: String {
+        (name ?? details?.handle ?? card.handle ?? "X").trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "X"
     }
 }
 

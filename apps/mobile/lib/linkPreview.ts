@@ -14,22 +14,22 @@
  *  - reachable image: `{ url, meta:{}, headers:{ contentType:"image/png" } }`
  *  - article        : `meta:{ ogTitle, ogDescription, ogImage, ogSiteName, … }`
  *  - YouTube (oEmbed): `meta:{ oembedTitle, oembedThumbnailUrl, oembedProviderName, oembedHtml }`
- *  - live tweet (x.com or twitter.com): normal og tags →
- *    `meta:{ ogTitle:"… (@…) on X", ogDescription:<text>, ogImage:<media>, ogSiteName:"X (formerly Twitter)" }`
- *    → card with the image AND the text, like any article.
- *  - link without tags (deleted tweet, bare page): `meta:{}` → nothing to show.
+ *  - X post: `meta:{}` always, X refuses Rocket.Chat's Googlebot agent (probed
+ *    2026-10-14). A Vibez or Mattermost server gets X's og tags; X posts have
+ *    their own card either way (`xPostMetas`).
+ *  - link without tags (bare page): `meta:{}` → nothing to show.
  *
- * Nothing here is provider-specific: only generic OpenGraph/oEmbed fields are
- * read. "It works for Twitter" is just a case of "it works for any URL the
- * server can describe".
+ * Nothing in `linkPreviews` is provider-specific: only generic
+ * OpenGraph/oEmbed fields are read.
  *
- * Video links (YouTube/Dailymotion/Vimeo) are EXCLUDED: they already have
- * their dedicated card (`ui/embedCard.tsx`), otherwise the message would carry
- * two cards.
+ * Video links (YouTube/Dailymotion/Vimeo) and X posts are EXCLUDED: they
+ * already have their dedicated card (`ui/embedCard.tsx`, `ui/xPostCard.tsx`),
+ * otherwise the message would carry two cards.
  */
 
 import { isWebLink } from './externalLink.ts';
 import { isVideoLink, videoId } from './videoLinks.ts';
+import { isXPostLink, splitXTitle, xImageKind, xPostId, type XImageKind } from './xPosts.ts';
 import {linkPreview} from '../providers/vibez/linkPreviews.ts';
 
 export type LinkPreview =
@@ -62,17 +62,20 @@ const asString = (v: unknown): string | null => {
   return t === '' ? null : t;
 };
 
-/** Minimal decoding of the HTML entities the server sometimes leaves in metas. */
-function decodeEntities(s: string): string {
+/**
+ * Minimal decoding of the HTML entities the server sometimes leaves in metas,
+ * and of X's escaped post text. `&amp;` last, so `&amp;lt;` stays `&lt;`.
+ */
+export function decodeEntities(s: string): string {
   if (!s.includes('&')) return s;
   return s
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;/g, "'")
     .replace(/&#x27;/gi, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
 }
 
 function isImage(entry: UrlEntry, url: string): boolean {
@@ -164,9 +167,93 @@ export function videoMetas(urlsJson: string | null | undefined, native?: (messag
   return byId;
 }
 
+/** What the server knows about an X post, for its card. */
+export type XPostMeta = {
+  /** The author's display name. */
+  name: string | null;
+  handle: string | null;
+  /** The post's text. */
+  text: string | null;
+  /** Its picture, a video's first image, or the author's photo (`imageKind`). */
+  image: string | null;
+  imageKind: XImageKind | null;
+  /** The author's photo beside a picture: only X's own answer has both (`lib/xSyndication.ts`). */
+  avatar?: string | null;
+};
+
+/**
+ * The server's metas overlaid with X's own answer, field by field (rv-core's
+ * `Details::apply`): X's picture replaces the server's together with its kind.
+ */
+export function mergeXMeta(server: XPostMeta | null, fromX: XPostMeta | null): XPostMeta | null {
+  if (fromX === null) return server;
+  if (server === null) return fromX;
+  const media = fromX.image !== null;
+  return {
+    name: fromX.name ?? server.name,
+    handle: fromX.handle ?? server.handle,
+    text: fromX.text ?? server.text,
+    image: media ? fromX.image : server.image,
+    imageKind: media ? fromX.imageKind : server.imageKind,
+    avatar: fromX.avatar ?? server.avatar ?? null,
+  };
+}
+
+/**
+ * The metas of the X post links in `urls`, keyed by post id: the counterpart
+ * of `linkPreviews`, which skips them. X serves ordinary OpenGraph tags
+ * (probed 2026-10-14): `ogTitle` "<name> (@<handle>) on X", `ogDescription`
+ * the text, `ogImage` the first picture, a video's first image, or for a
+ * post without media the author's photo, told apart by its path. A Vibez
+ * server drops that photo (`apps/server/src/link_previews/network.rs`) and
+ * keeps the rest as a private PNG.
+ */
+export function xPostMetas(urlsJson: string | null | undefined, native?: (message:string,image:string)=>string|null): Map<string, XPostMeta> {
+  const byId = new Map<string, XPostMeta>();
+  let raw: unknown;
+  try {
+    raw = JSON.parse(urlsJson ?? '');
+  } catch {
+    return byId;
+  }
+  if (!Array.isArray(raw)) return byId;
+
+  for (const item of raw) {
+    const entry = item as UrlEntry;
+    if (typeof entry?.url !== 'string') continue;
+    const id = xPostId(entry.url);
+    if (id === null || byId.has(id)) continue;
+    let title: string | null, text: string | null, image: string | null, kind: XImageKind | null;
+    if (entry.native_preview !== undefined) {
+      try {
+        const p = linkPreview(entry.native_preview);
+        if (!native || typeof entry.native_message !== 'string' || p.url !== entry.url) continue;
+        title = asString(p.title);
+        text = asString(p.description);
+        image = p.image ? native(entry.native_message, p.image.file_id) : null;
+        kind = image === null ? null : 'photo';
+      } catch {
+        continue; // Malformed native metadata cannot fall back to a public image.
+      }
+    } else {
+      const meta = entry.meta;
+      if (!meta || typeof meta !== 'object') continue;
+      title = first(meta, ['ogTitle', 'twitterTitle']);
+      text = first(meta, ['ogDescription', 'twitterDescription']);
+      const rawImage = first(meta, ['ogImage', 'twitterImage']);
+      image = isWebLink(rawImage) ? rawImage : null;
+      kind = image === null ? null : xImageKind(image);
+    }
+    if (title === null && text === null && image === null) continue;
+    const split = title === null ? null : splitXTitle(title);
+    byId.set(id, { name: split?.name ?? null, handle: split?.handle ?? null, text, image, imageKind: kind });
+  }
+  return byId;
+}
+
 /**
  * Projects `urls` (serialized JSON, as stored) into displayable previews.
- * Dedupes by URL, skips video links (dedicated card), and caps at `max` so a
+ * Dedupes by URL, skips video links and X posts (dedicated cards), and caps at `max` so a
  * message stuffed with links does not drown the timeline.
  */
 export function linkPreviews(urlsJson: string | null | undefined, max = 3, native?: (message:string,image:string)=>string|null): LinkPreview[] {
@@ -192,7 +279,7 @@ export function linkPreviews(urlsJson: string | null | undefined, max = 3, nativ
     const rawUrl = entry?.url;
     const url = isWebLink(rawUrl) ? rawUrl : null;
     if (url === null || seen.has(url)) continue;
-    if (isVideoLink(url)) continue; // already rendered by the video card
+    if (isVideoLink(url) || isXPostLink(url)) continue; // rendered by their own card
 
     if(entry.native_preview!==undefined){
       try{

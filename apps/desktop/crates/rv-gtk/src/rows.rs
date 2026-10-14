@@ -752,6 +752,16 @@ fn message_from_provider(
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link(session, &row.id, &video));
         }
+        // Never about a link in an encrypted message: the server never saw it.
+        let ask_x = rv_core::x_syndication::applies(&session.info) && !encrypted;
+        let provider = media::Provider::RocketChat(session.clone());
+        for post in content::x_posts(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&if ask_x {
+                cards::x_post_asking_x(provider.clone(), post)
+            } else {
+                cards::x_post(provider.clone(), &post)
+            });
+        }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview(session, &preview));
         }
@@ -766,6 +776,9 @@ fn message_from_provider(
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));
+        }
+        for post in content::x_posts(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::x_post(provider.clone(), &post));
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview_provider(provider.clone(), &preview));
@@ -787,6 +800,9 @@ fn message_from_provider(
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));
+        }
+        for post in content::x_posts(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
+            column.append(&cards::x_post(provider.clone(), &post));
         }
         for preview in content::link_previews(row.urls.as_deref(), 3) {
             column.append(&cards::link_preview_provider(provider.clone(), &preview));

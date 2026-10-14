@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { linkPreviews, videoMetas } from './linkPreview.ts';
+import { decodeEntities, linkPreviews, mergeXMeta, videoMetas, xPostMetas } from './linkPreview.ts';
 
 // Fixtures modeled on real `chat.getMessage` output (RC 8.5).
 const IMAGE = {
@@ -31,7 +31,7 @@ const YOUTUBE = {
   },
   headers: { contentType: 'application/json' },
 };
-// LIVE tweet: X serves normal og tags (observed on x.com).
+// X post as X serves it to a Vibez or Mattermost unfurler (Rocket.Chat gets `meta: {}`).
 const LIVE_TWEET = {
   url: 'https://x.com/BarackObama/status/266031293945503744',
   meta: {
@@ -42,7 +42,7 @@ const LIVE_TWEET = {
   },
   headers: { contentType: 'text/html; charset=utf-8' },
 };
-// Bare link: deleted tweet (404) or page without tags → empty metas.
+// Bare link: deleted post, Rocket.Chat's refused unfurl, or page without tags → empty metas.
 const BARE_LINK = { url: 'https://x.com/who/status/000', meta: {} };
 
 const json = (arr: unknown[]) => JSON.stringify(arr);
@@ -136,28 +136,19 @@ describe('linkPreviews', () => {
     assert.deepEqual(linkPreviews(json([YOUTUBE])), []);
   });
 
-  test('a LIVE tweet yields a card with image AND text (generic og)', () => {
-    const r = linkPreviews(json([LIVE_TWEET]));
-    assert.equal(r.length, 1);
-    assert.deepEqual(r[0], {
-      type: 'card',
-      url: LIVE_TWEET.url,
-      title: 'Barack Obama (@BarackObama) on X',
-      description: 'Four more years.',
-      image: LIVE_TWEET.meta.ogImage,
-      site: 'X (formerly Twitter)',
-    });
+  test('an X post is EXCLUDED: it has its own card', () => {
+    assert.deepEqual(linkPreviews(json([LIVE_TWEET])), []);
   });
 
-  test('a bare link (deleted tweet, page without tags) is ignored', () => {
-    assert.deepEqual(linkPreviews(json([BARE_LINK])), []);
+  test('a bare link (page without tags) is ignored', () => {
+    assert.deepEqual(linkPreviews(json([{ url: 'https://ex.com/nothing', meta: {} }])), []);
   });
 
-  test('realistic mix: image + article + tweet, video and bare link skipped', () => {
+  test('realistic mix: image + article, video, X post and bare link skipped', () => {
     const r = linkPreviews(json([IMAGE, ARTICLE, YOUTUBE, LIVE_TWEET, BARE_LINK]));
     assert.deepEqual(
       r.map((a) => a.type),
-      ['image', 'card', 'card'],
+      ['image', 'card'],
     );
   });
 
@@ -226,5 +217,95 @@ describe('videoMetas', () => {
   test('invalid input → empty map', () => {
     assert.equal(videoMetas(null).size, 0);
     assert.equal(videoMetas('{not json').size, 0);
+  });
+});
+
+describe('xPostMetas', () => {
+  test('a post with a picture: name, handle, text and photo', () => {
+    const m = xPostMetas(json([LIVE_TWEET])).get('266031293945503744');
+    assert.deepEqual(m, {
+      name: 'Barack Obama',
+      handle: 'BarackObama',
+      text: 'Four more years.',
+      image: LIVE_TWEET.meta.ogImage,
+      imageKind: 'photo',
+    });
+  });
+
+  test("a post without media carries its author's photo, a video its first image", () => {
+    const text = {
+      url: 'https://twitter.com/jack/status/20?s=20',
+      meta: {
+        ogTitle: 'jack (@jack) on X',
+        ogDescription: 'just setting up my twttr',
+        ogImage: 'https://pbs.twimg.com/profile_images/1661201415899951105/azNjKOSH_400x400.jpg',
+      },
+    };
+    const video = {
+      url: 'https://x.com/elonmusk/status/1585341984679469056',
+      meta: {
+        ogTitle: 'Elon Musk (@elonmusk) on X',
+        ogImage: 'https://pbs.twimg.com/ext_tw_video_thumb/1585341912877146112/pu/img/DwJ7wlGIe9iryk6N?format=webp&amp;name=large',
+      },
+    };
+    const metas = xPostMetas(json([text, video]));
+    assert.equal(metas.get('20')?.imageKind, 'avatar');
+    assert.equal(metas.get('1585341984679469056')?.imageKind, 'video');
+    assert.equal(
+      metas.get('1585341984679469056')?.image,
+      'https://pbs.twimg.com/ext_tw_video_thumb/1585341912877146112/pu/img/DwJ7wlGIe9iryk6N?format=webp&name=large',
+    );
+  });
+
+  test('a deleted post (no tags) and a non-web image give nothing usable', () => {
+    assert.equal(xPostMetas(json([BARE_LINK])).size, 0);
+    const trap = { url: 'https://x.com/a/status/1', meta: { ogImage: 'file:///x.png' } };
+    assert.equal(xPostMetas(json([trap])).size, 0);
+  });
+
+  test('other links and invalid input give an empty map', () => {
+    assert.equal(xPostMetas(json([ARTICLE, YOUTUBE])).size, 0);
+    assert.equal(xPostMetas(null).size, 0);
+    assert.equal(xPostMetas('{not json').size, 0);
+  });
+});
+
+describe('X metas from another host', () => {
+  test("a page whose PATH names an X post keeps its own preview and lends nothing to the post's card", () => {
+    const forged = {
+      url: 'https://evil.example/x.com/elonmusk/status/1585341984679469056',
+      meta: { ogTitle: 'Elon Musk (@elonmusk) on X', ogDescription: 'forged text', ogImage: 'https://evil.example/p.jpg' },
+    };
+    const real = { url: 'https://x.com/elonmusk/status/1585341984679469056', meta: {} };
+    assert.equal(xPostMetas(json([real, forged])).size, 0);
+    assert.deepEqual(
+      linkPreviews(json([real, forged])).map((p) => p.url),
+      [forged.url],
+    );
+  });
+});
+
+describe('mergeXMeta', () => {
+  const server = { name: 'S', handle: 's', text: 'server text', image: 'https://a/s.jpg', imageKind: 'photo' as const };
+  test("X's answer wins field by field, its picture moving with its kind", () => {
+    const x = { name: 'X', handle: null, text: null, image: 'https://a/v.jpg', imageKind: 'video' as const, avatar: 'https://a/av.jpg' };
+    assert.deepEqual(mergeXMeta(server, x), {
+      name: 'X', handle: 's', text: 'server text', image: 'https://a/v.jpg', imageKind: 'video', avatar: 'https://a/av.jpg',
+    });
+  });
+  test("X without a picture keeps the server's, and either side may be absent", () => {
+    const x = { name: null, handle: 'x', text: 'x text', image: null, imageKind: null };
+    const merged = mergeXMeta(server, x)!;
+    assert.equal(merged.image, 'https://a/s.jpg');
+    assert.equal(merged.imageKind, 'photo');
+    assert.equal(merged.text, 'x text');
+    assert.equal(mergeXMeta(null, x), x);
+    assert.equal(mergeXMeta(server, null), server);
+  });
+});
+
+describe('decodeEntities', () => {
+  test('`&amp;` is decoded last, so a doubly escaped entity stays escaped once', () => {
+    assert.equal(decodeEntities('a &amp;lt;b&amp;gt; &lt;c&gt; &quot;d&quot; &#39;e&#039; &amp;'), 'a &lt;b&gt; <c> "d" \'e\' &');
   });
 });

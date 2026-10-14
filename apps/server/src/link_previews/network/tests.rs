@@ -171,6 +171,28 @@ fn parses_entities_attribute_order_and_relative_images_without_html_or_base_over
     assert!(metadata(&resource).is_err());
 }
 #[test]
+fn an_x_post_without_media_has_no_image_rather_than_its_author() {
+    let mut resource = page(
+        "<meta property='og:title' content='jack (@jack) on X'>         <meta property='og:image' content='https://pbs.twimg.com/profile_images/1661201415899951105/azNjKOSH_400x400.jpg'>",
+    );
+    resource.final_url = Url::parse("https://x.com/jack/status/20").unwrap();
+    let meta = metadata(&resource).unwrap();
+    assert_eq!(meta.title.as_deref(), Some("jack (@jack) on X"));
+    assert_eq!(meta.image_url, None);
+    // Another site showing an X photo keeps it.
+    let elsewhere = page(
+        "<meta property='og:image' content='https://pbs.twimg.com/profile_images/1661201415899951105/azNjKOSH_400x400.jpg'>",
+    );
+    assert!(metadata(&elsewhere).unwrap().image_url.is_some());
+    let media = page(
+        "<meta property='og:image' content='https://pbs.twimg.com/media/A7EiDWcCYAAZT1D?format=webp&amp;name=large'>",
+    );
+    assert_eq!(
+        metadata(&media).unwrap().image_url.as_deref(),
+        Some("https://pbs.twimg.com/media/A7EiDWcCYAAZT1D?format=webp&name=large")
+    );
+}
+#[test]
 fn bounds_utf8_metadata_and_filters_controls() {
     assert_eq!(bounded_text(" a\n\t b\0c ", 512).as_deref(), Some("a bc"));
     assert_eq!(bounded_text("🚀🚀🚀", 9).as_deref(), Some("🚀🚀"));

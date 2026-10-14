@@ -26,6 +26,39 @@ pub fn parse_room_link(url: String) -> Option<RoomLink> {
     rv_core::links::parse(&url).map(Into::into)
 }
 
+/// What X says of a post, for a card on a Rocket.Chat account.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct XPostDetails {
+    pub name: Option<String>,
+    pub handle: Option<String>,
+    pub text: Option<String>,
+    pub avatar: Option<String>,
+    pub media: Option<String>,
+    pub video: bool,
+}
+
+#[uniffi::export]
+impl Chat {
+    /// The X post at `url` as X serves it, asked of X only on a Rocket.Chat
+    /// account (its server gets nothing from X); None elsewhere, for an
+    /// unknown post or on a failure.
+    pub async fn x_post_details(&self, url: String) -> Option<XPostDetails> {
+        if !rv_core::x_syndication::applies(&self.session.info) {
+            return None;
+        }
+        let id = rv_core::content::x_post_id_of(&url)?;
+        let d = on_tokio(async move { rv_core::x_syndication::fetch(&id).await }).await?;
+        Some(XPostDetails {
+            name: d.name,
+            handle: d.handle,
+            text: d.text,
+            avatar: d.avatar,
+            media: d.media,
+            video: d.video,
+        })
+    }
+}
+
 #[uniffi::export]
 impl Client {
     pub fn begin_notification_navigation(&self) -> Result<String, RvError> {

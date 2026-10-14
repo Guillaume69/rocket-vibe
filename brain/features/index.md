@@ -34,6 +34,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | [room-switcher.md](room-switcher.md) | The quick room switcher (Ctrl+K, Cmd+K; GTK, SwiftUI, web) and mobile's room list filter: the account's rooms searched by name, `rooms::switcher_matches`. |
 | [threads.md](threads.md) | Root and replies fetched apart, paging by 100 up to 20 pages, reconnection guard, live replies, the thread composer and its limits, a room's thread list, following and "also send to the room" (Rocket.Chat; the Vibez server and the web). |
 | [search.md](search.md) | Debounced server search with stale answers dropped: `spotlight` for people and channels, `chat.search` in a room. |
+| [x-posts.md](x-posts.md) | X (Twitter) post links as cards: which links, what X serves, the author/text/picture from the server's metadata, the Vibez fetcher dropping author photos, X's syndication endpoint asked on Rocket.Chat accounts only (its contract, cache and pacing). |
 | [media-playback.md](media-playback.md) | Protected-file URLs, original images, viewers, lazily created players, GStreamer and CPU-frame paths on desktop, video-site cards. |
 | [avatars.md](avatars.md) | Avatar URLs, `?etag=` cache busting and where the version comes from, the no-photo marker, the placeholder, setting your own photo. |
 | [emoji.md](emoji.md) | The shortcode table generated from emoji-toolkit, rendering order, the custom emoji index, `:` completion, pickers, quick reactions counted per account on the device. |

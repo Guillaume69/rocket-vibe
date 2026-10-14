@@ -11,6 +11,14 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Added
+
+- Web client: a link to a post on X (Twitter) shows as a card like the post, with the author, the text and its picture, opened on X.
+
+### Fixed
+
+- The preview of an X post without media no longer carries the author's profile photo as if it were the post's picture.
+
 ## [0.7.0] - 2026-10-14
 
 ### Added

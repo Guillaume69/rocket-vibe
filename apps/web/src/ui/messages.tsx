@@ -22,6 +22,7 @@ import { emojiGlyph } from "../emoji";
 import { humanSize } from "../media-format";
 import { inlineImage } from "../image-attachment";
 import { videoLink, videoLinks } from "../video-links";
+import { splitXTitle, xPostLink, xPostLinks, type XPostLink } from "../x-links";
 import { stopMedia, toast } from "../dom";
 import { operation, segment } from "../api";
 import { ActionButton, Avatar, IconButton, Symbol } from "./controls";
@@ -440,6 +441,64 @@ function VideoSite({
   );
 }
 
+/** An X post: author, text and picture from the server's preview, opened on X. */
+function XPostCard({
+  message,
+  post,
+  preview,
+  actions,
+}: {
+  message: Message;
+  post: XPostLink;
+  preview?: LinkPreview;
+  actions: RowActions;
+}) {
+  const media = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (
+      media.current &&
+      preview?.image &&
+      BigInt(preview.image.bytes) < 10n * 1024n * 1024n
+    )
+      void actions
+        .previewImage(message, preview.image, media.current)
+        .catch(() => {});
+  }, [message.id, preview?.image?.sha256, actions]);
+  const title = preview?.title ? splitXTitle(preview.title) : undefined;
+  // The title names the account as it is now; a link may carry an old handle.
+  const handle = title?.handle ?? post.handle;
+  const name = title?.name ?? (handle ? "@" + handle : nt("xpost.post"));
+  const initial = (title?.name ?? handle ?? "X").trim().charAt(0).toUpperCase();
+  return (
+    <a
+      className="link-card x-post"
+      href={post.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={post.url}
+    >
+      <div className="x-post-header">
+        <span className="x-avatar preview-image" aria-hidden="true">
+          <span className="x-initial">{initial || "X"}</span>
+        </span>
+        <div className="x-who">
+          <div className="link-title">{name}</div>
+          {title && handle && <div className="link-site">@{handle}</div>}
+        </div>
+        <span className="x-logo" aria-hidden="true">
+          X
+        </span>
+      </div>
+      {preview?.description ? (
+        <div className="x-text">{preview.description}</div>
+      ) : (
+        <div className="link-description">{nt("xpost.open_on_x")}</div>
+      )}
+      {preview?.image && <div ref={media} className="x-media preview-image" />}
+    </a>
+  );
+}
+
 function PreviewCard({
   message,
   preview,
@@ -641,6 +700,15 @@ export function MessageView({
     const video = videoLink(href);
     if (video && videos.size < 3) videos.set(video.url, video);
   }
+  const xPosts = new Map<string, XPostLink>();
+  for (const href of [
+    ...documentLinks(message.body?.nodes || []),
+    ...xPostLinks(message.text).map((post) => post.url),
+  ]) {
+    const post = xPostLink(href);
+    if (post && !xPosts.has(post.id) && xPosts.size < 3)
+      xPosts.set(post.id, post);
+  }
   const content = (
     <>
       <div className="message-gutter">
@@ -739,8 +807,21 @@ export function MessageView({
             actions={actions}
           />
         ))}
+        {[...xPosts.values()].map((post) => (
+          <XPostCard
+            key={"x:" + post.id}
+            message={message}
+            post={post}
+            preview={message.previews?.find(
+              (preview) => xPostLink(preview.url)?.id === post.id,
+            )}
+            actions={actions}
+          />
+        ))}
         {(message.previews || [])
-          .filter((preview) => !videoLink(preview.url))
+          .filter(
+            (preview) => !videoLink(preview.url) && !xPostLink(preview.url),
+          )
           .map((preview) => (
             <PreviewCard
               key={preview.url}

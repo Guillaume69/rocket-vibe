@@ -1632,6 +1632,9 @@ const fr = {
   'linkCard.defaultLink': 'Lien',
   'linkCard.open': '{name}, toucher pour ouvrir',
   'embedCard.open': '{name}, toucher pour ouvrir',
+  'xPost.open': '{name} sur X, toucher pour ouvrir',
+  'xPost.post': 'Publication sur X',
+  'xPost.openOnX': 'Ouvrir la publication sur X',
 
   // ── Notifications (hidden content of an encrypted room)
   'notifications.encryptedTitle': 'Message chiffré',
@@ -3289,6 +3292,9 @@ const en: Record<TranslationKey, string> = {
   'linkCard.defaultLink': 'Link',
   'linkCard.open': '{name}, tap to open',
   'embedCard.open': '{name}, tap to open',
+  'xPost.open': '{name} on X, tap to open',
+  'xPost.post': 'Post on X',
+  'xPost.openOnX': 'Open the post on X',
 
   'notifications.encryptedTitle': 'Encrypted message',
   'notifications.encryptedBody': 'New message in an encrypted channel.',

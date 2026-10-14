@@ -218,10 +218,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:143](../../apps/desktop/crates/rv-core/src/outbox.rs#L143) | call:POST | "chat.sendMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:143](../../apps/desktop/crates/rv-core/src/outbox.rs#L143) | endpoint | chat.sendMessage |
-| [apps/desktop/crates/rv-core/src/outbox.rs:220](../../apps/desktop/crates/rv-core/src/outbox.rs#L220) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:257](../../apps/desktop/crates/rv-core/src/outbox.rs#L257) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
-| [apps/desktop/crates/rv-core/src/outbox.rs:298](../../apps/desktop/crates/rv-core/src/outbox.rs#L298) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:298](../../apps/desktop/crates/rv-core/src/outbox.rs#L298) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/outbox.rs:223](../../apps/desktop/crates/rv-core/src/outbox.rs#L223) | call:POST | "posts" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:260](../../apps/desktop/crates/rv-core/src/outbox.rs#L260) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
+| [apps/desktop/crates/rv-core/src/outbox.rs:301](../../apps/desktop/crates/rv-core/src/outbox.rs#L301) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:301](../../apps/desktop/crates/rv-core/src/outbox.rs#L301) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/rest.rs:369](../../apps/desktop/crates/rv-core/src/rest.rs#L369) | url | /api/v1 |
 | [apps/desktop/crates/rv-core/src/rest.rs:370](../../apps/desktop/crates/rv-core/src/rest.rs#L370) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | call:GET | "users.presence" |

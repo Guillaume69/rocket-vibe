@@ -213,10 +213,13 @@ impl Outbox {
                 }
             }
             self.attempted.lock().unwrap().insert(entry.id.clone());
-            let body = json!({"channel_id": entry.rid, "message": entry.text,
+            let mut body = json!({"channel_id": entry.rid, "message": entry.text,
                 "root_id": entry.thread_id.clone().unwrap_or_default(),
-                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id),
-                "props": {"rocket_vibe_client_id": entry.id}});
+                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
+            // kChat refuses any `props` key it does not know with 422 (probed).
+            if !mm.kchat() {
+                body["props"] = json!({"rocket_vibe_client_id": entry.id});
+            }
             let post = match self.rest.post("posts", CallOptions::body(body)).await {
                 Ok(post) => post,
                 Err(e) if e.status == 0 => return false,

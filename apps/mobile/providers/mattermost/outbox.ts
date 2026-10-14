@@ -8,7 +8,8 @@
  *
  * The echo is only a short-lived server cache, not stored: a replay much later
  * cannot rely on it. A persisted `props.rocket_vibe_client_id` identifies the
- * operation. Before declaring a refusal, the newest posts of the room
+ * operation, except on kChat, which refuses any `props` key it does not know
+ * with 422 (probed): there every match is an unmarked text match. Before declaring a refusal, the newest posts of the room
  * are read for that marker; and before REPLAYING
  * a row that may already have gone out (sent once in this session whose answer
  * was lost, or queued before this outbox started, so before a restart), the
@@ -58,6 +59,7 @@ export class MmOutbox implements Outbox {
   private readonly explicitRetries = new Set<string>();
   private readonly startedAt: number;
   private readonly later: (run: () => void) => void;
+  private readonly marked: boolean;
 
   constructor(options: {
     store: OutboxStore;
@@ -68,6 +70,8 @@ export class MmOutbox implements Outbox {
     now?: () => number;
     /** Runs a pass again later (a post still being saved); a timer by default. */
     later?: (run: () => void) => void;
+    /** Whether posts carry `props.rocket_vibe_client_id`; kChat refuses it. */
+    marked?: boolean;
   }) {
     this.store = options.store;
     this.client = options.client;
@@ -77,6 +81,7 @@ export class MmOutbox implements Outbox {
     this.now = options.now ?? (() => Date.now());
     this.startedAt = this.now();
     this.later = options.later ?? ((run) => void setTimeout(run, SAVING_RETRY_MS));
+    this.marked = options.marked ?? true;
   }
 
   async send(rid: string, text: string, threadId: string | null = null, localAttachments: string | null = null): Promise<string> {
@@ -155,7 +160,7 @@ export class MmOutbox implements Outbox {
       this.attempted.add(row.id);
       try {
         const post = await this.client.post<Record<string, unknown>>('/posts', {
-          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id), props: { rocket_vibe_client_id: row.id } },
+          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id), ...(this.marked ? { props: { rocket_vibe_client_id: row.id } } : {}) },
         });
         await this.delivered(row.id, post);
       } catch (e) {

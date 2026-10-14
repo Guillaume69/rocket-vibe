@@ -808,6 +808,10 @@ impl MmSync {
         &self.me
     }
 
+    pub fn kchat(&self) -> bool {
+        self.kchat
+    }
+
     pub fn team_of(&self, rid: &str) -> Option<String> {
         let live = self.live.lock().unwrap();
         text(live.channels.get(rid)?, "team_id").map(str::to_owned)

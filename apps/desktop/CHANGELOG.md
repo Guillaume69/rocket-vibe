@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-14
+
 ### Changed
 
 - The RocketVibe server is now called Vibez: the server choice at sign-in, labels and messages say Vibez. Accounts saved on such a server must be added again.
@@ -1255,7 +1257,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...HEAD
+[0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...desktop-v0.20.0
 [0.19.3]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...desktop-v0.19.3
 [0.19.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2
 [0.19.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1

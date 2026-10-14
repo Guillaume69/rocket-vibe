@@ -1526,6 +1526,9 @@ impl Session {
     }
 
     pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
+        if self.outbox.discard(msg_id) {
+            return Ok(());
+        }
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
             Backend::RocketChat => actions::delete(&self.rest, rid, msg_id).await?,

@@ -108,6 +108,17 @@ impl Outbox {
         id
     }
 
+    /// Drops a failed send locally, the server never having taken it. False when
+    /// `id` is not a failed send.
+    pub fn discard(&self, id: &str) -> bool {
+        let gone = self.store.write(|w| w.discard_failed_outbox(id));
+        if gone {
+            self.attempted.lock().unwrap().remove(id);
+            self.explicit_retries.lock().unwrap().remove(id);
+        }
+        gone
+    }
+
     pub fn retry(&self, id: &str) {
         self.store.write(|w| w.mark_outbox_pending(id));
         self.explicit_retries.lock().unwrap().insert(id.to_owned());

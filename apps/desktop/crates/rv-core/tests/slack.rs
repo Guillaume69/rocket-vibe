@@ -373,3 +373,91 @@ async fn a_slack_session_speaks_only_slack() {
     session.store.close();
 }
 
+fn room(store: &Store, rid: &str) -> rv_core::store::RoomRow {
+    store.rooms().into_iter().find(|r| r.rid == rid).unwrap()
+}
+
+fn texts(store: &Store, rid: &str) -> Vec<String> {
+    store.messages(rid, 50).into_iter().filter_map(|m| m.text).collect()
+}
+
+#[tokio::test]
+async fn a_live_message_moves_the_preview_and_the_unread_count() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    let frame =
+        json!({"type": "message", "channel": "C002", "ts": "1700000400.000001", "user": "U001", "text": "hey <@U000>"});
+    let incoming = sync.apply_event("message", &frame).await;
+    assert_eq!(incoming.map(|m| m.id), Some("C002:1700000400.000001".to_owned()));
+    let ops = room(&store, "C002");
+    assert_eq!((ops.unread, ops.mentions, ops.alert), (1, 1, true));
+    assert_eq!(ops.last_message.as_deref(), Some("hey @me"));
+    assert_eq!(texts(&store, "C002"), ["hey @me"]);
+    assert!(sync.apply_event("message", &frame).await.is_none(), "a repeated frame is not a new message");
+}
+
+#[tokio::test]
+async fn my_own_message_and_a_reply_leave_the_badge_and_the_preview() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    let mine = json!({"type": "message", "channel": "C002", "ts": "1700000400.000001", "user": "U000", "text": "mine"});
+    assert!(sync.apply_event("message", &mine).await.is_none());
+    assert_eq!((room(&store, "C002").unread, room(&store, "C002").last_message.as_deref()), (0, Some("mine")));
+    let reply = json!({"type": "message", "channel": "C002", "ts": "1700000500.000001", "thread_ts": "1700000400.000001", "user": "U001", "text": "re"});
+    sync.apply_event("message", &reply).await;
+    assert_eq!(room(&store, "C002").last_message.as_deref(), Some("mine"), "a reply is not the preview");
+    assert_eq!(room(&store, "C002").unread, 1);
+}
+
+#[tokio::test]
+async fn live_edits_and_deletions_target_the_exact_ts() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    for ts in ["1700000400.000001", "1700000400.000002"] {
+        sync.apply_event(
+            "message",
+            &json!({"type": "message", "channel": "C002", "ts": ts, "user": "U001", "text": ts}),
+        )
+        .await;
+    }
+    let edit = json!({
+        "type": "message", "subtype": "message_changed", "channel": "C002", "ts": "1700000450.000000",
+        "message": {"type": "message", "ts": "1700000400.000001", "user": "U001", "text": "edited", "edited": {"ts": "1700000450.000000"}},
+    });
+    assert!(sync.apply_event("message", &edit).await.is_none(), "an edit notifies nobody");
+    let deletion = json!({"type": "message", "subtype": "message_deleted", "channel": "C002", "ts": "1700000460.000000", "deleted_ts": "1700000400.000002"});
+    sync.apply_event("message", &deletion).await;
+    assert_eq!(texts(&store, "C002"), ["edited"]);
+}
+
+#[tokio::test]
+async fn a_marked_frame_clears_the_badge_and_a_reaction_rereads_its_message() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    assert!(room(&store, "C001").alert);
+    let marked = json!({"type": "channel_marked", "channel": "C001", "ts": "1700000300.000100", "unread_count_display": 0, "mention_count_display": 0});
+    sync.apply_event("channel_marked", &marked).await;
+    assert_eq!((room(&store, "C001").unread, room(&store, "C001").alert), (0, false));
+
+    let before = server.requests().len();
+    let reaction = json!({"type": "reaction_added", "user": "U001", "reaction": "tada", "item": {"type": "message", "channel": "C001", "ts": "1700000300.000100"}});
+    sync.apply_event("reaction_added", &reaction).await;
+    let reread = &server.requests()[before..];
+    assert!(reread.iter().any(|r| method(r) == "conversations.history" && form(r)["latest"] == "1700000300.000100"));
+    assert_eq!(texts(&store, "C001"), ["newest in C001 @bob"]);
+}
+
+#[tokio::test]
+async fn a_frame_for_a_room_off_the_list_writes_no_room() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    let frame =
+        json!({"type": "message", "channel": "C999", "ts": "1700000400.000001", "user": "U001", "text": "elsewhere"});
+    sync.apply_event("message", &frame).await;
+    assert!(store.rooms().iter().all(|r| r.rid != "C999"));
+}

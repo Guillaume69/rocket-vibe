@@ -2398,9 +2398,7 @@ impl Session {
 
 /// A Slack huddle's call id is its page in Slack's web app: only such a page opens.
 fn slack_call(call_id: &str) -> Result<String, RestError> {
-    crate::slack::translate::slack_web(call_id)
-        .then(|| call_id.to_owned())
-        .ok_or_else(|| RestError::incomplete("huddle: not a Slack page"))
+    crate::slack::translate::huddle_page(call_id).ok_or_else(|| RestError::incomplete("huddle: not a Slack page"))
 }
 
 #[cfg(test)]

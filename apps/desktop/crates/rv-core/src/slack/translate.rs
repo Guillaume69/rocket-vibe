@@ -393,19 +393,30 @@ pub fn huddle_call(raw: &Value, channel: &str) -> Option<(&'static str, String, 
             None,
         ));
     }
-    let given = str_of(room, "huddle_link").filter(|link| slack_web(link)).map(str::to_owned);
-    let link = given.or_else(|| huddle_url(str_of(raw, "team")?, channel));
-    Some(("videoconf", String::new(), link))
+    Some(("videoconf", String::new(), str_of(raw, "team").and_then(|team| huddle_url(team, channel))))
 }
 
-/// The page that starts or joins a room's huddle in Slack's web app; a direct
-/// conversation's opens the conversation, as that shape fails for it.
+/// The page of Slack's web app that starts or joins a room's huddle in the
+/// browser itself. The `huddle/<team>/<channel>` link Slack gives only offers
+/// to launch its desktop app.
 pub fn huddle_url(team: &str, channel: &str) -> Option<String> {
     let id = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
-    (team.starts_with('T') && id(team) && id(channel)).then(|| {
-        let kind = if channel.starts_with('D') { "client" } else { "huddle" };
-        format!("https://app.slack.com/{kind}/{team}/{channel}")
-    })
+    (team.starts_with('T') && id(team) && id(channel))
+        .then(|| format!("https://app.slack.com/client/{team}/{channel}?open=start_huddle"))
+}
+
+/// A huddle's page as [`huddle_url`] builds it, a stored `huddle/` link
+/// included; any other Slack page as is, anything else refused.
+pub fn huddle_page(link: &str) -> Option<String> {
+    if !slack_web(link) {
+        return None;
+    }
+    let url = url::Url::parse(link).ok()?;
+    let parts: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
+    match parts.as_slice() {
+        ["huddle", team, channel] => huddle_url(team, channel),
+        _ => Some(link.to_owned()),
+    }
 }
 
 /// An `https` page of Slack's own web app, the only kind a huddle opens.
@@ -638,13 +649,14 @@ mod tests {
         let call = |room: Value, channel: &str| huddle_call(&message(room), channel).unwrap();
         assert_eq!(
             call(json!({"huddle_link": "https://app.slack.com/huddle/T1/C1"}), "C1"),
-            ("videoconf", String::new(), Some("https://app.slack.com/huddle/T1/C1".to_owned()))
+            ("videoconf", String::new(), Some("https://app.slack.com/client/T1/C1?open=start_huddle".to_owned()))
         );
+        assert_eq!(call(json!({}), "D1").2.as_deref(), Some("https://app.slack.com/client/T1/D1?open=start_huddle"));
         assert_eq!(
-            call(json!({"huddle_link": "https://evil.example/huddle"}), "C1").2.as_deref(),
-            Some("https://app.slack.com/huddle/T1/C1")
+            huddle_page("https://app.slack.com/huddle/T1/C1").as_deref(),
+            Some("https://app.slack.com/client/T1/C1?open=start_huddle")
         );
-        assert_eq!(call(json!({}), "D1").2.as_deref(), Some("https://app.slack.com/client/T1/D1"));
+        assert_eq!(huddle_page("https://evil.example/huddle/T1/C1"), None);
         assert_eq!(
             call(json!({"date_start": 1000, "date_end": 1600}), "C1"),
             ("videoconf-ended", "600".to_owned(), None)

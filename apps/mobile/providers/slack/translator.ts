@@ -168,15 +168,25 @@ export function huddleCall(raw: Doc, channel: string): { type: string; param: st
   if (room.has_ended === true || end !== null) {
     return { type: 'videoconf-ended', param: start !== null && end !== null && end >= start ? String(end - start) : '', callId: null };
   }
-  const given = str(room.huddle_link);
   const team = str(raw.team);
-  return { type: 'videoconf', param: '', callId: given !== null && slackWeb(given) ? given : team === null ? null : huddleUrl(team, channel) };
+  return { type: 'videoconf', param: '', callId: team === null ? null : huddleUrl(team, channel) };
 }
 
-/** The page that starts or joins a room's huddle in Slack's web app; a direct conversation's opens it, that shape failing there. */
+/**
+ * The page of Slack's web app that starts or joins a room's huddle in the
+ * browser itself. The `huddle/<team>/<channel>` link Slack gives only offers
+ * to launch its desktop app.
+ */
 export function huddleUrl(team: string, channel: string): string | null {
   if (!/^T[A-Z0-9]+$/.test(team) || !/^[A-Z0-9]+$/.test(channel)) return null;
-  return `https://app.slack.com/${channel.startsWith('D') ? 'client' : 'huddle'}/${team}/${channel}`;
+  return `https://app.slack.com/client/${team}/${channel}?open=start_huddle`;
+}
+
+/** A huddle's page as `huddleUrl` builds it, a stored `huddle/` link included; any other Slack page as is, anything else refused. */
+export function huddlePage(link: string): string | null {
+  if (!slackWeb(link)) return null;
+  const parts = new URL(link).pathname.split('/').filter((p) => p !== '');
+  return parts.length === 3 && parts[0] === 'huddle' ? huddleUrl(parts[1]!, parts[2]!) : link;
 }
 
 /** An `https` page of Slack's own web app, the only kind a huddle opens. */

@@ -42,6 +42,67 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
+/// Where Slack serves files to a session: its `d` cookie authenticates them,
+/// as it does the API.
+pub const FILES: &str = "https://files.slack.com";
+
+/// An `https` link on Slack's file host, the only one a session's cookie goes to.
+pub fn file_host(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.host_str() == Some("files.slack.com")
+}
+
+fn file_link<'a>(file: &'a Value, key: &str) -> Option<&'a str> {
+    str_of(file, key).filter(|link| link.starts_with(&format!("{FILES}/")))
+}
+
+/// A message's files, in the attachment shape Rocket.Chat's files already
+/// render: images from their largest thumbnail, video and audio played from
+/// the file itself. Deleted files and files of other services are left out.
+fn files(raw: Option<&Value>) -> Option<String> {
+    let mut out = Vec::new();
+    for file in raw?.as_array()? {
+        let Some(link) = file_link(file, "url_private") else { continue };
+        if matches!(str_of(file, "mode"), Some("tombstone" | "hidden_by_limit" | "external")) {
+            continue;
+        }
+        let mime = str_of(file, "mimetype").unwrap_or("application/octet-stream");
+        let size = file.get("size").and_then(Value::as_i64).unwrap_or(0);
+        let name =
+            str_of(file, "name").or_else(|| str_of(file, "title")).or_else(|| str_of(file, "id")).unwrap_or("file");
+        let download = file_link(file, "url_private_download").unwrap_or(link);
+        let mut a = json!({"title": name, "title_link": download, "type": "file", "size": size});
+        if mime.starts_with("image/") {
+            let thumb = ["thumb_720", "thumb_480", "thumb_360"].iter().find_map(|k| file_link(file, k));
+            a["image_url"] = json!(thumb.unwrap_or(link));
+            a["image_type"] = json!(mime);
+            a["image_size"] = json!(size);
+            let side = |k: &str| file.get(k).and_then(Value::as_i64).unwrap_or(0);
+            if side("original_w") > 0 && side("original_h") > 0 {
+                a["image_dimensions"] = json!({"width": side("original_w"), "height": side("original_h")});
+            }
+        } else if mime.starts_with("video/") {
+            a["video_url"] = json!(link);
+            a["video_type"] = json!(mime);
+            a["video_size"] = json!(size);
+        } else if mime.starts_with("audio/") {
+            a["audio_url"] = json!(link);
+            a["audio_type"] = json!(mime);
+            a["audio_size"] = json!(size);
+        }
+        out.push(a);
+    }
+    (!out.is_empty()).then(|| Value::Array(out).to_string())
+}
+
+fn first_title(attachments: Option<&str>) -> Option<String> {
+    let list: Vec<Value> = serde_json::from_str(attachments?).ok()?;
+    list.first().and_then(|a| str_of(a, "title")).map(str::to_owned)
+}
+
 /// Slack's mrkdwn to the markdown the renderer reads. Outside code: people,
 /// channels and links resolved, `*bold*` and `~strike~` doubled; everywhere:
 /// the three entities Slack escapes, last.
@@ -479,23 +540,7 @@ impl Translator<'_> {
         let system = huddle.as_ref().map(|(kind, param, _)| (*kind, Some(param.clone()))).or(system);
         let text = match &system {
             Some((_, param)) => param.clone(),
-            None => {
-                let mut text = self.text(str_of(raw, "text").unwrap_or_default());
-                let files: Vec<&str> = raw
-                    .get("files")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|f| str_of(f, "name").or_else(|| str_of(f, "title")))
-                    .collect();
-                if !files.is_empty() {
-                    if !text.is_empty() {
-                        text.push('\n');
-                    }
-                    text.push_str(&format!("📎 {}", files.join(", ")));
-                }
-                Some(text)
-            }
+            None => Some(self.text(str_of(raw, "text").unwrap_or_default())),
         };
         let thread_ts = str_of(raw, "thread_ts").filter(|t| *t != ts && exact_timestamp(t).is_ok());
         let root = thread_ts.is_none() && str_of(raw, "thread_ts") == Some(ts);
@@ -513,7 +558,7 @@ impl Translator<'_> {
             thread_last: root.then(|| str_of(raw, "latest_reply").and_then(ts_ms)).flatten(),
             thread_shown: thread_ts.is_some() && subtype == Some("thread_broadcast"),
             edited_at,
-            attachments: None,
+            attachments: files(raw.get("files")),
             reactions: self.reactions(raw.get("reactions")),
             encrypted_raw: None,
             updated_at: edited_at.unwrap_or(at),
@@ -589,7 +634,9 @@ impl Translator<'_> {
             encrypted: false,
             read_only: false,
             dm_other_uid: other,
-            last_message: last.filter(|m| m.system_type.is_none()).and_then(|m| m.text.clone()),
+            last_message: last.filter(|m| m.system_type.is_none()).and_then(|m| {
+                m.text.clone().filter(|t| !t.is_empty()).or_else(|| first_title(m.attachments.as_deref()))
+            }),
             last_message_type: last.and_then(|m| m.system_type.clone()),
             last_message_author: last.and_then(|m| m.author_name.clone()),
             last_encrypted: None,
@@ -784,8 +831,26 @@ mod tests {
         );
         let bot = t.message("C001", &json!({"ts": "1700000004.000000", "subtype": "bot_message", "bot_id": "B001", "username": "deploy", "text": "done"})).unwrap();
         assert_eq!((bot.author_id.as_str(), bot.author_name.as_deref()), ("B001", Some("deploy")));
-        let file = t.message("C001", &json!({"ts": "1700000005.000000", "user": "U001", "subtype": "file_share", "text": "look", "files": [{"name": "a.pdf"}, {"title": "b"}]})).unwrap();
-        assert_eq!(file.text.as_deref(), Some("look\n📎 a.pdf, b"));
+        let pri = |id: &str, name: &str| format!("https://files.slack.com/files-pri/T000-{id}/{name}");
+        let thumb = "https://files.slack.com/files-tmb/T000-F1-x/a_360.png";
+        let file = t.message("C001", &json!({"ts": "1700000005.000000", "user": "U001", "subtype": "file_share", "text": "look", "files": [
+            {"name": "a.png", "mimetype": "image/png", "size": 10, "original_w": 800, "original_h": 600, "url_private": pri("F1", "a.png"), "url_private_download": pri("F1", "download/a.png"), "thumb_360": thumb},
+            {"name": "b.mp4", "mimetype": "video/mp4", "url_private": pri("F2", "b.mp4")},
+            {"name": "c.m4a", "mimetype": "audio/mp4", "url_private": pri("F3", "c.m4a")},
+            {"title": "d", "url_private": pri("F4", "d")},
+            {"name": "gone", "mode": "tombstone", "url_private": pri("F5", "gone")},
+            {"name": "odd", "url_private": "https://evil.example/odd"}
+        ]})).unwrap();
+        assert_eq!(file.text.as_deref(), Some("look"));
+        let list: Vec<Value> = serde_json::from_str(file.attachments.as_deref().unwrap()).unwrap();
+        let titles: Vec<&str> = list.iter().filter_map(|a| a["title"].as_str()).collect();
+        assert_eq!(titles, ["a.png", "b.mp4", "c.m4a", "d"]);
+        assert_eq!(list[0]["image_url"], json!(thumb));
+        assert_eq!(list[0]["title_link"], json!(pri("F1", "download/a.png")));
+        assert_eq!(list[0]["image_dimensions"], json!({"width": 800, "height": 600}));
+        assert_eq!(list[1]["video_url"], json!(pri("F2", "b.mp4")));
+        assert_eq!(list[2]["audio_url"], json!(pri("F3", "c.m4a")));
+        assert!(list[3].get("image_url").is_none());
         for hidden in [
             json!({"ts": "1700000006.000000", "hidden": true}),
             json!({"ts": "1700000007.000000", "subtype": "tombstone"}),

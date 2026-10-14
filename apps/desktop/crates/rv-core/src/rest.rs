@@ -224,13 +224,15 @@ impl RestClient {
         crate::media::protected_url(&self.base, in_query, path_or_url)
     }
 
-    /// The bearer goes with our own server's files only: attachment URLs come
-    /// from message fields, so from anyone.
+    /// The bearer goes with our own server's files only (Slack's: its file
+    /// host): attachment URLs come from message fields, so from anyone.
     fn file_request(&self, url: Url) -> reqwest::RequestBuilder {
         let same_origin = url.origin() == self.base.origin();
+        let slack_files = crate::slack::translate::file_host(&url);
         let request = self.http.get(url);
         match self.credentials() {
             Some(c) if self.api == Api::Mattermost && same_origin => self.authenticate(request, &c),
+            Some(c) if self.api == Api::Slack && slack_files => self.authenticate(request, &c),
             _ => request,
         }
     }

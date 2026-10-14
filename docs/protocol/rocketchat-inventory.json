@@ -1996,13 +1996,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 402,
+      "line": 404,
       "kind": "url",
       "surface": "/api/v1"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 403,
+      "line": 405,
       "kind": "url",
       "surface": "/api/v4"
     },

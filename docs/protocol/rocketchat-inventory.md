@@ -226,8 +226,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:405](../../apps/desktop/crates/rv-core/src/outbox.rs#L405) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
 | [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:402](../../apps/desktop/crates/rv-core/src/rest.rs#L402) | url | /api/v1 |
-| [apps/desktop/crates/rv-core/src/rest.rs:403](../../apps/desktop/crates/rv-core/src/rest.rs#L403) | url | /api/v4 |
+| [apps/desktop/crates/rv-core/src/rest.rs:404](../../apps/desktop/crates/rv-core/src/rest.rs#L404) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:405](../../apps/desktop/crates/rv-core/src/rest.rs#L405) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | call:GET | "users.presence" |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | endpoint | users.presence |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:24](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L24) | call:GET | "video-conference.capabilities" |

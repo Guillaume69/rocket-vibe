@@ -73,6 +73,7 @@ pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContex
         pinned: row.pinned,
         starred: row.starred_by(&session.info.user_id),
         now: chrono::Utc::now().timestamp_millis(),
+        outbox: row.outbox_status.as_deref(),
     };
     actions::possible_actions(&ctx)
 }

@@ -80,7 +80,7 @@ test('threads: a root counts its replies, a reply names its root, a broadcast sh
   assert.equal(broadcast.threadShown, true);
 });
 
-test('subtypes: joins, leaves, topic and purpose as system rows; bots; hidden and tombstones skipped; files named', () => {
+test('subtypes: joins, leaves, topic and purpose as system rows; bots; hidden and tombstones skipped', () => {
   const { translator } = setup();
   const at = (over: Record<string, unknown>) => translator.toMessage({ ...message('1780000000.000001', over), channel: 'C001' });
   assert.deepEqual([at({ subtype: 'channel_join' })?.systemType, at({ subtype: 'channel_join' })?.text], ['uj', 'alice']);
@@ -91,7 +91,26 @@ test('subtypes: joins, leaves, topic and purpose as system rows; bots; hidden an
   assert.deepEqual([bot.authorId, bot.authorName, bot.systemType], ['B001', 'deploybot', null]);
   assert.equal(at({ hidden: true }), null);
   assert.equal(at({ subtype: 'tombstone' }), null);
-  assert.equal(at({ subtype: 'file_share', text: 'look', files: [{ id: 'F001', name: 'a.png' }, { id: 'F002', title: 'b.pdf' }] })?.text, 'look\n📎 a.png, b.pdf');
+});
+
+test('files become attachments: image thumbnails, video and audio played from the file, other hosts left out', () => {
+  const { translator } = setup();
+  const pri = (id: string, name: string) => `https://files.slack.com/files-pri/T000-${id}/${name}`;
+  const row = translator.toMessage({ ...message('1780000000.000001', { subtype: 'file_share', text: 'look', files: [
+    { id: 'F001', name: 'a.png', mimetype: 'image/png', size: 10, original_w: 800, original_h: 600, url_private: pri('F001', 'a.png'), url_private_download: pri('F001', 'download/a.png'), thumb_360: 'https://files.slack.com/files-tmb/T000-F001-x/a_360.png' },
+    { id: 'F002', name: 'b.mp4', mimetype: 'video/mp4', size: 20, url_private: pri('F002', 'b.mp4') },
+    { id: 'F003', name: 'c.m4a', mimetype: 'audio/mp4', size: 30, url_private: pri('F003', 'c.m4a') },
+    { id: 'F004', name: 'd.pdf', mimetype: 'application/pdf', size: 40, url_private: pri('F004', 'd.pdf') },
+    { id: 'F005', name: 'gone', mode: 'tombstone', url_private: pri('F005', 'gone') },
+    { id: 'F006', name: 'odd', url_private: 'https://evil.example/odd' },
+  ] }), channel: 'C001' })!;
+  assert.equal(row.text, 'look');
+  const list = JSON.parse(row.attachments!) as Record<string, unknown>[];
+  assert.deepEqual(list.map((a) => a.title), ['a.png', 'b.mp4', 'c.m4a', 'd.pdf']);
+  assert.deepEqual([list[0]!.image_url, list[0]!.title_link, list[0]!.image_dimensions], ['https://files.slack.com/files-tmb/T000-F001-x/a_360.png', pri('F001', 'download/a.png'), { width: 800, height: 600 }]);
+  assert.equal(list[1]!.video_url, pri('F002', 'b.mp4'));
+  assert.equal(list[2]!.audio_url, pri('F003', 'c.m4a'));
+  assert.deepEqual([list[3]!.title_link, list[3]!.image_url], [pri('F004', 'd.pdf'), undefined]);
 });
 
 test('reactions take the Rocket.Chat shape with usernames', () => {

@@ -31,6 +31,8 @@ use crate::sync::{HistoryPage, MY_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_US
 use crate::uploads::{self, Uploads};
 
 const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
+/// Slack expires a typing frame on its own: one every few seconds keeps it up.
+const TYPING_EVERY: Duration = Duration::from_secs(3);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionInfo {
@@ -228,6 +230,8 @@ pub struct Session {
     access: tokio::sync::OnceCell<(Vec<actions::PermissionRoles>, Vec<String>)>,
     commands: tokio::sync::OnceCell<Vec<crate::commands::Command>>,
     typing: Mutex<live::Typing>,
+    /// When I last said I was typing, per room (Slack).
+    typing_sent: Mutex<HashMap<String, Instant>>,
     call_available: Mutex<Option<bool>>,
     /// Photo versions learnt from `updateAvatar`, by username.
     avatars: Mutex<HashMap<String, String>>,
@@ -394,12 +398,17 @@ impl Session {
             (None, None) => SyncEngine::new(store.clone(), rest.clone(), &info.username, &info.user_id),
         });
         let outbox = Arc::new(Outbox::new(store.clone(), rest.clone(), sync.clone(), &info.user_id, &info.username));
-        let (transport, incoming) = match (info.slack.is_some(), flavor) {
-            (true, _) => {
-                let (live, events) = crate::slack::live::spawn();
+        let (transport, incoming) = match (info.slack.as_ref(), flavor) {
+            (Some(account), _) => {
+                let (live, events) = crate::slack::live::spawn(
+                    rest.clone(),
+                    account.team_id.clone(),
+                    info.user_id.clone(),
+                    account.cookie.clone(),
+                );
                 (Transport::Slack(live), Feed::Live(events))
             }
-            (false, Some(flavor)) => {
+            (None, Some(flavor)) => {
                 let dialect = if flavor == Flavor::Kchat {
                     live_socket::Dialect::Kchat
                 } else {
@@ -408,7 +417,7 @@ impl Session {
                 let (live, events) = live_socket::spawn(dialect, rest.clone(), info.auth_token.clone());
                 (Transport::Live(live), Feed::Live(events))
             }
-            (false, None) => {
+            (None, None) => {
                 let (ddp, ddp_events) = ddp::spawn(websocket_url(&base), Timeouts::default());
                 ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/subscriptions-changed", info.user_id));
                 ddp.subscribe(STREAM_NOTIFY_USER, &format!("{}/rooms-changed", info.user_id));
@@ -445,6 +454,7 @@ impl Session {
             access: tokio::sync::OnceCell::new(),
             commands: tokio::sync::OnceCell::new(),
             typing: Mutex::default(),
+            typing_sent: Mutex::default(),
             call_available: Mutex::default(),
             avatars: Mutex::default(),
             notification_preference: Mutex::new("default".to_owned()),
@@ -470,10 +480,7 @@ impl Session {
 
         session.transport.open(&session.info.auth_token);
         // The read the user sees: not sequenced behind the socket negotiation.
-        // Slack's feed asks for it as it opens.
-        if !matches!(session.transport, Transport::Slack(_)) {
-            session.spawn_catch_up();
-        }
+        session.spawn_catch_up();
         Ok(session)
     }
 
@@ -536,7 +543,10 @@ impl Session {
         while let Some(event) = events.recv().await {
             let Some(s) = session.upgrade() else { return };
             match event {
-                LiveEvent::Event { name, data, broadcast } => s.apply_mattermost(&name, &data, &broadcast).await,
+                LiveEvent::Event { name, data, broadcast } => match s.backend() {
+                    Backend::Slack(_) => s.apply_slack(&name, &data).await,
+                    _ => s.apply_mattermost(&name, &data, &broadcast).await,
+                },
                 LiveEvent::State(state) => {
                     let c = match state {
                         State::Authenticated => Connection::Online,
@@ -624,6 +634,53 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// One Slack RTM frame: typing here, the rest into the store.
+    async fn apply_slack(self: &Arc<Self>, name: &str, frame: &Value) {
+        let Backend::Slack(slack) = self.backend() else { return };
+        let slack = slack.clone();
+        if name == "user_typing" {
+            let field = |key: &str| frame.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+            let (Some(rid), Some(uid)) = (field("channel"), field("user")) else { return };
+            if uid == self.info.user_id {
+                return;
+            }
+            slack.directory.ensure(&self.rest, [uid.clone()]).await;
+            let user = slack.directory.username(&uid).unwrap_or(uid);
+            self.typing.lock().unwrap().apply(&rid, &user, true, Instant::now());
+            let _ = self.events.send(SessionEvent::Typing(rid.clone()));
+            let weak = Arc::downgrade(self);
+            tokio::spawn(async move {
+                tokio::time::sleep(live::TYPING_EXPIRY + Duration::from_millis(100)).await;
+                if let Some(s) = weak.upgrade() {
+                    let _ = s.events.send(SessionEvent::Typing(rid));
+                }
+            });
+            return;
+        }
+        if let Some(m) = slack.apply_event(name, frame).await
+            && let Some(incoming) = self.incoming_message(&m)
+        {
+            let _ = self.events.send(SessionEvent::Incoming(Box::new(incoming)));
+        }
+    }
+
+    /// Says I am typing in `rid`, where the account's protocol carries it
+    /// (Slack's RTM, at most every few seconds); a no-op elsewhere.
+    pub fn set_typing(&self, rid: &str, active: bool) {
+        let Transport::Slack(live) = &self.transport else { return };
+        let mut sent = self.typing_sent.lock().unwrap();
+        if !active {
+            sent.remove(rid);
+            return;
+        }
+        let now = Instant::now();
+        if sent.get(rid).is_some_and(|at| now.duration_since(*at) < TYPING_EVERY) {
+            return;
+        }
+        sent.insert(rid.to_owned(), now);
+        live.typing(rid);
     }
 
     fn apply_live(self: &Arc<Self>, collection: &str, key: &str, args: &[Value]) {
@@ -1331,8 +1388,13 @@ impl Session {
         Ok(list)
     }
 
-    pub fn reconnect_now(&self) {
+    /// On Slack also reads the list again: its socket may be the very thing
+    /// that cannot come up, and the REST catch-up does not depend on it.
+    pub fn reconnect_now(self: &Arc<Self>) {
         self.transport.open(&self.info.auth_token);
+        if matches!(self.transport, Transport::Slack(_)) {
+            self.spawn_catch_up();
+        }
     }
 
     /// The open room's own subscriptions (deletions, typing) go with it.

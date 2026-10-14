@@ -772,6 +772,11 @@ impl Chat {
         self.session.store.write(|w| w.set_draft(&key, &text));
     }
 
+    /// Says I am typing in the room, where the account's protocol carries it.
+    pub fn set_typing(&self, rid: String, active: bool) {
+        self.session.set_typing(&rid, active);
+    }
+
     /// Who is typing in the room now.
     pub fn typing(&self, rid: String) -> Vec<String> {
         self.session.typing(&rid)

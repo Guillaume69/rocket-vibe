@@ -10,6 +10,7 @@ pub const ORIGIN: &str = "https://slack.com";
 /// any request, so no path of another server's can ever reach Slack.
 pub const METHODS: &[&str] = &[
     "auth.test",
+    "rtm.connect",
     "users.conversations",
     "client.counts",
     "conversations.history",

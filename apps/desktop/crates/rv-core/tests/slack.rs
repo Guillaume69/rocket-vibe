@@ -150,6 +150,7 @@ fn workspace(request: &Request) -> Response {
     let form = form(request);
     match method(request) {
         "auth.test" => auth(),
+        "rtm.connect" => respond(200, r#"{"ok":false,"error":"missing_scope"}"#),
         "users.conversations" => match form.get("cursor").map(String::as_str) {
             None => ok(json!({
                 "channels": [
@@ -330,8 +331,8 @@ async fn a_slack_session_speaks_only_slack() {
         }
     })
     .await
-    .expect("the catch-up lists the rooms");
-    assert_eq!(s.connection(), rv_core::session::Connection::Online);
+    .expect("the catch-up lists the rooms, socket or not");
+    assert!(server.requests().iter().any(|r| method(r) == "rtm.connect"), "the live socket is asked for");
     assert!(s.room_info("C001").await.is_ok());
     assert!(s.open_room("C001", "c").await.is_ok());
     assert!(s.react("C001:1700000300.000100", ":+1:", true).await.is_err());
@@ -371,3 +372,4 @@ async fn a_slack_session_speaks_only_slack() {
     session.shutdown();
     session.store.close();
 }
+

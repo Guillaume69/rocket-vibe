@@ -755,7 +755,11 @@ impl Composer {
         self.load_commands(session, rid, &key);
         let generation = Rc::new(Cell::new(0u64));
         let store = session.store.clone();
+        let (typist, typed_in) = (Arc::downgrade(session), rid.to_owned());
         self.connect_changed(move |text| {
+            if let Some(session) = typist.upgrade() {
+                session.set_typing(&typed_in, !text.trim().is_empty());
+            }
             let current = generation.get() + 1;
             generation.set(current);
             let (generation, store, key) = (generation.clone(), store.clone(), key.clone());

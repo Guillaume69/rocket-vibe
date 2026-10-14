@@ -1,6 +1,8 @@
 //! Slack into the store: the conversation list with its counts and previews,
-//! the history paged by exact `ts`, threads and single messages. No live
-//! events yet: a catch-up runs at start and on each explicit refresh.
+//! the history paged by exact `ts`, threads and single messages, and the RTM
+//! frames of `live`. Slack pushes no conversation or read document with a
+//! message: the conversations and their `client.counts` entries are kept here,
+//! seeded by the global catch-up, and the unread state is derived from them.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
@@ -56,6 +58,7 @@ pub struct SlackSync {
     me: String,
     conversations: Mutex<HashMap<String, Value>>,
     names: Mutex<HashMap<String, String>>,
+    counts: Mutex<HashMap<String, Value>>,
 }
 
 impl SlackSync {
@@ -69,6 +72,7 @@ impl SlackSync {
             me: me.to_owned(),
             conversations: Mutex::default(),
             names: Mutex::default(),
+            counts: Mutex::default(),
         }
     }
 
@@ -142,6 +146,9 @@ impl SlackSync {
         let (roster, counts) = tokio::join!(self.roster(), self.counts());
         let roster = roster?;
         self.remember(&roster);
+        if let Some(counts) = &counts {
+            *self.counts.lock().unwrap() = counts.clone();
+        }
         let peers: Vec<String> = roster.iter().filter_map(|c| text(c, "user").map(str::to_owned)).collect();
         self.directory.ensure(&self.rest, std::iter::once(self.me.clone()).chain(peers)).await;
         let latest =
@@ -410,9 +417,113 @@ impl SlackSync {
         format!("{}/archives/{rid}/p{ts}", base_url.trim_end_matches('/'))
     }
 
+    /// One RTM frame into the store. Returns a new message from someone
+    /// else, for a notification; edits, deletions and reads return nothing.
+    pub async fn apply_event(&self, name: &str, frame: &Value) -> Option<Message> {
+        match name {
+            "message" => self.live_message(frame).await,
+            "reaction_added" | "reaction_removed" => {
+                let item = frame.get("item")?;
+                if text(item, "type") != Some("message") {
+                    return None;
+                }
+                let id = translate::message_id(text(item, "channel")?, text(item, "ts")?);
+                if let Ok(Some(message)) = self.fetch_message(&id).await {
+                    self.store.write(|w| w.upsert_message(&message));
+                }
+                None
+            }
+            "channel_marked" | "group_marked" | "im_marked" | "mpim_marked" => {
+                let rid = text(frame, "channel")?;
+                let unread = ["unread_count_display", "unread_count"].iter().find_map(|k| frame.get(*k)?.as_i64());
+                let mentions = ["mention_count_display", "mention_count"].iter().find_map(|k| frame.get(*k)?.as_i64());
+                self.update_counts(rid, |c| {
+                    c["has_unreads"] = Value::Bool(unread.unwrap_or(0) > 0);
+                    c["mention_count"] = Value::from(mentions.unwrap_or(0));
+                    if let Some(ts) = text(frame, "ts") {
+                        c["last_read"] = Value::from(ts);
+                    }
+                });
+                None
+            }
+            _ => None,
+        }
+    }
+
+    async fn live_message(&self, frame: &Value) -> Option<Message> {
+        let channel = text(frame, "channel")?;
+        match text(frame, "subtype") {
+            Some("message_deleted") => {
+                let id = translate::message_id(channel, text(frame, "deleted_ts")?);
+                self.store.write(|w| w.delete_message(&id));
+                None
+            }
+            Some("message_changed") => {
+                let nested = frame.get("message")?;
+                self.resolve(std::slice::from_ref(nested)).await;
+                let message = self.translate(channel, nested)?;
+                self.store.write(|w| w.upsert_message(&message));
+                None
+            }
+            _ => {
+                self.resolve(std::slice::from_ref(frame)).await;
+                let message = self.translate(channel, frame)?;
+                let fresh = !self.store.has_message(&message.id);
+                let ts = text(frame, "ts")?;
+                let reply = text(frame, "thread_ts").is_some_and(|t| t != ts);
+                let mine = text(frame, "user") == Some(self.me.as_str());
+                let room = {
+                    let conversations = self.conversations.lock().unwrap();
+                    let names = self.names.lock().unwrap();
+                    let t = Translator { directory: &self.directory, channels: &names };
+                    conversations
+                        .get(channel)
+                        .and_then(|c| t.room(&self.me, c, Some(message.ts), (!reply).then_some(&message)))
+                };
+                self.store.write(|w| {
+                    w.upsert_message(&message);
+                    if let Some(room) = &room {
+                        w.upsert_room(room);
+                    }
+                });
+                let mention = mentions(frame, &self.me);
+                self.update_counts(channel, |c| {
+                    c["latest"] = Value::from(ts);
+                    if !mine {
+                        c["has_unreads"] = Value::Bool(true);
+                        let before = c.get("mention_count").and_then(Value::as_i64).unwrap_or(0);
+                        c["mention_count"] = Value::from(before + i64::from(mention));
+                    }
+                });
+                (fresh && !mine).then_some(message)
+            }
+        }
+    }
+
+    /// Changes a room's kept counts and writes its subscription row from them.
+    fn update_counts(&self, rid: &str, change: impl FnOnce(&mut Value)) {
+        if !self.conversations.lock().unwrap().contains_key(rid) {
+            return;
+        }
+        let entry = {
+            let mut counts = self.counts.lock().unwrap();
+            let entry = counts.entry(rid.to_owned()).or_insert_with(|| serde_json::json!({"id": rid}));
+            change(entry);
+            entry.clone()
+        };
+        let row = translate::subscription(rid, Some(&entry), chrono::Utc::now().timestamp_millis(), true);
+        self.store.write(|w| w.upsert_subscription(&row));
+    }
+
     pub fn me(&self) -> &str {
         &self.me
     }
+}
+
+/// Whether a message names me, or the whole room.
+fn mentions(frame: &Value, me: &str) -> bool {
+    let body = text(frame, "text").unwrap_or_default();
+    body.contains(&format!("<@{me}>")) || ["<!channel>", "<!here>", "<!everyone>"].iter().any(|m| body.contains(m))
 }
 
 #[cfg(test)]

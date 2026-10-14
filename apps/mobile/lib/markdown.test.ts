@@ -107,3 +107,9 @@ describe('textPreview', () => {
     assert.equal(textPreview(':kkk: :smile:'), ':kkk: 😄');
   });
 });
+
+test('a shortcode with letters beyond ASCII is an emoji, outside code only', () => {
+  const tree = messageTree(null, ':göring: and `:höss:`');
+  const nodes = (tree?.[0] as { value: { type: string; shortCode?: string }[] }).value;
+  assert.deepEqual(nodes.map((n) => [n.type, n.shortCode]), [['EMOJI', 'göring'], ['PLAIN_TEXT', undefined], ['INLINE_CODE', undefined]]);
+});

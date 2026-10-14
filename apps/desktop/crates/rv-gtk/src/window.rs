@@ -62,6 +62,7 @@ pub struct AppWindow {
     forward: RefCell<Option<tokio::task::JoinHandle<()>>>,
     pending: RefCell<Option<PendingLogin>>,
     pending_native: RefCell<Option<rv_core::native::authentication::LoginChallenge>>,
+    slack_browser_login: RefCell<Option<Arc<rv_core::slack::browser_login::BrowserLogin>>>,
     login_generation: Cell<u64>,
     login_guard: RefCell<rv_core::native::security::Guard>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
@@ -259,6 +260,7 @@ impl AppWindow {
             forward: RefCell::default(),
             pending: RefCell::default(),
             pending_native: RefCell::default(),
+            slack_browser_login: RefCell::default(),
             login_generation: Cell::default(),
             login_guard: RefCell::default(),
             login_shown: RefCell::default(),
@@ -737,6 +739,20 @@ impl AppWindow {
         if self.login.is_busy() {
             return;
         }
+        if self.login.server_kind() == rv_core::native::ServerKind::Slack {
+            if let Some(attempt) = self.slack_browser_login.borrow().clone() {
+                if let Some(team_id) = self.login.selected_slack_workspace() {
+                    self.finish_slack_browser_login(attempt, team_id, self.login_generation.get());
+                }
+            } else {
+                self.start_slack_browser_login();
+            }
+            return;
+        }
+        if let Some(attempt) = self.slack_browser_login.borrow_mut().take() {
+            attempt.cancel();
+        }
+        self.login.clear_slack_workspaces();
         let pending_native = self.pending_native.borrow().clone();
         if let Some(saved) = pending_native {
             self.submit_native_factor(saved);
@@ -875,12 +891,130 @@ impl AppWindow {
         });
     }
 
+    fn start_slack_browser_login(self: &Rc<Self>) {
+        let generation = self.login_generation.get();
+        self.login.set_error(None);
+        self.login.clear_slack_workspaces();
+        self.login.set_slack_status(t("slack.browserHelp"));
+        self.login.set_busy(true);
+        self.login.set_cancel(true);
+        self.login.set_cancel_label(t("actions.cancel"));
+        self.login.set_cancel_enabled(true);
+
+        let attempt = {
+            let _guard = runtime().enter();
+            rv_core::slack::browser_login::BrowserLogin::start()
+        };
+        let attempt = match attempt {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                self.login.set_busy(false);
+                self.login.set_cancel(self.previous.borrow().is_some());
+                self.login.set_error(Some(match error.code {
+                    "supported_browser_missing" => t("slack.browserMissing"),
+                    _ => t("slack.browserFailed"),
+                }));
+                return;
+            }
+        };
+        self.slack_browser_login.replace(Some(attempt.clone()));
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+            let Some(this) = weak.upgrade() else {
+                attempt.cancel();
+                return glib::ControlFlow::Break;
+            };
+            if !this.login_is_current(generation) {
+                attempt.cancel();
+                return glib::ControlFlow::Break;
+            }
+            use rv_core::slack::browser_login::State;
+            match attempt.state() {
+                State::OpeningBrowser | State::SigningIn => glib::ControlFlow::Continue,
+                State::Ready(workspaces) if workspaces.len() == 1 => {
+                    this.finish_slack_browser_login(attempt.clone(), workspaces[0].id.clone(), generation);
+                    glib::ControlFlow::Break
+                }
+                State::Ready(workspaces) => {
+                    this.login.show_slack_workspaces(&workspaces);
+                    this.login.set_slack_status(t("slack.chooseWorkspace"));
+                    this.login.set_busy(false);
+                    this.login.set_cancel(true);
+                    this.login.set_cancel_label(t("actions.cancel"));
+                    this.login.set_cancel_enabled(true);
+                    glib::ControlFlow::Break
+                }
+                State::Failed(code) => {
+                    this.slack_browser_login.borrow_mut().take();
+                    this.login.set_busy(false);
+                    this.login.set_cancel(this.previous.borrow().is_some());
+                    this.login.set_error(Some(match code {
+                        "supported_browser_missing" => t("slack.browserMissing"),
+                        "browser_closed" => t("slack.browserClosed"),
+                        "timeout" => t("slack.browserTimeout"),
+                        _ => t("slack.browserFailed"),
+                    }));
+                    glib::ControlFlow::Break
+                }
+                State::Cancelled | State::Complete => {
+                    this.slack_browser_login.borrow_mut().take();
+                    this.login.set_busy(false);
+                    this.login.set_cancel(this.previous.borrow().is_some());
+                    glib::ControlFlow::Break
+                }
+            }
+        });
+    }
+
+    fn finish_slack_browser_login(
+        self: &Rc<Self>,
+        attempt: Arc<rv_core::slack::browser_login::BrowserLogin>,
+        team_id: String,
+        generation: u64,
+    ) {
+        self.login.set_busy(true);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let result = on_tokio(async move { attempt.take(&team_id).await }).await;
+            if !this.login_is_current(generation) {
+                return;
+            }
+            match result {
+                Ok(info) => {
+                    this.slack_browser_login.borrow_mut().take();
+                    this.login.clear_slack_workspaces();
+                    this.login.clear_secrets();
+                    this.login.set_cancel(false);
+                    this.login.set_error(None);
+                    let saved = info.clone();
+                    on_tokio(async move { secrets::save(&saved).await }).await;
+                    secrets::set_active(&info);
+                    this.previous.replace(None);
+                    this.start_session(info);
+                }
+                Err(error) => {
+                    this.slack_browser_login.borrow_mut().take();
+                    this.login.set_busy(false);
+                    this.login.set_cancel(this.previous.borrow().is_some());
+                    this.login.set_error(Some(match error.code {
+                        "workspace_unavailable" => t("slack.chooseWorkspace"),
+                        _ => t("slack.browserFailed"),
+                    }));
+                }
+            }
+        });
+    }
+
     fn login_is_current(&self, generation: u64) -> bool {
         self.login_generation.get() == generation
             && self.stack.visible_child_name().as_deref() == Some("login")
             && self.window.is_visible()
     }
     fn invalidate_login(&self) {
+        if let Some(attempt) = self.slack_browser_login.borrow_mut().take() {
+            attempt.cancel();
+        }
+        self.login.clear_slack_workspaces();
         self.login.close_recovery_email();
         self.login_guard.borrow().cancel();
         self.login_guard.replace(rv_core::native::security::Guard::new());
@@ -2294,6 +2428,7 @@ impl AppWindow {
 
     fn cancel_add(self: &Rc<Self>) {
         self.invalidate_login();
+        self.login.set_cancel(self.previous.borrow().is_some());
         self.pending.replace(None);
         self.pending_native.replace(None);
         self.login.clear_secrets();

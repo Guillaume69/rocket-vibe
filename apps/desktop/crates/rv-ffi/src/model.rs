@@ -49,6 +49,7 @@ pub enum ServerChoice {
     Vibez,
     Mattermost,
     Kchat,
+    Slack,
 }
 
 impl From<ServerChoice> for rv_core::native::ServerKind {
@@ -59,6 +60,7 @@ impl From<ServerChoice> for rv_core::native::ServerKind {
             ServerChoice::Vibez => Self::Vibez,
             ServerChoice::Mattermost => Self::Mattermost,
             ServerChoice::Kchat => Self::Kchat,
+            ServerChoice::Slack => Self::Slack,
         }
     }
 }

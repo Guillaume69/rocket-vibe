@@ -26,6 +26,17 @@ struct LoginView: View {
         case server, user, password, code, invitation
     }
 
+    private func submitLabel(for login: LoginModel) -> String {
+        if login.busy { return L("login.signing_in") }
+        if login.kind == .slack {
+            return L(login.slackWorkspaces.isEmpty ? "slack.signIn" : "slack.continue")
+        }
+        return L(login.method == nil
+            ? login.recovering && login.canRecover ? "login.reset_password"
+                : login.registering && login.canRegister ? "login.create_account" : "login.sign_in"
+            : "login.confirm")
+    }
+
     var body: some View {
         @Bindable var login = app.login
         VStack(spacing: 18) {
@@ -45,7 +56,11 @@ struct LoginView: View {
             Form {
                 if experimental {
                     ExperimentalPreviewView(client: app.client) {
-                        do { try app.client.setExperimentalProviders(enabled: false); experimental = false }
+                        do {
+                            try app.client.setExperimentalProviders(enabled: false)
+                            experimental = false
+                            if login.kind == .slack { login.kind = .auto }
+                        }
                         catch { unlockError = L("slack.unlockFailed") }
                     }
                 }
@@ -76,7 +91,7 @@ struct LoginView: View {
                         .onSubmit(submit)
                 } else {
                     // kChat: the token names the account, its servers come from the kChat directory.
-                    if login.kind != .kchat {
+                    if login.kind != .kchat && login.kind != .slack {
                         TextField(L("login.server"), text: $login.server)
                             .focused($focus, equals: .server)
                             .textContentType(.URL)
@@ -88,9 +103,24 @@ struct LoginView: View {
                         Text(L("login.kind_vibez")).tag(ServerChoice.vibez)
                         Text(L("login.kind_mattermost")).tag(ServerChoice.mattermost)
                         Text(L("login.kind_kchat")).tag(ServerChoice.kchat)
+                        if experimental {
+                            Text(L("login.kind_slack")).tag(ServerChoice.slack)
+                        }
                     }
                     .pickerStyle(.segmented)
-                    if let probe = login.probeLine {
+                    if login.kind == .slack {
+                        Text(L("slack.browserHelp"))
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !login.slackWorkspaces.isEmpty {
+                            Picker(L("slack.workspace"), selection: $login.selectedSlackWorkspace) {
+                                ForEach(login.slackWorkspaces, id: \.id) { workspace in
+                                    Text(workspace.label).tag(workspace.id)
+                                }
+                            }
+                        }
+                    }
+                    if let probe = login.probeLine, login.kind != .slack {
                         Text(probe)
                             .font(.caption)
                             .foregroundStyle(login.probeBad ? .red : .secondary)
@@ -100,24 +130,26 @@ struct LoginView: View {
                             ForEach(login.kchatServers, id: \.url) { Text($0.name).tag($0.url) }
                         }
                     }
-                    if !login.knownServers.isEmpty && login.kind != .kchat {
+                    if !login.knownServers.isEmpty && login.kind != .kchat && login.kind != .slack {
                         Picker("", selection: $login.server) {
                             ForEach(login.knownServers, id: \.self) { Text($0).tag($0) }
                         }
                         .labelsHidden()
                     }
-                    if login.kind != .kchat {
+                    if login.kind != .kchat && login.kind != .slack {
                         TextField(L(login.registering || login.recovering ? "login.username" : "login.user"), text: $login.user)
                             .focused($focus, equals: .user)
                             .textContentType(.username)
                     }
-                    if login.tokenLogin {
-                        Button(L("login.infomaniak"), action: signInWithInfomaniak)
+                    if login.kind != .slack {
+                        if login.tokenLogin {
+                            Button(L("login.infomaniak"), action: signInWithInfomaniak)
+                        }
+                        SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
+                            .focused($focus, equals: .password)
+                            .textContentType(.password)
+                            .onSubmit(submit)
                     }
-                    SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
-                        .focused($focus, equals: .password)
-                        .textContentType(.password)
-                        .onSubmit(submit)
                     if login.pendingConfirmation { Text(L("login.factor_resume")).font(.caption) }
                     if login.canRegister {
                         Toggle(L("login.create_account"), isOn: $login.registering)
@@ -174,14 +206,16 @@ struct LoginView: View {
             }
 
             HStack {
-                if login.method != nil {
+                if login.slackBrowserActive {
+                    Button(L("actions.cancel")) { login.cancelSlackSignIn() }
+                } else if login.method != nil {
                     Button(L("actions.cancel")) { login.cancelCode() }
                         .disabled(login.busy)
                 } else if app.signedIn {
                     Button(L("login.cancel_add")) { app.cancelLogin() }
                         .disabled(login.busy)
                 }
-                Button(login.busy ? L("login.signing_in") : (login.method == nil ? L(login.recovering && login.canRecover ? "login.reset_password" : login.registering && login.canRegister ? "login.create_account" : "login.sign_in") : L("login.confirm")), action: submit)
+                Button(submitLabel(for: login), action: submit)
                     .buttonStyle(VibeButtonStyle())
                     .windowShortcut(.defaultAction)
                     .disabled(login.busy)
@@ -197,7 +231,7 @@ struct LoginView: View {
         .onAppear { experimental = app.client.experimentalProviders() }
         .task(id: "\(login.address)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
-            if !Task.isCancelled { await login.probe(client: app.client) }
+            if !Task.isCancelled && login.kind != .slack { await login.probe(client: app.client) }
         }
         .task(id: "\(login.server)|\(login.user)|\(login.recovering)|\(login.canEmailRecover)") {
             try? await Task.sleep(nanoseconds: 350_000_000)

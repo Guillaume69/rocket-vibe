@@ -2,6 +2,7 @@
 //! saved, read-only account kind (`account`, `sync`).
 pub mod account;
 pub mod api;
+pub mod browser_login;
 pub mod directory;
 pub mod handoff;
 pub mod live;

@@ -32,6 +32,21 @@ pub struct SlackMessagePage {
     pub items: Vec<SlackMessage>,
     pub next_cursor: Option<String>,
 }
+#[derive(Clone, uniffi::Record)]
+pub struct SlackWorkspace {
+    pub id: String,
+    pub label: String,
+}
+#[derive(Clone, uniffi::Record)]
+pub struct SlackBrowserStatus {
+    pub phase: String,
+    pub workspaces: Vec<SlackWorkspace>,
+    pub error: Option<String>,
+}
+#[derive(uniffi::Object)]
+pub struct SlackBrowserLogin {
+    login: Arc<rv_core::slack::browser_login::BrowserLogin>,
+}
 #[derive(uniffi::Object)]
 pub struct SlackPreview {
     reader: Arc<rv_core::slack::Reader>,
@@ -81,6 +96,25 @@ impl Client {
         self.keep_slack(info).await
     }
 
+    /// Opens Slack in an owned temporary browser and captures a validated session.
+    pub async fn slack_browser_login(&self) -> Result<Arc<SlackBrowserLogin>, RvError> {
+        let login =
+            on_tokio(async move { rv_core::slack::browser_login::BrowserLogin::start().map_err(error) }).await?;
+        Ok(Arc::new(SlackBrowserLogin { login }))
+    }
+
+    /// Saves and opens the workspace selected from a completed browser sign-in.
+    pub async fn complete_slack_browser_login(
+        &self,
+        attempt: Arc<SlackBrowserLogin>,
+        team_id: String,
+    ) -> Result<Arc<Chat>, RvError> {
+        let login = attempt.login.clone();
+        let info = on_tokio(async move { login.take(&team_id).await.map_err(error) }).await?;
+        attempt.login.cancel();
+        self.keep_slack(info).await
+    }
+
     pub async fn slack_preview(&self, token: String, cookie: String) -> Result<Arc<SlackPreview>, RvError> {
         on_tokio(async move {
             let reader = rv_core::slack::Reader::new(token, cookie).map_err(error)?;
@@ -93,6 +127,39 @@ impl Client {
         .await
     }
 }
+#[uniffi::export]
+impl SlackBrowserLogin {
+    pub fn state(&self) -> SlackBrowserStatus {
+        use rv_core::slack::browser_login::State;
+        match self.login.state() {
+            State::OpeningBrowser => {
+                SlackBrowserStatus { phase: "opening_browser".into(), workspaces: vec![], error: None }
+            }
+            State::SigningIn => SlackBrowserStatus { phase: "signing_in".into(), workspaces: vec![], error: None },
+            State::Ready(workspaces) => SlackBrowserStatus {
+                phase: "ready".into(),
+                workspaces: workspaces.into_iter().map(|w| SlackWorkspace { id: w.id, label: w.label }).collect(),
+                error: None,
+            },
+            State::Complete => SlackBrowserStatus { phase: "complete".into(), workspaces: vec![], error: None },
+            State::Failed(code) => {
+                SlackBrowserStatus { phase: "failed".into(), workspaces: vec![], error: Some(code.into()) }
+            }
+            State::Cancelled => SlackBrowserStatus { phase: "cancelled".into(), workspaces: vec![], error: None },
+        }
+    }
+
+    pub fn cancel(&self) {
+        self.login.cancel();
+    }
+}
+
+impl Drop for SlackBrowserLogin {
+    fn drop(&mut self) {
+        self.login.cancel();
+    }
+}
+
 #[uniffi::export]
 impl SlackPreview {
     pub fn identity(&self) -> SlackIdentity {

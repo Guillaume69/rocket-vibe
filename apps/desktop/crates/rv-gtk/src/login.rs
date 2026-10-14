@@ -33,6 +33,10 @@ pub struct LoginPage {
     kchat_row: gtk::Box,
     kchat_servers: gtk::DropDown,
     kchat_urls: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    slack_status: gtk::Label,
+    slack_workspace_row: gtk::Box,
+    slack_workspace: gtk::DropDown,
+    slack_workspace_ids: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
     infomaniak: gtk::Button,
     user: gtk::Entry,
     password: gtk::Entry,
@@ -134,6 +138,29 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
 /// The kind list's WhatsApp entry, present when the helper is installed.
 const WHATSAPP_KIND: u32 = 5;
 
+fn kinds(kind: &gtk::DropDown) -> gtk::StringList {
+    kind.model().and_downcast::<gtk::StringList>().expect("server kinds")
+}
+
+/// Slack's entry, last, present while the experimental providers are unlocked.
+fn slack_kind(kind: &gtk::DropDown) -> Option<u32> {
+    let list = kinds(kind);
+    (0..list.n_items()).find(|&i| list.string(i).as_deref() == Some(t("login.kind_slack")))
+}
+
+fn show_slack_kind(kind: &gtk::DropDown, shown: bool) {
+    match (shown, slack_kind(kind)) {
+        (true, None) => kinds(kind).append(t("login.kind_slack")),
+        (false, Some(at)) => {
+            if kind.selected() == at {
+                kind.set_selected(0);
+            }
+            kinds(kind).remove(at);
+        }
+        _ => {}
+    }
+}
+
 fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     use rv_core::native::ServerKind;
     match kind.selected() {
@@ -141,6 +168,7 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
         2 => ServerKind::Vibez,
         3 => ServerKind::Mattermost,
         4 => ServerKind::Kchat,
+        selected if Some(selected) == slack_kind(kind) => ServerKind::Slack,
         _ => ServerKind::Auto,
     }
 }
@@ -185,7 +213,7 @@ impl LoginPage {
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
-        // WhatsApp last, when its helper is installed beside the app: a
+        // WhatsApp after them, when its helper is installed beside the app: a
         // personal account with no server, linked by its own dialog.
         let mut kinds = vec![
             t("login.kind_auto"),
@@ -203,6 +231,27 @@ impl LoginPage {
         kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
         kind_row.append(&kind);
         credentials.append(&kind_row);
+        show_slack_kind(&kind, experimental.root.is_visible());
+        experimental.root.connect_visible_notify(glib::clone!(
+            #[weak]
+            kind,
+            move |root| show_slack_kind(&kind, root.is_visible())
+        ));
+        let slack_status = gtk::Label::builder()
+            .label(t("slack.browserHelp"))
+            .wrap(true)
+            .xalign(0.0)
+            .margin_start(14)
+            .visible(false)
+            .build();
+        credentials.append(&slack_status);
+        let slack_workspace = gtk::DropDown::from_strings(&[]);
+        let slack_workspace_row = gtk::Box::builder().spacing(10).margin_start(14).visible(false).build();
+        slack_workspace_row
+            .append(&gtk::Label::builder().label(t("slack.workspace")).css_classes(["file-detail"]).build());
+        slack_workspace_row.append(&slack_workspace);
+        credentials.append(&slack_workspace_row);
+        let slack_workspace_ids = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let kchat_servers = gtk::DropDown::from_strings(&[]);
         let kchat_row = gtk::Box::builder().spacing(10).margin_start(14).visible(false).build();
         kchat_row.append(&gtk::Label::builder().label(t("login.kchat_server")).css_classes(["file-detail"]).build());
@@ -419,7 +468,23 @@ impl LoginPage {
             #[weak]
             user_group,
             #[weak]
+            password_group,
+            #[weak]
+            signup,
+            #[weak]
+            recovery,
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
             kchat_row,
+            #[weak]
+            slack_status,
+            #[weak]
+            slack_workspace_row,
+            #[weak]
+            submit,
             #[weak]
             infomaniak,
             move |kind| {
@@ -430,12 +495,26 @@ impl LoginPage {
                     return;
                 }
                 previous_kind.set(kind.selected());
-                let kchat = server_kind(kind) == rv_core::native::ServerKind::Kchat;
-                server_group.set_visible(!kchat);
-                user_group.set_visible(!kchat);
+                let selected = server_kind(kind);
+                let kchat = selected == rv_core::native::ServerKind::Kchat;
+                let slack = selected == rv_core::native::ServerKind::Slack;
+                server_group.set_visible(!kchat && !slack);
+                user_group.set_visible(!kchat && !slack);
+                password_group.set_visible(!slack && !kchat);
+                signup.set_active(false);
+                signup.set_visible(false);
+                recovery.set_active(false);
+                recovery.set_visible(false);
+                invitation_group.set_visible(false);
+                invitation_help.set_visible(false);
                 kchat_row.set_visible(false);
+                slack_status.set_visible(slack);
+                slack_workspace_row.set_visible(false);
+                submit.set_label(t(if slack { "slack.signIn" } else { "login.sign_in" }));
                 infomaniak.set_visible(false);
-                server.emit_by_name::<()>("changed", &[])
+                if !slack {
+                    server.emit_by_name::<()>("changed", &[]);
+                }
             }
         ));
         server.connect_changed(glib::clone!(
@@ -555,6 +634,10 @@ impl LoginPage {
             experimental_icon,
             kchat_servers,
             kchat_urls: std::rc::Rc::default(),
+            slack_status,
+            slack_workspace_row,
+            slack_workspace,
+            slack_workspace_ids,
             infomaniak,
             user,
             password,
@@ -607,6 +690,7 @@ impl LoginPage {
     /// Shown while another account is still signed in: back to it.
     pub fn set_cancel(&self, visible: bool) {
         self.cancel.set_visible(visible);
+        self.cancel.set_label(t("login.cancel_add"));
     }
 
     /// The smoke's choice of WhatsApp among the server kinds.
@@ -666,6 +750,37 @@ impl LoginPage {
     }
 
     /// The account's kChat team servers, as `(name, url)`, to pick one.
+    pub fn show_slack_workspaces(&self, workspaces: &[rv_core::slack::browser_login::Workspace]) {
+        let labels: Vec<&str> = workspaces.iter().map(|workspace| workspace.label.as_str()).collect();
+        self.slack_workspace.set_model(Some(&gtk::StringList::new(&labels)));
+        self.slack_workspace_ids.replace(workspaces.iter().map(|workspace| workspace.id.clone()).collect());
+        self.slack_workspace_row.set_visible(workspaces.len() > 1);
+        self.slack_status.set_label(t("slack.chooseWorkspace"));
+    }
+
+    pub fn selected_slack_workspace(&self) -> Option<String> {
+        self.slack_workspace_ids.borrow().get(self.slack_workspace.selected() as usize).cloned()
+    }
+
+    pub fn clear_slack_workspaces(&self) {
+        self.slack_workspace_ids.borrow_mut().clear();
+        self.slack_workspace.set_model(Some(&gtk::StringList::new(&[])));
+        self.slack_workspace_row.set_visible(false);
+    }
+
+    pub fn set_slack_status(&self, text: &str) {
+        self.slack_status.set_label(text);
+        self.slack_status.set_visible(self.server_kind() == rv_core::native::ServerKind::Slack);
+    }
+
+    pub fn set_cancel_label(&self, text: &str) {
+        self.cancel.set_label(text);
+    }
+
+    pub fn set_cancel_enabled(&self, enabled: bool) {
+        self.cancel.set_sensitive(enabled);
+    }
+
     pub fn show_kchat_servers(&self, servers: &[(String, String)]) {
         let names: Vec<&str> = servers.iter().map(|(name, _)| name.as_str()).collect();
         self.kchat_servers.set_model(Some(&gtk::StringList::new(&names)));
@@ -676,7 +791,8 @@ impl LoginPage {
     pub fn set_server_kind(&self, kind: rv_core::native::ServerKind) {
         use rv_core::native::ServerKind;
         self.kind.set_selected(match kind {
-            ServerKind::Auto | ServerKind::Slack => 0,
+            ServerKind::Auto => 0,
+            ServerKind::Slack => slack_kind(&self.kind).unwrap_or(0),
             ServerKind::RocketChat => 1,
             ServerKind::Vibez => 2,
             ServerKind::Mattermost => 3,
@@ -780,6 +896,9 @@ impl LoginPage {
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
+            (false, false) if self.server_kind() == rv_core::native::ServerKind::Slack => {
+                t(if self.slack_workspace_row.is_visible() { "slack.continue" } else { "slack.signIn" })
+            }
             (false, false) => t(if self.recovery.is_active() {
                 "login.reset_password"
             } else if self.signup.is_active() {
@@ -797,6 +916,7 @@ impl LoginPage {
 
     /// `Some(method)` switches to the second-factor step, `None` back to credentials.
     pub fn ask_code(&self, method: Option<&str>) {
+        self.clear_slack_workspaces();
         let asking = method.is_some();
         self.credentials.set_visible(!asking);
         self.code_step.set_visible(asking);

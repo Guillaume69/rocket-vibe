@@ -13,6 +13,10 @@ section here.
 
 - A link to a post on X (Twitter) shows as a card like the post, on Linux, Windows and macOS: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A click opens the post in the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
 
+### Fixed
+
+- Text messages send again on kChat accounts. Since 0.17.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
+
 ## [0.20.0] - 2026-10-14
 
 ### Changed

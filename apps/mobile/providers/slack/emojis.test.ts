@@ -7,7 +7,8 @@ import { SlackDirectory, toSlackUser } from './directory.ts';
 import { glyphOf, reactionCode, replaceSlackEmojis, slackName } from './emojis.ts';
 import { slackCustomEmojis } from './index.ts';
 import { COOKIE, TOKEN, fakeSlack } from './testing.ts';
-import { huddleCard } from './translator.ts';
+import { slackCalls } from './calls.ts';
+import { huddleCall } from './translator.ts';
 
 describe('Slack emoji names', () => {
   test('text names and skin tones become glyphs; custom and unknown stay', () => {
@@ -31,19 +32,23 @@ describe('Slack emoji names', () => {
   });
 });
 
-describe('huddle cards', () => {
+describe('huddles', () => {
   const message = (room: Record<string, unknown>) => ({ type: 'message', subtype: 'huddle_thread', team: 'T1', ts: '1.000000', room });
-  test('while it runs, a link to Slack: its own, else the room huddle', () => {
-    assert.equal(huddleCard(message({ huddle_link: 'https://app.slack.com/huddle/T1/C1' }), 'C1')?.title_link, 'https://app.slack.com/huddle/T1/C1');
-    assert.equal(huddleCard(message({ huddle_link: 'https://evil.example/x' }), 'C1')?.title_link, 'https://app.slack.com/huddle/T1/C1');
-    assert.equal(huddleCard(message({}), 'D1')?.title_link, 'https://app.slack.com/client/T1/D1');
+  test('a running huddle is a call whose id is its Slack page, its own or the room one', () => {
+    assert.deepEqual(huddleCall(message({ huddle_link: 'https://app.slack.com/huddle/T1/C1' }), 'C1'), { type: 'videoconf', param: '', callId: 'https://app.slack.com/huddle/T1/C1' });
+    assert.equal(huddleCall(message({ huddle_link: 'https://evil.example/x' }), 'C1')?.callId, 'https://app.slack.com/huddle/T1/C1');
+    assert.equal(huddleCall(message({}), 'D1')?.callId, 'https://app.slack.com/client/T1/D1');
   });
-  test('once over, its length and no link', () => {
-    const over = huddleCard(message({ date_start: 1000, date_end: 1600 }), 'C1')!;
-    assert.equal(over.title, 'Huddle ended after 10 minutes');
-    assert.equal(over.title_link, undefined);
-    assert.equal(huddleCard(message({ has_ended: true }), 'C1')?.title, 'Huddle ended');
-    assert.equal(huddleCard({ type: 'message', ts: '1.000000' }, 'C1'), null);
+  test('once over, an ended call with its length', () => {
+    assert.deepEqual(huddleCall(message({ date_start: 1000, date_end: 1600 }), 'C1'), { type: 'videoconf-ended', param: '600', callId: null });
+    assert.equal(huddleCall(message({ has_ended: true }), 'C1')?.param, '');
+    assert.equal(huddleCall({ type: 'message', ts: '1.000000' }, 'C1'), null);
+  });
+  test('calls start on the room huddle page and join only Slack pages', async () => {
+    const calls = slackCalls('T1');
+    assert.equal(await calls.start('C9', null, () => true), 'https://app.slack.com/huddle/T1/C9');
+    assert.equal(await calls.join('https://app.slack.com/huddle/T1/C9', {}, () => true), 'https://app.slack.com/huddle/T1/C9');
+    await assert.rejects(calls.join('https://evil.example/x', {}, () => true));
   });
 });
 

@@ -62,17 +62,20 @@ const asString = (v: unknown): string | null => {
   return t === '' ? null : t;
 };
 
-/** Minimal decoding of the HTML entities the server sometimes leaves in metas. */
-function decodeEntities(s: string): string {
+/**
+ * Minimal decoding of the HTML entities the server sometimes leaves in metas,
+ * and of X's escaped post text. `&amp;` last, so `&amp;lt;` stays `&lt;`.
+ */
+export function decodeEntities(s: string): string {
   if (!s.includes('&')) return s;
   return s
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;/g, "'")
     .replace(/&#x27;/gi, "'")
-    .replace(/&nbsp;/g, ' ');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&');
 }
 
 function isImage(entry: UrlEntry, url: string): boolean {
@@ -177,6 +180,24 @@ export type XPostMeta = {
   /** The author's photo beside a picture: only X's own answer has both (`lib/xSyndication.ts`). */
   avatar?: string | null;
 };
+
+/**
+ * The server's metas overlaid with X's own answer, field by field (rv-core's
+ * `Details::apply`): X's picture replaces the server's together with its kind.
+ */
+export function mergeXMeta(server: XPostMeta | null, fromX: XPostMeta | null): XPostMeta | null {
+  if (fromX === null) return server;
+  if (server === null) return fromX;
+  const media = fromX.image !== null;
+  return {
+    name: fromX.name ?? server.name,
+    handle: fromX.handle ?? server.handle,
+    text: fromX.text ?? server.text,
+    image: media ? fromX.image : server.image,
+    imageKind: media ? fromX.imageKind : server.imageKind,
+    avatar: fromX.avatar ?? server.avatar ?? null,
+  };
+}
 
 /**
  * The metas of the X post links in `urls`, keyed by post id: the counterpart

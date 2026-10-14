@@ -11,16 +11,18 @@
  * message's private reader.
  */
 
+import { LinearGradient } from 'expo-linear-gradient';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
-import { xPostMetas, type XPostMeta } from '../lib/linkPreview.ts';
+import { mergeXMeta, xPostMetas, type XPostMeta } from '../lib/linkPreview.ts';
 import { nativePreviewUri } from '../lib/nativePreviews.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { detectXPosts, type XPostLink } from '../lib/xPosts.ts';
 import { fetchXPost } from '../lib/xSyndication.ts';
 import { openExternalLink } from './externalLink.ts';
 import { useT } from './i18n.ts';
+import { AvatarTile } from './kit.tsx';
 import { useNativePreview } from './nativePreview.ts';
 import { type Colors, availableBodyWidth, FONTS } from './theme.ts';
 
@@ -87,13 +89,11 @@ function XPostCard({
 }) {
   const t = useT();
   const fromX = useXPost(post.id, askX && collected?.text == null);
-  const meta = fromX ?? collected;
-  const [failed, setFailed] = useState<readonly string[]>([]);
-  const fail = (uri: string) => setFailed((list) => [...list, uri]);
+  const meta = mergeXMeta(collected, fromX);
+  const [failed, setFailed] = useState<string | null>(null);
   const image = useNativePreview(meta?.image ?? null);
-  const usable = (uri: string | null | undefined) => (uri && !failed.includes(uri) ? uri : null);
-  const avatar = usable(meta?.avatar ?? (meta?.imageKind === 'avatar' ? image : null));
-  const media = meta?.imageKind === 'avatar' ? null : usable(image);
+  const avatar = meta?.avatar ?? (meta?.imageKind === 'avatar' ? image : null) ?? null;
+  const media = meta?.imageKind === 'avatar' || !image || failed === image ? null : image;
 
   const handle = meta?.handle ?? post.handle;
   const name = meta?.name ?? (handle !== null ? `@${handle}` : null);
@@ -105,21 +105,11 @@ function XPostCard({
       onLongPress={onLongPress}
       delayLongPress={350}
       accessibilityRole="link"
-      accessibilityLabel={t('xPost.open', { name: name ?? t('xPost.post') })}
+      accessibilityLabel={name !== null ? t('xPost.open', { name }) : t('xPost.openOnX')}
       style={[styles.card, { width, backgroundColor: c.card, borderColor: c.border }]}
     >
       <View style={styles.header}>
-        {avatar !== null ? (
-          <Image
-            source={{ uri: avatar }}
-            style={[styles.avatar, { backgroundColor: c.pendingImageBackground }]}
-            onError={() => fail(avatar)}
-          />
-        ) : (
-          <View style={[styles.avatar, styles.monogram, { backgroundColor: c.pendingImageBackground }]}>
-            <Text style={[styles.initial, { color: c.secondaryText }]}>{initial}</Text>
-          </View>
-        )}
+        <AvatarTile c={c} hueKey={handle ?? post.id} initial={initial} size={36} radius={18} uri={avatar} />
         <View style={styles.who}>
           <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
             {name ?? t('xPost.post')}
@@ -147,14 +137,14 @@ function XPostCard({
             source={{ uri: media }}
             style={StyleSheet.absoluteFill}
             resizeMode="cover"
-            onError={() => fail(media)}
+            onError={() => setFailed(media)}
           />
           {meta?.imageKind === 'video' && (
             <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: c.lightMediaScrim }]}>
-              <View style={styles.play}>
+              <LinearGradient colors={c.ctaGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.play}>
                 {/* DRAWN triangle, not an emoji ("▶" renders orange on Android). */}
-                <View style={styles.playIcon} />
-              </View>
+                <View style={[styles.playIcon, { borderLeftColor: c.onAccent }]} />
+              </LinearGradient>
             </View>
           )}
         </View>
@@ -197,9 +187,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  avatar: { width: 36, height: 36, borderRadius: 18 },
-  monogram: { alignItems: 'center', justifyContent: 'center' },
-  initial: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
   who: { flex: 1, minWidth: 0 },
   name: { fontFamily: FONTS.bodyStrong, fontSize: 13.5, lineHeight: 18 },
   handle: { fontFamily: FONTS.body, fontSize: 12, lineHeight: 16 },
@@ -211,7 +198,6 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -223,7 +209,6 @@ const styles = StyleSheet.create({
     borderLeftWidth: 16,
     borderTopColor: 'transparent',
     borderBottomColor: 'transparent',
-    borderLeftColor: '#FFFFFF',
     marginLeft: 4, // optical recentring of the triangle
   },
 });

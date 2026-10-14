@@ -20,10 +20,15 @@ export type XPostLink = {
 };
 
 /**
- * What may precede the host: as in `lib/videoLinks.ts`, so `box.com/a/status/1`
- * and `me@x.com/...` are not posts.
+ * What may precede the link: the start, a space, a bracket or quote, or
+ * markdown emphasis. Not `/`, `=` or a letter: `box.com/a/status/1`,
+ * `me@x.com/...`, `https://evil.example/x.com/a/status/1` and
+ * `?u=https://x.com/...` are links to OTHER hosts, whose server-collected
+ * metadata must never dress up as an X post (the same split as rv-core and
+ * the web: a token, then its host).
  */
-const START = String.raw`(?:^|[^\w@.-])`;
+const START = String.raw`(?:^|[\s<>"'()[\]*_~])`;
+const X_HOSTS = new Set(['x.com', 'twitter.com', 'www.x.com', 'www.twitter.com', 'mobile.x.com', 'mobile.twitter.com']);
 const HOST = String.raw`(?:https?:\/\/)?(?:www\.|mobile\.)?(?:x|twitter)\.com\/`;
 /** Group 1: the handle (absent for `i/web/status`), group 2: the post id. */
 const PATTERN = new RegExp(
@@ -58,11 +63,21 @@ export function detectXPosts(text: string | null | undefined, max = 3): XPostLin
   return found;
 }
 
-/** The post id in `url`, or `null` if it is not an X post link. */
+/**
+ * The post id in `url` (a server `urls[]` entry, so a whole URL), or `null`
+ * if it is not an X post link: the URL's own host must be X's.
+ */
 export function xPostId(url: string): string | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!X_HOSTS.has(host)) return null;
   PATTERN.lastIndex = 0;
   const r = PATTERN.exec(url);
-  return r === null ? null : r[2]!;
+  return r === null || r.index !== 0 ? null : r[2]!;
 }
 
 /** True if `url` is rendered by the X card: generic previews skip it. */

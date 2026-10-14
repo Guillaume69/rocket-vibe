@@ -567,7 +567,7 @@ Use its auth/DTO/parser source as additional evidence with license review and a 
 
 ### Repository baseline
 
-- [Provider contract](../../apps/mobile/lib/provider.ts), [factory](../../apps/mobile/providers/index.ts), [Rocket.Chat](../../apps/mobile/providers/rocketchat/index.ts), [RocketVibe](../../apps/mobile/providers/rocketvibe/index.ts).
+- [Provider contract](../../apps/mobile/lib/provider.ts), [factory](../../apps/mobile/providers/index.ts), [Rocket.Chat](../../apps/mobile/providers/rocketchat/index.ts), [Vibez](../../apps/mobile/providers/vibez/index.ts).
 - [Session](../../apps/mobile/lib/auth.ts), [discovery](../../apps/mobile/lib/serverKind.ts), [secure sessions](../../apps/mobile/lib/sessionStore.ts), [lifecycle](../../apps/mobile/ui/session.tsx), [sync](../../apps/mobile/ui/sync.tsx).
 - [Models](../../apps/mobile/lib/normalize.ts), [schema](../../apps/mobile/db/schema.ts), [outbox](../../apps/mobile/lib/outbox.ts), [upload queue](../../apps/mobile/lib/uploadQueue.ts).
 - [Desktop session](../../apps/desktop/crates/rv-core/src/session.rs), [native selector/backend](../../apps/desktop/crates/rv-core/src/native.rs), [store](../../apps/desktop/crates/rv-core/src/store.rs), [FFI](../../apps/desktop/crates/rv-ffi/src/lib.rs).

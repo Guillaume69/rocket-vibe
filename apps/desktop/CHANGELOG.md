@@ -9,13 +9,13 @@ section here.
 
 ### Added
 
-- Experimental Slack accounts: behind the same unlock, choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Files, search and pins are not available yet.
-
-- Experimental Slack browser pairing: import an encrypted workspace session from a fresh browser profile, then browse conversations and history without copying raw tokens or cookies. Sessions remain temporary and read-only.
+- Experimental Slack accounts: behind the experimental unlock (activate the login icon nine times), choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Slack's emoji, skin tones, custom emoji and status emoji show as in Slack, and a huddle appears as a card that opens it in Slack in your browser. Files, search and pins are not available yet.
 
 - An experimental Teams browser-import preview under the same nine-activation unlock as Slack: one-use public-key pairing, native conversation/history views and session-expiry checks. A separate development browser helper is required; real Teams sign-in remains unverified, and persistent accounts, sync and sending are still pending.
 
-- A hidden, experimental Slack read-only preview: activate the login icon nine times to unlock, validate paired session credentials, and browse conversations and paged plain-text history. Credentials stay in memory; persistent accounts, live sync and sending are not yet available.
+### Changed
+
+- WhatsApp is now offered only behind the experimental unlock (activate the login icon nine times), like Slack. The experimental panel no longer has a Slack preview: Slack is a server kind of the login page.
 
 ## [0.21.1] - 2026-10-14
 

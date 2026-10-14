@@ -121,6 +121,31 @@ settle) and `conversations.mark`, the last never backwards and up to the newest 
 known; the RTM echo rewrites the rows. The desktop account's method allowlist
 (`rv-core/src/slack/api.rs`) admits exactly the read and write methods used.
 
+## People, emoji and huddles
+
+Names follow Slack: a profile's display name, else its full name, else the handle
+(`toSlackUser`, `User::from_json`), with the profile's status emoji after it while
+`status_expiration` has not passed (the given `status_emoji_display_info` glyph, else a
+standard name; a custom status emoji is left out). The desktop stores me by handle at
+sign-in and reads my profile like anyone else's (`Directory::ensure` treats a stored user
+as known only once read). Slack names standard emoji after iamcal's emoji-datasource,
+not the app's emoji-toolkit names, and writes a skin tone as a second code
+(`:+1::skin-tone-3:`): `scripts/generate-slack-emojis.mjs` turns emoji-datasource 16.0.0
+into one table per app (`rv-core/data/slack-emojis.tsv`,
+`apps/mobile/lib/emojis.slack.generated.ts`). Message text gets the glyphs (outside
+code); a reaction key is the app's own shortcode for the same glyph, so chips and the
+picker work, and a reaction sent goes back to Slack's name (`slack/emojis.rs`,
+`providers/slack/emojis.ts`). Custom emoji come from `emoji.list` once per session,
+aliases of another custom emoji followed, images public on `emoji.slack-edge.com`.
+
+A `huddle_thread` message becomes an attachment card every app already renders: while
+the room has neither `has_ended` nor `date_end`, its title links to the room's
+`huddle_link` (only an `https` Slack page) or to `https://app.slack.com/huddle/<team>/<channel>`
+(`client/` for a DM, as the reference does), opened in the browser; once over, the card
+gives the length from `date_start`/`date_end`. The end arrives as an edit of the same
+message. Huddle media has no session API: no native participation. Slackbot's
+auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
+
 ## Integration and parity
 
 The driver acts through Web API and listens through cookie-authenticated RTM.
@@ -137,7 +162,8 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx
+- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/emojis.slack.generated.ts
+- scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
 - apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`)
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift

@@ -11,8 +11,9 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 export const snapshotExpression=`(()=>{const u=new URL(location.href);if(u.protocol!=='https:'||u.port||!/^([a-z0-9-]+\\.)?slack\\.com$/.test(u.hostname)||!/^\\/(client|app)(\\/|$)/.test(u.pathname))return null;let config=null;try{const s=localStorage.getItem('localConfig_v2');if(s&&s.length<=2000000)config=s;}catch{}let total=0;const tokens=new Set();for(const s of document.scripts){const t=s.textContent||'';total+=t.length;if(total>2000000)break;for(const m of t.matchAll(/["']api_token["']\\s*:\\s*["'](xoxc-[A-Za-z0-9-]+)["']/g))tokens.add(m[1]);}return {url:u.href,config,bootToken:tokens.size===1?[...tokens][0]:null};})()`;
 export async function ownedBrowser(collector,{smoke=false,onStatus=()=>{},onClosed=()=>{}}={}){
  const base=resolve(tmpdir()),profile=await mkdtemp(join(base,'rocketvibe-slack-'));if(!resolve(profile).startsWith(base+sep))throw new BridgeError('unsafe_profile_path');
- let child,cdp,closed=false,polling=false,timer;const checked=new Map();let previousCookie=null;
+ let child,cdp,closed=false,polling=false,timer,unsubscribe=()=>{};const checked=new Map();let previousCookie=null;
  const close=async()=>{if(closed)return;closed=true;clearInterval(timer);checked.clear();previousCookie=null;collector.close();
+  unsubscribe();
   if(cdp){try{await cdp.send('Browser.close');}catch{}cdp.close();}
   if(child&&child.exitCode===null){await Promise.race([new Promise(r=>child.once('exit',r)),sleep(3000)]);if(child.exitCode===null)child.kill();}
   for(let n=0;n<4;n++){try{await rm(profile,{recursive:true,force:true});return;}catch{await sleep(500);}}onStatus('profile_cleanup_pending');
@@ -23,8 +24,24 @@ export async function ownedBrowser(collector,{smoke=false,onStatus=()=>{},onClos
   if(!endpoint)throw new BridgeError('browser_unavailable');cdp=await Cdp.connect(endpoint);
   if(smoke){await cdp.send('Browser.getVersion');onStatus('browser_transport_ready');}
   else{
+   const handoffPage=Buffer.from('<!doctype html><meta charset="utf-8"><title>Slack sign-in</title><p>Signed in. Return to RocketVibe to finish.</p>').toString('base64');
+   unsubscribe=cdp.on(packet=>{void(async()=>{
+    if(closed)return;
+    if(packet.method==='Target.attachedToTarget'){
+     const {sessionId,targetInfo}=packet.params;
+     if(targetInfo.type==='page')await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*',resourceType:'Document',requestStage:'Request'}]},sessionId);
+     await cdp.send('Runtime.runIfWaitingForDebugger',{},sessionId);return;
+    }
+    if(packet.method!=='Fetch.requestPaused')return;
+    const {requestId,request,resourceType}=packet.params,url=slackUrl(request.url);
+    if(resourceType==='Document'&&url?.pathname.startsWith('/ssb/')&&collector.state().ready){
+     await cdp.send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'text/html; charset=utf-8'},{name:'Cache-Control',value:'no-store'}],body:handoffPage},packet.sessionId);
+     onStatus('handoff_intercepted');
+    }else await cdp.send('Fetch.continueRequest',{requestId},packet.sessionId);
+   })().catch(error=>{if(!closed)onStatus(error instanceof BridgeError?error.code:'capture_unavailable');});});
+   await cdp.send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true});
    const targets=await cdp.send('Target.getTargets'),blank=targets.targetInfos.find(t=>t.type==='page'&&t.url==='about:blank');if(!blank)throw new BridgeError('browser_unavailable');
-   const attached=await cdp.send('Target.attachToTarget',{targetId:blank.targetId,flatten:true});await cdp.send('Page.navigate',{url:'https://slack.com/signin'},attached.sessionId);await cdp.send('Target.detachFromTarget',{sessionId:attached.sessionId});
+   const attached=await cdp.send('Target.attachToTarget',{targetId:blank.targetId,flatten:true});await cdp.send('Fetch.enable',{patterns:[{urlPattern:'*',resourceType:'Document',requestStage:'Request'}]},attached.sessionId);await cdp.send('Page.navigate',{url:'https://slack.com/signin'},attached.sessionId);
    const poll=async()=>{if(closed||polling)return;polling=true;try{
     const targets=await cdp.send('Target.getTargets');let usable=false;
     for(const target of targets.targetInfos.filter(t=>t.type==='page'&&slackUrl(t.url,true)).slice(0,20)){

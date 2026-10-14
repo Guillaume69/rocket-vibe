@@ -76,6 +76,24 @@ pub struct VideoLink {
     pub author: Option<String>,
 }
 
+/// An X (Twitter) post linked in a message, filled from the server's `urls`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XPost {
+    pub id: String,
+    /// From the link, then from the server's title; None for `i/web/status` links.
+    pub handle: Option<String>,
+    /// The post's canonical address, opened in the browser.
+    pub url: String,
+    /// The author's display name.
+    pub name: Option<String>,
+    pub text: Option<String>,
+    /// The author's photo, X's image for a post without media. A Vibez server drops it.
+    pub avatar: Option<String>,
+    /// The post's first picture, or its video's first image.
+    pub media: Option<String>,
+    pub video: bool,
+}
+
 fn list(json: Option<&str>) -> Vec<Value> {
     json.and_then(|j| serde_json::from_str::<Vec<Value>>(j).ok()).unwrap_or_default()
 }
@@ -242,7 +260,8 @@ fn is_image(entry: &Value, url: &str) -> bool {
     [".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp"].iter().any(|ext| path.ends_with(ext))
 }
 
-/// Previews of the message's links, video links left to `video_links`.
+/// Previews of the message's links, video links and X posts left to
+/// `video_links` and `x_posts`.
 pub fn link_previews(urls: Option<&str>, max: usize) -> Vec<LinkPreview> {
     let mut out = Vec::new();
     let mut seen = Vec::new();
@@ -251,7 +270,7 @@ pub fn link_previews(urls: Option<&str>, max: usize) -> Vec<LinkPreview> {
             break;
         }
         let Some(url) = entry.get("url").and_then(Value::as_str).filter(|u| is_web_link(u)) else { continue };
-        if seen.iter().any(|s| s == url) || video_id(url).is_some() {
+        if seen.iter().any(|s| s == url) || video_id(url).is_some() || x_post_id(url).is_some() {
             continue;
         }
         let preview = if entry.get("native_preview").is_some() {
@@ -403,6 +422,141 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
     out
 }
 
+/// (handle, post id) of an X post link: `x.com/<handle>/status/<id>`, the
+/// same on `twitter.com` and its `www.` and `mobile.` hosts, and the
+/// handle-less `x.com/i/web/status/<id>`.
+fn x_post_id(link: &str) -> Option<(Option<String>, String)> {
+    let mut rest = link;
+    for scheme in ["https://", "http://"] {
+        rest = rest.strip_prefix(scheme).unwrap_or(rest);
+    }
+    let (host, path) = rest.split_once('/')?;
+    let host = host.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").or_else(|| host.strip_prefix("mobile.")).unwrap_or(&host);
+    if host != "x.com" && host != "twitter.com" {
+        return None;
+    }
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    let segments: Vec<&str> = path.split('/').collect();
+    let (handle, id) = match segments.as_slice() {
+        ["i", "web", "status", id, ..] => (None, *id),
+        [handle, "status" | "statuses", id, ..] => {
+            if !(1..=15).contains(&handle.len()) || !handle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                return None;
+            }
+            // `x.com/i/status/<id>` is X's own handle-less form, not a user named "i".
+            ((!handle.eq_ignore_ascii_case("i")).then_some(*handle), *id)
+        }
+        _ => return None,
+    };
+    // Punctuation may follow the id in a sentence, a letter may not.
+    let digits = &id[..id.find(|c: char| !c.is_ascii_digit()).unwrap_or(id.len())];
+    if !(1..=20).contains(&digits.len()) || id[digits.len()..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        return None;
+    }
+    Some((handle.map(str::to_owned), digits.to_owned()))
+}
+
+/// X titles a post `"<name> (@<handle>) on X"`: the name and handle, or the
+/// whole title as the name.
+fn split_x_title(title: &str) -> (String, Option<String>) {
+    let split = title
+        .strip_suffix(" on X")
+        .or_else(|| title.strip_suffix(" on Twitter"))
+        .and_then(|t| t.strip_suffix(')'))
+        .and_then(|t| t.rsplit_once(" (@"))
+        .filter(|(_, h)| (1..=15).contains(&h.len()) && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    match split {
+        Some((name, handle)) if !name.trim().is_empty() => (name.trim().to_owned(), Some(handle.to_owned())),
+        Some((_, handle)) => (handle.to_owned(), Some(handle.to_owned())),
+        None => (title.to_owned(), None),
+    }
+}
+
+/// What X's image of a post shows, by its path: the author's photo, a
+/// video's first image, or a picture.
+fn x_image(url: &str) -> (bool, bool) {
+    let path = url::Url::parse(url)
+        .ok()
+        .filter(|u| u.host_str() == Some("pbs.twimg.com"))
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    let avatar = path.starts_with("/profile_images/");
+    let video =
+        ["/ext_tw_video_thumb/", "/amplify_video_thumb/", "/tweet_video_thumb/"].iter().any(|p| path.starts_with(p));
+    (avatar, video)
+}
+
+/// X post links in the text, in order, filled from what the server collected
+/// (X serves ordinary OpenGraph tags: title "<name> (@<handle>) on X", the
+/// text as description, an image told apart by its path). Nothing is asked
+/// of X itself.
+pub fn x_posts(text: &str, urls: Option<&str>, max: usize) -> Vec<XPost> {
+    let entries = list(urls);
+    let mut out: Vec<XPost> = Vec::new();
+    for token in text.split(|c: char| c.is_whitespace() || "<>\"'()[]".contains(c)) {
+        if out.len() >= max {
+            break;
+        }
+        let Some((handle, id)) = x_post_id(token) else { continue };
+        if out.iter().any(|p| p.id == id) {
+            continue;
+        }
+        let mut post = XPost {
+            url: match &handle {
+                Some(h) => format!("https://x.com/{h}/status/{id}"),
+                None => format!("https://x.com/i/status/{id}"),
+            },
+            id,
+            handle,
+            name: None,
+            text: None,
+            avatar: None,
+            media: None,
+            video: false,
+        };
+        let entry = entries.iter().find(|e| {
+            e.get("url").and_then(Value::as_str).and_then(x_post_id).is_some_and(|(_, found)| found == post.id)
+        });
+        if let Some(entry) = entry {
+            let (title, description, image, native) = if entry.get("native_preview").is_some() {
+                match crate::native::link_previews::from_entry(entry) {
+                    Some((p, image)) => (p.title, p.description, (!image.is_empty()).then_some(image), true),
+                    None => (None, None, None, true),
+                }
+            } else if let Some(meta) = entry.get("meta").and_then(Value::as_object) {
+                let image = first(meta, &["ogImage", "twitterImage"])
+                    .filter(|i| is_web_link(i) || i.starts_with(crate::whatsapp::MEDIA_LINK));
+                (
+                    first(meta, &["ogTitle", "twitterTitle"]),
+                    first(meta, &["ogDescription", "twitterDescription"]),
+                    image,
+                    false,
+                )
+            } else {
+                (None, None, None, false)
+            };
+            if let Some(title) = title {
+                let (name, handle) = split_x_title(&title);
+                post.name = Some(name);
+                post.handle = post.handle.or(handle);
+            }
+            post.text = description;
+            if let Some(image) = image {
+                let (avatar, video) = if native { (false, false) } else { x_image(&image) };
+                post.video = video;
+                if avatar {
+                    post.avatar = Some(image);
+                } else {
+                    post.media = Some(image);
+                }
+            }
+        }
+        out.push(post);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,5 +689,55 @@ mod tests {
         assert_eq!(v[0].author.as_deref(), Some("Rick"));
         assert_eq!(v[1].thumbnail, None);
         assert!(video_links("mail me at bob@vimeo.com/1", None, 3).is_empty());
+    }
+
+    #[test]
+    fn x_posts_in_text_filled_from_the_server() {
+        let urls = json!([
+            {"url":"https://twitter.com/BarackObama/status/266031293945503744?s=20","meta":{
+                "ogTitle":"Barack Obama (@BarackObama) on X","ogDescription":"Four more years.",
+                "ogImage":"https://pbs.twimg.com/media/A7EiDWcCYAAZT1D?format=webp&amp;name=large"}},
+            {"url":"https://x.com/jack/status/20","meta":{"ogTitle":"jack (@jack) on X",
+                "ogDescription":"just setting up my twttr",
+                "ogImage":"https://pbs.twimg.com/profile_images/1661201415899951105/azNjKOSH_400x400.jpg"}},
+            {"url":"https://x.com/elonmusk/status/1585341984679469056","meta":{"ogTitle":"Elon Musk (@elonmusk) on X",
+                "ogImage":"https://pbs.twimg.com/ext_tw_video_thumb/1585341912877146112/pu/img/DwJ7wlGIe9iryk6N"}}
+        ])
+        .to_string();
+        let p = x_posts(
+            "a https://x.com/BarackObama/status/266031293945503744. b [x](https://mobile.twitter.com/jack/statuses/20) \
+             c x.com/elonmusk/status/1585341984679469056/video/1 d x.com/i/web/status/7 e twitter.com/jack/status/20",
+            Some(&urls),
+            5,
+        );
+        assert_eq!(
+            p.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+            ["266031293945503744", "20", "1585341984679469056", "7"]
+        );
+        assert_eq!(p[0].name.as_deref(), Some("Barack Obama"));
+        assert_eq!(p[0].handle.as_deref(), Some("BarackObama"));
+        assert_eq!(p[0].text.as_deref(), Some("Four more years."));
+        assert_eq!(p[0].media.as_deref(), Some("https://pbs.twimg.com/media/A7EiDWcCYAAZT1D?format=webp&name=large"));
+        assert_eq!((p[0].avatar.is_none(), p[0].video), (true, false));
+        assert_eq!(p[1].url, "https://x.com/jack/status/20");
+        assert!(p[1].avatar.as_deref().is_some_and(|a| a.contains("/profile_images/")) && p[1].media.is_none());
+        assert!(p[2].video && p[2].media.is_some());
+        assert_eq!(
+            (p[3].handle.as_deref(), p[3].url.as_str(), p[3].name.as_deref()),
+            (None, "https://x.com/i/status/7", None)
+        );
+        assert_eq!(x_posts("x.com/i/status/8", None, 3)[0].handle, None);
+        for text in [
+            "box.com/a/status/1",
+            "me@x.com/a/status/1",
+            "https://notx.com/a/status/1",
+            "https://x.com/jack",
+            "https://x.com/jack/status/12ab",
+            "https://x.com/a.b/status/1",
+        ] {
+            assert!(x_posts(text, None, 3).is_empty(), "{text}");
+        }
+        assert!(link_previews(Some(&urls), 3).is_empty(), "X posts have their own card");
+        assert_eq!(split_x_title("Something else"), ("Something else".into(), None));
     }
 }

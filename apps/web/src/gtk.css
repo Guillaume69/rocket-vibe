@@ -261,6 +261,10 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .card-field-name { font-size: 12px; font-weight: 700; color: #8F89AB; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
+.x-avatar { border-radius: 999px; }
+.x-initial { font-weight: 800; color: #BDB7D6; }
+.x-logo { font-weight: 900; font-size: 16px; color: #E7E3F5; }
+.x-text { font-size: 13.5px; color: #E7E3F5; }
 .call-title { font-weight: 800; }
 .call-title.missed { color: #FF7A8A; }
 .video-frame { background: #000000; border-radius: 12px; }

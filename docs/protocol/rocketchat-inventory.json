@@ -517,6 +517,7 @@
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/lib/whatsappFiles.ts",
+    "apps/mobile/lib/xPosts.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
     "apps/mobile/plugins/native-push-source.js",
     "apps/mobile/plugins/with-expo-package-list.js",
@@ -663,7 +664,8 @@
     "apps/mobile/ui/videoPlayer.tsx",
     "apps/mobile/ui/voice.tsx",
     "apps/mobile/ui/workflows.tsx",
-    "apps/mobile/ui/workflowsModel.ts"
+    "apps/mobile/ui/workflowsModel.ts",
+    "apps/mobile/ui/xPostCard.tsx"
   ],
   "entries": [
     {
@@ -1268,175 +1270,175 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1323,
+      "line": 1325,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1324,
+      "line": 1326,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1325,
+      "line": 1327,
       "kind": "endpoint",
       "surface": "rooms.favorite_add"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1326,
+      "line": 1328,
       "kind": "endpoint",
       "surface": "rooms.favorite_remove"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1327,
+      "line": 1329,
       "kind": "endpoint",
       "surface": "rooms.mark_unread"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1328,
+      "line": 1330,
       "kind": "endpoint",
       "surface": "rooms.mark_read"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1336,
+      "line": 1338,
       "kind": "endpoint",
       "surface": "rooms.mark_failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1341,
+      "line": 1343,
       "kind": "endpoint",
       "surface": "rooms.nothing_unread"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1345,
+      "line": 1347,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1346,
+      "line": 1348,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1347,
+      "line": 1349,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1348,
+      "line": 1350,
       "kind": "endpoint",
       "surface": "rooms.new_message"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1349,
+      "line": 1351,
       "kind": "endpoint",
       "surface": "rooms.new_channel"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1362,
+      "line": 1364,
       "kind": "endpoint",
       "surface": "rooms.account_menu"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1365,
+      "line": 1367,
       "kind": "endpoint",
       "surface": "rooms.back_to_room"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1841,
+      "line": 1843,
       "kind": "endpoint",
       "surface": "e2e.banner"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1842,
+      "line": 1844,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1843,
+      "line": 1845,
       "kind": "endpoint",
       "surface": "e2e.lock"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1844,
+      "line": 1846,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1846,
+      "line": 1848,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1850,
+      "line": 1852,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1851,
+      "line": 1853,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1852,
+      "line": 1854,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1853,
+      "line": 1855,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1854,
+      "line": 1856,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1855,
+      "line": 1857,
       "kind": "endpoint",
       "surface": "e2e.status"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1856,
+      "line": 1858,
       "kind": "endpoint",
       "surface": "e2e.locked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1857,
+      "line": 1859,
       "kind": "endpoint",
       "surface": "e2e.unlocked"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 1956,
+      "line": 1958,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },
@@ -4856,37 +4858,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2945,
+      "line": 2948,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2946,
+      "line": 2949,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2948,
+      "line": 2951,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2949,
+      "line": 2952,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2950,
+      "line": 2953,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 2951,
+      "line": 2954,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

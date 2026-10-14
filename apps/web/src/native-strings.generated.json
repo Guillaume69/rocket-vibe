@@ -1442,6 +1442,8 @@
     "The server refuses {type} files ({name})"
   ],
   "player.stop": ["Arrêter la vidéo", "Stop the video"],
+  "xpost.post": ["Publication sur X", "Post on X"],
+  "xpost.open_on_x": ["Ouvrir la publication sur X", "Open the post on X"],
   "rooms.section_unread": ["Non lus", "Unread"],
   "rooms.section_favorites": ["Favoris", "Favorites"],
   "rooms.favorite_add": ["Ajouter aux favoris", "Add to favorites"],

@@ -1,5 +1,5 @@
 //! What a message carries beside its text, as cards: quoted messages, files,
-//! audio and video, link previews, video links and calls.
+//! audio and video, link previews, video links, X posts and calls.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib, pango};
-use rv_core::content::{CardAttachment, FileAttachment, FileKind, LinkPreview, Quote, VideoLink, human_size};
+use rv_core::content::{CardAttachment, FileAttachment, FileKind, LinkPreview, Quote, VideoLink, XPost, human_size};
 use rv_core::markdown;
 use rv_core::session::Session;
 
@@ -426,6 +426,72 @@ pub fn link_preview_provider(provider: media::Provider, preview: &LinkPreview) -
             fitted(&card).upcast()
         }
     }
+}
+
+/// An X post: the author's photo, name and handle, the text, and its picture
+/// or video's first image, as far as the server described it. The card opens
+/// the post in the browser; nothing is asked of X but the images.
+pub fn x_post(provider: media::Provider, post: &XPost) -> gtk::Widget {
+    let card = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .css_classes(["link-card", "x-post"])
+        .halign(gtk::Align::Start)
+        .build();
+    let header = gtk::Box::builder().spacing(8).build();
+    let avatar = match &post.avatar {
+        Some(url) => external_image(provider.clone(), url, 36, 36),
+        None => {
+            let frame = widgets::media_frame(36, 36, &["preview-image"]);
+            let initial = post
+                .name
+                .as_deref()
+                .or(post.handle.as_deref())
+                .and_then(|n| n.trim().chars().next())
+                .map_or_else(|| "X".to_owned(), |c| c.to_uppercase().to_string());
+            let letter = gtk::Label::builder().label(initial).css_classes(["x-initial"]).build();
+            frame.add_overlay(&letter);
+            frame
+        }
+    };
+    avatar.add_css_class("x-avatar");
+    avatar.set_valign(gtk::Align::Center);
+    header.append(&avatar);
+    let who =
+        gtk::Box::builder().orientation(gtk::Orientation::Vertical).hexpand(true).valign(gtk::Align::Center).build();
+    let handle = post.handle.as_ref().map(|h| format!("@{h}"));
+    let name = post.name.clone().or_else(|| handle.clone()).unwrap_or_else(|| t("xpost.post").to_owned());
+    let name = label(&name, &["link-title"]);
+    name.set_ellipsize(pango::EllipsizeMode::End);
+    name.set_wrap(false);
+    who.append(&name);
+    if let (Some(_), Some(handle)) = (&post.name, &handle) {
+        who.append(&label(handle, &["link-site"]));
+    }
+    header.append(&who);
+    let logo = gtk::Label::builder().label("X").css_classes(["x-logo"]).valign(gtk::Align::Start).build();
+    header.append(&logo);
+    card.append(&header);
+    match &post.text {
+        Some(text) => {
+            let text = label(text, &["x-text"]);
+            text.set_lines(8);
+            text.set_ellipsize(pango::EllipsizeMode::End);
+            card.append(&text);
+        }
+        None => card.append(&label(t("xpost.open_on_x"), &["link-description"])),
+    }
+    if let Some(media) = &post.media {
+        let frame = external_image(provider, media, 300, 169);
+        if post.video {
+            frame.add_overlay(&widgets::play_badge(48));
+        }
+        card.append(&frame);
+    }
+    card.set_tooltip_text(Some(&post.url));
+    let url = post.url.clone();
+    on_click(&card, move |w| open_uri(w, &url));
+    fitted(&card).upcast()
 }
 
 /// A list measures a row's height at the full width, then a start-aligned

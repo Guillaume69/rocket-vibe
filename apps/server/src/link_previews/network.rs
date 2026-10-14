@@ -366,6 +366,9 @@ fn metadata(page: &Resource) -> Result<Metadata> {
             return None;
         }
         let url = page.final_url.join(raw).ok()?;
+        if x_avatar(&url) {
+            return None;
+        }
         web_url(url.as_str()).ok().map(|u| u.to_string())
     });
     Ok(Metadata {
@@ -378,6 +381,11 @@ fn metadata(page: &Resource) -> Result<Metadata> {
             .or_else(|| page.final_url.host_str().and_then(|h| bounded_text(h, 256))),
         image_url,
     })
+}
+/// X gives a post without media its author's photo as `og:image`: kept, the
+/// clients would show a portrait as the post's picture.
+fn x_avatar(image: &Url) -> bool {
+    image.host_str() == Some("pbs.twimg.com") && image.path().starts_with("/profile_images/")
 }
 fn normalize_image(resource: Resource) -> Result<NormalizedImage> {
     let format = match resource.media_type.as_str() {

@@ -1315,6 +1315,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("upload.checking", "Vérification de la livraison…", "Checking delivery…"),
     ("text.open_link", "Ouvrir le lien", "Open link"),
     ("player.stop", "Arrêter la vidéo", "Stop the video"),
+    ("xpost.post", "Publication sur X", "Post on X"),
+    ("xpost.open_on_x", "Ouvrir la publication sur X", "Open the post on X"),
     ("text.copy_link", "Copier l'adresse du lien", "Copy link address"),
     ("upload.retrying", "Connexion perdue, nouvel essai…", "Connection lost, retrying…"),
     ("upload.failed", "Échec de l'envoi", "Upload failed"),

@@ -1,0 +1,197 @@
+/**
+ * Card for an X (Twitter) post link: the author (photo, name, @handle), the
+ * text, and the post's picture or video's first image, like the post itself.
+ *
+ * Detected in the text (`lib/xPosts.ts`), so it shows before the server has
+ * described the link, then filled from what the server collected
+ * (`xPostMetas`). No request to X and no WebView (ROADMAP §4.2): a tap opens
+ * the post in the X app or the browser. Rocket.Chat images are X's public
+ * URLs; Vibez images go through the message's private reader.
+ */
+
+import { useMemo, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+
+import { xPostMetas, type XPostMeta } from '../lib/linkPreview.ts';
+import { nativePreviewUri } from '../lib/nativePreviews.ts';
+import type { RestClient } from '../lib/rest.ts';
+import { detectXPosts, type XPostLink } from '../lib/xPosts.ts';
+import { openExternalLink } from './externalLink.ts';
+import { useT } from './i18n.ts';
+import { useNativePreview } from './nativePreview.ts';
+import { type Colors, availableBodyWidth, FONTS } from './theme.ts';
+
+/** One card per X post link in `text` (nothing if none). */
+export function XPosts({
+  c,
+  text,
+  urls,
+  client,
+  onLongPress,
+}: {
+  c: Colors;
+  text: string | null;
+  /** `message.urls`: what the server collected about each post. */
+  urls: string | null;
+  client?: RestClient;
+  onLongPress?: (() => void) | undefined;
+}) {
+  const { width: screenWidth } = useWindowDimensions();
+  const posts = useMemo(() => detectXPosts(text), [text]);
+  const metas = useMemo(
+    () =>
+      xPostMetas(
+        urls,
+        client?.kind === 'vibez' ? (message, image) => nativePreviewUri(client, message, image) : undefined,
+      ),
+    [urls, client],
+  );
+  if (posts.length === 0) return null;
+  const width = Math.min(availableBodyWidth(screenWidth), 360);
+  return (
+    <View style={styles.list}>
+      {posts.map((post, i) => (
+        <XPostCard
+          key={`${post.id}:${i}`}
+          c={c}
+          post={post}
+          meta={metas.get(post.id) ?? null}
+          width={width}
+          onLongPress={onLongPress}
+        />
+      ))}
+    </View>
+  );
+}
+
+function XPostCard({
+  c,
+  post,
+  meta,
+  width,
+  onLongPress,
+}: {
+  c: Colors;
+  post: XPostLink;
+  /** `null` as long as the server has not described the post (or could not). */
+  meta: XPostMeta | null;
+  width: number;
+  onLongPress: (() => void) | undefined;
+}) {
+  const t = useT();
+  const [imageError, setImageError] = useState<string | null>(null);
+  const image = useNativePreview(meta?.image ?? null);
+  const shown = !!image && imageError !== image ? image : null;
+  const avatar = meta?.imageKind === 'avatar' ? shown : null;
+  const media = meta?.imageKind === 'avatar' ? null : shown;
+
+  const handle = meta?.handle ?? post.handle;
+  const name = meta?.name ?? (handle !== null ? `@${handle}` : null);
+  const initial = (meta?.name ?? handle ?? 'X').trim().charAt(0).toUpperCase() || 'X';
+
+  return (
+    <Pressable
+      onPress={() => openExternalLink(post.url)}
+      onLongPress={onLongPress}
+      delayLongPress={350}
+      accessibilityRole="link"
+      accessibilityLabel={t('xPost.open', { name: name ?? t('xPost.post') })}
+      style={[styles.card, { width, backgroundColor: c.card, borderColor: c.border }]}
+    >
+      <View style={styles.header}>
+        {avatar !== null ? (
+          <Image
+            source={{ uri: avatar }}
+            style={[styles.avatar, { backgroundColor: c.pendingImageBackground }]}
+            onError={() => setImageError(avatar)}
+          />
+        ) : (
+          <View style={[styles.avatar, styles.monogram, { backgroundColor: c.pendingImageBackground }]}>
+            <Text style={[styles.initial, { color: c.secondaryText }]}>{initial}</Text>
+          </View>
+        )}
+        <View style={styles.who}>
+          <Text style={[styles.name, { color: c.text }]} numberOfLines={1}>
+            {name ?? t('xPost.post')}
+          </Text>
+          {meta?.name != null && handle !== null && (
+            <Text style={[styles.handle, { color: c.tertiaryText }]} numberOfLines={1}>
+              @{handle}
+            </Text>
+          )}
+        </View>
+        <Text style={[styles.logo, { color: c.text }]} accessibilityElementsHidden importantForAccessibility="no">
+          X
+        </Text>
+      </View>
+      {meta?.text != null ? (
+        <Text style={[styles.text, { color: c.text }]} numberOfLines={8}>
+          {meta.text}
+        </Text>
+      ) : (
+        <Text style={[styles.text, { color: c.secondaryText }]}>{t('xPost.openOnX')}</Text>
+      )}
+      {media !== null && (
+        <View style={[styles.media, { backgroundColor: c.pendingImageBackground }]}>
+          <Image
+            source={{ uri: media }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            onError={() => setImageError(media)}
+          />
+          {meta?.imageKind === 'video' && (
+            <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: c.lightMediaScrim }]}>
+              <View style={styles.play}>
+                {/* DRAWN triangle, not an emoji ("▶" renders orange on Android). */}
+                <View style={styles.playIcon} />
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  list: { gap: 6, marginTop: 4 },
+  card: {
+    maxWidth: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  avatar: { width: 36, height: 36, borderRadius: 18 },
+  monogram: { alignItems: 'center', justifyContent: 'center' },
+  initial: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
+  who: { flex: 1, minWidth: 0 },
+  name: { fontFamily: FONTS.bodyStrong, fontSize: 13.5, lineHeight: 18 },
+  handle: { fontFamily: FONTS.body, fontSize: 12, lineHeight: 16 },
+  logo: { fontFamily: FONTS.titleStrong, fontSize: 18, lineHeight: 22 },
+  text: { fontFamily: FONTS.body, fontSize: 13.5, lineHeight: 19 },
+  media: { aspectRatio: 16 / 9, borderRadius: 10, overflow: 'hidden' },
+  center: { alignItems: 'center', justifyContent: 'center' },
+  play: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playIcon: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 10,
+    borderBottomWidth: 10,
+    borderLeftWidth: 16,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: '#FFFFFF',
+    marginLeft: 4, // optical recentring of the triangle
+  },
+});

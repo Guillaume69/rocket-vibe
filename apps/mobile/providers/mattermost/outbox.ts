@@ -9,15 +9,16 @@
  * The echo is only a short-lived server cache, not stored: a replay much later
  * cannot rely on it. A persisted `props.rocket_vibe_client_id` identifies the
  * operation, except on kChat, which refuses any `props` key it does not know
- * with 422 (probed): there every match is an unmarked text match. Before declaring a refusal, the newest posts of the room
- * are read for that marker; and before REPLAYING
- * a row that may already have gone out (sent once in this session whose answer
- * was lost, or queued before this outbox started, so before a restart), the
- * same look comes first, or the replay would post a duplicate once the cache
- * has forgotten the id. An unmarked legacy text match is uncertain, retained
- * as failed until the user explicitly retries. A replay that races the first POST still being saved
- * answers `api.post.deduplicate_create_post.pending`: the post is coming, the
- * row stays pending and is looked for again a moment later.
+ * with 422 (probed). Before declaring a refusal, the newest posts of the room
+ * are read for that marker; and before REPLAYING a row that may already have
+ * gone out (sent once in this session whose answer was lost, or queued before
+ * this outbox started, so before a restart), the same look comes first, or the
+ * replay would post a duplicate once the cache has forgotten the id. An
+ * unmarked text match (a legacy post, or any post on kChat) is uncertain,
+ * retained as failed until the user explicitly retries. A replay that races the
+ * first POST still being saved answers
+ * `api.post.deduplicate_create_post.pending`: the post is coming, the row stays
+ * pending and is looked for again a moment later.
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
@@ -27,7 +28,7 @@ import { MmError, type MmClient } from './client.ts';
 import { ordered } from './history.ts';
 
 const UNKNOWN = Symbol('delivery unknown');
-const AMBIGUOUS = Symbol('legacy delivery ambiguous');
+const AMBIGUOUS = Symbol('unmarked delivery ambiguous');
 const DELIVERY_UNCERTAIN = 'Delivery could not be confirmed. Check the conversation before retrying.';
 
 /**

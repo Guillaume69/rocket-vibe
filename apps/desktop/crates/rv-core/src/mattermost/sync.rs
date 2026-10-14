@@ -54,7 +54,8 @@ pub struct MmSync {
     rest: RestClient,
     pub directory: Arc<Directory>,
     me: String,
-    /// kChat lists deletions on their own route; upstream returns them in `since`.
+    /// kChat lists deletions on their own route (upstream returns them in
+    /// `since`) and refuses a post whose `props` carry a key it does not know.
     kchat: bool,
     live: Mutex<Live>,
     /// Post ids by creation instant, per room: the screen pages by instant,

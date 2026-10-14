@@ -38,14 +38,20 @@ and no pairing: it launches an installed Chromium-family browser (Chromium, Chro
 Edge, Brave, searched at fixed paths then on `PATH`; none answers
 `supported_browser_missing` before anything starts) on a fresh temporary profile whose
 preferences exclude the `slack:` scheme, with CDP bound to a random loopback port and
-checked to be that port's `/devtools/browser/` endpoint. Every 800 ms it inspects up to
-20 Slack page targets: a `/ssb/` handoff page is sent once to `app.slack.com/client`
-instead of the desktop app, and a web-client page yields the single secure HttpOnly
-unexpired `d` cookie and the `localConfig_v2` tokens (or one boot token for the
-workspace named in the URL). Each candidate passes `auth.test` with that cookie and must
-name the same team. A changed cookie (another sign-in) drops what was found. Once
-candidates have held for two seconds the browser is closed and the profile removed;
-the user picks a workspace when there are several, and `take` revalidates it with the
+checked to be that port's `/devtools/browser/` endpoint. A reader task routes CDP replies
+and the two events it acts on. Every page is auto-attached (new ones start paused until
+`Fetch.enable` covers them) and keeps one session. A `*/ssb/*` document request, Slack's
+desktop handoff after sign-in, is fulfilled with a local "Signed in" page before it loads,
+so neither `slack:` nor the web client ever runs (the approach of msga,
+`punarinta/make-slack-great-again`). At that moment `Storage.getCookies` gives the single
+secure HttpOnly unexpired `d` cookie, and the handoff URL and cookie domains name the
+workspace hosts (Slack's own hosts excluded). Each host's boot page, fetched with that
+cookie and redirects followed by hand on Slack hosts only, carries the `xoxc` token
+(Slack answers it with a 403, so the status is not read). If the web client loads instead,
+an 800 ms poll still reads the `localConfig_v2` tokens or the boot token from it. Every
+candidate passes `auth.test` with the cookie; a changed cookie drops what was found. The
+browser is then closed and the profile removed; the user picks a workspace when there are
+several (named by subdomain when found by host), and `take` revalidates it with the
 expected team and user before the account is saved. Closing the window first answers
 `browser_closed`; twenty minutes answer `timeout`. Credentials stay in zeroized memory
 until then. GTK polls the attempt from the login page; SwiftUI drives it through the

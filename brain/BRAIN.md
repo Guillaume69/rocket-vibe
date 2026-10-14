@@ -83,6 +83,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [room-switcher.md](features/room-switcher.md) | Ctrl+K room switcher, its ranking. |
 | [threads.md](features/threads.md) | Thread loading and paging, live replies, the thread composer and its limits, thread list and following. |
 | [search.md](features/search.md) | `spotlight` to find people and channels, `chat.search` inside a room. |
+| [x-posts.md](features/x-posts.md) | X (Twitter) post cards from the server's link metadata. |
 | [media-playback.md](features/media-playback.md) | Protected media URLs, image viewers, audio/video players, video-site cards. |
 | [avatars.md](features/avatars.md) | Avatar URLs, etag cache busting and its sources, the no-photo marker, own photo. |
 | [emoji.md](features/emoji.md) | The shortcode table, custom emoji, rendering order, completion, pickers, quick reactions. |

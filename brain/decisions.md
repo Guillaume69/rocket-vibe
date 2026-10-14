@@ -299,6 +299,12 @@ The rename is complete rather than cosmetic: binary and crate `vibez`, image `gh
 
 Sources: scripts/version.mjs; scripts/changelog.mjs; .github/workflows/server-release.yml; apps/server/CHANGELOG.md; apps/server/src/http.rs; apps/mobile/lib/provider.ts.
 
+## X posts from the server's metadata (2026-10-14)
+
+X post cards are filled only from what the server unfurled (OpenGraph), never from a client request to X's APIs (the syndication endpoint or a third-party mirror such as fxtwitter would give likes, every picture and quoted posts). The apps keep the rule of link previews: nothing scraped on the device, so reading a room tells no one but the chat server which posts were linked; only the images load from X, as for any preview. X serves its tags to ordinary user agents, so on Vibez and Mattermost the cards hold the author, text and first picture. The price is Rocket.Chat: 8.5 fetches X with a Googlebot agent that X refuses, so there the card holds only the handle from the link. See [x-posts](features/x-posts.md).
+
+Sources: apps/mobile/lib/linkPreview.ts; apps/desktop/crates/rv-core/src/content.rs; apps/server/src/link_previews/network.rs.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

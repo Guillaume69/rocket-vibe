@@ -3,8 +3,8 @@
 Slack is a saved account kind on Android, GTK and SwiftUI, behind nine activations of
 the login icon. Rooms, unread counts, history and threads go through the local store
 like any other server; the RTM socket keeps them live, and text, replies, edits,
-deletions, reactions and reads are written back. Files, search, pins, saves, rooms,
-profiles and presence are not wired yet and their capabilities stay off. Android signs in from the developer helper's
+deletions, reactions and reads are written back, and received files show as attachments.
+Sending files, search, pins, saves, rooms, profiles and presence are not wired yet and their capabilities stay off. Android signs in from the developer helper's
 encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
 browser of its own. The transient read preview remains for Teams only on Android, and
 for Slack and Teams in the desktop's experimental panel. See [experimental integrations](../features/experimental-integrations.md)
@@ -141,16 +141,34 @@ aliases of another custom emoji followed, images public on `emoji.slack-edge.com
 A `huddle_thread` message becomes the same call card as a kChat call
 (`huddle_call` in `slack/translate.rs`, `huddleCall` in `providers/slack/translator.ts`):
 while the room has neither `has_ended` nor `date_end`, a running call (`videoconf`) whose
-call id is the room's `huddle_link` (only an `https` Slack page) or
-`https://app.slack.com/huddle/<team>/<channel>` (`client/` for a DM, as the reference
-does); once over, an ended call (`videoconf-ended`) with the length from
-`date_start`/`date_end`. The end arrives as an edit of the same message. The room
+call id is the room's page in Slack's web app with `?open=start_huddle`
+(`https://app.slack.com/client/<team>/<channel>?open=start_huddle`, `huddle_url` /
+`huddleUrl`), which starts or joins it in the browser; the `huddle_link` Slack gives
+(`app.slack.com/huddle/...`) only offers to launch Slack's desktop app, so it is
+ignored, and a stored one is rewritten on join (`huddle_page` / `huddlePage`). Once
+over, an ended call (`videoconf-ended`) with the length from `date_start`/`date_end`. The end arrives as an edit of the same message. The room
 header's call button and the card's Join both open that Slack page in the browser
 (`Session::start_call` / `join_call` with `calls_in_browser`, `providers/slack/calls.ts`
 and the Slack branch of `app/call/[callId].tsx`, `CallWindow.show` on macOS): huddle
 media has no session API, so no native participation, and no camera permission is
 asked. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
+
+## Files
+
+A message's `files` become attachments in the shape Rocket.Chat's files render
+(`files` in `slack/translate.rs`, `slackFiles` in `providers/slack/translator.ts`): an
+image shows its largest thumbnail (`thumb_720`, `thumb_480`, `thumb_360`, else the file)
+with `original_w`/`original_h`, a video or audio file plays from `url_private`, and
+every file opens or saves from `url_private_download`. Only `https://files.slack.com`
+links are kept; `tombstone`, `hidden_by_limit` and `external` files are left out. A
+room whose last message is only a file previews its first file's name. That host
+answers the session's `d` cookie (probed in a signed-in browser on 15 October 2026:
+cookie alone gives 200 for a file and a thumbnail); the apps send the cookie and the
+bearer, to that host only: desktop `RestClient::file_request` (`file_host`), mobile a
+media lease on `files.slack.com` carrying both headers (`setMediaLease` in
+`lib/mediaAuth.ts`), dropped with the session. One lease per host: two signed-in
+Slack workspaces share it, the last one opened wins. Sending files is not wired.
 
 ## Integration and parity
 
@@ -168,9 +186,9 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/emojis.slack.generated.ts
+- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
 - scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`)
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `calls_in_browser`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`), apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 

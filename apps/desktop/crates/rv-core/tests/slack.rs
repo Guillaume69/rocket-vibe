@@ -151,7 +151,9 @@ fn workspace(request: &Request) -> Response {
     match method(request) {
         "auth.test" => auth(),
         "rtm.connect" => respond(200, r#"{"ok":false,"error":"missing_scope"}"#),
-        "emoji.list" => ok(json!({"emoji": {"issou": "https://emoji.slack-edge.com/T000/issou/a.png", "ris": "alias:issou"}})),
+        "emoji.list" => {
+            ok(json!({"emoji": {"issou": "https://emoji.slack-edge.com/T000/issou/a.png", "ris": "alias:issou"}}))
+        }
         "chat.postMessage" => {
             let ts = "1700000500.000001";
             ok(json!({"channel": form["channel"], "ts": ts,
@@ -359,7 +361,8 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(s.invite_link("C001").await.is_err());
     assert!(s.create_channel("team", false).await.is_err());
     assert!(s.refresh_custom_emojis().await.is_err());
-    assert!(!s.call_available().await && !s.threads_available() && !s.unread_marks_available());
+    assert!(s.call_available().await && s.calls_in_browser());
+    assert!(!s.threads_available() && !s.unread_marks_available());
     s.mark_read("C001").await;
     s.send("C001", "hello").await;
     assert!(s.store.pending_outbox().is_empty(), "the send is delivered");

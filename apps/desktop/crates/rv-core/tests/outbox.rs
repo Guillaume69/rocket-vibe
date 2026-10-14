@@ -385,3 +385,22 @@ async fn a_failed_send_is_discarded_locally() {
     assert_eq!(count(&f.store, "SELECT COUNT(*) FROM messages"), 0);
     assert_eq!(f.server.requests().len(), requests);
 }
+
+#[tokio::test]
+async fn a_kchat_send_whose_answer_was_lost_is_never_replayed() {
+    let f = flavored_fixture(rv_core::mattermost::Flavor::Kchat, |r| {
+        if r.method == "POST" {
+            return dropped();
+        }
+        let mut delivered = mm_post("real");
+        delivered.as_object_mut().unwrap().remove("props");
+        respond(200, &json!({"order":["real"], "posts":{"real":delivered}}).to_string())
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("pending"));
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 1);
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
+}

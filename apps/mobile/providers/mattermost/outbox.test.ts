@@ -76,6 +76,17 @@ describe('MmOutbox', () => {
     assert.equal(rows.size, 0);
   });
 
+  test('kChat: with no marker, my own matching post leaves a refused send uncertain, never delivered', async () => {
+    const { outbox, server, ingested, rows } = setup((call) => {
+      if (call.method === 'POST') return { status: 500, body: { message: 'boom' } };
+      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })]) };
+    }, false);
+    await outbox.send('ch1', 'hi');
+    assert.equal(ingested.length, 0);
+    assert.equal(rows.get('local1')?.status, 'failed');
+    assert.equal(server.calls.filter((c) => c.method === 'POST').length, 1);
+  });
+
   test('unreachable network: the row waits, the optimistic message stays', async () => {
     const server = { fetcher: (async () => { throw new TypeError('Network request failed'); }) as typeof fetch };
     const local = outboxStore();

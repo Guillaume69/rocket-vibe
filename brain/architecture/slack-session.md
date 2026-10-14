@@ -147,11 +147,12 @@ call id is the room's page in Slack's web app with `?open=start_huddle`
 (`app.slack.com/huddle/...`) only offers to launch Slack's desktop app, so it is
 ignored, and a stored one is rewritten on join (`huddle_page` / `huddlePage`). Once
 over, an ended call (`videoconf-ended`) with the length from `date_start`/`date_end`. The end arrives as an edit of the same message. The room
-header's call button and the card's Join both open that Slack page in the browser
-(`Session::start_call` / `join_call` with `calls_in_browser`, `providers/slack/calls.ts`
-and the Slack branch of `app/call/[callId].tsx`, `CallWindow.show` on macOS): huddle
-media has no session API, so no native participation, and no camera permission is
-asked. Slackbot's
+header's call button and the card's Join both open that Slack page
+(`Session::start_call` / `join_call`): on GTK in the call window like any call (on
+Linux an app window of a Chromium browser with its own profile, `call_window.rs`, where
+Slack is signed in once), on macOS and Android in the browser (`CallWindow.show`,
+`providers/slack/calls.ts` and the Slack branch of `app/call/[callId].tsx`, which asks
+no camera permission). Huddle media has no session API: no native participation. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Files
@@ -188,7 +189,7 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 - apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
 - scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `calls_in_browser`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`), apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`), apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 

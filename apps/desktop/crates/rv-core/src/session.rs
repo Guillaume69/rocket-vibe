@@ -1922,6 +1922,15 @@ impl Session {
         actions::join_call(&self.rest, &call_id).await
     }
 
+    /// A Slack huddle's page in an app window signed in with this session,
+    /// so it needs no sign-in of its own; answers the browser used.
+    pub async fn open_huddle_window(&self, url: &str) -> Result<std::path::PathBuf, RestError> {
+        let account = self.info.slack.as_ref().ok_or_else(|| RestError::incomplete("huddle: not a Slack account"))?;
+        crate::slack::browser_login::open_signed_in(url, &account.cookie)
+            .await
+            .map_err(|e| RestError::incomplete(&format!("huddle window: {}", e.code)))
+    }
+
     /// The call ringing here, started by the other member of a direct room.
     pub fn incoming_call(&self) -> Option<crate::call_ring::IncomingCall> {
         self.rings.lock().unwrap().current().cloned()

@@ -2410,37 +2410,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1977,
+      "line": 1986,
       "kind": "call:GET",
       "surface": "\"video-conference.info\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1977,
+      "line": 1986,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2063,
+      "line": 2072,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2063,
+      "line": 2072,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2074,
+      "line": 2083,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2074,
+      "line": 2083,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },

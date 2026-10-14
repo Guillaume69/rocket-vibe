@@ -824,6 +824,66 @@ async fn debugger_endpoint(child: &mut Child, port: u16) -> Result<String, &'sta
     }
 }
 
+/// Opens `url`, a page of Slack's web app, as an app window of a temporary
+/// browser profile already signed in with the session's `d` cookie, so a
+/// huddle needs no sign-in of its own. The profile, cookie included, is
+/// deleted once the window closes. Answers the browser used.
+pub async fn open_signed_in(url: &str, cookie: &str) -> Result<PathBuf, Error> {
+    let target = super::translate::huddle_page(url).ok_or_else(|| failure("invalid_url"))?;
+    let executable = browser_executable().ok_or_else(|| failure("browser_unavailable"))?;
+    let profile = Profile::create().map_err(failure)?;
+    let port = free_port().map_err(failure)?;
+    let mut child = Command::new(&executable)
+        .arg("--remote-debugging-address=127.0.0.1")
+        .arg(format!("--remote-debugging-port={port}"))
+        .arg(format!("--user-data-dir={}", profile.0.display()))
+        .arg(format!("--app={target}"))
+        .arg("--class=rocket-vibe-call")
+        .args(["--no-first-run", "--no-default-browser-check", "--disable-sync"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| failure("browser_launch_failed"))?;
+    let signed_in = async {
+        let endpoint = debugger_endpoint(&mut child, port).await?;
+        let (cdp, _events) = Cdp::connect(&endpoint).await?;
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() + 7 * 24 * 3600);
+        let mut cookies = json!({"cookies": [{
+            "name": "d", "value": cookie, "domain": ".slack.com", "path": "/",
+            "secure": true, "httpOnly": true, "sameSite": "Lax", "expires": expires,
+        }]});
+        let set = cdp.command("Storage.setCookies", cookies.clone(), None).await;
+        zeroize_json(&mut cookies);
+        set?;
+        let targets = cdp.command("Target.getTargets", json!({}), None).await?;
+        let page = targets["targetInfos"]
+            .as_array()
+            .and_then(|list| list.iter().find(|t| t["type"] == "page"))
+            .and_then(|t| t["targetId"].as_str())
+            .ok_or("browser_unavailable")?
+            .to_owned();
+        let attached = cdp.command("Target.attachToTarget", json!({"targetId": page, "flatten": true}), None).await?;
+        let session = attached["sessionId"].as_str().ok_or("browser_unavailable")?;
+        cdp.command("Page.navigate", json!({"url": target}), Some(session)).await?;
+        Ok::<(), &'static str>(())
+    }
+    .await;
+    if let Err(code) = signed_in {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        return Err(failure(code));
+    }
+    tokio::spawn(async move {
+        let mut profile = profile;
+        let _ = child.wait().await;
+        profile.remove().await;
+    });
+    Ok(executable)
+}
+
 fn valid_debugger_endpoint(raw: &str, port: u16) -> bool {
     url::Url::parse(raw).is_ok_and(|url| {
         url.scheme() == "ws"

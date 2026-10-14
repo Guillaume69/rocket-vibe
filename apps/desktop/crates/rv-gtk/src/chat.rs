@@ -3587,6 +3587,26 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        if let Some(session) = self.session().filter(|s| s.info.slack.is_some()) {
+            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
+            glib::spawn_future_local(async move {
+                let target = url.clone();
+                let opened = on_tokio(async move { session.open_huddle_window(&target).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                match opened {
+                    Ok(browser) => crate::call_window::name_app_window(&browser, &url),
+                    Err(e) => {
+                        eprintln!("Signed-in huddle window not opened: {}", e.message);
+                        this.open_call_window(&url, &room);
+                    }
+                }
+            });
+            return;
+        }
+        self.open_call_window(url, room);
+    }
+
+    fn open_call_window(self: &Rc<Self>, url: &str, room: &str) {
         let weak = Rc::downgrade(self);
         crate::call_window::open(&self.split, url, room, move |text| {
             if let Some(this) = weak.upgrade() {

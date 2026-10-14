@@ -9,6 +9,8 @@ section here.
 
 ### Added
 
+- Experimental Slack accounts: behind the same unlock, choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. Read-only for now: nothing is sent and updates arrive on refresh.
+
 - Experimental Slack browser pairing: import an encrypted workspace session from a fresh browser profile, then browse conversations and history without copying raw tokens or cookies. Sessions remain temporary and read-only.
 
 - An experimental Teams browser-import preview under the same nine-activation unlock as Slack: one-use public-key pairing, native conversation/history views and session-expiry checks. A separate development browser helper is required; real Teams sign-in remains unverified, and persistent accounts, sync and sending are still pending.

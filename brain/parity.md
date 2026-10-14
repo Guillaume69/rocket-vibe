@@ -362,7 +362,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| Slack Session mode provider | partial | partial | partial | n/a | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; Transient read-only preview on all three: developer browser helper, encrypted public-key workspace pairing, native identity revalidation, cursor-paged conversations and plain-text history. Packaged/phone-only acquisition, live helper acceptance, persistent accounts, RTM, full translation and writes remain missing; installed Android/macOS qualification is outstanding. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. Web: RocketVibe server only. |
+| Slack Session mode provider | partial | partial | partial | n/a | [Researched protocol](../docs/protocol/SLACK_SESSION.md), [probe plan](../docs/protocol/SLACK_SESSION_PROBES.md) and [evidence](../docs/protocol/slack-session-evidence.json). Paired token/cookie API and RTM messages, typing, edits, deletion and reaction-add measured in one workspace; Saved read-only account on all three (rooms, counts, history, threads in the store). Sign-in: Android takes the developer helper's encrypted handoff or a pasted session; GTK and SwiftUI open an app-owned temporary browser (Android owes phone-only acquisition, the desktops the pasted-session fallback). RTM live events, writes, files and search remain missing on all three; installed Android/macOS qualification is outstanding. The protocol maps P01-P23 and explicitly retains Android killed-app push, E2EE, native calls and administration/reporting gaps. Web: RocketVibe server only. |
 
 ## Open debt
 
@@ -406,7 +406,7 @@ are product gaps, listed last.
   profile bio, thread/search navigation, call layouts/controls and durable outbox
   are audited and qualified; they no longer carry blanket visual-parity debt.
 - **All four**: social cards and voice reactions in encrypted rooms.
-- **All three**: Slack has only a transient read-only preview; complete provider integration remains debt. Teams has a transient browser-import read preview but still owes live sign-in qualification, packaged acquisition and persistent integration. See section 19 and [experimental integrations](features/experimental-integrations.md).
+- **All three**: Slack is a saved but read-only account with no live events; writes, files, search and RTM remain debt, and Android owes phone-only sign-in. Teams has a transient browser-import read preview but still owes live sign-in qualification, packaged acquisition and persistent integration. See section 19 and [experimental integrations](features/experimental-integrations.md).
 - **All three**: the thread list and following on Mattermost, kChat and Vibez servers; room members, roles and settings on Mattermost and kChat; creating an encrypted room; "Deleted
   user" on messages ingested before the deletion, on server-computed names and in
   private conversations; Rocket.Chat real names (`UI_Use_Real_Name`): group DMs

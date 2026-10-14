@@ -4,9 +4,23 @@ Slack is the first implementation increment from the provider handoffs. After
 that preview was pushed, Teams gained an isolated read foundation, then a development
 browser-import preview on all three native apps. Live Teams sign-in remains unqualified
 and requires the separate developer helper. Slack now also has an encrypted browser-import
-flow through a developer helper. Both previews are transient and read-only on the login screen. It is independent
-of the normal persistent account, store, outbox and sync lifecycle. It does not
-advertise a complete provider or enable any of the existing chat action menus.
+flow through a developer helper, and has since become a saved read-only account (below).
+The previews that remain (Teams everywhere, Slack in the desktop panel) are transient and
+read-only on the login screen, independent of the normal persistent account, store,
+outbox and sync lifecycle.
+
+## Slack account
+
+Behind the unlock, Slack is also a server kind of the login screen. Signing in ends in a
+saved, read-only account: rooms, unread counts, history and threads in the local store,
+mrkdwn and mentions converted, names and avatars from Slack. The composer says nothing
+can be sent and every action is refused. Android (`ui/slackSignIn.tsx`) takes the
+helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
+and password fields and offer "Sign in to Slack": the app opens a temporary browser,
+the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a
+workspace picker appears when the session holds several. Cancel stops the attempt and
+closes the browser. Hiding the experimental integrations removes the Slack kind. See
+[Slack architecture](../architecture/slack-session.md#desktop-browser-sign-in).
 
 ## Unlock
 
@@ -23,8 +37,9 @@ preview and its credentials.
 
 lib/experimentalUnlock.ts implements the sequence; ui/experimentalProviders.ts
 persists only the enable flag in SecureStore. app/login.tsx attaches it to the
-unicorn button. ui/slackPreview.tsx shows a masked public pairing code and encrypted
-browser response, opens the one-use providers/slack/handoff.ts envelope, validates
+unicorn button. The Slack preview (removed from Android when Slack became an account,
+its pairing now in ui/slackSignIn.tsx) showed a masked public pairing code and encrypted
+browser response, opened the one-use providers/slack/handoff.ts envelope, validates
 the workspace/user with auth.test against the transferred identity, then lists joined
 conversations through users.conversations. Selecting a conversation reads a
 page of conversations.history. Load more carries the server cursor unchanged;
@@ -42,7 +57,7 @@ to seconds occurs only for a displayed date.
 
 ## Desktop
 
-rv-core/src/slack.rs implements the same read contract for GTK and SwiftUI.
+rv-core/src/slack/ (`Reader`) implements the same read contract for GTK and SwiftUI.
 It disables redirects, bounds response bytes, sanitizes transport/API errors,
 preserves Retry-After and pins each reader to the authenticated workspace/user.
 Close cancels pending requests and zeroizes retained credential strings.
@@ -203,10 +218,11 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - apps/mobile/lib/experimentalUnlock.ts
 - apps/mobile/ui/experimentalProviders.ts
 - apps/mobile/app/login.tsx
-- apps/mobile/ui/slackPreview.tsx
+- apps/mobile/ui/slackSignIn.tsx
 - apps/mobile/providers/slack/client.ts
 - apps/mobile/providers/slack/client.test.ts
-- apps/desktop/crates/rv-core/src/slack.rs
+- apps/desktop/crates/rv-core/src/slack/mod.rs
+- apps/desktop/crates/rv-core/src/slack/browser_login.rs
 - apps/desktop/crates/rv-gtk/src/login.rs
 - apps/desktop/crates/rv-gtk/src/slack_preview.rs
 - apps/desktop/crates/rv-ffi/src/slack.rs

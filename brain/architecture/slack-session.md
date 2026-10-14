@@ -1,11 +1,13 @@
 # Slack session provider, researched contract
 
-Slack has a first transient read-only preview on Android, GTK and SwiftUI, hidden
-behind nine activations of the login icon. It imports an encrypted browser session from a separate developer helper, validates
-its workspace/user and pages conversations/history. Persistent accounts and the full
-provider remain missing. Packaged/phone-only sign-in and live helper acceptance are
-still unqualified. See [preview usage](../../docs/SLACK_PREVIEW.md). See [experimental integrations](../features/experimental-integrations.md).
-The ordinary selectors support Rocket.Chat, RocketVibe, Mattermost and kChat.
+Slack is a saved, read-only account kind on Android, GTK and SwiftUI, behind nine
+activations of the login icon. Rooms, unread counts, history and threads go through the
+local store like any other server; nothing is sent, and there are no live events yet
+(a catch-up runs at start and on refresh). Android signs in from the developer helper's
+encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
+browser of its own. The transient read preview remains for Teams only on Android, and
+for Slack and Teams in the desktop's experimental panel. See [experimental integrations](../features/experimental-integrations.md)
+and [preview usage](../../docs/SLACK_PREVIEW.md).
 The design and protocol handoff are
 in [SLACK_SESSION.md](../../docs/protocol/SLACK_SESSION.md), its repeatable
 qualification cases in [SLACK_SESSION_PROBES.md](../../docs/protocol/SLACK_SESSION_PROBES.md),
@@ -23,11 +25,35 @@ X25519/HKDF-SHA256/AES-256-GCM rvslack1 envelope to the native panel's public ke
 Import consumes that private key and the app rechecks the transferred team/user.
 A five-minute transfer deadline and a one-hour local preview limit bound the session;
 a known earlier cookie expiry shortens it. Readers refuse requests thirty seconds
-before expiry. No persistent vault record or refresh is implemented yet.
+before expiry.
+
+A saved account (`genre` slack) keeps the `xoxc` token, the team id and the `d` cookie
+in the keychain record, checked by `auth.test` at sign-in; it lives until Slack refuses
+it, with no refresh. Only Slack's own session error codes count as a revoked session.
+
+### Desktop browser sign-in
+
+`slack/browser_login.rs` reuses the helper's acquisition inside the app, with no helper
+and no pairing: it launches an installed Chromium-family browser (Chromium, Chrome,
+Edge, Brave, searched at fixed paths then on `PATH`; none answers
+`supported_browser_missing` before anything starts) on a fresh temporary profile whose
+preferences exclude the `slack:` scheme, with CDP bound to a random loopback port and
+checked to be that port's `/devtools/browser/` endpoint. Every 800 ms it inspects up to
+20 Slack page targets: a `/ssb/` handoff page is sent once to `app.slack.com/client`
+instead of the desktop app, and a web-client page yields the single secure HttpOnly
+unexpired `d` cookie and the `localConfig_v2` tokens (or one boot token for the
+workspace named in the URL). Each candidate passes `auth.test` with that cookie and must
+name the same team. A changed cookie (another sign-in) drops what was found. Once
+candidates have held for two seconds the browser is closed and the profile removed;
+the user picks a workspace when there are several, and `take` revalidates it with the
+expected team and user before the account is saved. Closing the window first answers
+`browser_closed`; twenty minutes answer `timeout`. Credentials stay in zeroized memory
+until then. GTK polls the attempt from the login page; SwiftUI drives it through the
+`SlackBrowserLogin` UniFFI object.
 
 The reference's desktop-app importer covers Linux only; Windows/macOS imports and
-phone-only acquisition remain unqualified. Browser login stays outside the native UI;
-there is no WebView. Normal auth cache in the temporary profile is removed on shutdown,
+phone-only acquisition remain unqualified. Browser login runs in a real browser,
+never a WebView. Normal auth cache in the temporary profile is removed on shutdown,
 with crash cleanup still debt. Current helper acquisition has synthetic coverage and
 an installed-browser transport smoke check, but no live-account acceptance yet.
 
@@ -60,9 +86,10 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/client.ts
-- apps/desktop/crates/rv-core/src/slack.rs
-- apps/desktop/crates/rv-ffi/src/slack.rs
+- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`)
+- apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
+- apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 
 - `docs/protocol/SLACK_SESSION.md`, `docs/protocol/SLACK_SESSION_PROBES.md`, `docs/protocol/slack-session-evidence.json`
 - `apps/mobile/lib/provider.ts`, `apps/mobile/providers/index.ts`
@@ -73,5 +100,5 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 - scripts/slack/browser.mjs
 - scripts/slack/session.mjs
 - apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- apps/desktop/crates/rv-core/src/slack/handoff.rs
 - docs/SLACK_PREVIEW.md

@@ -457,6 +457,11 @@ fn x_post_id(link: &str) -> Option<(Option<String>, String)> {
     Some((handle.map(str::to_owned), digits.to_owned()))
 }
 
+/// The post id of an X post link, None for any other link.
+pub fn x_post_id_of(link: &str) -> Option<String> {
+    x_post_id(link).map(|(_, id)| id)
+}
+
 /// X titles a post `"<name> (@<handle>) on X"`: the name and handle, or the
 /// whole title as the name.
 fn split_x_title(title: &str) -> (String, Option<String>) {

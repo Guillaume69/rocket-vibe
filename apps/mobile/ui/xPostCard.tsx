@@ -4,18 +4,21 @@
  *
  * Detected in the text (`lib/xPosts.ts`), so it shows before the server has
  * described the link, then filled from what the server collected
- * (`xPostMetas`). No request to X and no WebView (ROADMAP §4.2): a tap opens
- * the post in the X app or the browser. Rocket.Chat images are X's public
- * URLs; Vibez images go through the message's private reader.
+ * (`xPostMetas`). On a Rocket.Chat account, whose server gets nothing from
+ * X, the card asks X itself (`lib/xSyndication.ts`); never on Vibez or
+ * Mattermost. No WebView (ROADMAP §4.2): a tap opens the post in the X app or
+ * the browser. X's images are public URLs; Vibez images go through the
+ * message's private reader.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { xPostMetas, type XPostMeta } from '../lib/linkPreview.ts';
 import { nativePreviewUri } from '../lib/nativePreviews.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { detectXPosts, type XPostLink } from '../lib/xPosts.ts';
+import { fetchXPost } from '../lib/xSyndication.ts';
 import { openExternalLink } from './externalLink.ts';
 import { useT } from './i18n.ts';
 import { useNativePreview } from './nativePreview.ts';
@@ -56,6 +59,7 @@ export function XPosts({
           c={c}
           post={post}
           meta={metas.get(post.id) ?? null}
+          askX={client?.kind === 'rocketchat'}
           width={width}
           onLongPress={onLongPress}
         />
@@ -67,7 +71,8 @@ export function XPosts({
 function XPostCard({
   c,
   post,
-  meta,
+  meta: collected,
+  askX,
   width,
   onLongPress,
 }: {
@@ -75,15 +80,20 @@ function XPostCard({
   post: XPostLink;
   /** `null` as long as the server has not described the post (or could not). */
   meta: XPostMeta | null;
+  /** A Rocket.Chat account: the post is read from X when the server has no text. */
+  askX: boolean;
   width: number;
   onLongPress: (() => void) | undefined;
 }) {
   const t = useT();
-  const [imageError, setImageError] = useState<string | null>(null);
+  const fromX = useXPost(post.id, askX && collected?.text == null);
+  const meta = fromX ?? collected;
+  const [failed, setFailed] = useState<readonly string[]>([]);
+  const fail = (uri: string) => setFailed((list) => [...list, uri]);
   const image = useNativePreview(meta?.image ?? null);
-  const shown = !!image && imageError !== image ? image : null;
-  const avatar = meta?.imageKind === 'avatar' ? shown : null;
-  const media = meta?.imageKind === 'avatar' ? null : shown;
+  const usable = (uri: string | null | undefined) => (uri && !failed.includes(uri) ? uri : null);
+  const avatar = usable(meta?.avatar ?? (meta?.imageKind === 'avatar' ? image : null));
+  const media = meta?.imageKind === 'avatar' ? null : usable(image);
 
   const handle = meta?.handle ?? post.handle;
   const name = meta?.name ?? (handle !== null ? `@${handle}` : null);
@@ -103,7 +113,7 @@ function XPostCard({
           <Image
             source={{ uri: avatar }}
             style={[styles.avatar, { backgroundColor: c.pendingImageBackground }]}
-            onError={() => setImageError(avatar)}
+            onError={() => fail(avatar)}
           />
         ) : (
           <View style={[styles.avatar, styles.monogram, { backgroundColor: c.pendingImageBackground }]}>
@@ -137,7 +147,7 @@ function XPostCard({
             source={{ uri: media }}
             style={StyleSheet.absoluteFill}
             resizeMode="cover"
-            onError={() => setImageError(media)}
+            onError={() => fail(media)}
           />
           {meta?.imageKind === 'video' && (
             <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: c.lightMediaScrim }]}>
@@ -151,6 +161,28 @@ function XPostCard({
       )}
     </Pressable>
   );
+}
+
+/**
+ * X's own answer for post `id` while `enabled`, `null` until it lands, if X
+ * has no such post, or on failure (the card then keeps what it had).
+ */
+function useXPost(id: string, enabled: boolean): XPostMeta | null {
+  const [found, setFound] = useState<{ id: string; meta: XPostMeta | null } | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    let alive = true;
+    fetchXPost(id).then(
+      (meta) => {
+        if (alive) setFound({ id, meta });
+      },
+      () => {},
+    );
+    return () => {
+      alive = false;
+    };
+  }, [id, enabled]);
+  return enabled && found?.id === id ? found.meta : null;
 }
 
 const styles = StyleSheet.create({

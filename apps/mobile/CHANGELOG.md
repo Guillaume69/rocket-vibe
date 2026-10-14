@@ -9,7 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
-- A link to a post on X (Twitter) shows as a card like the post: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A tap opens the post in the X app or the browser. Rocket.Chat servers collect nothing from X, so there the card shows the author's handle only.
+- A link to a post on X (Twitter) shows as a card like the post: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A tap opens the post in the X app or the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
 
 ## [0.17.0] - 2026-10-14
 

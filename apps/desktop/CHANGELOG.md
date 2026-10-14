@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- A link to a post on X (Twitter) shows as a card like the post, on Linux, Windows and macOS: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A click opens the post in the browser. Rocket.Chat servers collect nothing from X, so there the card shows the author's handle only.
+- A link to a post on X (Twitter) shows as a card like the post, on Linux, Windows and macOS: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A click opens the post in the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
 
 ## [0.20.0] - 2026-10-14
 

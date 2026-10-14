@@ -174,6 +174,8 @@ export type XPostMeta = {
   /** Its picture, a video's first image, or the author's photo (`imageKind`). */
   image: string | null;
   imageKind: XImageKind | null;
+  /** The author's photo beside a picture: only X's own answer has both (`lib/xSyndication.ts`). */
+  avatar?: string | null;
 };
 
 /**

@@ -494,6 +494,36 @@ pub fn x_post(provider: media::Provider, post: &XPost) -> gtk::Widget {
     fitted(&card).upcast()
 }
 
+/// An X post on a Rocket.Chat account, whose server gets nothing from X:
+/// when it has no text, the card asks X itself (`rv_core::x_syndication`)
+/// and is rebuilt once X answers. Remembered answers fill it at once, so a
+/// row scrolled back does not ask again.
+pub fn x_post_asking_x(provider: media::Provider, mut post: XPost) -> gtk::Widget {
+    if post.text.is_some() {
+        return x_post(provider, &post);
+    }
+    if let Some(known) = rv_core::x_syndication::cached(&post.id) {
+        if let Some(details) = known {
+            details.apply(&mut post);
+        }
+        return x_post(provider, &post);
+    }
+    let holder = gtk::Box::builder().halign(gtk::Align::Start).build();
+    holder.append(&x_post(provider.clone(), &post));
+    let weak = holder.downgrade();
+    glib::spawn_future_local(async move {
+        let id = post.id.clone();
+        let Some(details) = on_tokio(async move { rv_core::x_syndication::fetch(&id).await }).await else { return };
+        let Some(holder) = weak.upgrade() else { return };
+        details.apply(&mut post);
+        if let Some(old) = holder.first_child() {
+            holder.remove(&old);
+        }
+        holder.append(&x_post(provider, &post));
+    });
+    holder.upcast()
+}
+
 /// A list measures a row's height at the full width, then a start-aligned
 /// card shrinks to its natural width, where its title wraps on more lines:
 /// held at that width, the card gets the height it needs there.

@@ -562,7 +562,7 @@ struct MessageRow: View, Equatable {
             if let page = card.player {
                 VideoCard(card: card, page: page)
             } else if card.xPost {
-                XPostCard(card: card)
+                XPostCard(card: card, chat: model?.provider.legacy)
             } else {
                 LinkCard(card: card)
             }
@@ -1055,10 +1055,14 @@ struct LinkCard: View {
 
 /// An X post: the author's photo, name and handle, the text, and its picture
 /// or video's first image, as rv-core read them from the server's metadata.
-/// The card opens the post in the browser.
+/// On a Rocket.Chat account, whose server gets nothing from X, rv-core asks
+/// X itself when the text is missing (`xPostDetails`, None on any other
+/// account). The card opens the post in the browser.
 struct XPostCard: View {
     @Environment(\.openURL) var openURL
     let card: Card
+    let chat: Chat?
+    @State private var details: XPostDetails?
 
     var body: some View {
         Button {
@@ -1066,30 +1070,30 @@ struct XPostCard: View {
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    if let avatar = card.avatar {
+                    if let avatar {
                         RemoteImage(path: avatar, width: 36, height: 36).clipShape(Circle())
                     } else {
                         Circle().fill(Vibe.soft.opacity(0.15)).frame(width: 36, height: 36)
                             .overlay(Text(initial).font(.vibe(15, .heavy)).foregroundStyle(Vibe.soft))
                     }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(card.title ?? handle ?? L("xpost.post")).font(.vibe(13.5, .heavy)).lineLimit(1)
-                        if card.title != nil, let handle {
+                        Text(name ?? handle ?? L("xpost.post")).font(.vibe(13.5, .heavy)).lineLimit(1)
+                        if name != nil, let handle {
                             Text(handle).font(.vibe(12)).foregroundStyle(Vibe.muted).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 8)
                     Text("X").font(.vibe(16, .heavy))
                 }
-                if let text = card.description {
+                if let text {
                     Text(text).font(.vibe(13.5)).lineLimit(8)
                 } else {
                     Text(L("xpost.open_on_x")).font(.vibe(12)).foregroundStyle(Vibe.soft)
                 }
-                if let image = card.image {
+                if let image {
                     ZStack {
                         RemoteImage(path: image, width: 300, height: 169)
-                        if card.video {
+                        if video {
                             Image(systemName: "play.circle.fill").font(.largeTitle).foregroundStyle(.white)
                         }
                     }
@@ -1102,12 +1106,21 @@ struct XPostCard: View {
         }
         .buttonStyle(.plain)
         .help(card.url)
+        .task(id: card.url) {
+            guard card.description == nil, let chat else { return }
+            details = await chat.xPostDetails(url: card.url)
+        }
     }
 
-    var handle: String? { card.handle.map { "@" + $0 } }
+    var name: String? { details?.name ?? card.title }
+    var handle: String? { (details?.handle ?? card.handle).map { "@" + $0 } }
+    var text: String? { details?.text ?? card.description }
+    var avatar: String? { details?.avatar ?? card.avatar }
+    var image: String? { details?.media ?? card.image }
+    var video: Bool { details?.media != nil ? details?.video == true : card.video }
 
     var initial: String {
-        (card.title ?? card.handle ?? "X").trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "X"
+        (name ?? details?.handle ?? card.handle ?? "X").trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "X"
     }
 }
 

@@ -28,7 +28,7 @@ What it does today: password login + **2FA** (TOTP or password fallback), room l
 message timeline (fast inverted list), native **markdown rendering**, sending /
 editing / message actions, **threads**, **file upload** (photo, document), **built-in
 audio and video playback**, **link previews** (inline images, OpenGraph cards for
-articles and tweets, **YouTube / Dailymotion** video cards), **emojis** (custom ones
+articles, **X post cards**, **YouTube / Dailymotion** video cards), **emojis** (custom ones
 included), **presence** and **typing indicator**, **search**, **FCM push
 notifications**, **E2EE encrypted rooms** (messages and files, read and sent),
 **Jitsi calls**, reactions with any emoji, reports to the administrators, automatic

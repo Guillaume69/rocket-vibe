@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-14
+
 ### Added
 
 - A link to a post on X (Twitter) shows as a card like the post: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A tap opens the post in the X app or the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
@@ -794,7 +796,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...HEAD
+[0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.16.0...mobile-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...mobile-v0.16.0
 [0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...mobile-v0.15.0

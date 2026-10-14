@@ -11,6 +11,8 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-14
+
 ### Added
 
 - Web client: a link to a post on X (Twitter) shows as a card like the post, with the author, the text and its picture, opened on X.
@@ -230,7 +232,8 @@ first release: everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...HEAD
+[0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...vibez-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...vibez-v0.7.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...server-v0.5.0
 [0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.3.0...server-v0.4.0

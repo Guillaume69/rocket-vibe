@@ -151,7 +151,7 @@ HTML=1 scripts/coverage.sh --e2e
 | `rv-core::session` | Login, wiring, reconnection with back-off |
 | `rv-core::diff`, `timeline` | List refresh as splices, so views keep their scroll position; author groups, day separators |
 | `rv-core::markdown`, `parse`, `runs`, `emoji` | Message bodies from the server's `md` (or parsed locally) to Pango markup or styled runs; shortcodes |
-| `rv-core::content`, `media`, `animation`, `player` | Quotes, files, link previews, avatar and file URLs, GIF frames, the inline video player page |
+| `rv-core::content`, `media`, `animation`, `player`, `x_syndication` | Quotes, files, link previews and X post cards (read from X on Rocket.Chat accounts), avatar and file URLs, GIF frames, the inline video player page |
 | `rv-core::e2e` | End-to-end encrypted rooms: unlock, decrypt, encrypt messages and files |
 | `rv-core::actions`, `commands`, `completion`, `compose` | Message actions, slash commands, `@`/`:` completion, formatting |
 | `rv-core::rooms`, `info`, `account`, `live`, `notify`, `call`, `links`, `server`, `update`, `i18n` | Room list sections, room and profile details, my account, typing and presence, notifications, calls, `rocketvibe://` links, server probe, new versions, strings |

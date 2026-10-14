@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-14
+
 ### Added
 
 - A link to a post on X (Twitter) shows as a card like the post, on Linux, Windows and macOS: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A click opens the post in the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
@@ -1261,7 +1263,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...HEAD
+[0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...desktop-v0.21.0
 [0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...desktop-v0.20.0
 [0.19.3]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...desktop-v0.19.3
 [0.19.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2

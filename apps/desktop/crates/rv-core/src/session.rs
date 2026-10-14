@@ -1922,12 +1922,6 @@ impl Session {
         actions::join_call(&self.rest, &call_id).await
     }
 
-    /// Slack's huddles open in the browser, signed in there, never in the
-    /// app's call window: there is no API to join them.
-    pub fn calls_in_browser(&self) -> bool {
-        matches!(self.backend(), Backend::Slack(_))
-    }
-
     /// The call ringing here, started by the other member of a direct room.
     pub fn incoming_call(&self) -> Option<crate::call_ring::IncomingCall> {
         self.rings.lock().unwrap().current().cloned()

@@ -106,8 +106,10 @@ a reply and `reply_broadcast` when it is also sent to the room, the app's markdo
 into mrkdwn (`markdownToMrkdwn`, `markdown_to_mrkdwn`: entities escaped outside code,
 `<url|label>`, known `@usernames` as `<@id>`, `@all`/`@here` as broadcasts). Each row
 carries a `client_msg_id` derived from its id the same way on both apps (pinned by a
-shared fixture); Slack echoes it on the message. Whether Slack deduplicates on it is
-unqualified, so it is only a lookup key: a lost answer (timeout, network, 5xx), or a row
+shared fixture). Probed on 14 October 2026 with a session token and cookie: a
+`chat.postMessage` carrying a chosen `client_msg_id` came back with that exact value,
+both in the answer's `message` and on the message read back by `conversations.history`.
+Whether Slack deduplicates on it is still unqualified, so it is only a lookup key: a lost answer (timeout, network, 5xx), or a row
 that may have gone out before (sent in this session, queued before a restart), is looked
 for in a window from 2 minutes before the row; found from me, it settles the row; absent
 from a complete window, or the window cut by `has_more`, the row fails as "delivery

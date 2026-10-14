@@ -675,3 +675,80 @@ fn browser_executable() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slack_urls_are_https_slack_hosts_only() {
+        assert!(slack_url("https://app.slack.com/client/T1").is_some());
+        assert!(slack_url("https://acme-1.slack.com/").is_some());
+        assert!(slack_url("http://app.slack.com/client").is_none());
+        assert!(slack_url("https://app.slack.com:8443/client").is_none());
+        assert!(slack_url("https://a.b.slack.com/").is_none());
+        assert!(slack_url("https://slack.com.evil.example/").is_none());
+        assert!(slack_url("https://user@app.slack.com/").is_none());
+        assert!(slack_url("https://ACME.slack.com/").is_some_and(|u| u.host_str() == Some("acme.slack.com")));
+    }
+
+    #[test]
+    fn client_and_handoff_paths() {
+        let url = |raw| slack_url(raw).unwrap();
+        assert!(is_client_url(&url("https://app.slack.com/client")));
+        assert!(is_client_url(&url("https://app.slack.com/client/T1/C1")));
+        assert!(is_client_url(&url("https://acme.slack.com/app")));
+        assert!(!is_client_url(&url("https://app.slack.com/clientele")));
+        assert!(is_handoff_url(&url("https://acme.slack.com/ssb/redirect")));
+        assert!(!is_handoff_url(&url("https://acme.slack.com/signin")));
+    }
+
+    #[test]
+    fn debugger_endpoint_must_be_the_launched_local_port() {
+        assert!(valid_debugger_endpoint("ws://127.0.0.1:9222/devtools/browser/abc", 9222));
+        assert!(!valid_debugger_endpoint("ws://127.0.0.1:9223/devtools/browser/abc", 9222));
+        assert!(!valid_debugger_endpoint("ws://example.com:9222/devtools/browser/abc", 9222));
+        assert!(!valid_debugger_endpoint("ws://127.0.0.1:9222/devtools/page/abc", 9222));
+        assert!(!valid_debugger_endpoint("ws://127.0.0.1:9222/devtools/browser/abc?x=1", 9222));
+    }
+
+    #[test]
+    fn candidates_come_from_local_config_teams() {
+        let config = json!({"teams": {
+            "T1": {"id": "T1", "name": "Acme", "url": "https://acme.slack.com/", "token": "xoxc-1-a"},
+            "T2": {"id": "T2", "domain": "beta", "token": "xoxc-2-b"},
+            "T3": {"id": "T3", "name": "Elsewhere", "url": "https://evil.example/", "token": "xoxc-3-c"},
+            "T4": {"id": "T4", "name": "No token", "url": "https://four.slack.com/"},
+            "bad": {"id": "t5", "url": "https://five.slack.com/", "token": "xoxc-5-e"}
+        }})
+        .to_string();
+        let mut found = candidates("https://app.slack.com/client/T1", &config, "");
+        found.sort_by(|a, b| a.team_id.cmp(&b.team_id));
+        let summary: Vec<_> = found.iter().map(|c| (c.team_id.as_str(), c.label.as_str(), c.token.as_str())).collect();
+        assert_eq!(summary, [("T1", "Acme", "xoxc-1-a"), ("T2", "T2", "xoxc-2-b")]);
+    }
+
+    #[test]
+    fn boot_token_names_the_workspace_in_the_url() {
+        let found = candidates("https://app.slack.com/client/T9/C1", "", "xoxc-9-z");
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].team_id.as_str(), found[0].token.as_str()), ("T9", "xoxc-9-z"));
+        assert!(candidates("https://app.slack.com/client", "", "xoxc-9-z").is_empty());
+        assert!(candidates("https://app.slack.com/client/T9", "", "not-a-token").is_empty());
+        assert!(candidates("https://app.slack.com/signin", "", "xoxc-9-z").is_empty());
+    }
+
+    #[test]
+    fn config_entry_wins_over_the_boot_token() {
+        let config = json!({"teams": {"T1": {"name": "Acme", "domain": "acme", "token": "xoxc-config"}}}).to_string();
+        let found = candidates("https://app.slack.com/client/T1", &config, "xoxc-boot");
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].label.as_str(), found[0].token.as_str()), ("Acme", "xoxc-config"));
+    }
+
+    #[test]
+    fn zeroize_json_blanks_every_string() {
+        let mut value = json!({"a": "secret", "b": ["x", {"c": "y"}], "n": 1});
+        zeroize_json(&mut value);
+        assert_eq!(value, json!({"a": "", "b": ["", {"c": ""}], "n": 1}));
+    }
+}

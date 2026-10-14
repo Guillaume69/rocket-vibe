@@ -1527,6 +1527,10 @@ impl Session {
 
     pub async fn delete(&self, rid: &str, msg_id: &str) -> Result<(), RestError> {
         if self.outbox.discard(msg_id) {
+            // Rocket.Chat keeps the client id: a send marked failed may still have landed.
+            if matches!(self.backend(), Backend::RocketChat) {
+                let _ = actions::delete(&self.rest, rid, msg_id).await;
+            }
             return Ok(());
         }
         match self.backend() {

@@ -513,8 +513,8 @@ export default function LoginScreen() {
                   <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>
                 </Pressable>
               ))}
-              {/* A personal WhatsApp account has no server: the choice opens its linking sheet (Android, modules/whatsapp). */}
-              {WhatsApp !== null && (
+              {/* A personal WhatsApp account has no server: the choice opens its linking sheet (Android, modules/whatsapp). Behind the unlock, like Slack. */}
+              {WhatsApp !== null && experimental && (
                 <Pressable onPress={() => router.push('/whatsapp-link')} disabled={busy}
                   accessibilityRole="button" accessibilityLabel={t('wa.connect')}
                   style={[styles.kindOption,{borderColor:c.border,backgroundColor:'transparent'}]}>

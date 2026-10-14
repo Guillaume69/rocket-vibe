@@ -1,9 +1,10 @@
 # Slack session provider, researched contract
 
-Slack is a saved, read-only account kind on Android, GTK and SwiftUI, behind nine
-activations of the login icon. Rooms, unread counts, history and threads go through the
-local store like any other server; nothing is sent, and there are no live events yet
-(a catch-up runs at start and on refresh). Android signs in from the developer helper's
+Slack is a saved account kind on Android, GTK and SwiftUI, behind nine activations of
+the login icon. Rooms, unread counts, history and threads go through the local store
+like any other server; the RTM socket keeps them live, and text, replies, edits,
+deletions, reactions and reads are written back. Files, search, pins, saves, rooms,
+profiles and presence are not wired yet and their capabilities stay off. Android signs in from the developer helper's
 encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
 browser of its own. The transient read preview remains for Teams only on Android, and
 for Slack and Teams in the desktop's experimental panel. See [experimental integrations](../features/experimental-integrations.md)
@@ -75,10 +76,52 @@ and channel-read events, confirming nested edit identity and deletion target.
 HTTP mutations, reaction removal, thread/permission variants and reconnect
 guarantees remain unqualified. The ledger records each capture and its limits.
 
+## Live updates (RTM)
+
+`rtm.connect` (`batch_presence_aware=1`, `presence_sub=true`) must answer the account's
+team and user, and its URL must be `wss` on a Slack message server (`*.slack-msgs.com`
+or `*.slack.com`, no port or userinfo): only then is it opened, with `Cookie: d=` on the
+upgrade and no bearer. The socket counts as live only after `hello`; an `error` frame
+before it fails the attempt. Slack's own `ping` goes out every 30 s; on Android two
+unanswered pongs drop it, on desktop 75 s without any frame. `goodbye` or a drop
+reconnects with the usual backoff and a catch-up.
+
+Slack pushes no conversation or read document with a message, so the conversations and
+their `client.counts` entries are kept in memory, seeded by the global catch-up, and the
+unread state is derived: a message from someone else sets `has_unreads` and adds a
+mention when it names me, `@channel`, `@here` or `@everyone`; mine leaves it. A root
+becomes the room's preview, a reply does not. `message_changed` replaces the nested
+message at its own `ts`, `message_deleted` removes `deleted_ts`, a reaction re-reads its
+one message (the frame carries no body), `*_marked` overwrites the counts, and
+`user_typing` feeds the typing indicator. A frame for a room off the list writes no room
+row. Mobile: `providers/slack/rtm.ts`, `live.ts`; desktop: `rv-core/src/slack/live.rs`
+and `SlackSync::apply_event`. The desktop status button also runs a REST catch-up on
+Slack, so an account whose socket cannot come up still refreshes. Presence events are
+translated but `presence` stays off: `presence_sub` batching is unqualified.
+
+## Writes
+
+Text leaves through each app's persisted outbox as `chat.postMessage`, `thread_ts` for
+a reply and `reply_broadcast` when it is also sent to the room, the app's markdown turned
+into mrkdwn (`markdownToMrkdwn`, `markdown_to_mrkdwn`: entities escaped outside code,
+`<url|label>`, known `@usernames` as `<@id>`, `@all`/`@here` as broadcasts). Each row
+carries a `client_msg_id` derived from its id the same way on both apps (pinned by a
+shared fixture); Slack echoes it on the message. Whether Slack deduplicates on it is
+unqualified, so it is only a lookup key: a lost answer (timeout, network, 5xx), or a row
+that may have gone out before (sent in this session, queued before a restart), is looked
+for in a window from 2 minutes before the row; found from me, it settles the row; absent
+from a complete window, or the window cut by `has_more`, the row fails as "delivery
+unknown" and is never replayed on its own. A same-text message without the marker
+proves nothing. An `ok: false` envelope is a refusal; a rate limit or a refused session
+leaves the row pending. Edit, delete, react and mark read call `chat.update`,
+`chat.delete`, `reactions.add`/`reactions.remove` (`already_reacted`/`no_reaction`
+settle) and `conversations.mark`, the last never backwards and up to the newest `ts`
+known; the RTM echo rewrites the rows. The desktop account's method allowlist
+(`rv-core/src/slack/api.rs`) admits exactly the read and write methods used.
+
 ## Integration and parity
 
-The proposed driver acts through Web API and listens through cookie-authenticated
-RTM, with paced polling/reconciliation if delivery coverage is insufficient.
+The driver acts through Web API and listens through cookie-authenticated RTM.
 It translates into the existing SQLite/native interfaces; Slack does not gain
 Rocket.Chat wire routes or the native RocketVibe journal. Decimal Slack timestamps
 stay exact for identity, ordering and paging, independently of display milliseconds.
@@ -92,8 +135,8 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`)
+- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`)
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 

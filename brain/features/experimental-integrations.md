@@ -12,9 +12,12 @@ outbox and sync lifecycle.
 ## Slack account
 
 Behind the unlock, Slack is also a server kind of the login screen. Signing in ends in a
-saved, read-only account: rooms, unread counts, history and threads in the local store,
-mrkdwn and mentions converted, names and avatars from Slack. The composer says nothing
-can be sent and every action is refused. Android (`ui/slackSignIn.tsx`) takes the
+saved account: rooms, unread counts, history and threads in the local store, mrkdwn and
+mentions converted, names and avatars from Slack, kept live by the RTM socket (new
+messages, edits, deletions, reactions, reads made elsewhere, typing). The composer sends
+text and thread replies, also to the room when asked; the message menu edits, deletes
+and reacts; opening a room marks it read. All three apps send typing. Files, search,
+pins, saves, room settings and presence stay hidden. Android (`ui/slackSignIn.tsx`) takes the
 helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
 and password fields and offer "Sign in to Slack": the app opens a temporary browser,
 the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a

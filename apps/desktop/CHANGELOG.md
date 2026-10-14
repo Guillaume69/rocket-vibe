@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- Experimental Slack accounts: behind the same unlock, choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. Read-only for now: nothing is sent and updates arrive on refresh.
+- Experimental Slack accounts: behind the same unlock, choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Files, search and pins are not available yet.
 
 - Experimental Slack browser pairing: import an encrypted workspace session from a fresh browser profile, then browse conversations and history without copying raw tokens or cookies. Sessions remain temporary and read-only.
 

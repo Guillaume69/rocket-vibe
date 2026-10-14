@@ -108,6 +108,15 @@ All code, comments and docs are in English. French survives in two places only: 
 | `mm:*` envelope | The events `MmLive` emits for the translator (`mm:post`, `mm:room`, `mm:membership`...), already enriched. | `live.ts`, `translator.ts` |
 | `pending_post_id` | The client id a Mattermost post leaves under; echoed back and deduplicated by the server for a short while. | `outbox.ts` |
 
+## Slack (`apps/mobile/providers/slack/`, `apps/desktop/crates/rv-core/src/slack/`)
+
+| Term | Meaning | More |
+|---|---|---|
+| RTM | Slack's Real Time Messaging socket, opened from `rtm.connect` with the `d` cookie on the upgrade; live after `hello`. | [slack-session](architecture/slack-session.md#live-updates-rtm) |
+| `slack:*` envelope | The events `SlackLive` emits for the translator (`slack:message`, `slack:room`, `slack:subscription`...), already enriched. | `live.ts`, `translator.ts` |
+| `client_msg_id` | The marker a Slack send leaves with, derived from the outbox row id the same way on every app; a lookup key after a lost answer, not a deduplication. | [slack-session](architecture/slack-session.md#writes) |
+| Delivery unknown | An outbox row whose send answer was lost and whose marker the lookup could not find: failed for the user to check, never replayed on its own. | [slack-session](architecture/slack-session.md#writes) |
+
 ## Mobile: data and sync (`apps/mobile/db/`, `apps/mobile/lib/`)
 
 | Term | Meaning | Where |

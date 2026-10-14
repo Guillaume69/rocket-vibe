@@ -151,6 +151,15 @@ fn workspace(request: &Request) -> Response {
     match method(request) {
         "auth.test" => auth(),
         "rtm.connect" => respond(200, r#"{"ok":false,"error":"missing_scope"}"#),
+        "chat.postMessage" => {
+            let ts = "1700000500.000001";
+            ok(json!({"channel": form["channel"], "ts": ts,
+                "message": {"type": "message", "user": "U000", "text": form["text"], "ts": ts, "client_msg_id": form["client_msg_id"]}}))
+        }
+        "chat.update" => ok(json!({"channel": form["channel"], "ts": form["ts"],
+            "message": {"type": "message", "user": "U000", "text": form["text"], "edited": {"ts": "1700000600.000000"}}})),
+        "chat.delete" | "reactions.add" | "conversations.mark" => ok(json!({})),
+        "reactions.remove" => respond(200, r#"{"ok":false,"error":"no_reaction"}"#),
         "users.conversations" => match form.get("cursor").map(String::as_str) {
             None => ok(json!({
                 "channels": [
@@ -335,9 +344,10 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(server.requests().iter().any(|r| method(r) == "rtm.connect"), "the live socket is asked for");
     assert!(s.room_info("C001").await.is_ok());
     assert!(s.open_room("C001", "c").await.is_ok());
-    assert!(s.react("C001:1700000300.000100", ":+1:", true).await.is_err());
-    assert!(s.edit("C001", "C001:1700000300.000100", "x").await.is_err());
-    assert!(s.delete("C001", "C001:1700000300.000100").await.is_err());
+    assert!(s.react("C001:1700000300.000100", ":+1:", true).await.is_ok());
+    assert!(s.react("C001:1700000300.000100", ":+1:", false).await.is_ok(), "no_reaction is the wanted state");
+    assert!(s.edit("C001", "C001:1700000300.000100", "**x**").await.is_ok());
+    assert!(s.delete("C001", "C001:1700000300.000100").await.is_ok());
     assert!(s.pin("C001:1700000300.000100").await.is_err());
     assert!(s.star("C001:1700000300.000100", true).await.is_err());
     assert!(s.set_favorite("C001", true).await.is_err());
@@ -351,7 +361,13 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(!s.call_available().await && !s.threads_available() && !s.unread_marks_available());
     s.mark_read("C001").await;
     s.send("C001", "hello").await;
-    assert!(s.store.pending_outbox().is_empty(), "a send fails at once, never sent anywhere");
+    assert!(s.store.pending_outbox().is_empty(), "the send is delivered");
+    assert!(s.store.has_message("C001:1700000500.000001"), "under Slack's own ts");
+    let sent = server.requests().into_iter().find(|r| method(r) == "chat.postMessage").unwrap();
+    assert!(form(&sent).contains_key("client_msg_id"));
+    let edited = server.requests().into_iter().find(|r| method(r) == "chat.update").unwrap();
+    assert_eq!(form(&edited)["text"], "*x*");
+    assert!(server.requests().iter().any(|r| method(r) == "conversations.mark"));
     let link = s.permalink("c", Some("general"), "C001", "C001:1700000300.000100").await;
     assert!(link.ends_with("/archives/C001/p1700000300000100"), "{link}");
     let lists = || server.requests().iter().filter(|r| method(r) == "users.conversations").count();
@@ -461,3 +477,4 @@ async fn a_frame_for_a_room_off_the_list_writes_no_room() {
     sync.apply_event("message", &frame).await;
     assert!(store.rooms().iter().all(|r| r.rid != "C999"));
 }
+

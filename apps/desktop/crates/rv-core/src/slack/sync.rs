@@ -59,6 +59,8 @@ pub struct SlackSync {
     conversations: Mutex<HashMap<String, Value>>,
     names: Mutex<HashMap<String, String>>,
     counts: Mutex<HashMap<String, Value>>,
+    /// The newest `ts` marked read per room: never marked backwards.
+    marked: Mutex<HashMap<String, String>>,
 }
 
 impl SlackSync {
@@ -73,6 +75,7 @@ impl SlackSync {
             conversations: Mutex::default(),
             names: Mutex::default(),
             counts: Mutex::default(),
+            marked: Mutex::default(),
         }
     }
 
@@ -94,6 +97,12 @@ impl SlackSync {
             rows.iter().for_each(|m| w.upsert_message(m));
             rows.iter().map(|m| m.updated_at).max()
         })
+    }
+
+    /// One message Slack answered with (a send), into the store.
+    pub async fn ingest_one(&self, channel: &str, raw: &Value) {
+        self.resolve(std::slice::from_ref(raw)).await;
+        self.ingest(channel, std::slice::from_ref(raw));
     }
 
     async fn call(&self, method: &str, params: Vec<(&str, String)>) -> Result<Value, RestError> {
@@ -498,6 +507,74 @@ impl SlackSync {
                 (fresh && !mine).then_some(message)
             }
         }
+    }
+
+    /// Rewrites my message; the stored row follows Slack's answer.
+    pub async fn edit(&self, msg_id: &str, text: &str) -> Result<(), RestError> {
+        let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("edit: not a Slack message"))?;
+        let id_of = |username: &str| self.directory.id_of(username);
+        let params = vec![
+            ("channel", channel.to_owned()),
+            ("ts", ts.to_owned()),
+            ("text", translate::markdown_to_mrkdwn(text, &id_of)),
+        ];
+        let body = self.call("chat.update", params).await?;
+        if let Some(message) = body.get("message") {
+            let mut message = message.clone();
+            message["ts"] = Value::from(ts);
+            self.ingest_one(channel, &message).await;
+        }
+        Ok(())
+    }
+
+    pub async fn delete(&self, msg_id: &str) -> Result<(), RestError> {
+        let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("delete: not a Slack message"))?;
+        self.call("chat.delete", vec![("channel", channel.to_owned()), ("ts", ts.to_owned())]).await?;
+        Ok(())
+    }
+
+    /// Adds or takes back my reaction; the state already there settles it.
+    /// The message is read again, Slack's answer carrying no reactions.
+    pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
+        let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("react: not a Slack message"))?;
+        let name = shortcode.trim_matches(':');
+        if name.is_empty() {
+            return Err(RestError::incomplete("react: no emoji"));
+        }
+        let params = vec![("channel", channel.to_owned()), ("timestamp", ts.to_owned()), ("name", name.to_owned())];
+        let settled = if add { "already_reacted" } else { "no_reaction" };
+        match self.call(if add { "reactions.add" } else { "reactions.remove" }, params).await {
+            Ok(_) => {}
+            Err(e) if e.error.as_deref() == Some(settled) => {}
+            Err(e) => return Err(e),
+        }
+        if let Ok(Some(message)) = self.fetch_message(msg_id).await {
+            self.store.write(|w| w.upsert_message(&message));
+        }
+        Ok(())
+    }
+
+    /// Marks the room read up to its newest message known, never backwards;
+    /// the badge clears at once, before Slack's `*_marked` echo.
+    pub async fn mark_read(&self, rid: &str) -> Result<(), RestError> {
+        let kept = self.counts.lock().unwrap().get(rid).and_then(|c| text(c, "latest").map(str::to_owned));
+        let stored = || {
+            self.store.messages(rid, 1).into_iter().next().and_then(|m| split_id(&m.id).map(|(_, ts)| ts.to_owned()))
+        };
+        let Some(ts) = kept.or_else(stored) else { return Ok(()) };
+        let newer =
+            self.marked.lock().unwrap().get(rid).is_none_or(|before| super::compare_timestamp(&ts, before).is_gt());
+        if !newer {
+            return Ok(());
+        }
+        self.call("conversations.mark", vec![("channel", rid.to_owned()), ("ts", ts.clone())]).await?;
+        self.marked.lock().unwrap().insert(rid.to_owned(), ts.clone());
+        self.update_counts(rid, |c| {
+            c["has_unreads"] = Value::Bool(false);
+            c["mention_count"] = Value::from(0);
+            c["last_read"] = Value::from(ts.as_str());
+        });
+        Ok(())
     }
 
     /// Changes a room's kept counts and writes its subscription row from them.

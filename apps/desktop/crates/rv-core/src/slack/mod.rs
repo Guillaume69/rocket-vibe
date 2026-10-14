@@ -120,7 +120,7 @@ pub fn exact_timestamp(raw: &str) -> Result<(&str, &str), Error> {
     }
     Ok((seconds, fraction))
 }
-fn compare_timestamp(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn compare_timestamp(a: &str, b: &str) -> std::cmp::Ordering {
     // Only called on validated timestamps. Seconds fit in u64, fractions remain exact.
     let (a, af) = exact_timestamp(a).expect("validated timestamp");
     let (b, bf) = exact_timestamp(b).expect("validated timestamp");

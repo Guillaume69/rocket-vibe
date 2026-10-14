@@ -141,6 +141,179 @@ fn reference(inner: &str, user: &dyn Fn(&str) -> Option<String>, channel: &dyn F
 
 /// `*b*` to `**b**`: a delimiter opens after a boundary before a non-space,
 /// closes after a non-space before a boundary, on the same line.
+/// A UUID-shaped `client_msg_id`, the same for the same outbox row id; the
+/// mobile app derives it the same way.
+pub fn client_msg_id(row_id: &str) -> String {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let (mut a, mut b) = (0xcbf2_9ce4_8422_2325_u64, 0x8422_2325_cbf2_9ce4_u64);
+    for c in row_id.chars() {
+        let code = u64::from(c);
+        a = (a ^ code).wrapping_mul(PRIME);
+        b = (b ^ (code + 0x9e)).wrapping_mul(PRIME);
+    }
+    let mut hex: Vec<char> = format!("{a:016x}{b:016x}").chars().collect();
+    hex[12] = '4';
+    hex[16] = ['8', '9', 'a', 'b'][(hex[16].to_digit(16).unwrap_or(0) & 3) as usize];
+    let h: String = hex.into_iter().collect();
+    format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
+}
+
+/// The app's markdown into Slack's mrkdwn, for what is sent. Code goes as
+/// typed; outside it Slack's three entities are escaped first, links become
+/// `<url|label>`, known `@usernames` `<@id>`, `@all`/`@here` Slack's
+/// broadcasts, `**bold**` `*bold*`, `*italic*` `_italic_`, `~~strike~~` `~strike~`.
+pub fn markdown_to_mrkdwn(text: &str, id_of: &dyn Fn(&str) -> Option<String>) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let (plain, code, after) = next_code(rest);
+        out.push_str(&outgoing(plain, id_of));
+        out.push_str(code);
+        rest = after;
+    }
+    out
+}
+
+const BOLD: char = '\u{E002}';
+
+fn outgoing(text: &str, id_of: &dyn Fn(&str) -> Option<String>) -> String {
+    let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let mut held = Vec::new();
+    let linked = links(&escaped, &mut held);
+    let mentioned = mentions(&linked, id_of, &mut held);
+    let bold = spans(&mentioned, "**", &BOLD.to_string(), false);
+    let italic = spans(&bold, "*", "_", true);
+    let styled = spans(&italic.replace(BOLD, "*"), "~~", "~", false);
+    let mut out = String::new();
+    let mut rest = styled.as_str();
+    while let Some(start) = rest.find(HOLE_START) {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + HOLE_START.len_utf8()..];
+        let end = after.find(HOLE_END).unwrap_or(after.len());
+        out.push_str(after[..end].parse::<usize>().ok().and_then(|i| held.get(i)).map_or("", String::as_str));
+        rest = after.get(end + HOLE_END.len_utf8()..).unwrap_or("");
+    }
+    out.push_str(rest);
+    out
+}
+
+fn hole(held: &mut Vec<String>, value: String) -> String {
+    held.push(value);
+    format!("{HOLE_START}{}{HOLE_END}", held.len() - 1)
+}
+
+/// `[label](https://…)` into a held `<url|label>`.
+fn links(text: &str, held: &mut Vec<String>) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let parsed = rest[open + 1..].find("](").and_then(|mid| {
+            let label = &rest[open + 1..open + 1 + mid];
+            let url_start = open + 1 + mid + 2;
+            let close = rest[url_start..].find(')')?;
+            let url = &rest[url_start..url_start + close];
+            let valid = !label.is_empty()
+                && !label.contains(['\n', ']'])
+                && (url.starts_with("https://") || url.starts_with("http://"))
+                && !url.contains(char::is_whitespace);
+            valid.then(|| (label.replace('|', "/"), url.to_owned(), url_start + close + 1))
+        });
+        match parsed {
+            Some((label, url, end)) => {
+                out.push_str(&rest[..open]);
+                out.push_str(&hole(held, format!("<{url}|{label}>")));
+                rest = &rest[end..];
+            }
+            None => {
+                out.push_str(&rest[..=open]);
+                rest = &rest[open + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn mentions(text: &str, id_of: &dyn Fn(&str) -> Option<String>, held: &mut Vec<String>) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let name_char = |c: &char| c.is_alphanumeric() || matches!(c, '_' | '.' | '-');
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let starts = chars[i] == '@'
+            && i.checked_sub(1)
+                .and_then(|p| chars.get(p))
+                .is_none_or(|c| !(c.is_alphanumeric() || *c == '_' || *c == '@'));
+        let name: String = if starts {
+            let end = (i + 1..chars.len()).find(|j| !name_char(&chars[*j])).unwrap_or(chars.len());
+            chars[i + 1..end].iter().collect()
+        } else {
+            String::new()
+        };
+        let name = name.trim_end_matches(['.', '-']);
+        if name.is_empty() {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let target = match name {
+            "all" | "channel" | "everyone" => Some("<!channel>".to_owned()),
+            "here" => Some("<!here>".to_owned()),
+            _ => id_of(name).map(|id| format!("<@{id}>")),
+        };
+        match target {
+            Some(target) => {
+                out.push_str(&hole(held, target));
+                i += 1 + name.chars().count();
+            }
+            None => {
+                out.push(chars[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Each `delim…delim` on one line, non-blank at both inner edges, rewrapped in
+/// `with`; `bounded` also wants no word character just outside.
+fn spans(text: &str, delim: &str, with: &str, bounded: bool) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find(delim) {
+        let inner = &rest[open + delim.len()..];
+        let before = rest[..open].chars().next_back();
+        let found = (!inner.starts_with(char::is_whitespace)
+            && !inner.starts_with(delim.chars().next().unwrap_or(' '))
+            && (!bounded || before.is_none_or(|c| !c.is_alphanumeric())))
+        .then(|| inner.find(delim))
+        .flatten()
+        .filter(|close| {
+            let body = &inner[..*close];
+            let after = inner[close + delim.len()..].chars().next();
+            !body.is_empty()
+                && !body.contains('\n')
+                && !body.ends_with(char::is_whitespace)
+                && (!bounded || after.is_none_or(|c| !c.is_alphanumeric()))
+        });
+        match found {
+            Some(close) => {
+                out.push_str(&rest[..open]);
+                out.push_str(with);
+                out.push_str(&inner[..close]);
+                out.push_str(with);
+                rest = &inner[close + delim.len()..];
+            }
+            None => {
+                out.push_str(&rest[..open + delim.len()]);
+                rest = inner;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 fn emphasis(text: &str, delimiter: char, doubled: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let boundary =
@@ -392,6 +565,31 @@ pub fn subscription(rid: &str, counts: Option<&Value>, updated_at: i64, open: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outgoing_markdown_becomes_mrkdwn() {
+        let id_of = |u: &str| (u == "alice").then(|| "U001".to_owned());
+        let out = |t: &str| markdown_to_mrkdwn(t, &id_of);
+        assert_eq!(out("**b** *i* ~~s~~"), "*b* _i_ ~s~");
+        assert_eq!(
+            out("see [docs](https://x.test/a) @alice @bob @here @all"),
+            "see <https://x.test/a|docs> <@U001> @bob <!here> <!channel>"
+        );
+        assert_eq!(out("a < b & `<@x> **y**`"), "a &lt; b &amp; `<@x> **y**`");
+        assert_eq!(out("mail me@alice.test, thanks @alice."), "mail me@alice.test, thanks <@U001>.");
+        assert_eq!(out("2*3*4 stays"), "2*3*4 stays");
+    }
+
+    #[test]
+    fn client_msg_ids_match_the_mobile_derivation() {
+        let id = client_msg_id("local1");
+        assert_eq!(id.len(), 36);
+        assert_eq!(&id[14..15], "4");
+        assert!("89ab".contains(&id[19..20]));
+        assert_eq!(id, "e0e3bce0-03ec-40bb-ba25-48e1d317a4c2");
+        assert_eq!(client_msg_id("é€😀"), "ea94271b-fa1a-4248-91ff-07fb275a64b5");
+        assert_ne!(client_msg_id("local2"), id);
+    }
     use crate::slack::directory::User;
 
     fn directory() -> Directory {

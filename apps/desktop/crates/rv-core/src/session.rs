@@ -1235,7 +1235,7 @@ impl Session {
     pub async fn mark_read(&self, rid: &str) {
         let _ = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::mark_read(&self.rest, rid).await,
-            Backend::Slack(_) => return,
+            Backend::Slack(slack) => slack.mark_read(rid).await,
             Backend::RocketChat => rocketchat::actions::mark_read(&self.rest, rid).await,
         };
     }
@@ -1624,7 +1624,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::react(&self.rest, &self.info.user_id, msg_id, shortcode, add).await;
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("reactions")),
+            Backend::Slack(slack) => return slack.react(msg_id, shortcode, add).await,
             Backend::RocketChat => {}
         }
         actions::react(&self.rest, msg_id, shortcode, add).await
@@ -1638,7 +1638,7 @@ impl Session {
                 mm.ingest(&[post]);
                 return Ok(());
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("edit")),
+            Backend::Slack(slack) => return slack.edit(msg_id, text).await,
             Backend::RocketChat => {}
         }
         let doc = if self.store.message_type(msg_id).as_deref() == Some(crate::normalize::ENCRYPTED_TYPE) {
@@ -1665,7 +1665,7 @@ impl Session {
         }
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::delete(&self.rest, msg_id).await?,
-            Backend::Slack(_) => return Err(crate::slack::not_supported("delete")),
+            Backend::Slack(slack) => slack.delete(msg_id).await?,
             Backend::RocketChat => actions::delete(&self.rest, rid, msg_id).await?,
         }
         self.store.write(|w| w.delete_message(msg_id));

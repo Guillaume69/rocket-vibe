@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-681 production files scanned; 725 occurrences.
+681 production files scanned; 733 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -220,9 +220,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:159](../../apps/desktop/crates/rv-core/src/outbox.rs#L159) | call:POST | "chat.sendMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:159](../../apps/desktop/crates/rv-core/src/outbox.rs#L159) | endpoint | chat.sendMessage |
 | [apps/desktop/crates/rv-core/src/outbox.rs:239](../../apps/desktop/crates/rv-core/src/outbox.rs#L239) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:276](../../apps/desktop/crates/rv-core/src/outbox.rs#L276) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
-| [apps/desktop/crates/rv-core/src/outbox.rs:317](../../apps/desktop/crates/rv-core/src/outbox.rs#L317) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/outbox.rs:317](../../apps/desktop/crates/rv-core/src/outbox.rs#L317) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/outbox.rs:300](../../apps/desktop/crates/rv-core/src/outbox.rs#L300) | call:POST | "chat.postMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:300](../../apps/desktop/crates/rv-core/src/outbox.rs#L300) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-core/src/outbox.rs:365](../../apps/desktop/crates/rv-core/src/outbox.rs#L365) | call:POST | method |
+| [apps/desktop/crates/rv-core/src/outbox.rs:405](../../apps/desktop/crates/rv-core/src/outbox.rs#L405) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
+| [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/rest.rs:402](../../apps/desktop/crates/rv-core/src/rest.rs#L402) | url | /api/v1 |
 | [apps/desktop/crates/rv-core/src/rest.rs:403](../../apps/desktop/crates/rv-core/src/rest.rs#L403) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | call:GET | "users.presence" |
@@ -301,14 +304,19 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:14](../../apps/desktop/crates/rv-core/src/slack/api.rs#L14) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:18](../../apps/desktop/crates/rv-core/src/slack/api.rs#L18) | endpoint | users.info |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:20](../../apps/desktop/crates/rv-core/src/slack/api.rs#L20) | endpoint | chat.postMessage |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:21](../../apps/desktop/crates/rv-core/src/slack/api.rs#L21) | endpoint | chat.update |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:22](../../apps/desktop/crates/rv-core/src/slack/api.rs#L22) | endpoint | chat.delete |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:92](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L92) | call:POST | "users.info" |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:92](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L92) | endpoint | users.info |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:112](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L112) | call:POST | "bots.info" |
 | [apps/desktop/crates/rv-core/src/slack/live.rs:130](../../apps/desktop/crates/rv-core/src/slack/live.rs#L130) | call:POST | "rtm.connect" |
 | [apps/desktop/crates/rv-core/src/slack/mod.rs:301](../../apps/desktop/crates/rv-core/src/slack/mod.rs#L301) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:100](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L100) | call:POST | method |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:114](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L114) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:116](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L116) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:109](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L109) | call:POST | method |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:123](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L123) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:125](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L125) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:521](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L521) | endpoint | chat.update |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:532](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L532) | endpoint | chat.delete |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |

@@ -17,6 +17,12 @@ pub const METHODS: &[&str] = &[
     "conversations.replies",
     "users.info",
     "bots.info",
+    "chat.postMessage",
+    "chat.update",
+    "chat.delete",
+    "reactions.add",
+    "reactions.remove",
+    "conversations.mark",
 ];
 
 /// `RestError::error_type` of an envelope that ends the session.

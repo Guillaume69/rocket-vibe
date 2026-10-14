@@ -1961,19 +1961,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 276,
+      "line": 300,
+      "kind": "call:POST",
+      "surface": "\"chat.postMessage\""
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/outbox.rs",
+      "line": 300,
+      "kind": "endpoint",
+      "surface": "chat.postMessage"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/outbox.rs",
+      "line": 365,
+      "kind": "call:POST",
+      "surface": "method"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/outbox.rs",
+      "line": 405,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/posts\", entry.rid), options).await {"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 317,
+      "line": 446,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/outbox.rs",
-      "line": 317,
+      "line": 446,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
@@ -2446,6 +2464,24 @@
       "surface": "users.info"
     },
     {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 20,
+      "kind": "endpoint",
+      "surface": "chat.postMessage"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 21,
+      "kind": "endpoint",
+      "surface": "chat.update"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 22,
+      "kind": "endpoint",
+      "surface": "chat.delete"
+    },
+    {
       "file": "apps/desktop/crates/rv-core/src/slack/directory.rs",
       "line": 92,
       "kind": "call:POST",
@@ -2477,21 +2513,33 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 100,
+      "line": 109,
       "kind": "call:POST",
       "surface": "method"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 114,
+      "line": 123,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 116,
+      "line": 125,
       "kind": "endpoint",
       "surface": "users.conversations"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
+      "line": 521,
+      "kind": "endpoint",
+      "surface": "chat.update"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
+      "line": 532,
+      "kind": "endpoint",
+      "surface": "chat.delete"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/social.rs",

@@ -35,9 +35,8 @@ describe('Slack emoji names', () => {
 describe('huddles', () => {
   const message = (room: Record<string, unknown>) => ({ type: 'message', subtype: 'huddle_thread', team: 'T1', ts: '1.000000', room });
   test('a running huddle is a call whose id is its Slack page, its own or the room one', () => {
-    assert.deepEqual(huddleCall(message({ huddle_link: 'https://app.slack.com/huddle/T1/C1' }), 'C1'), { type: 'videoconf', param: '', callId: 'https://app.slack.com/huddle/T1/C1' });
-    assert.equal(huddleCall(message({ huddle_link: 'https://evil.example/x' }), 'C1')?.callId, 'https://app.slack.com/huddle/T1/C1');
-    assert.equal(huddleCall(message({}), 'D1')?.callId, 'https://app.slack.com/client/T1/D1');
+    assert.deepEqual(huddleCall(message({ huddle_link: 'https://app.slack.com/huddle/T1/C1' }), 'C1'), { type: 'videoconf', param: '', callId: 'https://app.slack.com/client/T1/C1?open=start_huddle' });
+    assert.equal(huddleCall(message({}), 'D1')?.callId, 'https://app.slack.com/client/T1/D1?open=start_huddle');
   });
   test('once over, an ended call with its length', () => {
     assert.deepEqual(huddleCall(message({ date_start: 1000, date_end: 1600 }), 'C1'), { type: 'videoconf-ended', param: '600', callId: null });
@@ -46,8 +45,10 @@ describe('huddles', () => {
   });
   test('calls start on the room huddle page and join only Slack pages', async () => {
     const calls = slackCalls('T1');
-    assert.equal(await calls.start('C9', null, () => true), 'https://app.slack.com/huddle/T1/C9');
-    assert.equal(await calls.join('https://app.slack.com/huddle/T1/C9', {}, () => true), 'https://app.slack.com/huddle/T1/C9');
+    const page = 'https://app.slack.com/client/T1/C9?open=start_huddle';
+    assert.equal(await calls.start('C9', null, () => true), page);
+    assert.equal(await calls.join(page, {}, () => true), page);
+    assert.equal(await calls.join('https://app.slack.com/huddle/T1/C9', {}, () => true), page);
     await assert.rejects(calls.join('https://evil.example/x', {}, () => true));
   });
 });

@@ -135,7 +135,8 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
     }
 }
 
-/// The kind list's WhatsApp entry, present when the helper is installed.
+/// The kind list's WhatsApp entry, present when the helper is installed and
+/// the experimental integrations are unlocked.
 const WHATSAPP_KIND: &str = "WhatsApp";
 
 fn kinds(kind: &gtk::DropDown) -> gtk::StringList {
@@ -147,21 +148,30 @@ fn kind_at(kind: &gtk::DropDown, label: &str) -> Option<u32> {
     (0..list.n_items()).find(|&i| list.string(i).as_deref() == Some(label))
 }
 
-/// Slack's entry, last, present while the experimental providers are unlocked.
+/// Slack's entry, present while the experimental integrations are unlocked.
 fn slack_kind(kind: &gtk::DropDown) -> Option<u32> {
     kind_at(kind, t("login.kind_slack"))
 }
 
-fn show_slack_kind(kind: &gtk::DropDown, shown: bool) {
-    match (shown, slack_kind(kind)) {
-        (true, None) => kinds(kind).append(t("login.kind_slack")),
-        (false, Some(at)) => {
-            if kind.selected() == at {
-                kind.set_selected(0);
+/// The kinds behind the unlock, last: WhatsApp (when its helper is
+/// installed) and Slack. Hidden again, a selected one falls back to Automatic.
+fn show_experimental_kinds(kind: &gtk::DropDown, shown: bool) {
+    let mut gated = Vec::new();
+    if crate::window::whatsapp_helper().is_some() {
+        gated.push(WHATSAPP_KIND);
+    }
+    gated.push(t("login.kind_slack"));
+    for label in gated {
+        match (shown, kind_at(kind, label)) {
+            (true, None) => kinds(kind).append(label),
+            (false, Some(at)) => {
+                if kind.selected() == at {
+                    kind.set_selected(0);
+                }
+                kinds(kind).remove(at);
             }
-            kinds(kind).remove(at);
+            _ => {}
         }
-        _ => {}
     }
 }
 
@@ -186,17 +196,9 @@ impl LoginPage {
         assert!(!self.experimental.root.is_visible(), "eight activations must not unlock");
         self.experimental_icon.emit_clicked();
         assert!(self.experimental.root.is_visible(), "ninth activation must unlock");
-        assert!(crate::slack_preview::enabled(), "unlock must persist on device");
-        if std::env::var("RV_SMOKE_EXPERIMENTAL_PROVIDER").as_deref() == Ok("slack") {
-            self.experimental.smoke_slack_pairing();
-            println!(
-                "smoke: ninth activation unlocked Slack; masked public pairing, wrong-provider rejection and reset passed"
-            );
-            return;
-        }
-        self.experimental.stack.set_visible_child_name("teams");
-        assert_eq!(self.experimental.stack.visible_child_name().as_deref(), Some("teams"));
-        println!("smoke: Slack and Teams hidden until ninth activation; Teams selected; setting persisted");
+        assert!(crate::experimental_preview::enabled(), "unlock must persist on device");
+        assert!(slack_kind(&self.kind).is_some(), "the unlock offers the Slack server kind");
+        println!("smoke: Teams and the Slack server kind hidden until the ninth activation; setting persisted");
     }
 
     pub fn new() -> Self {
@@ -219,27 +221,24 @@ impl LoginPage {
         // unusual proxy.
         // WhatsApp after them, when its helper is installed beside the app: a
         // personal account with no server, linked by its own dialog.
-        let mut kinds = vec![
+        let kinds = vec![
             t("login.kind_auto"),
             t("login.kind_rocketchat"),
             t("login.kind_vibez"),
             t("login.kind_mattermost"),
             t("login.kind_kchat"),
         ];
-        if crate::window::whatsapp_helper().is_some() {
-            kinds.push(WHATSAPP_KIND);
-        }
         let kind = gtk::DropDown::from_strings(&kinds);
         kind.set_tooltip_text(Some(t("login.kind")));
         let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
         kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
         kind_row.append(&kind);
         credentials.append(&kind_row);
-        show_slack_kind(&kind, experimental.root.is_visible());
+        show_experimental_kinds(&kind, experimental.root.property::<bool>("visible"));
         experimental.root.connect_visible_notify(glib::clone!(
             #[weak]
             kind,
-            move |root| show_slack_kind(&kind, root.is_visible())
+            move |root| show_experimental_kinds(&kind, root.property::<bool>("visible"))
         ));
         let slack_status = gtk::Label::builder()
             .label(t("slack.browserHelp"))
@@ -697,8 +696,9 @@ impl LoginPage {
         self.cancel.set_label(t("login.cancel_add"));
     }
 
-    /// The smoke's choice of WhatsApp among the server kinds.
+    /// The smoke's choice of WhatsApp among the server kinds, unlocked first.
     pub fn press_whatsapp(&self) {
+        self.experimental.unlock();
         if let Some(at) = kind_at(&self.kind, WHATSAPP_KIND) {
             self.kind.set_selected(at);
         }

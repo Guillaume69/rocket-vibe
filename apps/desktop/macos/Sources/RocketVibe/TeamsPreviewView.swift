@@ -105,15 +105,11 @@ struct TeamsPreviewView: View {
     }
 }
 
+/// What the unlock reveals beside the Slack and WhatsApp server kinds: the Teams preview.
 struct ExperimentalPreviewView: View {
     let client: Client
     let onHide: () -> Void
-    @State private var provider = "slack"
     var body: some View {
-        Section {
-            Picker("", selection: $provider) { Text("Slack").tag("slack"); Text("Teams").tag("teams") }.pickerStyle(.segmented)
-        }
-        if provider == "slack" { SlackPreviewView(client: client, onHide: onHide) }
-        else { TeamsPreviewView(client: client, onHide: onHide) }
+        TeamsPreviewView(client: client, onHide: onHide)
     }
 }

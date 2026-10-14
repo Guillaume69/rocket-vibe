@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-682 production files scanned; 733 occurrences.
+680 production files scanned; 733 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -390,7 +390,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:438](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L438) | endpoint | rooms.disabled |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:438](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L438) | endpoint | rooms.role |
 | [apps/desktop/crates/rv-gtk/src/details/native_rooms.rs:446](../../apps/desktop/crates/rv-gtk/src/details/native_rooms.rs#L446) | endpoint | rooms.apply_role |
-| [apps/desktop/crates/rv-gtk/src/login.rs:203](../../apps/desktop/crates/rv-gtk/src/login.rs#L203) | endpoint | chat.example.com |
+| [apps/desktop/crates/rv-gtk/src/login.rs:205](../../apps/desktop/crates/rv-gtk/src/login.rs#L205) | endpoint | chat.example.com |
 | [apps/desktop/crates/rv-gtk/src/new_channel.rs:70](../../apps/desktop/crates/rv-gtk/src/new_channel.rs#L70) | endpoint | rooms.new_channel |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:324](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L324) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/notifier.rs:426](../../apps/desktop/crates/rv-gtk/src/notifier.rs#L426) | endpoint | im.received |

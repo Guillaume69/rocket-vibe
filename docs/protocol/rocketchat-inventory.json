@@ -276,7 +276,6 @@
     "apps/desktop/crates/rv-gtk/src/sidebar_dialog.rs",
     "apps/desktop/crates/rv-gtk/src/sign_in_window.rs",
     "apps/desktop/crates/rv-gtk/src/sizer.rs",
-    "apps/desktop/crates/rv-gtk/src/slack_preview.rs",
     "apps/desktop/crates/rv-gtk/src/smoke.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/admin.rs",
     "apps/desktop/crates/rv-gtk/src/smoke/email_factor.rs",
@@ -361,7 +360,6 @@
     "apps/desktop/macos/Sources/RocketVibe/SecuritySection.swift",
     "apps/desktop/macos/Sources/RocketVibe/SettingsView.swift",
     "apps/desktop/macos/Sources/RocketVibe/SignInWindow.swift",
-    "apps/desktop/macos/Sources/RocketVibe/SlackPreviewView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Social.swift",
     "apps/desktop/macos/Sources/RocketVibe/TeamsPreviewView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Theme.swift",
@@ -2982,7 +2980,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/login.rs",
-      "line": 203,
+      "line": 205,
       "kind": "endpoint",
       "surface": "chat.example.com"
     },

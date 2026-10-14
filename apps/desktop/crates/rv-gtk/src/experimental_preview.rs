@@ -1,46 +1,55 @@
-//! One discoverability gate and a native provider switcher.
+//! The discoverability gate of experimental integrations, kept on the device,
+//! and the Teams preview it reveals. Slack and WhatsApp sit behind the same
+//! gate as server kinds of the login page.
 use adw::prelude::*;
+use gtk::glib;
 use std::rc::Rc;
+
+fn file() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs").join("experimental-providers")
+}
+
+pub fn enabled() -> bool {
+    file().exists()
+}
+
+pub(super) fn set_enabled(value: bool) -> std::io::Result<()> {
+    let file = file();
+    if value {
+        std::fs::create_dir_all(file.parent().expect("config dir"))?;
+        std::fs::write(file, "")
+    } else if file.exists() {
+        std::fs::remove_file(file)
+    } else {
+        Ok(())
+    }
+}
+
 pub struct Preview {
     pub root: gtk::Box,
-    pub stack: gtk::Stack,
-    slack: Rc<crate::slack_preview::Preview>,
-    _teams: Rc<crate::teams_preview::Preview>,
+    teams: Rc<crate::teams_preview::Preview>,
 }
+
 impl Preview {
     pub fn new() -> Rc<Self> {
-        let slack = crate::slack_preview::Preview::new();
         let teams = crate::teams_preview::Preview::new();
-        slack.root.set_visible(true);
-        let stack = gtk::Stack::new();
-        stack.add_titled(&slack.root, Some("slack"), "Slack");
-        stack.add_titled(&teams.root, Some("teams"), "Teams");
-        let switcher = gtk::StackSwitcher::builder().stack(&stack).halign(gtk::Align::Center).build();
-        let root = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(10)
-            .visible(crate::slack_preview::enabled())
-            .build();
-        root.append(&switcher);
-        root.append(&stack);
-        let this = Rc::new(Self { root, stack, slack, _teams: teams });
-        for child in [&this.slack.root, &this._teams.root] {
-            let root = this.root.clone();
-            child.connect_visible_notify(move |child| {
-                if !child.property::<bool>("visible") {
-                    root.set_visible(false);
-                }
-            });
-        }
+        let root = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).visible(enabled()).build();
+        root.append(&teams.root);
+        let this = Rc::new(Self { root, teams });
+        let root = this.root.clone();
+        this.teams.root.connect_visible_notify(move |child| {
+            if !child.property::<bool>("visible") {
+                root.set_visible(false);
+            }
+        });
         this
     }
-    pub(crate) fn smoke_slack_pairing(&self) {
-        self.stack.set_visible_child_name("slack");
-        self.slack.smoke_pairing();
-    }
+
     pub fn unlock(&self) {
+        // Shown even when the device refuses the setting: the gate is
+        // discoverability, and this session asked for it.
+        let _ = set_enabled(true);
         self.root.set_visible(true);
-        self.slack.unlock();
-        self._teams.root.set_visible(true);
+        self.teams.root.set_visible(true);
     }
 }

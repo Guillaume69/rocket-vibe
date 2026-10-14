@@ -110,7 +110,7 @@ impl Preview {
         hide.connect_clicked(move |_| {
             if let Some(this) = weak.upgrade() {
                 this.reset();
-                match crate::slack_preview::set_enabled(false) {
+                match crate::experimental_preview::set_enabled(false) {
                     Ok(()) => this.root.set_visible(false),
                     Err(_) => this.status.set_label(t("slack.unlockFailed")),
                 }

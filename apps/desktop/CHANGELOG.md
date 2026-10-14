@@ -16,6 +16,7 @@ section here.
 ### Fixed
 
 - Text messages send again on kChat accounts. Since 0.17.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
+- Deleting a message that failed to send removes it, instead of answering "Action refused".
 
 ## [0.20.0] - 2026-10-14
 

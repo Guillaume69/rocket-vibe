@@ -75,7 +75,7 @@ export class AuthorizedMediaCache {
         check();
         await this.files.mkdir(folder);
         check();
-        const status = await this.files.download(uri, partial, { Authorization: `Bearer ${lease.token}` }, (written, total) => {
+        const status = await this.files.download(uri, partial, { ...lease.headers }, (written, total) => {
           if (isMediaLeaseCurrent(lease)) progress?.(written, total);
         });
         check();

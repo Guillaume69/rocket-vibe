@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-14
+
 ### Fixed
 
 - Text messages send again on kChat accounts. Since 0.14.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
@@ -800,7 +802,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...HEAD
+[0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.16.0...mobile-v0.17.0
 [0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...mobile-v0.16.0

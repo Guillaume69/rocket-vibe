@@ -299,11 +299,11 @@ The rename is complete rather than cosmetic: binary and crate `vibez`, image `gh
 
 Sources: scripts/version.mjs; scripts/changelog.mjs; .github/workflows/server-release.yml; apps/server/CHANGELOG.md; apps/server/src/http.rs; apps/mobile/lib/provider.ts.
 
-## X posts from the server's metadata (2026-10-14)
+## X posts: server metadata, and X itself on Rocket.Chat only (2026-10-14)
 
-X post cards are filled only from what the server unfurled (OpenGraph), never from a client request to X's APIs (the syndication endpoint or a third-party mirror such as fxtwitter would give likes, every picture and quoted posts). The apps keep the rule of link previews: nothing scraped on the device, so reading a room tells no one but the chat server which posts were linked; only the images load from X, as for any preview. X serves its tags to ordinary user agents, so on Vibez and Mattermost the cards hold the author, text and first picture. The price is Rocket.Chat: 8.5 fetches X with a Googlebot agent that X refuses, so there the card holds only the handle from the link. See [x-posts](features/x-posts.md).
+X post cards are filled from what the server unfurled (OpenGraph): the rule of link previews, nothing scraped on the device, so reading a room tells no one but the chat server which posts were linked. X serves its tags to ordinary user agents, so on Vibez and Mattermost that is enough. Rocket.Chat 8.5 fetches X with a Googlebot agent that X refuses, so its cards were empty; the user chose (2026-10-14) to have the apps ask X themselves on Rocket.Chat accounts only, through the syndication endpoint of X's own embed widget rather than a third-party mirror (fxtwitter and the like), accepting that the device then tells X which posts it shows. Vibez, Mattermost, kChat and WhatsApp accounts never ask. See [x-posts](features/x-posts.md).
 
-Sources: apps/mobile/lib/linkPreview.ts; apps/desktop/crates/rv-core/src/content.rs; apps/server/src/link_previews/network.rs.
+Sources: apps/mobile/lib/linkPreview.ts; apps/mobile/lib/xSyndication.ts; apps/desktop/crates/rv-core/src/content.rs; apps/desktop/crates/rv-core/src/x_syndication.rs; apps/server/src/link_previews/network.rs.
 
 ## Sources
 

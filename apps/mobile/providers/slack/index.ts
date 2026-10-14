@@ -1,29 +1,31 @@
 /**
- * Assembles a Slack `Provider` for a session: read-only for now. Rooms,
- * badges, history and threads come over the Web API, live updates over the
- * RTM socket (messages, edits, deletions, reactions, reads, typing,
- * presence); every write, file and search is still to come, and the
- * capabilities hide them.
+ * Assembles a Slack `Provider` for a session. Rooms, badges, history and
+ * threads come over the Web API, live updates over the RTM socket. Text
+ * goes out through the outbox (roots, replies, replies also in the room),
+ * and edit, delete, react and mark read through the actions; files,
+ * search, pins and rooms are still to come, and the capabilities hide them.
  */
 
 import type { Session } from '../../lib/auth.ts';
-import type { Capabilities, FileOutbox, Listener, Outbox, Provider, ProviderActions, ProviderError } from '../../lib/provider.ts';
+import type { Capabilities, FileOutbox, Listener, Provider, ProviderError } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { slackClientFor } from './auth.ts';
+import { SlackActions } from './actions.ts';
 import { SlackCatchUp } from './catchUp.ts';
 import { SlackError } from './client.ts';
 import { SlackDirectory } from './directory.ts';
 import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
+import { SlackOutbox } from './outbox.ts';
 import { SlackRtm } from './rtm.ts';
 import { SlackTranslator } from './translator.ts';
 
 export const SLACK_CAPABILITIES: Capabilities = {
-  editing: false,
-  deletion: false,
+  editing: true,
+  deletion: true,
   files: false,
   threads: true,
-  reactions: false,
+  reactions: true,
   marks: false,
   profile: false,
   roomInfo: false,
@@ -33,12 +35,12 @@ export const SLACK_CAPABILITIES: Capabilities = {
   roomFavorites: false,
   roomReads: false,
   quotes: false,
-  alsoInRoom: false,
+  alsoInRoom: true,
   voice: false,
   administration: false,
   reports: false,
   scheduledMessages: false,
-  sending: false,
+  sending: true,
   typing: true,
   presence: false,
   push: false,
@@ -56,21 +58,7 @@ const unsupported = async (): Promise<never> => {
 };
 const noSubscription = () => () => {};
 
-export const SLACK_ACTIONS: ProviderActions = {
-  roomInfo: unsupported,
-  react: unsupported,
-  edit: unsupported,
-  delete: unsupported,
-  pin: unsupported,
-  unpin: unsupported,
-  star: unsupported,
-  listPinned: unsupported,
-  listStarred: unsupported,
-  markRead: unsupported,
-  openOrCreateDm: unsupported,
-};
-
-export function createSlackProvider(session: Session, rest: RestClient, options: SlackOptions = {}): Provider {
+export function createSlackProvider(session: Session, rest: RestClient, generateId: () => string, options: SlackOptions = {}): Provider {
   const client = slackClientFor(session, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new SlackDirectory(client, session.baseUrl);
   const roomNames = new Map<string, string>();
@@ -80,7 +68,7 @@ export function createSlackProvider(session: Session, rest: RestClient, options:
   const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
   const rtm = options.listener ?? new SlackRtm(client, (frame) => live.expand(frame));
   const listener = rtm;
-  const outbox: Outbox = { send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {} };
+  const actions = new SlackActions({ client, directory, history, live });
   const files: FileOutbox = {
     progress: new Map(), subscribe: noSubscription, validate: unsupported,
     send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {},
@@ -92,7 +80,7 @@ export function createSlackProvider(session: Session, rest: RestClient, options:
     capabilities: SLACK_CAPABILITIES,
     listener,
     translator,
-    actions: SLACK_ACTIONS,
+    actions,
     displayNames: {
       names: () => directory.displayNames(),
       statuses: () => new Map(),
@@ -111,7 +99,8 @@ export function createSlackProvider(session: Session, rest: RestClient, options:
     fetchMessage: (id) => history.fetch(id),
     historyPage: SLACK_HISTORY_PAGE,
     loadThread: (engine, threadId, isDiscarded) => history.loadThread(engine, threadId, isDiscarded),
-    createOutbox: () => outbox,
+    createOutbox: (store, ingest) =>
+      new SlackOutbox({ store, client, directory, me: { id: session.userId, username: session.username }, generateId, ingest }),
     createUploadQueue: () => files,
     catchUpGlobal: (engine, isDiscarded) => catchUp.global(engine, isDiscarded),
     catchUpRoom: (engine, rid, isDiscarded) => catchUp.room(engine, rid, isDiscarded),

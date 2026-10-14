@@ -12,7 +12,13 @@ export type SlackMethod =
   | 'conversations.replies'
   | 'users.info'
   | 'bots.info'
-  | 'client.counts';
+  | 'client.counts'
+  | 'chat.postMessage'
+  | 'chat.update'
+  | 'chat.delete'
+  | 'reactions.add'
+  | 'reactions.remove'
+  | 'conversations.mark';
 export type SlackArgs = Record<string, string | number | boolean | readonly unknown[] | Doc | undefined>;
 
 const API = 'https://slack.com/api/';
@@ -35,6 +41,8 @@ const CODES = new Set([
   ...SESSION_REJECTIONS,
   'missing_scope', 'not_allowed_token_type', 'no_permission', 'channel_not_found', 'not_in_channel', 'org_login_required',
   'ratelimited', 'user_not_found', 'bot_not_found', 'thread_not_found', 'invalid_cursor', 'unknown_method', 'method_deprecated',
+  'message_not_found', 'cant_update_message', 'cant_delete_message', 'edit_window_closed', 'msg_too_long', 'no_text',
+  'is_archived', 'restricted_action', 'already_reacted', 'no_reaction', 'too_many_reactions', 'invalid_name',
 ]);
 const MAX_RESPONSE = 2_000_000;
 const MAX_RETRY_WAIT_MS = 30_000;

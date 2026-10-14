@@ -68,6 +68,11 @@ export class SlackDirectory {
     return user === undefined ? null : (user.displayName ?? user.username);
   }
 
+  /** A known person's id by username, for an outgoing mention. */
+  idOfUsername(username: string): string | null {
+    return this.byUsername.get(username)?.id ?? null;
+  }
+
   nameOfUsername(username: string): string | null {
     const user = this.byUsername.get(username);
     return user === undefined ? null : (user.displayName ?? user.username);

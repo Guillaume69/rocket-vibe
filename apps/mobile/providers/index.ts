@@ -31,7 +31,7 @@ export function createProvider(
     case 'kchat':
       return createMattermostProvider(session, client, generateId);
     case 'slack':
-      return createSlackProvider(session, client);
+      return createSlackProvider(session, client, generateId);
     case 'whatsapp':
       // Built by `ui/sync.tsx` with its database and the engine module.
       throw new Error('WhatsApp provider requires its account store');

@@ -110,6 +110,39 @@ function reference(inner: string, resolve: Resolver): string {
   return label === null || label === '' ? url : `[${label.replace(/[[\]]/g, '\\$&')}](${url})`;
 }
 
+/**
+ * The app's markdown into Slack's mrkdwn, for what is sent. Code spans and
+ * blocks go as they are; known `@usernames` become `<@id>` and `@all` /
+ * `@here` Slack's broadcasts. Slack's three entities are escaped first, so a
+ * typed `<` never opens a Slack reference.
+ */
+export function markdownToMrkdwn(input: string, idOf: (username: string) => string | null): string {
+  const parts = input.split(/(```[\s\S]*?```|`[^`\n]+`)/);
+  return parts.map((part, i) => (i % 2 === 1 ? part : outgoing(part, idOf))).join('');
+}
+
+function outgoing(text: string, idOf: (username: string) => string | null): string {
+  const tokens: string[] = [];
+  const hold = (value: string) => {
+    tokens.push(value);
+    return `\u0000${tokens.length - 1}\u0000`;
+  };
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => hold(`<${url}|${label.replace(/\|/g, '/')}>`))
+    .replace(/(^|[^\w@])@([\w.-]+)/g, (m, before: string, name: string) => {
+      if (name === 'all' || name === 'channel' || name === 'everyone') return before + hold('<!channel>');
+      if (name === 'here') return before + hold('<!here>');
+      const id = idOf(name);
+      return id === null ? m : before + hold(`<@${id}>`);
+    })
+    .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, (_m, inner: string) => `\u0001${inner}\u0001`)
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, '$1_$2_')
+    .replace(/\u0001/g, '*')
+    .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '~$1~')
+    .replace(/\u0000(\d+)\u0000/g, (_m, n: string) => tokens[Number(n)]!);
+}
+
 function unescape(text: string): string {
   return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }

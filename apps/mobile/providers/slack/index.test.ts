@@ -34,16 +34,19 @@ class StubListener implements Listener {
   reset(): void {}
 }
 
-test('a read-only provider: live listener present, every write refused, a refused session reported', async () => {
+test('the provider: text writes on, the rest refused, a refused session reported', async () => {
   const rejected: string[] = [];
   const rest = { onTokenRejected: (token: string) => void rejected.push(token) } as unknown as RestClient;
   const server = fakeSlack(() => ({ body: { ok: false, error: 'token_revoked' } }));
-  const provider = createSlackProvider(SESSION, rest, { fetch: server.fetcher, listener: new StubListener() });
-  assert.equal(provider.capabilities.sending, false);
-  assert.equal(provider.capabilities.threads, true);
+  const provider = createSlackProvider(SESSION, rest, () => 'local-1', { fetch: server.fetcher, listener: new StubListener() });
+  assert.deepEqual(
+    [provider.capabilities.sending, provider.capabilities.editing, provider.capabilities.deletion, provider.capabilities.reactions, provider.capabilities.alsoInRoom],
+    [true, true, true, true, true],
+  );
+  assert.equal(provider.capabilities.files, false);
   assert.equal(provider.capabilities.typing, true);
-  await assert.rejects(provider.actions.react('C001', 'C001:1780000000.000001', 'eyes', true), (e) => e instanceof SlackError && e.code === 'unsupported');
-  await assert.rejects(provider.createOutbox({} as never, async () => {}).send('C001', 'hi'), SlackError);
+  await assert.rejects(provider.actions.pin('C001', 'C001:1780000000.000001'), (e) => e instanceof SlackError && e.code === 'unsupported');
+  await assert.rejects(provider.actions.react('C001', 'C002:1780000000.000001', 'eyes', true), (e) => e instanceof SlackError && e.code === 'message_not_found');
   const local = memoryStore();
   const engine = new SyncEngine(local.store, provider.translator);
   await assert.rejects(provider.catchUpGlobal(engine, () => false), (e) => provider.describeError(e, true).rejectsSession);

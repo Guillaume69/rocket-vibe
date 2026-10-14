@@ -68,7 +68,7 @@ Mobile's optimistic message and outbox entry commit together through `enqueueMes
 
 **Reconnection** (`Session::listen`): on `Lost`, wait `1 s << min(attempt, 5)` capped at 30 s plus up to 1 s jitter, then reopen; `Authenticated` resets the attempt count. The connection status button calls `reconnect_now` (`apps/desktop/crates/rv-gtk/src/chat.rs`, `reconnectNow` in the SwiftUI `AppModel`). There is no background suspension: the socket stays open while the app runs.
 
-**Outbox** (`apps/desktop/crates/rv-core/src/outbox.rs`) follows the mobile design: client `_id`, optimistic row at `updated_at = 0`, ordered re-entrant passes, `chat.getMessage` with three verdicts (`Delivered::Yes`, `No`, `Unknown` on network error, 429 or 5xx), encryption at departure. Failed rows return to pending on `retry`. Uploads interrupted mid-send are put back to pending when the queue starts (`rearm_sending_uploads`).
+**Outbox** (`apps/desktop/crates/rv-core/src/outbox.rs`) follows the mobile design: client `_id`, optimistic row at `updated_at = 0`, ordered re-entrant passes, `chat.getMessage` with three verdicts (`Delivered::Yes`, `No`, `Unknown` on network error, 429 or 5xx), encryption at departure. Failed rows return to pending on `retry`; deleting one discards it locally (`Outbox::discard`, called first by `Session::delete`), the server never having had it. Uploads interrupted mid-send are put back to pending when the queue starts (`rearm_sending_uploads`).
 
 **Session death.** A rejected token on the current session emits `SessionEvent::Expired`; the GTK window and the SwiftUI app (through `rv-ffi`) go back to login.
 

@@ -148,9 +148,11 @@ call id is the room's page in Slack's web app with `?open=start_huddle`
 ignored, and a stored one is rewritten on join (`huddle_page` / `huddlePage`). Once
 over, an ended call (`videoconf-ended`) with the length from `date_start`/`date_end`. The end arrives as an edit of the same message. The room
 header's call button and the card's Join both open that Slack page
-(`Session::start_call` / `join_call`): on GTK in the call window like any call (on
-Linux an app window of a Chromium browser with its own profile, `call_window.rs`, where
-Slack is signed in once), on macOS and Android in the browser (`CallWindow.show`,
+(`Session::start_call` / `join_call`): on GTK in a call window already signed in
+(`browser_login::open_signed_in`, `Session::open_huddle_window`, `ChatView::open_call`):
+an app window of a Chromium browser on a temporary profile whose `d` cookie is set over
+the debugging protocol (`Storage.setCookies`) before the page loads, the profile deleted
+when the window closes, the ordinary call window if that fails, on macOS and Android in the browser (`CallWindow.show`,
 `providers/slack/calls.ts` and the Slack branch of `app/call/[callId].tsx`, which asks
 no camera permission). Huddle media has no session API: no native participation. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.

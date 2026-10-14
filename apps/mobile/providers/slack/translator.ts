@@ -275,7 +275,7 @@ export class SlackTranslator implements Translator {
       threadShown: reply && subtype === 'thread_broadcast',
       editedAt,
       md: null,
-      attachments: cards(raw.attachments),
+      attachments: joinAttachments(slackFiles(raw.files), cards(raw.attachments)),
       reactions: this.reactions(raw.reactions),
       urls: null,
       callId: huddle?.callId ?? null,
@@ -307,7 +307,7 @@ export class SlackTranslator implements Translator {
       readOnly: false,
       dmOtherUid: other,
       dmOtherUsername: otherName,
-      lastMessage: lastMessage?.systemType === null ? lastMessage.text : null,
+      lastMessage: lastMessage?.systemType === null ? (lastMessage.text || firstTitle(lastMessage.attachments)) : null,
       lastMessageType: lastMessage?.systemType ?? null,
       lastMessageTs: lastMessage?.ts ?? latest,
       keepPreview: doc.lastMessage === undefined,
@@ -355,13 +355,7 @@ export class SlackTranslator implements Translator {
   }
 
   private body(raw: Doc): string {
-    const text = mrkdwnToMarkdown(str(raw.text) ?? '', this.resolver);
-    const files = Array.isArray(raw.files)
-      ? raw.files.flatMap((f) => str(record(f)?.name) ?? str(record(f)?.title) ?? [])
-      : [];
-    if (files.length === 0) return text;
-    const line = `📎 ${files.join(', ')}`;
-    return text === '' ? line : `${text}\n${line}`;
+    return mrkdwnToMarkdown(str(raw.text) ?? '', this.resolver);
   }
 
   private reactions(raw: unknown): string | null {
@@ -401,6 +395,59 @@ export class SlackTranslator implements Translator {
 function latestMs(counts: unknown): number | null {
   const latest = record(counts)?.latest;
   return isTimestamp(latest) ? timestampMs(latest) : null;
+}
+
+/** Where Slack serves files to a session: its `d` cookie authenticates them, as it does the API. */
+export const SLACK_FILES = 'https://files.slack.com';
+
+const fileLink = (value: unknown): string | null => {
+  const link = str(value);
+  return link !== null && link.startsWith(`${SLACK_FILES}/`) ? link : null;
+};
+
+/**
+ * A message's files, in the attachment shape Rocket.Chat's files already
+ * render: images from their largest thumbnail, video and audio played from
+ * the file itself. Deleted files and files of other services are left out.
+ */
+export function slackFiles(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.flatMap((item) => {
+    const file = record(item);
+    const link = fileLink(file?.url_private);
+    if (file === null || link === null || file.mode === 'tombstone' || file.mode === 'hidden_by_limit' || file.mode === 'external') return [];
+    const mime = str(file.mimetype) ?? 'application/octet-stream';
+    const size = num(file.size);
+    const a: Doc = { title: str(file.name) ?? str(file.title) ?? str(file.id) ?? 'file', title_link: fileLink(file.url_private_download) ?? link, type: 'file', size };
+    if (mime.startsWith('image/')) {
+      a.image_url = fileLink(file.thumb_720) ?? fileLink(file.thumb_480) ?? fileLink(file.thumb_360) ?? link;
+      a.image_type = mime;
+      a.image_size = size;
+      const width = num(file.original_w), height = num(file.original_h);
+      if (width > 0 && height > 0) a.image_dimensions = { width, height };
+    } else if (mime.startsWith('video/')) {
+      a.video_url = link;
+      a.video_type = mime;
+      a.video_size = size;
+    } else if (mime.startsWith('audio/')) {
+      a.audio_url = link;
+      a.audio_type = mime;
+      a.audio_size = size;
+    }
+    return [a];
+  });
+  return out.length === 0 ? null : JSON.stringify(out);
+}
+
+function joinAttachments(files: string | null, legacy: string | null): string | null {
+  if (files === null || legacy === null) return files ?? legacy;
+  return JSON.stringify([...(JSON.parse(files) as unknown[]), ...(JSON.parse(legacy) as unknown[])]);
+}
+
+function firstTitle(attachments: string | null): string | null {
+  if (attachments === null) return null;
+  const first = (JSON.parse(attachments) as Doc[])[0];
+  return str(first?.title) ?? str(first?.text);
 }
 
 /** Legacy message attachments, in the card shape Rocket.Chat's attachments already render. */

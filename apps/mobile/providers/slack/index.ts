@@ -18,7 +18,8 @@ import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
 import { SlackOutbox } from './outbox.ts';
 import { SlackRtm } from './rtm.ts';
-import { SlackTranslator } from './translator.ts';
+import { SLACK_FILES, SlackTranslator } from './translator.ts';
+import { setMediaLease } from '../../lib/mediaAuth.ts';
 import { slackCalls } from './calls.ts';
 import type { CustomEmoji } from '../../lib/customEmojis.ts';
 
@@ -78,6 +79,7 @@ const unsupported = async (): Promise<never> => {
 const noSubscription = () => () => {};
 
 export function createSlackProvider(session: Session, rest: RestClient, generateId: () => string, options: SlackOptions = {}): Provider {
+  if (session.slackCookie) setMediaLease(SLACK_FILES, session.authToken, session.userId, { Authorization: `Bearer ${session.authToken}`, Cookie: `d=${session.slackCookie}` });
   const client = slackClientFor(session, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new SlackDirectory(client, session.baseUrl);
   const roomNames = new Map<string, string>();

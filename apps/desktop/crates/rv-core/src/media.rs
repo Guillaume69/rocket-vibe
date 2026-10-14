@@ -208,10 +208,13 @@ impl MediaCache {
     }
 }
 
-/// The profile image of the person a Rocket.Chat avatar path names. A room has
-/// no photo there, and nothing else of the server's is read this way.
+/// The profile image of the person a Rocket.Chat avatar path names, a custom
+/// emoji or a file on Slack's file host. A room has no photo there, and
+/// nothing else of the server's is read this way.
 fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
-    if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN) {
+    if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN)
+        || url::Url::parse(path_or_url).is_ok_and(|url| crate::slack::translate::file_host(&url))
+    {
         return Ok(path_or_url.to_owned());
     }
     let none = || RestError::incomplete(&format!("{path_or_url}: no photo"));
@@ -271,6 +274,15 @@ impl MediaCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slack_reads_its_file_host_and_nothing_else_of_the_web() {
+        let directory = crate::slack::directory::Directory::default();
+        let file = "https://files.slack.com/files-tmb/T1-F1-x/a_360.png";
+        assert_eq!(slack_path(&directory, file).unwrap(), file);
+        assert!(slack_path(&directory, "https://files.slack.com.evil.example/a.png").is_err());
+        assert!(slack_path(&directory, "http://files.slack.com/a.png").is_err());
+    }
 
     #[test]
     fn protected_disk_cache_keys_separate_accounts_servers_and_punctuation() {

@@ -8,15 +8,17 @@
  *
  * The echo is only a short-lived server cache, not stored: a replay much later
  * cannot rely on it. A persisted `props.rocket_vibe_client_id` identifies the
- * operation. Before declaring a refusal, the newest posts of the room
- * are read for that marker; and before REPLAYING
- * a row that may already have gone out (sent once in this session whose answer
- * was lost, or queued before this outbox started, so before a restart), the
- * same look comes first, or the replay would post a duplicate once the cache
- * has forgotten the id. An unmarked legacy text match is uncertain, retained
- * as failed until the user explicitly retries. A replay that races the first POST still being saved
- * answers `api.post.deduplicate_create_post.pending`: the post is coming, the
- * row stays pending and is looked for again a moment later.
+ * operation, except on kChat, which refuses any `props` key it does not know
+ * with 422 (probed). Before declaring a refusal, the newest posts of the room
+ * are read for that marker; and before REPLAYING a row that may already have
+ * gone out (sent once in this session whose answer was lost, or queued before
+ * this outbox started, so before a restart), the same look comes first, or the
+ * replay would post a duplicate once the cache has forgotten the id. An
+ * unmarked text match (a legacy post, or any post on kChat) is uncertain,
+ * retained as failed until the user explicitly retries. A replay that races the
+ * first POST still being saved answers
+ * `api.post.deduplicate_create_post.pending`: the post is coming, the row stays
+ * pending and is looked for again a moment later.
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
@@ -26,7 +28,7 @@ import { MmError, type MmClient } from './client.ts';
 import { ordered } from './history.ts';
 
 const UNKNOWN = Symbol('delivery unknown');
-const AMBIGUOUS = Symbol('legacy delivery ambiguous');
+const AMBIGUOUS = Symbol('unmarked delivery ambiguous');
 const DELIVERY_UNCERTAIN = 'Delivery could not be confirmed. Check the conversation before retrying.';
 
 /**
@@ -58,6 +60,7 @@ export class MmOutbox implements Outbox {
   private readonly explicitRetries = new Set<string>();
   private readonly startedAt: number;
   private readonly later: (run: () => void) => void;
+  private readonly marked: boolean;
 
   constructor(options: {
     store: OutboxStore;
@@ -68,6 +71,8 @@ export class MmOutbox implements Outbox {
     now?: () => number;
     /** Runs a pass again later (a post still being saved); a timer by default. */
     later?: (run: () => void) => void;
+    /** Whether posts carry `props.rocket_vibe_client_id`; kChat refuses it. */
+    marked?: boolean;
   }) {
     this.store = options.store;
     this.client = options.client;
@@ -77,6 +82,7 @@ export class MmOutbox implements Outbox {
     this.now = options.now ?? (() => Date.now());
     this.startedAt = this.now();
     this.later = options.later ?? ((run) => void setTimeout(run, SAVING_RETRY_MS));
+    this.marked = options.marked ?? true;
   }
 
   async send(rid: string, text: string, threadId: string | null = null, localAttachments: string | null = null): Promise<string> {
@@ -155,7 +161,7 @@ export class MmOutbox implements Outbox {
       this.attempted.add(row.id);
       try {
         const post = await this.client.post<Record<string, unknown>>('/posts', {
-          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id), props: { rocket_vibe_client_id: row.id } },
+          body: { channel_id: row.rid, message: row.text, root_id: row.threadId ?? '', pending_post_id: pendingPostId(this.me.id, row.id), ...(this.marked ? { props: { rocket_vibe_client_id: row.id } } : {}) },
         });
         await this.delivered(row.id, post);
       } catch (e) {

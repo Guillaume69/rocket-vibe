@@ -73,6 +73,7 @@ pub async fn allowed(session: &Arc<Session>, row: &MessageRow, room: &RoomContex
         pinned: row.pinned,
         starred: row.starred_by(&session.info.user_id),
         now: chrono::Utc::now().timestamp_millis(),
+        outbox: row.outbox_status.as_deref(),
     };
     actions::possible_actions(&ctx)
 }
@@ -207,18 +208,20 @@ fn menu(
             Action::Delete => {
                 let (s, rid, id, h) = (session.clone(), room.rid.clone(), row.id.clone(), handlers.clone());
                 let parent = popover.parent();
+                let unsent = row.outbox_status.is_some();
                 let button = run(
                     t("actions.delete"),
                     Box::new(move || {
                         let (s, rid, id, h) = (s.clone(), rid.clone(), id.clone(), h.clone());
-                        confirm_delete(parent.as_ref(), move || {
+                        let delete = move || {
                             let (s, rid, id, h) = (s.clone(), rid.clone(), id.clone(), h.clone());
                             glib::spawn_future_local(async move {
                                 if on_tokio(async move { s.delete(&rid, &id).await }).await.is_err() {
                                     (h.toast)(t("actions.refused").to_owned());
                                 }
                             });
-                        });
+                        };
+                        if unsent { delete() } else { confirm_delete(parent.as_ref(), delete) }
                     }),
                 );
                 button.add_css_class("destructive");

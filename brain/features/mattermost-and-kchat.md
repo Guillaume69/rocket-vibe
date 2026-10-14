@@ -181,7 +181,7 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 
 ### Sending
 
-- `MmOutbox`: the client id leaves as `pending_post_id` and persisted `props.rocket_vibe_client_id`, the real post (server
+- `MmOutbox`: the client id leaves as `pending_post_id` and persisted `props.rocket_vibe_client_id` (not on kChat, `marked: false`: it refuses unknown `props` keys with 422), the real post (server
   id) replaces the optimistic row. A refusal is checked against the room's newest
   posts before marking the row failed, and so is a row about to be sent again
   when it may already have gone out (its answer lost in this session, or queued
@@ -312,7 +312,7 @@ there, so the UIs read the same store:
 - `mattermost::socket`: one actor for both dialects, Mattermost's
   `authentication_challenge` or kChat's Pusher (`mattermost::pusher`), a ping every
   30 s, `Lost` after 75 s of silence, the reconnection back-off of DDP.
-- `Outbox` and `Uploads` branch on it: `pending_post_id`, persisted `props.rocket_vibe_client_id` for text sends, my newest posts read
+- `Outbox` and `Uploads` branch on it: `pending_post_id`, persisted `props.rocket_vibe_client_id` for text sends (left out on kChat, `MmSync::kchat`), my newest posts read
   before a refusal and before replaying a row that may already have gone out
   (attempted in this session, or queued before the outbox started). An exact marker proves delivery; ambiguous legacy text matches or an insufficient lookup window stay failed until explicit retry;
   `api.post.deduplicate_create_post.pending` keeps the row pending for the next

@@ -87,6 +87,8 @@ pub struct ActionContext<'a> {
     /// I starred it.
     pub starred: bool,
     pub now: i64,
+    /// Still in the outbox (`pending` or `failed`): the server does not have it.
+    pub outbox: Option<&'a str>,
 }
 
 fn within(ctx: &ActionContext, minutes: i64) -> bool {
@@ -105,6 +107,16 @@ pub fn has_actions(system_type: Option<&str>, text: Option<&str>) -> bool {
 pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     if !has_actions(ctx.system_type, ctx.text) {
         return Vec::new();
+    }
+    if let Some(status) = ctx.outbox {
+        let mut out = Vec::new();
+        if copyable_text(ctx.text).is_some() {
+            out.push(Action::Copy);
+        }
+        if status == "failed" {
+            out.push(Action::Delete);
+        }
+        return out;
     }
     let mut out = Vec::new();
     if !ctx.read_only {
@@ -478,7 +490,20 @@ mod tests {
             pinned: false,
             starred: false,
             now: age_min * 60_000,
+            outbox: None,
         }
+    }
+
+    #[test]
+    fn an_unsent_message_offers_only_local_actions() {
+        let s = settings();
+        let perms = vec!["edit-message".to_owned(), "delete-message".to_owned(), "pin-message".to_owned()];
+        let mut failed = ctx(&s, &perms, "me", 0);
+        failed.outbox = Some("failed");
+        assert_eq!(possible_actions(&failed), vec![Action::Copy, Action::Delete]);
+        let mut pending = ctx(&s, &perms, "me", 0);
+        pending.outbox = Some("pending");
+        assert_eq!(possible_actions(&pending), vec![Action::Copy]);
     }
 
     #[test]

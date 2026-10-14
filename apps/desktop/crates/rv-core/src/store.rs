@@ -1289,6 +1289,21 @@ impl Writer<'_> {
     pub fn delete_outbox(&mut self, id: &str) {
         self.outbox_update("DELETE FROM outbox WHERE id = ?1 RETURNING rid", params![id]);
     }
+
+    /// A failed send given up: its row and its optimistic message go. False when
+    /// `id` is not a failed send.
+    pub fn discard_failed_outbox(&mut self, id: &str) -> bool {
+        let gone: Option<String> = self
+            .conn
+            .query_row("DELETE FROM outbox WHERE id = ?1 AND status = 'failed' RETURNING rid", [id], |r| r.get(0))
+            .optional()
+            .ok()
+            .flatten();
+        if gone.is_some() {
+            self.delete_message(id);
+        }
+        gone.is_some()
+    }
 }
 
 #[cfg(test)]

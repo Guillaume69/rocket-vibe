@@ -159,7 +159,7 @@ export function createMattermostProvider(
     historyPage: MM_HISTORY_PAGE,
     loadThread: (engine, threadId, isDiscarded) => history.loadThread(engine, threadId, isDiscarded),
     createOutbox(store: OutboxStore, ingest: Ingest): Outbox {
-      return new MmOutbox({ store, client, me: { id: session.userId, username: session.username }, generateId, ingest });
+      return new MmOutbox({ store, client, me: { id: session.userId, username: session.username }, generateId, ingest, marked: !kchat });
     },
     createUploadQueue(
       store: UploadStore,

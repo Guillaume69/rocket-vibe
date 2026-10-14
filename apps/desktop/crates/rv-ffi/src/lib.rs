@@ -1097,6 +1097,7 @@ impl Chat {
             pinned: row.pinned,
             starred: row.starred_by(&s.info.user_id),
             now: chrono::Utc::now().timestamp_millis(),
+            outbox: row.outbox_status.as_deref(),
         };
         let possible = rv_core::actions::possible_actions(&ctx);
         Some((row, possible))

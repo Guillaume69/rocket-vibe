@@ -34,7 +34,7 @@ function outboxStore() {
   return { store, rows, messages };
 }
 
-function setup(route: Parameters<typeof fakeServer>[0]) {
+function setup(route: Parameters<typeof fakeServer>[0], marked = true) {
   const server = fakeServer(route);
   const local = outboxStore();
   const ingested: Record<string, unknown>[] = [];
@@ -44,6 +44,7 @@ function setup(route: Parameters<typeof fakeServer>[0]) {
     me: { id: 'u-me', username: 'me' },
     generateId: () => 'local1',
     ingest: async (doc) => void ingested.push(doc),
+    marked,
   });
   return { outbox, server, ingested, ...local };
 }
@@ -60,6 +61,30 @@ describe('MmOutbox', () => {
     assert.equal(ingested[0]?.id, 'real1');
     assert.equal(rows.size, 0);
     assert.equal(messages.has('local1'), false);
+  });
+
+  test('kChat refuses unknown props: an unmarked outbox sends none', async () => {
+    const { outbox, server, ingested, rows } = setup((call) =>
+      call.method === 'POST' && call.path === '/posts'
+        ? (call.body as Record<string, unknown>).props === undefined
+          ? { status: 201, body: post('real1', { message: 'hi' }) }
+          : { status: 422, body: { message: 'Le champ props doit être un tableau.' } }
+        : { status: 200, body: postList([]) },
+    false);
+    await outbox.send('ch1', 'hi');
+    assert.equal(ingested[0]?.id, 'real1');
+    assert.equal(rows.size, 0);
+  });
+
+  test('kChat: with no marker, my own matching post leaves a refused send uncertain, never delivered', async () => {
+    const { outbox, server, ingested, rows } = setup((call) => {
+      if (call.method === 'POST') return { status: 500, body: { message: 'boom' } };
+      return { body: postList([post('real1', { user_id: 'u-me', message: 'hi', create_at: Date.now() })]) };
+    }, false);
+    await outbox.send('ch1', 'hi');
+    assert.equal(ingested.length, 0);
+    assert.equal(rows.get('local1')?.status, 'failed');
+    assert.equal(server.calls.filter((c) => c.method === 'POST').length, 1);
   });
 
   test('unreachable network: the row waits, the optimistic message stays', async () => {

@@ -238,7 +238,11 @@ struct MessageList: View {
                         MessageRow(
                             message: message, model: model, editing: editing == message.id,
                             revealed: model.reveal == message.id,
-                            setEditing: { editing = $0 }, askDelete: { deleting = $0 }
+                            setEditing: { editing = $0 },
+                            askDelete: { message in
+                                guard message.delivery == .failed else { deleting = message; return }
+                                Task { do { try await model.delete(message) } catch { app.notice = model.mutationError(error) } }
+                            }
                         )
                         .equatable()
                         .id(message.id)

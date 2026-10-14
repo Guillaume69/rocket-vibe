@@ -305,6 +305,12 @@ X post cards are filled from what the server unfurled (OpenGraph): the rule of l
 
 Sources: apps/mobile/lib/linkPreview.ts; apps/mobile/lib/xSyndication.ts; apps/desktop/crates/rv-core/src/content.rs; apps/desktop/crates/rv-core/src/x_syndication.rs; apps/server/src/link_previews/network.rs.
 
+## kChat sends carry no delivery marker (2026-10-14)
+
+kChat answers 422 to a post whose `props` hold any key it does not know, so the text outboxes leave out `props.rocket_vibe_client_id` on kChat accounts. With no marker, a lost answer can only be checked by text, which cannot tell this send from an earlier identical one. The outboxes keep such a row as a visible "delivery could not be confirmed" failure rather than replay it: a duplicate post is worse than a failure the user can discard, and `pending_post_id` deduplication is only a short-lived cache. Mattermost keeps the marker.
+
+Sources: apps/mobile/providers/mattermost/outbox.ts; apps/desktop/crates/rv-core/src/outbox.rs; docs/MATTERMOST.md.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Text messages send again on kChat accounts. Since 0.14.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
+
 ## [0.18.0] - 2026-10-14
 
 ### Added

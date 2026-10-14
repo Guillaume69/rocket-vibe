@@ -108,6 +108,17 @@ impl Outbox {
         id
     }
 
+    /// Drops a failed send locally, the server never having taken it. False when
+    /// `id` is not a failed send.
+    pub fn discard(&self, id: &str) -> bool {
+        let gone = self.store.write(|w| w.discard_failed_outbox(id));
+        if gone {
+            self.attempted.lock().unwrap().remove(id);
+            self.explicit_retries.lock().unwrap().remove(id);
+        }
+        gone
+    }
+
     pub fn retry(&self, id: &str) {
         self.store.write(|w| w.mark_outbox_pending(id));
         self.explicit_retries.lock().unwrap().insert(id.to_owned());
@@ -213,10 +224,13 @@ impl Outbox {
                 }
             }
             self.attempted.lock().unwrap().insert(entry.id.clone());
-            let body = json!({"channel_id": entry.rid, "message": entry.text,
+            let mut body = json!({"channel_id": entry.rid, "message": entry.text,
                 "root_id": entry.thread_id.clone().unwrap_or_default(),
-                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id),
-                "props": {"rocket_vibe_client_id": entry.id}});
+                "pending_post_id": crate::mattermost::pending_post_id(&self.me_id, &entry.id)});
+            // kChat refuses any `props` key it does not know with 422 (probed).
+            if !mm.kchat() {
+                body["props"] = json!({"rocket_vibe_client_id": entry.id});
+            }
             let post = match self.rest.post("posts", CallOptions::body(body)).await {
                 Ok(post) => post,
                 Err(e) if e.status == 0 => return false,

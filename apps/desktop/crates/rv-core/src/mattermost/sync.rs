@@ -54,8 +54,9 @@ pub struct MmSync {
     rest: RestClient,
     pub directory: Arc<Directory>,
     me: String,
-    /// kChat lists deletions on their own route; upstream returns them in `since`.
-    deleted_route: bool,
+    /// kChat lists deletions on their own route (upstream returns them in
+    /// `since`) and refuses a post whose `props` carry a key it does not know.
+    kchat: bool,
     live: Mutex<Live>,
     /// Post ids by creation instant, per room: the screen pages by instant,
     /// Mattermost by post id.
@@ -98,7 +99,7 @@ pub fn ordered(list: &Value) -> Vec<Value> {
 }
 
 impl MmSync {
-    pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_username: &str, deleted_route: bool) -> Self {
+    pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_username: &str, kchat: bool) -> Self {
         let directory = Arc::new(Directory::default());
         directory.remember(User {
             id: me.to_owned(),
@@ -111,7 +112,7 @@ impl MmSync {
             rest,
             directory,
             me: me.to_owned(),
-            deleted_route,
+            kchat,
             live: Mutex::default(),
             index: Mutex::default(),
             flagged: Mutex::default(),
@@ -455,7 +456,7 @@ impl MmSync {
         }
         let mut gone: Vec<String> =
             posts.iter().filter(|p| deleted(p)).filter_map(|p| text(p, "id").map(str::to_owned)).collect();
-        if self.deleted_route {
+        if self.kchat {
             let ids = self
                 .rest
                 .get(&format!("channels/{rid}/deleted_posts"), CallOptions::params([("since", since.to_string())]))
@@ -806,6 +807,10 @@ impl MmSync {
 
     pub fn me(&self) -> &str {
         &self.me
+    }
+
+    pub fn kchat(&self) -> bool {
+        self.kchat
     }
 
     pub fn team_of(&self, rid: &str) -> Option<String> {

@@ -406,9 +406,9 @@ ids, `[{user_id, status}]`.
   client operation id, except on kChat, which answers 422 "Le champ props doit
   être un tableau." to any `props` key it does not know (`disable_group_highlight`
   passes, a custom key fails whatever its value) [kChat, probed]: there no post
-  carries the marker and every match is an unmarked one. Before declaring a refusal or automatically replaying
-  a potentially delivered send, the apps read the room's 30 newest posts for
-  that exact marker and author/channel. An unmarked legacy match on text/thread
+  carries the marker and every match is an unmarked one. Before declaring a
+  refusal or automatically replaying a potentially delivered send, the apps read the room's 30 newest posts for
+  that exact marker and author/channel. An unmarked match (a legacy post, or any post on kChat) on text/thread
   within two minutes of the queued time is ambiguous, not proof of delivery:
   retain it as failed and ask the user to check the conversation before retrying.
   A full page entirely newer than the lookup boundary is ambiguous too, since

@@ -52,7 +52,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 **Background.** The socket closes on background and push takes over; on return, the full connection setup runs again. Presence is never persisted and is cleared when the socket drops.
 
-Mobile's optimistic message and outbox entry commit together through `enqueueMessage`; a failed queue write rolls back both. Mattermost on mobile and desktop persists `props.rocket_vibe_client_id` for text sends (not kChat, which refuses unknown `props` keys with 422). Only its exact marker with the account/channel confirms delivery. Unmarked legacy text matches and a history page that does not cover the send's time remain visible as failed until explicit retry.
+Mobile's optimistic message and outbox entry commit together through `enqueueMessage`; a failed queue write rolls back both. Mattermost on mobile and desktop persists `props.rocket_vibe_client_id` for text sends (not kChat, which refuses unknown `props` keys with 422). Only its exact marker with the account/channel confirms delivery. Unmarked text matches (legacy posts, and every post on kChat, so a kChat send whose answer was lost always ends uncertain) and a history page that does not cover the send's time remain visible as failed until explicit retry.
 
 ## Desktop
 

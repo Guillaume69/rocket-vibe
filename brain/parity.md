@@ -74,6 +74,7 @@ beta does.
 | Author grouping (5 min), day separators, time | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mark as read on open and while viewing | done | done | done | done | Mobile throttles with a 10 s floor; desktop needs the window focused and scrolled to the bottom. Web: Captured 1.5-second root reads, including no-scroll workflow arrivals, cancel on navigation; modal/history and controlled visibility-event cases qualified in tests/reads.mjs. |
 | Edited marker, sending state, failed with retry | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
+| Unsent text message: no server action, a failed one discarded locally | partial | done | done | partial | Android: Retry and Discard on the row, no action sheet (`app/room/[rid].tsx`). GTK and SwiftUI: the menu offers Copy, plus Delete (an unconfirmed discard) once failed (`rv-core/src/actions.rs`, `Session::delete`). Web: Cancel on a failed pending row (`src/ui/application.tsx`). Android and Web owe Copy on an unsent message. See [message-actions](features/message-actions.md). |
 | Markdown from the server's `md`, local parse as fallback | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | `mailto:` links open | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
 | Mentions of me highlighted apart from other mentions | done | done | done | done | Web: Native provider: see [web-client](features/web-client.md). |
@@ -298,7 +299,7 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | Local SQLite per (server, account), screens read the database | done | done | done | mapped | Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
-| Text outbox surviving restarts, retry on reconnection | done | done | done | done | Mobile commits the optimistic row and queue entry together. Mattermost/kChat on installed clients recover by persistent operation marker; ambiguous legacy matches or incomplete history coverage stay visible for explicit retry. Web: Offline reload retains the durable operation and reconnect sends it once in tests/browser.mjs. Actual withdrawal/rejoin prevents stale replay in tests/features.mjs; deterministic outbox cases cover continuation and lifetime fencing. |
+| Text outbox surviving restarts, retry on reconnection | done | done | done | done | Mobile commits the optimistic row and queue entry together. Mattermost on installed clients recovers by persistent operation marker; kChat refuses the marker (unknown `props` key, 422), so a kChat send whose answer was lost ends as a visible "delivery could not be confirmed" failure; unmarked matches or incomplete history coverage stay visible for explicit retry. Web: Offline reload retains the durable operation and reconnect sends it once in tests/browser.mjs. Actual withdrawal/rejoin prevents stale replay in tests/features.mjs; deterministic outbox cases cover continuation and lifetime fencing. |
 | Reconnection with back-off, dead-socket probe, catch-up after the subscriptions are armed | done | done | done | partial | Web: Actual offline reload/reconnect and durable replay pass tests/browser.mjs; rotation/lost-response/two-tab recovery passes tests/sessions.mjs. A dedicated dead-socket timeout case remains unqualified. |
 | Rooms deleted server-side purged locally | done | partial | partial | partial | Desktop purges without mobile's snapshot taken before the request: a room created meanwhile can be purged until the next catch-up. Web: Actual membership withdrawal purges protected views/cache and fences old operations in media/images/features/voice tests. Whole-room deletion needs a separate browser case. |
 | `chat.syncMessages` catch-up of edits and deletions | done | partial | partial | mapped | Desktop catches a room up once per session: a deletion in a room already caught up while another was open stays visible until it is caught up again. Web: Native browser storage/HTTP/socket, HTTPS links, downloads and live-tab alerts; see web-client.md. |
@@ -354,6 +355,7 @@ beta does.
 
 ## Open debt
 
+- **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
 - **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Android owes nothing of the desktop's set (live checks of notifications and sends pending); SwiftUI owes the whole account. Web is `n/a` (serving origin only).
 
 Mattermost/kChat protected-copy isolation and logout cleanup are implemented on mobile, GTK and SwiftUI. Automatic revocation of kChat's account-wide Infomaniak OAuth token remains unqualified on all three; local sign-out does not claim that token is invalidated.

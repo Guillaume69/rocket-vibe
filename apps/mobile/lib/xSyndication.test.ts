@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { parseSyndication, syndicationToken } from './xSyndication.ts';
+import { fetchXPost, parseSyndication, syndicationToken } from './xSyndication.ts';
 
 // Cut from X's real `tweet-result` answers (probed 2026-10-14).
 const PHOTO = {
@@ -56,11 +56,11 @@ describe('parseSyndication', () => {
     assert.equal(r.avatar, null);
   });
 
-  test('display range counts code points, links show expanded, entities decoded', () => {
+  test('display range counts code points of the ESCAPED text, links show expanded, entities decoded', () => {
     const r = parseSyndication({
       __typename: 'Tweet',
       text: '@bob 🚀 see https://t.co/abc &amp; more',
-      display_text_range: [5, 34],
+      display_text_range: [5, 38],
       entities: { urls: [{ url: 'https://t.co/abc', display_url: 'example.com/page', expanded_url: 'https://example.com/page' }] },
       user: { screen_name: 'alice' },
     })!;
@@ -68,6 +68,30 @@ describe('parseSyndication', () => {
     assert.equal(r.name, 'alice');
     assert.equal(r.image, null);
     assert.equal(r.imageKind, null);
+  });
+
+  test("X's real answer for a post with an ampersand (escaped indices, probed 2026-10-14)", () => {
+    const r = parseSyndication({
+      __typename: 'Tweet',
+      text: 'To an exciting &amp; inspiring future! https://t.co/WUIqN7B2F6',
+      display_text_range: [0, 38],
+      user: { screen_name: 'a' },
+      mediaDetails: [{ type: 'photo', indices: [39, 62], media_url_https: 'https://pbs.twimg.com/media/b.jpg' }],
+    })!;
+    assert.equal(r.text, 'To an exciting & inspiring future!');
+  });
+
+  test('fallbacks: photos[0], a poster without mediaDetails, an animated GIF', () => {
+    const photo = parseSyndication({ __typename: 'Tweet', text: 'p', photos: [{ url: 'https://pbs.twimg.com/media/p.jpg' }] })!;
+    assert.deepEqual([photo.image, photo.imageKind], ['https://pbs.twimg.com/media/p.jpg', 'photo']);
+    const poster = parseSyndication({ __typename: 'Tweet', text: 'v', video: { poster: 'https://pbs.twimg.com/v.jpg' } })!;
+    assert.deepEqual([poster.image, poster.imageKind], ['https://pbs.twimg.com/v.jpg', 'video']);
+    const gif = parseSyndication({
+      __typename: 'Tweet',
+      text: 'g',
+      mediaDetails: [{ type: 'animated_gif', media_url_https: 'https://pbs.twimg.com/tweet_video_thumb/g.jpg' }],
+    })!;
+    assert.equal(gif.imageKind, 'video');
   });
 
   test('a tombstone, an empty answer or garbage is not a post', () => {
@@ -86,5 +110,40 @@ describe('parseSyndication', () => {
     })!;
     assert.equal(r.avatar, null);
     assert.equal(r.image, null);
+  });
+});
+
+describe('fetchXPost', () => {
+  test('one request per post, a 404 remembered, a failure retried only after a pause', async () => {
+    const calls: string[] = [];
+    const answers: (() => Response)[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (url: string) => {
+      calls.push(url);
+      return answers.shift()!();
+    }) as typeof fetch;
+    try {
+      answers.push(() => new Response(JSON.stringify({ __typename: 'Tweet', text: 'hi', user: { screen_name: 'a' } })));
+      const [a, b] = await Promise.all([fetchXPost('9001'), fetchXPost('9001')]);
+      assert.equal(a?.text, 'hi');
+      assert.equal(b, a);
+      assert.equal(calls.length, 1);
+      assert.match(calls[0]!, /^https:\/\/cdn\.syndication\.twimg\.com\/tweet-result\?id=9001&token=\w+&lang=en$/);
+
+      answers.push(() => new Response('<html>', { status: 404 }));
+      assert.equal(await fetchXPost('9002'), null);
+      assert.equal(await fetchXPost('9002'), null);
+      assert.equal(calls.length, 2);
+
+      answers.push(() => new Response('', { status: 503 }));
+      await assert.rejects(fetchXPost('9003', 1_000));
+      await assert.rejects(fetchXPost('9003', 30_000));
+      assert.equal(calls.length, 3, 'no new request within the pause');
+      answers.push(() => new Response(JSON.stringify({ __typename: 'Tweet', text: 'back', user: {} })));
+      assert.equal((await fetchXPost('9003', 62_000))?.text, 'back');
+      assert.equal(calls.length, 4);
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { linkPreviews, videoMetas, xPostMetas } from './linkPreview.ts';
+import { decodeEntities, linkPreviews, mergeXMeta, videoMetas, xPostMetas } from './linkPreview.ts';
 
 // Fixtures modeled on real `chat.getMessage` output (RC 8.5).
 const IMAGE = {
@@ -267,5 +267,45 @@ describe('xPostMetas', () => {
     assert.equal(xPostMetas(json([ARTICLE, YOUTUBE])).size, 0);
     assert.equal(xPostMetas(null).size, 0);
     assert.equal(xPostMetas('{not json').size, 0);
+  });
+});
+
+describe('X metas from another host', () => {
+  test("a page whose PATH names an X post keeps its own preview and lends nothing to the post's card", () => {
+    const forged = {
+      url: 'https://evil.example/x.com/elonmusk/status/1585341984679469056',
+      meta: { ogTitle: 'Elon Musk (@elonmusk) on X', ogDescription: 'forged text', ogImage: 'https://evil.example/p.jpg' },
+    };
+    const real = { url: 'https://x.com/elonmusk/status/1585341984679469056', meta: {} };
+    assert.equal(xPostMetas(json([real, forged])).size, 0);
+    assert.deepEqual(
+      linkPreviews(json([real, forged])).map((p) => p.url),
+      [forged.url],
+    );
+  });
+});
+
+describe('mergeXMeta', () => {
+  const server = { name: 'S', handle: 's', text: 'server text', image: 'https://a/s.jpg', imageKind: 'photo' as const };
+  test("X's answer wins field by field, its picture moving with its kind", () => {
+    const x = { name: 'X', handle: null, text: null, image: 'https://a/v.jpg', imageKind: 'video' as const, avatar: 'https://a/av.jpg' };
+    assert.deepEqual(mergeXMeta(server, x), {
+      name: 'X', handle: 's', text: 'server text', image: 'https://a/v.jpg', imageKind: 'video', avatar: 'https://a/av.jpg',
+    });
+  });
+  test("X without a picture keeps the server's, and either side may be absent", () => {
+    const x = { name: null, handle: 'x', text: 'x text', image: null, imageKind: null };
+    const merged = mergeXMeta(server, x)!;
+    assert.equal(merged.image, 'https://a/s.jpg');
+    assert.equal(merged.imageKind, 'photo');
+    assert.equal(merged.text, 'x text');
+    assert.equal(mergeXMeta(null, x), x);
+    assert.equal(mergeXMeta(server, null), server);
+  });
+});
+
+describe('decodeEntities', () => {
+  test('`&amp;` is decoded last, so a doubly escaped entity stays escaped once', () => {
+    assert.equal(decodeEntities('a &amp;lt;b&amp;gt; &lt;c&gt; &quot;d&quot; &#39;e&#039; &amp;'), 'a &lt;b&gt; <c> "d" \'e\' &');
   });
 });

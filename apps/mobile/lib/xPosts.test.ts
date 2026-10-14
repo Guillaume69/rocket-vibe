@@ -42,6 +42,10 @@ describe('detectXPosts', () => {
       'https://notx.com/a/status/1',
       'https://x.com/jack',
       'https://x.com/jack/status/12ab',
+      'https://evil.example/x.com/elonmusk/status/1585341984679469056',
+      'https://web.archive.org/web/2023/https://x.com/jack/status/20',
+      'https://www.google.com/url?q=https://x.com/jack/status/20',
+      'x.com.evil.test/jack/status/20',
       '',
     ]) {
       assert.deepEqual(detectXPosts(text), [], text);
@@ -49,8 +53,9 @@ describe('detectXPosts', () => {
     assert.deepEqual(detectXPosts(null), []);
   });
 
-  test('a markdown link is found', () => {
+  test('a markdown link and an emphasised one are found', () => {
     assert.equal(detectXPosts('[see](https://x.com/jack/status/20)')[0]?.id, '20');
+    assert.equal(detectXPosts('*https://x.com/jack/status/20*')[0]?.id, '20');
   });
 });
 
@@ -58,6 +63,11 @@ describe('xPostId', () => {
   test('reads the id of a server url, ignoring its query', () => {
     assert.equal(xPostId('https://twitter.com/jack/status/20?s=20&t=abc'), '20');
     assert.equal(xPostId('https://example.com/jack/status/20'), null);
+    // Another host carrying an X address in its path or query is that host's page.
+    assert.equal(xPostId('https://evil.example/x.com/jack/status/20'), null);
+    assert.equal(xPostId('https://web.archive.org/web/2023/https://x.com/jack/status/20'), null);
+    assert.equal(xPostId('https://www.google.com/url?q=https://x.com/jack/status/20'), null);
+    assert.equal(xPostId('https://MOBILE.Twitter.com/jack/status/20'), '20');
     assert.equal(isXPostLink('https://x.com/jack/status/20'), true);
     assert.equal(isXPostLink('https://x.com/jack'), false);
   });

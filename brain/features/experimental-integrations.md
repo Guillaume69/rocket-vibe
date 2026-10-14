@@ -18,9 +18,9 @@ messages, edits, deletions, reactions, reads made elsewhere, typing). The compos
 text and thread replies, also to the room when asked; the message menu edits, deletes
 and reacts; opening a room marks it read. All three apps send typing. Slack's emoji
 names and skin tones show as emoji, the workspace's custom emoji as images, and a
-person's status emoji after their name. A huddle shows as a card: while it runs, its
-link opens it in Slack in the browser (huddles cannot be joined in the app); once over,
-its length. Files, search, pins, saves, room settings and presence stay hidden. Android (`ui/slackSignIn.tsx`) takes the
+person's status emoji after their name. A huddle shows as the kChat-style call card: while it runs,
+Join opens it in Slack in the browser, as does the room header's call button, which
+starts one (huddles cannot be joined in the app); once over, its length. Files, search, pins, saves, room settings and presence stay hidden. Android (`ui/slackSignIn.tsx`) takes the
 helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
 and password fields and offer "Sign in to Slack": the app opens a temporary browser,
 the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a

@@ -138,12 +138,18 @@ picker work, and a reaction sent goes back to Slack's name (`slack/emojis.rs`,
 `providers/slack/emojis.ts`). Custom emoji come from `emoji.list` once per session,
 aliases of another custom emoji followed, images public on `emoji.slack-edge.com`.
 
-A `huddle_thread` message becomes an attachment card every app already renders: while
-the room has neither `has_ended` nor `date_end`, its title links to the room's
-`huddle_link` (only an `https` Slack page) or to `https://app.slack.com/huddle/<team>/<channel>`
-(`client/` for a DM, as the reference does), opened in the browser; once over, the card
-gives the length from `date_start`/`date_end`. The end arrives as an edit of the same
-message. Huddle media has no session API: no native participation. Slackbot's
+A `huddle_thread` message becomes the same call card as a kChat call
+(`huddle_call` in `slack/translate.rs`, `huddleCall` in `providers/slack/translator.ts`):
+while the room has neither `has_ended` nor `date_end`, a running call (`videoconf`) whose
+call id is the room's `huddle_link` (only an `https` Slack page) or
+`https://app.slack.com/huddle/<team>/<channel>` (`client/` for a DM, as the reference
+does); once over, an ended call (`videoconf-ended`) with the length from
+`date_start`/`date_end`. The end arrives as an edit of the same message. The room
+header's call button and the card's Join both open that Slack page in the browser
+(`Session::start_call` / `join_call` with `calls_in_browser`, `providers/slack/calls.ts`
+and the Slack branch of `app/call/[callId].tsx`, `CallWindow.show` on macOS): huddle
+media has no session API, so no native participation, and no camera permission is
+asked. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Integration and parity

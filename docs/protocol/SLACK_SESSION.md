@@ -605,7 +605,7 @@ retain provider-specific limitations below. Runtime flags stay false until teste
 | P17 Notifications / push | OS notification for qualified RTM DM/mention while running | P candidate; S04/S13. Killed-app Android FCM/APNs route unavailable in this design; push=false. |
 | P18 Rocket.Chat E2EE | No compatible Slack room encryption/key exchange | Unsupported; e2ee=false. Slack EKM is not client E2EE. |
 | P19 RocketVibe E2EE / archive / control / storage keys | No compatible native MLS protocol in Slack | Unsupported; do not advertise encrypted Slack messaging or portable native history. |
-| P20 Calls / Jitsi / LiveKit voice | Native Slack huddles protocol not established; reference displays a huddle pill opening a URL | L huddle_thread/sh_room_join events, R external handoff, U native media; videoCall=false, voice=false. |
+| P20 Calls / Jitsi / LiveKit voice | Native Slack huddles protocol not established; reference displays a huddle pill opening a URL | L huddle_thread/sh_room_join events, R external handoff, U native media; videoCall=true as a browser handoff (start and join open the Slack huddle page), voice=false. |
 | P21 Sharing / links / notification navigation | Native share/drop, Slack permalink and exact team/channel/ts navigation | P candidate; S09/S12/S13; account selection and cold launch. |
 | P22 Languages / accessibility / ergonomics / updates | Existing native interfaces and app translations | P reuse; installed checks on Android, GTK and SwiftUI; no provider-specific UI kit. |
 | P23 Administration / reports / moderation | No measured equivalent client administration API | U/unavailable initially; administration=false, reports=false; private ordinary session is not admin scope. |

@@ -13,6 +13,7 @@ export type SlackMethod =
   | 'users.info'
   | 'bots.info'
   | 'client.counts'
+  | 'emoji.list'
   | 'chat.postMessage'
   | 'chat.update'
   | 'chat.delete'

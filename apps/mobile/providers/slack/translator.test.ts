@@ -1,3 +1,4 @@
+import { shortcodeOfUnicode } from '../../lib/emojis.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SlackClient } from './client.ts';
@@ -96,7 +97,8 @@ test('subtypes: joins, leaves, topic and purpose as system rows; bots; hidden an
 test('reactions take the Rocket.Chat shape with usernames', () => {
   const { translator } = setup();
   const row = translator.toMessage({ ...message('1780000000.000001', { reactions: [{ name: 'thumbsup', users: ['U001', 'U002'], count: 2 }, { name: 'eyes', users: ['U009'], count: 1 }] }), channel: 'C001' })!;
-  assert.deepEqual(JSON.parse(row.reactions!), { ':thumbsup:': { usernames: ['alice', 'bob'] }, ':eyes:': { usernames: ['U009'] } });
+  const thumbs = shortcodeOfUnicode('\u{1F44D}');
+  assert.deepEqual(JSON.parse(row.reactions!), { [`:${thumbs}:`]: { usernames: ['alice', 'bob'] }, ':eyes:': { usernames: ['U009'] } }, "the app's own code for 👍");
 });
 
 test('rooms: kinds, DM names and a group DM named after its people', () => {

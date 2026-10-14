@@ -12,13 +12,14 @@ import type { RestClient } from '../../lib/rest.ts';
 import { slackClientFor } from './auth.ts';
 import { SlackActions } from './actions.ts';
 import { SlackCatchUp } from './catchUp.ts';
-import { SlackError } from './client.ts';
+import { SlackError, record, type SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
 import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
 import { SlackOutbox } from './outbox.ts';
 import { SlackRtm } from './rtm.ts';
-import { SlackTranslator } from './translator.ts';
+import { SlackTranslator, type SlackLabels } from './translator.ts';
+import type { CustomEmoji } from '../../lib/customEmojis.ts';
 
 export const SLACK_CAPABILITIES: Capabilities = {
   editing: true,
@@ -45,13 +46,31 @@ export const SLACK_CAPABILITIES: Capabilities = {
   presence: false,
   push: false,
   e2ee: false,
-  customEmojis: false,
+  customEmojis: true,
   videoCall: false,
   search: false,
   threadTemplate: 'tmid',
 };
 
-export type SlackOptions = { fetch?: typeof fetch; listener?: Listener };
+/** `labels`: the words the translator writes itself (huddle cards), in the app's language. */
+export type SlackOptions = { fetch?: typeof fetch; listener?: Listener; labels?: SlackLabels };
+
+/** Slack's custom emoji, read from `emoji.list`, aliases of another custom one followed. */
+export async function slackCustomEmojis(client: SlackClient): Promise<CustomEmoji[]> {
+  const list = record((await client.call('emoji.list')).emoji ?? {});
+  const resolve = (name: string): string | null => {
+    let value = list[name];
+    for (let n = 0; n < 4 && typeof value === 'string' && value.startsWith('alias:'); n++) value = list[value.slice(6)];
+    return typeof value === 'string' && value.startsWith(CUSTOM_EMOJI_ORIGIN) ? value : null;
+  };
+  return Object.keys(list).sort().flatMap((name) => {
+    const uri = resolve(name);
+    return uri === null ? [] : [{ name, extension: uri.split('?')[0]!.split('.').pop() ?? 'png', aliases: [], uri }];
+  });
+}
+
+/** Where Slack serves a workspace's custom emoji, public like its avatars. */
+export const CUSTOM_EMOJI_ORIGIN = 'https://emoji.slack-edge.com/';
 
 const unsupported = async (): Promise<never> => {
   throw new SlackError('unsupported');
@@ -62,7 +81,7 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
   const client = slackClientFor(session, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new SlackDirectory(client, session.baseUrl);
   const roomNames = new Map<string, string>();
-  const translator = new SlackTranslator(directory, session.userId, roomNames);
+  const translator = new SlackTranslator(directory, session.userId, roomNames, options.labels);
   const history = new SlackHistory(client, directory);
   const live = new SlackLive({ client, directory, history, myId: session.userId });
   const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
@@ -83,9 +102,10 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
     actions,
     displayNames: {
       names: () => directory.displayNames(),
-      statuses: () => new Map(),
+      statuses: () => directory.statusEmojis(),
       subscribe: (fn) => directory.onChange(fn),
     },
+    listCustomEmojis: () => slackCustomEmojis(client),
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],
     setTyping: (channel, active) => {

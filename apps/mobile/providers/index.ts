@@ -12,6 +12,7 @@ import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
 import { createVibezProvider } from './vibez/index.ts';
 import { createSlackProvider } from './slack/index.ts';
+import type { SlackLabels } from './slack/translator.ts';
 import type { NativeStore } from './vibez/store.ts';
 
 export function createProvider(
@@ -20,6 +21,8 @@ export function createProvider(
   generateId: () => string,
   nativeStore?: NativeStore,
   nativeOptions:Parameters<typeof createVibezProvider>[4]={},
+  /** The words a provider writes itself into rows (Slack's huddle cards), in the app's language. */
+  labels?: SlackLabels,
 ): Provider {
   switch (session.kind) {
     case 'rocketchat':
@@ -31,7 +34,7 @@ export function createProvider(
     case 'kchat':
       return createMattermostProvider(session, client, generateId);
     case 'slack':
-      return createSlackProvider(session, client, generateId);
+      return createSlackProvider(session, client, generateId, { labels });
     case 'whatsapp':
       // Built by `ui/sync.tsx` with its database and the engine module.
       throw new Error('WhatsApp provider requires its account store');

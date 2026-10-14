@@ -5,10 +5,12 @@
  */
 
 import { rememberSlackAvatar } from '../../lib/slackAvatars.ts';
+import { glyphOf } from './emojis.ts';
 import type { SlackClient } from './client.ts';
 import { record, SlackError } from './client.ts';
 
-export type SlackUser = { id: string; username: string; displayName: string | null; avatar: string | null };
+/** `status`: the profile's status emoji as a glyph, and when it ends (seconds; 0 never). */
+export type SlackUser = { id: string; username: string; displayName: string | null; avatar: string | null; status?: { glyph: string; until: number } | null };
 
 const CONCURRENCY = 3;
 
@@ -22,11 +24,20 @@ export function toSlackUser(raw: Record<string, unknown>): SlackUser | null {
   if (id === null || !/^[UWB][A-Z0-9]+$/.test(id) || username === null) return null;
   const profile = typeof raw.profile === 'object' && raw.profile !== null ? (raw.profile as Record<string, unknown>) : {};
   const avatar = str(profile.image_72);
+  const info = Array.isArray(profile.status_emoji_display_info) ? (profile.status_emoji_display_info[0] as Record<string, unknown> | undefined) : undefined;
+  const points = str(info?.unicode);
+  const given = points !== null && /^[0-9a-f]+(-[0-9a-f]+)*$/i.test(points)
+    ? String.fromCodePoint(...points.split('-').map((p) => parseInt(p, 16)))
+    : null;
+  const shortcode = str(profile.status_emoji);
+  const glyph = given ?? (shortcode === null ? null : glyphOf(shortcode));
+  const until = typeof profile.status_expiration === 'number' ? profile.status_expiration : 0;
   return {
     id,
     username,
     displayName: str(profile.display_name) ?? str(profile.real_name) ?? str(raw.real_name),
     avatar: avatar !== null && avatar.startsWith('https://') ? avatar : null,
+    status: glyph === null ? null : { glyph, until },
   };
 }
 
@@ -80,6 +91,12 @@ export class SlackDirectory {
 
   bot(id: string): string | null {
     return this.bots.get(id) ?? null;
+  }
+
+  /** Status emojis by user id, those still running. */
+  statusEmojis(now = Date.now()): ReadonlyMap<string, string> {
+    return new Map([...this.byId.values()].flatMap((u) =>
+      u.status != null && (u.status.until <= 0 || u.status.until * 1000 > now) ? [[u.id, u.status.glyph] as const] : []));
   }
 
   displayNames(): ReadonlyMap<string, string> {

@@ -11,15 +11,16 @@ import { SlackError, compareTimestamp } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 import type { SlackHistory } from './history.ts';
 import type { SlackLive } from './live.ts';
+import { slackName } from './emojis.ts';
 import { markdownToMrkdwn, parseMessageId } from './translator.ts';
 
 const unsupported = async (): Promise<never> => {
   throw new SlackError('unsupported');
 };
 
-/** `:+1:` or `+1` into Slack's bare reaction name. */
+/** The app's reaction code into Slack's name for the same emoji (`+1::skin-tone-3`), else as typed. */
 export function reactionName(code: string): string {
-  return code.replace(/^:+|:+$/g, '');
+  return slackName(code);
 }
 
 export class SlackActions implements ProviderActions {

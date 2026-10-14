@@ -10,6 +10,7 @@ import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/norma
 import type { Translation, Translator } from '../../lib/provider.ts';
 import { isTimestamp, timestampMs } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
+import { reactionCode, replaceSlackEmojis } from './emojis.ts';
 
 /** The live envelopes `SlackLive` produces and this translator decodes. */
 export const SLACK_MESSAGE = 'slack:message';
@@ -72,7 +73,7 @@ export type Resolver = {
  */
 export function mrkdwnToMarkdown(input: string, resolve: Resolver): string {
   const parts = input.split(/(```[\s\S]*?```|`[^`\n]+`)/);
-  return unescape(parts.map((part, i) => (i % 2 === 1 ? part : prose(part, resolve))).join(''));
+  return unescape(parts.map((part, i) => (i % 2 === 1 ? part : replaceSlackEmojis(prose(part, resolve)))).join(''));
 }
 
 function prose(text: string, resolve: Resolver): string {
@@ -149,14 +150,68 @@ function unescape(text: string): string {
   return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
+/** The few words the translator writes itself, in the app's language. */
+export type SlackLabel = 'slack.huddle' | 'slack.huddleOpen' | 'slack.huddleEnded' | 'slack.huddleEndedAfter';
+export type SlackLabels = (key: SlackLabel, params?: { n: number }) => string;
+
+const ENGLISH: Record<SlackLabel, string> = {
+  'slack.huddle': 'Huddle in progress',
+  'slack.huddleOpen': 'Open in Slack',
+  'slack.huddleEnded': 'Huddle ended',
+  'slack.huddleEndedAfter': 'Huddle ended after {n} minute | Huddle ended after {n} minutes',
+};
+const english: SlackLabels = (key, params) => {
+  const [one, many] = ENGLISH[key].split(' | ');
+  return ((params?.n ?? 1) === 1 ? one! : many ?? one!).replace('{n}', String(params?.n ?? ''));
+};
+
+/**
+ * A huddle's message (`huddle_thread`) as a card in the shape every app
+ * already renders. Huddles have no API to join: while one runs, the card
+ * links to it in Slack, opened in the browser; once over, it gives its
+ * length. The end arrives as an edit of the same message.
+ */
+export function huddleCard(raw: Doc, channel: string, label: SlackLabels = english): Doc | null {
+  if (raw.subtype !== 'huddle_thread') return null;
+  const room = record(raw.room) ?? {};
+  const seconds = (key: string): number | null => {
+    const value = typeof room[key] === 'string' ? Number(room[key]) : room[key];
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  };
+  const start = seconds('date_start'), end = seconds('date_end');
+  if (room.has_ended === true || end !== null) {
+    return start !== null && end !== null && end >= start
+      ? { title: label('slack.huddleEndedAfter', { n: Math.max(1, Math.round((end - start) / 60)) }) }
+      : { title: label('slack.huddleEnded') };
+  }
+  const given = str(room.huddle_link);
+  const team = str(raw.team);
+  const link = given !== null && slackWeb(given)
+    ? given
+    : team !== null && team.startsWith('T') ? `https://app.slack.com/${channel.startsWith('D') ? 'client' : 'huddle'}/${team}/${channel}` : null;
+  return link === null ? { title: label('slack.huddle') } : { title: label('slack.huddle'), title_link: link, text: label('slack.huddleOpen') };
+}
+
+/** An `https` page of Slack's own web app, the only kind a huddle card links to. */
+function slackWeb(link: string): boolean {
+  try {
+    const url = new URL(link);
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port && (url.hostname === 'slack.com' || url.hostname.endsWith('.slack.com'));
+  } catch {
+    return false;
+  }
+}
+
 export class SlackTranslator implements Translator {
   private readonly directory: SlackDirectory;
   private readonly myId: string;
   private readonly resolver: Resolver;
+  private readonly labels: SlackLabels;
 
-  constructor(directory: SlackDirectory, myId: string, roomNames: ReadonlyMap<string, string> = new Map()) {
+  constructor(directory: SlackDirectory, myId: string, roomNames: ReadonlyMap<string, string> = new Map(), label: SlackLabels = english) {
     this.directory = directory;
     this.myId = myId;
+    this.labels = label;
     this.resolver = { username: (id) => directory.username(id), roomName: (id) => roomNames.get(id) ?? null };
   }
 
@@ -224,7 +279,7 @@ export class SlackTranslator implements Translator {
       threadShown: reply && subtype === 'thread_broadcast',
       editedAt,
       md: null,
-      attachments: cards(raw.attachments),
+      attachments: this.attachments(raw, channel),
       reactions: this.reactions(raw.reactions),
       urls: null,
       callId: null,
@@ -313,6 +368,13 @@ export class SlackTranslator implements Translator {
     return text === '' ? line : `${text}\n${line}`;
   }
 
+  private attachments(raw: Doc, channel: string): string | null {
+    const huddle = huddleCard(raw, channel, this.labels);
+    const legacy = cards(raw.attachments);
+    if (huddle === null) return legacy;
+    return JSON.stringify([huddle, ...(legacy === null ? [] : (JSON.parse(legacy) as Doc[]))]);
+  }
+
   private reactions(raw: unknown): string | null {
     if (!Array.isArray(raw) || raw.length === 0) return null;
     const grouped: Record<string, { usernames: string[] }> = {};
@@ -321,7 +383,10 @@ export class SlackTranslator implements Translator {
       const name = str(reaction?.name);
       if (reaction === null || name === null || !Array.isArray(reaction.users)) continue;
       const users = reaction.users.flatMap((id) => (typeof id === 'string' ? [this.directory.username(id) ?? id] : []));
-      if (users.length > 0) grouped[`:${name}:`] = { usernames: users };
+      if (users.length === 0) continue;
+      // Two Slack names of one glyph (`+1`, `thumbsup`) are one chip.
+      const key = `:${reactionCode(name)}:`;
+      grouped[key] = { usernames: [...(grouped[key]?.usernames ?? []), ...users] };
     }
     return Object.keys(grouped).length === 0 ? null : JSON.stringify(grouped);
   }

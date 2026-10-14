@@ -373,11 +373,12 @@ pub fn people(message: &Value) -> Vec<String> {
 }
 
 /// Messages Slack hides, or keeps as the tombstone of a deleted thread root.
-/// A huddle's message (`huddle_thread`) as a card, in the shape every app
-/// already renders. Huddles have no API to join: while one runs, the card
-/// links to it in Slack, opened in the browser; once over, it gives its length.
-/// The end arrives as an edit of the same message.
-pub fn huddle_card(raw: &Value, channel: &str) -> Option<Value> {
+/// A huddle's message (`huddle_thread`) as the call message kChat's calls
+/// also become: running, a `videoconf` whose call id is the huddle's Slack
+/// URL (huddles have no API to join: the card's Join opens it in the
+/// browser); over, a `videoconf-ended` carrying its length in seconds, when
+/// known. The end arrives as an edit of the same message.
+pub fn huddle_call(raw: &Value, channel: &str) -> Option<(&'static str, String, Option<String>)> {
     if str_of(raw, "subtype") != Some("huddle_thread") {
         return None;
     }
@@ -385,28 +386,30 @@ pub fn huddle_card(raw: &Value, channel: &str) -> Option<Value> {
     let seconds =
         |key: &str| room.get(key).and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok())).filter(|s| *s > 0);
     if room.get("has_ended").and_then(Value::as_bool) == Some(true) || seconds("date_end").is_some() {
-        let title = match seconds("date_start").zip(seconds("date_end")).filter(|(start, end)| end >= start) {
-            Some((start, end)) => crate::i18n::tn("slack.huddleEndedAfter", ((end - start + 30) / 60).max(1)),
-            None => crate::i18n::t("slack.huddleEnded").to_owned(),
-        };
-        return Some(json!({"title": title}));
+        let length = seconds("date_start").zip(seconds("date_end")).filter(|(start, end)| end >= start);
+        return Some((
+            "videoconf-ended",
+            length.map(|(start, end)| (end - start).to_string()).unwrap_or_default(),
+            None,
+        ));
     }
     let given = str_of(room, "huddle_link").filter(|link| slack_web(link)).map(str::to_owned);
-    let link = given.or_else(|| {
-        let team = str_of(raw, "team").filter(|t| t.starts_with('T'))?;
-        let kind = if channel.starts_with('D') { "client" } else { "huddle" };
-        Some(format!("https://app.slack.com/{kind}/{team}/{channel}"))
-    });
-    let mut card = json!({"title": crate::i18n::t("slack.huddle")});
-    if let Some(link) = link {
-        card["title_link"] = json!(link);
-        card["text"] = json!(crate::i18n::t("slack.huddleOpen"));
-    }
-    Some(card)
+    let link = given.or_else(|| huddle_url(str_of(raw, "team")?, channel));
+    Some(("videoconf", String::new(), link))
 }
 
-/// An `https` page of Slack's own web app, the only kind a huddle card links to.
-fn slack_web(link: &str) -> bool {
+/// The page that starts or joins a room's huddle in Slack's web app; a direct
+/// conversation's opens the conversation, as that shape fails for it.
+pub fn huddle_url(team: &str, channel: &str) -> Option<String> {
+    let id = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
+    (team.starts_with('T') && id(team) && id(channel)).then(|| {
+        let kind = if channel.starts_with('D') { "client" } else { "huddle" };
+        format!("https://app.slack.com/{kind}/{team}/{channel}")
+    })
+}
+
+/// An `https` page of Slack's own web app, the only kind a huddle opens.
+pub fn slack_web(link: &str) -> bool {
     url::Url::parse(link).is_ok_and(|url| {
         url.scheme() == "https"
             && url.username().is_empty()
@@ -461,6 +464,8 @@ impl Translator<'_> {
             }
             _ => None,
         };
+        let huddle = huddle_call(raw, channel);
+        let system = huddle.as_ref().map(|(kind, param, _)| (*kind, Some(param.clone()))).or(system);
         let text = match &system {
             Some((_, param)) => param.clone(),
             None => {
@@ -497,13 +502,13 @@ impl Translator<'_> {
             thread_last: root.then(|| str_of(raw, "latest_reply").and_then(ts_ms)).flatten(),
             thread_shown: thread_ts.is_some() && subtype == Some("thread_broadcast"),
             edited_at,
-            attachments: huddle_card(raw, channel).map(|card| json!([card]).to_string()),
+            attachments: None,
             reactions: self.reactions(raw.get("reactions")),
             encrypted_raw: None,
             updated_at: edited_at.unwrap_or(at),
             md: None,
             urls: None,
-            call_id: None,
+            call_id: huddle.and_then(|(_, _, link)| link),
             pinned: false,
             starred: None,
             thread_followers: None,
@@ -628,27 +633,25 @@ mod tests {
     }
 
     #[test]
-    fn a_huddle_is_a_card_linking_to_slack_while_it_runs() {
+    fn a_huddle_is_a_call_whose_id_is_its_slack_page() {
         let message = |room: Value| json!({"type": "message", "subtype": "huddle_thread", "team": "T1", "ts": "1.000000", "room": room});
-        let live = huddle_card(&message(json!({"huddle_link": "https://app.slack.com/huddle/T1/C1"})), "C1").unwrap();
-        assert_eq!(live["title_link"], "https://app.slack.com/huddle/T1/C1");
-        assert!(live["text"].is_string());
-        let forged = huddle_card(&message(json!({"huddle_link": "https://evil.example/huddle"})), "C1").unwrap();
+        let call = |room: Value, channel: &str| huddle_call(&message(room), channel).unwrap();
         assert_eq!(
-            forged["title_link"], "https://app.slack.com/huddle/T1/C1",
-            "only Slack's own link, else the built one"
+            call(json!({"huddle_link": "https://app.slack.com/huddle/T1/C1"}), "C1"),
+            ("videoconf", String::new(), Some("https://app.slack.com/huddle/T1/C1".to_owned()))
         );
-        let dm = huddle_card(&message(json!({})), "D1").unwrap();
-        assert_eq!(dm["title_link"], "https://app.slack.com/client/T1/D1");
-        let over = huddle_card(
-            &message(json!({"date_start": 1000, "date_end": 1600, "huddle_link": "https://app.slack.com/x"})),
-            "C1",
-        )
-        .unwrap();
-        assert!(over.get("title_link").is_none());
-        assert!(over["title"].as_str().unwrap().contains("10"), "{over}");
-        assert!(huddle_card(&message(json!({"has_ended": true})), "C1").unwrap().get("title_link").is_none());
-        assert!(huddle_card(&json!({"type": "message", "ts": "1.000000"}), "C1").is_none());
+        assert_eq!(
+            call(json!({"huddle_link": "https://evil.example/huddle"}), "C1").2.as_deref(),
+            Some("https://app.slack.com/huddle/T1/C1")
+        );
+        assert_eq!(call(json!({}), "D1").2.as_deref(), Some("https://app.slack.com/client/T1/D1"));
+        assert_eq!(
+            call(json!({"date_start": 1000, "date_end": 1600}), "C1"),
+            ("videoconf-ended", "600".to_owned(), None)
+        );
+        assert_eq!(call(json!({"has_ended": true}), "C1"), ("videoconf-ended", String::new(), None));
+        assert!(huddle_call(&json!({"type": "message", "ts": "1.000000"}), "C1").is_none());
+        assert_eq!(huddle_url("T1", "C1/../x"), None);
     }
 
     #[test]

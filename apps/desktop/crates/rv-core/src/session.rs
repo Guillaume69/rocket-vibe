@@ -826,7 +826,7 @@ impl Session {
     pub async fn call_available(&self) -> bool {
         match self.backend() {
             Backend::Mattermost(_) => return self.info.mattermost == Some(mattermost::Flavor::Kchat),
-            Backend::Slack(_) => return false,
+            Backend::Slack(_) => return true,
             Backend::RocketChat => {}
         }
         if let Some(known) = *self.call_available.lock().unwrap() {
@@ -1911,11 +1911,21 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::start_conference(&self.rest, rid).await;
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Slack(_) => {
+                let team = self.info.slack.as_ref().map(|a| a.team_id.as_str()).unwrap_or_default();
+                return crate::slack::translate::huddle_url(team, rid)
+                    .ok_or_else(|| RestError::incomplete("huddle: not a Slack room"));
+            }
             Backend::RocketChat => {}
         }
         let call_id = actions::start_call(&self.rest, rid).await?;
         actions::join_call(&self.rest, &call_id).await
+    }
+
+    /// Slack's huddles open in the browser, signed in there, never in the
+    /// app's call window: there is no API to join them.
+    pub fn calls_in_browser(&self) -> bool {
+        matches!(self.backend(), Backend::Slack(_))
     }
 
     /// The call ringing here, started by the other member of a direct room.
@@ -2020,7 +2030,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::answer_conference(&self.rest, call_id).await;
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Slack(_) => return slack_call(call_id),
             Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
@@ -2034,7 +2044,7 @@ impl Session {
                     .await
                     .map(|url| crate::call::meeting_link(&url));
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Slack(_) => return slack_call(call_id),
             Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {
@@ -2384,6 +2394,13 @@ impl Session {
             task.abort();
         }
     }
+}
+
+/// A Slack huddle's call id is its page in Slack's web app: only such a page opens.
+fn slack_call(call_id: &str) -> Result<String, RestError> {
+    crate::slack::translate::slack_web(call_id)
+        .then(|| call_id.to_owned())
+        .ok_or_else(|| RestError::incomplete("huddle: not a Slack page"))
 }
 
 #[cfg(test)]

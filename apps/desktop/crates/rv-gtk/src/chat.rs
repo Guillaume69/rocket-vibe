@@ -3587,6 +3587,11 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        if self.session().is_some_and(|s| s.calls_in_browser()) {
+            crate::cards::open_uri(&self.split, url);
+            self.toast(t("call.in_browser").to_owned());
+            return;
+        }
         let weak = Rc::downgrade(self);
         crate::call_window::open(&self.split, url, room, move |text| {
             if let Some(this) = weak.upgrade() {

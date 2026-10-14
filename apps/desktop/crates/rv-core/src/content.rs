@@ -422,6 +422,11 @@ pub fn video_links(text: &str, urls: Option<&str>, max: usize) -> Vec<VideoLink>
     out
 }
 
+/// An X handle: 1 to 15 of `[A-Za-z0-9_]`.
+fn is_x_handle(handle: &str) -> bool {
+    (1..=15).contains(&handle.len()) && handle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 /// (handle, post id) of an X post link: `x.com/<handle>/status/<id>`, the
 /// same on `twitter.com` and its `www.` and `mobile.` hosts, and the
 /// handle-less `x.com/i/web/status/<id>`.
@@ -441,7 +446,7 @@ fn x_post_id(link: &str) -> Option<(Option<String>, String)> {
     let (handle, id) = match segments.as_slice() {
         ["i", "web", "status", id, ..] => (None, *id),
         [handle, "status" | "statuses", id, ..] => {
-            if !(1..=15).contains(&handle.len()) || !handle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            if !is_x_handle(handle) {
                 return None;
             }
             // `x.com/i/status/<id>` is X's own handle-less form, not a user named "i".
@@ -470,7 +475,7 @@ fn split_x_title(title: &str) -> (String, Option<String>) {
         .or_else(|| title.strip_suffix(" on Twitter"))
         .and_then(|t| t.strip_suffix(')'))
         .and_then(|t| t.rsplit_once(" (@"))
-        .filter(|(_, h)| (1..=15).contains(&h.len()) && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+        .filter(|(_, h)| is_x_handle(h));
     match split {
         Some((name, handle)) if !name.trim().is_empty() => (name.trim().to_owned(), Some(handle.to_owned())),
         Some((_, handle)) => (handle.to_owned(), Some(handle.to_owned())),
@@ -494,8 +499,8 @@ fn x_image(url: &str) -> (bool, bool) {
 
 /// X post links in the text, in order, filled from what the server collected
 /// (X serves ordinary OpenGraph tags: title "<name> (@<handle>) on X", the
-/// text as description, an image told apart by its path). Nothing is asked
-/// of X itself.
+/// text as description, an image told apart by its path). Asking X itself is
+/// `x_syndication`'s, on Rocket.Chat accounts only.
 pub fn x_posts(text: &str, urls: Option<&str>, max: usize) -> Vec<XPost> {
     let entries = list(urls);
     let mut out: Vec<XPost> = Vec::new();
@@ -503,6 +508,9 @@ pub fn x_posts(text: &str, urls: Option<&str>, max: usize) -> Vec<XPost> {
         if out.len() >= max {
             break;
         }
+        // `*https://x.com/...*`: the server's `urls` has the bare link, which
+        // `link_previews` skips, so an emphasised link must still be found.
+        let token = token.trim_matches(|c| "*_~".contains(c));
         let Some((handle, id)) = x_post_id(token) else { continue };
         if out.iter().any(|p| p.id == id) {
             continue;
@@ -544,7 +552,8 @@ pub fn x_posts(text: &str, urls: Option<&str>, max: usize) -> Vec<XPost> {
             if let Some(title) = title {
                 let (name, handle) = split_x_title(&title);
                 post.name = Some(name);
-                post.handle = post.handle.or(handle);
+                // The title names the account as it is now; a link may carry an old handle.
+                post.handle = handle.or(post.handle.take());
             }
             post.text = description;
             if let Some(image) = image {
@@ -744,5 +753,39 @@ mod tests {
         }
         assert!(link_previews(Some(&urls), 3).is_empty(), "X posts have their own card");
         assert_eq!(split_x_title("Something else"), ("Something else".into(), None));
+        assert_eq!(split_x_title("A (B) (@c_d) on Twitter"), ("A (B)".into(), Some("c_d".into())));
+    }
+
+    #[test]
+    fn x_posts_need_x_as_the_host_and_trust_the_title_s_handle() {
+        // Another host whose path or query names an X post is that host's page.
+        let evil = "https://evil.example/x.com/elonmusk/status/1585341984679469056";
+        let urls = json!([{"url": evil, "meta": {"ogTitle": "Elon Musk (@elonmusk) on X", "ogDescription": "forged"}}])
+            .to_string();
+        assert!(x_posts(evil, Some(&urls), 3).is_empty());
+        assert_eq!(link_previews(Some(&urls), 3).len(), 1, "its own preview stays");
+        assert!(x_posts("https://web.archive.org/web/2023/https://x.com/jack/status/20", None, 3).is_empty());
+        // An emphasised link is still found, the bare link in `urls` being skipped by the previews.
+        assert_eq!(x_posts("*https://x.com/jack/status/20*", None, 3)[0].id, "20");
+        // A renamed account: the link says @old, X's title says @new.
+        let urls = json!([{"url": "https://x.com/old/status/7", "meta": {"ogTitle": "Name (@new) on X"}}]).to_string();
+        let post = x_posts("https://x.com/old/status/7", Some(&urls), 3).remove(0);
+        assert_eq!((post.handle.as_deref(), post.url.as_str()), (Some("new"), "https://x.com/old/status/7"));
+    }
+
+    #[test]
+    fn x_posts_on_vibez_take_the_private_picture_as_a_plain_photo() {
+        let url = "https://x.com/elonmusk/status/1585341984679469056";
+        let image = json!({"file_id": "a".repeat(64), "sha256": "b".repeat(64), "bytes": "10",
+            "width": 1, "height": 1, "media_type": "image/png"});
+        let urls = json!([{"url": url, "native_message": "message-1", "native_preview": {
+            "url": url, "kind": "page", "title": "Elon Musk (@elonmusk) on X", "description": "Entering",
+            "site": "X", "image": image}}])
+        .to_string();
+        let post = x_posts(url, Some(&urls), 3).remove(0);
+        assert_eq!(post.name.as_deref(), Some("Elon Musk"));
+        assert_eq!(post.text.as_deref(), Some("Entering"));
+        assert_eq!(post.media, Some(format!("rv-preview:message-1/{}", "a".repeat(64))));
+        assert!(!post.video && post.avatar.is_none(), "a private PNG says nothing of its source");
     }
 }

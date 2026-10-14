@@ -8,8 +8,8 @@
 //! asked (user decision, 2026-10-14; brain/features/x-posts.md).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{LazyLock, Mutex};
-use std::time::Duration;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -20,6 +20,8 @@ const ENDPOINT: &str = "https://cdn.syndication.twimg.com/tweet-result";
 /// Bounded so a long session does not keep every post it ever showed.
 const MAX_CACHED: usize = 300;
 const MAX_BYTES: usize = 512 * 1024;
+/// After a failure, the post is not asked again for this long.
+const RETRY: Duration = Duration::from_secs(60);
 
 /// What X says of a post, for its card.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,7 +111,7 @@ fn js_base36(value: f64) -> String {
 /// without its zeros and point. Its value is not checked today (any non-empty
 /// token answers, none gets `{}`; probed 2026-10-14), but this keeps the
 /// request the widget's own.
-pub fn token(id: &str) -> String {
+fn token(id: &str) -> String {
     let value = id.parse::<f64>().unwrap_or(0.0) / 1e15 * std::f64::consts::PI;
     js_base36(value).chars().filter(|c| *c != '0' && *c != '.').collect()
 }
@@ -122,10 +124,6 @@ fn https(v: Option<&Value>) -> Option<String> {
     text(v).filter(|s| s.starts_with("https://"))
 }
 
-fn decode(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&")
-}
-
 /// `[start, end)` of a JSON pair of code-point indices.
 fn span(v: Option<&Value>) -> Option<(usize, usize)> {
     let pair = v?.as_array()?;
@@ -133,12 +131,13 @@ fn span(v: Option<&Value>) -> Option<(usize, usize)> {
     (start <= end).then_some((start, end))
 }
 
-/// The text as X shows it, counted in code points of the decoded text: the
-/// `display_text_range` slice (it drops leading @replies), without the
-/// media's own `t.co` link (`mediaDetails[].indices`, which older posts keep
-/// inside the range), and other `t.co` links in their display form.
+/// The text as X shows it: the `display_text_range` slice (it drops leading
+/// @replies), without the media's own `t.co` link (`mediaDetails[].indices`,
+/// which older posts keep inside the range), other `t.co` links in their
+/// display form, then decoded. X counts its indices in code points of the
+/// ESCAPED text, `&amp;` being five (probed 2026-10-14).
 fn display_text(post: &Value) -> Option<String> {
-    let chars: Vec<char> = decode(post.get("text")?.as_str()?).chars().collect();
+    let chars: Vec<char> = post.get("text")?.as_str()?.chars().collect();
     let (start, end) = span(post.get("display_text_range")).unwrap_or((0, chars.len()));
     let media: Vec<(usize, usize)> = post
         .get("mediaDetails")
@@ -161,12 +160,13 @@ fn display_text(post: &Value) -> Option<String> {
         };
         out = out.replace(&short, &shown);
     }
+    let out = crate::content::decode_entities(&out);
     let out = out.trim();
     (!out.is_empty()).then(|| out.to_owned())
 }
 
 /// A `tweet-result` answer as the card's fields, None if it is not a post.
-pub fn parse(post: &Value) -> Option<Details> {
+fn parse(post: &Value) -> Option<Details> {
     if post.get("__typename").and_then(Value::as_str) != Some("Tweet") {
         return None;
     }
@@ -197,6 +197,10 @@ pub fn parse(post: &Value) -> Option<Details> {
 struct Cache {
     found: HashMap<String, Option<Details>>,
     order: VecDeque<String>,
+    failed: HashMap<String, Instant>,
+    /// One request per post at a time: cards rebuilt on every list bind
+    /// wait for the one in flight instead of asking again.
+    asking: HashMap<String, Arc<tokio::sync::Mutex<()>>>,
 }
 
 static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Mutex::default);
@@ -208,6 +212,7 @@ pub fn cached(id: &str) -> Option<Option<Details>> {
 
 fn remember(id: &str, details: Option<Details>) {
     let Ok(mut cache) = CACHE.lock() else { return };
+    cache.failed.remove(id);
     if cache.found.insert(id.to_owned(), details).is_none() {
         cache.order.push_back(id.to_owned());
     }
@@ -218,40 +223,89 @@ fn remember(id: &str, details: Option<Details>) {
     }
 }
 
-/// Post `id` as X serves it: None when X has no such post (remembered) or
-/// on a failure (not remembered: the next card shown asks again).
-pub async fn fetch(id: &str) -> Option<Details> {
-    if let Some(known) = cached(id) {
-        return known;
+fn failed(id: &str, now: Instant) {
+    let Ok(mut cache) = CACHE.lock() else { return };
+    cache.failed.retain(|_, at| now.duration_since(*at) < RETRY);
+    if cache.failed.len() < MAX_CACHED {
+        cache.failed.insert(id.to_owned(), now);
     }
-    if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
-    }
-    let client = reqwest::Client::builder()
-        .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+}
+
+fn failed_recently(id: &str, now: Instant) -> bool {
+    CACHE.lock().is_ok_and(|c| c.failed.get(id).is_some_and(|at| now.duration_since(*at) < RETRY))
+}
+
+/// X refuses a request without a user agent (400); this one names no app.
+static CLIENT: LazyLock<Option<reqwest::Client>> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent("Mozilla/5.0")
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .ok()?;
+        .ok()
+});
+
+/// What one request learned: an answer to remember, or a failure.
+enum Answer {
+    Known(Option<Details>),
+    Failed,
+}
+
+async fn ask(id: &str) -> Answer {
+    let Some(client) = CLIENT.as_ref() else { return Answer::Failed };
     let url = format!("{ENDPOINT}?id={id}&token={}&lang=en", token(id));
-    let mut response = client.get(url).send().await.ok()?;
+    let Ok(mut response) = client.get(url).send().await else { return Answer::Failed };
     if response.status() == reqwest::StatusCode::NOT_FOUND {
-        remember(id, None);
-        return None;
+        return Answer::Known(None);
     }
     if !response.status().is_success() {
-        return None;
+        return Answer::Failed;
     }
     let mut bytes = Vec::new();
-    while let Ok(Some(chunk)) = response.chunk().await {
-        if bytes.len() + chunk.len() > MAX_BYTES {
-            return None;
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_BYTES => bytes.extend_from_slice(&chunk),
+            Ok(None) => break,
+            // A cut connection, a timeout or an oversized body says nothing of the post.
+            _ => return Answer::Failed,
         }
-        bytes.extend_from_slice(&chunk);
     }
-    let details = serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| parse(&v));
-    remember(id, details.clone());
-    details
+    match serde_json::from_slice::<Value>(&bytes) {
+        Ok(value) => Answer::Known(parse(&value)),
+        Err(_) => Answer::Failed,
+    }
+}
+
+/// Post `id` as X serves it: None when X has no such post (remembered), or
+/// on a failure (not remembered as an answer, but not asked again for
+/// `RETRY`, so a room scrolled while X refuses sends no request per row).
+pub async fn fetch(id: &str) -> Option<Details> {
+    if id.is_empty() || id.len() > 20 || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    if let Some(known) = cached(id) {
+        return known;
+    }
+    let lock = CACHE.lock().ok()?.asking.entry(id.to_owned()).or_default().clone();
+    let _turn = lock.lock().await;
+    if let Some(known) = cached(id) {
+        return known;
+    }
+    let answer = if failed_recently(id, Instant::now()) { None } else { Some(ask(id).await) };
+    if let Ok(mut cache) = CACHE.lock() {
+        cache.asking.remove(id);
+    }
+    let answer = answer?;
+    match answer {
+        Answer::Known(details) => {
+            remember(id, details.clone());
+            details
+        }
+        Answer::Failed => {
+            failed(id, Instant::now());
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -299,7 +353,7 @@ mod tests {
         assert!(video.video);
         assert_eq!(video.name.as_deref(), Some("elonmusk"));
         let escaped = json!({"__typename": "Tweet", "text": "@bob 🚀 see https://t.co/abc &amp; more",
-            "display_text_range": [5, 34],
+            "display_text_range": [5, 38],
             "entities": {"urls": [{"url": "https://t.co/abc", "display_url": "example.com/page"}]},
             "user": {"profile_image_url_https": "file:///etc/x.jpg"},
             "mediaDetails": [{"type": "photo", "media_url_https": "javascript:alert(1)"}]});
@@ -308,6 +362,53 @@ mod tests {
         assert_eq!((escaped.avatar, escaped.media), (None, None));
         assert_eq!(parse(&json!({"__typename": "TweetTombstone"})), None);
         assert_eq!(parse(&json!({})), None);
+    }
+
+    #[test]
+    fn indices_count_the_escaped_text_as_x_serves_it() {
+        // X's real answer (probed 2026-10-14): the photo's link starts at 39 of
+        // the ESCAPED text, so decoding first left "htt" behind.
+        let post = json!({"__typename": "Tweet",
+            "text": "To an exciting &amp; inspiring future! https://t.co/WUIqN7B2F6",
+            "display_text_range": [0, 38], "user": {"screen_name": "a"},
+            "mediaDetails": [{"type": "photo", "indices": [39, 62], "media_url_https": "https://pbs.twimg.com/media/b.jpg"}]});
+        assert_eq!(parse(&post).unwrap().text.as_deref(), Some("To an exciting & inspiring future!"));
+    }
+
+    #[test]
+    fn media_fallbacks() {
+        let photo = parse(
+            &json!({"__typename": "Tweet", "text": "p", "photos": [{"url": "https://pbs.twimg.com/media/p.jpg"}]}),
+        )
+        .unwrap();
+        assert_eq!((photo.media.as_deref(), photo.video), (Some("https://pbs.twimg.com/media/p.jpg"), false));
+        let poster =
+            parse(&json!({"__typename": "Tweet", "text": "v", "video": {"poster": "https://pbs.twimg.com/v.jpg"}}))
+                .unwrap();
+        assert_eq!((poster.media.as_deref(), poster.video), (Some("https://pbs.twimg.com/v.jpg"), true));
+        let gif = parse(&json!({"__typename": "Tweet", "text": "g",
+            "mediaDetails": [{"type": "animated_gif", "media_url_https": "https://pbs.twimg.com/tweet_video_thumb/g.jpg"}]}))
+        .unwrap();
+        assert!(gif.video);
+    }
+
+    #[test]
+    fn a_failure_is_paused_not_remembered_and_an_answer_clears_it() {
+        let (id, start) = ("990000000000000001", Instant::now());
+        failed(id, start);
+        assert!(failed_recently(id, start + Duration::from_secs(30)));
+        assert!(!failed_recently(id, start + RETRY + Duration::from_secs(1)));
+        assert_eq!(cached(id), None, "a failure is not an answer");
+        remember(id, None);
+        assert_eq!(cached(id), Some(None));
+        assert!(!failed_recently(id, start));
+    }
+
+    #[tokio::test]
+    async fn a_malformed_id_never_reaches_x() {
+        for id in ["", "12a", "123456789012345678901", "1/../2"] {
+            assert_eq!(fetch(id).await, None, "{id}");
+        }
     }
 
     #[tokio::test]
@@ -337,6 +438,12 @@ mod tests {
         assert_eq!(post.handle.as_deref(), Some("BarackObama"));
         assert_eq!(post.name.as_deref(), Some("Barack Obama"));
         assert!(post.media.is_some());
+        // X without media or photo keeps what the card had, the video flag with its picture.
+        post.avatar = Some("https://pbs.twimg.com/profile_images/a.jpg".into());
+        post.video = true;
+        Details { name: None, handle: None, text: None, avatar: None, media: None, video: false }.apply(&mut post);
+        assert_eq!(post.media.as_deref(), Some("https://pbs.twimg.com/media/a.jpg"));
+        assert!(post.video && post.avatar.is_some() && post.text.is_some());
         let rocket_chat = SessionInfo {
             base_url: "https://chat.example.com".into(),
             user_id: "u".into(),
@@ -346,7 +453,15 @@ mod tests {
             mattermost: None,
         };
         assert!(applies(&rocket_chat));
-        let mattermost = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Mattermost), ..rocket_chat };
+        let mattermost = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Mattermost), ..rocket_chat.clone() };
         assert!(!applies(&mattermost));
+        let kchat = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Kchat), ..rocket_chat.clone() };
+        assert!(!applies(&kchat));
+        let vibez = SessionInfo {
+            native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
+            ..rocket_chat
+        };
+        assert!(!applies(&vibez));
+        assert!(!applies(&crate::whatsapp::account_info("abc123", "33600000000@s.whatsapp.net", "Me")));
     }
 }

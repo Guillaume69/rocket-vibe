@@ -443,12 +443,7 @@ pub fn x_post(provider: media::Provider, post: &XPost) -> gtk::Widget {
         Some(url) => external_image(provider.clone(), url, 36, 36),
         None => {
             let frame = widgets::media_frame(36, 36, &["preview-image"]);
-            let initial = post
-                .name
-                .as_deref()
-                .or(post.handle.as_deref())
-                .and_then(|n| n.trim().chars().next())
-                .map_or_else(|| "X".to_owned(), |c| c.to_uppercase().to_string());
+            let initial = widgets::initial(post.name.as_deref().or(post.handle.as_deref()).unwrap_or("X").trim());
             let letter = gtk::Label::builder().label(initial).css_classes(["x-initial"]).build();
             frame.add_overlay(&letter);
             frame

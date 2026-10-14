@@ -380,6 +380,9 @@ pub struct Card {
     pub handle: Option<String>,
     /// The X author's photo.
     pub avatar: Option<String>,
+    /// X may be asked about this post (`Chat::x_post_details`): never for a
+    /// link in an encrypted message, which the server itself never saw.
+    pub x_lookup: bool,
     pub integration: bool,
     pub color: Option<String>,
     pub fields: Vec<CardField>,
@@ -527,6 +530,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             x_post: true,
             handle: p.handle,
             avatar: p.avatar,
+            x_lookup: !encrypted,
             ..Default::default()
         },
     ));

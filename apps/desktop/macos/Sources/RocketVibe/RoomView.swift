@@ -1107,7 +1107,9 @@ struct XPostCard: View {
         .buttonStyle(.plain)
         .help(card.url)
         .task(id: card.url) {
-            guard card.description == nil, let chat else { return }
+            // An edited message keeps this view: the previous post's answer must not show under the new link.
+            details = nil
+            guard card.xLookup, card.description == nil, let chat else { return }
             details = await chat.xPostDetails(url: card.url)
         }
     }

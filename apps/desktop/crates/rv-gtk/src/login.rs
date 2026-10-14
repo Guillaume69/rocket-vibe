@@ -136,16 +136,20 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
 }
 
 /// The kind list's WhatsApp entry, present when the helper is installed.
-const WHATSAPP_KIND: u32 = 5;
+const WHATSAPP_KIND: &str = "WhatsApp";
 
 fn kinds(kind: &gtk::DropDown) -> gtk::StringList {
     kind.model().and_downcast::<gtk::StringList>().expect("server kinds")
 }
 
+fn kind_at(kind: &gtk::DropDown, label: &str) -> Option<u32> {
+    let list = kinds(kind);
+    (0..list.n_items()).find(|&i| list.string(i).as_deref() == Some(label))
+}
+
 /// Slack's entry, last, present while the experimental providers are unlocked.
 fn slack_kind(kind: &gtk::DropDown) -> Option<u32> {
-    let list = kinds(kind);
-    (0..list.n_items()).find(|&i| list.string(i).as_deref() == Some(t("login.kind_slack")))
+    kind_at(kind, t("login.kind_slack"))
 }
 
 fn show_slack_kind(kind: &gtk::DropDown, shown: bool) {
@@ -223,7 +227,7 @@ impl LoginPage {
             t("login.kind_kchat"),
         ];
         if crate::window::whatsapp_helper().is_some() {
-            kinds.push("WhatsApp");
+            kinds.push(WHATSAPP_KIND);
         }
         let kind = gtk::DropDown::from_strings(&kinds);
         kind.set_tooltip_text(Some(t("login.kind")));
@@ -488,7 +492,7 @@ impl LoginPage {
             #[weak]
             infomaniak,
             move |kind| {
-                if kind.selected() == WHATSAPP_KIND {
+                if Some(kind.selected()) == kind_at(kind, WHATSAPP_KIND) {
                     // The dialog opens; the page keeps the kind it had.
                     kind.set_selected(previous_kind.get());
                     whatsapp.emit_clicked();
@@ -695,7 +699,9 @@ impl LoginPage {
 
     /// The smoke's choice of WhatsApp among the server kinds.
     pub fn press_whatsapp(&self) {
-        self.kind.set_selected(WHATSAPP_KIND);
+        if let Some(at) = kind_at(&self.kind, WHATSAPP_KIND) {
+            self.kind.set_selected(at);
+        }
     }
 
     /// Connect WhatsApp: the window opens the linking dialog.

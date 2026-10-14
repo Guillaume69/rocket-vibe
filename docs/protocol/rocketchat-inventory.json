@@ -2927,7 +2927,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/login.rs",
-      "line": 199,
+      "line": 203,
       "kind": "endpoint",
       "surface": "chat.example.com"
     },

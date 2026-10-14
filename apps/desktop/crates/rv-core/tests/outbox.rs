@@ -214,10 +214,16 @@ async fn locked_encrypted_room_waits_without_failing() {
 }
 
 async fn mattermost_fixture(handler: impl Fn(&Request) -> Response + Send + Sync + 'static) -> Fixture {
+    flavored_fixture(rv_core::mattermost::Flavor::Mattermost, handler).await
+}
+
+async fn flavored_fixture(
+    flavor: rv_core::mattermost::Flavor,
+    handler: impl Fn(&Request) -> Response + Send + Sync + 'static,
+) -> Fixture {
     let server = FakeHttp::start(handler).await;
     let store = Arc::new(Store::in_memory().unwrap());
     let rest = RestClient::mattermost(server.url.clone());
-    let flavor = rv_core::mattermost::Flavor::Mattermost;
     let sync = Arc::new(SyncEngine::for_mattermost(store.clone(), rest.clone(), "me", "u-me", flavor));
     let outbox = Outbox::new(store.clone(), rest, sync, "u-me", "me");
     outbox.set_id_generator(|| ID.to_owned());
@@ -337,4 +343,25 @@ async fn a_full_newer_mattermost_page_does_not_authorize_replay() {
     f.outbox.process().await;
     assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
     assert_eq!(mm_posts(&f.server), 0);
+}
+
+#[tokio::test]
+async fn a_kchat_send_carries_no_props() {
+    let f = flavored_fixture(rv_core::mattermost::Flavor::Kchat, |r| {
+        if r.method == "POST" {
+            let body: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+            if body.get("props").is_some() {
+                return respond(422, r#"{"message":"Le champ props doit être un tableau."}"#);
+            }
+            let mut post = mm_post("real");
+            post.as_object_mut().unwrap().remove("props");
+            return respond(201, &post.to_string());
+        }
+        respond(200, r#"{"order":[],"posts":{}}"#)
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    f.outbox.process().await;
+    assert_eq!(mm_posts(&f.server), 1);
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
 }

@@ -34,7 +34,7 @@ function outboxStore() {
   return { store, rows, messages };
 }
 
-function setup(route: Parameters<typeof fakeServer>[0]) {
+function setup(route: Parameters<typeof fakeServer>[0], marked = true) {
   const server = fakeServer(route);
   const local = outboxStore();
   const ingested: Record<string, unknown>[] = [];
@@ -44,6 +44,7 @@ function setup(route: Parameters<typeof fakeServer>[0]) {
     me: { id: 'u-me', username: 'me' },
     generateId: () => 'local1',
     ingest: async (doc) => void ingested.push(doc),
+    marked,
   });
   return { outbox, server, ingested, ...local };
 }
@@ -60,6 +61,19 @@ describe('MmOutbox', () => {
     assert.equal(ingested[0]?.id, 'real1');
     assert.equal(rows.size, 0);
     assert.equal(messages.has('local1'), false);
+  });
+
+  test('kChat refuses unknown props: an unmarked outbox sends none', async () => {
+    const { outbox, server, ingested, rows } = setup((call) =>
+      call.method === 'POST' && call.path === '/posts'
+        ? (call.body as Record<string, unknown>).props === undefined
+          ? { status: 201, body: post('real1', { message: 'hi' }) }
+          : { status: 422, body: { message: 'Le champ props doit être un tableau.' } }
+        : { status: 200, body: postList([]) },
+    false);
+    await outbox.send('ch1', 'hi');
+    assert.equal(ingested[0]?.id, 'real1');
+    assert.equal(rows.size, 0);
   });
 
   test('unreachable network: the row waits, the optimistic message stays', async () => {

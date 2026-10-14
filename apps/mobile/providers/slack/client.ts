@@ -4,9 +4,9 @@ export type SlackAccount = { teamId: string; userId: string };
 export type SlackPage<T> = { items: T[]; nextCursor: string | null };
 
 type Doc = Record<string, unknown>;
-/** Read methods only: nothing is written to Slack yet. */
 export type SlackMethod =
   | 'auth.test'
+  | 'rtm.connect'
   | 'users.conversations'
   | 'conversations.history'
   | 'conversations.replies'
@@ -16,6 +16,19 @@ export type SlackMethod =
 export type SlackArgs = Record<string, string | number | boolean | readonly unknown[] | Doc | undefined>;
 
 const API = 'https://slack.com/api/';
+
+/** What `openSocket` needs from a WebSocket: the upgrade must carry the session cookie. */
+export type CreateRtmSocket = (url: string, headers: Record<string, string>) => import('../../lib/ddp.ts').WebSocketLike;
+
+/** Slack's message servers: a `wss:` URL on one of its own hosts, nothing else gets the cookie. */
+export function rtmUrl(raw: unknown): string {
+  let url: URL;
+  try { url = new URL(text(raw)); } catch { throw new SlackError('invalid_rtm_url'); }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'wss:' || url.username || url.password || url.port || !/^([a-z0-9-]+\.)+(slack-msgs\.com|slack\.com)$/.test(host))
+    throw new SlackError('invalid_rtm_url');
+  return url.href;
+}
 /** The envelopes that refuse the session itself; any other failure is the method's or the network's. */
 export const SESSION_REJECTIONS: ReadonlySet<string> = new Set(['not_authed', 'invalid_auth', 'token_expired', 'token_revoked', 'account_inactive']);
 const CODES = new Set([
@@ -186,6 +199,21 @@ export class SlackClient {
     if (this.#identity && (this.#identity.teamId !== teamId || this.#identity.userId !== userId)) throw new SlackError('identity_changed');
     this.#identity = { key: 'slack:' + teamId + ':' + userId, teamId, userId, team: text(body.team) || teamId, user: text(body.user) || userId, origin: url.origin };
     return this.#identity;
+  }
+
+  /**
+   * `rtm.connect`, then the socket it names, opened with the session cookie on
+   * the upgrade and no bearer. The URL is checked to be Slack's and the
+   * identity the account's before anything is opened.
+   */
+  async openSocket(create: CreateRtmSocket): Promise<import('../../lib/ddp.ts').WebSocketLike> {
+    const body = await this.call('rtm.connect', { batch_presence_aware: 1, presence_sub: true });
+    const team = text(record(body.team ?? {}).id), self = text(record(body.self ?? {}).id);
+    const expected = this.#identity ?? (this.#expected ? { teamId: this.#expected.teamId, userId: this.#expected.userId } : null);
+    if (expected !== null && (team !== expected.teamId || self !== expected.userId)) throw new SlackError('identity_mismatch');
+    const url = rtmUrl(body.url);
+    if (this.#closed) throw new SlackError('cancelled');
+    return create(url, { Cookie: 'd=' + this.#cookie });
   }
 
   /** One page of a cursor-paged list kept under `key`. */

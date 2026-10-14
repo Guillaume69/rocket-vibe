@@ -11,6 +11,14 @@ import type { Translation, Translator } from '../../lib/provider.ts';
 import { isTimestamp, timestampMs } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 
+/** The live envelopes `SlackLive` produces and this translator decodes. */
+export const SLACK_MESSAGE = 'slack:message';
+export const SLACK_MESSAGE_DELETED = 'slack:message-deleted';
+export const SLACK_ROOM = 'slack:room';
+export const SLACK_SUBSCRIPTION = 'slack:subscription';
+export const SLACK_AVATAR = 'slack:avatar';
+export const SLACK_QUIET = 'slack:quiet';
+
 type Doc = Record<string, unknown>;
 
 /** A conversation and, when read, its `client.counts` entry and newest message (`null`: none). */
@@ -117,8 +125,36 @@ export class SlackTranslator implements Translator {
     this.resolver = { username: (id) => directory.username(id), roomName: (id) => roomNames.get(id) ?? null };
   }
 
-  translateEvent(_event: DdpEvent): Translation {
-    return { kind: 'ignore' };
+  translateEvent(event: DdpEvent): Translation {
+    const doc = record(event.args[0]);
+    switch (event.collection) {
+      case SLACK_MESSAGE: {
+        const message = doc === null ? null : this.toMessage(doc);
+        return message === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message', doc: message } };
+      }
+      case SLACK_MESSAGE_DELETED: {
+        const channel = str(doc?.channel);
+        const ts = doc?.ts;
+        return channel === null || !isTimestamp(ts) ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message-deleted', id: messageId(channel, ts) } };
+      }
+      case SLACK_ROOM: {
+        const room = doc === null ? null : this.toRoom(doc);
+        return room === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'room', doc: room } };
+      }
+      case SLACK_SUBSCRIPTION: {
+        const subscription = doc === null ? null : this.toSubscription(doc);
+        return subscription === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'subscription', doc: subscription } };
+      }
+      case SLACK_AVATAR: {
+        const username = str(doc?.username);
+        const etag = str(doc?.etag);
+        return username === null || etag === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'avatar', username, rid: null, etag } };
+      }
+      case SLACK_QUIET:
+        return { kind: 'silence' };
+      default:
+        return { kind: 'ignore' };
+    }
   }
 
   toMessage(raw: Doc): LocalMessage | null {

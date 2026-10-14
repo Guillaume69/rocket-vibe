@@ -1,7 +1,9 @@
 /**
  * Assembles a Slack `Provider` for a session: read-only for now. Rooms,
- * badges, history and threads come over the Web API; every write, file,
- * search and live event is still to come, and the capabilities hide them.
+ * badges, history and threads come over the Web API, live updates over the
+ * RTM socket (messages, edits, deletions, reactions, reads, typing,
+ * presence); every write, file and search is still to come, and the
+ * capabilities hide them.
  */
 
 import type { Session } from '../../lib/auth.ts';
@@ -12,7 +14,8 @@ import { SlackCatchUp } from './catchUp.ts';
 import { SlackError } from './client.ts';
 import { SlackDirectory } from './directory.ts';
 import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
-import { SlackIdleListener } from './listener.ts';
+import { SlackLive } from './live.ts';
+import { SlackRtm } from './rtm.ts';
 import { SlackTranslator } from './translator.ts';
 
 export const SLACK_CAPABILITIES: Capabilities = {
@@ -36,7 +39,7 @@ export const SLACK_CAPABILITIES: Capabilities = {
   reports: false,
   scheduledMessages: false,
   sending: false,
-  typing: false,
+  typing: true,
   presence: false,
   push: false,
   e2ee: false,
@@ -73,8 +76,10 @@ export function createSlackProvider(session: Session, rest: RestClient, options:
   const roomNames = new Map<string, string>();
   const translator = new SlackTranslator(directory, session.userId, roomNames);
   const history = new SlackHistory(client, directory);
-  const catchUp = new SlackCatchUp({ client, directory, history, roomNames, myId: session.userId });
-  const listener = options.listener ?? new SlackIdleListener();
+  const live = new SlackLive({ client, directory, history, myId: session.userId });
+  const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
+  const rtm = options.listener ?? new SlackRtm(client, (frame) => live.expand(frame));
+  const listener = rtm;
   const outbox: Outbox = { send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {} };
   const files: FileOutbox = {
     progress: new Map(), subscribe: noSubscription, validate: unsupported,
@@ -95,6 +100,11 @@ export function createSlackProvider(session: Session, rest: RestClient, options:
     },
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],
+    setTyping: (channel, active) => {
+      if (!(rtm instanceof SlackRtm)) return;
+      if (active) rtm.sendTyping(channel);
+      else rtm.stopTyping(channel);
+    },
     privateNote: () => null,
     loadHistory: (engine, rid, _type, latest) => history.loadHistory(engine, rid, latest),
     historyRange: (rid, _type, latest, oldest) => history.range(rid, latest, oldest),

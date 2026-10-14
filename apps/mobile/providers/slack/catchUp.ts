@@ -16,6 +16,7 @@ import type { SlackClient } from './client.ts';
 import { isTimestamp, oldestOfMs, timestampMs } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 import type { SlackHistory } from './history.ts';
+import type { SlackLive } from './live.ts';
 import type { SlackRoomDoc, SlackSubscriptionDoc } from './translator.ts';
 
 type Doc = Record<string, unknown>;
@@ -34,14 +35,16 @@ export class SlackCatchUp {
   private readonly directory: SlackDirectory;
   private readonly history: SlackHistory;
   private readonly roomNames: Map<string, string>;
+  private readonly live: SlackLive | null;
   private readonly myId: string;
   private readonly running = new Map<string, Promise<void>>();
 
-  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; roomNames: Map<string, string>; myId: string }) {
+  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; roomNames: Map<string, string>; myId: string; live?: SlackLive | null }) {
     this.client = options.client;
     this.directory = options.directory;
     this.history = options.history;
     this.roomNames = options.roomNames;
+    this.live = options.live ?? null;
     this.myId = options.myId;
   }
 
@@ -71,6 +74,7 @@ export class SlackCatchUp {
     const [channels, counts] = await Promise.all([this.roster(), this.counts()]);
     if (isDiscarded()) return;
     for (const c of channels) if (typeof c.id === 'string' && typeof c.name === 'string' && c.is_im !== true) this.roomNames.set(c.id, c.name);
+    if (this.live !== null) for (const c of channels) if (typeof c.id === 'string') this.live.remember(c, counts.get(String(c.id)) ?? null);
     const recent = [...channels].sort((a, b) => latest(counts.get(String(b.id))) - latest(counts.get(String(a.id))));
     const people = recent.flatMap((c) => (c.is_im === true && typeof c.user === 'string' ? [c.user] : []));
     await this.directory.ensure([this.myId, ...people.slice(0, NAMED_FIRST)]);

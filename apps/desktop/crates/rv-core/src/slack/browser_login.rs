@@ -1,10 +1,13 @@
 use super::{Error, account, id as valid_id, validate_credentials};
 use crate::session::SessionInfo;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     net::TcpListener,
     path::PathBuf,
     process::Stdio,
@@ -17,7 +20,7 @@ use std::{
 use tokio::{
     net::TcpStream,
     process::{Child, Command},
-    sync::{Mutex as AsyncMutex, watch},
+    sync::{Mutex as AsyncMutex, mpsc, oneshot, watch},
     time::{Instant, sleep, timeout},
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
@@ -203,19 +206,29 @@ impl Drop for Profile {
 }
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type Replies = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, &'static str>>>>>;
+
+/// The events the capture acts on; every other event is dropped unread.
+const EVENTS: [&str; 2] = ["Target.attachedToTarget", "Fetch.requestPaused"];
 
 struct Cdp {
-    socket: AsyncMutex<Socket>,
+    sink: AsyncMutex<SplitSink<Socket, Message>>,
+    replies: Replies,
     next_id: AtomicU64,
+    reader: tokio::task::JoinHandle<()>,
 }
 
 impl Cdp {
-    async fn connect(endpoint: &str) -> Result<Arc<Self>, &'static str> {
+    async fn connect(endpoint: &str) -> Result<(Arc<Self>, mpsc::UnboundedReceiver<Value>), &'static str> {
         let (socket, _) = timeout(Duration::from_secs(10), connect_async(endpoint))
             .await
             .map_err(|_| "browser_unavailable")?
             .map_err(|_| "browser_unavailable")?;
-        Ok(Arc::new(Self { socket: AsyncMutex::new(socket), next_id: AtomicU64::new(1) }))
+        let (sink, stream) = socket.split();
+        let replies: Replies = Arc::default();
+        let (events, receiver) = mpsc::unbounded_channel();
+        let reader = tokio::spawn(read(stream, replies.clone(), events));
+        Ok((Arc::new(Self { sink: AsyncMutex::new(sink), replies, next_id: AtomicU64::new(1), reader }), receiver))
     }
 
     async fn command(&self, method: &str, params: Value, session: Option<&str>) -> Result<Value, &'static str> {
@@ -224,50 +237,78 @@ impl Cdp {
         if let Some(session) = session {
             request["sessionId"] = json!(session);
         }
-        let text = serde_json::to_string(&request).map_err(|_| "browser_command_failed")?;
-        let mut socket = self.socket.lock().await;
-        timeout(Duration::from_secs(12), async {
-            socket.send(Message::Text(text.into())).await.map_err(|_| "browser_closed")?;
-            loop {
-                let message = socket.next().await.ok_or("browser_closed")?.map_err(|_| "browser_closed")?;
-                if !message.is_text() {
-                    continue;
-                }
-                let mut raw = message.into_text().map_err(|_| "browser_command_failed")?.to_string();
-                if raw.len() > 4_000_000 {
-                    raw.zeroize();
-                    return Err("browser_command_failed");
-                }
-                let mut packet: Value = match serde_json::from_str(&raw) {
-                    Ok(packet) => packet,
-                    Err(_) => {
-                        raw.zeroize();
-                        continue;
-                    }
-                };
-                raw.zeroize();
-                if packet["id"].as_u64() != Some(id) {
-                    zeroize_json(&mut packet);
-                    continue;
-                }
-                if packet["error"].is_object() {
-                    zeroize_json(&mut packet);
-                    return Err("browser_command_failed");
-                }
-                let result = packet.get("result").cloned().unwrap_or(Value::Null);
-                zeroize_json(&mut packet);
-                return Ok(result);
+        let mut text = serde_json::to_string(&request).map_err(|_| "browser_command_failed")?;
+        zeroize_json(&mut request);
+        let (reply, answer) = oneshot::channel();
+        self.replies.lock().expect("CDP replies").insert(id, reply);
+        let sent = self.sink.lock().await.send(Message::Text(text.as_str().into())).await;
+        text.zeroize();
+        if sent.is_err() {
+            self.replies.lock().expect("CDP replies").remove(&id);
+            return Err("browser_closed");
+        }
+        match timeout(Duration::from_secs(12), answer).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err("browser_closed"),
+            Err(_) => {
+                self.replies.lock().expect("CDP replies").remove(&id);
+                Err("browser_timeout")
             }
-        })
-        .await
-        .map_err(|_| "browser_timeout")?
+        }
     }
+}
+
+impl Drop for Cdp {
+    fn drop(&mut self) {
+        self.reader.abort();
+    }
+}
+
+async fn read(mut stream: SplitStream<Socket>, replies: Replies, events: mpsc::UnboundedSender<Value>) {
+    while let Some(Ok(message)) = stream.next().await {
+        if !message.is_text() {
+            continue;
+        }
+        let Ok(text) = message.into_text() else { continue };
+        let mut raw = text.to_string();
+        if raw.len() > 4_000_000 {
+            raw.zeroize();
+            continue;
+        }
+        let packet: Result<Value, _> = serde_json::from_str(&raw);
+        raw.zeroize();
+        let Ok(mut packet) = packet else { continue };
+        if let Some(id) = packet["id"].as_u64() {
+            let result = if packet["error"].is_object() {
+                Err("browser_command_failed")
+            } else {
+                Ok(packet.get_mut("result").map(Value::take).unwrap_or(Value::Null))
+            };
+            zeroize_json(&mut packet);
+            match replies.lock().expect("CDP replies").remove(&id) {
+                Some(reply) => {
+                    let _ = reply.send(result);
+                }
+                None => {
+                    if let Ok(mut result) = result {
+                        zeroize_json(&mut result);
+                    }
+                }
+            }
+        } else if packet["method"].as_str().is_some_and(|m| EVENTS.contains(&m)) {
+            let _ = events.send(packet);
+        } else {
+            zeroize_json(&mut packet);
+        }
+    }
+    replies.lock().expect("CDP replies").clear();
 }
 
 struct Browser {
     child: Option<Child>,
     profile: Profile,
     cdp: Arc<Cdp>,
+    events: mpsc::UnboundedReceiver<Value>,
 }
 
 impl Browser {
@@ -323,16 +364,24 @@ impl Browser {
             }
             sleep(Duration::from_millis(100)).await;
         };
-        let cdp = Cdp::connect(&endpoint).await?;
-        Ok(Self { child: Some(child), profile, cdp })
+        let (cdp, events) = Cdp::connect(&endpoint).await?;
+        cdp.command(
+            "Target.setAutoAttach",
+            json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true}),
+            None,
+        )
+        .await?;
+        Ok(Self { child: Some(child), profile, cdp, events })
     }
 
     async fn capture(&mut self, inner: &Arc<Inner>, mut cancel: watch::Receiver<bool>) -> Result<(), &'static str> {
         let deadline = Instant::now() + Duration::from_secs(20 * 60);
         let mut cookie_fingerprint = None;
         let mut checked: HashMap<[u8; 32], Instant> = HashMap::new();
-        let mut redirected = HashSet::new();
+        let mut pages = HashMap::new();
+        let mut handoff_hosts = Vec::new();
         let mut ready_since = None;
+        let mut tick = tokio::time::interval(Duration::from_millis(800));
 
         loop {
             tokio::select! {
@@ -341,7 +390,18 @@ impl Browser {
                         return Err("cancelled");
                     }
                 }
-                _ = sleep(Duration::from_millis(800)) => {}
+                event = self.events.recv() => {
+                    let Some(mut event) = event else { return Err("browser_closed") };
+                    let handoff = self.on_event(&event, &mut pages).await;
+                    zeroize_json(&mut event);
+                    if let Some(host) = handoff {
+                        handoff_hosts.push(host);
+                        self.derive(inner, &handoff_hosts).await;
+                        return Ok(());
+                    }
+                    continue;
+                }
+                _ = tick.tick() => {}
                 _ = tokio::time::sleep_until(deadline) => return Err("timeout"),
             }
             if *cancel.borrow() {
@@ -350,7 +410,7 @@ impl Browser {
             if self.child.as_mut().and_then(|child| child.try_wait().ok().flatten()).is_some() {
                 return if workspaces(inner).is_some() { Ok(()) } else { Err("browser_closed") };
             }
-            self.inspect(inner, &mut cookie_fingerprint, &mut checked, &mut redirected).await?;
+            self.inspect(inner, &mut cookie_fingerprint, &mut checked, &mut pages).await?;
             if workspaces(inner).is_some() {
                 let first = ready_since.get_or_insert_with(Instant::now);
                 if first.elapsed() >= Duration::from_secs(2) {
@@ -362,30 +422,139 @@ impl Browser {
         }
     }
 
+    /// Keeps every page under document interception, and answers Slack's
+    /// desktop handoff with a local page before it can open `slack:` or the
+    /// web client. Returns the handoff's workspace host.
+    async fn on_event(&self, event: &Value, pages: &mut HashMap<String, String>) -> Option<String> {
+        let session = event["sessionId"].as_str();
+        match event["method"].as_str()? {
+            "Target.attachedToTarget" => {
+                let child = event["params"]["sessionId"].as_str()?;
+                let info = &event["params"]["targetInfo"];
+                if info["type"] == "page" {
+                    self.intercept(info["targetId"].as_str().unwrap_or_default(), child, pages).await;
+                }
+                let _ = self.cdp.command("Runtime.runIfWaitingForDebugger", json!({}), Some(child)).await;
+                None
+            }
+            "Fetch.requestPaused" => {
+                let request_id = event["params"]["requestId"].as_str()?;
+                let url = slack_url(event["params"]["request"]["url"].as_str().unwrap_or_default());
+                match url.filter(is_handoff_url) {
+                    Some(url) => {
+                        let _ = self
+                            .cdp
+                            .command(
+                                "Fetch.fulfillRequest",
+                                json!({
+                                    "requestId": request_id,
+                                    "responseCode": 200,
+                                    "responseHeaders": [
+                                        {"name": "Content-Type", "value": "text/html; charset=utf-8"},
+                                        {"name": "Cache-Control", "value": "no-store"},
+                                    ],
+                                    "body": HANDOFF_PAGE,
+                                }),
+                                session,
+                            )
+                            .await;
+                        url.host_str().map(str::to_owned)
+                    }
+                    None => {
+                        let _ =
+                            self.cdp.command("Fetch.continueRequest", json!({"requestId": request_id}), session).await;
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    async fn intercept(&self, target: &str, session: &str, pages: &mut HashMap<String, String>) {
+        if pages.get(target).map(String::as_str) != Some(session) {
+            pages.insert(target.to_owned(), session.to_owned());
+            let _ = self
+                .cdp
+                .command(
+                    "Fetch.enable",
+                    json!({"patterns": [{"urlPattern": "*/ssb/*", "resourceType": "Document", "requestStage": "Request"}]}),
+                    Some(session),
+                )
+                .await;
+        }
+    }
+
+    /// Reaching the handoff means the sign-in completed: the session cookie
+    /// is set, and each workspace host seen gives its token from its own
+    /// boot page.
+    async fn derive(&self, inner: &Arc<Inner>, handoff_hosts: &[String]) {
+        let Ok(mut result) = self.cdp.command("Storage.getCookies", json!({}), None).await else { return };
+        let cookie = session_cookie(&result, None);
+        let mut hosts: Vec<String> = handoff_hosts.to_vec();
+        if let Some(cookies) = result["cookies"].as_array() {
+            hosts.extend(
+                cookies.iter().filter_map(|c| c["domain"].as_str()).map(|d| d.trim_start_matches('.').to_owned()),
+            );
+        }
+        zeroize_json(&mut result);
+        let Some(cookie) = cookie else { return };
+        for host in workspace_hosts(&hosts).into_iter().take(20) {
+            let Some(token) = boot_token(&host, &cookie).await else { continue };
+            if let Ok(mut info) = account::login(&token, &cookie, None).await {
+                let Some(account) = info.slack.take() else {
+                    info.auth_token.zeroize();
+                    continue;
+                };
+                let label = host.strip_suffix(".slack.com").unwrap_or(&host).to_owned();
+                let credential = Credential {
+                    team_id: account.team_id,
+                    user_id: info.user_id.clone(),
+                    label,
+                    token: Zeroizing::new(std::mem::take(&mut info.auth_token)),
+                    cookie: account.cookie,
+                };
+                inner.credentials.lock().expect("Slack browser login").insert(credential.team_id.clone(), credential);
+            }
+        }
+    }
+
     async fn inspect(
         &self,
         inner: &Arc<Inner>,
         cookie_fingerprint: &mut Option<[u8; 32]>,
         checked: &mut HashMap<[u8; 32], Instant>,
-        redirected: &mut HashSet<String>,
+        pages: &mut HashMap<String, String>,
     ) -> Result<(), &'static str> {
         let result = self.cdp.command("Target.getTargets", json!({}), None).await?;
         let targets = result["targetInfos"].as_array().cloned().unwrap_or_default();
         for target in targets.into_iter().filter(|t| t["type"] == "page").take(20) {
             let target_id = target["targetId"].as_str().unwrap_or_default().to_owned();
-            let raw_url = target["url"].as_str().unwrap_or_default();
-            let Some(page_url) = slack_url(raw_url) else { continue };
-            if !is_handoff_url(&page_url) && !is_client_url(&page_url) {
-                continue;
-            }
-            let Ok(attached) =
-                self.cdp.command("Target.attachToTarget", json!({"targetId": target_id, "flatten": true}), None).await
-            else {
+            let Some(session_id) = pages.get(&target_id).cloned() else {
+                if let Ok(attached) = self
+                    .cdp
+                    .command("Target.attachToTarget", json!({"targetId": target_id, "flatten": true}), None)
+                    .await
+                    && let Some(session) = attached["sessionId"].as_str()
+                {
+                    self.intercept(&target_id, session, pages).await;
+                }
                 continue;
             };
-            let Some(session_id) = attached["sessionId"].as_str() else { continue };
-            let session_id = session_id.to_owned();
-            let cookie = read_session_cookie(&self.cdp, &session_id, raw_url).await;
+            let raw_url = target["url"].as_str().unwrap_or_default();
+            let Some(page_url) = slack_url(raw_url) else { continue };
+            if !is_client_url(&page_url) {
+                continue;
+            }
+            let cookie =
+                match self.cdp.command("Network.getCookies", json!({"urls": [raw_url]}), Some(&session_id)).await {
+                    Ok(mut cookies) => {
+                        let cookie = session_cookie(&cookies, Some(&page_url));
+                        zeroize_json(&mut cookies);
+                        cookie
+                    }
+                    Err(_) => None,
+                };
             if let Some(cookie) = cookie {
                 let fingerprint: [u8; 32] = Sha256::digest(cookie.as_bytes()).into();
                 if cookie_fingerprint.is_some_and(|old| old != fingerprint) {
@@ -394,69 +563,54 @@ impl Browser {
                     inner.set_state(State::SigningIn);
                 }
                 *cookie_fingerprint = Some(fingerprint);
-
-                if is_handoff_url(&page_url) {
-                    if redirected.insert(target_id.clone()) {
-                        let _ = self
-                            .cdp
-                            .command("Page.navigate", json!({"url":"https://app.slack.com/client"}), Some(&session_id))
-                            .await;
-                    }
-                } else {
-                    let snapshot = self
-                        .cdp
-                        .command(
-                            "Runtime.evaluate",
-                            json!({"expression": SNAPSHOT, "returnByValue": true}),
-                            Some(&session_id),
-                        )
-                        .await;
-                    if let Ok(mut snapshot) = snapshot {
-                        if let Some(value) = snapshot["result"]["value"].as_object() {
-                            let snapshot_url = value.get("url").and_then(Value::as_str).unwrap_or_default();
-                            let config = value.get("config").and_then(Value::as_str).unwrap_or_default();
-                            let boot_token = value.get("bootToken").and_then(Value::as_str).unwrap_or_default();
-                            if slack_url(snapshot_url).is_some_and(|u| is_client_url(&u)) {
-                                for candidate in candidates(snapshot_url, config, boot_token) {
-                                    let fingerprint: [u8; 32] = Sha256::digest(candidate.token.as_bytes()).into();
-                                    if checked
-                                        .get(&fingerprint)
-                                        .is_some_and(|at| at.elapsed() < Duration::from_secs(30))
-                                    {
+                let snapshot = self
+                    .cdp
+                    .command(
+                        "Runtime.evaluate",
+                        json!({"expression": SNAPSHOT, "returnByValue": true}),
+                        Some(&session_id),
+                    )
+                    .await;
+                if let Ok(mut snapshot) = snapshot {
+                    if let Some(value) = snapshot["result"]["value"].as_object() {
+                        let snapshot_url = value.get("url").and_then(Value::as_str).unwrap_or_default();
+                        let config = value.get("config").and_then(Value::as_str).unwrap_or_default();
+                        let boot_token = value.get("bootToken").and_then(Value::as_str).unwrap_or_default();
+                        if slack_url(snapshot_url).is_some_and(|u| is_client_url(&u)) {
+                            for candidate in candidates(snapshot_url, config, boot_token) {
+                                let fingerprint: [u8; 32] = Sha256::digest(candidate.token.as_bytes()).into();
+                                if checked.get(&fingerprint).is_some_and(|at| at.elapsed() < Duration::from_secs(30)) {
+                                    continue;
+                                }
+                                checked.insert(fingerprint, Instant::now());
+                                if let Ok(mut info) = account::login(&candidate.token, &cookie, None).await {
+                                    let Some(account) = info.slack.take() else {
+                                        info.auth_token.zeroize();
+                                        continue;
+                                    };
+                                    let token = Zeroizing::new(std::mem::take(&mut info.auth_token));
+                                    if account.team_id != candidate.team_id {
                                         continue;
                                     }
-                                    checked.insert(fingerprint, Instant::now());
-                                    if let Ok(mut info) = account::login(&candidate.token, &cookie, None).await {
-                                        let Some(account) = info.slack.take() else {
-                                            info.auth_token.zeroize();
-                                            continue;
-                                        };
-                                        let token = Zeroizing::new(std::mem::take(&mut info.auth_token));
-                                        if account.team_id != candidate.team_id {
-                                            continue;
-                                        }
-                                        let credential = Credential {
-                                            team_id: account.team_id,
-                                            user_id: info.user_id.clone(),
-                                            label: candidate.label,
-                                            token,
-                                            cookie: account.cookie,
-                                        };
-                                        inner
-                                            .credentials
-                                            .lock()
-                                            .expect("Slack browser login")
-                                            .insert(credential.team_id.clone(), credential);
-                                    }
+                                    let credential = Credential {
+                                        team_id: account.team_id,
+                                        user_id: info.user_id.clone(),
+                                        label: candidate.label,
+                                        token,
+                                        cookie: account.cookie,
+                                    };
+                                    inner
+                                        .credentials
+                                        .lock()
+                                        .expect("Slack browser login")
+                                        .insert(credential.team_id.clone(), credential);
                                 }
                             }
                         }
-                        zeroize_json(&mut snapshot);
                     }
+                    zeroize_json(&mut snapshot);
                 }
             }
-
-            let _ = self.cdp.command("Target.detachFromTarget", json!({"sessionId": session_id}), None).await;
         }
         Ok(())
     }
@@ -482,36 +636,98 @@ impl Drop for Browser {
     }
 }
 
+const HANDOFF_PAGE: &str = "PCFkb2N0eXBlIGh0bWw+PG1ldGEgY2hhcnNldD11dGYtOD48dGl0bGU+U2xhY2s8L3RpdGxlPjxib2R5IHN0eWxlPSJmb250OjE2cHggc3lzdGVtLXVpO3RleHQtYWxpZ246Y2VudGVyO21hcmdpbi10b3A6MjB2aCI+U2lnbmVkIGluLiBSb2NrZXRWaWJlIGlzIGZpbmlzaGluZyB1cC48L2JvZHk+";
+
 const SNAPSHOT: &str = r#"(()=>{const u=new URL(location.href);if(u.protocol!=="https:"||u.port||!/^([a-z0-9-]+\.)?slack\.com$/.test(u.hostname)||!/^\/(client|app)(\/|$)/.test(u.pathname))return null;let config=null;try{const s=localStorage.getItem("localConfig_v2");if(s&&s.length<=2000000)config=s}catch{}let total=0;const tokens=new Set();for(const s of document.scripts){const t=s.textContent||"";total+=t.length;if(total>2000000)break;for(const m of t.matchAll(/["']api_token["']\s*:\s*["'](xoxc-[A-Za-z0-9-]+)["']/g))tokens.add(m[1])}return{url:u.href,config,bootToken:tokens.size===1?[...tokens][0]:null}})()"#;
 
-async fn read_session_cookie(cdp: &Cdp, session_id: &str, url: &str) -> Option<Zeroizing<String>> {
-    let mut result = cdp.command("Network.getCookies", json!({"urls":[url]}), Some(session_id)).await.ok()?;
+/// The one secure, HttpOnly, unexpired Slack `d` cookie of a CDP cookie list,
+/// scoped to `url` when one is given.
+fn session_cookie(result: &Value, url: Option<&url::Url>) -> Option<Zeroizing<String>> {
     let now = chrono::Utc::now().timestamp() as f64;
     let mut found = Vec::new();
-    if let Some(cookies) = result["cookies"].as_array() {
-        for cookie in cookies {
-            let name = cookie["name"].as_str().unwrap_or_default();
-            let value = cookie["value"].as_str().unwrap_or_default();
-            let domain = cookie["domain"].as_str().unwrap_or_default().trim_start_matches('.');
-            let path = cookie["path"].as_str().unwrap_or("/");
-            let expires = cookie["expires"].as_f64().unwrap_or(-1.0);
-            if name == "d"
-                && cookie["secure"] == true
-                && cookie["httpOnly"] == true
-                && valid_slack_host(domain)
-                && url::Url::parse(url).ok().is_some_and(|u| {
-                    (u.host_str() == Some(domain) || u.host_str().is_some_and(|h| h.ends_with(&format!(".{domain}"))))
-                        && u.path().starts_with(path)
-                })
-                && (expires <= 0.0 || expires > now + 60.0)
-                && validate_credentials("xoxc-placeholder", value).is_ok()
-            {
-                found.push(Zeroizing::new(value.to_owned()));
-            }
+    for cookie in result["cookies"].as_array().into_iter().flatten() {
+        let name = cookie["name"].as_str().unwrap_or_default();
+        let value = cookie["value"].as_str().unwrap_or_default();
+        let domain = cookie["domain"].as_str().unwrap_or_default().trim_start_matches('.');
+        let path = cookie["path"].as_str().unwrap_or("/");
+        let expires = cookie["expires"].as_f64().unwrap_or(-1.0);
+        if name == "d"
+            && cookie["secure"] == true
+            && cookie["httpOnly"] == true
+            && valid_slack_host(domain)
+            && url.is_none_or(|u| {
+                (u.host_str() == Some(domain) || u.host_str().is_some_and(|h| h.ends_with(&format!(".{domain}"))))
+                    && u.path().starts_with(path)
+            })
+            && (expires <= 0.0 || expires > now + 60.0)
+            && validate_credentials("xoxc-placeholder", value).is_ok()
+            && !found.iter().any(|f: &Zeroizing<String>| f.as_str() == value)
+        {
+            found.push(Zeroizing::new(value.to_owned()));
         }
     }
-    zeroize_json(&mut result);
     if found.len() == 1 { found.pop() } else { None }
+}
+
+/// Slack's own hosts, never a workspace.
+const INFRA_HOSTS: [&str; 12] =
+    ["app", "api", "a", "edgeapi", "files", "downloads", "www", "my", "status", "slack", "join", "signin"];
+
+/// The distinct `<workspace>.slack.com` hosts among `hosts`.
+fn workspace_hosts(hosts: &[String]) -> Vec<String> {
+    let mut found = Vec::new();
+    for host in hosts {
+        let host = host.to_ascii_lowercase();
+        let Some(label) = host.strip_suffix(".slack.com") else { continue };
+        if valid_slack_host(&host) && !INFRA_HOSTS.contains(&label) && !found.contains(&host) {
+            found.push(host);
+        }
+    }
+    found
+}
+
+/// The `xoxc` token a workspace's boot page carries for the session `cookie`.
+/// Slack serves that page with a 403, token and all, so the status is not
+/// read; a signed-out page has no token.
+async fn boot_token(host: &str, cookie: &str) -> Option<Zeroizing<String>> {
+    crate::tls::ensure_provider();
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(20))
+        .build()
+        .ok()?;
+    let mut url = slack_url(&format!("https://{host}/"))?;
+    for _ in 0..6 {
+        let response = client.get(url.clone()).header("Cookie", format!("d={cookie}")).send().await.ok()?;
+        if response.status().is_redirection() {
+            let next = response.headers().get("location")?.to_str().ok()?;
+            url = slack_url(url.join(next).ok()?.as_str())?;
+            continue;
+        }
+        let mut body = Zeroizing::new(Vec::new());
+        let mut response = response;
+        while let Some(chunk) = response.chunk().await.ok()? {
+            if body.len() + chunk.len() > 4_000_000 {
+                return None;
+            }
+            body.extend_from_slice(&chunk);
+        }
+        return scrape_token(&String::from_utf8_lossy(&body));
+    }
+    None
+}
+
+fn scrape_token(html: &str) -> Option<Zeroizing<String>> {
+    let token = |at: usize| {
+        let end =
+            html[at + 5..].find(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).map_or(html.len(), |n| at + 5 + n);
+        (end > at + 5).then(|| Zeroizing::new(html[at..end].to_owned()))
+    };
+    let keyed = "\"api_token\":\"xoxc-";
+    if let Some(at) = html.find(keyed).and_then(|at| token(at + keyed.len() - 5)) {
+        return Some(at);
+    }
+    html.match_indices("xoxc-").find_map(|(at, _)| token(at))
 }
 
 #[derive(Clone)]
@@ -750,5 +966,50 @@ mod tests {
         let mut value = json!({"a": "secret", "b": ["x", {"c": "y"}], "n": 1});
         zeroize_json(&mut value);
         assert_eq!(value, json!({"a": "", "b": ["", {"c": ""}], "n": 1}));
+    }
+
+    #[test]
+    fn workspace_hosts_skip_slack_infrastructure() {
+        let hosts: Vec<String> = [
+            "acme.slack.com",
+            "app.slack.com",
+            "slack.com",
+            "ACME.slack.com",
+            "beta.slack.com",
+            "a.b.slack.com",
+            "evil.example",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert_eq!(workspace_hosts(&hosts), ["acme.slack.com", "beta.slack.com"]);
+    }
+
+    #[test]
+    fn boot_page_token_prefers_the_keyed_one() {
+        let html = r#"<script>x="xoxc-other"; boot={"api_token":"xoxc-123-abc","team":"T1"}</script>"#;
+        assert_eq!(scrape_token(html).as_deref().map(String::as_str), Some("xoxc-123-abc"));
+        assert_eq!(scrape_token(r#"a "xoxc-9-z" b"#).as_deref().map(String::as_str), Some("xoxc-9-z"));
+        assert!(scrape_token(r#"{"api_token":null}"#).is_none());
+        assert!(scrape_token("xoxc-").is_none());
+    }
+
+    #[test]
+    fn session_cookie_is_the_one_secure_http_only_d() {
+        let cookie = |name: &str, value: &str, domain: &str, secure: bool| json!({"name": name, "value": value, "domain": domain, "path": "/", "secure": secure, "httpOnly": true, "expires": -1});
+        let list = |cookies: Vec<Value>| json!({"cookies": cookies});
+        let found = session_cookie(
+            &list(vec![cookie("d", "xoxd-a", ".slack.com", true), cookie("b", "x", ".slack.com", true)]),
+            None,
+        );
+        assert_eq!(found.as_deref().map(String::as_str), Some("xoxd-a"));
+        assert!(session_cookie(&list(vec![cookie("d", "xoxd-a", ".slack.com", false)]), None).is_none());
+        assert!(session_cookie(&list(vec![cookie("d", "xoxd-a", ".evil.example", true)]), None).is_none());
+        let twice =
+            list(vec![cookie("d", "xoxd-a", ".slack.com", true), cookie("d", "xoxd-b", "acme.slack.com", true)]);
+        assert!(session_cookie(&twice, None).is_none());
+        let page = url::Url::parse("https://beta.slack.com/client").unwrap();
+        let scoped =
+            list(vec![cookie("d", "xoxd-a", ".slack.com", true), cookie("d", "xoxd-b", "acme.slack.com", true)]);
+        assert_eq!(session_cookie(&scoped, Some(&page)).as_deref().map(String::as_str), Some("xoxd-a"));
     }
 }

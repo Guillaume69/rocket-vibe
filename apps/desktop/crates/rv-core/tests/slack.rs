@@ -478,3 +478,102 @@ async fn a_frame_for_a_room_off_the_list_writes_no_room() {
     assert!(store.rooms().iter().all(|r| r.rid != "C999"));
 }
 
+fn outbox(server: &FakeHttp) -> (Arc<Store>, rv_core::outbox::Outbox) {
+    let store = Arc::new(Store::in_memory().unwrap());
+    let rest = RestClient::slack(server.url.clone(), Zeroizing::new(COOKIE.to_owned()));
+    rest.set_credentials(Some(rv_core::rest::Credentials { auth_token: TOKEN.into(), user_id: "U000".into() }));
+    let sync = Arc::new(rv_core::sync::SyncEngine::for_slack(store.clone(), rest.clone(), "me", "U000"));
+    (store.clone(), rv_core::outbox::Outbox::new(store, rest, sync, "U000", "me"))
+}
+
+fn status(store: &Store, rid: &str, id: &str) -> Option<String> {
+    store.messages(rid, 50).into_iter().find(|m| m.id == id).and_then(|m| m.outbox_status)
+}
+
+#[tokio::test]
+async fn a_reply_carries_its_thread_and_the_room_broadcast() {
+    let server = FakeHttp::start(workspace).await;
+    let (store, outbox) = outbox(&server);
+    outbox.enqueue_reply("C001", "in thread", Some("C001:1700000000.000100"), true);
+    outbox.process().await;
+    let sent = server.requests().into_iter().find(|r| method(r) == "chat.postMessage").unwrap();
+    let form = form(&sent);
+    assert_eq!((form["thread_ts"].as_str(), form["reply_broadcast"].as_str()), ("1700000000.000100", "true"));
+    assert!(store.pending_outbox().is_empty());
+}
+
+#[tokio::test]
+async fn a_refusal_fails_the_send_without_a_lookup() {
+    let server = FakeHttp::start(|r| match method(r) {
+        "chat.postMessage" => respond(200, r#"{"ok":false,"error":"is_archived"}"#),
+        other => panic!("unexpected {other}"),
+    })
+    .await;
+    let (store, outbox) = outbox(&server);
+    let id = outbox.enqueue("C001", "hi", None);
+    outbox.process().await;
+    assert_eq!(status(&store, "C001", &id).as_deref(), Some("failed"));
+    assert_eq!(server.requests().len(), 1);
+}
+
+/// A 502 to the send, then a history holding one message from me with `marker`.
+fn lost_answer(marker: String) -> impl Fn(&Request) -> Response + Send + Sync + 'static {
+    move |r: &Request| match method(r) {
+        "chat.postMessage" => respond(502, "Bad Gateway"),
+        "conversations.history" => ok(json!({"has_more": false, "messages": [
+            {"type": "message", "user": "U000", "text": "hi", "ts": "1700000500.000009",
+             "client_msg_id": marker.clone()},
+        ]})),
+        "users.info" => ok(json!({"user": user("U000", "me")})),
+        other => panic!("unexpected {other}"),
+    }
+}
+
+use rv_core::slack::translate::client_msg_id;
+
+#[tokio::test]
+async fn a_lost_answer_is_not_settled_by_another_rows_marker() {
+    let id = rv_core::outbox::generate_message_id();
+    let server = FakeHttp::start(lost_answer(client_msg_id(&id))).await;
+    let (store, outbox) = outbox(&server);
+    let queued = outbox.enqueue("C001", "hi", None);
+    assert_ne!(queued, id, "ids are fresh");
+    outbox.process().await;
+    assert_eq!(status(&store, "C001", &queued).as_deref(), Some("failed"), "a marker of another row proves nothing");
+    assert_eq!(server.requests().iter().filter(|r| method(r) == "chat.postMessage").count(), 1, "never replayed");
+}
+
+#[tokio::test]
+async fn a_lost_answer_finds_the_message_it_sent() {
+    let server = FakeHttp::start(|r: &Request| match method(r) {
+        "chat.postMessage" => respond(502, "Bad Gateway"),
+        "conversations.history" => ok(json!({"has_more": false, "messages": []})),
+        other => panic!("unexpected {other}"),
+    })
+    .await;
+    let (store, outbox) = outbox(&server);
+    let id = outbox.enqueue("C001", "hi", None);
+    outbox.process().await;
+    assert_eq!(status(&store, "C001", &id).as_deref(), Some("failed"), "absent from the window: delivery unknown");
+
+    let marker = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let seen = marker.clone();
+    let server = FakeHttp::start(move |r: &Request| match method(r) {
+        "chat.postMessage" => {
+            *seen.lock().unwrap() = form(r)["client_msg_id"].clone();
+            respond(502, "Bad Gateway")
+        }
+        "conversations.history" => ok(json!({"has_more": false, "messages": [
+            {"type": "message", "user": "U000", "text": "hi", "ts": "1700000500.000009", "client_msg_id": seen.lock().unwrap().clone()},
+        ]})),
+        "users.info" => ok(json!({"user": user("U000", "me")})),
+        other => panic!("unexpected {other}"),
+    })
+    .await;
+    let (store, outbox) = self::outbox(&server);
+    let id = outbox.enqueue("C001", "hi", None);
+    outbox.process().await;
+    assert_eq!(*marker.lock().unwrap(), client_msg_id(&id));
+    assert!(store.pending_outbox().is_empty(), "my own marker proves the delivery");
+    assert!(store.has_message("C001:1700000500.000009"));
+}

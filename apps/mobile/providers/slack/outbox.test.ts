@@ -64,7 +64,8 @@ describe('clientMsgId', () => {
   test('is a stable UUID v4 shape per row', () => {
     const id = clientMsgId('local1');
     assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    assert.equal(clientMsgId('local1'), id);
+    assert.equal(id, 'e0e3bce0-03ec-40bb-ba25-48e1d317a4c2', 'the desktop derives the same marker');
+    assert.equal(clientMsgId('é€😀'), 'ea94271b-fa1a-4248-91ff-07fb275a64b5');
     assert.notEqual(clientMsgId('local2'), id);
   });
 });

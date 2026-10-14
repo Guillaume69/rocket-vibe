@@ -80,6 +80,7 @@ describe('markdownToMrkdwn', () => {
   });
   test('code is left as typed, and Slack entities are escaped outside it', () => {
     assert.equal(markdownToMrkdwn('a < b & `<@x> **y**`', idOf), 'a &lt; b &amp; `<@x> **y**`');
-    assert.equal(markdownToMrkdwn('mail me@alice.test', idOf), 'mail me@alice.test');
+    assert.equal(markdownToMrkdwn('mail me@alice.test, thanks @alice.', idOf), 'mail me@alice.test, thanks <@U001>.');
+    assert.equal(markdownToMrkdwn('2*3*4 stays', idOf), '2*3*4 stays');
   });
 });

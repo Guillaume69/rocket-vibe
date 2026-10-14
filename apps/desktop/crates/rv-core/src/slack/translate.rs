@@ -50,7 +50,7 @@ pub fn mrkdwn(text: &str, user: &dyn Fn(&str) -> Option<String>, channel: &dyn F
     let mut rest = text;
     while !rest.is_empty() {
         let (plain, code, after) = next_code(rest);
-        out.push_str(&plain_mrkdwn(plain, user, channel));
+        out.push_str(&super::emojis::replace(&plain_mrkdwn(plain, user, channel)));
         out.push_str(code);
         rest = after;
     }
@@ -373,6 +373,49 @@ pub fn people(message: &Value) -> Vec<String> {
 }
 
 /// Messages Slack hides, or keeps as the tombstone of a deleted thread root.
+/// A huddle's message (`huddle_thread`) as a card, in the shape every app
+/// already renders. Huddles have no API to join: while one runs, the card
+/// links to it in Slack, opened in the browser; once over, it gives its length.
+/// The end arrives as an edit of the same message.
+pub fn huddle_card(raw: &Value, channel: &str) -> Option<Value> {
+    if str_of(raw, "subtype") != Some("huddle_thread") {
+        return None;
+    }
+    let room = raw.get("room").unwrap_or(&Value::Null);
+    let seconds =
+        |key: &str| room.get(key).and_then(|v| v.as_i64().or_else(|| v.as_str()?.parse().ok())).filter(|s| *s > 0);
+    if room.get("has_ended").and_then(Value::as_bool) == Some(true) || seconds("date_end").is_some() {
+        let title = match seconds("date_start").zip(seconds("date_end")).filter(|(start, end)| end >= start) {
+            Some((start, end)) => crate::i18n::tn("slack.huddleEndedAfter", ((end - start + 30) / 60).max(1)),
+            None => crate::i18n::t("slack.huddleEnded").to_owned(),
+        };
+        return Some(json!({"title": title}));
+    }
+    let given = str_of(room, "huddle_link").filter(|link| slack_web(link)).map(str::to_owned);
+    let link = given.or_else(|| {
+        let team = str_of(raw, "team").filter(|t| t.starts_with('T'))?;
+        let kind = if channel.starts_with('D') { "client" } else { "huddle" };
+        Some(format!("https://app.slack.com/{kind}/{team}/{channel}"))
+    });
+    let mut card = json!({"title": crate::i18n::t("slack.huddle")});
+    if let Some(link) = link {
+        card["title_link"] = json!(link);
+        card["text"] = json!(crate::i18n::t("slack.huddleOpen"));
+    }
+    Some(card)
+}
+
+/// An `https` page of Slack's own web app, the only kind a huddle card links to.
+fn slack_web(link: &str) -> bool {
+    url::Url::parse(link).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && url.host_str().is_some_and(|h| h == "slack.com" || h.ends_with(".slack.com"))
+    })
+}
+
 pub fn skipped(message: &Value) -> bool {
     message.get("hidden").and_then(Value::as_bool) == Some(true)
         || matches!(str_of(message, "subtype"), Some("tombstone" | "message_deleted" | "message_changed"))
@@ -454,7 +497,7 @@ impl Translator<'_> {
             thread_last: root.then(|| str_of(raw, "latest_reply").and_then(ts_ms)).flatten(),
             thread_shown: thread_ts.is_some() && subtype == Some("thread_broadcast"),
             edited_at,
-            attachments: None,
+            attachments: huddle_card(raw, channel).map(|card| json!([card]).to_string()),
             reactions: self.reactions(raw.get("reactions")),
             encrypted_raw: None,
             updated_at: edited_at.unwrap_or(at),
@@ -482,7 +525,11 @@ impl Translator<'_> {
                 .filter_map(Value::as_str)
                 .map(|id| json!(self.directory.username(id).unwrap_or_else(|| id.to_owned())))
                 .collect();
-            grouped.insert(format!(":{name}:"), json!({"usernames": users}));
+            let key = format!(":{}:", super::emojis::reaction_code(name));
+            match grouped.get_mut(&key).and_then(|g| g.get_mut("usernames")).and_then(Value::as_array_mut) {
+                Some(known) => known.extend(users),
+                None => _ = grouped.insert(key, json!({"usernames": users})),
+            }
         }
         (!grouped.is_empty()).then(|| Value::Object(grouped).to_string())
     }
@@ -581,6 +628,30 @@ mod tests {
     }
 
     #[test]
+    fn a_huddle_is_a_card_linking_to_slack_while_it_runs() {
+        let message = |room: Value| json!({"type": "message", "subtype": "huddle_thread", "team": "T1", "ts": "1.000000", "room": room});
+        let live = huddle_card(&message(json!({"huddle_link": "https://app.slack.com/huddle/T1/C1"})), "C1").unwrap();
+        assert_eq!(live["title_link"], "https://app.slack.com/huddle/T1/C1");
+        assert!(live["text"].is_string());
+        let forged = huddle_card(&message(json!({"huddle_link": "https://evil.example/huddle"})), "C1").unwrap();
+        assert_eq!(
+            forged["title_link"], "https://app.slack.com/huddle/T1/C1",
+            "only Slack's own link, else the built one"
+        );
+        let dm = huddle_card(&message(json!({})), "D1").unwrap();
+        assert_eq!(dm["title_link"], "https://app.slack.com/client/T1/D1");
+        let over = huddle_card(
+            &message(json!({"date_start": 1000, "date_end": 1600, "huddle_link": "https://app.slack.com/x"})),
+            "C1",
+        )
+        .unwrap();
+        assert!(over.get("title_link").is_none());
+        assert!(over["title"].as_str().unwrap().contains("10"), "{over}");
+        assert!(huddle_card(&message(json!({"has_ended": true})), "C1").unwrap().get("title_link").is_none());
+        assert!(huddle_card(&json!({"type": "message", "ts": "1.000000"}), "C1").is_none());
+    }
+
+    #[test]
     fn client_msg_ids_match_the_mobile_derivation() {
         let id = client_msg_id("local1");
         assert_eq!(id.len(), 36);
@@ -599,7 +670,7 @@ mod tests {
                 id: id.into(),
                 username: username.into(),
                 display: Some(display.into()),
-                avatar: None,
+                ..Default::default()
             });
         }
         directory
@@ -670,7 +741,12 @@ mod tests {
         assert_eq!((root.edited_at, root.updated_at), (Some(1_700_000_010_000), 1_700_000_010_000));
         assert_eq!(root.author_name.as_deref(), Some("alice"));
         let reactions: Value = serde_json::from_str(root.reactions.as_deref().unwrap()).unwrap();
-        assert_eq!(reactions, json!({":+1:": {"usernames": ["alice", "bob"]}}));
+        let code = crate::emoji::shortcode("\u{1F44D}").unwrap();
+        assert_eq!(
+            reactions,
+            json!({format!(":{code}:"): {"usernames": ["alice", "bob"]}}),
+            "the app's own code for 👍"
+        );
         let reply = t
             .message(
                 "C001",

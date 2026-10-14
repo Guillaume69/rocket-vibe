@@ -17,6 +17,8 @@ pub struct User {
     pub username: String,
     pub display: Option<String>,
     pub avatar: Option<String>,
+    /// The profile's status emoji as a glyph, and when it ends (seconds; 0 never).
+    pub status: Option<(String, i64)>,
 }
 
 impl User {
@@ -28,7 +30,17 @@ impl User {
         let part = |key: &str| profile.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
         let display = part("display_name").or_else(|| part("real_name")).unwrap_or(&username).to_owned();
         let avatar = part("image_72").filter(|u| u.starts_with("https://")).map(str::to_owned);
-        Some(User { id, username, display: Some(display), avatar })
+        let given = profile.pointer("/status_emoji_display_info/0/unicode").and_then(Value::as_str).map(|points| {
+            points
+                .split('-')
+                .filter_map(|p| u32::from_str_radix(p, 16).ok().and_then(char::from_u32))
+                .collect::<String>()
+        });
+        let status = given
+            .filter(|g| !g.is_empty())
+            .or_else(|| part("status_emoji").and_then(super::emojis::glyph_of))
+            .map(|glyph| (glyph, profile.get("status_expiration").and_then(Value::as_i64).unwrap_or(0)));
+        Some(User { id, username, display: Some(display), avatar, status })
     }
 }
 
@@ -66,6 +78,17 @@ impl Directory {
         self.users.lock().unwrap().values().find(|u| u.username == username).and_then(|u| u.display.clone())
     }
 
+    /// Whether someone's profile was read, not just their username stored.
+    fn fetched(&self, id: &str) -> bool {
+        self.users.lock().unwrap().get(id).is_some_and(|u| u.display.is_some())
+    }
+
+    /// Someone's status emoji, while it lasts.
+    pub fn status_emoji(&self, id: &str) -> Option<String> {
+        let (glyph, until) = self.users.lock().unwrap().get(id)?.status.clone()?;
+        (until <= 0 || until > chrono::Utc::now().timestamp()).then_some(glyph)
+    }
+
     pub fn avatar(&self, id: &str) -> Option<String> {
         self.users.lock().unwrap().get(id).and_then(|u| u.avatar.clone())
     }
@@ -83,10 +106,11 @@ impl Directory {
         ids
     }
 
-    /// `users.info` for each id not known yet, a few at a time. A refusal is
-    /// remembered; a network failure leaves the id to the next page.
+    /// `users.info` for each id not read yet, a few at a time: someone only
+    /// known by username (me, at sign-in) still is. A refusal is remembered; a
+    /// network failure leaves the id to the next page.
     pub async fn ensure(&self, rest: &RestClient, ids: impl IntoIterator<Item = String>) {
-        let missing = self.missing(ids, |id| self.users.lock().unwrap().contains_key(id));
+        let missing = self.missing(ids, |id| self.fetched(id));
         for chunk in missing.chunks(CONCURRENCY) {
             let fetches = chunk.iter().map(|id| async move {
                 (id, rest.post("users.info", CallOptions::params([("user", id.as_str())])).await)
@@ -152,5 +176,32 @@ mod tests {
         let missing = directory.missing(ids, |id| directory.users.lock().unwrap().contains_key(id));
         assert_eq!(missing, ["U002", "U004"]);
         assert_eq!(directory.id_of("alice").as_deref(), Some("U001"));
+    }
+
+    #[test]
+    fn someone_stored_by_username_alone_is_still_read() {
+        let directory = Directory::default();
+        directory.remember(User { id: "U000".into(), username: "me".into(), ..Default::default() });
+        assert!(!directory.fetched("U000"));
+        directory.remember(User::from_json(&json!({"id": "U000", "name": "me"})).unwrap());
+        assert!(directory.fetched("U000"));
+    }
+
+    #[test]
+    fn the_status_emoji_shows_while_it_lasts() {
+        let read = |profile: Value| {
+            let directory = Directory::default();
+            directory.remember(User::from_json(&json!({"id": "U001", "name": "alice", "profile": profile})).unwrap());
+            directory.status_emoji("U001")
+        };
+        let given = json!({"status_emoji": ":star_of_david:", "status_emoji_display_info": [{"unicode": "2721-fe0f"}]});
+        assert_eq!(read(given).as_deref(), Some("\u{2721}\u{FE0F}"));
+        assert_eq!(
+            read(json!({"status_emoji": ":female-office-worker:"})).as_deref(),
+            Some("\u{1F469}\u{200D}\u{1F4BC}")
+        );
+        assert_eq!(read(json!({"status_emoji": ":issou:"})), None, "a custom emoji is no glyph");
+        assert_eq!(read(json!({"status_emoji": ":tada:", "status_expiration": 1})), None, "expired");
+        assert_eq!(read(json!({})), None);
     }
 }

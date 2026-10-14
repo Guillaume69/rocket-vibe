@@ -24,6 +24,8 @@ const MAX_PAGES: usize = 50;
 const ROOM_CATCH_UP_PAGES: usize = 4;
 const THREAD_PAGE: &str = "200";
 const THREAD_PAGES: usize = 20;
+/// Where Slack serves a workspace's custom emoji, public like its avatars.
+pub const CUSTOM_EMOJI_ORIGIN: &str = "https://emoji.slack-edge.com/";
 const GONE: [&str; 4] = ["channel_not_found", "thread_not_found", "message_not_found", "not_in_channel"];
 
 fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -97,6 +99,31 @@ impl SlackSync {
             rows.iter().for_each(|m| w.upsert_message(m));
             rows.iter().map(|m| m.updated_at).max()
         })
+    }
+
+    /// The workspace's custom emoji, name to image URL. An alias of another
+    /// custom emoji takes its image; one of a standard emoji is left out, the
+    /// name already resolving through the standard table.
+    pub async fn custom_emojis(&self) -> Result<Vec<(String, String)>, RestError> {
+        let body = self.call("emoji.list", Vec::new()).await?;
+        let list: HashMap<String, String> = body
+            .get("emoji")
+            .and_then(Value::as_object)
+            .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned()))).collect())
+            .unwrap_or_default();
+        let resolve = |name: &str| {
+            let mut value = list.get(name)?;
+            for _ in 0..4 {
+                match value.strip_prefix("alias:") {
+                    Some(target) => value = list.get(target)?,
+                    None => break,
+                }
+            }
+            value.starts_with(CUSTOM_EMOJI_ORIGIN).then(|| value.clone())
+        };
+        let mut index: Vec<(String, String)> = list.keys().filter_map(|n| Some((n.clone(), resolve(n)?))).collect();
+        index.sort();
+        Ok(index)
     }
 
     /// One message Slack answered with (a send), into the store.
@@ -537,11 +564,11 @@ impl SlackSync {
     /// The message is read again, Slack's answer carrying no reactions.
     pub async fn react(&self, msg_id: &str, shortcode: &str, add: bool) -> Result<(), RestError> {
         let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("react: not a Slack message"))?;
-        let name = shortcode.trim_matches(':');
+        let name = super::emojis::slack_name(shortcode);
         if name.is_empty() {
             return Err(RestError::incomplete("react: no emoji"));
         }
-        let params = vec![("channel", channel.to_owned()), ("timestamp", ts.to_owned()), ("name", name.to_owned())];
+        let params = vec![("channel", channel.to_owned()), ("timestamp", ts.to_owned()), ("name", name)];
         let settled = if add { "already_reacted" } else { "no_reaction" };
         match self.call(if add { "reactions.add" } else { "reactions.remove" }, params).await {
             Ok(_) => {}

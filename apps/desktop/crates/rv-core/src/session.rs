@@ -1000,7 +1000,13 @@ impl Session {
     pub fn person_label(&self, uid: &str) -> Option<String> {
         let mattermost = match self.backend() {
             Backend::Mattermost(mm) => mm,
-            Backend::Slack(slack) => return slack.directory.display_name(uid),
+            Backend::Slack(slack) => {
+                let name = slack.directory.display_name(uid)?;
+                return Some(match slack.directory.status_emoji(uid) {
+                    Some(emoji) => format!("{name} {emoji}"),
+                    None => name,
+                });
+            }
             Backend::RocketChat => return self.store.real_names().then(|| self.store.person_name(uid)).flatten(),
         };
         let directory = &mattermost.directory;
@@ -1046,7 +1052,8 @@ impl Session {
     pub fn status_emoji(&self, uid: &str) -> Option<String> {
         match self.backend() {
             Backend::Mattermost(mm) => mm.directory.status_emoji(uid),
-            Backend::Slack(_) | Backend::RocketChat => None,
+            Backend::Slack(slack) => slack.directory.status_emoji(uid),
+            Backend::RocketChat => None,
         }
     }
 
@@ -1333,7 +1340,12 @@ impl Session {
                 self.retain();
                 return;
             }
-            Backend::Slack(_) => {
+            Backend::Slack(slack) => {
+                if let Ok(index) = slack.custom_emojis().await {
+                    *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
+                    self.custom_emoji.lock().unwrap().extend(index);
+                    let _ = self.events.send(SessionEvent::Avatar);
+                }
                 let _ = self.sync.reconcile_rooms().await;
                 self.retain();
                 return;

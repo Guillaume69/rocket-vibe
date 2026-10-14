@@ -151,6 +151,7 @@ fn workspace(request: &Request) -> Response {
     match method(request) {
         "auth.test" => auth(),
         "rtm.connect" => respond(200, r#"{"ok":false,"error":"missing_scope"}"#),
+        "emoji.list" => ok(json!({"emoji": {"issou": "https://emoji.slack-edge.com/T000/issou/a.png", "ris": "alias:issou"}})),
         "chat.postMessage" => {
             let ts = "1700000500.000001";
             ok(json!({"channel": form["channel"], "ts": ts,

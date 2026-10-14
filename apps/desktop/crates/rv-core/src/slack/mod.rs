@@ -4,6 +4,7 @@ pub mod account;
 pub mod api;
 pub mod browser_login;
 pub mod directory;
+pub mod emojis;
 pub mod handoff;
 pub mod live;
 pub mod sync;

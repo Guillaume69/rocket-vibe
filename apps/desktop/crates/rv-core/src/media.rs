@@ -211,6 +211,9 @@ impl MediaCache {
 /// The profile image of the person a Rocket.Chat avatar path names. A room has
 /// no photo there, and nothing else of the server's is read this way.
 fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
+    if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN) {
+        return Ok(path_or_url.to_owned());
+    }
     let none = || RestError::incomplete(&format!("{path_or_url}: no photo"));
     let avatar = path_or_url.strip_prefix("/avatar/").ok_or_else(none)?;
     let target = avatar.split_once("?etag=").map_or(avatar, |(t, _)| t);

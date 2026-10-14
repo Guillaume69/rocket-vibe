@@ -7,17 +7,17 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Text messages send again on kChat accounts. Since 0.17.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
+- Deleting a message that failed to send removes it at once, instead of answering "Action refused".
+- A message not sent yet no longer offers actions the server would refuse (edit, react, reply, pin…): only Copy, and Delete once it has failed.
+
 ## [0.21.0] - 2026-10-14
 
 ### Added
 
 - A link to a post on X (Twitter) shows as a card like the post, on Linux, Windows and macOS: the author's name, handle and photo, the text, and its picture or video image, as the server collected them. A click opens the post in the browser. Rocket.Chat servers collect nothing from X, so on a Rocket.Chat account the app reads the post from X itself (only there).
-
-### Fixed
-
-- Text messages send again on kChat accounts. Since 0.17.0 every one of them failed ("Failed, retry"), while pictures and files still went out.
-- Deleting a message that failed to send removes it, instead of answering "Action refused".
-- A message not sent yet no longer offers actions the server would refuse (edit, react, reply, pin…): only Copy, and Delete once it has failed.
 
 ## [0.20.0] - 2026-10-14
 

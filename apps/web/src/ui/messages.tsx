@@ -465,7 +465,8 @@ function XPostCard({
         .catch(() => {});
   }, [message.id, preview?.image?.sha256, actions]);
   const title = preview?.title ? splitXTitle(preview.title) : undefined;
-  const handle = post.handle ?? title?.handle;
+  // The title names the account as it is now; a link may carry an old handle.
+  const handle = title?.handle ?? post.handle;
   const name = title?.name ?? (handle ? "@" + handle : nt("xpost.post"));
   const initial = (title?.name ?? handle ?? "X").trim().charAt(0).toUpperCase();
   return (

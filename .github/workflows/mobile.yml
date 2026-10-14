@@ -141,7 +141,12 @@ jobs:
       - run: npx expo prebuild --platform android --clean
         env:
           CI: 1
-      - run: ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
+      # The template's 2 GiB heap and 512 MiB metaspace ran out while packaging
+      # (mobile-v0.17.0: "running out of JVM Metaspace", then :app:packageRelease
+      # failed); the runner has 16 GB.
+      - run: >
+          ./gradlew assembleRelease --no-daemon --build-cache -PreactNativeArchitectures=arm64-v8a
+          "-Dorg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
         working-directory: apps/mobile/android
         env:
           RV_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

@@ -179,6 +179,11 @@ fn an_x_post_without_media_has_no_image_rather_than_its_author() {
     let meta = metadata(&resource).unwrap();
     assert_eq!(meta.title.as_deref(), Some("jack (@jack) on X"));
     assert_eq!(meta.image_url, None);
+    // Another site showing an X photo keeps it.
+    let elsewhere = page(
+        "<meta property='og:image' content='https://pbs.twimg.com/profile_images/1661201415899951105/azNjKOSH_400x400.jpg'>",
+    );
+    assert!(metadata(&elsewhere).unwrap().image_url.is_some());
     let media = page(
         "<meta property='og:image' content='https://pbs.twimg.com/media/A7EiDWcCYAAZT1D?format=webp&amp;name=large'>",
     );

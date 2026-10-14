@@ -366,7 +366,7 @@ fn metadata(page: &Resource) -> Result<Metadata> {
             return None;
         }
         let url = page.final_url.join(raw).ok()?;
-        if x_avatar(&url) {
+        if x_avatar(&page.final_url, &url) {
             return None;
         }
         web_url(url.as_str()).ok().map(|u| u.to_string())
@@ -382,10 +382,18 @@ fn metadata(page: &Resource) -> Result<Metadata> {
         image_url,
     })
 }
-/// X gives a post without media its author's photo as `og:image`: kept, the
-/// clients would show a portrait as the post's picture.
-fn x_avatar(image: &Url) -> bool {
-    image.host_str() == Some("pbs.twimg.com") && image.path().starts_with("/profile_images/")
+/// X gives a post without media its author's photo as `og:image`: stored as
+/// the preview's only image, the clients would show a portrait as the post's
+/// picture. Only on X's own pages: another site may well show that photo.
+fn x_avatar(page: &Url, image: &Url) -> bool {
+    let page = page.host_str().unwrap_or_default();
+    let page = page
+        .strip_prefix("www.")
+        .or_else(|| page.strip_prefix("mobile."))
+        .unwrap_or(page);
+    matches!(page, "x.com" | "twitter.com")
+        && image.host_str() == Some("pbs.twimg.com")
+        && image.path().starts_with("/profile_images/")
 }
 fn normalize_image(resource: Resource) -> Result<NormalizedImage> {
     let format = match resource.media_type.as_str() {

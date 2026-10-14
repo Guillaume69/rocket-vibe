@@ -314,9 +314,7 @@ struct Browser {
 impl Browser {
     async fn launch(executable: PathBuf) -> Result<Self, &'static str> {
         let profile = Profile::create()?;
-        let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "browser_unavailable")?;
-        let port = listener.local_addr().map_err(|_| "browser_unavailable")?.port();
-        drop(listener);
+        let port = free_port()?;
 
         let mut child = Command::new(executable)
             .arg("--remote-debugging-address=127.0.0.1")
@@ -334,36 +332,7 @@ impl Browser {
             .spawn()
             .map_err(|_| "browser_launch_failed")?;
 
-        let http = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(2))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|_| "browser_unavailable")?;
-        let version_url = format!("http://127.0.0.1:{port}/json/version");
-        let deadline = Instant::now() + Duration::from_secs(15);
-        let endpoint = loop {
-            if Instant::now() >= deadline {
-                return Err("browser_unavailable");
-            }
-            if child.try_wait().map_err(|_| "browser_unavailable")?.is_some() {
-                return Err("browser_launch_failed");
-            }
-            if let Ok(response) = http.get(&version_url).send().await
-                && response.status().is_success()
-            {
-                let bytes = response.bytes().await.map_err(|_| "browser_unavailable")?;
-                if bytes.len() <= 65536 {
-                    let body: Value = serde_json::from_slice(&bytes).map_err(|_| "browser_unavailable")?;
-                    if let Some(endpoint) = body["webSocketDebuggerUrl"].as_str()
-                        && valid_debugger_endpoint(endpoint, port)
-                    {
-                        break endpoint.to_owned();
-                    }
-                }
-            }
-            sleep(Duration::from_millis(100)).await;
-        };
+        let endpoint = debugger_endpoint(&mut child, port).await?;
         let (cdp, events) = Cdp::connect(&endpoint).await?;
         cdp.command(
             "Target.setAutoAttach",
@@ -814,6 +783,45 @@ fn is_handoff_url(url: &url::Url) -> bool {
 
 fn is_client_url(url: &url::Url) -> bool {
     ["/client", "/app"].iter().any(|prefix| url.path() == *prefix || url.path().starts_with(&format!("{prefix}/")))
+}
+
+fn free_port() -> Result<u16, &'static str> {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "browser_unavailable")?;
+    Ok(listener.local_addr().map_err(|_| "browser_unavailable")?.port())
+}
+
+/// The launched browser's debugger, once it answers on `port`.
+async fn debugger_endpoint(child: &mut Child, port: u16) -> Result<String, &'static str> {
+    let http = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "browser_unavailable")?;
+    let version_url = format!("http://127.0.0.1:{port}/json/version");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if Instant::now() >= deadline {
+            return Err("browser_unavailable");
+        }
+        if child.try_wait().map_err(|_| "browser_unavailable")?.is_some() {
+            return Err("browser_launch_failed");
+        }
+        if let Ok(response) = http.get(&version_url).send().await
+            && response.status().is_success()
+        {
+            let bytes = response.bytes().await.map_err(|_| "browser_unavailable")?;
+            if bytes.len() <= 65536 {
+                let body: Value = serde_json::from_slice(&bytes).map_err(|_| "browser_unavailable")?;
+                if let Some(endpoint) = body["webSocketDebuggerUrl"].as_str()
+                    && valid_debugger_endpoint(endpoint, port)
+                {
+                    return Ok(endpoint.to_owned());
+                }
+            }
+        }
+        sleep(Duration::from_millis(100)).await;
+    }
 }
 
 fn valid_debugger_endpoint(raw: &str, port: u16) -> bool {

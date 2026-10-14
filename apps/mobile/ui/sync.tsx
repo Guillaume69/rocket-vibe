@@ -391,9 +391,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const isDiscarded = () => discarded;
     const provider = createProvider(session, client, () =>
       idFromBytes(Crypto.getRandomBytes(12)),
-      undefined,
-      {},
-      translateCurrent,
     );
     const unprofile=mountProviderProfiles(client,provider);
     const uncalls=mountProviderCalls(client,provider);

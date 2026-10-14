@@ -2,6 +2,7 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -137,6 +138,16 @@ function Call({
     let alive = true;
     void (async () => {
       try {
+        // A Slack huddle has no API to join: its page opens in the browser,
+        // signed in there, and nothing here needs the camera.
+        if (client.kind === 'slack') {
+          const page = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
+          if (alive) {
+            await Linking.openURL(page);
+            router.back();
+          }
+          return;
+        }
         await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
         // A conference URL without a readable origin (exotic scheme, truncated
@@ -153,7 +164,7 @@ function Call({
     return () => {
       alive = false;
     };
-  }, [client, callId, rid,membership,attempt, t]);
+  }, [client, callId, rid,membership,attempt, t, router]);
 
   // Handler (outside the effect): resetting the state there is legitimate.
   const retry = useCallback(() => {

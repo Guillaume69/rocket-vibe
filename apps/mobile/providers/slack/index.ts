@@ -18,7 +18,8 @@ import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
 import { SlackOutbox } from './outbox.ts';
 import { SlackRtm } from './rtm.ts';
-import { SlackTranslator, type SlackLabels } from './translator.ts';
+import { SlackTranslator } from './translator.ts';
+import { slackCalls } from './calls.ts';
 import type { CustomEmoji } from '../../lib/customEmojis.ts';
 
 export const SLACK_CAPABILITIES: Capabilities = {
@@ -47,13 +48,12 @@ export const SLACK_CAPABILITIES: Capabilities = {
   push: false,
   e2ee: false,
   customEmojis: true,
-  videoCall: false,
+  videoCall: true,
   search: false,
   threadTemplate: 'tmid',
 };
 
-/** `labels`: the words the translator writes itself (huddle cards), in the app's language. */
-export type SlackOptions = { fetch?: typeof fetch; listener?: Listener; labels?: SlackLabels };
+export type SlackOptions = { fetch?: typeof fetch; listener?: Listener };
 
 /** Slack's custom emoji, read from `emoji.list`, aliases of another custom one followed. */
 export async function slackCustomEmojis(client: SlackClient): Promise<CustomEmoji[]> {
@@ -81,7 +81,7 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
   const client = slackClientFor(session, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new SlackDirectory(client, session.baseUrl);
   const roomNames = new Map<string, string>();
-  const translator = new SlackTranslator(directory, session.userId, roomNames, options.labels);
+  const translator = new SlackTranslator(directory, session.userId, roomNames);
   const history = new SlackHistory(client, directory);
   const live = new SlackLive({ client, directory, history, myId: session.userId });
   const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
@@ -106,6 +106,7 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
       subscribe: (fn) => directory.onChange(fn),
     },
     listCustomEmojis: () => slackCustomEmojis(client),
+    calls: slackCalls(session.slackTeamId ?? ''),
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],
     setTyping: (channel, active) => {

@@ -365,3 +365,23 @@ async fn a_kchat_send_carries_no_props() {
     assert_eq!(mm_posts(&f.server), 1);
     assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
 }
+
+#[tokio::test]
+async fn a_failed_send_is_discarded_locally() {
+    let f = mattermost_fixture(|r| {
+        if r.method == "POST" {
+            return respond(400, r#"{"id":"api.post.create_post.refused","message":"refused","status_code":400}"#);
+        }
+        respond(200, r#"{"order":[],"posts":{}}"#)
+    })
+    .await;
+    f.outbox.enqueue("ch1", "hello", None);
+    assert!(!f.outbox.discard(ID), "a pending send is not discarded");
+    f.outbox.process().await;
+    assert_eq!(scalar(&f.store, "SELECT status FROM outbox").as_deref(), Some("failed"));
+    let requests = f.server.requests().len();
+    assert!(f.outbox.discard(ID));
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM outbox"), 0);
+    assert_eq!(count(&f.store, "SELECT COUNT(*) FROM messages"), 0);
+    assert_eq!(f.server.requests().len(), requests);
+}

@@ -130,11 +130,13 @@ function outgoing(text: string, idOf: (username: string) => string | null): stri
   return text
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => hold(`<${url}|${label.replace(/\|/g, '/')}>`))
-    .replace(/(^|[^\w@])@([\w.-]+)/g, (m, before: string, name: string) => {
-      if (name === 'all' || name === 'channel' || name === 'everyone') return before + hold('<!channel>');
-      if (name === 'here') return before + hold('<!here>');
+    .replace(/(^|[^\w@])@([\w.-]+)/g, (m, before: string, raw: string) => {
+      const name = raw.replace(/[.-]+$/, ''), tail = raw.slice(name.length);
+      if (name === '') return m;
+      if (name === 'all' || name === 'channel' || name === 'everyone') return before + hold('<!channel>') + tail;
+      if (name === 'here') return before + hold('<!here>') + tail;
       const id = idOf(name);
-      return id === null ? m : before + hold(`<@${id}>`);
+      return id === null ? m : before + hold(`<@${id}>`) + tail;
     })
     .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, (_m, inner: string) => `\u0001${inner}\u0001`)
     .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, '$1_$2_')

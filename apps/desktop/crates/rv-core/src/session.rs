@@ -222,6 +222,8 @@ pub struct Session {
     connection: Mutex<Connection>,
     current_room: Mutex<Option<(String, String)>>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
+    /// The runtime the session was made on: the UI thread calls in from outside it.
+    runtime: tokio::runtime::Handle,
     /// Set by `shutdown`: a reconnection timer never reopens a session closed
     /// while it slept.
     closed: AtomicBool,
@@ -449,6 +451,7 @@ impl Session {
             connection: Mutex::new(Connection::Offline),
             current_room: Mutex::new(None),
             tasks: Mutex::default(),
+            runtime: tokio::runtime::Handle::current(),
             closed: AtomicBool::new(false),
             settings: tokio::sync::OnceCell::new(),
             access: tokio::sync::OnceCell::new(),
@@ -1305,7 +1308,7 @@ impl Session {
 
     pub fn spawn_catch_up(self: &Arc<Self>) {
         let s = self.clone();
-        tokio::spawn(async move { s.catch_up().await });
+        self.runtime.spawn(async move { s.catch_up().await });
     }
 
     async fn catch_up(&self) {

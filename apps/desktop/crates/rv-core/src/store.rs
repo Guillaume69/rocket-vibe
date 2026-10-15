@@ -1326,6 +1326,19 @@ impl Writer<'_> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_slack_file_is_found_posted_by_its_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("files.sqlite")).unwrap();
+        let attachments =
+            r#"[{"title":"a.png","title_link":"https://files.slack.com/files-pri/T1-F0AB12/download/a.png"}]"#;
+        let posted = Message { attachments: Some(attachments.into()), ..message("C1:1.000001", None, 1, "C1") };
+        store.write(|w| w.upsert_message(&posted));
+        assert!(store.file_posted("C1", "F0AB12"));
+        assert!(!store.file_posted("C1", "F0AB1"), "a prefix of the id is another file");
+        assert!(!store.file_posted("C2", "F0AB12"), "another room");
+    }
+
     fn message(id: &str, text: Option<&str>, updated_at: i64, rid: &str) -> Message {
         Message {
             id: id.into(),

@@ -694,6 +694,18 @@ mod tests {
     }
 
     #[test]
+    fn only_slacks_file_host_gets_the_session() {
+        let host = |raw: &str| file_host(&url::Url::parse(raw).unwrap());
+        assert!(host("https://files.slack.com/files-pri/T1-F1/a.png"));
+        assert!(!host("https://files.slack.com.evil.example/a.png"));
+        assert!(!host("https://evil.example/files.slack.com/a.png"));
+        assert!(!host("http://files.slack.com/a.png"));
+        assert!(!host("https://files.slack.com:8443/a.png"));
+        assert!(!host("https://me:pw@files.slack.com/a.png"));
+        assert!(!host("https://emoji.slack-edge.com/a.png"));
+    }
+
+    #[test]
     fn a_huddle_is_a_call_whose_id_is_its_slack_page() {
         let message = |room: Value| json!({"type": "message", "subtype": "huddle_thread", "team": "T1", "ts": "1.000000", "room": room});
         let call = |room: Value, channel: &str| huddle_call(&message(room), channel).unwrap();

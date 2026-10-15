@@ -385,7 +385,19 @@ impl Browser {
             if self.child.as_mut().and_then(|child| child.try_wait().ok().flatten()).is_some() {
                 return if workspaces(inner).is_some() { Ok(()) } else { Err("browser_closed") };
             }
-            self.inspect(inner, &mut cookie_fingerprint, &mut checked, &mut pages).await?;
+            let seen = self.inspect(inner, &mut cookie_fingerprint, &mut checked, &mut pages).await?;
+            let before = handoff_hosts.len();
+            for host in seen {
+                if !handoff_hosts.contains(&host) {
+                    handoff_hosts.push(host);
+                }
+            }
+            if workspaces(inner).is_none() && handoff_hosts.len() > before {
+                self.derive(inner, &handoff_hosts).await;
+                if workspaces(inner).is_some() {
+                    return Ok(());
+                }
+            }
             if workspaces(inner).is_some() {
                 let first = ready_since.get_or_insert_with(Instant::now);
                 if first.elapsed() >= Duration::from_secs(2) {
@@ -500,7 +512,8 @@ impl Browser {
         cookie_fingerprint: &mut Option<[u8; 32]>,
         checked: &mut HashMap<[u8; 32], Instant>,
         pages: &mut HashMap<String, String>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<Vec<String>, &'static str> {
+        let mut handoffs = Vec::new();
         let result = self.cdp.command("Target.getTargets", json!({}), None).await?;
         let targets = result["targetInfos"].as_array().cloned().unwrap_or_default();
         for target in targets.into_iter().filter(|t| t["type"] == "page").take(20) {
@@ -518,6 +531,12 @@ impl Browser {
             };
             let raw_url = target["url"].as_str().unwrap_or_default();
             let Some(page_url) = slack_url(raw_url) else { continue };
+            // The interception can miss the handoff (seen with Edge on Windows):
+            // a page left on it still means the sign-in completed.
+            if is_handoff_url(&page_url) {
+                handoffs.extend(page_url.host_str().map(str::to_owned));
+                continue;
+            }
             if !is_client_url(&page_url) {
                 continue;
             }
@@ -587,7 +606,7 @@ impl Browser {
                 }
             }
         }
-        Ok(())
+        Ok(handoffs)
     }
 
     async fn shutdown(&mut self) {

@@ -205,7 +205,7 @@ async fn unread_rooms_reach_the_switcher_and_a_failed_start_is_retried() {
     let flaky: supervisor::Starter = {
         let failures = failures.clone();
         Arc::new(move |info: &SessionInfo| {
-            if failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            if failures.compare_exchange(1, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                 return Err("database locked".into());
             }
             inner(info)

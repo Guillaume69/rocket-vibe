@@ -278,13 +278,13 @@ All code, comments and docs are in English. French survives in two places only: 
 
 See [Teams architecture](architecture/teams.md) for the implementation boundary.
 
-## Slack preview vocabulary
+## Slack pairing vocabulary
 
 | Term | Meaning |
 |---|---|
 | Slack browser bridge | Developer Node helper inspecting only an owned fresh Slack browser profile; validates paired workspace token and original cookie before export. |
-| rvslack1 | Provider-separated encrypted Slack handoff with workspace/user identity, original cookie bytes, token, five-minute transfer deadline and bounded local preview lifetime. |
-| Local preview lifetime | At most one hour from Slack acquisition, shortened by a known earlier cookie expiry. It is not a guarantee of upstream token validity. |
+| rvslack1 | Provider-separated encrypted Slack handoff with workspace/user identity, original cookie bytes, token, five-minute transfer deadline and a stated expiry within the hour (the former preview's limit). |
+| Local preview lifetime | The removed Slack preview's limit (one hour from acquisition, shortened by a known cookie expiry), still checked on an `rvslack1` envelope at import; a saved account carries no expiry and lives until Slack refuses it. |
 
 See [Slack architecture](architecture/slack-session.md) and [usage](../docs/SLACK_PREVIEW.md).
 
@@ -352,4 +352,4 @@ The code had French names until the English rename. These are the only French wo
 - `brain/features/social.md`
 - scripts/slack/session.mjs
 - apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- apps/desktop/crates/rv-core/src/slack/handoff.rs

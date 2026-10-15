@@ -88,8 +88,8 @@ Setting up an authenticator on a Vibez account (Security category, `POST /api/v1
 
 ## Experimental integrations
 
-The login icon has a device-local nine-activation unlock for the Slack read-only
-preview. The flag is not a server preference. See
+The login icon has a device-local nine-activation unlock for the experimental
+providers: the Slack server kind and the Teams read preview. The flag is not a server preference. See
 [experimental-integrations](experimental-integrations.md).
 
 ## Sources

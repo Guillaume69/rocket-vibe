@@ -317,7 +317,9 @@ Slack and Teams remain hidden behind nine activations of the login icon,
 as requested on 2026-10-09. The device retains the unlock; the preview provides
 a way to hide it again. Slack is implemented first. Start with transient reads
 so no unqualified mutation or incomplete credential lifecycle enters the normal
-account session. See [experimental integrations](features/experimental-integrations.md).
+account session. Slack has since grown past that into a saved account kind with writes
+(still behind the same unlock); Teams is still at the transient read. See
+[experimental integrations](features/experimental-integrations.md).
 
 ## Teams begins at the authentication boundary (2026-10-09)
 
@@ -351,9 +353,29 @@ not copy raw session credentials. The helper inspects only a fresh temporary Sla
 profile, validates each workspace with auth.test and encrypts the selected session
 to a one-use native public key. Domain separation rejects a Teams response in Slack.
 The native reader revalidates the exact workspace/user and enforces a local one-hour
-preview limit without assuming a Slack token expiry or refresh contract. Saved vault
-accounts, packaged/phone-only acquisition and RTM remain subsequent increments.
-[Usage](../docs/SLACK_PREVIEW.md) distinguishes synthetic coverage from live acceptance.
+preview limit without assuming a Slack token expiry or refresh contract. History: the
+saved accounts (keychain record, no expiry, until Slack refuses the session), RTM and the
+desktops' in-app browser sign-in have since shipped on all three apps; Android still also
+accepts a pasted token and cookie, and phone-only acquisition remains debt. See
+[Slack session](architecture/slack-session.md) and [usage](../docs/SLACK_PREVIEW.md).
+
+## Slack huddles open signed in on GTK Linux, in the browser elsewhere (2026-10-15)
+
+Slack's huddle media has no session API, so a huddle opens in Slack's web app. The user
+did not want a second sign-in for it: on GTK Linux the app opens the room's huddle page in
+a temporary Chromium app window whose profile already holds the account's `d` cookie
+(set over the debugging protocol, a session cookie, the profile 0700 and deleted on close,
+the browser killed with the app). Off Linux, on macOS and on Android, the huddle opens in
+the system browser, where the user is usually signed in already. The ordinary call window
+stays the fallback. See [Slack session](architecture/slack-session.md#people-emoji-and-huddles).
+
+## The star is Slack's saved-for-later (2026-10-15)
+
+Slack's own UI shows "saved for later" (`saved.*`), not the legacy `stars.*`, which still
+answer but are invisible to the user in Slack. The app's star therefore maps to
+`saved.add` / `saved.delete`, so a message starred here appears in Slack's Later list and
+the other way round. Messages carry no saved flag, so the apps keep the set of saved ids
+from `saved.list`.
 
 ## Sources
 
@@ -427,4 +449,7 @@ accounts, packaged/phone-only acquisition and RTM remain subsequent increments.
 - scripts/slack-browser-signin.mjs
 - scripts/slack/session.mjs
 - apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- apps/desktop/crates/rv-core/src/slack/handoff.rs
+- apps/desktop/crates/rv-core/src/slack/browser_login.rs (`open_signed_in`)
+- apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
+- apps/mobile/providers/slack/saved.ts

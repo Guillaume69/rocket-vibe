@@ -33,7 +33,7 @@ expo-router file routes, `experiments.typedRoutes: true` in `app.json`. The root
 | Route | Role |
 |---|---|
 | `index.tsx` | Gatekeeper and room list. `starting` shows a splash, `disconnected` redirects to `/login`, otherwise renders the list from live queries. |
-| `login.tsx` | Login in three steps: server, credentials, second factor (`totp`, `email`, or `password` sent as SHA-256). Nine icon activations also reveal transient Slack/Teams previews; see [experimental integrations](../features/experimental-integrations.md). |
+| `login.tsx` | Login in three steps: server, credentials, second factor (`totp`, `email`, or `password` sent as SHA-256). Nine icon activations also reveal the Slack server kind (a saved account, signed in by `ui/slackSignIn.tsx`) and the transient Teams preview; see [experimental integrations](../features/experimental-integrations.md). |
 | `room/[rid].tsx` | A room: inverted FlashList over SQLite, composer, uploads. |
 | `thread/[id].tsx` | A thread, `id` = root message `_id`; loaded whole by `chat.getThreadMessages`, no pagination. |
 | `call/[callId].tsx` | Jitsi call in a WebView, the single allowed WebView. |
@@ -95,7 +95,7 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/ui/icons.generated.ts
 - apps/mobile/scripts/generate-icons.mjs
 - apps/mobile/assets/icons/README.md
-- apps/mobile/ui/experimentalPreview.tsx
+- apps/mobile/ui/slackSignIn.tsx
 - apps/mobile/ui/teamsPreview.tsx
 - apps/mobile/providers/teams/handoff.ts
 

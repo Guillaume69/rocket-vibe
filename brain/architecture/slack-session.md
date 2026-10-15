@@ -4,11 +4,11 @@ Slack is a saved account kind on Android, GTK and SwiftUI, behind nine activatio
 the login icon. Rooms, unread counts, history and threads go through the local store
 like any other server; the RTM socket keeps them live, and text, replies, edits,
 deletions, reactions and reads are written back, and received files show as attachments.
-Files are sent, rooms searched, messages pinned and saved, and presence followed and set (see "Files" and "Pins, saved messages, search and presence"). Room settings, favorites, profiles and the account screen are not wired yet and their capabilities stay off. Android signs in from the developer helper's
+Files are sent, rooms searched, messages pinned and saved, and presence followed and set (see "Files" and "Pins, saved messages, search and presence"). Room info and settings, members, leave, favorites, quotes, scheduled messages, profiles and the account screen are not wired and their capabilities stay off. Android signs in from the developer helper's
 encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
-browser of its own. The transient read preview remains for Teams only on Android, and
-for Slack and Teams in the desktop's experimental panel. See [experimental integrations](../features/experimental-integrations.md)
-and [preview usage](../../docs/SLACK_PREVIEW.md).
+browser of its own. The Slack read preview is gone from every app; only Teams keeps a
+transient preview. See [experimental integrations](../features/experimental-integrations.md)
+and [Slack usage](../../docs/SLACK_PREVIEW.md).
 The design and protocol handoff are
 in [SLACK_SESSION.md](../../docs/protocol/SLACK_SESSION.md), its repeatable
 qualification cases in [SLACK_SESSION_PROBES.md](../../docs/protocol/SLACK_SESSION_PROBES.md),
@@ -22,11 +22,12 @@ d cookie through loopback CDP in a fresh owned Chromium profile, reads validated
 localConfig_v2 workspace tokens or one selected inline boot token, and validates
 pairs with fixed-origin auth.test. It never attaches to an existing profile. The
 local pairing page selects a validated workspace and exports only a provider-specific
-X25519/HKDF-SHA256/AES-256-GCM rvslack1 envelope to the native panel's public key.
-Import consumes that private key and the app rechecks the transferred team/user.
-A five-minute transfer deadline and a one-hour local preview limit bound the session;
-a known earlier cookie expiry shortens it. Readers refuse requests thirty seconds
-before expiry.
+X25519/HKDF-SHA256/AES-256-GCM rvslack1 envelope to the public key of Android's sign-in
+pairing code (`ui/slackSignIn.tsx`, `providers/slack/handoff.ts`). Import consumes that
+private key and the app rechecks the transferred team/user. An envelope past its
+five-minute transfer deadline, or whose stated expiry is not within the hour, is refused;
+once signed in, the saved account no longer carries that expiry. The desktop keeps the
+same code (`slack/handoff.rs`, `login_paired`) but neither interface reaches it.
 
 A saved account (`genre` slack) keeps the `xoxc` token, the team id and the `d` cookie
 in the keychain record, checked by `auth.test` at sign-in; it lives until Slack refuses
@@ -89,22 +90,31 @@ reconnects with the usual backoff and a catch-up.
 Slack pushes no conversation or read document with a message, so the conversations and
 their `client.counts` entries are kept in memory, seeded by the global catch-up, and the
 unread state is derived: a message from someone else sets `has_unreads` and adds a
-mention when it names me, `@channel`, `@here` or `@everyone`; mine leaves it. A root
-becomes the room's preview, a reply does not. `message_changed` replaces the nested
-message at its own `ts`, `message_deleted` removes `deleted_ts`, a reaction re-reads its
-one message (the frame carries no body), `*_marked` overwrites the counts, and
-`user_typing` feeds the typing indicator. A frame for a room off the list writes no room
-row. Mobile: `providers/slack/rtm.ts`, `live.ts`; desktop: `rv-core/src/slack/live.rs`
+mention when it names me, `@channel`, `@here` or `@everyone`; mine leaves it. As Slack
+counts it, a thread reply (not `thread_broadcast`) leaves the room's unread state alone and
+only adds a mention, and a notification, when it names me. A root becomes the room's
+preview, a reply does not. `message_changed` replaces the nested message at its own `ts`,
+`message_deleted` removes `deleted_ts`, a reaction re-reads its one message (the frame
+carries no body), from its thread when it is a reply; a pin is re-read the same way on
+the desktop, Android taking the whole message the frame carries. `*_marked` overwrites the
+counts and moves the room's never-backwards mark bound to the frame's `ts`, so a read made
+elsewhere also bounds later marks here (`SlackSync::marked`, `SlackLive.marks`), and
+`user_typing` feeds the typing indicator. A conversation that appears (`im_created`,
+`channel_joined`, `group_joined`, `mpim_open`, plus `im_open` on the desktop and
+`mpim_joined` on Android) or a message from a room off the list makes it listed live: the
+desktop reruns `catch_up_global` (once per unlisted room), Android reads it with
+`conversations.info` (a room it cannot read is not asked again). A failed `client.counts`
+keeps the previous counts rather than clearing the badges. Mobile: `providers/slack/rtm.ts`, `live.ts`; desktop: `rv-core/src/slack/live.rs`
 and `SlackSync::apply_event`. The desktop status button also runs a REST catch-up on
-Slack, so an account whose socket cannot come up still refreshes. Presence events are
-translated but `presence` stays off: `presence_sub` batching is unqualified.
+Slack, so an account whose socket cannot come up still refreshes. Presence is on in
+both apps (see "Pins, saved messages, search and presence").
 
 ## Writes
 
 Text leaves through each app's persisted outbox as `chat.postMessage`, `thread_ts` for
 a reply and `reply_broadcast` when it is also sent to the room, the app's markdown turned
-into mrkdwn (`markdownToMrkdwn`, `markdown_to_mrkdwn`: entities escaped outside code,
-`<url|label>`, known `@usernames` as `<@id>`, `@all`/`@here` as broadcasts). Each row
+into mrkdwn (`markdownToMrkdwn`, `markdown_to_mrkdwn`: Slack's three entities `&`, `<`,
+`>` escaped everywhere, code spans included and otherwise kept as typed, `<url|label>`, known `@usernames` as `<@id>`, `@all`/`@here` as broadcasts). Each row
 carries a `client_msg_id` derived from its id the same way on both apps (pinned by a
 shared fixture). Probed on 14 October 2026 with a session token and cookie: a
 `chat.postMessage` carrying a chosen `client_msg_id` came back with that exact value,
@@ -115,7 +125,9 @@ for in a window from 2 minutes before the row; found from me, it settles the row
 from a complete window, or the window cut by `has_more`, the row fails as "delivery
 unknown" and is never replayed on its own. A same-text message without the marker
 proves nothing. An `ok: false` envelope is a refusal; a rate limit or a refused session
-leaves the row pending. Edit, delete, react and mark read call `chat.update`,
+leaves the row pending. On Android a 4xx answer that still carries Slack's envelope is
+believed (`invalid_auth` signs out); HTML, proxies, TLS errors and 5xx never refuse the
+session. Edit, delete, react and mark read call `chat.update`,
 `chat.delete`, `reactions.add`/`reactions.remove` (`already_reacted`/`no_reaction`
 settle) and `conversations.mark`, the last never backwards and up to the newest `ts`
 known; the RTM echo rewrites the rows. The desktop account's method allowlist
@@ -137,7 +149,10 @@ code); a reaction key is the app's own shortcode for the same glyph, so chips an
 picker work, and a reaction sent goes back to Slack's name (`slack/emojis.rs`,
 `providers/slack/emojis.ts`). Custom emoji come from `emoji.list` once per session,
 aliases of another custom emoji followed, images public on `emoji.slack-edge.com`.
-Photos are the profile's `image_72`, public on Slack's CDN. Slack names nobody up
+Photos are the profile's `image_72`, public on Slack's CDN; a default photo redirects
+through Gravatar, so the desktop fetches Slack's public media (photos, custom emoji) with
+a client that follows up to five redirects, while the API and `files.slack.com` clients
+follow none (`RestClient::file_request`). Slack names nobody up
 front, so a person is read when first needed: Android reads me and the direct
 conversations' partners at catch-up (`SlackCatchUp`, `lib/slackAvatars.ts`), the
 desktop reads a person when their photo is first asked for (`MediaCache::fetch`,
@@ -153,13 +168,17 @@ call id is the room's page in Slack's web app with `?open=start_huddle`
 ignored, and a stored one is rewritten on join (`huddle_page` / `huddlePage`). Once
 over, an ended call (`videoconf-ended`) with the length from `date_start`/`date_end`. The end arrives as an edit of the same message. The room
 header's call button and the card's Join both open that Slack page
-(`Session::start_call` / `join_call`): on GTK in a call window already signed in
-(`browser_login::open_signed_in`, `Session::open_huddle_window`, `ChatView::open_call`):
-an app window of a Chromium browser on a temporary profile whose `d` cookie is set over
-the debugging protocol (`Storage.setCookies`) before the page loads, the profile deleted
-when the window closes, the ordinary call window if that fails, on macOS and Android in the browser (`CallWindow.show`,
-`providers/slack/calls.ts` and the Slack branch of `app/call/[callId].tsx`, which asks
-no camera permission). Huddle media has no session API: no native participation. Slackbot's
+(`Session::start_call` / `join_call`). On GTK Linux it opens already signed in
+(`browser_login::open_signed_in`, `Session::open_huddle_window`, `ChatView::open_call`): an
+app window of a Chromium-family browser on a temporary profile (created 0700) whose `d`
+cookie is set as a session cookie over the debugging protocol (`Storage.setCookies`)
+before the page loads. The browser picks its own debugging port on 127.0.0.1 and the app
+reads it from the profile's `DevToolsActivePort` (no port chosen and freed for another
+process to take); the process is killed with the app (`kill_on_drop`) and the profile
+deleted when the window closes. If that fails, the ordinary call window opens. On GTK off
+Linux, macOS and Android the huddle opens in the system browser (`cards::open_uri`,
+`CallWindow.show`, `providers/slack/calls.ts` and the Slack branch of
+`app/call/[callId].tsx`, which asks no camera permission). Huddle media has no session API: no native participation. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Files
@@ -184,20 +203,26 @@ bytes are POSTed there with no credential (raw or as a multipart `file` field, b
 200, the stored size being the file's own); `files.completeUploadExternal {files:
 [{id, title}], channel_id, initial_comment?, thread_ts?}` shares it. The shared
 message carries `files[].id` and no `client_msg_id`, and appears a moment after the
-answer. The file id is persisted before the share; a share whose answer was lost is
-looked for in the room (and thread) by that id before ever completing again: desktop
-`Uploads::post_slack` with `SlackSync::upload_url` / `complete_upload` and
-`RestClient::upload_external`, `Store::file_posted` matching `/files-pri/<team>-<id>/`;
-mobile `SlackUploadQueue` (`providers/slack/uploads.ts`), the file's size read through
-the `fileSize` upload hook.
+answer. Probed the same day: completing the same file into the same conversation twice
+is idempotent (one message, one share), `files.info` lists `shares.{public|private}.<channel>[{ts}]`
+right after completion, and answers `file_deleted` for a file uploaded but never shared.
+The apps still persist the file id before the share and look for it before completing
+again, so a lost answer neither posts twice nor reports a delivered file as failed:
+desktop `Uploads::post_slack` asks `already_posted`, which reads the room again
+(`SlackSync::catch_up_room`) and matches `Store::file_posted` on
+`/files-pri/<team>-<id>/` (the room only, a thread reply being stored in the same room),
+with `SlackSync::upload_url` / `complete_upload` and `RestClient::upload_external`;
+mobile `SlackUploadQueue` (`providers/slack/uploads.ts`) looks in the room's recent history
+or the thread's replies (`posted`), the file's size read through the `fileSize` upload
+hook.
 
 ## Pins, saved messages, search and presence
 
 All probed on 15 October 2026 with a browser session token. **Pins**: `pins.add` /
 `pins.remove {channel, timestamp}` (`already_pinned`, `no_pin` are the wanted state),
 `pins.list {channel}` (items with the full `message`); a message's `pinned_to` lists
-the rooms it is pinned in, which sets `pinned`; RTM `pin_added` / `pin_removed` reread
-the message. **Saved for later is the app's star**: `saved.add` / `saved.delete
+the rooms it is pinned in, which sets `pinned`; RTM `pin_added` / `pin_removed` update
+the message (see "Live updates"). **Saved for later is the app's star** (`saved.list` pagination is unprobed): `saved.add` / `saved.delete
 {item_type: message, item_id: <channel>, ts}`, `saved.list` answering references only
 (`item_id`, `ts`, `state`), so a room's saved messages are read back one by one; messages
 carry no saved flag, so the set of saved ids is kept (`SlackSync::saved`,
@@ -231,9 +256,9 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
+- apps/mobile/providers/slack/ (`handoff.ts`, `auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
 - scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`), apps/desktop/crates/rv-core/src/slack/api.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `directory.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `open_huddle_window`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`, `already_posted`), apps/desktop/crates/rv-core/src/media.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 
@@ -242,9 +267,6 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 - `apps/desktop/crates/rv-core/src/native.rs`, `apps/desktop/crates/rv-core/src/session.rs`
 - `apps/desktop/crates/rv-ffi/src/`, `apps/desktop/macos/Sources/RocketVibeKit/`
 
-- scripts/slack-browser-signin.mjs
-- scripts/slack/browser.mjs
-- scripts/slack/session.mjs
-- apps/mobile/providers/slack/handoff.ts
+- scripts/slack-browser-signin.mjs, scripts/slack/browser.mjs, scripts/slack/session.mjs
 - apps/desktop/crates/rv-core/src/slack/handoff.rs
 - docs/SLACK_PREVIEW.md

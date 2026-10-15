@@ -1,13 +1,11 @@
 # Experimental integrations
 
-Slack is the first implementation increment from the provider handoffs. After
-that preview was pushed, Teams gained an isolated read foundation, then a development
-browser-import preview on all three native apps. Live Teams sign-in remains unqualified
-and requires the separate developer helper. Slack now also has an encrypted browser-import
-flow through a developer helper, and has since become a saved account (below); its
-transient preview is gone from every app. The Teams preview that remains is transient
-and read-only on the login screen, independent of the normal persistent account,
-store, outbox and sync lifecycle.
+Behind a device-local unlock, two providers from the protocol handoffs: Slack, a full
+experimental server kind with saved accounts on Android, GTK and SwiftUI (it began as a
+transient read preview, now gone from every app), and Teams, still a transient read-only
+browser-import preview on the login screen of all three, independent of the persistent
+account, store, outbox and sync lifecycle. Live Teams sign-in remains unqualified and
+requires the separate developer helper.
 
 ## Slack account
 
@@ -20,8 +18,9 @@ and reacts; opening a room marks it read. All three apps send typing. Slack's em
 names and skin tones show as emoji, the workspace's custom emoji as images, and a
 person's status emoji after their name. A huddle shows as the kChat-style call card: while it runs,
 Join opens it in Slack's web app, as does the room header's call button, which
-starts one: in a call window already signed in on GTK, in the browser
-on macOS and Android (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room settings, favorites and profile screens stay hidden. Android (`ui/slackSignIn.tsx`) takes the
+starts one: on GTK Linux in a temporary Chromium app window already signed in with the
+session cookie (no second sign-in), on GTK elsewhere, macOS and Android in the system
+browser (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room info, settings, members, leave, favorites, quotes, scheduled messages and the account and profile screens stay hidden. A thread reply marks its room unread and notifies only when it names me; a conversation created or joined elsewhere appears live. Android hides reactions Slack does not know (`slackReactable`); GTK and SwiftUI hide Rocket.Chat's GIFs, stickers and encryption on Slack (`is_slack`). Android (`ui/slackSignIn.tsx`) takes the
 helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
 and password fields and offer "Sign in to Slack": the app opens a temporary browser,
 the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a
@@ -46,30 +45,23 @@ accounts stay.
 
 lib/experimentalUnlock.ts implements the sequence; ui/experimentalProviders.ts
 persists only the enable flag in SecureStore. app/login.tsx attaches it to the
-unicorn button and gates the Slack kind and the WhatsApp entry on it. The Slack preview
-(removed when Slack became an account, its pairing now in ui/slackSignIn.tsx) showed a
-masked public pairing code and encrypted browser response, opened the one-use providers/slack/handoff.ts envelope, validates
-the workspace/user with auth.test against the transferred identity, then lists joined
-conversations through users.conversations. Selecting a conversation reads a
-page of conversations.history. Load more carries the server cursor unchanged;
-repeated cursors fail explicitly. Refresh rereads the first page.
-
-providers/slack/client.ts sends form POSTs only to https://slack.com/api/, with
-Bearer and the exact original cookie bytes. credentials=omit disables the native
-shared cookie jar; the explicit d header remains the sole session cookie.
-Credentials are in memory only;
-disconnect, hide or leaving the screen closes the reader, aborts its outstanding
-reads and drops fields and results. A generation fence discards late completions.
-No credentials enter SQLite or known-server/session storage. IDs use workspace
-and user identity, and message timestamps remain six-decimal strings; conversion
-to seconds occurs only for a displayed date.
+unicorn button, gates the Slack kind and the WhatsApp entry on it, and mounts
+`TeamsPreview` (ui/teamsPreview.tsx) while unlocked. Slack's pairing lives in
+ui/slackSignIn.tsx: a masked public pairing code, the helper's encrypted response opened
+by providers/slack/handoff.ts, or a pasted token and cookie; providers/slack/auth.ts
+checks them with `auth.test` and the session (token, team id, `d` cookie) is saved like
+any account. providers/slack/client.ts sends form POSTs only to https://slack.com/api/,
+with Bearer and the exact original cookie bytes; credentials=omit disables the native
+shared cookie jar. IDs use workspace and user identity, and message timestamps remain
+six-decimal strings; conversion to seconds occurs only for a displayed date.
 
 ## Desktop
 
-rv-core/src/slack/ (`Reader`) implements the same read contract for GTK and SwiftUI.
-It disables redirects, bounds response bytes, sanitizes transport/API errors,
-preserves Retry-After and pins each reader to the authenticated workspace/user.
-Close cancels pending requests and zeroizes retained credential strings.
+rv-core/src/slack/ is the full Slack backend for GTK and SwiftUI (account, sync, RTM,
+browser sign-in; its pairing handoff, `Reader` and `login_paired` are no longer reached by
+either interface); its REST client disables redirects except for public media, bounds
+response bytes, sanitizes transport/API errors and preserves Retry-After. See
+[Slack architecture](../architecture/slack-session.md).
 
 GTK embeds experimental_preview.rs under the login hero: it owns the unlock flag
 (<config>/rocket-vibe-rs/experimental-providers, shared by the desktop interfaces) and
@@ -81,24 +73,14 @@ preview views are removed; rv-core's `Reader` and the FFI's `SlackPreview`/`Slac
 objects remain unused by the interfaces. Removing a preview never revokes the upstream
 browser session.
 
-## Limits and next increments
+## Limits
 
 Slack and Teams use provider-separated encrypted public-key handoffs from separate
-development browser helpers. Raw paired credentials are no longer requested by the Slack UI. This code has fixture
-coverage and does not replace the protocol's live qualification plan. No account
-credentials were used during implementation. Installed Android and macOS runtime
-qualification remains outstanding. Message bodies display as plain text with
-Slack formatting syntax; author IDs remain IDs, non-text content has a placeholder.
-Thread replies, files, real-time RTM, packaged acquisition, phone-only sign-in, secure
-persistent accounts, local/offline projection and writes remain missing. A has_more history
-response without a cursor fails as pagination_unsupported instead of silently
-claiming a complete page sequence. No automated quota retry or background polling.
-
-Next: qualify browser acquisition and implement the vault lifecycle (S-A), then neutral projection
-(S-B), cookie RTM plus reconnect repair (S-C), then durable writes (S-D). Teams
-now has its next transient browser-import increment, following the first Slack
-preview, under the shared unlock. See [Teams architecture](../architecture/teams.md)
-for the code and authentication boundary.
+development browser helpers; the desktops also sign in to Slack in an app-owned
+temporary browser. Installed Android and macOS runtime qualification remains outstanding.
+Slack still lacks phone-only sign-in on Android, the pasted-session fallback on the
+desktops, native huddle media, killed-app push and the screens listed above; Teams lacks
+everything past its read preview. See [parity](../parity.md#19-experimental-integrations).
 
 ## Validation
 
@@ -143,8 +125,8 @@ storage. Normal browser auth cache can exist in its temporary profile during use
 shutdown removes that exact profile, while crashes can leave cleanup debt. Rust
 zeroizes retained secrets, while JS strings do not guarantee physical zeroization.
 
-See [Slack preview usage](../../docs/SLACK_PREVIEW.md). This is a developer bridge;
-packaged/phone-only sign-in and production qualification remain missing. The user
+See [Slack usage](../../docs/SLACK_PREVIEW.md). This is a developer bridge; Android's
+phone-only sign-in and production qualification remain missing. The user
 has a workspace available for manual acceptance, but no live sign-in was performed
 while implementing the helper. Synthetic success is not account qualification.
 
@@ -229,11 +211,16 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - apps/mobile/ui/experimentalProviders.ts
 - apps/mobile/app/login.tsx
 - apps/mobile/ui/slackSignIn.tsx
+- apps/mobile/ui/teamsPreview.tsx
+- apps/mobile/providers/slack/auth.ts
+- apps/mobile/providers/slack/emojis.ts
 - apps/mobile/providers/slack/client.ts
 - apps/mobile/providers/slack/client.test.ts
 - apps/desktop/crates/rv-core/src/slack/mod.rs
 - apps/desktop/crates/rv-core/src/slack/browser_login.rs
 - apps/desktop/crates/rv-gtk/src/login.rs
+- apps/desktop/crates/rv-gtk/src/experimental_preview.rs
+- apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`)
 - apps/desktop/crates/rv-ffi/src/slack.rs
 - apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 - docs/protocol/SLACK_SESSION.md
@@ -245,6 +232,6 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - scripts/slack/server.mjs
 - apps/mobile/providers/slack/handoff.ts
 - apps/mobile/providers/slack/handoff.test.ts
-- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- apps/desktop/crates/rv-core/src/slack/handoff.rs
 - docs/protocol/fixtures/slack-handoff.json
 - docs/SLACK_PREVIEW.md

@@ -53,8 +53,8 @@ The preview never stores sessions in SQLite, SecureStore or the desktop account 
 providers/teams/protocol.ts validates identity, discovered routes, roster and history.
 handoff.ts imports one account and three opaque audience tokens; reader.ts owns that
 immutable partition and expiry. ui/teamsPreview.tsx uses native masked entries, clipboard,
-conversation buttons and plain selectable text. ui/experimentalPreview.tsx switches
-between Slack and Teams by mounting one panel; switching closes the previous reader.
+conversation buttons and plain selectable text. app/login.tsx mounts `TeamsPreview`
+directly while the experimental integrations are unlocked; hiding them closes the reader.
 Cancellation generations prevent a late completion from restoring discarded state.
 
 POST authsvc/v1.0/authz uses the Spaces token. regionGtms.chatSvcAggAfd and
@@ -133,7 +133,7 @@ Native build and rendered UI evidence are recorded in
 - apps/mobile/providers/teams/handoff.ts
 - apps/mobile/providers/teams/handoff.test.ts
 - apps/mobile/ui/teamsPreview.tsx
-- apps/mobile/ui/experimentalPreview.tsx
+- apps/mobile/app/login.tsx
 - apps/desktop/crates/rv-core/src/teams.rs
 - apps/desktop/crates/rv-core/src/teams_handoff.rs
 - apps/desktop/crates/rv-ffi/src/teams.rs

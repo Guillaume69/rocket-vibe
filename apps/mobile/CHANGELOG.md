@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-15
+
 ### Added
 
 - Experimental Slack accounts: behind the experimental unlock (activate the login icon nine times), Slack is a server kind; pair with the browser helper or paste a session, and the account is saved with its conversations, unread counts, history and threads like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Slack's emoji, skin tones, custom emoji and status emoji show as in Slack, and a huddle appears as a call card; joining one, or starting one from the call button, opens it in Slack in your browser. Custom emoji whose names have accented letters show too. Images, videos, voice messages and files sent in Slack show in the conversation. You can also send files, search a conversation, pin and save messages (Slack's "saved for later" are your starred messages), and see and set presence.
@@ -812,7 +814,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...HEAD
+[0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
 [0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0
 [0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.16.0...mobile-v0.17.0

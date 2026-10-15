@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-15
+
 ### Added
 
 - Experimental Slack accounts: behind the experimental unlock (activate the login icon nine times), choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Slack's emoji, skin tones, custom emoji and status emoji show as in Slack, and a huddle appears as a call card; joining one, or starting one from the call button, opens it in Slack: on Linux in an app window already signed in to Slack, elsewhere (macOS included) in your browser. Custom emoji whose names have accented letters show too. Images, videos, voice messages and files sent in Slack show in the conversation. You can also send files, search a conversation, pin and save messages (Slack's "saved for later" are your starred messages), and see and set presence.
@@ -1281,7 +1283,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...HEAD
+[0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
 [0.21.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1
 [0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...desktop-v0.21.0
 [0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...desktop-v0.20.0

@@ -8,7 +8,6 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    net::TcpListener,
     path::PathBuf,
     process::Stdio,
     sync::{
@@ -156,6 +155,14 @@ fn workspaces(inner: &Inner) -> Option<Vec<Workspace>> {
 
 struct Profile(PathBuf);
 
+/// The profile holds the session cookie: readable by me only.
+fn private_dir(path: &std::path::Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
+}
+
 impl Profile {
     fn create() -> Result<Self, &'static str> {
         let base = std::env::temp_dir();
@@ -164,7 +171,7 @@ impl Profile {
             getrandom::fill(&mut random).map_err(|_| "randomness_unavailable")?;
             let name = random.iter().map(|b| format!("{b:02x}")).collect::<String>();
             let path = base.join(format!("rocketvibe-slack-login-{name}"));
-            match std::fs::create_dir(&path) {
+            match private_dir(&path) {
                 Ok(()) => {
                     let preferences = path.join("Default").join("Preferences");
                     if std::fs::create_dir_all(preferences.parent().unwrap())
@@ -314,11 +321,10 @@ struct Browser {
 impl Browser {
     async fn launch(executable: PathBuf) -> Result<Self, &'static str> {
         let profile = Profile::create()?;
-        let port = free_port()?;
 
         let mut child = Command::new(executable)
             .arg("--remote-debugging-address=127.0.0.1")
-            .arg(format!("--remote-debugging-port={port}"))
+            .arg("--remote-debugging-port=0")
             .arg(format!("--user-data-dir={}", profile.0.display()))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
@@ -332,7 +338,7 @@ impl Browser {
             .spawn()
             .map_err(|_| "browser_launch_failed")?;
 
-        let endpoint = debugger_endpoint(&mut child, port).await?;
+        let endpoint = debugger_endpoint(&mut child, &profile.0).await?;
         let (cdp, events) = Cdp::connect(&endpoint).await?;
         cdp.command(
             "Target.setAutoAttach",
@@ -785,21 +791,12 @@ fn is_client_url(url: &url::Url) -> bool {
     ["/client", "/app"].iter().any(|prefix| url.path() == *prefix || url.path().starts_with(&format!("{prefix}/")))
 }
 
-fn free_port() -> Result<u16, &'static str> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "browser_unavailable")?;
-    Ok(listener.local_addr().map_err(|_| "browser_unavailable")?.port())
-}
-
-/// The launched browser's debugger, once it answers on `port`.
-async fn debugger_endpoint(child: &mut Child, port: u16) -> Result<String, &'static str> {
-    let http = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(2))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "browser_unavailable")?;
-    let version_url = format!("http://127.0.0.1:{port}/json/version");
+/// The launched browser's debugger. It picks its own port and writes it,
+/// with the browser's endpoint path, to `DevToolsActivePort` in its profile:
+/// no port is chosen here and freed for another process to take first.
+async fn debugger_endpoint(child: &mut Child, profile: &std::path::Path) -> Result<String, &'static str> {
     let deadline = Instant::now() + Duration::from_secs(15);
+    let file = profile.join("DevToolsActivePort");
     loop {
         if Instant::now() >= deadline {
             return Err("browser_unavailable");
@@ -807,17 +804,13 @@ async fn debugger_endpoint(child: &mut Child, port: u16) -> Result<String, &'sta
         if child.try_wait().map_err(|_| "browser_unavailable")?.is_some() {
             return Err("browser_launch_failed");
         }
-        if let Ok(response) = http.get(&version_url).send().await
-            && response.status().is_success()
+        if let Ok(text) = tokio::fs::read_to_string(&file).await
+            && let Some((port, path)) = text.split_once('\n')
+            && let Ok(port) = port.trim().parse::<u16>()
         {
-            let bytes = response.bytes().await.map_err(|_| "browser_unavailable")?;
-            if bytes.len() <= 65536 {
-                let body: Value = serde_json::from_slice(&bytes).map_err(|_| "browser_unavailable")?;
-                if let Some(endpoint) = body["webSocketDebuggerUrl"].as_str()
-                    && valid_debugger_endpoint(endpoint, port)
-                {
-                    return Ok(endpoint.to_owned());
-                }
+            let endpoint = format!("ws://127.0.0.1:{port}{}", path.trim());
+            if valid_debugger_endpoint(&endpoint, port) {
+                return Ok(endpoint);
             }
         }
         sleep(Duration::from_millis(100)).await;
@@ -832,10 +825,9 @@ pub async fn open_signed_in(url: &str, cookie: &str) -> Result<PathBuf, Error> {
     let target = super::translate::huddle_page(url).ok_or_else(|| failure("invalid_url"))?;
     let executable = browser_executable().ok_or_else(|| failure("browser_unavailable"))?;
     let profile = Profile::create().map_err(failure)?;
-    let port = free_port().map_err(failure)?;
     let mut child = Command::new(&executable)
         .arg("--remote-debugging-address=127.0.0.1")
-        .arg(format!("--remote-debugging-port={port}"))
+        .arg("--remote-debugging-port=0")
         .arg(format!("--user-data-dir={}", profile.0.display()))
         .arg(format!("--app={target}"))
         .arg("--class=rocket-vibe-call")
@@ -843,17 +835,15 @@ pub async fn open_signed_in(url: &str, cookie: &str) -> Result<PathBuf, Error> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
+        .kill_on_drop(true)
         .spawn()
         .map_err(|_| failure("browser_launch_failed"))?;
     let signed_in = async {
-        let endpoint = debugger_endpoint(&mut child, port).await?;
+        let endpoint = debugger_endpoint(&mut child, &profile.0).await?;
         let (cdp, _events) = Cdp::connect(&endpoint).await?;
-        let expires = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs() + 7 * 24 * 3600);
         let mut cookies = json!({"cookies": [{
             "name": "d", "value": cookie, "domain": ".slack.com", "path": "/",
-            "secure": true, "httpOnly": true, "sameSite": "Lax", "expires": expires,
+            "secure": true, "httpOnly": true, "sameSite": "Lax",
         }]});
         let set = cdp.command("Storage.setCookies", cookies.clone(), None).await;
         zeroize_json(&mut cookies);
@@ -948,7 +938,17 @@ fn browser_executable() -> Option<PathBuf> {
         }
     }
     #[cfg(not(target_os = "windows"))]
-    let names = ["chromium", "chromium-browser", "google-chrome", "microsoft-edge", "brave-browser", "brave"];
+    let names = [
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+        "microsoft-edge",
+        "microsoft-edge-stable",
+        "brave-browser",
+        "brave",
+        "vivaldi",
+    ];
     #[cfg(target_os = "windows")]
     let names: [&str; 0] = [];
     if let Some(path) = std::env::var_os("PATH") {

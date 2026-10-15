@@ -161,3 +161,25 @@ describe('SlackRtm', () => {
     rtm.close();
   });
 });
+
+describe('SlackRtm presence', () => {
+  test('presence_sub goes after hello, again on a changed list only, and on every new socket', async () => {
+    const { rtm, sockets } = harness();
+    rtm.watchPresence(['U002', 'U000']);
+    const connecting = rtm.connect('');
+    const ws = await waitFor(() => sockets[0]);
+    assert.equal(ws.sent.length, 0);
+    ws.serve({ type: 'hello' });
+    await connecting;
+    rtm.watchPresence(['U000', 'U002', 'U000']);
+    rtm.watchPresence(['U000', 'U003']);
+    assert.deepEqual(ws.sent.filter((f) => f.type === 'presence_sub').map((f) => f.ids), [['U000', 'U002'], ['U000', 'U003']]);
+    ws.close();
+    const again = rtm.connect('');
+    const next = await waitFor(() => sockets[1]);
+    next.serve({ type: 'hello' });
+    await again;
+    assert.deepEqual(next.sent.filter((f) => f.type === 'presence_sub').map((f) => f.ids), [['U000', 'U003']]);
+    rtm.close();
+  });
+});

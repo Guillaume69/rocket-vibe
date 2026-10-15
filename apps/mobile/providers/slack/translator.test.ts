@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
-import { messageId, mrkdwnToMarkdown, parseMessageId, SlackTranslator } from './translator.ts';
+import { messageId, mrkdwnToMarkdown, parseMessageId, SLACK_STARRED, SlackTranslator } from './translator.ts';
 import { COOKIE, TOKEN, fakeSlack, message } from './testing.ts';
 
 function setup() {
@@ -140,4 +140,18 @@ test('subscriptions from client.counts, and none when it is missing', () => {
   assert.deepEqual([mentioned.unread, mentioned.mentions, mentioned.lastSeen], [4, 4, null]);
   const silent = translator.toSubscription({ channel: { id: 'C002' }, counts: null })!;
   assert.deepEqual([silent.unread, silent.mentions, silent.alert, silent.updatedAt], [0, 0, false, 0]);
+});
+
+test('pinned from pinned_to in its own channel; starred from my saves, live too', () => {
+  const { directory } = setup();
+  const saved = new Set(['C001:1780000000.000100']);
+  const translator = new SlackTranslator(directory, 'U000', new Map(), saved);
+  const row = (over: Record<string, unknown>) => translator.toMessage({ ...message('1780000000.000100'), channel: 'C001', ...over })!;
+  assert.equal(row({ pinned_to: ['C001'] }).pinned, true);
+  assert.equal(row({ pinned_to: ['C002'] }).pinned, false);
+  assert.equal(row({}).pinned, false);
+  assert.equal(row({}).starred, '["U000"]');
+  assert.equal(translator.toMessage({ ...message('1780000000.000200'), channel: 'C001' })!.starred, null);
+  const off = translator.translateEvent({ collection: SLACK_STARRED, eventKey: 'x', args: [{ id: 'C001:1780000000.000100', on: false }] });
+  assert.deepEqual(off, { kind: 'change', change: { type: 'message-starred', id: 'C001:1780000000.000100', starred: null } });
 });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import type { DdpEvent } from '../../lib/ddp.ts';
+import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
 import { STREAM_NOTIFY_ROOM_TYPING } from '../../lib/typing.ts';
 import { SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
@@ -109,5 +110,40 @@ describe('SlackLive.expand', () => {
     const { value } = live();
     const events = await value.expand({ type: 'dnd_updated', user: 'U000' });
     assert.equal(events[0]!.collection, 'slack:quiet');
+  });
+});
+
+describe('SlackLive presence and pins', () => {
+  test('presence_change maps active to online and away to away, batched or single; my manual change too', async () => {
+    const { value } = live();
+    const one = await value.expand({ type: 'presence_change', user: 'U001', presence: 'active' });
+    const many = await value.expand({ type: 'presence_change', users: ['U002', 'U003'], presence: 'away' });
+    const mine = await value.expand({ type: 'manual_presence_change', presence: 'away' });
+    assert.deepEqual([...one, ...many, ...mine].map((e) => [e.collection, e.eventKey, (e.args[0] as unknown[])[0], (e.args[0] as unknown[])[2]]), [
+      [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT, 'U001', 1],
+      [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT, 'U002', 2],
+      [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT, 'U003', 2],
+      [STREAM_NOTIFY_LOGGED, PRESENCE_EVENT, 'U000', 2],
+    ]);
+    assert.deepEqual([...value.presence], [['U001', 'online'], ['U002', 'away'], ['U003', 'away'], ['U000', 'away']]);
+    assert.deepEqual(await value.expand({ type: 'presence_change', user: 'U001', presence: 'unknown' }), []);
+  });
+
+  test('presence follows me and my direct conversations', () => {
+    const { value } = live();
+    value.remember({ id: 'D1', is_im: true, user: 'U007' }, null);
+    value.remember({ id: 'G1', is_mpim: true, name: 'mpdm-a--b-1' }, null);
+    assert.deepEqual(value.presenceIds(), ['U000', 'U007']);
+  });
+
+  test('pin_added and pin_removed rewrite the message with its pinned state', async () => {
+    const { value } = live();
+    const item = (pinned: string[]) => ({ type: 'message', channel: 'C1', message: { type: 'message', ts: '2.000000', user: 'U001', text: 'x', pinned_to: pinned } });
+    const added = await value.expand({ type: 'pin_added', channel_id: 'C1', item: item([]) });
+    const removed = await value.expand({ type: 'pin_removed', channel_id: 'C1', item: item(['C1', 'C9']) });
+    assert.deepEqual([...added, ...removed].map((e) => [e.collection, (e.args[0] as Record<string, unknown>).channel, (e.args[0] as Record<string, unknown>).pinned_to]), [
+      [SLACK_MESSAGE, 'C1', ['C1']],
+      [SLACK_MESSAGE, 'C1', ['C9']],
+    ]);
   });
 });

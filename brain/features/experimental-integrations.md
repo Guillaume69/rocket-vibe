@@ -21,7 +21,7 @@ names and skin tones show as emoji, the workspace's custom emoji as images, and 
 person's status emoji after their name. A huddle shows as the kChat-style call card: while it runs,
 Join opens it in Slack's web app, as does the room header's call button, which
 starts one: in a call window already signed in on GTK, in the browser
-on macOS and Android (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save); sending files, search, pins, saves, room settings and presence stay hidden. Android (`ui/slackSignIn.tsx`) takes the
+on macOS and Android (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is set on the desktop). Room settings, favorites and profile screens stay hidden. Android (`ui/slackSignIn.tsx`) takes the
 helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
 and password fields and offer "Sign in to Slack": the app opens a temporary browser,
 the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a

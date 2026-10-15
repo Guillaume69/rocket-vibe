@@ -4,7 +4,7 @@ Slack is a saved account kind on Android, GTK and SwiftUI, behind nine activatio
 the login icon. Rooms, unread counts, history and threads go through the local store
 like any other server; the RTM socket keeps them live, and text, replies, edits,
 deletions, reactions and reads are written back, and received files show as attachments.
-Sending files, search, pins, saves, rooms, profiles and presence are not wired yet and their capabilities stay off. Android signs in from the developer helper's
+Files are sent, rooms searched, messages pinned and saved, and presence followed and set (see "Files" and "Pins, saved messages, search and presence"). Room settings, favorites, profiles and the account screen are not wired yet and their capabilities stay off. Android signs in from the developer helper's
 encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
 browser of its own. The transient read preview remains for Teams only on Android, and
 for Slack and Teams in the desktop's experimental panel. See [experimental integrations](../features/experimental-integrations.md)
@@ -171,7 +171,42 @@ cookie alone gives 200 for a file and a thumbnail); the apps send the cookie and
 bearer, to that host only: desktop `RestClient::file_request` (`file_host`), mobile a
 media lease on `files.slack.com` carrying both headers (`setMediaLease` in
 `lib/mediaAuth.ts`), dropped with the session. One lease per host: two signed-in
-Slack workspaces share it, the last one opened wins. Sending files is not wired.
+Slack workspaces share it, the last one opened wins.
+
+Sending (probed 15 October 2026) takes three calls: `files.getUploadURLExternal
+{filename, length}` answers an `upload_url` on `files.slack.com` and a `file_id`; the
+bytes are POSTed there with no credential (raw or as a multipart `file` field, both
+200, the stored size being the file's own); `files.completeUploadExternal {files:
+[{id, title}], channel_id, initial_comment?, thread_ts?}` shares it. The shared
+message carries `files[].id` and no `client_msg_id`, and appears a moment after the
+answer. The file id is persisted before the share; a share whose answer was lost is
+looked for in the room (and thread) by that id before ever completing again: desktop
+`Uploads::post_slack` with `SlackSync::upload_url` / `complete_upload` and
+`RestClient::upload_external`, `Store::file_posted` matching `/files-pri/<team>-<id>/`;
+mobile `SlackUploadQueue` (`providers/slack/uploads.ts`), the file's size read through
+the `fileSize` upload hook.
+
+## Pins, saved messages, search and presence
+
+All probed on 15 October 2026 with a browser session token. **Pins**: `pins.add` /
+`pins.remove {channel, timestamp}` (`already_pinned`, `no_pin` are the wanted state),
+`pins.list {channel}` (items with the full `message`); a message's `pinned_to` lists
+the rooms it is pinned in, which sets `pinned`; RTM `pin_added` / `pin_removed` reread
+the message. **Saved for later is the app's star**: `saved.add` / `saved.delete
+{item_type: message, item_id: <channel>, ts}`, `saved.list` answering references only
+(`item_id`, `ts`, `state`), so a room's saved messages are read back one by one; messages
+carry no saved flag, so the set of saved ids is kept (`SlackSync::saved`,
+`providers/slack/saved.ts`) and stamps `starred`. The legacy `stars.*` still answer
+but are not what Slack shows. **Search**: `search.messages {query: "<text>
+in:<#C…>"}`, matches being message-shaped with `channel.id`, filtered to the room.
+**Presence**: `presence_sub {ids}` on the RTM socket (DM partners and me) makes Slack
+send `presence_change` (`user` or batched `users`), `manual_presence_change` for me;
+`users.getPresence` reads mine (`active`, `away`, `manual_away`). Slack has only
+`active` and `away`: online sets `users.setPresence auto`, busy and offline set
+`away`. The desktop also sets the status text (`users.profile.set {profile:
+{status_text}}`); Android has no status-text hook yet. The desktop REST client only
+calls the methods listed in `slack/api.rs` (`METHODS`), the mobile client those of its
+method type.
 
 ## Integration and parity
 
@@ -189,9 +224,9 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
+- apps/mobile/providers/slack/ (`auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
 - scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`), apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
+- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`), apps/desktop/crates/rv-core/src/slack/api.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 

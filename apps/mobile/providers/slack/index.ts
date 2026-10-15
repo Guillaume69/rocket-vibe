@@ -2,15 +2,17 @@
  * Assembles a Slack `Provider` for a session. Rooms, badges, history and
  * threads come over the Web API, live updates over the RTM socket. Text
  * goes out through the outbox (roots, replies, replies also in the room),
- * and edit, delete, react and mark read through the actions; files,
- * search, pins and rooms are still to come, and the capabilities hide them.
+ * files through the upload queue, and edit, delete, react, mark read, pins
+ * and saves through the actions; rooms are still to come, and the
+ * capabilities hide them.
  */
 
 import type { Session } from '../../lib/auth.ts';
-import type { Capabilities, FileOutbox, Listener, Provider, ProviderError } from '../../lib/provider.ts';
+import type { Capabilities, Listener, Provider, ProviderError } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { slackClientFor } from './auth.ts';
 import { SlackActions } from './actions.ts';
+import { slackActivity } from './activity.ts';
 import { SlackCatchUp } from './catchUp.ts';
 import { SlackError, record, type SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
@@ -18,6 +20,9 @@ import { SLACK_HISTORY_PAGE, SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
 import { SlackOutbox } from './outbox.ts';
 import { SlackRtm } from './rtm.ts';
+import { SlackSaved } from './saved.ts';
+import { searchSlackMessages } from './search.ts';
+import { SlackUploadQueue } from './uploads.ts';
 import { SLACK_FILES, SlackTranslator } from './translator.ts';
 import { setMediaLease } from '../../lib/mediaAuth.ts';
 import { slackCalls } from './calls.ts';
@@ -26,10 +31,10 @@ import type { CustomEmoji } from '../../lib/customEmojis.ts';
 export const SLACK_CAPABILITIES: Capabilities = {
   editing: true,
   deletion: true,
-  files: false,
+  files: true,
   threads: true,
   reactions: true,
-  marks: false,
+  marks: true,
   profile: false,
   roomInfo: false,
   roomSettings: false,
@@ -45,12 +50,12 @@ export const SLACK_CAPABILITIES: Capabilities = {
   scheduledMessages: false,
   sending: true,
   typing: true,
-  presence: false,
+  presence: true,
   push: false,
   e2ee: false,
   customEmojis: true,
   videoCall: true,
-  search: false,
+  search: true,
   threadTemplate: 'tmid',
 };
 
@@ -73,27 +78,20 @@ export async function slackCustomEmojis(client: SlackClient): Promise<CustomEmoj
 /** Where Slack serves a workspace's custom emoji, public like its avatars. */
 export const CUSTOM_EMOJI_ORIGIN = 'https://emoji.slack-edge.com/';
 
-const unsupported = async (): Promise<never> => {
-  throw new SlackError('unsupported');
-};
-const noSubscription = () => () => {};
-
 export function createSlackProvider(session: Session, rest: RestClient, generateId: () => string, options: SlackOptions = {}): Provider {
   if (session.slackCookie) setMediaLease(SLACK_FILES, session.authToken, session.userId, { Authorization: `Bearer ${session.authToken}`, Cookie: `d=${session.slackCookie}` });
   const client = slackClientFor(session, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new SlackDirectory(client, session.baseUrl);
   const roomNames = new Map<string, string>();
-  const translator = new SlackTranslator(directory, session.userId, roomNames);
   const history = new SlackHistory(client, directory);
+  const saved = new SlackSaved(client, history);
+  const translator = new SlackTranslator(directory, session.userId, roomNames, saved.ids);
   const live = new SlackLive({ client, directory, history, myId: session.userId });
   const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
   const rtm = options.listener ?? new SlackRtm(client, (frame) => live.expand(frame));
   const listener = rtm;
-  const actions = new SlackActions({ client, directory, history, live });
-  const files: FileOutbox = {
-    progress: new Map(), subscribe: noSubscription, validate: unsupported,
-    send: unsupported, process: async () => {}, retry: unsupported, discard: async () => {},
-  };
+  if (rtm instanceof SlackRtm) rtm.onLoss(() => live.presence.clear());
+  const actions = new SlackActions({ client, directory, history, live, translator, saved });
 
   return {
     identity: { kind: 'slack', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
@@ -102,6 +100,14 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
     listener,
     translator,
     actions,
+    ownActivity: slackActivity(client, session.userId),
+    searchMessages: (rid, text) => searchSlackMessages({ client, history, translator }, rid, text),
+    async loadPresence() {
+      if (rtm instanceof SlackRtm) rtm.watchPresence(live.presenceIds());
+      const mine = await slackActivity(client, session.userId).read();
+      live.presence.set(session.userId, mine);
+      return [...live.presence].map(([id, status]) => ({ user: { id }, status }));
+    },
     displayNames: {
       names: () => directory.displayNames(),
       statuses: () => directory.statusEmojis(),
@@ -124,8 +130,15 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
     loadThread: (engine, threadId, isDiscarded) => history.loadThread(engine, threadId, isDiscarded),
     createOutbox: (store, ingest) =>
       new SlackOutbox({ store, client, directory, me: { id: session.userId, username: session.username }, generateId, ingest }),
-    createUploadQueue: () => files,
-    catchUpGlobal: (engine, isDiscarded) => catchUp.global(engine, isDiscarded),
+    createUploadQueue: (store, transport, ingest, hooks) =>
+      new SlackUploadQueue({ store, client, directory, history, transport, generateId, ingest, fileSize: hooks?.fileSize, deleteLocalFile: hooks?.deleteLocalFile }),
+    async catchUpGlobal(engine, isDiscarded) {
+      await catchUp.global(engine, isDiscarded);
+      if (isDiscarded()) return;
+      // Saves are an internal list Slack may refuse: the stars then stay as they were.
+      const moved = await saved.reset().catch(() => []);
+      for (const event of moved) await engine.apply(event);
+    },
     catchUpRoom: (engine, rid, isDiscarded) => catchUp.room(engine, rid, isDiscarded),
     reconcile: (engine, isDiscarded) => catchUp.reconcile(engine, isDiscarded),
   };

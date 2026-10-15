@@ -48,6 +48,7 @@ export class SlackRtm implements Listener {
   private closedOnPurpose = false;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private armed: { promise: Promise<void>; resolve: () => void } = settled();
+  private presenceIds: string[] = [];
 
   constructor(client: SlackClient, expand: Expand, options: SlackRtmOptions = {}) {
     this.client = client;
@@ -134,6 +135,7 @@ export class SlackRtm implements Listener {
       this.cleanUp();
     };
     this.state = 'authenticated';
+    if (this.presenceIds.length > 0) this.send({ type: 'presence_sub', ids: this.presenceIds });
     this.armed.resolve();
     this.heartbeat = setInterval(() => {
       void this.checkAlive();
@@ -170,6 +172,17 @@ export class SlackRtm implements Listener {
     if (now - (this.typedAt.get(channel) ?? 0) < TYPING_EVERY_MS) return;
     this.typedAt.set(channel, now);
     this.send({ id: ++this.id, type: 'typing', channel });
+  }
+
+  /**
+   * The people whose presence Slack pushes, replacing the previous list; kept
+   * for every later socket. Slack answers with their current presence.
+   */
+  watchPresence(ids: readonly string[]): void {
+    const next = [...new Set(ids)].sort();
+    if (next.length === this.presenceIds.length && next.every((id, n) => id === this.presenceIds[n])) return;
+    this.presenceIds = next;
+    if (this.state === 'authenticated') this.send({ type: 'presence_sub', ids: next });
   }
 
   stopTyping(channel: string): void {

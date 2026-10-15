@@ -19,7 +19,18 @@ export type SlackMethod =
   | 'chat.delete'
   | 'reactions.add'
   | 'reactions.remove'
-  | 'conversations.mark';
+  | 'conversations.mark'
+  | 'files.getUploadURLExternal'
+  | 'files.completeUploadExternal'
+  | 'search.messages'
+  | 'pins.add'
+  | 'pins.remove'
+  | 'pins.list'
+  | 'saved.add'
+  | 'saved.delete'
+  | 'saved.list'
+  | 'users.getPresence'
+  | 'users.setPresence';
 export type SlackArgs = Record<string, string | number | boolean | readonly unknown[] | Doc | undefined>;
 
 const API = 'https://slack.com/api/';
@@ -44,6 +55,7 @@ const CODES = new Set([
   'ratelimited', 'user_not_found', 'bot_not_found', 'thread_not_found', 'invalid_cursor', 'unknown_method', 'method_deprecated',
   'message_not_found', 'cant_update_message', 'cant_delete_message', 'edit_window_closed', 'msg_too_long', 'no_text',
   'is_archived', 'restricted_action', 'already_reacted', 'no_reaction', 'too_many_reactions', 'invalid_name',
+  'already_pinned', 'no_pin', 'not_pinnable', 'too_many_pins', 'file_not_found', 'invalid_presence', 'already_saved', 'not_found',
 ]);
 const MAX_RESPONSE = 2_000_000;
 const MAX_RETRY_WAIT_MS = 30_000;

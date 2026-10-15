@@ -500,6 +500,8 @@ export interface Provider {
       nativeFiles?:import('../providers/vibez/uploads.ts').NativeFileIO;
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
+      /** A local file's size in bytes, which Slack asks before the upload. */
+      fileSize?: (uri: string) => Promise<number | null>;
       /** Sending into an encrypted room: without it, a file waits there forever. */
       encryption?: UploadEncryption;
     },

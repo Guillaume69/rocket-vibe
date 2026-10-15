@@ -9,7 +9,7 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
-import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED } from '../../lib/presence.ts';
+import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED, type PresenceStatus } from '../../lib/presence.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { SlackError, exactTimestamp, isTimestamp } from './client.ts';
 import type { SlackClient } from './client.ts';
@@ -23,7 +23,11 @@ type Doc = Record<string, unknown>;
 /** Slack presence strings onto the numbers the presence engine reads. */
 const PRESENCE_CODES = new Map<string, number>([
   ['active', 1],
-  ['away', 0],
+  ['away', 2],
+]);
+const PRESENCE_STATUS = new Map<string, PresenceStatus>([
+  ['active', 'online'],
+  ['away', 'away'],
 ]);
 
 const MARKED = new Set(['channel_marked', 'group_marked', 'im_marked', 'mpim_marked']);
@@ -36,6 +40,8 @@ export class SlackLive {
   private readonly myId: string;
   readonly channels = new Map<string, Doc>();
   readonly counts = new Map<string, Doc>();
+  /** Presence pushed since the socket opened; the snapshot each connection setup hands over. */
+  readonly presence = new Map<string, PresenceStatus>();
 
   constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; myId: string }) {
     this.client = options.client;
@@ -57,6 +63,13 @@ export class SlackLive {
     this.counts.delete(rid);
   }
 
+  /** Whose presence to follow: me and the people of my direct conversations. */
+  presenceIds(): string[] {
+    const ids = new Set([this.myId]);
+    for (const channel of this.channels.values()) if (channel.is_im === true && typeof channel.user === 'string') ids.add(channel.user);
+    return [...ids];
+  }
+
   async expand(frame: Doc): Promise<DdpEvent[]> {
     const type = str(frame.type);
     if (type === null) return [];
@@ -73,15 +86,13 @@ export class SlackLive {
         const username = this.directory.username(user) ?? user;
         return [{ collection: STREAM_NOTIFY_ROOM_TYPING, eventKey: `${channel}/user-activity`, args: [username, [TYPING_ACTIVITY]] }];
       }
-      case 'presence_change': {
-        const code = PRESENCE_CODES.get(str(frame.presence) ?? '');
-        if (code === undefined) return [];
-        const ids = Array.isArray(frame.users) ? frame.users : str(frame.user) !== null ? [frame.user] : [];
-        return ids.flatMap((raw) => {
-          const uid = str(raw);
-          return uid === null ? [] : [{ collection: STREAM_NOTIFY_LOGGED, eventKey: PRESENCE_EVENT, args: [[uid, this.directory.username(uid) ?? '', code, '']] }];
-        });
-      }
+      case 'presence_change':
+        return this.presenceOf(Array.isArray(frame.users) ? frame.users : [frame.user], frame.presence);
+      case 'manual_presence_change':
+        return this.presenceOf([this.myId], frame.presence);
+      case 'pin_added':
+      case 'pin_removed':
+        return this.pinned(frame, type === 'pin_added');
       case 'reaction_added':
       case 'reaction_removed': {
         const item = record(frame.item);
@@ -102,6 +113,31 @@ export class SlackLive {
       default:
         return [{ collection: SLACK_QUIET, eventKey: type, args: [] }];
     }
+  }
+
+  private presenceOf(users: readonly unknown[], presence: unknown): DdpEvent[] {
+    const code = PRESENCE_CODES.get(str(presence) ?? '');
+    const status = PRESENCE_STATUS.get(str(presence) ?? '');
+    if (code === undefined || status === undefined) return [];
+    return users.flatMap((raw) => {
+      const uid = str(raw);
+      if (uid === null) return [];
+      this.presence.set(uid, status);
+      return [{ collection: STREAM_NOTIFY_LOGGED, eventKey: PRESENCE_EVENT, args: [[uid, this.directory.username(uid) ?? '', code, '']] }];
+    });
+  }
+
+  /** The pinned message comes whole; its `pinned_to` is made to agree with the frame. */
+  private async pinned(frame: Doc, on: boolean): Promise<DdpEvent[]> {
+    const item = record(frame.item);
+    const channel = str(frame.channel_id) ?? str(item?.channel);
+    const message = record(item?.message);
+    if (channel === null || message === null || !isTimestamp(message.ts) || str(item?.type) !== 'message') return [];
+    const others = (Array.isArray(message.pinned_to) ? message.pinned_to : []).filter((c) => c !== channel);
+    const doc = { ...message, channel, pinned_to: on ? [...others, channel] : others };
+    const { users, bots } = SlackTranslator.people([doc]);
+    await this.directory.ensure(users, bots);
+    return [{ collection: SLACK_MESSAGE, eventKey: channel, args: [doc] }];
   }
 
   /** A new message, an edit, or a deletion; each one keeps the channel preview and unread live. */

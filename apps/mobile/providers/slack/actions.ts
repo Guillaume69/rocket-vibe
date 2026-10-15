@@ -1,7 +1,8 @@
 /**
- * Slack's single actions on messages: edit, delete, react, mark read. The
- * RTM echo rewrites the stored rows; a failed action leaves them as they
- * were. Pins, saves, rooms and DMs are not wired yet and refuse.
+ * Slack's single actions on messages: edit, delete, react, mark read, pin,
+ * save for later (the app's star). The RTM echo rewrites the stored rows; a
+ * failed action leaves them as they were. Rooms and DMs are not wired yet and
+ * refuse.
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
@@ -11,8 +12,11 @@ import { SlackError, compareTimestamp } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 import type { SlackHistory } from './history.ts';
 import type { SlackLive } from './live.ts';
+import type { SlackSaved } from './saved.ts';
 import { slackName } from './emojis.ts';
-import { markdownToMrkdwn, parseMessageId } from './translator.ts';
+import { markdownToMrkdwn, parseMessageId, type SlackTranslator } from './translator.ts';
+
+type Doc = Record<string, unknown>;
 
 const unsupported = async (): Promise<never> => {
   throw new SlackError('unsupported');
@@ -28,14 +32,18 @@ export class SlackActions implements ProviderActions {
   private readonly directory: SlackDirectory;
   private readonly history: SlackHistory;
   private readonly live: SlackLive;
+  private readonly translator: SlackTranslator;
+  private readonly saved: SlackSaved;
   /** The newest `ts` marked per room, never marked backwards. */
   private readonly marked = new Map<string, string>();
 
-  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; live: SlackLive }) {
+  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; live: SlackLive; translator: SlackTranslator; saved: SlackSaved }) {
     this.client = options.client;
     this.directory = options.directory;
     this.history = options.history;
     this.live = options.live;
+    this.translator = options.translator;
+    this.saved = options.saved;
   }
 
   roomInfo(_rid: string): Promise<RoomInformation> {
@@ -80,23 +88,51 @@ export class SlackActions implements ProviderActions {
     this.marked.set(rid, ts);
   }
 
-  pin(_rid: string, _mid: string): Promise<void> {
-    return unsupported();
+  async pin(rid: string, mid: string): Promise<void> {
+    await this.pinning(rid, mid, true);
   }
-  unpin(_rid: string, _mid: string): Promise<void> {
-    return unsupported();
+
+  async unpin(rid: string, mid: string): Promise<void> {
+    await this.pinning(rid, mid, false);
   }
-  star(_rid: string, _mid: string, _put: boolean): Promise<void> {
-    return unsupported();
+
+  /** The screen writes the column; the set keeps it through the next read of the message. */
+  async star(rid: string, mid: string, put: boolean): Promise<void> {
+    const target = this.target(rid, mid);
+    await this.saved.put(target.channel, target.ts, put);
   }
-  listPinned(_rid: string): Promise<LocalMessage[]> {
-    return unsupported();
+
+  async listPinned(rid: string): Promise<LocalMessage[]> {
+    const body = await this.client.call('pins.list', { channel: rid });
+    const items = Array.isArray(body.items) ? (body.items as unknown[]) : [];
+    const raw = items.flatMap((item) => {
+      const message = (item as Doc | null)?.message;
+      return (item as Doc | null)?.type === 'message' && typeof message === 'object' && message !== null ? [message as Doc] : [];
+    });
+    const messages = await this.history.prepare(rid, raw);
+    return this.translated(messages.sort((a, b) => compareTimestamp(b.ts as string, a.ts as string)));
   }
-  listStarred(_rid: string): Promise<LocalMessage[]> {
-    return unsupported();
+
+  async listStarred(rid: string): Promise<LocalMessage[]> {
+    return this.translated(await this.saved.messages(rid));
   }
+
   openOrCreateDm(_username: string, _uid?: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
     return unsupported();
+  }
+
+  private async pinning(rid: string, mid: string, put: boolean): Promise<void> {
+    const target = this.target(rid, mid);
+    try {
+      await this.client.call(put ? 'pins.add' : 'pins.remove', { channel: target.channel, timestamp: target.ts });
+    } catch (e) {
+      if (e instanceof SlackError && e.code === (put ? 'already_pinned' : 'no_pin')) return;
+      throw e;
+    }
+  }
+
+  private translated(messages: readonly Doc[]): LocalMessage[] {
+    return messages.map((m) => this.translator.toMessage(m)).filter((m): m is LocalMessage => m !== null);
   }
 
   private target(rid: string, mid: string): { channel: string; ts: string } {

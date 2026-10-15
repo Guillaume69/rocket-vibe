@@ -19,6 +19,8 @@ export const SLACK_ROOM = 'slack:room';
 export const SLACK_SUBSCRIPTION = 'slack:subscription';
 export const SLACK_AVATAR = 'slack:avatar';
 export const SLACK_QUIET = 'slack:quiet';
+/** A message saved for later or no longer (`{id, on}`): only its `starred` column moves. */
+export const SLACK_STARRED = 'slack:starred';
 
 type Doc = Record<string, unknown>;
 
@@ -203,10 +205,13 @@ export class SlackTranslator implements Translator {
   private readonly directory: SlackDirectory;
   private readonly myId: string;
   private readonly resolver: Resolver;
+  /** The messages I saved for later, kept by `SlackSaved`: Slack's messages do not say it. */
+  private readonly saved: ReadonlySet<string>;
 
-  constructor(directory: SlackDirectory, myId: string, roomNames: ReadonlyMap<string, string> = new Map()) {
+  constructor(directory: SlackDirectory, myId: string, roomNames: ReadonlyMap<string, string> = new Map(), saved: ReadonlySet<string> = new Set()) {
     this.directory = directory;
     this.myId = myId;
+    this.saved = saved;
     this.resolver = { username: (id) => directory.username(id), roomName: (id) => roomNames.get(id) ?? null };
   }
 
@@ -235,6 +240,10 @@ export class SlackTranslator implements Translator {
         const etag = str(doc?.etag);
         return username === null || etag === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'avatar', username, rid: null, etag } };
       }
+      case SLACK_STARRED: {
+        const id = str(doc?.id);
+        return id === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message-starred', id, starred: this.starredColumn(doc?.on === true) } };
+      }
       case SLACK_QUIET:
         return { kind: 'silence' };
       default:
@@ -261,8 +270,9 @@ export class SlackTranslator implements Translator {
     const reply = threadTs !== null && threadTs !== ts;
     const editedTs = record(raw.edited)?.ts;
     const editedAt = isTimestamp(editedTs) ? timestampMs(editedTs) : null;
+    const id = messageId(channel, ts);
     return {
-      id: messageId(channel, ts),
+      id,
       rid: channel,
       text: huddle !== null ? huddle.param : system !== undefined ? system.param(raw, authorName) : this.body(raw),
       ts: ms,
@@ -280,8 +290,8 @@ export class SlackTranslator implements Translator {
       urls: null,
       callId: huddle?.callId ?? null,
       encryptedRaw: null,
-      pinned: false,
-      starred: null,
+      pinned: Array.isArray(raw.pinned_to) && raw.pinned_to.includes(channel),
+      starred: this.starredColumn(this.saved.has(id)),
       updatedAt: editedAt ?? ms,
     };
   }
@@ -343,6 +353,11 @@ export class SlackTranslator implements Translator {
       groupRank: null,
       updatedAt: Math.max(lastSeen, latestMs(counts) ?? 0),
     };
+  }
+
+  /** A save is mine alone: the column holds my id or nothing. */
+  private starredColumn(on: boolean): string | null {
+    return on ? JSON.stringify([this.myId]) : null;
   }
 
   private label(channel: Doc, other: string | null): string | null {

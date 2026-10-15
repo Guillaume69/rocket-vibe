@@ -80,6 +80,21 @@ export class SlackHistory {
     }
   }
 
+  /** One message, a thread reply included: a reply not shown in the room is only in its thread. */
+  async fetchAny(id: string): Promise<Doc | null> {
+    const found = await this.fetch(id);
+    const target = parseMessageId(id);
+    if (found !== null || target === null) return found;
+    try {
+      const page = await this.client.page('conversations.replies', { channel: target.channel, ts: target.ts, oldest: target.ts, latest: target.ts, inclusive: true, limit: 2 }, 'messages');
+      const reply = page.items.find((m) => m.ts === target.ts);
+      return reply === undefined ? null : (await this.prepare(target.channel, [reply]))[0] ?? null;
+    } catch (e) {
+      if (e instanceof SlackError && (e.code === 'channel_not_found' || e.code === 'not_in_channel' || e.code === 'thread_not_found')) return null;
+      throw e;
+    }
+  }
+
   /** The whole thread; Slack repeats the root at the head of every page, kept once. */
   async loadThread(engine: SyncEngine, threadId: string, isDiscarded: () => boolean): Promise<void> {
     const target = parseMessageId(threadId);

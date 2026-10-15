@@ -7,6 +7,7 @@ import { SlackCatchUp } from './catchUp.ts';
 import { SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
 import { SlackHistory } from './history.ts';
+import { SlackLive } from './live.ts';
 import { COOKIE, TOKEN, fakeSlack, historyOf, message, type SlackAnswer, type SlackCall } from './testing.ts';
 import { SlackTranslator } from './translator.ts';
 
@@ -44,7 +45,8 @@ function setup(route: (call: SlackCall) => SlackAnswer | undefined = () => undef
   const history = new SlackHistory(client, directory);
   const local = memoryStore();
   const engine = new SyncEngine(local.store, new SlackTranslator(directory, 'U000', roomNames));
-  return { server, engine, history, roomNames, catchUp: new SlackCatchUp({ client, directory, history, roomNames, myId: 'U000' }), ...local };
+  const live = new SlackLive({ client, directory, history, myId: 'U000' });
+  return { server, engine, history, roomNames, catchUp: new SlackCatchUp({ client, directory, history, roomNames, live, myId: 'U000' }), ...local };
 }
 
 test('the global pass walks the roster cursor, maps client.counts and previews the recent rooms', async () => {
@@ -77,6 +79,19 @@ test('client.counts failing leaves the rooms listed without badges', async () =>
   await catchUp.global(engine, () => false);
   assert.equal(rooms.size, 4);
   assert.ok([...subscriptions.values()].every((s) => s.unread === 0 && s.mentions === 0 && !s.alert));
+});
+
+test('client.counts failing on a later pass keeps the badges the rooms had', async () => {
+  let counted = true;
+  const { engine, catchUp, subscriptions, server } = setup((call) => (call.method === 'client.counts' && !counted ? { body: { ok: false, error: 'unknown_method' } } : undefined));
+  await catchUp.global(engine, () => false);
+  counted = false;
+  subscriptions.clear();
+  await catchUp.global(engine, () => false);
+  assert.ok(server.calls.filter((c) => c.method === 'client.counts').length === 2);
+  const c001 = subscriptions.get('C001')!;
+  assert.deepEqual([c001.alert, c001.unread, c001.mentions], [true, 2, 2]);
+  assert.equal(subscriptions.get('D001')?.alert, true);
 });
 
 test('a room catches up forward from its newest exact ts', async () => {

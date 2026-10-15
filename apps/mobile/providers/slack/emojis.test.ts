@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import { SlackClient } from './client.ts';
 import { SlackDirectory, toSlackUser } from './directory.ts';
-import { glyphOf, reactionCode, replaceSlackEmojis, slackName } from './emojis.ts';
+import { glyphOf, reactionCode, replaceSlackEmojis, slackName, slackReactable } from './emojis.ts';
 import { slackCustomEmojis } from './index.ts';
 import { COOKIE, TOKEN, fakeSlack } from './testing.ts';
 import { slackCalls } from './calls.ts';
@@ -29,6 +29,14 @@ describe('Slack emoji names', () => {
     assert.ok(slackName(toned).endsWith('::skin-tone-3'));
     assert.equal(reactionCode('issou'), 'issou');
     assert.equal(slackName(':issou:'), 'issou');
+  });
+
+  test('a reaction is offered only for an emoji Slack has a name for', () => {
+    assert.ok(slackReactable('thumbsup'));
+    assert.ok(slackReactable(':+1:'));
+    assert.ok(slackReactable(reactionCode('+1::skin-tone-3')));
+    assert.ok(!slackReactable('couple_with_heart_man_man_dark_skin_tone_light_skin_tone'));
+    assert.ok(!slackReactable('issou'));
   });
 });
 

@@ -84,6 +84,15 @@ describe('SlackRtm', () => {
     assert.equal(rtm.state, 'closed');
   });
 
+  test('closing during the handshake cancels it at once', async () => {
+    const { rtm, sockets } = harness();
+    const connecting = rtm.connect('');
+    await waitFor(() => sockets[0]);
+    rtm.close();
+    await assert.rejects(connecting, (e: Error & { code?: string }) => e.code === 'cancelled');
+    assert.equal(rtm.state, 'closed');
+  });
+
   test('a wrong team on rtm.connect is refused before any socket opens', async () => {
     const { rtm, sockets } = harness({ ok: true, team: { id: 'TXXX' }, self: { id: 'U000' }, url: RTM_URL });
     await assert.rejects(rtm.connect(''), /identity_mismatch/);

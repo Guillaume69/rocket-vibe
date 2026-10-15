@@ -20,7 +20,7 @@ function setup(route: (call: SlackCall) => SlackAnswer | undefined = () => ({ bo
   live.remember({ id: 'C001', name: 'general' }, { id: 'C001', latest: '1780000000.000500' });
   const saved = new SlackSaved(client, history);
   const translator = new SlackTranslator(directory, 'U000', new Map(), saved.ids);
-  return { actions: new SlackActions({ client, directory, history, live, translator, saved }), server, saved };
+  return { actions: new SlackActions({ client, directory, history, live, translator, saved }), server, saved, live };
 }
 
 const MID = 'C001:1780000000.000100';
@@ -59,6 +59,14 @@ describe('SlackActions', () => {
     await actions.markRead('C001', { messageId: MID, adhesion: '' });
     await actions.markRead('C001');
     assert.deepEqual(server.calls.map((c) => c.args.ts), ['1780000000.000500']);
+  });
+
+  test('a room marked unread elsewhere is marked read again', async () => {
+    const { actions, server, live } = setup();
+    await actions.markRead('C001');
+    await live.expand({ type: 'channel_marked', channel: 'C001', ts: '1780000000.000100', unread_count_display: 1 });
+    await actions.markRead('C001');
+    assert.deepEqual(server.calls.map((c) => c.args.ts), ['1780000000.000500', '1780000000.000500']);
   });
 
   test('pin and unpin by channel and timestamp; the state already there settles it', async () => {
@@ -148,8 +156,9 @@ describe('markdownToMrkdwn', () => {
     assert.equal(markdownToMrkdwn('**b** *i* ~~s~~', idOf), '*b* _i_ ~s~');
     assert.equal(markdownToMrkdwn('see [docs](https://x.test/a) @alice @bob @here @all', idOf), 'see <https://x.test/a|docs> <@U001> @bob <!here> <!channel>');
   });
-  test('code is left as typed, and Slack entities are escaped outside it', () => {
-    assert.equal(markdownToMrkdwn('a < b & `<@x> **y**`', idOf), 'a &lt; b &amp; `<@x> **y**`');
+  test('code keeps its text, and Slack entities are escaped everywhere, code included', () => {
+    assert.equal(markdownToMrkdwn('a < b & `<@x> **y**`', idOf), 'a &lt; b &amp; `&lt;@x&gt; **y**`');
+    assert.equal(markdownToMrkdwn('`Vec<String>` and ```\n<!here> a && b\n```', idOf), '`Vec&lt;String&gt;` and ```\n&lt;!here&gt; a &amp;&amp; b\n```');
     assert.equal(markdownToMrkdwn('mail me@alice.test, thanks @alice.', idOf), 'mail me@alice.test, thanks <@U001>.');
     assert.equal(markdownToMrkdwn('2*3*4 stays', idOf), '2*3*4 stays');
   });

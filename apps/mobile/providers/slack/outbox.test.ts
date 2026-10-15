@@ -152,6 +152,23 @@ describe('SlackOutbox', () => {
     assert.deepEqual(server.calls.map((c) => c.method), ['conversations.history']);
   });
 
+  test('a row queued before a restart whose lookup fails unexpectedly is failed, never replayed', async () => {
+    const { outbox, server, rows, failures } = setup((call) => (call.method === 'conversations.history' ? { body: { ok: false, error: 'missing_scope' } } : undefined));
+    rows.set('old1', { id: 'old1', rid: 'C001', text: 'old', threadId: null, status: 'pending', attempts: 1, createdAt: NOW - 60_000 });
+    await outbox.process();
+    assert.equal(rows.get('old1')?.status, 'failed');
+    assert.match(failures.get('old1')!, /could not be confirmed/);
+    assert.ok(!server.calls.some((c) => c.method === 'chat.postMessage'));
+  });
+
+  test('a row queued before a restart in a room gone for me is sent, for Slack to refuse', async () => {
+    const { outbox, server, rows, failures } = setup(() => ({ body: { ok: false, error: 'not_in_channel' } }));
+    rows.set('old1', { id: 'old1', rid: 'C001', text: 'old', threadId: null, status: 'pending', attempts: 1, createdAt: NOW - 60_000 });
+    await outbox.process();
+    assert.deepEqual(server.calls.map((c) => c.method), ['conversations.history', 'chat.postMessage']);
+    assert.match(failures.get('old1')!, /refused the message \(not_in_channel\)/);
+  });
+
   test('a refused session leaves the row pending for after the sign-in', async () => {
     const { outbox, rows } = setup((call) => (call.method === 'chat.postMessage' ? { body: { ok: false, error: 'invalid_auth' } } : undefined));
     await outbox.send('C001', 'hi');

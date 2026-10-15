@@ -55,6 +55,18 @@ test('only a Slack envelope refuses the session; proxies, HTML and 5xx are trans
   assert.equal(rejected, 5);
 });
 
+test("a 4xx carrying Slack's envelope is read like a 200; a 5xx or a non-JSON 4xx is not", async () => {
+  let rejected = 0;
+  const envelope = new SlackClient(TOKEN, COOKIE, { fetch: async () => json({ ok: false, error: 'invalid_auth' }, 401), onRejected: () => rejected++ });
+  await assert.rejects(envelope.authenticate(), (e) => e instanceof SlackError && e.code === 'invalid_auth' && e.status === 401 && e.rejectsSession);
+  assert.equal(rejected, 1);
+  for (const response of [json({ ok: false, error: 'invalid_auth' }, 502), json({ ok: true }, 400), new Response('<html>no</html>', { status: 403 })]) {
+    const client = new SlackClient(TOKEN, COOKIE, { fetch: async () => response, onRejected: () => rejected++ });
+    await assert.rejects(client.authenticate(), (e) => e instanceof SlackError && e.code === 'http_error' && !e.rejectsSession);
+  }
+  assert.equal(rejected, 1);
+});
+
 test('429 waits for Retry-After, capped, and retries exactly once', async () => {
   const waits: number[] = [];
   let calls = 0;

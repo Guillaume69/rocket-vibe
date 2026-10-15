@@ -49,11 +49,37 @@ describe('SlackLive.expand', () => {
     assert.equal(sub.counts.mention_count, 1);
   });
 
-  test('a reply does not become the room preview', async () => {
+  test('a reply only in its thread moves neither the preview, the latest ts nor the unread', async () => {
     const { value } = live();
     const events = await value.expand({ type: 'message', channel: 'C1', ts: '2.000500', thread_ts: '2.000000', user: 'U001', text: 're' });
-    const room = events.find((e) => e.collection === SLACK_ROOM)!;
-    assert.equal((room.args[0] as { lastMessage?: unknown }).lastMessage, undefined);
+    assert.deepEqual(collections(events), [SLACK_MESSAGE]);
+    assert.deepEqual(value.counts.get('C1'), { id: 'C1', has_unreads: false, mention_count: 0, latest: '1.000000' });
+  });
+
+  test('a thread reply naming me counts the mention, the room left read', async () => {
+    const { value } = live();
+    const events = await value.expand({ type: 'message', channel: 'C1', ts: '2.000500', thread_ts: '2.000000', user: 'U001', text: 'hey <@U000>' });
+    assert.deepEqual(collections(events), [SLACK_MESSAGE, SLACK_SUBSCRIPTION]);
+    const counts = (events[1]!.args[0] as { counts: Record<string, unknown> }).counts;
+    assert.deepEqual([counts.has_unreads, counts.mention_count, counts.latest], [false, 1, '1.000000']);
+  });
+
+  test('a reply also sent to the room counts as a room message, never as its preview', async () => {
+    const { value } = live();
+    const events = await value.expand({ type: 'message', subtype: 'thread_broadcast', channel: 'C1', ts: '2.000500', thread_ts: '2.000000', user: 'U001', text: 're' });
+    assert.deepEqual(collections(events), [SLACK_MESSAGE, SLACK_ROOM, SLACK_SUBSCRIPTION]);
+    assert.equal((events[1]!.args[0] as { lastMessage?: unknown }).lastMessage, undefined);
+  });
+
+  test('message_replied and other hidden frames are no new message', async () => {
+    const { value } = live();
+    const replied = await value.expand({
+      type: 'message', subtype: 'message_replied', hidden: true, channel: 'C1', ts: '3.000000',
+      message: { type: 'message', ts: '2.000000', user: 'U001', text: 'root', reply_count: 1 },
+    });
+    const hidden = await value.expand({ type: 'message', subtype: 'channel_name', hidden: true, channel: 'C1', ts: '3.000001', user: 'U001' });
+    assert.deepEqual([...replied, ...hidden], []);
+    assert.equal(value.counts.get('C1')?.latest, '1.000000');
   });
 
   test('message_changed replaces the message only, no preview or unread move', async () => {
@@ -85,6 +111,25 @@ describe('SlackLive.expand', () => {
     assert.equal(counts.last_read, '2.000000');
   });
 
+  test('a marked frame moves the mark the actions start from, backwards too', async () => {
+    const { value } = live();
+    value.marks.set('C1', '5.000000');
+    await value.expand({ type: 'channel_marked', channel: 'C1', ts: '2.000000', unread_count_display: 1 });
+    assert.equal(value.marks.get('C1'), '2.000000');
+  });
+
+  test('a reaction on a thread reply re-reads it from its thread', async () => {
+    const reply = { type: 'message', ts: '2.000500', thread_ts: '2.000000', user: 'U001', text: 're', reactions: [{ name: 'tada', users: ['U001'] }] };
+    const { value } = live((call) => {
+      if (call.method === 'conversations.history') return { body: historyOf([], call.args) };
+      if (call.method === 'conversations.replies') return { body: { ok: true, messages: [reply], has_more: false } };
+      return undefined;
+    });
+    const events = await value.expand({ type: 'reaction_added', user: 'U002', reaction: 'tada', item: { type: 'message', channel: 'C1', ts: '2.000500' } });
+    assert.deepEqual(collections(events), [SLACK_MESSAGE]);
+    assert.equal((events[0]!.args[0] as { ts: string }).ts, '2.000500');
+  });
+
   test('a reaction re-reads the one message it touched', async () => {
     const stored = [{ type: 'message', ts: '2.000000', user: 'U001', text: 'hi', reactions: [{ name: 'tada', users: ['U001'] }] }];
     const { value, calls } = live((call) => (call.method === 'conversations.history' ? { body: historyOf(stored, call.args) } : undefined));
@@ -110,6 +155,46 @@ describe('SlackLive.expand', () => {
     const { value } = live();
     const events = await value.expand({ type: 'dnd_updated', user: 'U000' });
     assert.equal(events[0]!.collection, 'slack:quiet');
+  });
+});
+
+describe('SlackLive new conversations', () => {
+  const info = (channels: Record<string, Record<string, unknown>>) => (call: { method: string; args: Record<string, string> }) => {
+    if (call.method === 'users.info') return { body: { ok: true, user: { id: call.args.user, name: 'alice' } } };
+    if (call.method !== 'conversations.info') return undefined;
+    const channel = channels[call.args.channel!];
+    return { body: channel === undefined ? { ok: false, error: 'channel_not_found' } : { ok: true, channel } };
+  };
+
+  test('a joined or opened conversation is read and listed', async () => {
+    const { value } = live(info({ D9: { id: 'D9', is_im: true, user: 'U009' }, C9: { id: 'C9', name: 'new', is_channel: true, is_member: true }, G9: { id: 'G9', name: 'mpdm-a--b-1', is_mpim: true } }));
+    const im = await value.expand({ type: 'im_created', user: 'U000', channel: { id: 'D9' } });
+    const channel = await value.expand({ type: 'channel_joined', channel: { id: 'C9', name: 'new' } });
+    const mpim = await value.expand({ type: 'mpim_open', user: 'U000', channel: 'G9' });
+    assert.deepEqual([...im, ...channel, ...mpim].map((e) => [e.collection, e.eventKey]), [
+      [SLACK_ROOM, 'D9'], [SLACK_SUBSCRIPTION, 'D9'], [SLACK_ROOM, 'C9'], [SLACK_SUBSCRIPTION, 'C9'], [SLACK_ROOM, 'G9'], [SLACK_SUBSCRIPTION, 'G9'],
+    ]);
+    assert.ok(value.channels.has('D9'));
+    assert.deepEqual(value.presenceIds(), ['U000', 'U009']);
+  });
+
+  test('a channel someone else created is not mine to list', async () => {
+    const { value, calls } = live(info({ C9: { id: 'C9', name: 'new', is_channel: true } }));
+    assert.deepEqual(await value.expand({ type: 'channel_created', channel: { id: 'C9', name: 'new', creator: 'U001' } }), []);
+    assert.ok(!calls.some((c) => c.method === 'conversations.info'));
+    const mine = await value.expand({ type: 'channel_created', channel: { id: 'C9', name: 'new', creator: 'U000' } });
+    assert.deepEqual(collections(mine), [SLACK_ROOM, SLACK_SUBSCRIPTION]);
+  });
+
+  test('a message in a room not known yet brings the room, then counts as unread', async () => {
+    const { value, calls } = live(info({ C9: { id: 'C9', name: 'new', is_channel: true, is_member: true } }));
+    const events = await value.expand({ type: 'message', channel: 'C9', ts: '2.000000', user: 'U001', text: 'hi' });
+    assert.deepEqual(collections(events), [SLACK_ROOM, SLACK_SUBSCRIPTION, SLACK_MESSAGE, SLACK_ROOM, SLACK_SUBSCRIPTION]);
+    assert.equal((events[4]!.args[0] as { counts: Record<string, unknown> }).counts.has_unreads, true);
+    const unknown = await value.expand({ type: 'message', channel: 'C8', ts: '2.000000', user: 'U001', text: 'hi' });
+    await value.expand({ type: 'message', channel: 'C8', ts: '2.000001', user: 'U001', text: 'hi' });
+    assert.deepEqual(collections(unknown), [SLACK_MESSAGE]);
+    assert.equal(calls.filter((c) => c.method === 'conversations.info' && c.args.channel === 'C8').length, 1);
   });
 });
 

@@ -164,6 +164,14 @@ fn workspace(request: &Request) -> Response {
         "chat.update" => ok(json!({"channel": form["channel"], "ts": form["ts"],
             "message": {"type": "message", "user": "U000", "text": form["text"], "edited": {"ts": "1700000600.000000"}}})),
         "chat.delete" | "reactions.add" | "conversations.mark" => ok(json!({})),
+        "pins.add" | "saved.add" | "users.setPresence" | "users.profile.set" => ok(json!({})),
+        "pins.remove" => respond(200, r#"{"ok":false,"error":"no_pin"}"#),
+        "pins.list" => ok(json!({"items": [{"type": "message", "created_by": "U000",
+            "message": {"ts": "1700000300.000100", "user": "U001", "text": "pinned", "pinned_to": ["C001"]}}]})),
+        "search.messages" => ok(json!({"messages": {"total": 2, "matches": [
+            {"type": "message", "ts": "1700000300.000100", "user": "U001", "text": "a needle", "channel": {"id": "C001"}},
+            {"type": "message", "ts": "1700000301.000100", "user": "U001", "text": "elsewhere", "channel": {"id": "C002"}},
+        ]}})),
         "reactions.remove" => respond(200, r#"{"ok":false,"error":"no_reaction"}"#),
         "users.conversations" => match form.get("cursor").map(String::as_str) {
             None => ok(json!({
@@ -353,6 +361,22 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(s.react("C001:1700000300.000100", ":+1:", false).await.is_ok(), "no_reaction is the wanted state");
     assert!(s.edit("C001", "C001:1700000300.000100", "**x**").await.is_ok());
     assert!(s.delete("C001", "C001:1700000300.000100").await.is_ok());
+    assert!(s.pin("C001:1700000300.000100").await.is_ok());
+    assert!(s.unpin("C001:1700000300.000100").await.is_ok(), "no_pin is the wanted state");
+    let pinned = s.marked("C001", false).await.unwrap();
+    assert!(pinned.len() == 1 && pinned[0].pinned, "pinned_to names the room");
+    assert!(s.star("C001:1700000300.000100", true).await.is_ok());
+    assert!(s.store.messages_by_id(&["C001:1700000300.000100".to_owned()])[0].starred_by("U000"), "saved is my star");
+    let saved = server.requests().into_iter().find(|r| method(r) == "saved.add").unwrap();
+    assert_eq!((form(&saved)["item_id"].as_str(), form(&saved)["ts"].as_str()), ("C001", "1700000300.000100"));
+    let found = s.search("C001", "needle").await.unwrap();
+    assert_eq!(found.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["C001:1700000300.000100"], "this room only");
+    let search = server.requests().into_iter().find(|r| method(r) == "search.messages").unwrap();
+    assert_eq!(form(&search)["query"], "needle in:<#C001>");
+    assert!(s.set_status("busy", "lunch").await.is_ok());
+    let presence = server.requests().into_iter().find(|r| method(r) == "users.setPresence").unwrap();
+    assert_eq!(form(&presence)["presence"], "away", "Slack has no busy");
+    assert!(server.requests().iter().any(|r| method(r) == "users.profile.set" && form(r)["profile"].contains("lunch")));
     assert!(s.set_favorite("C001", true).await.is_err());
     assert!(s.me().await.is_err());
     assert!(s.spotlight("al").await.is_err());

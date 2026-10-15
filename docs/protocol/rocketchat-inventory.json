@@ -2517,6 +2517,24 @@
       "surface": "chat.delete"
     },
     {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 34,
+      "kind": "endpoint",
+      "surface": "users.getPresence"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 35,
+      "kind": "endpoint",
+      "surface": "users.setPresence"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
+      "line": 36,
+      "kind": "endpoint",
+      "surface": "users.profile.set"
+    },
+    {
       "file": "apps/desktop/crates/rv-core/src/slack/directory.rs",
       "line": 116,
       "kind": "call:POST",

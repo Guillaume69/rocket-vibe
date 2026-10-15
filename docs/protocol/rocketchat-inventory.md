@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-680 production files scanned; 739 occurrences.
+680 production files scanned; 742 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -313,6 +313,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/slack/api.rs:21](../../apps/desktop/crates/rv-core/src/slack/api.rs#L21) | endpoint | chat.postMessage |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:22](../../apps/desktop/crates/rv-core/src/slack/api.rs#L22) | endpoint | chat.update |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:23](../../apps/desktop/crates/rv-core/src/slack/api.rs#L23) | endpoint | chat.delete |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:34](../../apps/desktop/crates/rv-core/src/slack/api.rs#L34) | endpoint | users.getPresence |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:35](../../apps/desktop/crates/rv-core/src/slack/api.rs#L35) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/slack/api.rs:36](../../apps/desktop/crates/rv-core/src/slack/api.rs#L36) | endpoint | users.profile.set |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | call:POST | "users.info" |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | endpoint | users.info |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:136](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L136) | call:POST | "bots.info" |

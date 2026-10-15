@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Signing in to Slack no longer stays stuck on Slack's "Launching" page in Edge on Windows: the app completes the sign-in from that page.
+
 ## [0.22.0] - 2026-10-15
 
 ### Added

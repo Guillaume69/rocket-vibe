@@ -47,7 +47,7 @@ desktop handoff after sign-in, is fulfilled with a local "Signed in" page before
 so neither `slack:` nor the web client ever runs (the approach of msga,
 `punarinta/make-slack-great-again`). At that moment `Storage.getCookies` gives the single
 secure HttpOnly unexpired `d` cookie, and the handoff URL and cookie domains name the
-workspace hosts (Slack's own hosts excluded). Each host's boot page, fetched with that
+workspace hosts (Slack's own hosts excluded). The interception can miss: with Edge on Windows the real `/ssb/redirect` page loaded and waited for the desktop app, so the 800 ms poll (`inspect`) also treats a page sitting on a `/ssb/` URL as the handoff and derives from its host, once per new host. Each host's boot page, fetched with that
 cookie and redirects followed by hand on Slack hosts only, carries the `xoxc` token
 (Slack answers it with a 403, so the status is not read). If the web client loads instead,
 an 800 ms poll still reads the `localConfig_v2` tokens or the boot token from it. Every

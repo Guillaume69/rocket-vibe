@@ -137,6 +137,11 @@ code); a reaction key is the app's own shortcode for the same glyph, so chips an
 picker work, and a reaction sent goes back to Slack's name (`slack/emojis.rs`,
 `providers/slack/emojis.ts`). Custom emoji come from `emoji.list` once per session,
 aliases of another custom emoji followed, images public on `emoji.slack-edge.com`.
+Photos are the profile's `image_72`, public on Slack's CDN. Slack names nobody up
+front, so a person is read when first needed: Android reads me and the direct
+conversations' partners at catch-up (`SlackCatchUp`, `lib/slackAvatars.ts`), the
+desktop reads a person when their photo is first asked for (`MediaCache::fetch`,
+`slack_uid` in `media.rs`), which covers me and a partner no loaded message named.
 
 A `huddle_thread` message becomes the same call card as a kChat call
 (`huddle_call` in `slack/translate.rs`, `huddleCall` in `providers/slack/translator.ts`):
@@ -203,8 +208,10 @@ in:<#C…>"}`, matches being message-shaped with `channel.id`, filtered to the r
 send `presence_change` (`user` or batched `users`), `manual_presence_change` for me;
 `users.getPresence` reads mine (`active`, `away`, `manual_away`). Slack has only
 `active` and `away`: online sets `users.setPresence auto`, busy and offline set
-`away`. The desktop also sets the status text (`users.profile.set {profile:
-{status_text}}`); Android has no status-text hook yet. The desktop REST client only
+`away`. `Session::set_status` would also set the status text (`users.profile.set
+{profile: {status_text}}`), but no app reaches it on Slack: the field sits in the
+account screens (`me`, Android's profile capability), not wired for Slack on any of
+the three. The desktop REST client only
 calls the methods listed in `slack/api.rs` (`METHODS`), the mobile client those of its
 method type.
 

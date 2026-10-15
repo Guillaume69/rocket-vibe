@@ -4,7 +4,7 @@
 //! message: the conversations and their `client.counts` entries are kept here,
 //! seeded by the global catch-up, and the unread state is derived from them.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -63,6 +63,8 @@ pub struct SlackSync {
     counts: Mutex<HashMap<String, Value>>,
     /// The newest `ts` marked read per room: never marked backwards.
     marked: Mutex<HashMap<String, String>>,
+    /// My "saved for later" messages, the app's stars: messages carry no such flag.
+    saved: Mutex<HashSet<String>>,
 }
 
 impl SlackSync {
@@ -78,12 +80,17 @@ impl SlackSync {
             names: Mutex::default(),
             counts: Mutex::default(),
             marked: Mutex::default(),
+            saved: Mutex::default(),
         }
     }
 
     pub fn translate(&self, channel: &str, raw: &Value) -> Option<Message> {
         let names = self.names.lock().unwrap();
-        Translator { directory: &self.directory, channels: &names }.message(channel, raw)
+        let mut message = Translator { directory: &self.directory, channels: &names }.message(channel, raw)?;
+        if self.saved.lock().unwrap().contains(&message.id) {
+            message.starred = Some(self.me.clone());
+        }
+        Some(message)
     }
 
     /// The people and bots a page names, read before it is translated.
@@ -469,6 +476,13 @@ impl SlackSync {
                 }
                 None
             }
+            "pin_added" | "pin_removed" => {
+                let item = frame.get("item")?;
+                let channel = text(frame, "channel_id").or_else(|| text(item, "channel"))?;
+                let ts = item.get("message").and_then(|m| text(m, "ts"))?;
+                self.refresh(&translate::message_id(channel, ts)).await;
+                None
+            }
             "channel_marked" | "group_marked" | "im_marked" | "mpim_marked" => {
                 let rid = text(frame, "channel")?;
                 let unread = ["unread_count_display", "unread_count"].iter().find_map(|k| frame.get(*k)?.as_i64());
@@ -602,6 +616,123 @@ impl SlackSync {
             c["last_read"] = Value::from(ts.as_str());
         });
         Ok(())
+    }
+
+    /// Slack's copy of a message, stored again: an action's answer does not carry it.
+    async fn refresh(&self, msg_id: &str) {
+        if let Ok(Some(message)) = self.fetch_message(msg_id).await {
+            self.store.write(|w| w.upsert_message(&message));
+        }
+    }
+
+    /// Pins or unpins a message for everyone in the room.
+    pub async fn pin(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
+        let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("pin: not a Slack message"))?;
+        let params = vec![("channel", channel.to_owned()), ("timestamp", ts.to_owned())];
+        let settled = if on { "already_pinned" } else { "no_pin" };
+        match self.call(if on { "pins.add" } else { "pins.remove" }, params).await {
+            Ok(_) => {}
+            Err(e) if e.error.as_deref() == Some(settled) => {}
+            Err(e) => return Err(e),
+        }
+        self.refresh(msg_id).await;
+        Ok(())
+    }
+
+    /// Saves a message for later, or takes it back: the app's star.
+    pub async fn save(&self, msg_id: &str, on: bool) -> Result<(), RestError> {
+        let (channel, ts) = split_id(msg_id).ok_or_else(|| RestError::incomplete("save: not a Slack message"))?;
+        let params = vec![("item_type", "message".to_owned()), ("item_id", channel.to_owned()), ("ts", ts.to_owned())];
+        self.call(if on { "saved.add" } else { "saved.delete" }, params).await?;
+        {
+            let mut saved = self.saved.lock().unwrap();
+            if on {
+                saved.insert(msg_id.to_owned());
+            } else {
+                saved.remove(msg_id);
+            }
+        }
+        self.refresh(msg_id).await;
+        Ok(())
+    }
+
+    /// Every message I saved for later, by id; Slack lists the references only.
+    pub async fn load_saved(&self) -> Result<(), RestError> {
+        let mut ids = HashSet::new();
+        let (mut cursor, mut seen) = (None::<String>, Vec::new());
+        for _ in 0..MAX_PAGES {
+            let mut params = vec![("limit", "100".to_owned())];
+            if let Some(c) = &cursor {
+                params.push(("cursor", c.clone()));
+            }
+            let body = self.call("saved.list", params).await?;
+            for item in list(&body, "saved_items") {
+                if text(&item, "item_type") == Some("message")
+                    && let (Some(channel), Some(ts)) = (text(&item, "item_id"), text(&item, "ts"))
+                {
+                    ids.insert(translate::message_id(channel, ts));
+                }
+            }
+            cursor = next_cursor(&body, &mut seen, "saved.list")?;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        *self.saved.lock().unwrap() = ids;
+        Ok(())
+    }
+
+    /// A room's pinned messages, or the ones I saved there, stored; their ids, newest first.
+    pub async fn marked(&self, rid: &str, saved: bool) -> Result<Vec<String>, RestError> {
+        let mut ids = if saved {
+            self.load_saved().await?;
+            let mut ids: Vec<String> = self
+                .saved
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|id| split_id(id).is_some_and(|(channel, _)| channel == rid))
+                .cloned()
+                .collect();
+            ids.sort();
+            for id in &ids {
+                self.refresh(id).await;
+            }
+            ids
+        } else {
+            let body = self.call("pins.list", vec![("channel", rid.to_owned())]).await?;
+            let messages: Vec<Value> =
+                list(&body, "items").iter().filter_map(|item| item.get("message").cloned()).collect();
+            self.resolve(&messages).await;
+            self.ingest(rid, &messages);
+            let mut ids: Vec<String> =
+                messages.iter().filter_map(|m| Some(translate::message_id(rid, text(m, "ts")?))).collect();
+            ids.sort();
+            ids
+        };
+        ids.reverse();
+        Ok(ids)
+    }
+
+    /// The room's messages Slack's search finds for `query`, newest first.
+    pub async fn search(&self, rid: &str, query: &str) -> Result<Vec<Message>, RestError> {
+        let params = vec![
+            ("query", format!("{query} in:<#{rid}>")),
+            ("count", "100".to_owned()),
+            ("sort", "timestamp".to_owned()),
+            ("sort_dir", "desc".to_owned()),
+        ];
+        let body = self.call("search.messages", params).await?;
+        let matches: Vec<Value> = body
+            .pointer("/messages/matches")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|m| m.pointer("/channel/id").and_then(Value::as_str) == Some(rid))
+            .cloned()
+            .collect();
+        self.resolve(&matches).await;
+        Ok(matches.iter().filter_map(|m| self.translate(rid, m)).collect())
     }
 
     /// Changes a room's kept counts and writes its subscription row from them.

@@ -662,6 +662,19 @@ impl Session {
             });
             return;
         }
+        if name == "presence_change" || name == "manual_presence_change" {
+            let Some(status) = frame.get("presence").and_then(Value::as_str).and_then(slack_presence) else { return };
+            let ids: Vec<String> = match frame.get("users").and_then(Value::as_array) {
+                Some(users) => users.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+                None if name == "manual_presence_change" => vec![self.info.user_id.clone()],
+                None => frame.get("user").and_then(Value::as_str).map(str::to_owned).into_iter().collect(),
+            };
+            let mut presence = self.presence.lock().unwrap();
+            ids.into_iter().for_each(|uid| presence.update(uid, status));
+            drop(presence);
+            let _ = self.events.send(SessionEvent::Presence);
+            return;
+        }
         if let Some(m) = slack.apply_event(name, frame).await
             && let Some(incoming) = self.incoming_message(&m)
         {
@@ -814,7 +827,19 @@ impl Session {
                 let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
                 (list, true)
             }
-            Backend::Slack(_) => return,
+            Backend::Slack(_) => {
+                let Transport::Slack(live) = &self.transport else { return };
+                let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                ids.push(self.info.user_id.clone());
+                ids.sort();
+                ids.dedup();
+                live.presence(ids);
+                let me =
+                    self.rest.post("users.getPresence", CallOptions::params([("user", self.info.user_id.as_str())]));
+                let Ok(me) = me.await else { return };
+                let Some(status) = me.get("presence").and_then(Value::as_str).and_then(slack_presence) else { return };
+                (vec![(self.info.user_id.clone(), status)], true)
+            }
             Backend::RocketChat => {
                 let Ok(list) = rocketchat::actions::presence(&self.rest).await else { return };
                 (list, false)
@@ -893,7 +918,7 @@ impl Session {
     pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<crate::normalize::Message>, RestError> {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::search(&self.rest, mm, rid, text).await,
-            Backend::Slack(_) => Err(crate::slack::not_supported("search")),
+            Backend::Slack(slack) => slack.search(rid, text).await,
             Backend::RocketChat => rocketchat::actions::search(&self.rest, rid, text).await,
         }
     }
@@ -1093,7 +1118,13 @@ impl Session {
             Backend::Mattermost(_) => {
                 mattermost::actions::set_status(&self.rest, &self.info.user_id, status, message).await?
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("status")),
+            Backend::Slack(_) => {
+                let profile = serde_json::json!({"status_text": message}).to_string();
+                self.rest.post("users.profile.set", CallOptions::params([("profile", profile)])).await?;
+                if let Some(chosen) = live::Presence::parse(status) {
+                    set_slack_presence(&self.rest, chosen).await?;
+                }
+            }
             Backend::RocketChat => rocketchat::actions::set_status(&self.rest, status, message).await?,
         }
         if let Some(status) = live::Presence::parse(status) {
@@ -1107,7 +1138,7 @@ impl Session {
         let started = self.presence.lock().unwrap().revision();
         let confirmed = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::set_activity(&self.rest, &self.info.user_id, chosen).await?,
-            Backend::Slack(_) => return Err(crate::slack::not_supported("activity")),
+            Backend::Slack(_) => set_slack_presence(&self.rest, chosen).await?,
             Backend::RocketChat => {
                 let before = self.me().await?;
                 if self.closed.load(Ordering::Acquire) {
@@ -1344,6 +1375,7 @@ impl Session {
                 return;
             }
             Backend::Slack(slack) => {
+                let _ = slack.load_saved().await;
                 if let Ok(index) = slack.custom_emojis().await {
                     *self.custom_emoji_names.lock().unwrap() = crate::emoji::custom_names(&index);
                     self.custom_emoji.lock().unwrap().extend(index);
@@ -1709,7 +1741,7 @@ impl Session {
                 mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, true).await?]);
                 return Ok(());
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Slack(slack) => return slack.pin(msg_id, true).await,
             Backend::RocketChat => {}
         }
         actions::pin(&self.rest, msg_id).await?;
@@ -1723,7 +1755,7 @@ impl Session {
                 mm.ingest(&[mattermost::actions::pin(&self.rest, msg_id, false).await?]);
                 return Ok(());
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Slack(slack) => return slack.pin(msg_id, false).await,
             Backend::RocketChat => {}
         }
         actions::unpin(&self.rest, msg_id).await?;
@@ -1738,7 +1770,7 @@ impl Session {
                 mm.set_flagged(&[msg_id.to_owned()], on).await;
                 return Ok(());
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("star")),
+            Backend::Slack(slack) => return slack.save(msg_id, on).await,
             Backend::RocketChat => {}
         }
         actions::star(&self.rest, msg_id, on).await?;
@@ -1774,7 +1806,10 @@ impl Session {
                     posts.iter().filter_map(|p| p.get("id").and_then(Value::as_str)).map(str::to_owned).collect();
                 return Ok(self.store.messages_by_id(&ids));
             }
-            Backend::Slack(_) => return Err(crate::slack::not_supported("marked messages")),
+            Backend::Slack(slack) => {
+                let ids = slack.marked(rid, starred).await?;
+                return Ok(self.store.messages_by_id(&ids));
+            }
             Backend::RocketChat => {}
         }
         let docs = actions::marked(&self.rest, rid, starred).await?;
@@ -2403,6 +2438,25 @@ impl Session {
 }
 
 /// A Slack huddle's call id is its page in Slack's web app: only such a page opens.
+/// Slack's two presences: `active` is online, anything else away.
+fn slack_presence(presence: &str) -> Option<live::Presence> {
+    match presence {
+        "active" => Some(live::Presence::Online),
+        "away" => Some(live::Presence::Away),
+        _ => None,
+    }
+}
+
+/// Slack only knows automatic and away: busy and offline are away there.
+async fn set_slack_presence(rest: &RestClient, chosen: live::Presence) -> Result<live::Presence, RestError> {
+    let (value, confirmed) = match chosen {
+        live::Presence::Online => ("auto", live::Presence::Online),
+        _ => ("away", live::Presence::Away),
+    };
+    rest.post("users.setPresence", CallOptions::params([("presence", value)])).await?;
+    Ok(confirmed)
+}
+
 fn slack_call(call_id: &str) -> Result<String, RestError> {
     crate::slack::translate::huddle_page(call_id).ok_or_else(|| RestError::incomplete("huddle: not a Slack page"))
 }

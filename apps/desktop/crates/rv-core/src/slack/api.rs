@@ -24,6 +24,18 @@ pub const METHODS: &[&str] = &[
     "reactions.add",
     "reactions.remove",
     "conversations.mark",
+    "pins.add",
+    "pins.remove",
+    "pins.list",
+    "saved.add",
+    "saved.delete",
+    "saved.list",
+    "search.messages",
+    "users.getPresence",
+    "users.setPresence",
+    "users.profile.set",
+    "files.getUploadURLExternal",
+    "files.completeUploadExternal",
 ];
 
 /// `RestError::error_type` of an envelope that ends the session.

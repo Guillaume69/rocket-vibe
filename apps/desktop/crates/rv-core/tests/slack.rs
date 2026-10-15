@@ -151,6 +151,8 @@ fn workspace(request: &Request) -> Response {
     match method(request) {
         "auth.test" => auth(),
         "rtm.connect" => respond(200, r#"{"ok":false,"error":"missing_scope"}"#),
+        "saved.list" => ok(json!({"saved_items": []})),
+        "users.getPresence" => ok(json!({"presence": "active"})),
         "emoji.list" => {
             ok(json!({"emoji": {"issou": "https://emoji.slack-edge.com/T000/issou/a.png", "ris": "alias:issou"}}))
         }
@@ -351,11 +353,8 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(s.react("C001:1700000300.000100", ":+1:", false).await.is_ok(), "no_reaction is the wanted state");
     assert!(s.edit("C001", "C001:1700000300.000100", "**x**").await.is_ok());
     assert!(s.delete("C001", "C001:1700000300.000100").await.is_ok());
-    assert!(s.pin("C001:1700000300.000100").await.is_err());
-    assert!(s.star("C001:1700000300.000100", true).await.is_err());
     assert!(s.set_favorite("C001", true).await.is_err());
     assert!(s.me().await.is_err());
-    assert!(s.set_status("away", "lunch").await.is_err());
     assert!(s.spotlight("al").await.is_err());
     assert!(s.join_channel("C001").await.is_err());
     assert!(s.invite_link("C001").await.is_err());

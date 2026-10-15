@@ -30,6 +30,7 @@ enum Command {
     Open,
     Close,
     Typing { channel: String },
+    Presence { ids: Vec<String> },
 }
 
 #[derive(Clone)]
@@ -49,6 +50,12 @@ impl LiveHandle {
 
     pub fn typing(&self, channel: &str) {
         let _ = self.commands.send(Command::Typing { channel: channel.to_owned() });
+    }
+
+    /// The people whose presence Slack reports (`presence_change`), the list
+    /// replacing the previous one; Slack answers with their current state.
+    pub fn presence(&self, ids: Vec<String>) {
+        let _ = self.commands.send(Command::Presence { ids });
     }
 }
 
@@ -182,6 +189,9 @@ impl Actor {
                     Some(Command::Typing { channel }) => {
                         self.id += 1;
                         let _ = send(&mut sink, &json!({"id": self.id, "type": "typing", "channel": channel})).await;
+                    }
+                    Some(Command::Presence { ids }) => {
+                        let _ = send(&mut sink, &json!({"type": "presence_sub", "ids": ids})).await;
                     }
                 },
                 message = next_json(&mut stream) => {

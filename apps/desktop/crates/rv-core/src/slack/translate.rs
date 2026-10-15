@@ -565,7 +565,10 @@ impl Translator<'_> {
             md: None,
             urls: None,
             call_id: huddle.and_then(|(_, _, link)| link),
-            pinned: false,
+            pinned: raw
+                .get("pinned_to")
+                .and_then(Value::as_array)
+                .is_some_and(|pins| pins.iter().any(|c| c.as_str() == Some(channel))),
             starred: None,
             thread_followers: None,
             discussion_id: None,

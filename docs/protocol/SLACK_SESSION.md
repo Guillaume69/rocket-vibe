@@ -1,8 +1,10 @@
 # Slack session provider protocol and implementation handoff
 
-Date: 8 October 2026. Researched full-provider design. Implementation update on
-10 October: a transient read-only browser-import preview now exists on all three
-native apps; see [usage](../SLACK_PREVIEW.md). Full persistent provider remains pending.
+Date: 8 October 2026. Researched full-provider design. Implementation status (15 October
+2026): the provider ships as an experimental server kind with saved accounts, RTM, writes,
+files, search, pins, saves, presence and huddle call cards on Android, GTK and SwiftUI
+(the 10 October read-only preview is gone); see [usage](../SLACK_PREVIEW.md) and
+[Slack session](../../brain/architecture/slack-session.md) for what the code does.
 Scope: Session mode, using a user's `d` cookie and a workspace `xoxc-` token.
 Destination: the existing Android, GTK and SwiftUI interfaces, with as much
 Rocket.Chat / RocketVibe feature parity as Slack permits.
@@ -655,14 +657,16 @@ and `reports` remain false. Optional combined flags such as `marks` cannot claim
 pins and personal saves if one half is absent; split or gate granular actions.
 Server permissions remain authoritative even after a capability is enabled.
 
-## Current implementation increment (2026-10-09)
+## Implementation increments
 
-The first transient read-only preview is implemented for Android, GTK and SwiftUI.
-The login icon unlocks experimental integrations after nine activations. Manual
-paired credentials validate auth.test and page users.conversations/history;
-message identity keeps exact timestamps. Browser acquisition, persisted accounts,
-RTM, neutral local projection, writes and complete feature parity remain pending.
-See [implementation and limits](../../brain/features/experimental-integrations.md).
+2026-10-09: a first transient read-only preview on Android, GTK and SwiftUI, behind
+the nine-activation unlock. Since then (to 2026-10-15) batches S-A to S-E have shipped
+in large part on all three: browser acquisition (the developer helper on Android, an
+in-app temporary browser on the desktops), saved accounts, cookie RTM, local projection,
+the outbox and writes, files, search, pins, saved-for-later and presence; the preview is
+gone. Room actions, profiles, slash commands, push and installed-client qualification
+(S-F) remain open. See [implementation and limits](../../brain/features/experimental-integrations.md)
+and [Slack session](../../brain/architecture/slack-session.md).
 The baseline statements elsewhere describe the researched checkout, not today's
 selectors, which also contain Mattermost/kChat. Teams implementation remains queued.
 

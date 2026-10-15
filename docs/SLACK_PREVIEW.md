@@ -1,96 +1,55 @@
-# Experimental Slack browser preview
+# Slack (experimental)
 
-Android, GTK and SwiftUI can import an encrypted Slack session, then browse joined
-conversations and paged plain-text history. The helper is a developer command;
-packaged desktop sign-in and phone-only acquisition remain missing. Sessions stay
-in memory; saved accounts, RTM/live updates, sending, threads, files, calls and push
-are not implemented. Real Slack sign-in with this new helper still needs qualification.
+Slack is an experimental server kind on Android, GTK and SwiftUI, signed in with a
+browser session (the web client's `xoxc` token and its `d` cookie) and saved like any
+other account. The earlier read-only preview is gone. How it works:
+[Slack session](../brain/architecture/slack-session.md); per-app status:
+[parity, section 19](../brain/parity.md#19-experimental-integrations).
 
-## Try it
+## Unlock and sign in
 
-Use a native development build from the codex/slack-teams branch for these controls.
+On the login screen, activate the RocketVibe icon nine times, with no gap longer than
+two seconds, then pick Slack as the server kind. Hide experimental integrations to
+remove it again (saved accounts stay).
 
-1. On the app login screen, activate the RocketVibe icon nine times, with no gap
-   longer than two seconds. Select Slack in the experimental provider selector.
-2. Copy the public pairing code from the Slack panel.
-3. On a computer with Node 24 and Edge, Chrome or Chromium, run this from the repo:
+- **GTK and SwiftUI**: "Sign in to Slack" opens a temporary browser of the app's own
+  (Chromium, Chrome, Edge or Brave must be installed). Sign in there (password, SSO and
+  MFA are Slack's); the app closes it and offers a workspace picker when the session
+  holds several. Cancel stops the attempt and closes the browser.
+- **Android**: either paste a token and `d` cookie, or pair with the developer helper.
+  Copy the masked public pairing code, then on a computer with Node 24 and Edge, Chrome
+  or Chromium run `node scripts/slack-browser-signin.mjs` from the repo, sign in in the
+  fresh browser it opens (use the web client if Slack offers its desktop app), select
+  the verified workspace on the local pairing page, paste the pairing code there and
+  copy the encrypted response back into the app within five minutes. The helper stops
+  after twenty minutes; `--smoke` checks its browser transport without signing in.
 
-~~~sh
-node scripts/slack-browser-signin.mjs
-~~~
+Either way the app checks the workspace and user with `auth.test` before saving the
+account. The session lives until Slack refuses it; there is no refresh, and signing
+out is local (it does not sign the browser out).
 
-4. Sign in normally in the fresh Slack browser window, including SSO/MFA if needed.
-   Open the workspace in the **web client** if Slack offers its desktop application.
-   A separate local pairing page opens in your usual browser.
-5. Wait for a verified workspace to appear on the local page. Select the workspace,
-   paste the public pairing code there, and prepare/copy the encrypted response.
-6. Paste that response into the same native Slack panel and import it within five
-   minutes. Its workspace/user identity is checked again against Slack by the app.
-7. Browse a channel and a DM, load more history, then disconnect. Use Ctrl+C or close
-   the fresh Slack browser when done. The helper also stops after twenty minutes.
+## What works
 
-Android can import the encrypted response prepared on a development computer.
-Switching providers, hiding experiments, leaving the panel or disconnecting closes
-pending reads and invalidates the old pairing. Copy a new code after reconnecting.
-If import succeeds but authentication fails, disconnect and pair again; successful
-cryptographic import already consumed the old private key.
+Rooms, unread counts and history, threads, live updates over the RTM socket, typing;
+sending, replying (also to the room), editing, deleting, reacting and marking read;
+received files as attachments and sending files; search in a room; pins; saved for
+later as the app's star; presence (Slack has only online and away); Slack emoji, skin
+tones and custom emoji; huddles as call cards, opened in Slack's web app (on GTK Linux
+in an app window already signed in, elsewhere in the system browser).
 
-## Session boundaries
+## What does not
 
-Only a fresh helper-owned profile is inspected. Slack handles passwords and MFA;
-the helper reads the original HttpOnly d cookie and localConfig_v2 workspace tokens
-on Slack web-client pages through loopback CDP. A narrow inline boot-token fallback
-covers the selected workspace when storage lacks a token. Internal Slack layouts
-can change; unsupported acquisition reports a static error instead of guessing.
-Each token/cookie pair is validated using auth.test at the fixed Slack API origin.
-The local page exposes validated workspace names, public keys and encrypted codes,
-never raw tokens/cookies. No RocketVibe server receives the pairing exchange.
+Room info and settings, members, leaving, favorites, quotes, scheduled messages, the
+account and profile screens (so no status text), push when the app is killed,
+end-to-end encryption and native huddle media. Android has no phone-only sign-in, the desktops no
+pasted-session fallback. Installed Android and macOS behaviour is not qualified yet.
 
-X25519, HKDF-SHA256 and AES-256-GCM protect a provider-specific, one-use transfer.
-Only the recipient private key can open it. Transfer lifetime is five minutes; the
-native preview has a local maximum lifetime of one hour, shortened by a known
-cookie expiry. This is a preview limit, not a claim about Slack token expiry. It
-refuses requests thirty seconds before that limit. Slack can revoke a session sooner.
-There is no refresh attempt or upstream logout/revocation on disconnect.
-
-Normal browser authentication cache can exist in the temporary profile while it
-runs. Shutdown removes that exact profile; an OS/process crash can leave a directory
-requiring cleanup. The helper never exports credentials to files or prints response
-captures. Rust zeroizes retained key/token buffers; JavaScript cannot guarantee
-physical zeroization of every string copy. The local pairing server uses a random
-capability path, exact Host/Origin checks, no-store responses and a restrictive CSP.
-
-## Test checklist
-
-Check sign-in/MFA, correct workspace selection, channel and DM history, paging,
-wrong-panel or stale response rejection, provider switching and disconnect. Share
-only the static error code and which step failed. Do not share tokens, cookies,
-pairing responses, workspace/member identifiers or message contents.
-
-~~~sh
-# Browser transport and profile cleanup only; performs no sign-in:
-node scripts/slack-browser-signin.mjs --smoke
-
-# From apps/mobile:
-npx tsc --noEmit
-npm test
-
-# From the repo, the standard Fedora desktop workflow:
-CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 apps/desktop/scripts/build.sh
-~~~
-
-Synthetic crypto and transport tests do not qualify actual workspace sign-in,
-Enterprise Grid or organizational restrictions. The user can perform the live
-acceptance test; no account credentials were used during implementation.
+When reporting a problem, share the static error code and the step that failed, never
+tokens, cookies, pairing responses, workspace or member identifiers, or message text.
 
 ## Sources
 
-- scripts/slack-browser-signin.mjs
-- scripts/slack/browser.mjs
-- scripts/slack/session.mjs
-- scripts/slack/server.mjs
-- apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack_handoff.rs
+- scripts/slack-browser-signin.mjs, scripts/slack/browser.mjs, scripts/slack/session.mjs, scripts/slack/server.mjs
+- apps/mobile/ui/slackSignIn.tsx, apps/mobile/providers/slack/handoff.ts, apps/mobile/providers/slack/auth.ts, apps/mobile/providers/slack/index.ts (`SLACK_CAPABILITIES`)
+- apps/desktop/crates/rv-core/src/slack/browser_login.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 - [Provider handoff](protocol/SLACK_SESSION.md)
-- [Slack auth.test](https://docs.slack.dev/reference/methods/auth.test/)
-- [Chromium cookie API](https://chromedevtools.github.io/devtools-protocol/tot/Network/#method-getCookies)

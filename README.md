@@ -45,7 +45,8 @@ inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
   Rust core; Teams sign-in and native account integration remain pending.
 - [Slack Session mode protocol and implementation handoff](docs/protocol/SLACK_SESSION.md):
   measured session/RTM behaviour, provider parity targets and qualification probes;
-  a hidden read-only preview now validates manual sessions and pages conversations/history; persistent accounts, real-time sync and writes remain pending.
+  Slack is an experimental server kind (saved accounts, live updates, writes, files)
+  on Android, GTK and SwiftUI behind the nine-tap unlock, see [`docs/SLACK_PREVIEW.md`](docs/SLACK_PREVIEW.md).
 - [`ROADMAP.md`](ROADMAP.md): the product decisions and their justification.
 - [`docs/`](docs): the development environment and the survey of the target server
   ([`DEV.md`](docs/DEV.md)), push ([`PUSH.md`](docs/PUSH.md)), WhatsApp

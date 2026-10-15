@@ -51,8 +51,10 @@ remains a distinct batch before the capability is advertised.
 workspace token/cookie acquisition, cookie-authenticated RTM, HTTP/event mapping,
 P01-P23 parity and [qualification probes](SLACK_SESSION_PROBES.md).
 Its [evidence ledger](slack-session-evidence.json) distinguishes live observations
-from source evidence and untested behaviour. No Slack driver is delivered by this
-documentation, and these methods are not native RocketVibe server routes. The first hidden read-only preview is tracked in [experimental integrations](../../brain/features/experimental-integrations.md).
+from source evidence and untested behaviour. These methods are not native RocketVibe server routes. The apps' experimental Slack
+provider built on them (saved accounts on Android, GTK and SwiftUI) is described in
+[experimental integrations](../../brain/features/experimental-integrations.md) and
+[Slack session](../../brain/architecture/slack-session.md).
 
 ## Transport and identity
 

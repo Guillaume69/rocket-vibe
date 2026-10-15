@@ -454,6 +454,12 @@ findings are added here.
 - [x] 🟢 (fixed 2026-10-13: migration 0031 `idx_messages_ts`, `+rid` in the query, about 65 ms to 10 ms on 200k rows) **Activity's candidates query has no index of its own** (2026-10-13 review): `ACTIVITY_CANDIDATES` (`db/upserts.ts`) filters on author, system type and thread over the whole `messages` table, sorted by `ts`, and `app/activity.tsx` runs it at each focus. Fine at the 500 messages kept per room; on a device holding many accounts' worth of rooms, an index on `(ts)` or a partial index would keep coming back from a room instant.
 - [x] 🟢 (fixed 2026-10-13: migration 0032 `native_follow_states`, projected into `thread_followers`) **Vibez thread following is not stored** (2026-10-13 review): `providers/vibez/store.ts` drops `Message.personal_follow`, so the Activity view counts a reply in a thread I only follow on Rocket.Chat (`thread_followers`) and the web, not on a Vibez account here. Part of the thread-following debt of `brain/parity.md` section 6.
 
+Found by the Slack provider review (2026-10-15), kept for later:
+
+- [ ] 🟢 **The Slack and Mattermost upload queues share about 110 identical lines** (`providers/slack/uploads.ts`, `providers/mattermost/uploads.ts`): only the upload and the posted-file lookup differ; one queue taking a provider strategy would serve both.
+- [ ] 🟢 **The Teams and Slack pairing handoffs are near copies** (`providers/slack/handoff.ts`, `providers/teams/handoff.ts`, and the desktop's `slack/handoff.rs`, `teams_handoff.rs`).
+- [ ] 🟢 **Slack `saved.list` pagination is unprobed**: `providers/slack/saved.ts` follows the cursor (`client.pages`, bounded pages) on the assumption that it pages like Slack's other list methods; a long Later list was never tried.
+
 Repository reliability audit (2026-10-11):
 
 - [ ] Mattermost mention-notification qualification (2026-10-12): the broader desktop `mattermost-smoke` example on the disposable 11.11.1 bench received Bob's post live, then timed out waiting for its mention notification. It stopped before its search check. Reproduce notification delivery separately before attributing this to client code; exact room search has its own successful live probe below.

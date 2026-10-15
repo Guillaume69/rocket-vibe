@@ -5,6 +5,11 @@ GTK 4 + libadwaita on top of a UI-free protocol core. It ports the mobile app's 
 the spec. Commands below run from `apps/desktop/`; the Rocket.Chat test server
 is the repository's `docker/`, seeded by its `scripts/seed.mjs`.
 
+Nine login-icon activations unlock the experimental [Slack server kind](../../docs/SLACK_PREVIEW.md) and the
+Teams read preview. Teams requires
+the [development browser helper](../../docs/TEAMS_PREVIEW.md); live sign-in remains
+unverified, and persistent Teams accounts, sync and sending are pending.
+
 ## Build
 
 Everything builds in a Fedora 44 container (cargo registry cached in the

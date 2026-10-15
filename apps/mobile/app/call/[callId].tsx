@@ -2,6 +2,7 @@ import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -137,15 +138,19 @@ function Call({
     let alive = true;
     void (async () => {
       try {
-        await requestCameraMic();
+        const slack = client.kind === 'slack';
+        if (!slack) await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
-        // A conference URL without a readable origin (exotic scheme, truncated
-        // response) would give no lock to put on the WebView: we refuse rather
-        // than load without a guard.
-        if (alive) {
-          if (originOf(u) === null) setError(t('call.joinFailed'));
-          else setUrl(u);
-        }
+        if (!alive) return;
+        if (slack) {
+          await Linking.openURL(u);
+          router.back();
+        } else if (originOf(u) === null) {
+          // A conference URL without a readable origin (exotic scheme, truncated
+          // response) would give no lock to put on the WebView: we refuse rather
+          // than load without a guard.
+          setError(t('call.joinFailed'));
+        } else setUrl(u);
       } catch {
         if (alive) setError(t('call.joinFailed'));
       }
@@ -153,7 +158,7 @@ function Call({
     return () => {
       alive = false;
     };
-  }, [client, callId, rid,membership,attempt, t]);
+  }, [client, callId, rid,membership,attempt, t, router]);
 
   // Handler (outside the effect): resetting the state there is legitimate.
   const retry = useCallback(() => {

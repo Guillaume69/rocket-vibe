@@ -2,6 +2,8 @@
 //! since Rocket.Chat 8.0. The same client speaks Mattermost's `/api/v4/`
 //! (`Api::Mattermost`): bearer token, its own error envelope, and the media
 //! authenticated by header since that server refuses a token in the URL.
+//! `Api::Slack` posts forms to Slack's `/api/<method>`, with the `d` cookie
+//! beside the bearer, and only for the methods `crate::slack::METHODS` lists.
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -99,7 +101,9 @@ impl RestError {
 const MATTERMOST_PASSWORD_REFUSED: &str = "api.user.check_user_password.invalid.app_error";
 
 pub fn is_token_rejected(e: &RestError) -> bool {
-    e.two_factor.is_none() && e.status == 401 && e.understood
+    e.two_factor.is_none()
+        && e.understood
+        && (e.status == 401 || e.error_type.as_deref() == Some(crate::slack::SESSION_REJECTED))
 }
 
 /// Which server's REST dialect the client speaks.
@@ -108,6 +112,7 @@ pub enum Api {
     #[default]
     RocketChat,
     Mattermost,
+    Slack,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -136,12 +141,16 @@ impl CallOptions {
 #[derive(Clone)]
 pub struct RestClient {
     http: reqwest::Client,
+    /// Slack's public media (photos, custom emoji): a default photo redirects
+    /// through Gravatar, which the API client, never following one, refused.
+    public: reqwest::Client,
     base: Url,
     credentials: Arc<RwLock<Option<Credentials>>>,
     token_rejected: broadcast::Sender<String>,
     api: Api,
     /// kChat: a `{message}` error body is believed (`interpret_mattermost`).
     plain_errors: bool,
+    slack_cookie: Option<Arc<zeroize::Zeroizing<String>>>,
 }
 
 impl RestClient {
@@ -159,14 +168,38 @@ impl RestClient {
         RestClient { plain_errors: true, ..Self::with_api(base, Api::Mattermost) }
     }
 
+    /// Slack's API at `base` (`https://slack.com` but in tests), the `d`
+    /// cookie sent byte for byte with every call.
+    pub fn slack(base: Url, cookie: zeroize::Zeroizing<String>) -> Self {
+        RestClient { slack_cookie: Some(Arc::new(cookie)), ..Self::with_api(base, Api::Slack) }
+    }
+
     fn with_api(base: Url, api: Api) -> Self {
+        let redirects =
+            if api == Api::Slack { reqwest::redirect::Policy::none() } else { reqwest::redirect::Policy::default() };
         let http = reqwest::Client::builder()
             .timeout(TIMEOUT)
+            .redirect(redirects)
+            .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("HTTP client");
+        let public = reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
-        RestClient { http, base, credentials: Arc::default(), token_rejected, api, plain_errors: false }
+        RestClient {
+            http,
+            public,
+            base,
+            credentials: Arc::default(),
+            token_rejected,
+            api,
+            plain_errors: false,
+            slack_cookie: None,
+        }
     }
 
     pub fn base(&self) -> &Url {
@@ -183,6 +216,13 @@ impl RestClient {
                 request.header("X-Auth-Token", &credentials.auth_token).header("X-User-Id", &credentials.user_id)
             }
             Api::Mattermost => request.bearer_auth(&credentials.auth_token),
+            Api::Slack => {
+                let request = request.bearer_auth(&credentials.auth_token);
+                match &self.slack_cookie {
+                    Some(cookie) => request.header(reqwest::header::COOKIE, format!("d={}", cookie.as_str())),
+                    None => request,
+                }
+            }
         }
     }
 
@@ -194,13 +234,18 @@ impl RestClient {
         crate::media::protected_url(&self.base, in_query, path_or_url)
     }
 
-    /// The bearer goes with our own server's files only: attachment URLs come
-    /// from message fields, so from anyone.
+    /// The bearer goes with our own server's files only (Slack's: its file
+    /// host): attachment URLs come from message fields, so from anyone.
     fn file_request(&self, url: Url) -> reqwest::RequestBuilder {
         let same_origin = url.origin() == self.base.origin();
-        let request = self.http.get(url);
+        let slack_files = crate::slack::translate::file_host(&url);
+        let request = match self.api {
+            Api::Slack if !slack_files && !same_origin => self.public.get(url),
+            _ => self.http.get(url),
+        };
         match self.credentials() {
             Some(c) if self.api == Api::Mattermost && same_origin => self.authenticate(request, &c),
+            Some(c) if self.api == Api::Slack && slack_files => self.authenticate(request, &c),
             _ => request,
         }
     }
@@ -249,6 +294,9 @@ impl RestClient {
         texts: Vec<(String, String)>,
         progress: impl Fn(u64, u64) + Send + Sync + 'static,
     ) -> Result<Value, RestError> {
+        if self.api == Api::Slack {
+            return Err(crate::slack::not_supported(path));
+        }
         const CHUNK: usize = 64 * 1024;
         let total = bytes.len() as u64;
         let progress = Arc::new(progress);
@@ -287,6 +335,48 @@ impl RestClient {
             let _ = self.token_rejected.send(c.auth_token.clone());
         }
         result
+    }
+
+    /// POSTs a file's bytes to the one-off address Slack hands out for it
+    /// (`files.getUploadURLExternal`): the address is the authorization, so
+    /// no credential goes with them.
+    pub async fn upload_external(
+        &self,
+        url: Url,
+        bytes: Vec<u8>,
+        name: &str,
+        mime: &str,
+        progress: impl Fn(u64, u64) + Send + Sync + 'static,
+    ) -> Result<(), RestError> {
+        const CHUNK: usize = 64 * 1024;
+        let total = bytes.len() as u64;
+        let progress = Arc::new(progress);
+        let chunks: Vec<Vec<u8>> = bytes.chunks(CHUNK).map(<[u8]>::to_vec).collect();
+        let mut sent = 0u64;
+        let stream = futures_util::stream::iter(chunks.into_iter().map(move |chunk| {
+            sent += chunk.len() as u64;
+            progress(sent, total);
+            Ok::<_, std::io::Error>(chunk)
+        }));
+        let part = reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total)
+            .file_name(name.to_owned())
+            .mime_str(mime)
+            .map_err(|_| RestError::incomplete(&format!("{mime}: not a media type")))?;
+        let host = url.host_str().unwrap_or_default().to_owned();
+        let response = self
+            .http
+            .post(url)
+            .timeout(Duration::from_secs(60 + total / (32 * 1024)))
+            .multipart(reqwest::multipart::Form::new().part("file", part))
+            .send()
+            .await
+            .map_err(|_| RestError::network(format!("{host}: upload interrupted.")))?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            Err(RestError { status, message: format!("{host}: HTTP {status}."), ..RestError::network(String::new()) })
+        }
     }
 
     /// GET a protected file (avatar, upload). Returns its bytes and content type.
@@ -368,6 +458,7 @@ impl RestClient {
             (true, _) => "/",
             (false, Api::RocketChat) => "/api/v1/",
             (false, Api::Mattermost) => "/api/v4/",
+            (false, Api::Slack) => "/api/",
         };
         url.set_path(&format!("{}{prefix}{path}", self.base.path().trim_end_matches('/')));
         if !options.params.is_empty() {
@@ -377,6 +468,9 @@ impl RestClient {
     }
 
     async fn call(&self, method: reqwest::Method, path: &str, options: CallOptions) -> Result<Value, RestError> {
+        if self.api == Api::Slack {
+            return self.call_slack(path, &options).await;
+        }
         let mut rate_limit_attempt = 0;
         let mut network_attempt = 0;
         loop {
@@ -442,6 +536,74 @@ impl RestClient {
         match self.api {
             Api::RocketChat => interpret(path, status, text),
             Api::Mattermost => interpret_mattermost(path, status, text, self.plain_errors),
+            Api::Slack => crate::slack::interpret(path, status, text.as_bytes(), None),
+        }
+    }
+
+    /// Every Slack method is a form POST; arrays and objects of `body` travel
+    /// as JSON strings. One retry after a rate limit, at most 30 s later.
+    async fn call_slack(&self, method: &str, options: &CallOptions) -> Result<Value, RestError> {
+        if !crate::slack::METHODS.contains(&method) {
+            return Err(crate::slack::not_supported(method));
+        }
+        let mut form = options.params.clone();
+        if let Some(Value::Object(fields)) = &options.body {
+            form.extend(
+                fields.iter().map(|(k, v)| (k.clone(), v.as_str().map_or_else(|| v.to_string(), str::to_owned))),
+            );
+        }
+        let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(form.iter()).finish();
+        let mut rate_limited = false;
+        loop {
+            let sent = self.credentials();
+            let mut request = self
+                .http
+                .post(self.url_for(method, &CallOptions::default()))
+                .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded; charset=utf-8")
+                .body(body.clone());
+            if let Some(c) = &sent {
+                request = self.authenticate(request, c);
+            }
+            let mut response = request.send().await.map_err(|e| {
+                RestError::network(if e.is_timeout() {
+                    format!("{method}: no response in {} s.", TIMEOUT.as_secs())
+                } else {
+                    format!("{method}: server unreachable.")
+                })
+            })?;
+            let status = response.status().as_u16();
+            let retry_after = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|h| h.to_str().ok())
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            let lost = || RestError::network(format!("{method}: connection lost while reading."));
+            let mut bytes = Vec::new();
+            while let Some(chunk) = response.chunk().await.map_err(|_| lost())? {
+                if bytes.len() + chunk.len() > crate::slack::RESPONSE_CAP {
+                    return Err(RestError::incomplete(&format!("{method}: response too large.")));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            let result = crate::slack::interpret(method, status, &bytes, retry_after);
+            if let Err(e) = &result
+                && e.error.as_deref() == Some(crate::slack::RATE_LIMITED)
+                && !rate_limited
+            {
+                rate_limited = true;
+                let wait = retry_after
+                    .unwrap_or(1)
+                    .saturating_mul(1000)
+                    .saturating_add(fastrand::u64(0..RATE_LIMIT_JITTER_MS));
+                tokio::time::sleep(Duration::from_millis(wait.min(MAX_RETRY_DELAY_MS as u64))).await;
+                continue;
+            }
+            if let (Err(e), Some(c)) = (&result, &sent)
+                && is_token_rejected(e)
+            {
+                let _ = self.token_rejected.send(c.auth_token.clone());
+            }
+            return result;
         }
     }
 }

@@ -27,6 +27,7 @@ import { useSession } from './session.tsx';
 import { Tappable } from './tappable.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { mattermostUnread } from '../providers/mattermost/auth.ts';
+import { slackUnread } from '../providers/slack/auth.ts';
 
 const POLL_MS = 60_000;
 const TILE = 44;
@@ -38,6 +39,7 @@ async function accountUnread(session: Session): Promise<boolean> {
     return nativeRoomsUnread(await transportFor(fresh).rooms());
   }
   if (session.kind === 'mattermost' || session.kind === 'kchat') return mattermostUnread(session);
+  if (session.kind === 'slack') return slackUnread(session);
   // No server to ask: its engine counts in the app itself, shown once open.
   if (session.kind === 'whatsapp') return false;
   return subscriptionsUnread(await clientForSession(session, () => {}).get('subscriptions.get'));

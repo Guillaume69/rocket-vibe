@@ -207,6 +207,7 @@ mod tests {
             auth_token: String::new(),
             native: None,
             mattermost: None,
+            slack: None,
         }
     }
 

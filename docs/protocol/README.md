@@ -1,5 +1,18 @@
 # Vibez native protocol: first increment
 
+## External provider handoffs
+
+[Microsoft Teams](MICROSOFT_TEAMS.md) has a candidate read foundation and transient
+native browser-import previews. The [developer helper guide](../TEAMS_PREVIEW.md)
+explains pairing; live sign-in qualification, packaged acquisition and persistent
+account integration remain pending.
+It records the supplied investigation archive,
+private client request shapes, documented alternatives, integration work and a
+feature-parity delivery ledger for Android, GTK and SwiftUI. It is a developing
+client provider, not a delivered native-server capability.
+
+## Native server contract
+
 The server is experimental. [RFC 0001](../rfcs/0001-vibez-server.md)
 describes the destination; this contract covers only the delivered foundation, not full parity.
 
@@ -31,6 +44,17 @@ this contract does not carry the Rocket.Chat `md` format.
 The [native quotes contract](QUOTES.md) describes references, per-reader resolution
 and delivery protections; its wiring into the existing cards
 remains a distinct batch before the capability is advertised.
+
+## Other provider research
+
+[Slack Session mode](SLACK_SESSION.md) is a separate researched provider contract:
+workspace token/cookie acquisition, cookie-authenticated RTM, HTTP/event mapping,
+P01-P23 parity and [qualification probes](SLACK_SESSION_PROBES.md).
+Its [evidence ledger](slack-session-evidence.json) distinguishes live observations
+from source evidence and untested behaviour. These methods are not native RocketVibe server routes. The apps' experimental Slack
+provider built on them (saved accounts on Android, GTK and SwiftUI) is described in
+[experimental integrations](../../brain/features/experimental-integrations.md) and
+[Slack session](../../brain/architecture/slack-session.md).
 
 ## Transport and identity
 

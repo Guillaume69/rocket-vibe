@@ -12,8 +12,10 @@ fn is_word(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '_' | '-' | '.')
 }
 
+/// A shortcode's characters: Slack's custom emoji names take letters beyond
+/// ASCII (`:göring:`), Rocket.Chat's do not, and both stay one word.
 fn is_code(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-')
+    c.is_alphanumeric() || matches!(c, '_' | '+' | '-')
 }
 
 /// `*bold*`, `_italic_`, `~strike~` (doubled too): the marker hugs its text
@@ -292,6 +294,8 @@ mod tests {
         let emoji = t[0]["value"].as_array().unwrap();
         assert_eq!((emoji[0]["shortCode"].as_str(), emoji[1]["shortCode"].as_str()), (Some("kkk"), Some("heil")));
         assert_eq!(types(&tree("hi :smile:")[0]["value"].as_array().unwrap()[..]), ["PLAIN_TEXT", "EMOJI"]);
+        let accented = tree(":göring: :höss:");
+        assert_eq!(accented[0]["value"].as_array().unwrap()[0]["shortCode"].as_str(), Some("göring"));
     }
 
     #[test]

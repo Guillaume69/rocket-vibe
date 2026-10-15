@@ -14,6 +14,11 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
     private let callURL: String
 
     static func show(_ url: URL, title: String) {
+        // A Slack huddle has no API to join: it opens in the browser, signed in there.
+        if url.scheme == "https", let host = url.host?.lowercased(), host == "slack.com" || host.hasSuffix(".slack.com") {
+            NSWorkspace.shared.open(url)
+            return
+        }
         let call = CallWindow(url: url, title: title)
         windows.append(call)
         call.window.makeKeyAndOrderFront(nil)

@@ -28,7 +28,9 @@ mod reactions;
 mod reminders;
 pub mod rocket_chat;
 pub mod room_members;
+mod slack;
 pub mod social;
+mod teams;
 pub mod writing;
 
 use std::path::PathBuf;
@@ -577,6 +579,11 @@ impl Chat {
         self.session.info.mattermost.is_some()
     }
 
+    /// A Slack account: none of Rocket.Chat's own features (its encryption, GIFs, stickers).
+    pub fn is_slack(&self) -> bool {
+        self.session.info.slack.is_some()
+    }
+
     /// The account's conversation list settings (Mattermost and kChat), kept on the server.
     pub async fn sidebar_settings(&self) -> Result<SidebarSettings, RvError> {
         let s = self.session.clone();
@@ -768,6 +775,11 @@ impl Chat {
     pub fn set_draft(&self, rid: String, thread_id: Option<String>, text: String) {
         let key = draft_key(&rid, thread_id.as_deref());
         self.session.store.write(|w| w.set_draft(&key, &text));
+    }
+
+    /// Says I am typing in the room, where the account's protocol carries it.
+    pub fn set_typing(&self, rid: String, active: bool) {
+        self.session.set_typing(&rid, active);
     }
 
     /// Who is typing in the room now.

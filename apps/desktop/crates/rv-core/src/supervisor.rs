@@ -567,6 +567,7 @@ mod tests {
             auth_token: "t".into(),
             native: None,
             mattermost: None,
+            slack: None,
         };
         let notification = notification_key(&info, "room:1");
         assert!(!notification.contains('|'), "Windows splits its arguments on |");
@@ -586,6 +587,7 @@ mod tests {
             auth_token: "t".into(),
             native: None,
             mattermost: None,
+            slack: None,
         };
         let dm = Incoming { author: "Ana".into(), room_name: "ana".into(), direct: true, ..Default::default() };
         assert_eq!(from_account(dm, &info).author, "Ana (chat.example)");
@@ -602,6 +604,7 @@ mod tests {
             auth_token: "t".into(),
             native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
             mattermost: None,
+            slack: None,
         };
         let path = std::env::temp_dir().join(format!("rv-supervisor-{:032x}.sqlite", fastrand::u128(..)));
         let starter: Starter = Arc::new(move |info: &SessionInfo| {
@@ -644,6 +647,7 @@ mod tests {
             auth_token: "t".into(),
             native: None,
             mattermost: None,
+            slack: None,
         };
         assert_eq!(key(&info), "https://chat.example/|u1");
     }

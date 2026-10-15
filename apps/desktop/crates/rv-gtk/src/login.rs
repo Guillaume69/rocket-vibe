@@ -27,10 +27,16 @@ pub struct LoginPage {
     credentials: gtk::Box,
     server: gtk::Entry,
     kind: gtk::DropDown,
+    experimental: std::rc::Rc<crate::experimental_preview::Preview>,
+    experimental_icon: gtk::Button,
     /// kChat: the account's team servers, shown when it has several.
     kchat_row: gtk::Box,
     kchat_servers: gtk::DropDown,
     kchat_urls: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    slack_status: gtk::Label,
+    slack_workspace_row: gtk::Box,
+    slack_workspace: gtk::DropDown,
+    slack_workspace_ids: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
     infomaniak: gtk::Button,
     user: gtk::Entry,
     password: gtk::Entry,
@@ -58,9 +64,23 @@ pub struct LoginPage {
     whatsapp: gtk::Button,
 }
 
-fn hero() -> gtk::Box {
+fn hero(preview: &std::rc::Rc<crate::experimental_preview::Preview>) -> (gtk::Box, gtk::Button) {
     let hero = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(4).margin_bottom(10).build();
-    hero.append(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build());
+    let icon = gtk::Button::builder()
+        .child(&gtk::Label::builder().label("🦄").css_classes(["unicorn-hero"]).build())
+        .css_classes(["flat"])
+        .build();
+    let sequence = std::rc::Rc::new(std::cell::RefCell::new(rv_core::slack::Unlock::default()));
+    let start = std::time::Instant::now();
+    let weak = std::rc::Rc::downgrade(preview);
+    icon.connect_clicked(move |_| {
+        if sequence.borrow_mut().tap(start.elapsed().as_millis() as u64)
+            && let Some(preview) = weak.upgrade()
+        {
+            preview.unlock();
+        }
+    });
+    hero.append(&icon);
     let bars = gtk::Box::builder().spacing(5).halign(gtk::Align::Center).margin_top(8).margin_bottom(8).build();
     for colour in ["rainbow-pink", "rainbow-yellow", "rainbow-cyan", "rainbow-violet"] {
         bars.append(&gtk::Box::builder().css_classes(["rainbow-bar", colour]).build());
@@ -68,7 +88,7 @@ fn hero() -> gtk::Box {
     hero.append(&bars);
     hero.append(&widgets::brand("brand-hero"));
     hero.append(&gtk::Label::builder().label(t("login.slogan")).css_classes(["slogan"]).build());
-    hero
+    (hero, icon)
 }
 
 /// Four-pointed sparkles drawn with Cairo, so they need no font.
@@ -115,8 +135,45 @@ fn code_fields(code: &gtk::Entry, caption: &gtk::Label, intro: &gtk::Label, meth
     }
 }
 
-/// The kind list's WhatsApp entry, present when the helper is installed.
-const WHATSAPP_KIND: u32 = 5;
+/// The kind list's WhatsApp entry, present when the helper is installed and
+/// the experimental integrations are unlocked.
+const WHATSAPP_KIND: &str = "WhatsApp";
+
+fn kinds(kind: &gtk::DropDown) -> gtk::StringList {
+    kind.model().and_downcast::<gtk::StringList>().expect("server kinds")
+}
+
+fn kind_at(kind: &gtk::DropDown, label: &str) -> Option<u32> {
+    let list = kinds(kind);
+    (0..list.n_items()).find(|&i| list.string(i).as_deref() == Some(label))
+}
+
+/// Slack's entry, present while the experimental integrations are unlocked.
+fn slack_kind(kind: &gtk::DropDown) -> Option<u32> {
+    kind_at(kind, t("login.kind_slack"))
+}
+
+/// The kinds behind the unlock, last: WhatsApp (when its helper is
+/// installed) and Slack. Hidden again, a selected one falls back to Automatic.
+fn show_experimental_kinds(kind: &gtk::DropDown, shown: bool) {
+    let mut gated = Vec::new();
+    if crate::window::whatsapp_helper().is_some() {
+        gated.push(WHATSAPP_KIND);
+    }
+    gated.push(t("login.kind_slack"));
+    for label in gated {
+        match (shown, kind_at(kind, label)) {
+            (true, None) => kinds(kind).append(label),
+            (false, Some(at)) => {
+                if kind.selected() == at {
+                    kind.set_selected(0);
+                }
+                kinds(kind).remove(at);
+            }
+            _ => {}
+        }
+    }
+}
 
 fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     use rv_core::native::ServerKind;
@@ -125,11 +182,25 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
         2 => ServerKind::Vibez,
         3 => ServerKind::Mattermost,
         4 => ServerKind::Kchat,
+        selected if Some(selected) == slack_kind(kind) => ServerKind::Slack,
         _ => ServerKind::Auto,
     }
 }
 
 impl LoginPage {
+    pub fn smoke_experimental_unlock(&self) {
+        assert!(!self.experimental.root.is_visible(), "experimental preview must start hidden");
+        for _ in 0..8 {
+            self.experimental_icon.emit_clicked();
+        }
+        assert!(!self.experimental.root.is_visible(), "eight activations must not unlock");
+        self.experimental_icon.emit_clicked();
+        assert!(self.experimental.root.is_visible(), "ninth activation must unlock");
+        assert!(crate::experimental_preview::enabled(), "unlock must persist on device");
+        assert!(slack_kind(&self.kind).is_some(), "the unlock offers the Slack server kind");
+        println!("smoke: Teams and the Slack server kind hidden until the ninth activation; setting persisted");
+    }
+
     pub fn new() -> Self {
         let (server_group, server) = widgets::pill_field(t("login.server"), "chat.example.com", false);
         let (user_group, user) = widgets::pill_field(t("login.user"), "jane.doe", false);
@@ -137,7 +208,10 @@ impl LoginPage {
         let (password_group, password) = widgets::pill_field(t("login.password"), "", true);
         let password_caption = password_group.first_child().and_downcast::<gtk::Label>().expect("password caption");
         let credentials = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(14).build();
-        credentials.append(&hero());
+        let experimental = crate::experimental_preview::Preview::new();
+        let (brand, experimental_icon) = hero(&experimental);
+        credentials.append(&brand);
+        credentials.append(&experimental.root);
         // Never shown: WhatsApp is chosen among the server kinds below, and
         // that choice clicks this button, which the window listens to.
         let whatsapp = gtk::Button::builder().label(t("wa.link_title")).visible(false).build();
@@ -145,24 +219,42 @@ impl LoginPage {
         credentials.append(&server_group);
         // Found by probing; forced when the probe gets it wrong behind an
         // unusual proxy.
-        // WhatsApp last, when its helper is installed beside the app: a
+        // WhatsApp after them, when its helper is installed beside the app: a
         // personal account with no server, linked by its own dialog.
-        let mut kinds = vec![
+        let kinds = vec![
             t("login.kind_auto"),
             t("login.kind_rocketchat"),
             t("login.kind_vibez"),
             t("login.kind_mattermost"),
             t("login.kind_kchat"),
         ];
-        if crate::window::whatsapp_helper().is_some() {
-            kinds.push("WhatsApp");
-        }
         let kind = gtk::DropDown::from_strings(&kinds);
         kind.set_tooltip_text(Some(t("login.kind")));
         let kind_row = gtk::Box::builder().spacing(10).margin_start(14).build();
         kind_row.append(&gtk::Label::builder().label(t("login.kind")).css_classes(["file-detail"]).build());
         kind_row.append(&kind);
         credentials.append(&kind_row);
+        show_experimental_kinds(&kind, experimental.root.property::<bool>("visible"));
+        experimental.root.connect_visible_notify(glib::clone!(
+            #[weak]
+            kind,
+            move |root| show_experimental_kinds(&kind, root.property::<bool>("visible"))
+        ));
+        let slack_status = gtk::Label::builder()
+            .label(t("slack.browserHelp"))
+            .wrap(true)
+            .xalign(0.0)
+            .margin_start(14)
+            .visible(false)
+            .build();
+        credentials.append(&slack_status);
+        let slack_workspace = gtk::DropDown::from_strings(&[]);
+        let slack_workspace_row = gtk::Box::builder().spacing(10).margin_start(14).visible(false).build();
+        slack_workspace_row
+            .append(&gtk::Label::builder().label(t("slack.workspace")).css_classes(["file-detail"]).build());
+        slack_workspace_row.append(&slack_workspace);
+        credentials.append(&slack_workspace_row);
+        let slack_workspace_ids = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let kchat_servers = gtk::DropDown::from_strings(&[]);
         let kchat_row = gtk::Box::builder().spacing(10).margin_start(14).visible(false).build();
         kchat_row.append(&gtk::Label::builder().label(t("login.kchat_server")).css_classes(["file-detail"]).build());
@@ -379,23 +471,53 @@ impl LoginPage {
             #[weak]
             user_group,
             #[weak]
+            password_group,
+            #[weak]
+            signup,
+            #[weak]
+            recovery,
+            #[weak]
+            invitation_group,
+            #[weak]
+            invitation_help,
+            #[weak]
             kchat_row,
+            #[weak]
+            slack_status,
+            #[weak]
+            slack_workspace_row,
+            #[weak]
+            submit,
             #[weak]
             infomaniak,
             move |kind| {
-                if kind.selected() == WHATSAPP_KIND {
+                if Some(kind.selected()) == kind_at(kind, WHATSAPP_KIND) {
                     // The dialog opens; the page keeps the kind it had.
                     kind.set_selected(previous_kind.get());
                     whatsapp.emit_clicked();
                     return;
                 }
                 previous_kind.set(kind.selected());
-                let kchat = server_kind(kind) == rv_core::native::ServerKind::Kchat;
-                server_group.set_visible(!kchat);
-                user_group.set_visible(!kchat);
+                let selected = server_kind(kind);
+                let kchat = selected == rv_core::native::ServerKind::Kchat;
+                let slack = selected == rv_core::native::ServerKind::Slack;
+                server_group.set_visible(!kchat && !slack);
+                user_group.set_visible(!kchat && !slack);
+                password_group.set_visible(!slack && !kchat);
+                signup.set_active(false);
+                signup.set_visible(false);
+                recovery.set_active(false);
+                recovery.set_visible(false);
+                invitation_group.set_visible(false);
+                invitation_help.set_visible(false);
                 kchat_row.set_visible(false);
+                slack_status.set_visible(slack);
+                slack_workspace_row.set_visible(false);
+                submit.set_label(t(if slack { "slack.signIn" } else { "login.sign_in" }));
                 infomaniak.set_visible(false);
-                server.emit_by_name::<()>("changed", &[])
+                if !slack {
+                    server.emit_by_name::<()>("changed", &[]);
+                }
             }
         ));
         server.connect_changed(glib::clone!(
@@ -511,8 +633,14 @@ impl LoginPage {
             server,
             kind,
             kchat_row,
+            experimental,
+            experimental_icon,
             kchat_servers,
             kchat_urls: std::rc::Rc::default(),
+            slack_status,
+            slack_workspace_row,
+            slack_workspace,
+            slack_workspace_ids,
             infomaniak,
             user,
             password,
@@ -565,11 +693,15 @@ impl LoginPage {
     /// Shown while another account is still signed in: back to it.
     pub fn set_cancel(&self, visible: bool) {
         self.cancel.set_visible(visible);
+        self.cancel.set_label(t("login.cancel_add"));
     }
 
-    /// The smoke's choice of WhatsApp among the server kinds.
+    /// The smoke's choice of WhatsApp among the server kinds, unlocked first.
     pub fn press_whatsapp(&self) {
-        self.kind.set_selected(WHATSAPP_KIND);
+        self.experimental.unlock();
+        if let Some(at) = kind_at(&self.kind, WHATSAPP_KIND) {
+            self.kind.set_selected(at);
+        }
     }
 
     /// Connect WhatsApp: the window opens the linking dialog.
@@ -624,6 +756,37 @@ impl LoginPage {
     }
 
     /// The account's kChat team servers, as `(name, url)`, to pick one.
+    pub fn show_slack_workspaces(&self, workspaces: &[rv_core::slack::browser_login::Workspace]) {
+        let labels: Vec<&str> = workspaces.iter().map(|workspace| workspace.label.as_str()).collect();
+        self.slack_workspace.set_model(Some(&gtk::StringList::new(&labels)));
+        self.slack_workspace_ids.replace(workspaces.iter().map(|workspace| workspace.id.clone()).collect());
+        self.slack_workspace_row.set_visible(workspaces.len() > 1);
+        self.slack_status.set_label(t("slack.chooseWorkspace"));
+    }
+
+    pub fn selected_slack_workspace(&self) -> Option<String> {
+        self.slack_workspace_ids.borrow().get(self.slack_workspace.selected() as usize).cloned()
+    }
+
+    pub fn clear_slack_workspaces(&self) {
+        self.slack_workspace_ids.borrow_mut().clear();
+        self.slack_workspace.set_model(Some(&gtk::StringList::new(&[])));
+        self.slack_workspace_row.set_visible(false);
+    }
+
+    pub fn set_slack_status(&self, text: &str) {
+        self.slack_status.set_label(text);
+        self.slack_status.set_visible(self.server_kind() == rv_core::native::ServerKind::Slack);
+    }
+
+    pub fn set_cancel_label(&self, text: &str) {
+        self.cancel.set_label(text);
+    }
+
+    pub fn set_cancel_enabled(&self, enabled: bool) {
+        self.cancel.set_sensitive(enabled);
+    }
+
     pub fn show_kchat_servers(&self, servers: &[(String, String)]) {
         let names: Vec<&str> = servers.iter().map(|(name, _)| name.as_str()).collect();
         self.kchat_servers.set_model(Some(&gtk::StringList::new(&names)));
@@ -635,6 +798,7 @@ impl LoginPage {
         use rv_core::native::ServerKind;
         self.kind.set_selected(match kind {
             ServerKind::Auto => 0,
+            ServerKind::Slack => slack_kind(&self.kind).unwrap_or(0),
             ServerKind::RocketChat => 1,
             ServerKind::Vibez => 2,
             ServerKind::Mattermost => 3,
@@ -738,6 +902,9 @@ impl LoginPage {
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
+            (false, false) if self.server_kind() == rv_core::native::ServerKind::Slack => {
+                t(if self.slack_workspace_row.is_visible() { "slack.continue" } else { "slack.signIn" })
+            }
             (false, false) => t(if self.recovery.is_active() {
                 "login.reset_password"
             } else if self.signup.is_active() {
@@ -755,6 +922,7 @@ impl LoginPage {
 
     /// `Some(method)` switches to the second-factor step, `None` back to credentials.
     pub fn ask_code(&self, method: Option<&str>) {
+        self.clear_slack_workspaces();
         let asking = method.is_some();
         self.credentials.set_visible(!asking);
         self.code_step.set_visible(asking);

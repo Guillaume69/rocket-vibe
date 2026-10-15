@@ -487,6 +487,10 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
           // at 10 calls/min, and wrote into the database of the account left
           // behind. It also contaminated every request merged into it.
           refreshRoom: (rid) => provider.catchUpRoom(engine, rid, isDiscarded),
+          fileSize: async (uri) => {
+            const info = await FS.getInfoAsync(uri);
+            return info.exists ? info.size : null;
+          },
           encryption: {
             roomEncrypted: (rid) => outboxStore.roomEncrypted(rid),
             encrypt: (rid, payload) => e2e.encrypt(rid, payload),

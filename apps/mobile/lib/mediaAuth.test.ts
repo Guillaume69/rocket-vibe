@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { clearMediaSession, isMediaLeaseCurrent, knownUserId, mediaHeaders, mediaLease, mediaSource, rememberUserId, requiresMediaBearer, setMediaBearer } from './mediaAuth.ts';
+import { clearMediaSession, isMediaLeaseCurrent, knownUserId, mediaHeaders, mediaLease, mediaSource, rememberUserId, requiresMediaBearer, setMediaBearer, setMediaLease } from './mediaAuth.ts';
 
 describe('mediaAuth', () => {
   test('logout removes the bearer and usernames without revoking a replacement', () => {
@@ -36,6 +36,16 @@ describe('mediaAuth', () => {
     assert.deepEqual(mediaSource('https://other.org/a.png'), { uri: 'https://other.org/a.png' });
     setMediaBearer('https://mm.example.org', null);
     assert.equal(mediaHeaders('https://mm.example.org/api/v4/files/f1'), undefined);
+  });
+
+  test('a lease on another host carries its own headers and goes with its session', () => {
+    setMediaLease('https://files.slack.com', 'xoxc-1', 'U1', { Cookie: 'd=xoxd-1' });
+    assert.deepEqual(mediaHeaders('https://files.slack.com/files-pri/T1-F1/a.png'), { Cookie: 'd=xoxd-1' });
+    clearMediaSession('https://team.slack.com', 'U1', 'xoxc-other');
+    assert.notEqual(mediaHeaders('https://files.slack.com/x'), undefined);
+    clearMediaSession('https://team.slack.com', 'U1', 'xoxc-1');
+    assert.equal(mediaHeaders('https://files.slack.com/x'), undefined);
+    assert.equal(requiresMediaBearer('https://files.slack.com/x'), true);
   });
 
   test('a username maps to its id per server', () => {

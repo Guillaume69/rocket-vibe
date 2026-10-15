@@ -40,6 +40,33 @@ function plausibleNode(n: unknown): boolean {
   return typeof n === 'object' && n !== null && typeof (n as { type?: unknown }).type === 'string';
 }
 
+/** A shortcode with a letter beyond ASCII (Slack's custom `:göring:`), which the parser leaves as text. */
+const ACCENTED_EMOJI = /:([\p{L}\p{N}_+-]*(?![\x00-\x7f])\p{L}[\p{L}\p{N}_+-]*):/gu;
+
+/** `EMOJI` nodes for those shortcodes inside plain text; everything else as parsed. */
+export function accentedEmoji(nodes: unknown): unknown {
+  if (Array.isArray(nodes)) return nodes.flatMap((n) => splitPlain(n) ?? [accentedEmoji(n)]);
+  if (typeof nodes !== 'object' || nodes === null) return nodes;
+  const node = nodes as { type?: unknown; value?: unknown };
+  if (node.type === 'CODE' || node.type === 'INLINE_CODE' || !Array.isArray(node.value)) return node;
+  return { ...node, value: accentedEmoji(node.value) };
+}
+
+function splitPlain(node: unknown): unknown[] | null {
+  const n = node as { type?: unknown; value?: unknown };
+  if (n?.type !== 'PLAIN_TEXT' || typeof n.value !== 'string' || !ACCENTED_EMOJI.test(n.value)) return null;
+  ACCENTED_EMOJI.lastIndex = 0;
+  const out: unknown[] = [];
+  let last = 0;
+  for (const m of n.value.matchAll(ACCENTED_EMOJI)) {
+    if (m.index > last) out.push({ type: 'PLAIN_TEXT', value: n.value.slice(last, m.index) });
+    out.push({ type: 'EMOJI', value: { type: 'PLAIN_TEXT', value: m[1] }, shortCode: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < n.value.length) out.push({ type: 'PLAIN_TEXT', value: n.value.slice(last) });
+  return out;
+}
+
 export function messageTree(md: string | null, text: string | null): Root | null {
   // A quote's permalink (`[ ](…?msg=…)`) is stripped from the body: the quote
   // renders separately (`message_link` attachment), and for an optimistic send,
@@ -64,7 +91,7 @@ export function messageTree(md: string | null, text: string | null): Root | null
   }
   if (text !== null && text.trim() !== '') {
     try {
-      return stripped(parse(text));
+      return stripped(accentedEmoji(parse(text)) as Root);
     } catch {
       // The parser (generated PEG grammar) may throw on input it does not
       // consume: raw text beats a dead screen.

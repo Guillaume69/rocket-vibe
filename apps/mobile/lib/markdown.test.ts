@@ -107,3 +107,18 @@ describe('textPreview', () => {
     assert.equal(textPreview(':kkk: :smile:'), ':kkk: 😄');
   });
 });
+
+test('a shortcode with letters beyond ASCII is an emoji, outside code only', () => {
+  const tree = messageTree(null, ':göring: and `:höss:`');
+  const nodes = (tree?.[0] as { value: { type: string; shortCode?: string }[] }).value;
+  assert.deepEqual(nodes.map((n) => [n.type, n.shortCode]), [['EMOJI', 'göring'], ['PLAIN_TEXT', undefined], ['INLINE_CODE', undefined]]);
+});
+
+test('only a name with a letter beyond ASCII is that emoji: a glyph or a punctuation mark between colons stays text', () => {
+  for (const text of ['wow:😀:', 'a :、: b', 'x:１２:']) {
+    const nodes = (messageTree(null, text)?.[0] as { value: { type: string }[] }).value;
+    assert.deepEqual(nodes.map((n) => n.type), ['PLAIN_TEXT'], text);
+  }
+  const nodes = (messageTree(null, 'ok :café_2: :日本:')?.[0] as { value: { type: string; shortCode?: string }[] }).value;
+  assert.deepEqual(nodes.filter((n) => n.type === 'EMOJI').map((n) => n.shortCode), ['café_2', '日本']);
+});

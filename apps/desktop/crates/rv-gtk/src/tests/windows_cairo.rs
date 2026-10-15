@@ -145,6 +145,7 @@ fn windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback() {
             auth_token: "fixture-token".into(),
             native: Some(identity),
             mattermost: None,
+            slack: None,
         },
         &path,
     )

@@ -18,6 +18,11 @@ still in progress.
 
 ---
 
+Nine login-icon activations unlock the experimental [Slack server kind](../../docs/SLACK_PREVIEW.md) and the
+Teams read preview. Teams requires
+the [development browser helper](../../docs/TEAMS_PREVIEW.md); live sign-in remains
+unverified, and persistent Teams accounts, sync and sending are pending.
+
 ## What it is
 
 A Rocket.Chat consumer client for Rocket.Chat **8** or newer (and the Vibez server),

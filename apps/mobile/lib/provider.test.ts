@@ -6,6 +6,7 @@ import { normalizeProviderKind } from './provider.ts';
 describe('normalizeProviderKind', () => {
   test('keeps a known kind', () => {
     assert.equal(normalizeProviderKind('rocketchat'), 'rocketchat');
+    assert.equal(normalizeProviderKind('slack'), 'slack');
   });
 
   test('sessions from before the field (undefined) fall back on rocketchat', () => {
@@ -13,7 +14,7 @@ describe('normalizeProviderKind', () => {
   });
 
   test('any unknown or non-string value falls back on rocketchat', () => {
-    assert.equal(normalizeProviderKind('slack'), 'rocketchat');
+    assert.equal(normalizeProviderKind('teams'), 'rocketchat');
     assert.equal(normalizeProviderKind(42), 'rocketchat');
     assert.equal(normalizeProviderKind(null), 'rocketchat');
   });

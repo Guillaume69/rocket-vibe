@@ -42,6 +42,7 @@ async fn bench(flavor: Option<Flavor>) -> Bench {
         auth_token: "tok".into(),
         native: None,
         mattermost: flavor,
+        slack: None,
     };
     let session = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
     let (own, other) = if flavor.is_some() { ("/api/v4/", "/api/v1/") } else { ("/api/v1/", "/api/v4/") };

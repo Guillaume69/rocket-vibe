@@ -1,0 +1,66 @@
+{
+  "account": {
+    "tenantId": "00000000-0000-0000-0000-000000000001",
+    "accountId": "synthetic-account"
+  },
+  "authz": {
+    "regionGtms": {
+      "chatSvcAggAfd": "https://teams.microsoft.com/api/csa/test-region",
+      "chatServiceAfd": "https://teams.microsoft.com/api/chatsvc/test-region"
+    }
+  },
+  "snapshot": {
+    "chats": [
+      {
+        "id": "19:direct@test",
+        "chatType": "oneOnOne",
+        "title": "Direct"
+      },
+      {
+        "id": "19:unknown@test",
+        "chatType": "futureType",
+        "members": [
+          {},
+          {}
+        ],
+        "title": "Future"
+      }
+    ],
+    "teams": [
+      {
+        "channels": [
+          {
+            "id": "19:channel@test",
+            "displayName": "Channel"
+          }
+        ]
+      }
+    ]
+  },
+  "conversation": "19:chat/opaque@test",
+  "history": {
+    "messages": [
+      {
+        "id": "9007199254740993",
+        "version": "9007199254740995",
+        "from": "8:orgid:synthetic",
+        "originalarrivaltime": "2026-10-09T10:00:00.1234567Z",
+        "messagetype": "RichText/Html",
+        "content": "<p>Fixture only</p>",
+        "properties": {
+          "parentMessageId": "9007199254740992"
+        }
+      },
+      {
+        "id": "9007199254740994",
+        "version": "9007199254740996",
+        "originalarrivaltime": "2026-10-09T10:00:00Z",
+        "messagetype": "Event/Future",
+        "content": "not an ordinary message"
+      }
+    ],
+    "_metadata": {
+      "backwardLink": "https://teams.microsoft.com/api/chatsvc/test-region/v1/users/ME/conversations/19%3Achat%2Fopaque%40test/messages?syncState=opaque%2B%2F%3D"
+    }
+  }
+}

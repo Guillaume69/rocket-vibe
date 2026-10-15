@@ -150,6 +150,7 @@ async fn access_fences_late_results_reconnections_capabilities_and_context() {
     let session = native::NativeSession::start(
         SessionInfo {
             mattermost: None,
+            slack: None,
             base_url: server.url.as_str().into(),
             user_id: fixture["session"]["user"]["id"].as_str().unwrap().into(),
             username: "alice".into(),

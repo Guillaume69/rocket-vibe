@@ -278,6 +278,7 @@ mod tests {
             serde_json::from_str(include_str!("../../../../../../docs/protocol/v1.fixture.json")).unwrap();
         let info = crate::session::SessionInfo {
             mattermost: None,
+            slack: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "me-id".into(),
             username: "me".into(),

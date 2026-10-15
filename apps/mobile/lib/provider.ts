@@ -46,7 +46,7 @@ export type SyncChange =
  * A session's server type. Persisted with it: it decides which driver to
  * instantiate at startup. Older sessions stay Rocket.Chat.
  */
-export type ProviderKind = 'rocketchat' | 'vibez' | 'mattermost' | 'kchat' | 'whatsapp';
+export type ProviderKind = 'rocketchat' | 'vibez' | 'mattermost' | 'kchat' | 'whatsapp' | 'slack';
 
 export type ProviderIdentity = {
   kind: ProviderKind;
@@ -66,7 +66,7 @@ export type ProviderError = {
   twoFactorChallenge: boolean;
 };
 
-const KINDS: readonly ProviderKind[] = ['rocketchat', 'vibez', 'mattermost', 'kchat', 'whatsapp'];
+const KINDS: readonly ProviderKind[] = ['rocketchat', 'vibez', 'mattermost', 'kchat', 'whatsapp', 'slack'];
 
 /**
  * Brings a stored value back to a known `ProviderKind`. Sessions from before
@@ -111,6 +111,8 @@ export type Capabilities = {
   reports?: boolean;
   /** Text the server sends later for its author (`Provider.scheduled`, Vibez). */
   scheduledMessages?: boolean;
+  /** Posting text at all; `false` leaves every room read-only (Slack for now). */
+  sending?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;
@@ -498,6 +500,8 @@ export interface Provider {
       nativeFiles?:import('../providers/vibez/uploads.ts').NativeFileIO;
       deleteLocalFile?: (uri: string) => Promise<void>;
       refreshRoom?: (rid: string) => Promise<void>;
+      /** A local file's size in bytes, which Slack asks before the upload. */
+      fileSize?: (uri: string) => Promise<number | null>;
       /** Sending into an encrypted room: without it, a file waits there forever. */
       encryption?: UploadEncryption;
     },

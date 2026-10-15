@@ -19,6 +19,7 @@ import type { RestClient } from './rest.ts';
 import {nativeAvatarUri} from './nativeAvatars.ts';
 import {nativeFileUri} from './nativeFiles.ts';
 import { photoUri } from './whatsappFiles.ts';
+import { slackAvatar } from './slackAvatars.ts';
 
 export type FileToSend = {
   uri: string;
@@ -194,6 +195,8 @@ export function protectedFileUrl(client: RestClient, path: string): string {
   if(client.kind==='vibez'||client.kind==='whatsapp')return nativeFileUri(client,path);
   // Bearer header added at the image or download site: `lib/mediaAuth.ts`.
   if(client.kind==='mattermost'||client.kind==='kchat')return path.startsWith('http')?path:`${client.baseUrl}${path}`;
+  // Never a session parameter: Slack's token and cookie stay on its API origin.
+  if(client.kind==='slack')return path.startsWith('http')?path:`${client.baseUrl}${path}`;
   const absolute = path.startsWith('http') ? path : `${client.baseUrl}${path}`;
   if (client.auth === null) return absolute;
   if (!sameOrigin(absolute, client.baseUrl)) return absolute;
@@ -247,6 +250,7 @@ export function avatarUrl(
   if (client.kind === 'vibez') return target.rid?null:nativeAvatarUri(client,target.etag);
   // Photos the WhatsApp engine sent, written as local files by version (`lib/whatsappFiles.ts`).
   if (client.kind === 'whatsapp') return photoUri(client.baseUrl, target.uid || target.rid || target.username, target.etag);
+  if (client.kind === 'slack') return target.rid ? null : slackAvatar(client.baseUrl, target);
   if (client.kind === 'mattermost' || client.kind === 'kchat') {
     if (target.rid) return null;
     const id = target.uid || (target.username ? knownUserId(client.baseUrl, target.username) : null);

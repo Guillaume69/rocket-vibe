@@ -45,6 +45,7 @@ pub fn account_info(state: &str, jid: &str, name: &str) -> crate::session::Sessi
         auth_token: String::new(),
         native: None,
         mattermost: None,
+        slack: None,
     }
 }
 /// A new state id: random, lower-case hex.

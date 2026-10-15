@@ -24,6 +24,13 @@ describe('parseSession', () => {
     assert.equal(session?.siteUrl, null);
   });
 
+  test('a Slack session reads back as Slack with its cookie and workspace, never as Rocket.Chat', () => {
+    const slack = { baseUrl: 'https://test.slack.com', authToken: 'xoxc-000', userId: 'U000', username: 'me', kind: 'slack', siteUrl: null, slackCookie: 'xoxd-a%2Bb', slackTeamId: 'T000' };
+    assert.deepEqual(parseSession(JSON.stringify(slack), 'https://test.slack.com/'), slack);
+    const { slackCookie: _, ...withoutCookie } = slack;
+    assert.equal(parseSession(JSON.stringify(withoutCookie), 'https://test.slack.com'), null);
+  });
+
   test('corrupt, incomplete or for another server: no session', () => {
     assert.equal(parseSession('{not json', BASE), null);
     assert.equal(parseSession(JSON.stringify({ ...SESSION, authToken: 1 }), BASE), null);

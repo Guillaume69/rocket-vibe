@@ -491,6 +491,7 @@ function Thread({
           encrypted={room.encrypted}
           nativeEncryptedReady={protectedRoom && conversation.view!==null}
           catchingUp={protectedRoom && conversation.view?.catching_up===true}
+          sendingUnavailable={provider.capabilities.sending === false}
           availableQuotes={!protectedRoom || conversation.view!==null}
           placeholder={t('thread.reply')}
           afterSend={afterSend}

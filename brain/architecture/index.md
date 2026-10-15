@@ -14,6 +14,13 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [i18n.md](i18n.md) | French and English: mobile `ui/messages.ts` and `ui/i18n.ts` plus the native push strings, desktop `rv-core` `i18n.rs` shared by GTK and SwiftUI. |
 | [shared-crates.md](shared-crates.md) | `crates/`: `rv-protocol` and its generated schema and TypeScript, `rv-client`, `rv-crypto-public`, the `rv-crypto` engine and vault, the mobile, wasm and voice bridges, who consumes what, the seven workspaces and `cargo-locks.mjs`. |
 
+## Developing provider contracts
+
+| Doc | What is here |
+|---|---|
+| [teams.md](teams.md) | Private Teams read preview, developer browser acquisition, public-key handoff, conservative dynamic routing and live qualification boundary. |
+| [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. Saved accounts, RTM, writes, files, search, pins, saves, presence and huddles on all three apps, behind the experimental unlock. |
+
 ## Mobile (`apps/mobile`)
 
 | Doc | What's here |

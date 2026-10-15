@@ -3587,6 +3587,33 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        let slack = self.session().filter(|s| s.info.slack.is_some());
+        // The signed-in app window is the Linux call window's: elsewhere, as on macOS, the browser.
+        if slack.is_some() && !cfg!(target_os = "linux") {
+            crate::cards::open_uri(&self.split, url);
+            self.toast(t("call.in_browser").to_owned());
+            return;
+        }
+        if let Some(session) = slack {
+            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
+            glib::spawn_future_local(async move {
+                let target = url.clone();
+                let opened = on_tokio(async move { session.open_huddle_window(&target).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                match opened {
+                    Ok(browser) => crate::call_window::name_app_window(&browser, &url),
+                    Err(e) => {
+                        eprintln!("Signed-in huddle window not opened: {}", e.message);
+                        this.open_call_window(&url, &room);
+                    }
+                }
+            });
+            return;
+        }
+        self.open_call_window(url, room);
+    }
+
+    fn open_call_window(self: &Rc<Self>, url: &str, room: &str) {
         let weak = Rc::downgrade(self);
         crate::call_window::open(&self.split, url, room, move |text| {
             if let Some(this) = weak.upgrade() {

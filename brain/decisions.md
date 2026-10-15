@@ -311,10 +311,84 @@ kChat answers 422 to a post whose `props` hold any key it does not know, so the 
 
 Sources: apps/mobile/providers/mattermost/outbox.ts; apps/desktop/crates/rv-core/src/outbox.rs; docs/MATTERMOST.md.
 
+## Experimental provider access
+
+Slack and Teams remain hidden behind nine activations of the login icon,
+as requested on 2026-10-09. The device retains the unlock; the preview provides
+a way to hide it again. Slack is implemented first. Start with transient reads
+so no unqualified mutation or incomplete credential lifecycle enters the normal
+account session. Slack has since grown past that into a saved account kind with writes
+(still behind the same unlock); Teams is still at the transient read. See
+[experimental integrations](features/experimental-integrations.md).
+
+## Teams begins at the authentication boundary (2026-10-09)
+
+Following the pushed Slack preview, Teams starts with isolated candidate private
+read transport and runtime-validated DTOs. The user has no Entra registration to
+supply. Building this foundation does not depend on enrolling one, and no
+Microsoft-owned OAuth client ID is embedded. Accepted application identity remains
+T0/T1 acceptance work. The next increment adds a clearly experimental transient
+browser-import panel, independent of persistent account UI. See
+[Teams architecture](architecture/teams.md).
+
+## Teams uses an owned browser and public-key handoff (2026-10-10)
+
+Without a project registration, a developer helper lets the official Teams browser
+perform its own grants in a fresh temporary profile. It observes only known Teams
+v2 service token responses and validates signed identity/client/tenant binding;
+it makes no grant or refresh call and never decodes API tokens. No work/school test
+account was available, so real sign-in and private DTO acceptance remain unqualified.
+Packaged native sign-in and phone-only acquisition remain debt.
+
+Only a public pairing key is copied from the app. Ephemeral X25519, HKDF and authenticated
+encryption protect the response, preventing clipboard history of both public values
+from revealing credentials. The native private key is consumed on import/disposal.
+This remains a transient read preview with no stored account or enabled writes;
+[usage](../docs/TEAMS_PREVIEW.md) records its required developer helper and limitations.
+
+## Slack uses an owned browser and encrypted workspace pairing (2026-10-10)
+
+The manual token/cookie form is replaced by a developer browser bridge so users do
+not copy raw session credentials. The helper inspects only a fresh temporary Slack
+profile, validates each workspace with auth.test and encrypts the selected session
+to a one-use native public key. Domain separation rejects a Teams response in Slack.
+The native reader revalidates the exact workspace/user and enforces a local one-hour
+preview limit without assuming a Slack token expiry or refresh contract. History: the
+saved accounts (keychain record, no expiry, until Slack refuses the session), RTM and the
+desktops' in-app browser sign-in have since shipped on all three apps; Android still also
+accepts a pasted token and cookie, and phone-only acquisition remains debt. See
+[Slack session](architecture/slack-session.md) and [usage](../docs/SLACK_PREVIEW.md).
+
+## Slack huddles open signed in on GTK Linux, in the browser elsewhere (2026-10-15)
+
+Slack's huddle media has no session API, so a huddle opens in Slack's web app. The user
+did not want a second sign-in for it: on GTK Linux the app opens the room's huddle page in
+a temporary Chromium app window whose profile already holds the account's `d` cookie
+(set over the debugging protocol, a session cookie, the profile 0700 and deleted on close,
+the browser killed with the app). Off Linux, on macOS and on Android, the huddle opens in
+the system browser, where the user is usually signed in already. The ordinary call window
+stays the fallback. See [Slack session](architecture/slack-session.md#people-emoji-and-huddles).
+
+## The star is Slack's saved-for-later (2026-10-15)
+
+Slack's own UI shows "saved for later" (`saved.*`), not the legacy `stars.*`, which still
+answer but are invisible to the user in Slack. The app's star therefore maps to
+`saved.add` / `saved.delete`, so a message starred here appears in Slack's Later list and
+the other way round. Messages carry no saved flag, so the apps keep the set of saved ids
+from `saved.list`.
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
 - `apps/desktop/crates/rv-native/src/windows_notification.rs`
+- scripts/teams-browser-signin.mjs
+- scripts/teams/session.mjs
+- apps/mobile/providers/teams/handoff.ts
+- apps/desktop/crates/rv-core/src/teams_handoff.rs
+
+- apps/mobile/providers/teams/protocol.ts
+- apps/mobile/providers/teams/reader.ts
+- apps/desktop/crates/rv-core/src/teams.rs
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
 - `docs/protocol/E2EE_FILES.md`
@@ -372,3 +446,10 @@ Sources: apps/mobile/providers/mattermost/outbox.ts; apps/desktop/crates/rv-core
 - `apps/server/migrations/0062_email_sign_in.sql`
 - `apps/desktop/whatsapp/main.go`
 - `apps/desktop/whatsapp/engine/vault.go`
+- scripts/slack-browser-signin.mjs
+- scripts/slack/session.mjs
+- apps/mobile/providers/slack/handoff.ts
+- apps/desktop/crates/rv-core/src/slack/handoff.rs
+- apps/desktop/crates/rv-core/src/slack/browser_login.rs (`open_signed_in`)
+- apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
+- apps/mobile/providers/slack/saved.ts

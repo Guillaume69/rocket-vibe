@@ -166,6 +166,8 @@ pub struct MediaCache {
     rest: RestClient,
     /// A Mattermost account: photos are served by user id only.
     directory: Option<Arc<crate::mattermost::directory::Directory>>,
+    /// A Slack account: photos are public CDN URLs, read without the session.
+    slack: Option<Arc<crate::slack::directory::Directory>>,
     entries: Mutex<HashMap<String, Arc<Media>>>,
     /// Files of encrypted rooms by path: the server holds only their ciphertext.
     keys: Mutex<HashMap<String, crate::e2e::FileEncryption>>,
@@ -173,16 +175,23 @@ pub struct MediaCache {
 
 impl MediaCache {
     pub fn new(rest: RestClient) -> Self {
-        MediaCache { rest, directory: None, entries: Mutex::default(), keys: Mutex::default() }
+        MediaCache { rest, directory: None, slack: None, entries: Mutex::default(), keys: Mutex::default() }
     }
 
     pub fn for_mattermost(rest: RestClient, directory: Arc<crate::mattermost::directory::Directory>) -> Self {
         MediaCache { directory: Some(directory), ..Self::new(rest) }
     }
 
+    pub fn for_slack(rest: RestClient, directory: Arc<crate::slack::directory::Directory>) -> Self {
+        MediaCache { slack: Some(directory), ..Self::new(rest) }
+    }
+
     /// The Mattermost route of a Rocket.Chat avatar path, the one the screens
     /// build. A room has no photo there.
     fn server_path(&self, path_or_url: &str) -> Result<String, RestError> {
+        if let Some(slack) = &self.slack {
+            return slack_path(slack, path_or_url);
+        }
         let Some(directory) = &self.directory else { return Ok(path_or_url.to_owned()) };
         let Some(avatar) = path_or_url.strip_prefix("/avatar/") else { return Ok(path_or_url.to_owned()) };
         let (target, etag) = avatar.split_once("?etag=").map_or((avatar, None), |(t, e)| (t, Some(e)));
@@ -197,7 +206,33 @@ impl MediaCache {
             None => format!("/api/v4/users/{uid}/image"),
         })
     }
+}
 
+/// The profile image of the person a Rocket.Chat avatar path names, a custom
+/// emoji or a file on Slack's file host. A room has no photo there, and
+/// nothing else of the server's is read this way.
+fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
+    if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN)
+        || url::Url::parse(path_or_url).is_ok_and(|url| crate::slack::translate::file_host(&url))
+    {
+        return Ok(path_or_url.to_owned());
+    }
+    let none = || RestError::incomplete(&format!("{path_or_url}: no photo"));
+    slack_uid(directory, path_or_url).and_then(|uid| directory.avatar(&uid)).ok_or_else(none)
+}
+
+/// The person a Rocket.Chat avatar path names on a Slack account, by id.
+fn slack_uid(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Option<String> {
+    let avatar = path_or_url.strip_prefix("/avatar/")?;
+    let target = avatar.split_once("?etag=").map_or(avatar, |(t, _)| t);
+    match target.strip_prefix("uid/") {
+        Some(uid) => Some(uid.to_owned()),
+        None if target.starts_with("room/") => None,
+        None => directory.id_of(target),
+    }
+}
+
+impl MediaCache {
     /// The keys of a decrypted message's files, each under every path that
     /// designates it: fetched from then on, they come out in clear.
     pub fn learn_keys(&self, attachments: &Value) {
@@ -228,7 +263,16 @@ impl MediaCache {
         if let Some(hit) = self.entries.lock().unwrap().get(path_or_url) {
             return Ok(hit.clone());
         }
-        let (bytes, content_type) = self.rest.fetch_protected(&self.server_path(path_or_url)?).await?;
+        let path = match (self.server_path(path_or_url), &self.slack) {
+            // Slack names nobody up front: a person no loaded message named
+            // yet (a direct conversation's partner, me) is read on demand.
+            (Err(_), Some(slack)) if let Some(uid) = slack_uid(slack, path_or_url) => {
+                slack.ensure(&self.rest, [uid]).await;
+                self.server_path(path_or_url)?
+            }
+            (path, _) => path?,
+        };
+        let (bytes, content_type) = self.rest.fetch_protected(&path).await?;
         let bytes = self.open(path_or_url, bytes)?;
         let media = Arc::new(Media { bytes, content_type });
         let mut entries = self.entries.lock().unwrap();
@@ -243,6 +287,29 @@ impl MediaCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slack_avatar_paths_name_people_by_id_or_known_username() {
+        let directory = crate::slack::directory::Directory::default();
+        directory.remember(crate::slack::directory::User {
+            id: "U1".to_owned(),
+            username: "alice".to_owned(),
+            ..Default::default()
+        });
+        assert_eq!(slack_uid(&directory, "/avatar/uid/U2").as_deref(), Some("U2"));
+        assert_eq!(slack_uid(&directory, "/avatar/alice?etag=x").as_deref(), Some("U1"));
+        assert_eq!(slack_uid(&directory, "/avatar/room/C1"), None);
+        assert!(slack_path(&directory, "/avatar/alice").is_err(), "known, but no photo read yet");
+    }
+
+    #[test]
+    fn slack_reads_its_file_host_and_nothing_else_of_the_web() {
+        let directory = crate::slack::directory::Directory::default();
+        let file = "https://files.slack.com/files-tmb/T1-F1-x/a_360.png";
+        assert_eq!(slack_path(&directory, file).unwrap(), file);
+        assert!(slack_path(&directory, "https://files.slack.com.evil.example/a.png").is_err());
+        assert!(slack_path(&directory, "http://files.slack.com/a.png").is_err());
+    }
 
     #[test]
     fn protected_disk_cache_keys_separate_accounts_servers_and_punctuation() {

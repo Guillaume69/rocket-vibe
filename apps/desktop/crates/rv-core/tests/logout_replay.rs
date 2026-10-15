@@ -14,6 +14,7 @@ fn info(base: &url::Url, mattermost: Option<Flavor>) -> SessionInfo {
         username: "alice".into(),
         auth_token: "tok".into(),
         mattermost,
+        slack: None,
         native: None,
     }
 }

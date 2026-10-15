@@ -7,6 +7,16 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental Slack accounts: behind the experimental unlock (activate the login icon nine times), choose Slack as the server kind and sign in through a temporary browser window the app opens and closes; the account is saved and its conversations, unread counts, history and threads appear like any other server's. New messages, edits, deletions, reactions, reads and typing arrive live, and you can send messages and thread replies, edit, delete, react and mark read. Slack's emoji, skin tones, custom emoji and status emoji show as in Slack, and a huddle appears as a call card; joining one, or starting one from the call button, opens it in Slack: on Linux in an app window already signed in to Slack, elsewhere (macOS included) in your browser. Custom emoji whose names have accented letters show too. Images, videos, voice messages and files sent in Slack show in the conversation. You can also send files, search a conversation, pin and save messages (Slack's "saved for later" are your starred messages), and see and set presence.
+
+- An experimental Teams browser-import preview under the same nine-activation unlock as Slack: one-use public-key pairing, native conversation/history views and session-expiry checks. A separate development browser helper is required; real Teams sign-in remains unverified, and persistent accounts, sync and sending are still pending.
+
+### Changed
+
+- WhatsApp is now offered only behind the experimental unlock (activate the login icon nine times), like Slack. The experimental panel no longer has a Slack preview: Slack is a server kind of the login page.
+
 ## [0.21.1] - 2026-10-14
 
 ### Fixed

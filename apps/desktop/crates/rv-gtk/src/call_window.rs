@@ -48,6 +48,14 @@ fn open_window(url: &str, _room: &str, fallback: impl Fn() + 'static) {
     }
 }
 
+/// Names the app window `browser` opened on `url` after the app, as a call window's.
+pub fn name_app_window(browser: &std::path::Path, url: &str) {
+    #[cfg(target_os = "linux")]
+    name_window(browser, url);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (browser, url);
+}
+
 /// What a call window entry carries, to find the ones left by earlier calls.
 #[cfg(target_os = "linux")]
 const CALL_ENTRY_MARK: &str = "X-RocketVibe-Call=true";

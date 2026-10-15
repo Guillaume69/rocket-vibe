@@ -332,6 +332,8 @@ public final class RoomModel {
             let (provider, rid, thread, text, membership) = (provider, room.rid, threadId, draft, nativeMembership)
             if let native=provider.native {
                 Task { try? await native.setTyping(room:rid,root:thread,active:!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty,membership:membership) }
+            } else if let chat = provider.legacy {
+                chat.setTyping(rid: rid, active: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             draftSave?.cancel()
             draftSave = Task {

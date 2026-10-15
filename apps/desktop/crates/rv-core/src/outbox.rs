@@ -17,6 +17,8 @@ use serde_json::{Value, json};
 use crate::mattermost::sync::MmSync;
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
+use crate::slack::sync::SlackSync;
+use crate::slack::translate::{client_msg_id, first_ts_of, markdown_to_mrkdwn, split_id};
 use crate::store::Store;
 use crate::sync::Backend;
 use crate::sync::SyncEngine;
@@ -147,6 +149,9 @@ impl Outbox {
             Backend::Mattermost(mm) => {
                 return self.pass_mattermost(mm).await;
             }
+            Backend::Slack(slack) => {
+                return self.pass_slack(slack).await;
+            }
             Backend::RocketChat => {}
         }
         for entry in self.store.pending_outbox() {
@@ -253,6 +258,135 @@ impl Outbox {
             self.mm_delivered(mm, &entry.id, post);
         }
         true
+    }
+
+    /// Slack mints the message `ts`: the row leaves with a `client_msg_id`
+    /// derived from its id, which Slack echoes on the message. Whether it also
+    /// deduplicates on it is unqualified, so it only serves to look the
+    /// message up: before a replay of a row that may have gone out, and after
+    /// a lost answer, which otherwise fails as "delivery unknown", never replayed.
+    async fn pass_slack(&self, slack: &SlackSync) -> bool {
+        for entry in self.store.pending_outbox() {
+            let explicit = self.explicit_retries.lock().unwrap().remove(&entry.id);
+            let replay =
+                !explicit && (self.attempted.lock().unwrap().contains(&entry.id) || entry.created_at < self.started_at);
+            if replay {
+                match self.mine_on_slack(&entry).await {
+                    Delivered::Unknown => return false,
+                    Delivered::Ambiguous => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                        continue;
+                    }
+                    Delivered::Yes(message) => {
+                        self.slack_delivered(slack, &entry, message).await;
+                        continue;
+                    }
+                    Delivered::No => {}
+                }
+            }
+            self.attempted.lock().unwrap().insert(entry.id.clone());
+            let id_of = |username: &str| slack.directory.id_of(username);
+            let mut params = vec![
+                ("channel", entry.rid.clone()),
+                ("text", markdown_to_mrkdwn(&entry.text, &id_of)),
+                ("client_msg_id", client_msg_id(&entry.id)),
+            ];
+            if let Some((_, ts)) = entry.thread_id.as_deref().and_then(split_id) {
+                params.push(("thread_ts", ts.to_owned()));
+                if entry.shown {
+                    params.push(("reply_broadcast", "true".to_owned()));
+                }
+            }
+            let answered = self.rest.post("chat.postMessage", CallOptions::params(params)).await;
+            let sent = match answered {
+                Ok(body) => match (body.get("message"), body.get("ts").and_then(Value::as_str)) {
+                    (Some(message), Some(ts)) => {
+                        let mut message = message.clone();
+                        message["ts"] = json!(ts);
+                        Some(message)
+                    }
+                    _ => None,
+                },
+                Err(e)
+                    if e.error.as_deref() == Some(crate::slack::RATE_LIMITED) || crate::rest::is_token_rejected(&e) =>
+                {
+                    return false;
+                }
+                Err(e) if e.understood && e.status < 500 => {
+                    let code = e.error.as_deref().unwrap_or("refused");
+                    self.store
+                        .write(|w| w.mark_outbox_failed(&entry.id, &format!("Slack refused the message ({code}).")));
+                    continue;
+                }
+                Err(_) => None,
+            };
+            let message = match sent {
+                Some(message) => message,
+                None => match self.mine_on_slack(&entry).await {
+                    Delivered::Unknown => return false,
+                    Delivered::Yes(message) => message,
+                    Delivered::No | Delivered::Ambiguous => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                        continue;
+                    }
+                },
+            };
+            self.slack_delivered(slack, &entry, message).await;
+        }
+        true
+    }
+
+    async fn slack_delivered(&self, slack: &SlackSync, entry: &crate::store::OutboxEntry, message: Value) {
+        self.store.write(|w| {
+            w.delete_outbox(&entry.id);
+            w.delete_message(&entry.id);
+        });
+        slack.ingest_one(&entry.rid, &message).await;
+        self.attempted.lock().unwrap().remove(&entry.id);
+    }
+
+    /// Only the row's own `client_msg_id`, from me, proves a delivery. A
+    /// window with more after it cannot prove absence.
+    async fn mine_on_slack(&self, entry: &crate::store::OutboxEntry) -> Delivered {
+        let mut params = vec![
+            ("channel", entry.rid.clone()),
+            ("oldest", first_ts_of((entry.created_at - CLOCK_SKEW_MS).max(0))),
+            ("inclusive", "true".to_owned()),
+            ("limit", "100".to_owned()),
+        ];
+        let method = match entry.thread_id.as_deref().and_then(split_id) {
+            Some((_, ts)) => {
+                params.push(("ts", ts.to_owned()));
+                "conversations.replies"
+            }
+            None => "conversations.history",
+        };
+        let marker = client_msg_id(&entry.id);
+        match self.rest.post(method, CallOptions::params(params)).await {
+            Ok(body) => {
+                let messages = body.get("messages").and_then(Value::as_array).cloned().unwrap_or_default();
+                let field = |m: &Value, key: &str| m.get(key).and_then(Value::as_str).map(str::to_owned);
+                if let Some(found) = messages.into_iter().find(|m| {
+                    field(m, "client_msg_id").as_deref() == Some(marker.as_str())
+                        && field(m, "user").as_deref() == Some(self.me_id.as_str())
+                }) {
+                    return Delivered::Yes(found);
+                }
+                if body.get("has_more").and_then(Value::as_bool) == Some(true) {
+                    Delivered::Ambiguous
+                } else {
+                    Delivered::No
+                }
+            }
+            Err(e)
+                if unanswered(&e)
+                    || e.error.as_deref() == Some(crate::slack::RATE_LIMITED)
+                    || crate::rest::is_token_rejected(&e) =>
+            {
+                Delivered::Unknown
+            }
+            Err(_) => Delivered::No,
+        }
     }
 
     fn mm_delivered(&self, mm: &MmSync, id: &str, post: Value) {

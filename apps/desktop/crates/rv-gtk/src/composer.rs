@@ -732,7 +732,8 @@ impl Composer {
     pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
         self.unbind_native();
         self.show_tools(true);
-        let supported = session.info.mattermost.is_none() && !session.store.room_encrypted(rid);
+        let supported =
+            session.info.mattermost.is_none() && session.info.slack.is_none() && !session.store.room_encrypted(rid);
         self.social.set_visible(supported);
         if supported {
             self.social_target.replace(Some(crate::social::Target::Legacy {
@@ -755,7 +756,11 @@ impl Composer {
         self.load_commands(session, rid, &key);
         let generation = Rc::new(Cell::new(0u64));
         let store = session.store.clone();
+        let (typist, typed_in) = (Arc::downgrade(session), rid.to_owned());
         self.connect_changed(move |text| {
+            if let Some(session) = typist.upgrade() {
+                session.set_typing(&typed_in, !text.trim().is_empty());
+            }
             let current = generation.get() + 1;
             generation.set(current);
             let (generation, store, key) = (generation.clone(), store.clone(), key.clone());

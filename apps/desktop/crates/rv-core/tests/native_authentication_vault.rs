@@ -117,6 +117,7 @@ fn put(memory: &Memory, saved: &LoginChallenge) {
 fn completed(saved: &LoginChallenge) -> SessionInfo {
     SessionInfo {
         mattermost: None,
+        slack: None,
         base_url: saved.base_url.clone(),
         user_id: saved.user.id.clone(),
         username: saved.user.username.clone(),

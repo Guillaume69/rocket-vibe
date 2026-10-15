@@ -490,10 +490,12 @@ impl Store {
     pub fn file_posted(&self, rid: &str, file_id: &str) -> bool {
         let pattern = format!("%/file-upload/{file_id}/%");
         let mattermost = format!("%/api/v4/files/{file_id}\"%");
+        let slack = format!("%/files-pri/%-{file_id}/%");
         self.read(|c| {
             c.query_row(
-                "SELECT 1 FROM messages WHERE rid = ?1 AND (attachments LIKE ?2 OR attachments LIKE ?3) LIMIT 1",
-                params![rid, pattern, mattermost],
+                "SELECT 1 FROM messages WHERE rid = ?1 \
+                 AND (attachments LIKE ?2 OR attachments LIKE ?3 OR attachments LIKE ?4) LIMIT 1",
+                params![rid, pattern, mattermost, slack],
                 |_| Ok(()),
             )
             .optional()
@@ -688,6 +690,20 @@ impl Store {
     /// stay in their thread unless also shown in the room (`tshow`).
     pub fn messages(&self, rid: &str, limit: i64) -> Vec<MessageRow> {
         self.message_rows(ROOM_SHOWN, rid, limit)
+    }
+
+    /// The first, by id, of the messages the room shows at the instant `ts`.
+    pub fn first_shown_at(&self, rid: &str, ts: i64) -> Option<String> {
+        self.read(|c| {
+            c.query_row(
+                &format!("SELECT m.id FROM messages m WHERE {ROOM_SHOWN} AND m.ts = ?2 ORDER BY m.id LIMIT 1"),
+                params![rid, ts],
+                |r| r.get(0),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten()
     }
 
     /// How many of the room's messages `messages` would show from `ts` on.
@@ -1309,6 +1325,19 @@ impl Writer<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_slack_file_is_found_posted_by_its_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("files.sqlite")).unwrap();
+        let attachments =
+            r#"[{"title":"a.png","title_link":"https://files.slack.com/files-pri/T1-F0AB12/download/a.png"}]"#;
+        let posted = Message { attachments: Some(attachments.into()), ..message("C1:1.000001", None, 1, "C1") };
+        store.write(|w| w.upsert_message(&posted));
+        assert!(store.file_posted("C1", "F0AB12"));
+        assert!(!store.file_posted("C1", "F0AB1"), "a prefix of the id is another file");
+        assert!(!store.file_posted("C2", "F0AB12"), "another room");
+    }
 
     fn message(id: &str, text: Option<&str>, updated_at: i64, rid: &str) -> Message {
         Message {

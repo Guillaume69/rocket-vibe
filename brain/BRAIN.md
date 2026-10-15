@@ -60,12 +60,21 @@ use the indexes.
 | [server.md](architecture/server.md) | The Vibez server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
 | [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
+The experimental [Slack session provider](architecture/slack-session.md) is a full server
+kind behind the nine-activation unlock on Android, GTK and SwiftUI: saved accounts, RTM
+live updates, writes, files, search, pins, saves, presence and huddle call cards.
+
+The developing [Teams provider](architecture/teams.md) has candidate private
+read transport, public-key browser handoff and native previews; live sign-in,
+packaged acquisition and persistent account integration remain pending.
+
 ## Features (the what) - [features/index.md](features/index.md)
 
 Each feature doc covers mobile and desktop, and says where they differ.
 
 | Doc | What's here |
 |---|---|
+| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock; the experimental Slack server kind (saved accounts) and the transient Teams browser-import read preview; live Teams sign-in remains unqualified. |
 | [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account. |
 | [whatsapp.md](features/whatsapp.md) | A personal WhatsApp account linked by QR through a local helper, as an account of the GTK app. |
 | [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |

@@ -1,8 +1,12 @@
 import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
+import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
+import { TeamsPreview } from '../ui/teamsPreview.tsx';
+import { SlackSignIn, slackFailure } from '../ui/slackSignIn.tsx';
 import * as Crypto from 'expo-crypto';
 import * as WebBrowser from 'expo-web-browser';
-import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_SERVER } from '../db/migrate.ts';
@@ -63,7 +67,10 @@ export default function LoginScreen() {
 
   const [phase, setPhase] = useState<Phase>({ name: 'server' });
   const [address, setAddress] = useState(DEFAULT_SERVER);
-  const [kind, setKind] = useState<ServerKind>('auto');
+  const [picked, setKind] = useState<ServerKind | 'slack'>('auto');
+  const experimental = useExperimentalProviders();
+  const kind = picked === 'slack' && !experimental ? 'auto' : picked;
+  const unlock = useRef(new ExperimentalUnlock());
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -73,6 +80,11 @@ export default function LoginScreen() {
   const [invitation, setInvitation] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const unlockProviders = useCallback(() => {
+    if (!experimental && unlock.current.tap(Date.now())) {
+      void setExperimentalProviders(true).catch(() => setMessage(t('slack.unlockFailed')));
+    }
+  }, [experimental, t]);
 
   // Reentrancy guard in a ref, not in `busy`: two events in the same frame
   // (keyboard Enter + tap on the button) would both read the old state value
@@ -146,7 +158,7 @@ export default function LoginScreen() {
   );
 
   const submitServer = useCallback(async () => {
-    if (inFlight.current) return;
+    if (inFlight.current || kind === 'slack') return;
     inFlight.current = true;
     query.current?.abort();
     const controller = new AbortController();
@@ -320,6 +332,26 @@ export default function LoginScreen() {
     await signInKchat(bearer);
   }), [runKchat, signInKchat, t]);
 
+  const runSlack = useCallback(async (action: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setMessage(null);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted.current) setMessage(slackFailure(e, t));
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [t]);
+
+  const openSlack = useCallback(async (session: Session) => {
+    await connect(session);
+    router.replace('/');
+  }, [connect, router]);
+
   const validateNativeFactor = useCallback(async () => {
     if (inFlight.current || phase.name !== 'nativeFactor' || !code.trim() && !phase.challenge.pending) return;
     const start = generation.current;
@@ -443,7 +475,7 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="handled"
       >
         {onServer ? (
-          <BrandHeader c={c} />
+          <BrandHeader c={c} onPress={unlockProviders} />
         ) : (
           <LoginResult c={c} onBack={backToServer} busy={busy} />
         )}
@@ -458,8 +490,9 @@ export default function LoginScreen() {
 
         {phase.name === 'server' && (
           <>
-            {/* kChat: the account's servers come from the directory once signed in. */}
-            {kind !== 'kchat' && <PillField
+            {experimental && <TeamsPreview onHide={() => { void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }} />}
+            {/* kChat: the account's servers come from the directory once signed in; Slack's from its own sign-in. */}
+            {kind !== 'kchat' && kind !== 'slack' && <PillField
               c={c}
               label={t('login.serverAddress')}
               icon="network-server"
@@ -473,15 +506,15 @@ export default function LoginScreen() {
             />}
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
-              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat']] as const).map(([value,label]) => (
+              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat'],...(experimental ? [['slack','login.kindSlack']] as const : [])] as const).map(([value,label]) => (
                 <Pressable key={value} onPress={() => setKind(value)} disabled={busy}
                   accessibilityRole="radio" accessibilityState={{checked:kind===value}}
                   style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>
                   <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>
                 </Pressable>
               ))}
-              {/* A personal WhatsApp account has no server: the choice opens its linking sheet (Android, modules/whatsapp). */}
-              {WhatsApp !== null && (
+              {/* A personal WhatsApp account has no server: the choice opens its linking sheet (Android, modules/whatsapp). Behind the unlock, like Slack. */}
+              {WhatsApp !== null && experimental && (
                 <Pressable onPress={() => router.push('/whatsapp-link')} disabled={busy}
                   accessibilityRole="button" accessibilityLabel={t('wa.connect')}
                   style={[styles.kindOption,{borderColor:c.border,backgroundColor:'transparent'}]}>
@@ -489,7 +522,9 @@ export default function LoginScreen() {
                 </Pressable>
               )}
             </View>
-            <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />
+            {kind === 'slack'
+              ? <SlackSignIn c={c} busy={busy} run={runSlack} onSession={openSlack} />
+              : <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />}
 
             {knownServers.length > 0 && (
               <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
@@ -634,11 +669,11 @@ function hostOf(url: string): string | null {
 }
 
 /** Brand header: unicorn, rainbow bars, logotype, subtitle. */
-function BrandHeader({ c }: { c: Colors }) {
+function BrandHeader({ c, onPress }: { c: Colors; onPress: () => void }) {
   const t = useT();
   return (
     <View style={styles.mark}>
-      <Text style={styles.unicorn}>🦄</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="RocketVibe" onPress={onPress}><Text style={styles.unicorn}>🦄</Text></Pressable>
       <View style={styles.bars}>
         {[c.accent, c.yellow, c.cyan, c.purple].map((color, i) => (
           <View key={i} style={[styles.bar, { backgroundColor: color }]} />

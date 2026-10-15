@@ -59,6 +59,10 @@ public final class LoginModel {
     /// kChat: the account's team servers once it turned out to have several, and the one picked.
     public private(set) var kchatServers: [KchatServer] = []
     public var kchatServer = ""
+    public private(set) var slackWorkspaces: [SlackWorkspace] = []
+    public var selectedSlackWorkspace = ""
+    public private(set) var slackBrowserActive = false
+    @ObservationIgnored private var slackBrowserAttempt: SlackBrowserLogin?
     /// What sign-in goes to: the address typed, or for kChat the server picked, else its directory.
     public var address: String {
         guard kind == .kchat else { return server }
@@ -196,6 +200,7 @@ public final class LoginModel {
 
     public func leave() {
         cancelCode()
+        cancelSlackSignIn()
         password = ""
         invitation = ""
         registering = false
@@ -206,6 +211,103 @@ public final class LoginModel {
         guard !busy, nativeMethods.contains(selected) else { return }
         method = selected
         code = ""
+    }
+
+    public func cancelSlackSignIn() {
+        slackBrowserAttempt?.cancel()
+        slackBrowserAttempt = nil
+        slackBrowserActive = false
+        slackWorkspaces = []
+        selectedSlackWorkspace = ""
+        if kind == .slack { error = nil }
+    }
+
+    private func submitSlack(client: Client) async -> ChatProvider? {
+        let expected = generation
+        error = nil
+        busy = true
+        defer { if expected == generation { busy = false } }
+
+        if let attempt = slackBrowserAttempt, !slackWorkspaces.isEmpty {
+            guard !selectedSlackWorkspace.isEmpty else {
+                error = L("slack.chooseWorkspace")
+                return nil
+            }
+            do {
+                let chat = try await client.completeSlackBrowserLogin(attempt: attempt, teamId: selectedSlackWorkspace)
+                guard expected == generation, !Task.isCancelled else { chat.shutdown(); return nil }
+                slackBrowserAttempt = nil
+                slackBrowserActive = false
+                slackWorkspaces = []
+                selectedSlackWorkspace = ""
+                return .rocketChat(chat)
+            } catch let RvError.Server(status, message, _, _, _, _) {
+                guard expected == generation else { return nil }
+                error = Self.describe(status: status, message: message, askingCode: false)
+                return nil
+            } catch {
+                guard expected == generation else { return nil }
+                self.error = L("slack.browserFailed")
+                return nil
+            }
+        }
+
+        do {
+            let attempt = try await client.slackBrowserLogin()
+            guard expected == generation, !Task.isCancelled else { attempt.cancel(); return nil }
+            slackBrowserAttempt = attempt
+            slackBrowserActive = true
+            while expected == generation && !Task.isCancelled {
+                let state = attempt.state()
+                switch state.phase {
+                case "ready":
+                    slackWorkspaces = state.workspaces
+                    if state.workspaces.count == 1 {
+                        selectedSlackWorkspace = state.workspaces[0].id
+                        let chat = try await client.completeSlackBrowserLogin(
+                            attempt: attempt,
+                            teamId: state.workspaces[0].id
+                        )
+                        guard expected == generation, !Task.isCancelled else { chat.shutdown(); return nil }
+                        slackBrowserAttempt = nil
+                        slackBrowserActive = false
+                        slackWorkspaces = []
+                        selectedSlackWorkspace = ""
+                        return .rocketChat(chat)
+                    }
+                    selectedSlackWorkspace = state.workspaces.first?.id ?? ""
+                    error = L("slack.chooseWorkspace")
+                    return nil
+                case "failed":
+                    slackBrowserAttempt = nil
+                    slackBrowserActive = false
+                    error = Self.slackBrowserError(state.error ?? "")
+                    return nil
+                case "cancelled":
+                    slackBrowserAttempt = nil
+                    slackBrowserActive = false
+                    return nil
+                default:
+                    try await Task.sleep(for: .milliseconds(400))
+                }
+            }
+        } catch let RvError.Server(status, message, _, _, _, _) {
+            guard expected == generation else { return nil }
+            error = Self.describe(status: status, message: message, askingCode: false)
+        } catch {
+            guard expected == generation else { return nil }
+            self.error = L("slack.browserFailed")
+        }
+        return nil
+    }
+
+    private static func slackBrowserError(_ code: String) -> String {
+        switch code {
+        case "supported_browser_missing": return L("slack.browserMissing")
+        case "browser_closed": return L("slack.browserClosed")
+        case "timeout": return L("slack.browserTimeout")
+        default: return L("slack.browserFailed")
+        }
     }
 
     private func current(_ expected: UUID, address: String, username: String) -> Bool {
@@ -267,6 +369,7 @@ public final class LoginModel {
     /// Signs in, or asks for the code the server wants.
     func submit(client: Client) async -> ChatProvider? {
         guard !busy else { return nil }
+        if kind == .slack { return await submitSlack(client: client) }
         let (address, username, secret, challenge, answer) =
             (self.address, user.trimmingCharacters(in: .whitespaces), password, method, code)
         let invite = registering && canRegister ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil

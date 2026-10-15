@@ -1,14 +1,15 @@
 /**
- * Media that only answer to a bearer header. Rocket.Chat accepts its token in
- * the URL (`protectedFileUrl`), Mattermost and kChat do not (probed on
- * Mattermost 11.11: `?access_token=` answers 401). The image, viewer and
- * download sites ask here for the header that goes with a URL; nothing is sent
- * outside the origin the token was registered for.
+ * Media that only answer to a header. Rocket.Chat accepts its token in the
+ * URL (`protectedFileUrl`), Mattermost and kChat do not (probed on Mattermost
+ * 11.11: `?access_token=` answers 401), Slack's file host wants the session's
+ * `d` cookie. The image, viewer and download sites ask here for the headers
+ * that go with a URL; nothing is sent outside the origin they were registered
+ * for.
  */
 
 import { originOf } from './origin.ts';
 
-export type MediaLease = Readonly<{ origin: string; userId: string; token: string; generation: number }>;
+export type MediaLease = Readonly<{ origin: string; userId: string; token: string; headers: Readonly<Record<string, string>>; generation: number }>;
 const leases = new Map<string, MediaLease>();
 const protectedOrigins = new Set<string>();
 let generation = 0;
@@ -48,29 +49,34 @@ function removeLease(origin: string): void {
 }
 
 export function setMediaBearer(baseUrl: string, token: string | null, userId = ''): void {
+  setMediaLease(baseUrl, token, userId, token === null ? {} : { Authorization: `Bearer ${token}` });
+}
+
+/** `token` names the session the lease belongs to, whatever `headers` carry. */
+export function setMediaLease(baseUrl: string, token: string | null, userId: string, headers: Record<string, string>): void {
   const origin = originOf(baseUrl);
   if (origin === null) return;
   const previous = leases.get(origin);
-  if (previous?.token === token && previous.userId === userId) return;
+  if (previous?.token === token && previous.userId === userId && JSON.stringify(previous.headers) === JSON.stringify(headers)) return;
   removeLease(origin);
   if (token !== null) {
     protectedOrigins.add(origin);
-    leases.set(origin, { origin, userId, token, generation: ++generation });
+    leases.set(origin, { origin, userId, token, headers: { ...headers }, generation: ++generation });
   }
   for (const listener of listeners) listener();
 }
 
-/** A late cleanup from the old account must leave its replacement alive. */
-export function clearMediaSession(baseUrl: string, userId: string, token: string): void {
-  const current = mediaLease(baseUrl);
-  if (current?.userId !== userId || current.token !== token) return;
-  removeLease(current.origin);
+/** A late cleanup from the old account must leave its replacement alive; the session's leases on other origins go too. */
+export function clearMediaSession(_baseUrl: string, userId: string, token: string): void {
+  const owned = [...leases.values()].filter((lease) => lease.userId === userId && lease.token === token);
+  if (owned.length === 0) return;
+  for (const lease of owned) removeLease(lease.origin);
   for (const listener of listeners) listener();
 }
 
 export function mediaHeaders(url: string): Record<string, string> | undefined {
-  const token = mediaLease(url)?.token;
-  return token === undefined ? undefined : { Authorization: `Bearer ${token}` };
+  const headers = mediaLease(url)?.headers;
+  return headers === undefined ? undefined : { ...headers };
 }
 
 export function mediaSource(uri: string): { uri: string; headers?: Record<string, string> } {

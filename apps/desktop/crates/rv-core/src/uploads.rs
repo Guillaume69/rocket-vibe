@@ -302,6 +302,7 @@ impl Uploads {
     async fn post(self: &Arc<Self>, row: &UploadRow) -> Result<Outcome, RestError> {
         let mm = match self.sync.backend() {
             Backend::Mattermost(mm) => mm.clone(),
+            Backend::Slack(slack) => return self.post_slack(row, &slack.clone()).await,
             Backend::RocketChat => return self.post_rocket_chat(row).await,
         };
         self.post_mattermost(row, &mm).await
@@ -400,6 +401,59 @@ impl Uploads {
         if !self.abandoned.lock().unwrap().contains(&row.id) {
             mm.ingest(&[post]);
         }
+        Ok(Outcome::Done)
+    }
+
+    /// Slack's three steps: an upload address, the bytes, then the share. The
+    /// file id is kept before the share, which posts no client id: a share
+    /// whose answer was lost is looked for in the room before ever sharing again.
+    async fn post_slack(
+        self: &Arc<Self>,
+        row: &UploadRow,
+        slack: &crate::slack::sync::SlackSync,
+    ) -> Result<Outcome, RestError> {
+        let offline = |e: RestError| if e.status == 0 { Ok(Outcome::Offline) } else { Err(e) };
+        let file_id = match &row.file_id {
+            Some(file_id) if self.already_posted(&row.rid, file_id).await => {
+                self.settle(row);
+                return Ok(Outcome::Done);
+            }
+            Some(file_id) => file_id.clone(),
+            None => {
+                let bytes = tokio::fs::read(&row.path)
+                    .await
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+                let (url, file_id) = match slack.upload_url(&row.name, bytes.len() as u64).await {
+                    Ok(found) => found,
+                    Err(e) => return offline(e),
+                };
+                let (this, task_row, rest) = (self.clone(), row.clone(), self.rest.clone());
+                let (name, mime) = (row.name.clone(), row.mime.clone());
+                let task = tokio::spawn(async move {
+                    rest.upload_external(url, bytes, &name, &mime, move |sent, total| {
+                        this.set_progress(&task_row, sent as f64 / total.max(1) as f64)
+                    })
+                    .await
+                });
+                self.tasks.lock().unwrap().insert(row.id.clone(), task.abort_handle());
+                match task.await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => return offline(e),
+                    Err(_) => return Err(RestError::incomplete("upload discarded")),
+                }
+                self.store.write(|w| w.set_upload_file_id(&row.id, &file_id));
+                file_id
+            }
+        };
+        if self.abandoned.lock().unwrap().contains(&row.id) {
+            return Ok(Outcome::Done);
+        }
+        if let Err(e) =
+            slack.complete_upload(&file_id, &row.name, &row.rid, row.caption.as_deref(), row.tmid.as_deref()).await
+        {
+            return offline(e);
+        }
+        self.settle(row);
         Ok(Outcome::Done)
     }
 
@@ -512,6 +566,7 @@ impl Uploads {
         let mattermost = match self.sync.backend() {
             Backend::Mattermost(_) => true,
             Backend::RocketChat => false,
+            Backend::Slack(_) => return Err(crate::slack::not_supported("upload")),
         };
         let task = tokio::spawn(async move {
             let (progress_of, progress_row) = (this.clone(), task_row.clone());
@@ -546,7 +601,7 @@ impl Uploads {
             return true;
         }
         let read = match self.sync.backend() {
-            Backend::Mattermost(_) => self.sync.catch_up_room(rid).await,
+            Backend::Mattermost(_) | Backend::Slack(_) => self.sync.catch_up_room(rid).await,
             Backend::RocketChat => {
                 let Some(kind) = self.store.room_kind(rid) else { return false };
                 self.sync.load_history(rid, &kind, None).await.map(|_| ())

@@ -108,6 +108,15 @@ All code, comments and docs are in English. French survives in two places only: 
 | `mm:*` envelope | The events `MmLive` emits for the translator (`mm:post`, `mm:room`, `mm:membership`...), already enriched. | `live.ts`, `translator.ts` |
 | `pending_post_id` | The client id a Mattermost post leaves under; echoed back and deduplicated by the server for a short while. | `outbox.ts` |
 
+## Slack (`apps/mobile/providers/slack/`, `apps/desktop/crates/rv-core/src/slack/`)
+
+| Term | Meaning | More |
+|---|---|---|
+| RTM | Slack's Real Time Messaging socket, opened from `rtm.connect` with the `d` cookie on the upgrade; live after `hello`. | [slack-session](architecture/slack-session.md#live-updates-rtm) |
+| `slack:*` envelope | The events `SlackLive` emits for the translator (`slack:message`, `slack:room`, `slack:subscription`...), already enriched. | `live.ts`, `translator.ts` |
+| `client_msg_id` | The marker a Slack send leaves with, derived from the outbox row id the same way on every app; a lookup key after a lost answer, not a deduplication. | [slack-session](architecture/slack-session.md#writes) |
+| Delivery unknown | An outbox row whose send answer was lost and whose marker the lookup could not find: failed for the user to check, never replayed on its own. | [slack-session](architecture/slack-session.md#writes) |
+
 ## Mobile: data and sync (`apps/mobile/db/`, `apps/mobile/lib/`)
 
 | Term | Meaning | Where |
@@ -255,6 +264,30 @@ All code, comments and docs are in English. French survives in two places only: 
 | Vibez | The project's own chat server (`apps/server`, binary `vibez`, `vibez-vX.Y.Z` releases), formerly the RocketVibe server, and the web client it serves, which shares its version; also the account kind `vibez` in the apps. |
 | Workstream | A work item of the 2026-07-25 audit, numbered 1 to 16 in `apps/mobile/WORKSTREAMS.md`. |
 
+## Teams provider vocabulary
+
+| Term | Meaning |
+|---|---|
+| Teams account partition | Global cloud, tenant UUID and supported stable account identity encoded together; service hostname alone cannot distinguish accounts or guests. |
+| Audience token | An opaque access token for one service. The candidate reader uses separate Spaces, aggregator and chat tokens; it does not decode API JWTs. |
+| regionGtms | The Teams authz discovery map. The initial reader accepts chatSvcAggAfd and chatServiceAfd as a validated, replaceable route snapshot. |
+| backwardLink | An opaque older-history link, authorized only after verifying the discovered service and exact conversation path. It is not a general-purpose URL or a reconciliation cursor. |
+| Teams browser bridge | Development Node helper with an owned fresh official-browser profile. It observes normal browser grants and creates encrypted access-token handoffs, without its own OAuth client identity or refresh grants. |
+| Public pairing code | One-use native X25519 public key. Only this key is copied; the private seed stays native and is cleared on import/reset/disposal. |
+| rvteams2 | Versioned encrypted Teams response: ephemeral sender public key, nonce and AES-GCM ciphertext/tag, with a five-minute transfer lifetime. |
+
+See [Teams architecture](architecture/teams.md) for the implementation boundary.
+
+## Slack pairing vocabulary
+
+| Term | Meaning |
+|---|---|
+| Slack browser bridge | Developer Node helper inspecting only an owned fresh Slack browser profile; validates paired workspace token and original cookie before export. |
+| rvslack1 | Provider-separated encrypted Slack handoff with workspace/user identity, original cookie bytes, token, five-minute transfer deadline and a stated expiry within the hour (the former preview's limit). |
+| Local preview lifetime | The removed Slack preview's limit (one hour from acquisition, shortened by a known cookie expiry), still checked on an `rvslack1` envelope at import; a saved account carries no expiry and lives until Slack refuses it. |
+
+See [Slack architecture](architecture/slack-session.md) and [usage](../docs/SLACK_PREVIEW.md).
+
 ## Legacy French names
 
 The code had French names until the English rename. These are the only French words still meaningful, because users see them or an upgrade reads them once.
@@ -271,6 +304,15 @@ The code had French names until the English rename. These are the only French wo
 
 
 ## Sources
+
+- scripts/teams-browser-signin.mjs
+- scripts/teams/session.mjs
+- apps/mobile/providers/teams/handoff.ts
+- apps/desktop/crates/rv-core/src/teams_handoff.rs
+
+- apps/mobile/providers/teams/protocol.ts
+- apps/mobile/providers/teams/reader.ts
+- apps/desktop/crates/rv-core/src/teams.rs
 
 - `CLAUDE.md`
 - `ROADMAP.md`
@@ -308,3 +350,6 @@ The code had French names until the English rename. These are the only French wo
 - `crates/rv-protocol/src/social.rs`
 - `apps/server/src/giphy.rs`
 - `brain/features/social.md`
+- scripts/slack/session.mjs
+- apps/mobile/providers/slack/handoff.ts
+- apps/desktop/crates/rv-core/src/slack/handoff.rs

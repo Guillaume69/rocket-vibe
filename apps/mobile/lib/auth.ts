@@ -40,6 +40,10 @@ export type Session = {
   nativeExpiresAt?: string;
   /** Exists only in SecureStore while an opaque-session renewal is unresolved. */
   nativeRenewal?: {operation_id:string;next_token:string};
+  /** Slack's `d` cookie, byte-exact, kept beside its xoxc token and never anywhere else. */
+  slackCookie?: string;
+  /** The Slack workspace (`T…`) the token was validated for. */
+  slackTeamId?: string;
 };
 
 /** Hex SHA-256, lowercase. */

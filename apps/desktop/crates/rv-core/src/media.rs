@@ -218,14 +218,18 @@ fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str)
         return Ok(path_or_url.to_owned());
     }
     let none = || RestError::incomplete(&format!("{path_or_url}: no photo"));
-    let avatar = path_or_url.strip_prefix("/avatar/").ok_or_else(none)?;
+    slack_uid(directory, path_or_url).and_then(|uid| directory.avatar(&uid)).ok_or_else(none)
+}
+
+/// The person a Rocket.Chat avatar path names on a Slack account, by id.
+fn slack_uid(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Option<String> {
+    let avatar = path_or_url.strip_prefix("/avatar/")?;
     let target = avatar.split_once("?etag=").map_or(avatar, |(t, _)| t);
-    let uid = match target.strip_prefix("uid/") {
+    match target.strip_prefix("uid/") {
         Some(uid) => Some(uid.to_owned()),
         None if target.starts_with("room/") => None,
         None => directory.id_of(target),
-    };
-    uid.and_then(|uid| directory.avatar(&uid)).ok_or_else(none)
+    }
 }
 
 impl MediaCache {
@@ -259,7 +263,16 @@ impl MediaCache {
         if let Some(hit) = self.entries.lock().unwrap().get(path_or_url) {
             return Ok(hit.clone());
         }
-        let (bytes, content_type) = self.rest.fetch_protected(&self.server_path(path_or_url)?).await?;
+        let path = match (self.server_path(path_or_url), &self.slack) {
+            // Slack names nobody up front: a person no loaded message named
+            // yet (a direct conversation's partner, me) is read on demand.
+            (Err(_), Some(slack)) if let Some(uid) = slack_uid(slack, path_or_url) => {
+                slack.ensure(&self.rest, [uid]).await;
+                self.server_path(path_or_url)?
+            }
+            (path, _) => path?,
+        };
+        let (bytes, content_type) = self.rest.fetch_protected(&path).await?;
         let bytes = self.open(path_or_url, bytes)?;
         let media = Arc::new(Media { bytes, content_type });
         let mut entries = self.entries.lock().unwrap();
@@ -274,6 +287,20 @@ impl MediaCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slack_avatar_paths_name_people_by_id_or_known_username() {
+        let directory = crate::slack::directory::Directory::default();
+        directory.remember(crate::slack::directory::User {
+            id: "U1".to_owned(),
+            username: "alice".to_owned(),
+            ..Default::default()
+        });
+        assert_eq!(slack_uid(&directory, "/avatar/uid/U2").as_deref(), Some("U2"));
+        assert_eq!(slack_uid(&directory, "/avatar/alice?etag=x").as_deref(), Some("U1"));
+        assert_eq!(slack_uid(&directory, "/avatar/room/C1"), None);
+        assert!(slack_path(&directory, "/avatar/alice").is_err(), "known, but no photo read yet");
+    }
 
     #[test]
     fn slack_reads_its_file_host_and_nothing_else_of_the_web() {

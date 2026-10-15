@@ -1918,15 +1918,15 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 221,
+      "line": 226,
       "kind": "resource",
       "surface": "/avatar/"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 262,
+      "line": 275,
       "kind": "call:FETCH_PROTECTED",
-      "surface": "&self.server_path(path_or_url)?).await?;"
+      "surface": "&path).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/native/bots.rs",

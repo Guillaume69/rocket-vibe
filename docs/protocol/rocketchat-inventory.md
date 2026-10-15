@@ -213,8 +213,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:196](../../apps/desktop/crates/rv-core/src/media.rs#L196) | resource | /avatar/ |
 | [apps/desktop/crates/rv-core/src/media.rs:205](../../apps/desktop/crates/rv-core/src/media.rs#L205) | url | /api/v4/users/{…}/image |
 | [apps/desktop/crates/rv-core/src/media.rs:206](../../apps/desktop/crates/rv-core/src/media.rs#L206) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:221](../../apps/desktop/crates/rv-core/src/media.rs#L221) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:262](../../apps/desktop/crates/rv-core/src/media.rs#L262) | call:FETCH_PROTECTED | &self.server_path(path_or_url)?).await?; |
+| [apps/desktop/crates/rv-core/src/media.rs:226](../../apps/desktop/crates/rv-core/src/media.rs#L226) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:275](../../apps/desktop/crates/rv-core/src/media.rs#L275) | call:FETCH_PROTECTED | &path).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:159](../../apps/desktop/crates/rv-core/src/outbox.rs#L159) | call:POST | "chat.sendMessage" |

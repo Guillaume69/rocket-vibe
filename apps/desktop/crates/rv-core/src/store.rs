@@ -490,10 +490,12 @@ impl Store {
     pub fn file_posted(&self, rid: &str, file_id: &str) -> bool {
         let pattern = format!("%/file-upload/{file_id}/%");
         let mattermost = format!("%/api/v4/files/{file_id}\"%");
+        let slack = format!("%/files-pri/%-{file_id}/%");
         self.read(|c| {
             c.query_row(
-                "SELECT 1 FROM messages WHERE rid = ?1 AND (attachments LIKE ?2 OR attachments LIKE ?3) LIMIT 1",
-                params![rid, pattern, mattermost],
+                "SELECT 1 FROM messages WHERE rid = ?1 \
+                 AND (attachments LIKE ?2 OR attachments LIKE ?3 OR attachments LIKE ?4) LIMIT 1",
+                params![rid, pattern, mattermost, slack],
                 |_| Ok(()),
             )
             .optional()

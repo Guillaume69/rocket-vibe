@@ -324,6 +324,48 @@ impl RestClient {
         result
     }
 
+    /// POSTs a file's bytes to the one-off address Slack hands out for it
+    /// (`files.getUploadURLExternal`): the address is the authorization, so
+    /// no credential goes with them.
+    pub async fn upload_external(
+        &self,
+        url: Url,
+        bytes: Vec<u8>,
+        name: &str,
+        mime: &str,
+        progress: impl Fn(u64, u64) + Send + Sync + 'static,
+    ) -> Result<(), RestError> {
+        const CHUNK: usize = 64 * 1024;
+        let total = bytes.len() as u64;
+        let progress = Arc::new(progress);
+        let chunks: Vec<Vec<u8>> = bytes.chunks(CHUNK).map(<[u8]>::to_vec).collect();
+        let mut sent = 0u64;
+        let stream = futures_util::stream::iter(chunks.into_iter().map(move |chunk| {
+            sent += chunk.len() as u64;
+            progress(sent, total);
+            Ok::<_, std::io::Error>(chunk)
+        }));
+        let part = reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total)
+            .file_name(name.to_owned())
+            .mime_str(mime)
+            .map_err(|_| RestError::incomplete(&format!("{mime}: not a media type")))?;
+        let host = url.host_str().unwrap_or_default().to_owned();
+        let response = self
+            .http
+            .post(url)
+            .timeout(Duration::from_secs(60 + total / (32 * 1024)))
+            .multipart(reqwest::multipart::Form::new().part("file", part))
+            .send()
+            .await
+            .map_err(|_| RestError::network(format!("{host}: upload interrupted.")))?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            Ok(())
+        } else {
+            Err(RestError { status, message: format!("{host}: HTTP {status}."), ..RestError::network(String::new()) })
+        }
+    }
+
     /// GET a protected file (avatar, upload). Returns its bytes and content type.
     pub async fn fetch_protected(&self, path_or_url: &str) -> Result<(Vec<u8>, String), RestError> {
         let Some(url) = self.file_url(path_or_url) else {

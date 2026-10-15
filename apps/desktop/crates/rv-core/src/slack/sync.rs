@@ -735,6 +735,45 @@ impl SlackSync {
         Ok(matches.iter().filter_map(|m| self.translate(rid, m)).collect())
     }
 
+    /// Where a file's bytes go, and the id Slack gave it. Only Slack's file
+    /// host is accepted as the destination.
+    pub async fn upload_url(&self, name: &str, length: u64) -> Result<(url::Url, String), RestError> {
+        let body = self
+            .call("files.getUploadURLExternal", vec![("filename", name.to_owned()), ("length", length.to_string())])
+            .await?;
+        let url = text(&body, "upload_url")
+            .and_then(|u| url::Url::parse(u).ok())
+            .filter(translate::file_host)
+            .ok_or_else(|| RestError::incomplete("files.getUploadURLExternal: no Slack upload address"))?;
+        let id = text(&body, "file_id")
+            .filter(|id| id.starts_with('F') && id.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
+            .ok_or_else(|| RestError::incomplete("files.getUploadURLExternal: no file id"))?;
+        Ok((url, id.to_owned()))
+    }
+
+    /// Shares an uploaded file in the room, with its caption and in its thread.
+    pub async fn complete_upload(
+        &self,
+        file_id: &str,
+        title: &str,
+        rid: &str,
+        caption: Option<&str>,
+        tmid: Option<&str>,
+    ) -> Result<(), RestError> {
+        let mut params = vec![
+            ("files", serde_json::json!([{"id": file_id, "title": title}]).to_string()),
+            ("channel_id", rid.to_owned()),
+        ];
+        if let Some(caption) = caption.filter(|c| !c.is_empty()) {
+            let id_of = |username: &str| self.directory.id_of(username);
+            params.push(("initial_comment", translate::markdown_to_mrkdwn(caption, &id_of)));
+        }
+        if let Some((_, ts)) = tmid.and_then(split_id) {
+            params.push(("thread_ts", ts.to_owned()));
+        }
+        self.call("files.completeUploadExternal", params).await.map(|_| ())
+    }
+
     /// Changes a room's kept counts and writes its subscription row from them.
     fn update_counts(&self, rid: &str, change: impl FnOnce(&mut Value)) {
         if !self.conversations.lock().unwrap().contains_key(rid) {

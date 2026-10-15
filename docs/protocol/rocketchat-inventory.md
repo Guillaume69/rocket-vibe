@@ -226,8 +226,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:405](../../apps/desktop/crates/rv-core/src/outbox.rs#L405) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
 | [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:446](../../apps/desktop/crates/rv-core/src/outbox.rs#L446) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:404](../../apps/desktop/crates/rv-core/src/rest.rs#L404) | url | /api/v1 |
-| [apps/desktop/crates/rv-core/src/rest.rs:405](../../apps/desktop/crates/rv-core/src/rest.rs#L405) | url | /api/v4 |
+| [apps/desktop/crates/rv-core/src/rest.rs:446](../../apps/desktop/crates/rv-core/src/rest.rs#L446) | url | /api/v1 |
+| [apps/desktop/crates/rv-core/src/rest.rs:447](../../apps/desktop/crates/rv-core/src/rest.rs#L447) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | call:GET | "users.presence" |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | endpoint | users.presence |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:24](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L24) | call:GET | "video-conference.capabilities" |
@@ -352,10 +352,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/teams.rs:421](../../apps/desktop/crates/rv-core/src/teams.rs#L421) | url | /api/authsvc/v1.0/authz |
 | [apps/desktop/crates/rv-core/src/uploads.rs:94](../../apps/desktop/crates/rv-core/src/uploads.rs#L94) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:395](../../apps/desktop/crates/rv-core/src/uploads.rs#L395) | call:POST | "posts" |
-| [apps/desktop/crates/rv-core/src/uploads.rs:499](../../apps/desktop/crates/rv-core/src/uploads.rs#L499) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
-| [apps/desktop/crates/rv-core/src/uploads.rs:499](../../apps/desktop/crates/rv-core/src/uploads.rs#L499) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:523](../../apps/desktop/crates/rv-core/src/uploads.rs#L523) | endpoint | rooms.media/{…} |
-| [apps/desktop/crates/rv-core/src/uploads.rs:525](../../apps/desktop/crates/rv-core/src/uploads.rs#L525) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
+| [apps/desktop/crates/rv-core/src/uploads.rs:552](../../apps/desktop/crates/rv-core/src/uploads.rs#L552) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
+| [apps/desktop/crates/rv-core/src/uploads.rs:552](../../apps/desktop/crates/rv-core/src/uploads.rs#L552) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:576](../../apps/desktop/crates/rv-core/src/uploads.rs#L576) | endpoint | rooms.media/{…} |
+| [apps/desktop/crates/rv-core/src/uploads.rs:578](../../apps/desktop/crates/rv-core/src/uploads.rs#L578) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-ffi/src/model.rs:280](../../apps/desktop/crates/rv-ffi/src/model.rs#L280) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-gtk/src/chat_native.rs:1078](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1078) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |

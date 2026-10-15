@@ -579,6 +579,11 @@ impl Chat {
         self.session.info.mattermost.is_some()
     }
 
+    /// A Slack account: none of Rocket.Chat's own features (its encryption, GIFs, stickers).
+    pub fn is_slack(&self) -> bool {
+        self.session.info.slack.is_some()
+    }
+
     /// The account's conversation list settings (Mattermost and kChat), kept on the server.
     pub async fn sidebar_settings(&self) -> Result<SidebarSettings, RvError> {
         let s = self.session.clone();

@@ -3587,7 +3587,14 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
-        if let Some(session) = self.session().filter(|s| s.info.slack.is_some()) {
+        let slack = self.session().filter(|s| s.info.slack.is_some());
+        // The signed-in app window is the Linux call window's: elsewhere, as on macOS, the browser.
+        if slack.is_some() && !cfg!(target_os = "linux") {
+            crate::cards::open_uri(&self.split, url);
+            self.toast(t("call.in_browser").to_owned());
+            return;
+        }
+        if let Some(session) = slack {
             let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
             glib::spawn_future_local(async move {
                 let target = url.clone();

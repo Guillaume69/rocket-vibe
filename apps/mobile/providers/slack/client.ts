@@ -20,6 +20,7 @@ export type SlackMethod =
   | 'reactions.add'
   | 'reactions.remove'
   | 'conversations.mark'
+  | 'conversations.info'
   | 'files.getUploadURLExternal'
   | 'files.completeUploadExternal'
   | 'search.messages'
@@ -187,11 +188,13 @@ export class SlackClient {
       const retry = response.headers.get('retry-after');
       const retryAfter = retry !== null && /^\d+$/.test(retry) ? Number(retry) : null;
       if (response.status === 429) throw new SlackError('ratelimited', 429, retryAfter);
-      if (!response.ok) throw new SlackError('http_error', response.status);
+      // A 4xx may still carry Slack's envelope (`invalid_auth`): only that one is read.
+      if (response.status >= 500) throw new SlackError('http_error', response.status);
       const raw = await response.text();
-      if (raw.length > MAX_RESPONSE) throw new SlackError('response_too_large');
+      if (raw.length > MAX_RESPONSE) throw new SlackError(response.ok ? 'response_too_large' : 'http_error', response.status);
       let body: Doc;
-      try { body = record(JSON.parse(raw)); } catch { throw new SlackError('invalid_response'); }
+      try { body = record(JSON.parse(raw)); } catch { throw new SlackError(response.ok ? 'invalid_response' : 'http_error', response.status); }
+      if (!response.ok && body.ok !== false) throw new SlackError('http_error', response.status);
       if (body.ok === false) {
         const error = new SlackError(CODES.has(text(body.error)) ? text(body.error) : 'api_error', response.status, retryAfter);
         if (error.rejectsSession && !this.#closed && !this.#rejected) {

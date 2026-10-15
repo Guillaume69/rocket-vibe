@@ -1,10 +1,10 @@
 /**
  * REST catch-up. The global pass rebuilds the rooms and their badges from the
  * joined roster (`users.conversations`, every page) and `client.counts`, an
- * internal method that may fail: the rooms then show no badge rather than
- * none at all. Slack carries no last-message text on a conversation: the
- * newest message of the most recently active rooms is read for the list's
- * preview, a few at a time.
+ * internal method that may fail: the badges then stay as they were, and a
+ * room never counted shows none. Slack carries no last-message text on a
+ * conversation: the newest message of the most recently active rooms is read
+ * for the list's preview, a few at a time.
  *
  * A room's pass reads forward from its newest exact `ts`. Slack has no
  * "changed since" read: edits and deletions of older messages wait for the
@@ -52,8 +52,8 @@ export class SlackCatchUp {
     return this.client.pages('users.conversations', ROSTER, 'channels');
   }
 
-  /** `client.counts` by conversation id; empty when Slack does not answer it. */
-  async counts(): Promise<Map<string, Doc>> {
+  /** `client.counts` by conversation id; null when Slack does not answer it. */
+  async counts(): Promise<Map<string, Doc> | null> {
     const out = new Map<string, Doc>();
     try {
       const body = await this.client.call('client.counts');
@@ -65,13 +65,19 @@ export class SlackCatchUp {
         }
       }
     } catch {
-      out.clear();
+      return null;
     }
     return out;
   }
 
   async global(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
-    const [channels, counts] = await Promise.all([this.roster(), this.counts()]);
+    const [channels, read] = await Promise.all([this.roster(), this.counts()]);
+    if (isDiscarded()) return;
+    const counts = read ?? new Map(channels.flatMap((c) => {
+      const kept = this.live?.counts.get(String(c.id));
+      return kept === undefined ? [] : [[String(c.id), kept] as const];
+    }));
+    const known = read === null ? new Set(await engine.syncStore.listKnownRids()) : null;
     if (isDiscarded()) return;
     for (const c of channels) if (typeof c.id === 'string' && typeof c.name === 'string' && c.is_im !== true) this.roomNames.set(c.id, c.name);
     if (this.live !== null) for (const c of channels) if (typeof c.id === 'string') this.live.remember(c, counts.get(String(c.id)) ?? null);
@@ -86,7 +92,10 @@ export class SlackCatchUp {
       return { channel, counts: counts.get(rid) ?? null, ...(previews.has(rid) ? { lastMessage: previews.get(rid) ?? null } : {}) };
     });
     await engine.ingestRooms(rooms as unknown as Doc[]);
-    const subscriptions: SlackSubscriptionDoc[] = channels.map((channel) => ({ channel, counts: counts.get(String(channel.id)) ?? null }));
+    // Without counts, a room already listed keeps its badge; a new one still needs its row.
+    const subscriptions: SlackSubscriptionDoc[] = channels
+      .filter((channel) => known === null || counts.has(String(channel.id)) || !known.has(String(channel.id)))
+      .map((channel) => ({ channel, counts: counts.get(String(channel.id)) ?? null }));
     await engine.ingestSubscriptions(subscriptions as unknown as Doc[]);
 
     const later = people.slice(NAMED_FIRST);

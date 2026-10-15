@@ -1,5 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Session } from '../lib/auth.ts';
@@ -41,7 +41,16 @@ export function SlackSignIn({ c, busy, run, onSession }: {
   const [copied, setCopied] = useState(false);
   const [token, setToken] = useState('');
   const [cookie, setCookie] = useState('');
-  useEffect(() => () => pair.close(), [pair]);
+  const closing = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (closing.current !== null) clearTimeout(closing.current);
+    closing.current = null;
+    // Deferred: a remount that keeps the state (StrictMode, Fast Refresh) runs
+    // the next setup first and keeps the pairing whose key is shown.
+    return () => {
+      closing.current = setTimeout(() => pair.close(), 0);
+    };
+  }, [pair]);
 
   const pairing = () => run(async () => {
     const opened = pair.open(response.trim());

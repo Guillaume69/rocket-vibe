@@ -53,6 +53,8 @@ export class SlackDirectory {
   private names: ReadonlyMap<string, string> | null = null;
   private notifying = false;
   private inFlight: Promise<void> = Promise.resolve();
+  /** Ids queued on `inFlight`, not answered yet. */
+  private readonly pending = new Set<string>();
 
   constructor(client: SlackClient, baseUrl: string) {
     this.client = client;
@@ -121,22 +123,31 @@ export class SlackDirectory {
 
   /**
    * Fetches the unknown user and bot ids, a few at a time, chained behind any
-   * running fetch. A failure leaves them unknown: rows show the id instead.
+   * running fetch. Ids all known already resolve at once, without waiting for
+   * the chain. A failure leaves them unknown: rows show the id instead.
    */
   ensure(users: Iterable<string>, bots: Iterable<string> = []): Promise<void> {
     const missingUsers = [...new Set(users)].filter((id) => /^[UW][A-Z0-9]+$/.test(id) && !this.byId.has(id) && !this.unknown.has(id));
     const missingBots = [...new Set(bots)].filter((id) => /^B[A-Z0-9]+$/.test(id) && !this.bots.has(id) && !this.unknown.has(id));
-    if (missingUsers.length === 0 && missingBots.length === 0) return this.inFlight;
+    if (missingUsers.length === 0 && missingBots.length === 0) return Promise.resolve();
+    const freshUsers = missingUsers.filter((id) => !this.pending.has(id));
+    const freshBots = missingBots.filter((id) => !this.pending.has(id));
+    if (freshUsers.length === 0 && freshBots.length === 0) return this.inFlight;
+    for (const id of [...freshUsers, ...freshBots]) this.pending.add(id);
     this.inFlight = this.inFlight.then(async () => {
       const jobs = [
-        ...missingUsers.filter((id) => !this.byId.has(id)).map((id) => () => this.fetchUser(id)),
-        ...missingBots.filter((id) => !this.bots.has(id)).map((id) => () => this.fetchBot(id)),
+        ...freshUsers.map((id) => () => (this.byId.has(id) ? Promise.resolve() : this.fetchUser(id))),
+        ...freshBots.map((id) => () => (this.bots.has(id) ? Promise.resolve() : this.fetchBot(id))),
       ];
       let next = 0;
       const worker = async (): Promise<void> => {
         while (next < jobs.length) await jobs[next++]!();
       };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+      try {
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, worker));
+      } finally {
+        for (const id of [...freshUsers, ...freshBots]) this.pending.delete(id);
+      }
     });
     return this.inFlight;
   }

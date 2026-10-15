@@ -138,25 +138,19 @@ function Call({
     let alive = true;
     void (async () => {
       try {
-        // A Slack huddle has no API to join: its page opens in the browser,
-        // signed in there, and nothing here needs the camera.
-        if (client.kind === 'slack') {
-          const page = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
-          if (alive) {
-            await Linking.openURL(page);
-            router.back();
-          }
-          return;
-        }
-        await requestCameraMic();
+        const slack = client.kind === 'slack';
+        if (!slack) await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
-        // A conference URL without a readable origin (exotic scheme, truncated
-        // response) would give no lock to put on the WebView: we refuse rather
-        // than load without a guard.
-        if (alive) {
-          if (originOf(u) === null) setError(t('call.joinFailed'));
-          else setUrl(u);
-        }
+        if (!alive) return;
+        if (slack) {
+          await Linking.openURL(u);
+          router.back();
+        } else if (originOf(u) === null) {
+          // A conference URL without a readable origin (exotic scheme, truncated
+          // response) would give no lock to put on the WebView: we refuse rather
+          // than load without a guard.
+          setError(t('call.joinFailed'));
+        } else setUrl(u);
       } catch {
         if (alive) setError(t('call.joinFailed'));
       }

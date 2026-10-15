@@ -20,6 +20,7 @@ import { dismissible } from '../ui/alerts.ts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
+import { slackReactable } from '../providers/slack/emojis.ts';
 import { nativeReactions } from '../providers/vibez/store.ts';
 import { NativeError } from '../providers/vibez/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
@@ -372,13 +373,15 @@ export default function MessageActionsScreen() {
       alive = false;
     };
   }, []);
-  // Rocket.Chat reacts only with the codes of its own list: a glyph it has
-  // no code for is left out of the quick row and the picker
-  // (`lib/rocketchatReactions.ts`); Vibez takes every standard emoji.
-  const onRocketChat = client?.kind !== 'vibez' && client?.kind !== 'slack';
+  // Rocket.Chat and Slack react only with the codes of their own lists: a
+  // glyph with no code there is left out of the quick row and the picker
+  // (`lib/rocketchatReactions.ts`, `providers/slack/emojis.ts`); Vibez takes
+  // every standard emoji.
+  const onSlack = client?.kind === 'slack';
+  const onRocketChat = client?.kind !== 'vibez' && !onSlack;
   const reactable = useCallback(
-    (code: string) => !onRocketChat || rocketChatReaction(code) !== null,
-    [onRocketChat],
+    (code: string) => (onSlack ? slackReactable(code) : !onRocketChat || rocketChatReaction(code) !== null),
+    [onRocketChat, onSlack],
   );
   const quickReactions = useMemo(
     () =>
@@ -724,7 +727,7 @@ export default function MessageActionsScreen() {
             height={Math.round(height * 0.6)}
             width={width - 2 * SHEET_PADDING}
             customs={!standardOnly}
-            standard={onRocketChat ? reactable : undefined}
+            standard={onRocketChat || onSlack ? reactable : undefined}
             onPick={(pick) => {
               const code = pick.suggestion.code;
               // Already mine: nothing to add, the sheet just closes.

@@ -35,15 +35,15 @@ export function TeamsPreview({onHide}:{onHide:()=>void}) {
       <Action label={t('teams.connect')} disabled={busy||!code||!key} onPress={()=>{void connect();}} />
     </>}
     {connected&&<><Text style={{color:c.dimmed}}>{t('teams.connected')}</Text>
-      {!room?<>{rooms.map(r=><Pressable key={r.id} accessibilityRole="button" disabled={busy||r.kind==='unsupported'} onPress={()=>{void loadRoom(r);}} style={{paddingVertical:10}}><Text style={{color:r.kind==='unsupported'?c.dimmed:c.text}}>{r.name}</Text>{r.kind==='unsupported'&&<Text style={{color:c.dimmed}}>{t('teams.unsupported')}</Text>}</Pressable>)}<Action label={t('slack.refresh')} disabled={busy} onPress={()=>{void loadRooms();}} /></>:<>
-        <Action label={t('slack.back')} disabled={busy} onPress={()=>{setRoom(null);setMessages([]);setCursor(null);seen.current.clear();}}/><Text style={{color:c.text,fontWeight:'700'}}>{room.name}</Text>
-        {messages.map(m=><View key={m.key} style={{paddingVertical:10,gap:4,borderBottomWidth:1,borderColor:c.border}}><Text style={{color:c.dimmed,fontSize:12}}>{m.author+' · '+new Date(m.arrivedAt).toLocaleString()}</Text><Text selectable style={{color:c.text}}>{m.format==='unsupported'?t('teams.unsupported'):messageText(m)||t('slack.unsupportedContent')}</Text></View>)}
-        <Action label={t('slack.refresh')} disabled={busy} onPress={()=>{void loadRoom(room);}}/>{cursor&&<Action label={t('slack.more')} disabled={busy} onPress={()=>{void loadRoom(room,true);}} />}
+      {!room?<>{rooms.map(r=><Pressable key={r.id} accessibilityRole="button" disabled={busy||r.kind==='unsupported'} onPress={()=>{void loadRoom(r);}} style={{paddingVertical:10}}><Text style={{color:r.kind==='unsupported'?c.dimmed:c.text}}>{r.name}</Text>{r.kind==='unsupported'&&<Text style={{color:c.dimmed}}>{t('teams.unsupported')}</Text>}</Pressable>)}<Action label={t('teams.refresh')} disabled={busy} onPress={()=>{void loadRooms();}} /></>:<>
+        <Action label={t('teams.back')} disabled={busy} onPress={()=>{setRoom(null);setMessages([]);setCursor(null);seen.current.clear();}}/><Text style={{color:c.text,fontWeight:'700'}}>{room.name}</Text>
+        {messages.map(m=><View key={m.key} style={{paddingVertical:10,gap:4,borderBottomWidth:1,borderColor:c.border}}><Text style={{color:c.dimmed,fontSize:12}}>{m.author+' · '+new Date(m.arrivedAt).toLocaleString()}</Text><Text selectable style={{color:c.text}}>{m.format==='unsupported'?t('teams.unsupported'):messageText(m)||t('teams.unsupportedContent')}</Text></View>)}
+        <Action label={t('teams.refresh')} disabled={busy} onPress={()=>{void loadRoom(room);}}/>{cursor&&<Action label={t('teams.more')} disabled={busy} onPress={()=>{void loadRoom(room,true);}} />}
       </>}
-      {(room?messages:rooms).length===0&&<Text style={{color:c.dimmed}}>{t('slack.empty')}</Text>}
+      {(room?messages:rooms).length===0&&<Text style={{color:c.dimmed}}>{t('teams.empty')}</Text>}
     </>}
-    {busy&&<Text accessibilityLiveRegion="polite" style={{color:c.dimmed}}>{t('slack.loading')}</Text>}{status&&<Text accessibilityLiveRegion="polite" style={{color:c.text}}>{status}</Text>}
-    <Action label={t('slack.disconnect')} onPress={reset}/><Action label={t('slack.hide')} onPress={()=>{reset();onHide();}}/>
+    {busy&&<Text accessibilityLiveRegion="polite" style={{color:c.dimmed}}>{t('teams.loading')}</Text>}{status&&<Text accessibilityLiveRegion="polite" style={{color:c.text}}>{status}</Text>}
+    <Action label={t('teams.disconnect')} onPress={reset}/><Action label={t('teams.hide')} onPress={()=>{reset();onHide();}}/>
   </View>;
 }
 function Action({label,onPress,disabled=false}:{label:string;onPress:()=>void;disabled?:boolean}){const c=useColors();return <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={{paddingVertical:12,opacity:disabled?0.5:1}}><Text style={{color:c.accent,fontWeight:'700'}}>{label}</Text></Pressable>;}

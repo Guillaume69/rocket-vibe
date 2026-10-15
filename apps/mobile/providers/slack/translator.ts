@@ -115,13 +115,17 @@ function reference(inner: string, resolve: Resolver): string {
 
 /**
  * The app's markdown into Slack's mrkdwn, for what is sent. Code spans and
- * blocks go as they are; known `@usernames` become `<@id>` and `@all` /
- * `@here` Slack's broadcasts. Slack's three entities are escaped first, so a
- * typed `<` never opens a Slack reference.
+ * blocks keep their text; known `@usernames` become `<@id>` and `@all` /
+ * `@here` Slack's broadcasts. Slack's three entities are escaped first, code
+ * included, so a typed `<` never opens a Slack reference.
  */
 export function markdownToMrkdwn(input: string, idOf: (username: string) => string | null): string {
   const parts = input.split(/(```[\s\S]*?```|`[^`\n]+`)/);
-  return parts.map((part, i) => (i % 2 === 1 ? part : outgoing(part, idOf))).join('');
+  return parts.map((part, i) => (i % 2 === 1 ? escapeEntities(part) : outgoing(part, idOf))).join('');
+}
+
+function escapeEntities(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function outgoing(text: string, idOf: (username: string) => string | null): string {
@@ -130,8 +134,7 @@ function outgoing(text: string, idOf: (username: string) => string | null): stri
     tokens.push(value);
     return `\u0000${tokens.length - 1}\u0000`;
   };
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return escapeEntities(text)
     .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => hold(`<${url}|${label.replace(/\|/g, '/')}>`))
     .replace(/(^|[^\w@])@([\w.-]+)/g, (m, before: string, raw: string) => {
       const name = raw.replace(/[.-]+$/, ''), tail = raw.slice(name.length);
@@ -195,7 +198,9 @@ export function huddlePage(link: string): string | null {
 export function slackWeb(link: string): boolean {
   try {
     const url = new URL(link);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.port && (url.hostname === 'slack.com' || url.hostname.endsWith('.slack.com'));
+    // React Native's URL polyfill keeps a backslash in the host, which browsers read as a slash.
+    return !link.includes('\\') && url.protocol === 'https:' && !url.username && !url.password && !url.port
+      && /^([a-z0-9-]+\.)*slack\.com$/.test(url.hostname.toLowerCase());
   } catch {
     return false;
   }

@@ -31,6 +31,8 @@ const PRESENCE_STATUS = new Map<string, PresenceStatus>([
 ]);
 
 const MARKED = new Set(['channel_marked', 'group_marked', 'im_marked', 'mpim_marked']);
+const JOINED = new Set(['im_created', 'channel_joined', 'group_joined', 'mpim_open', 'mpim_joined']);
+const GONE = new Set(['channel_not_found', 'not_in_channel', 'missing_scope']);
 const QUIET = new Set(['hello', 'pong', 'reconnect_url', 'pref_change', 'dnd_updated', 'dnd_updated_user', 'accounts_changed']);
 
 export class SlackLive {
@@ -38,16 +40,22 @@ export class SlackLive {
   private readonly directory: SlackDirectory;
   private readonly history: SlackHistory;
   private readonly myId: string;
+  private readonly roomNames: Map<string, string> | null;
+  /** Rooms a message came from that `conversations.info` would not show: not asked again. */
+  private readonly unreadable = new Set<string>();
   readonly channels = new Map<string, Doc>();
   readonly counts = new Map<string, Doc>();
   /** Presence pushed since the socket opened; the snapshot each connection setup hands over. */
   readonly presence = new Map<string, PresenceStatus>();
+  /** The `ts` each room is marked read at, by me here or elsewhere: the actions never mark behind it. */
+  readonly marks = new Map<string, string>();
 
-  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; myId: string }) {
+  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; myId: string; roomNames?: Map<string, string> }) {
     this.client = options.client;
     this.directory = options.directory;
     this.history = options.history;
     this.myId = options.myId;
+    this.roomNames = options.roomNames ?? null;
   }
 
   /** The catch-up hands over each conversation and its `client.counts` entry. */
@@ -75,6 +83,7 @@ export class SlackLive {
     if (type === null) return [];
     if (QUIET.has(type)) return [{ collection: SLACK_QUIET, eventKey: type, args: [] }];
     if (MARKED.has(type)) return this.marked(frame);
+    if (JOINED.has(type)) return this.joined(str(frame.channel) ?? str(record(frame.channel)?.id));
     switch (type) {
       case 'message':
         return this.message(frame);
@@ -100,6 +109,10 @@ export class SlackLive {
         const ts = item?.ts;
         if (target === null || !isTimestamp(ts) || str(item?.type) !== 'message') return [];
         return this.refetch(target, ts);
+      }
+      case 'channel_created': {
+        const channel = record(frame.channel);
+        return str(channel?.creator) === this.myId ? this.joined(str(channel?.id)) : [];
       }
       case 'user_change': {
         const user = record(frame.user);
@@ -149,19 +162,56 @@ export class SlackLive {
       const deletedTs = frame.deleted_ts;
       return isTimestamp(deletedTs) ? [{ collection: SLACK_MESSAGE_DELETED, eventKey: channel, args: [{ channel, ts: deletedTs }] }] : [];
     }
+    // `message_replied` and the other hidden frames describe a message, never a new one.
+    if (subtype !== 'message_changed' && (frame.hidden === true || subtype === 'message_replied')) return [];
     const nested = subtype === 'message_changed' ? record(frame.message) : frame;
     if (nested === null || !isTimestamp(nested.ts)) return [];
-    const message = { ...nested, channel };
+    const message: Doc = { ...nested, channel };
     const { users, bots } = SlackTranslator.people([message]);
     await this.directory.ensure(users, bots);
-    const events: DdpEvent[] = [{ collection: SLACK_MESSAGE, eventKey: channel, args: [message] }];
+    const events: DdpEvent[] = [];
+    if (!this.channels.has(channel) && !this.unreadable.has(channel)) {
+      const found = await this.joined(channel).catch(() => null);
+      if (found?.length === 0) this.unreadable.add(channel);
+      events.push(...(found ?? []));
+    }
+    events.push({ collection: SLACK_MESSAGE, eventKey: channel, args: [message] });
     // An edit keeps the preview and unread as they were; only a fresh message moves them.
     if (subtype === 'message_changed') return events;
+    // A reply only in its thread is no unread of the room, as Slack counts it.
+    if (isTimestamp(message.thread_ts) && message.thread_ts !== message.ts && subtype !== 'thread_broadcast') {
+      const mention = this.mentioned(channel, message);
+      if (mention !== null) events.push(mention);
+      return events;
+    }
     const room = this.bump(channel, message);
     if (room !== null) events.push(room);
     const subscription = this.unread(channel, message);
     if (subscription !== null) events.push(subscription);
     return events;
+  }
+
+  /** A conversation I just joined or opened, read whole so it lists like the others. */
+  private async joined(rid: string | null): Promise<DdpEvent[]> {
+    if (rid === null) return [];
+    let channel: Doc | null;
+    try {
+      channel = record((await this.client.call('conversations.info', { channel: rid })).channel);
+    } catch (e) {
+      if (e instanceof SlackError && GONE.has(e.code)) return [];
+      throw e;
+    }
+    if (channel === null || str(channel.id) !== rid || channel.is_archived === true || channel.is_member === false) return [];
+    this.channels.set(rid, channel);
+    const name = str(channel.name);
+    if (name !== null && channel.is_im !== true) this.roomNames?.set(rid, name);
+    if (channel.is_im === true && typeof channel.user === 'string') await this.directory.ensure([channel.user]);
+    const counts = this.counts.get(rid) ?? { id: rid };
+    this.counts.set(rid, counts);
+    return [
+      { collection: SLACK_ROOM, eventKey: rid, args: [{ channel, counts }] },
+      { collection: SLACK_SUBSCRIPTION, eventKey: rid, args: [{ channel, counts }] },
+    ];
   }
 
   /** The channel's preview and latest-ts, from the message just seen. */
@@ -187,9 +237,20 @@ export class SlackLive {
     return { collection: SLACK_SUBSCRIPTION, eventKey: channel, args: [{ channel: doc, counts }] };
   }
 
+  /** A thread reply from someone else that names me: one more mention, the room's unread left alone. */
+  private mentioned(channel: string, message: Doc): DdpEvent | null {
+    const doc = this.channels.get(channel);
+    if (doc === undefined || str(message.user) === this.myId || !mentionsMe(message, this.myId)) return null;
+    const previous = this.counts.get(channel) ?? { id: channel };
+    const counts = { ...previous, mention_count: num(previous.mention_count) + 1 };
+    this.counts.set(channel, counts);
+    return { collection: SLACK_SUBSCRIPTION, eventKey: channel, args: [{ channel: doc, counts }] };
+  }
+
   /** A room read elsewhere: the frame's own unread/mention counts win. */
   private marked(frame: Doc): DdpEvent[] {
     const channel = str(frame.channel);
+    if (channel !== null && isTimestamp(frame.ts)) this.marks.set(channel, frame.ts);
     const doc = channel === null ? undefined : this.channels.get(channel);
     if (channel === null || doc === undefined) return [];
     const previous = this.counts.get(channel) ?? { id: channel };
@@ -207,7 +268,7 @@ export class SlackLive {
   /** Re-reads one message after a reaction changed it, Slack sending no updated body. */
   async refetch(channel: string, ts: string): Promise<DdpEvent[]> {
     try {
-      const message = await this.history.fetch(`${channel}:${ts}`);
+      const message = await this.history.fetchAny(`${channel}:${ts}`);
       return message === null ? [] : [{ collection: SLACK_MESSAGE, eventKey: channel, args: [{ ...message, channel }] }];
     } catch (e) {
       if (e instanceof SlackError && (e.code === 'channel_not_found' || e.code === 'not_in_channel')) return [];

@@ -63,6 +63,14 @@ export function reactionCode(name: string): string {
   return (g === null ? null : shortcodeOfUnicode(g)) ?? name;
 }
 
+/** Whether Slack has a name for the code's emoji: a reaction with no name is refused. */
+export function slackReactable(code: string): boolean {
+  const trimmed = code.replace(/^:+|:+$/g, '');
+  if (slack().byName.has(trimmed)) return true;
+  const g = unicodeOfShortcode(trimmed);
+  return g !== null && slack().byGlyph.has(bare(g));
+}
+
 /** The app's reaction code as Slack's name (`name` or `name::skin-tone-N`), else the code itself. */
 export function slackName(code: string): string {
   const trimmed = code.replace(/^:+|:+$/g, '');

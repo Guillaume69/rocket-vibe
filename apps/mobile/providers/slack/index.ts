@@ -86,7 +86,7 @@ export function createSlackProvider(session: Session, rest: RestClient, generate
   const history = new SlackHistory(client, directory);
   const saved = new SlackSaved(client, history);
   const translator = new SlackTranslator(directory, session.userId, roomNames, saved.ids);
-  const live = new SlackLive({ client, directory, history, myId: session.userId });
+  const live = new SlackLive({ client, directory, history, myId: session.userId, roomNames });
   const catchUp = new SlackCatchUp({ client, directory, history, roomNames, live, myId: session.userId });
   const rtm = options.listener ?? new SlackRtm(client, (frame) => live.expand(frame));
   const listener = rtm;

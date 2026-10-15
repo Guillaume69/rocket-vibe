@@ -34,8 +34,6 @@ export class SlackActions implements ProviderActions {
   private readonly live: SlackLive;
   private readonly translator: SlackTranslator;
   private readonly saved: SlackSaved;
-  /** The newest `ts` marked per room, never marked backwards. */
-  private readonly marked = new Map<string, string>();
 
   constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; live: SlackLive; translator: SlackTranslator; saved: SlackSaved }) {
     this.client = options.client;
@@ -82,10 +80,10 @@ export class SlackActions implements ProviderActions {
     const seen = observation === undefined ? null : parseMessageId(observation.messageId);
     const ts = seen?.channel === rid ? seen.ts : (this.live.counts.get(rid)?.latest as string | undefined) ?? this.history.newestTs(rid);
     if (typeof ts !== 'string') return;
-    const before = this.marked.get(rid);
+    const before = this.live.marks.get(rid);
     if (before !== undefined && compareTimestamp(ts, before) <= 0) return;
     await this.client.call('conversations.mark', { channel: rid, ts });
-    this.marked.set(rid, ts);
+    this.live.marks.set(rid, ts);
   }
 
   async pin(rid: string, mid: string): Promise<void> {

@@ -41,7 +41,7 @@ function plausibleNode(n: unknown): boolean {
 }
 
 /** A shortcode with a letter beyond ASCII (Slack's custom `:göring:`), which the parser leaves as text. */
-const ACCENTED_EMOJI = /:([\p{L}\p{N}_+-]*[^\x00-\x7f][\p{L}\p{N}_+-]*):/gu;
+const ACCENTED_EMOJI = /:([\p{L}\p{N}_+-]*(?![\x00-\x7f])\p{L}[\p{L}\p{N}_+-]*):/gu;
 
 /** `EMOJI` nodes for those shortcodes inside plain text; everything else as parsed. */
 export function accentedEmoji(nodes: unknown): unknown {

@@ -46,6 +46,8 @@ export class SlackRtm implements Listener {
   private readonly typedAt = new Map<string, number>();
   private chain: Promise<void> = Promise.resolve();
   private closedOnPurpose = false;
+  /** Fails the handshake `connect` is waiting on, if any. */
+  private handshake: ((code: string) => void) | null = null;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private armed: { promise: Promise<void>; resolve: () => void } = settled();
   private presenceIds: string[] = [];
@@ -109,13 +111,16 @@ export class SlackRtm implements Listener {
       const timer = setTimeout(() => reject(new SlackError('rtm_timeout')), this.timeoutMs);
       const fail = (code: string) => {
         clearTimeout(timer);
+        this.handshake = null;
         reject(new SlackError(code));
       };
+      this.handshake = fail;
       ws.onmessage = (e) => {
         const frame = parse(e.data);
         if (frame === null) return;
         if (frame.type === 'hello') {
           clearTimeout(timer);
+          this.handshake = null;
           resolve();
         } else if (frame.type === 'error') {
           fail(rtmError(frame));
@@ -128,6 +133,7 @@ export class SlackRtm implements Listener {
       this.cleanUp(true);
       throw e;
     });
+    if (this.closedOnPurpose) throw new SlackError('cancelled');
     ws.onmessage = (e) => this.receive(e.data);
     ws.onclose = () => this.cleanUp();
     ws.onerror = () => {
@@ -191,6 +197,7 @@ export class SlackRtm implements Listener {
 
   close(): void {
     this.closedOnPurpose = true;
+    this.handshake?.('cancelled');
     this.ws?.close();
     this.cleanUp();
   }

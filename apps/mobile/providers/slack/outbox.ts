@@ -31,6 +31,8 @@ const CHECK_DEPTH = 100;
 const CLOCK_SKEW_MS = 120_000;
 /** A lost answer, not a refusal: the message may have gone out. */
 const UNCERTAIN = new Set(['timeout', 'connection_failed', 'http_error', 'invalid_response']);
+/** The room is gone for me: a replay is refused like the read, never doubled. */
+const GONE = new Set(['channel_not_found', 'not_in_channel']);
 
 /** A UUID-shaped `client_msg_id`, the same for the same row id. */
 export function clientMsgId(rowId: string): string {
@@ -216,7 +218,8 @@ export class SlackOutbox implements Outbox {
       return page.nextCursor !== null ? AMBIGUOUS : null;
     } catch (e) {
       if (e instanceof SlackError && (UNCERTAIN.has(e.code) || e.code === 'ratelimited' || e.code === 'cancelled' || e.rejectsSession)) return UNKNOWN;
-      return null;
+      if (e instanceof SlackError && GONE.has(e.code)) return null;
+      return AMBIGUOUS;
     }
   }
 }

@@ -65,6 +65,8 @@ pub struct SlackSync {
     marked: Mutex<HashMap<String, String>>,
     /// My "saved for later" messages, the app's stars: messages carry no such flag.
     saved: Mutex<HashSet<String>>,
+    /// Rooms a live message came from before the list knew them: listed again once each.
+    unlisted: Mutex<HashSet<String>>,
 }
 
 impl SlackSync {
@@ -81,6 +83,7 @@ impl SlackSync {
             counts: Mutex::default(),
             marked: Mutex::default(),
             saved: Mutex::default(),
+            unlisted: Mutex::default(),
         }
     }
 
@@ -188,6 +191,10 @@ impl SlackSync {
         let snapshot = chrono::Utc::now().timestamp_millis();
         let (roster, counts) = tokio::join!(self.roster(), self.counts());
         let roster = roster?;
+        let counts = counts.or_else(|| {
+            let kept = self.counts.lock().unwrap().clone();
+            (!kept.is_empty()).then_some(kept)
+        });
         self.remember(&roster);
         if let Some(counts) = &counts {
             *self.counts.lock().unwrap() = counts.clone();
@@ -273,8 +280,8 @@ impl SlackSync {
     /// than a few pages came since, the cache no longer joins up with the
     /// server: it is cleared and the newest page read in its place.
     pub async fn catch_up_room(&self, rid: &str) -> Result<(), RestError> {
-        let newest = self.store.messages(rid, 1).pop();
-        let Some(since) = newest.as_ref().and_then(|m| split_id(&m.id)).map(|(_, ts)| ts.to_owned()) else {
+        let stored = self.store.messages(rid, HISTORY_PAGE);
+        let Some(since) = stored.iter().rev().find_map(|m| split_id(&m.id)).map(|(_, ts)| ts.to_owned()) else {
             return Ok(());
         };
         let (mut gathered, mut cursor, mut seen) = (Vec::new(), None::<String>, Vec::new());
@@ -357,7 +364,14 @@ impl SlackSync {
         if let Some(found) = page.iter().find(|m| text(m, "ts") == Some(ts)) {
             return Ok(self.translate(rid, found));
         }
-        let params = vec![("channel", rid.to_owned()), ("ts", ts.to_owned()), ("limit", "1".to_owned())];
+        let params = vec![
+            ("channel", rid.to_owned()),
+            ("ts", ts.to_owned()),
+            ("oldest", ts.to_owned()),
+            ("latest", ts.to_owned()),
+            ("inclusive", "true".to_owned()),
+            ("limit", "2".to_owned()),
+        ];
         let replies = match self.call("conversations.replies", params).await {
             Ok(body) => list(&body, "messages"),
             Err(e) => return gone(e),
@@ -494,6 +508,13 @@ impl SlackSync {
                         c["last_read"] = Value::from(ts);
                     }
                 });
+                if let Some(ts) = text(frame, "ts") {
+                    self.marked.lock().unwrap().insert(rid.to_owned(), ts.to_owned());
+                }
+                None
+            }
+            "im_created" | "channel_joined" | "group_joined" | "mpim_open" | "im_open" => {
+                let _ = self.catch_up_global().await;
                 None
             }
             _ => None,
@@ -516,6 +537,10 @@ impl SlackSync {
                 None
             }
             _ => {
+                let unknown = !self.conversations.lock().unwrap().contains_key(channel);
+                if unknown && self.unlisted.lock().unwrap().insert(channel.to_owned()) {
+                    let _ = self.catch_up_global().await;
+                }
                 self.resolve(std::slice::from_ref(frame)).await;
                 let message = self.translate(channel, frame)?;
                 let fresh = !self.store.has_message(&message.id);
@@ -537,15 +562,21 @@ impl SlackSync {
                     }
                 });
                 let mention = mentions(frame, &self.me);
-                self.update_counts(channel, |c| {
-                    c["latest"] = Value::from(ts);
-                    if !mine {
-                        c["has_unreads"] = Value::Bool(true);
-                        let before = c.get("mention_count").and_then(Value::as_i64).unwrap_or(0);
-                        c["mention_count"] = Value::from(before + i64::from(mention));
-                    }
-                });
-                (fresh && !mine).then_some(message)
+                // Slack counts a thread reply as no channel unread: only a mention of me in it.
+                let in_thread = reply && text(frame, "subtype") != Some("thread_broadcast");
+                if !in_thread || (mention && !mine) {
+                    self.update_counts(channel, |c| {
+                        if !in_thread {
+                            c["latest"] = Value::from(ts);
+                        }
+                        if !mine {
+                            c["has_unreads"] = Value::Bool(true);
+                            let before = c.get("mention_count").and_then(Value::as_i64).unwrap_or(0);
+                            c["mention_count"] = Value::from(before + i64::from(mention));
+                        }
+                    });
+                }
+                (fresh && !mine && (!in_thread || mention)).then_some(message)
             }
         }
     }

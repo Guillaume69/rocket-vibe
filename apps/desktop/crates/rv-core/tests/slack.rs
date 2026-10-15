@@ -449,8 +449,11 @@ async fn my_own_message_and_a_reply_leave_the_badge_and_the_preview() {
     assert!(sync.apply_event("message", &mine).await.is_none());
     assert_eq!((room(&store, "C002").unread, room(&store, "C002").last_message.as_deref()), (0, Some("mine")));
     let reply = json!({"type": "message", "channel": "C002", "ts": "1700000500.000001", "thread_ts": "1700000400.000001", "user": "U001", "text": "re"});
-    sync.apply_event("message", &reply).await;
+    assert!(sync.apply_event("message", &reply).await.is_none(), "a thread reply notifies nobody");
     assert_eq!(room(&store, "C002").last_message.as_deref(), Some("mine"), "a reply is not the preview");
+    assert_eq!(room(&store, "C002").unread, 0, "Slack counts no thread reply as a channel unread");
+    let named = json!({"type": "message", "channel": "C002", "ts": "1700000600.000001", "thread_ts": "1700000400.000001", "user": "U001", "text": "<@U000> re"});
+    assert!(sync.apply_event("message", &named).await.is_some(), "but one naming me does");
     assert_eq!(room(&store, "C002").unread, 1);
 }
 

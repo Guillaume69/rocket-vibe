@@ -675,6 +675,24 @@ impl Session {
             let _ = self.events.send(SessionEvent::Presence);
             return;
         }
+        // Read back over REST: off the frame queue, so a rate-limited read
+        // never holds the messages behind it.
+        if matches!(
+            name,
+            "reaction_added"
+                | "reaction_removed"
+                | "pin_added"
+                | "pin_removed"
+                | "im_created"
+                | "channel_joined"
+                | "group_joined"
+                | "mpim_open"
+                | "im_open"
+        ) {
+            let (name, frame) = (name.to_owned(), frame.clone());
+            tokio::spawn(async move { slack.apply_event(&name, &frame).await });
+            return;
+        }
         if let Some(m) = slack.apply_event(name, frame).await
             && let Some(incoming) = self.incoming_message(&m)
         {

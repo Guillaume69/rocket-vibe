@@ -229,7 +229,7 @@ pub fn markdown_to_mrkdwn(text: &str, id_of: &dyn Fn(&str) -> Option<String>) ->
     while !rest.is_empty() {
         let (plain, code, after) = next_code(rest);
         out.push_str(&outgoing(plain, id_of));
-        out.push_str(code);
+        out.push_str(&code.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"));
         rest = after;
     }
     out
@@ -688,7 +688,7 @@ mod tests {
             out("see [docs](https://x.test/a) @alice @bob @here @all"),
             "see <https://x.test/a|docs> <@U001> @bob <!here> <!channel>"
         );
-        assert_eq!(out("a < b & `<@x> **y**`"), "a &lt; b &amp; `<@x> **y**`");
+        assert_eq!(out("a < b & `<@x> **y**`"), "a &lt; b &amp; `&lt;@x&gt; **y**`", "code escaped too, kept as typed");
         assert_eq!(out("mail me@alice.test, thanks @alice."), "mail me@alice.test, thanks <@U001>.");
         assert_eq!(out("2*3*4 stays"), "2*3*4 stays");
     }

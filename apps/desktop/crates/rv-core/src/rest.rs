@@ -141,6 +141,9 @@ impl CallOptions {
 #[derive(Clone)]
 pub struct RestClient {
     http: reqwest::Client,
+    /// Slack's public media (photos, custom emoji): a default photo redirects
+    /// through Gravatar, which the API client, never following one, refused.
+    public: reqwest::Client,
     base: Url,
     credentials: Arc<RwLock<Option<Credentials>>>,
     token_rejected: broadcast::Sender<String>,
@@ -180,9 +183,16 @@ impl RestClient {
             .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("HTTP client");
+        let public = reqwest::Client::builder()
+            .timeout(TIMEOUT)
+            .redirect(reqwest::redirect::Policy::limited(5))
+            .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
         RestClient {
             http,
+            public,
             base,
             credentials: Arc::default(),
             token_rejected,
@@ -229,7 +239,10 @@ impl RestClient {
     fn file_request(&self, url: Url) -> reqwest::RequestBuilder {
         let same_origin = url.origin() == self.base.origin();
         let slack_files = crate::slack::translate::file_host(&url);
-        let request = self.http.get(url);
+        let request = match self.api {
+            Api::Slack if !slack_files && !same_origin => self.public.get(url),
+            _ => self.http.get(url),
+        };
         match self.credentials() {
             Some(c) if self.api == Api::Mattermost && same_origin => self.authenticate(request, &c),
             Some(c) if self.api == Api::Slack && slack_files => self.authenticate(request, &c),
@@ -568,7 +581,7 @@ impl RestClient {
             let mut bytes = Vec::new();
             while let Some(chunk) = response.chunk().await.map_err(|_| lost())? {
                 if bytes.len() + chunk.len() > crate::slack::RESPONSE_CAP {
-                    return Err(RestError::network(format!("{method}: response too large.")));
+                    return Err(RestError::incomplete(&format!("{method}: response too large.")));
                 }
                 bytes.extend_from_slice(&chunk);
             }

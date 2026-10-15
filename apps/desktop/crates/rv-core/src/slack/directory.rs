@@ -121,7 +121,9 @@ impl Directory {
                         Some(user) => self.remember(user),
                         None => _ = self.unknown.lock().unwrap().insert(id.clone()),
                     },
-                    Err(e) if e.understood => _ = self.unknown.lock().unwrap().insert(id.clone()),
+                    Err(e) if e.error.as_deref() == Some("user_not_found") => {
+                        _ = self.unknown.lock().unwrap().insert(id.clone())
+                    }
                     Err(_) => {}
                 }
             }

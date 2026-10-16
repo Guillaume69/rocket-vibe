@@ -18,6 +18,7 @@ import { unregisterToken } from '../lib/pushToken.ts';
 import { RestClient } from '../lib/rest.ts';
 import { clientForSession, resumeSession, logoutSession, sessionRejected } from '../lib/sessionTransport.ts';
 import { forgetCollapsedSections } from './collapsedSections.ts';
+import { forgetLastRoom, requestLastRoom } from './lastRoomStore.ts';
 import { forgetReminders } from './reminders.ts';
 import { forgetAuthorizedMedia } from './authorizedMedia.ts';
 import {
@@ -97,6 +98,7 @@ async function clearTraces(session: Session): Promise<void> {
     forgetReminders(session),
   ]);
   forgetCollapsedSections(session);
+  forgetLastRoom(session);
 }
 
 /** A session still signed in on another known server, to land on when this one ends. */
@@ -282,6 +284,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (session === null || target && !roomLinkMatches(target,session)) return false;
 
     await saveLastServer(baseUrl);
+    if (target === undefined) requestLastRoom(session);
     const client = clientFor(session, (token) => revoke(session, token));
     setState({ phase: 'connected', session, client });
 

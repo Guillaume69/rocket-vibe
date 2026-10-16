@@ -98,6 +98,7 @@ pub async fn load_for_rail() -> Vec<SessionInfo> {
         &config,
         &found.iter().map(rv_core::collapsed_sections::account).collect::<Vec<_>>(),
     );
+    rv_core::last_room::sync(&config, &found.iter().map(rv_core::last_room::account).collect::<Vec<_>>());
     found
 }
 

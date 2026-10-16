@@ -22,6 +22,7 @@ pub mod emoji;
 pub mod emoji_usage;
 pub mod i18n;
 pub mod info;
+pub mod last_room;
 pub mod links;
 pub mod live;
 pub mod markdown;

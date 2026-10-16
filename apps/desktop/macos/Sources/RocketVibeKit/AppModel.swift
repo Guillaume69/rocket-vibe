@@ -115,6 +115,10 @@ public final class AppModel {
     /// Room ids opened, for back and forward.
     var history: [String] = []
     var historyAt = -1
+    /// Whether the account being opened goes back to its last room.
+    @ObservationIgnored var reopenLastRoom = true
+    /// The open account's last room, reopened once its row is there.
+    @ObservationIgnored var pendingLastRoom: String?
     @ObservationIgnored var pending = Pending()
     @ObservationIgnored var flush: Task<Void, Never>?
     @ObservationIgnored public private(set) var sessionId = UUID()
@@ -389,15 +393,17 @@ public final class AppModel {
                 notice = L("links.unavailable")
                 return
             }
-            await switchAccount(other)
+            await switchAccount(other, reopen: false)
             guard account?.key == target.account else { return }
         }
         if message.isEmpty { open(target.rid) } else { await open(target.rid, message: message) }
     }
 
-    /// From the server rail: the account opens, unless it is the open one.
-    public func switchAccount(_ target: Account) async {
+    /// From the server rail: the account opens on its last room, unless it is the open one.
+    public func switchAccount(_ target: Account, reopen: Bool = true) async {
         guard target.key != account?.key, !leaving.contains(target.key) else { return }
+        reopenLastRoom = reopen
+        defer { reopenLastRoom = true }
         await resume(target)
     }
 
@@ -441,6 +447,7 @@ public final class AppModel {
             self.handle(event)
         })
         e2eUnlocked = chat?.e2eUnlocked() ?? false
+        pendingLastRoom = reopenLastRoom ? client.lastRoom(account: opened.key) : nil
         reloadRooms()
         screen = .chat
         Task { await refreshAdministrator() }
@@ -625,6 +632,18 @@ public final class AppModel {
         }
         followRoomLink(roomsLoaded: true)
         followNotification(roomsLoaded: true)
+        reopenLastRoomIfListed()
+    }
+
+    private func reopenLastRoomIfListed() {
+        guard let rid = pendingLastRoom else { return }
+        if pendingRoomLink != nil || room != nil {
+            pendingLastRoom = nil
+            return
+        }
+        guard rooms.contains(where: { $0.rid == rid }) else { return }
+        pendingLastRoom = nil
+        open(rid, preserveNavigation: true)
     }
 
     /// Used for both a cold launch URL and a link received by an open window.
@@ -804,6 +823,7 @@ public final class AppModel {
             history = Array(history.prefix(historyAt + 1)) + [rid]
             historyAt = history.count - 1
         }
+        if let key = account?.key { client.setLastRoom(account: key, rid: rid) }
         room?.deactivate()
         closeThread(preserveNavigation:true)
         let model = RoomModel(provider: provider, room: found)
@@ -983,7 +1003,7 @@ public final class AppModel {
                 notice = L("links.unavailable")
                 return
             }
-            await switchAccount(other)
+            await switchAccount(other, reopen: false)
             guard account?.key == target else { return }
         }
         if let message, let thread {

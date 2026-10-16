@@ -26,6 +26,8 @@ import {
   foldAccount,
 } from '../ui/homeSections.ts';
 import { toggleCollapsedSection, useCollapsedSections } from '../ui/collapsedSections.ts';
+import { requestedLastRoom, settleLastRoomRequest } from '../ui/lastRoomStore.ts';
+import { reopenDecision } from '../ui/lastRooms.ts';
 import { ServerRail } from '../ui/serverRail.tsx';
 import { setServerRailHidden, useServerRailHidden } from '../ui/serverRailSetting.ts';
 import { avatarUrl } from '../lib/upload.ts';
@@ -246,6 +248,15 @@ function Rooms({
     base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
   const { data: subscriptionRows } = useCoalescedLiveQuery(base.select().from(subscriptions));
+  const router = useRouter();
+  useEffect(() => {
+    const rid = requestedLastRoom(account);
+    if (rid === null) return;
+    const decision = reopenDecision(rid, roomRows);
+    if (decision === 'wait') return;
+    settleLastRoomRequest();
+    if (decision === 'open') router.push({ pathname: '/room/[rid]', params: { rid } });
+  }, [account, roomRows, router]);
 
   // Merging, hiding, unread lifting, splitting, empty sections removed: the
   // projection lives in `ui/homeSections.ts`, tested under Node.

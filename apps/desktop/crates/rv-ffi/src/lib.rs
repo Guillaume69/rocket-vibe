@@ -191,6 +191,15 @@ impl Client {
         rv_core::collapsed_sections::toggle(&self.dirs.config, &account, &section)
     }
 
+    /// The room last opened on an account (`Account::key`), reopened when it is switched back to.
+    pub fn last_room(&self, account: String) -> Option<String> {
+        rv_core::last_room::load(&self.dirs.config, &account)
+    }
+
+    pub fn set_last_room(&self, account: String, rid: String) {
+        rv_core::last_room::save(&self.dirs.config, &account, &rid)
+    }
+
     /// The rail's order (`keys`, `Account::key`) once `moved` is dropped on
     /// `target`'s tile, saved for the next launch and for GTK; None when
     /// nothing moves.

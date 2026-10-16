@@ -75,6 +75,8 @@ pub struct AppWindow {
     call_watches: RefCell<std::collections::HashSet<usize>>,
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
+    /// The room the account on screen had open last (account key, rid), reopened once its rooms are there.
+    last_room: RefCell<Option<(String, String)>>,
     link_generation: Cell<u64>,
     pending_notification: RefCell<Option<NotificationAction>>,
     notification_request: RefCell<Option<String>>,
@@ -101,6 +103,10 @@ fn last_server_file() -> PathBuf {
 
 fn navigation_queue() -> rv_core::native::notification_navigation::NavigationQueue {
     rv_core::native::notification_navigation::NavigationQueue::new(&glib::user_config_dir().join("rocket-vibe-rs"))
+}
+
+fn config_dir() -> PathBuf {
+    gtk::glib::user_config_dir().join("rocket-vibe-rs")
 }
 
 fn database_path(info: &SessionInfo) -> PathBuf {
@@ -269,6 +275,7 @@ impl AppWindow {
             unlinking: Cell::new(false),
             call_watches: RefCell::default(),
             pending_link: RefCell::default(),
+            last_room: RefCell::default(),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
             notification_request: RefCell::default(),
@@ -488,6 +495,9 @@ impl AppWindow {
         );
         let weak = Rc::downgrade(&this);
         this.chat.connect_room_opened(move |rid| {
+            if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
+                rv_core::last_room::save(&config_dir(), &rv_core::last_room::account(&info), &rid);
+            }
             if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
                 if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
                     notifier.withdraw(&supervisor::notification_key(&info, &rid));
@@ -1308,6 +1318,8 @@ impl AppWindow {
         if self.background_ring.borrow().as_ref().is_some_and(|r| r.key == key) {
             self.end_background_ring();
         }
+        let account = rv_core::last_room::account(&info);
+        self.last_room.replace(rv_core::last_room::load(&config_dir(), &account).map(|rid| (account, rid)));
         let path = database_path(&info);
         match self.accounts.open(&info) {
             Ok(Chat::Native(session)) => {
@@ -2348,6 +2360,7 @@ impl AppWindow {
         let Some(info) = self.open_account() else {
             return;
         };
+        self.reopen_last_room(&info, rooms_loaded);
         let link = self.pending_link.borrow().clone();
         if rooms_loaded
             && self.chat.native_session().is_some_and(|s| s.status().connection == rv_core::session::Connection::Online)
@@ -2384,6 +2397,24 @@ impl AppWindow {
             }
             self.pending_link.replace(None);
             self.show_room_link(&link);
+        }
+    }
+
+    /// Reopens the room the account had open, unless a link or the user opened one first.
+    fn reopen_last_room(self: &Rc<Self>, info: &SessionInfo, rooms_loaded: bool) {
+        let Some((account, rid)) = self.last_room.borrow().clone() else { return };
+        if account != rv_core::last_room::account(info)
+            || self.pending_link.borrow().is_some()
+            || self.chat.current_rid().is_some()
+        {
+            self.last_room.take();
+            return;
+        }
+        if self.chat.has_room(&rid) {
+            self.last_room.take();
+            self.chat.open_room(&rid);
+        } else if rooms_loaded {
+            self.last_room.take();
         }
     }
 

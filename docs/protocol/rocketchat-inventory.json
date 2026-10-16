@@ -37,6 +37,7 @@
     "apps/desktop/crates/rv-core/src/emoji_usage.rs",
     "apps/desktop/crates/rv-core/src/i18n.rs",
     "apps/desktop/crates/rv-core/src/info.rs",
+    "apps/desktop/crates/rv-core/src/last_room.rs",
     "apps/desktop/crates/rv-core/src/lib.rs",
     "apps/desktop/crates/rv-core/src/links.rs",
     "apps/desktop/crates/rv-core/src/live.rs",
@@ -608,6 +609,8 @@
     "apps/mobile/ui/integrationCard.tsx",
     "apps/mobile/ui/keyboard.tsx",
     "apps/mobile/ui/kit.tsx",
+    "apps/mobile/ui/lastRoomStore.ts",
+    "apps/mobile/ui/lastRooms.ts",
     "apps/mobile/ui/launchPicker.ts",
     "apps/mobile/ui/linkCard.tsx",
     "apps/mobile/ui/liveQuery.ts",
@@ -3683,37 +3686,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 890,
+      "line": 910,
       "kind": "endpoint",
       "surface": "rooms.nothing_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 892,
+      "line": 912,
       "kind": "endpoint",
       "surface": "rooms.mark_failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 918,
+      "line": 938,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 919,
+      "line": 939,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 920,
+      "line": 940,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 923,
+      "line": 943,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },

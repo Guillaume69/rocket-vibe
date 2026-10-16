@@ -24,6 +24,8 @@ export const GROUP_WINDOW_MS = 5 * 60_000;
 type Groupable = {
   id: string;
   authorId: string;
+  /** A webhook's chosen name: two hooks of one poster are two authors. */
+  authorAlias?: string | null;
   ts: number;
   systemType: string | null;
 };
@@ -45,7 +47,7 @@ export function continuationIds(
     if (prev === undefined) continue;
     if (!isMessage(current) || !isMessage(prev)) continue;
     if (!groups(current) || !groups(prev)) continue;
-    if (current.authorId !== prev.authorId) continue;
+    if (current.authorId !== prev.authorId || (current.authorAlias ?? null) !== (prev.authorAlias ?? null)) continue;
     if (current.ts - prev.ts > GROUP_WINDOW_MS) continue;
     continuations.add(current.id);
   }

@@ -82,10 +82,15 @@ export class MmDirectory {
   private readonly listeners = new Set<() => void>();
   private names: ReadonlyMap<string, string> | null = null;
   private statuses: ReadonlyMap<string, string> | null = null;
+  private mentions: ReadonlyMap<string, string> | null = null;
   private notifying = false;
 
   constructor(client: MmClient) {
     this.client = client;
+  }
+
+  get baseUrl(): string {
+    return this.client.baseUrl;
   }
 
   get nameFormat(): NameFormat {
@@ -114,6 +119,12 @@ export class MmDirectory {
     return this.names;
   }
 
+  /** `username → name`, for the `@username` mentions in posts. */
+  mentionNames(): ReadonlyMap<string, string> {
+    this.mentions ??= new Map([...this.byUsername.values()].flatMap((u) => (u.displayName === null ? [] : [[u.username, u.displayName] as const])));
+    return this.mentions;
+  }
+
   /** `user id → status emoji` for the people who set one. */
   statusEmojis(): ReadonlyMap<string, string> {
     this.statuses ??= new Map([...this.byId.values()].flatMap((u) => (u.statusEmoji ? [[u.id, u.statusEmoji] as const] : [])));
@@ -129,6 +140,7 @@ export class MmDirectory {
   private changed(): void {
     this.names = null;
     this.statuses = null;
+    this.mentions = null;
     if (this.notifying) return;
     this.notifying = true;
     queueMicrotask(() => {

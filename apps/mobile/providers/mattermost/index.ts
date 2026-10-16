@@ -122,6 +122,7 @@ export function createMattermostProvider(
     displayNames: {
       names: () => directory.displayNames(),
       statuses: () => directory.statusEmojis(),
+      mentions: () => directory.mentionNames(),
       subscribe: (listener) => directory.onChange(listener),
     },
     async listCustomEmojis() {

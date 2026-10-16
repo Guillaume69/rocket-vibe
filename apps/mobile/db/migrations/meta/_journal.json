@@ -232,6 +232,13 @@
       "when": 1791887211491,
       "tag": "0032_native_follow_states",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1792192452023,
+      "tag": "0033_message_author_alias",
+      "breakpoints": true
     }
   ]
 }

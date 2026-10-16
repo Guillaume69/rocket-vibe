@@ -26,6 +26,8 @@ import {
   MM_THREAD,
   MM_ROOM,
   MM_ROOM_DELETED,
+  mentionedUsernames,
+  permalinkPosts,
   record,
 } from './translator.ts';
 
@@ -54,6 +56,7 @@ export class MmLive {
   /** The posts I flagged; the translator reads it, so a re-read post keeps its star. */
   readonly flagged = new Set<string>();
   private clock = 0;
+  private readonly mentionsAsked = new Set<string>();
   private readonly touched = new Map<string, number>();
 
   constructor(client: MmClient, directory: MmDirectory, myId: string, categories: MmCategories | null = null) {
@@ -382,14 +385,24 @@ export class MmLive {
 
   async ensureAuthors(posts: Iterable<Doc>): Promise<void> {
     const ids: string[] = [];
+    const usernames: string[] = [];
     for (const post of posts) {
       if (typeof post.user_id === 'string') ids.push(post.user_id);
-      const reactions = record(post.metadata)?.reactions;
+      const metadata = record(post.metadata);
+      const reactions = metadata?.reactions;
       if (Array.isArray(reactions)) {
         for (const r of reactions) if (typeof r?.user_id === 'string') ids.push(r.user_id);
       }
+      for (const quoted of permalinkPosts(metadata?.embeds)) if (typeof quoted.user_id === 'string') ids.push(quoted.user_id);
+      const props = record(post.props);
+      if (typeof props?.username === 'string') usernames.push(props.username);
+      if (typeof post.message === 'string') usernames.push(...mentionedUsernames(post.message));
     }
     await this.directory.ensure(ids);
+    // Asked once per session: an unknown name would otherwise cost a request per post.
+    const fresh = [...new Set(usernames)].filter((u) => !this.mentionsAsked.has(u) && this.directory.idOf(u) === null);
+    for (const u of fresh) this.mentionsAsked.add(u);
+    if (fresh.length > 0) await this.directory.ensureUsernames(fresh);
   }
 }
 

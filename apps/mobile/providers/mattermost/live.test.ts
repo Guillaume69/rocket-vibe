@@ -183,3 +183,31 @@ describe('Preferences set elsewhere', () => {
     assert.equal(translator.toSubscription(closed.find((e) => e.collection === MM_MEMBERSHIP)!.args[0] as Record<string, unknown>)?.open, false);
   });
 });
+
+describe('MmLive.ensureAuthors', () => {
+  test('mentioned people and quoted authors are fetched, an unknown name asked only once', async () => {
+    const { live, server } = setup((call) => {
+      if (call.path === '/users/usernames') {
+        const names = call.body as string[];
+        return names.includes('ghost') && names.length > 1
+          ? { status: 400, body: { id: 'x', message: 'unknown' } }
+          : { body: names.filter((n) => n === 'carol').map((n) => ({ id: 'u-carol', username: n, first_name: 'Carol', last_name: 'C' })) };
+      }
+      if (call.path === '/users/ids') return { body: [{ id: 'u-dan', username: 'dan', first_name: 'Dan' }] };
+      return undefined;
+    });
+    const quoting = post('p1', {
+      message: 'ping @carol and @ghost, @bob and @all',
+      metadata: { embeds: [{ type: 'permalink', data: { post_id: 'q1', post: { id: 'q1', user_id: 'u-dan', message: 'x' } } }] },
+    });
+    await live.ensureAuthors([quoting]);
+    const { directory } = live as unknown as { directory: MmDirectory };
+    assert.equal(directory.nameOf('carol'), 'Carol C');
+    assert.equal(directory.username('u-dan'), 'dan');
+    const asked = () => server.calls.filter((c) => c.path === '/users/usernames').flatMap((c) => c.body as string[]);
+    assert.ok(!asked().includes('bob') && !asked().includes('all'));
+    const before = asked().length;
+    await live.ensureAuthors([quoting]);
+    assert.equal(asked().length, before);
+  });
+});

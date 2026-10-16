@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { textPreview, messageTree, textOf, emojiUnicode } from './markdown.ts';
+import { textPreview, messageTree, textOf, emojiUnicode, isTable, mentionOf, type Table } from './markdown.ts';
 
 describe('messageTree', () => {
   test('prefers the server `md` when present', () => {
@@ -121,4 +121,63 @@ test('only a name with a letter beyond ASCII is that emoji: a glyph or a punctua
   }
   const nodes = (messageTree(null, 'ok :café_2: :日本:')?.[0] as { value: { type: string; shortCode?: string }[] }).value;
   assert.deepEqual(nodes.filter((n) => n.type === 'EMOJI').map((n) => n.shortCode), ['café_2', '日本']);
+});
+
+describe('GFM tables in locally parsed text', () => {
+  const uptime = '#### AxeoBIM is ✅ Up\n\n| Server | Message |\n|:-------|:--------|\n|  | [AxeoBIM] [✅ Up] All children up and running |';
+
+  test('a table becomes its own block between the text around it', () => {
+    const tree = messageTree(null, uptime)!;
+    assert.deepEqual(tree.map((b) => b.type), ['HEADING', 'TABLE']);
+    const table = tree[1] as unknown as Table;
+    assert.ok(isTable(table));
+    assert.deepEqual(table.align, ['left', 'left']);
+    assert.deepEqual(table.value.map((r) => r.header), [true, false]);
+    assert.deepEqual(table.value[1]!.value.map((c) => textOf(c.value)), ['', '[AxeoBIM] [✅ Up] All children up and running']);
+    assert.equal(textOf(tree[0]), 'AxeoBIM is ✅ Up');
+  });
+
+  test('alignment, optional outer pipes, escaped pipes and short rows', () => {
+    const tree = messageTree(null, 'a | b | c\n---|:-:|--:\n1 | x \\| y\nafter')!;
+    const table = tree[0] as unknown as Table;
+    assert.deepEqual(table.align, [null, 'center', 'right']);
+    assert.deepEqual(table.value[1]!.value.map((c) => textOf(c.value)), ['1', 'x | y', '']);
+    assert.equal(table.value.length, 2, 'a line without a pipe ends the table');
+    assert.equal(textOf(tree[1]), 'after');
+  });
+
+  test('cells are inline markdown: emoji, links, bold', () => {
+    const table = messageTree(null, '| A |\n|---|\n| :file_folder: [doc](https://x.y/z) **b** |')![0] as unknown as Table;
+    const types = table.value[1]!.value[0]!.value.map((n) => n.type);
+    assert.deepEqual(types, ['EMOJI', 'PLAIN_TEXT', 'LINK', 'PLAIN_TEXT', 'BOLD']);
+  });
+
+  test('no table: a header without its delimiter row, a column count mismatch, a code block', () => {
+    for (const text of ['a | b\nc | d', 'a | b\n---|---|---', '```\n| a |\n|---|\n```']) {
+      assert.ok(!(messageTree(null, text) ?? []).some((b) => isTable(b)), text);
+    }
+  });
+
+  test('previews and plain text never show the pipes of the syntax', () => {
+    assert.equal(textPreview(uptime), 'AxeoBIM is ✅ Up Server | Message · [AxeoBIM] [✅ Up] All children up and running');
+    assert.equal(textOf(messageTree(null, '| a | b |\n|---|---|\n| 1 | 2 |')), 'a | b\n1 | 2');
+  });
+});
+
+describe('mentionOf', () => {
+  const names = new Map([['marc-etienne.barrut', 'Marc-Etienne Barrut']]);
+
+  test('a known username reads as the name, the username kept for the profile', () => {
+    assert.deepEqual(mentionOf('marc-etienne.barrut', names), { username: 'marc-etienne.barrut', label: '@Marc-Etienne Barrut' });
+  });
+
+  test('punctuation the parser kept stays after the name', () => {
+    assert.deepEqual(mentionOf('marc-etienne.barrut.', names), { username: 'marc-etienne.barrut', label: '@Marc-Etienne Barrut.' });
+  });
+
+  test('unknown people, everyone mentions and servers without names read as written', () => {
+    assert.equal(mentionOf('bob', names).label, '@bob');
+    assert.equal(mentionOf('here', new Map([['here', 'Here']])).label, '@here');
+    assert.equal(mentionOf('marc-etienne.barrut', new Map()).label, '@marc-etienne.barrut');
+  });
 });

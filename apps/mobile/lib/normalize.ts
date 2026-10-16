@@ -74,14 +74,15 @@ export type LocalMessage = {
   discussionCount?: number;
   discussionLast?: number | null;
   updatedAt: number;
-  /**
-   * The author is a bot account (Vibez only, RFC 0003). Not written by
-   * the shared upsert: the native store sets the column itself.
-   */
+  /** The author is a bot account (Vibez, RFC 0003) or a Mattermost webhook or bot post. */
   authorBot?: boolean;
+  /** A Mattermost webhook post's chosen author name, shown instead of the poster's. */
+  authorAlias?: string | null;
+  /** Its chosen picture, an absolute http(s) URL. */
+  authorAvatar?: string | null;
   /**
    * A workflow's form (Vibez only, RFC 0004), `Message.form` as JSON.
-   * Like `authorBot`, set by the native store itself, never the shared upsert.
+   * Set by the native store itself, never the shared upsert.
    */
   form?: string | null;
 };

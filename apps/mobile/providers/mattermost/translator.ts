@@ -14,6 +14,7 @@ import type { Translation, Translator } from '../../lib/provider.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { MmCategories } from './categories.ts';
 import { sameOrigin } from '../../lib/origin.ts';
+import { reminderMessage } from '../../lib/reminder.ts';
 import type { MmDirectory } from './directory.ts';
 
 export const MM_POST = 'mm:post';
@@ -131,19 +132,24 @@ export class MmTranslator implements Translator {
     if (num(raw.delete_at) > 0) return null;
     const props = record(raw.props) ?? {};
     const author = this.directory.user(authorId);
-    const authorName = str(props.override_username) ?? author?.username ?? null;
+    const authorName = author?.username ?? null;
     const mmType = str(raw.type) ?? '';
     const system = SYSTEM_TYPES[mmType];
     const metadata = record(raw.metadata) ?? {};
     const rootId = str(raw.root_id);
     const call = mmType === 'custom_call' ? kmeetCall(props) : null;
+    const reminder = mmType === 'reminder' ? reminderOf(props, str(raw.message), this.directory.baseUrl) : null;
+    const alias = webhookAlias(props);
     return {
       id,
       rid,
-      text: call !== null ? call.param : system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null),
+      text: call !== null ? call.param : reminder ?? (system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null)),
       ts,
       authorId,
       authorName,
+      authorAlias: alias,
+      authorAvatar: alias === null ? null : httpUrl(props.override_icon_url),
+      authorBot: flag(props.from_webhook) || flag(props.from_bot),
       systemType: call?.type ?? system?.type ?? null,
       threadId: rootId,
       threadCount: rootId === null ? num(raw.reply_count) : 0,
@@ -151,7 +157,7 @@ export class MmTranslator implements Translator {
       threadShown: false,
       editedAt: positive(raw.edit_at),
       md: null,
-      attachments: joinAttachments(this.attachments(metadata.files), cards(props.attachments)),
+      attachments: joinAttachments(this.attachments(metadata.files), [...cards(props.attachments), ...this.permalinkQuotes(metadata.embeds)]),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),
       callId: call?.conferenceId ?? null,
@@ -239,6 +245,27 @@ export class MmTranslator implements Translator {
     const others = display.split(',').map((n) => n.trim()).filter((n) => n !== '' && n !== me);
     const named = others.map((n, i) => this.directory.nameOf(n) ?? (i === others.length - 1 ? this.directory.nameOfCut(n) : null) ?? n);
     return named.length > 0 ? named.join(', ') : display;
+  }
+
+  /** Posts linked by permalink, as the quote attachments `lib/quote.ts` reads. */
+  private permalinkQuotes(embeds: unknown): Record<string, unknown>[] {
+    return permalinkPosts(embeds).flatMap((post) => {
+      const id = str(post.id);
+      if (id === null) return [];
+      const uid = str(post.user_id);
+      const user = uid === null ? null : this.directory.user(uid);
+      const author = webhookAlias(record(post.props) ?? {}) ?? user?.displayName ?? user?.username ?? null;
+      const created = positive(post.create_at);
+      const files = this.attachments(record(post.metadata)?.files);
+      return [{
+        message_link: `${this.directory.baseUrl}/_redirect/pl/${encodeURIComponent(id)}`,
+        permalink_preview: true,
+        ...(author === null ? {} : { author_name: author }),
+        text: str(post.message) ?? '',
+        ...(created === null ? {} : { ts: new Date(created).toISOString() }),
+        attachments: files === null ? [] : (JSON.parse(files) as unknown[]),
+      }];
+    });
   }
 
   private reactions(raw: unknown): string | null {
@@ -398,8 +425,9 @@ function cards(raw: unknown): Record<string, unknown>[] {
     const a = record(item);
     if (a === null) return [];
     const card: Record<string, unknown> = {};
-    for (const key of ['author_name', 'title', 'title_link', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
-    const text = str(a.text) ?? str(a.pretext) ?? str(a.fallback);
+    for (const key of ['author_name', 'title', 'title_link', 'color', 'fields', 'pretext']) if (a[key] !== undefined) card[key] = a[key];
+    const fallback = str(a.fallback);
+    const text = str(a.text) ?? (fallback === str(a.pretext) ? null : fallback);
     if (text !== null) card.text = text;
     return Object.keys(card).length > 0 ? [card] : [];
   });
@@ -420,4 +448,62 @@ function previewOf(attachments: string | null): string | null {
     if (label !== null) return label;
   }
   return null;
+}
+
+/** `metadata.embeds[]` of type `permalink`: the posts a message links to, when the server sent them. */
+export function permalinkPosts(embeds: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(embeds)) return [];
+  return embeds.flatMap((item) => {
+    const embed = record(item);
+    if (embed?.type !== 'permalink') return [];
+    const data = record(embed.data);
+    const post = record(data?.post);
+    if (data === null || post === null) return [];
+    const id = str(post.id) ?? str(data.post_id);
+    return id === null ? [] : [{ ...post, id }];
+  });
+}
+
+const EVERYONE = new Set(['all', 'here', 'channel']);
+const MENTION = /(?:^|[^\p{L}\p{N}_.@-])@([a-z0-9][a-z0-9._-]*)/giu;
+
+/** The usernames a post's text mentions, `@all` and the like left out. */
+export function mentionedUsernames(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(MENTION)) {
+    const name = m[1]!.toLowerCase().replace(/[._-]+$/, '');
+    if (name !== '' && !EVERYONE.has(name)) out.push(name);
+  }
+  return out;
+}
+
+/** A webhook's chosen author name: Mattermost shows it only for webhook posts. */
+function webhookAlias(props: Record<string, unknown>): string | null {
+  return flag(props.from_webhook) ? str(props.override_username) : null;
+}
+
+function flag(value: unknown): boolean {
+  return value === 'true' || value === true;
+}
+
+function httpUrl(value: unknown): string | null {
+  const url = str(value);
+  if (url === null) return null;
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname !== '' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The server words a reminder in its own language: rebuilt from its props, localized when drawn. */
+function reminderOf(props: Record<string, unknown>, message: string | null, base: string): string | null {
+  const username = str(props.username);
+  if (username === null) return null;
+  const said = message?.match(/(https?:\/\/\S+)\s*$/)?.[1] ?? null;
+  const team = str(props.team_name);
+  const postId = str(props.post_id);
+  const link = said ?? (team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null);
+  return link === null ? null : reminderMessage(username, link);
 }

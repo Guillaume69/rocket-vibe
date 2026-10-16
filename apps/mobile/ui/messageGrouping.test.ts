@@ -28,6 +28,12 @@ describe('continuationIds', () => {
     assert.deepEqual(continuationIds(desc, 'newest-first'), new Set(['m4']));
   });
 
+  test('two webhooks posting as one user are two authors; the same hook groups', () => {
+    const hook = (id: string, ts: number, alias: string | null) => ({ ...m(id, ts, 'admin'), authorAlias: alias });
+    const desc = [hook('m4', 3000, 'Kuma'), hook('m3', 2000, 'Kuma'), hook('m2', 1000, 'GitLab'), hook('m1', 0, null)];
+    assert.deepEqual(continuationIds(desc, 'newest-first'), new Set(['m4']));
+  });
+
   test('the time window: exactly 5 min still groups, one ms more does not', () => {
     const justBefore = [m('m2', GROUP_WINDOW_MS, 'bob'), m('m1', 0, 'bob')];
     assert.deepEqual(continuationIds(justBefore, 'newest-first'), new Set(['m2']));

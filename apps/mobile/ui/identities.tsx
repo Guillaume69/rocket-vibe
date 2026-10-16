@@ -38,6 +38,7 @@ export {
   useAvatarEtags,
   roomTitle,
   useDisplayNames,
+  useMentionNames,
   useStatusEmojis,
   useIdentities,
   type AvatarEtags,

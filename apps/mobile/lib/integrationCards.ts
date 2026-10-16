@@ -1,5 +1,5 @@
 /** Presentation shared by Rocket.Chat and Vibez attachments. */
-export type IntegrationCard={author:string|null;title:string|null;url:string|null;text:string|null;color:string|null;fields:{title:string;value:string;short:boolean}[]};
+export type IntegrationCard={author:string|null;title:string|null;url:string|null;pretext:string|null;text:string|null;color:string|null;fields:{title:string;value:string;short:boolean}[]};
 export function integrationCard(value:unknown):IntegrationCard|null {
   if(!value||typeof value!=='object'||Array.isArray(value))return null;
   const a=value as Record<string,unknown>;
@@ -14,7 +14,7 @@ export function integrationCard(value:unknown):IntegrationCard|null {
     const f=field as Record<string,unknown>,title=read(f.title,128),value=read(f.value,2048);
     return title?[{title,value:value??'',short:f.short===true}]:[];
   });
-  const title=read(a.title,512),text=read(a.text,8192);
-  if(!title&&!text&&!fields.length)return null;
-  return {author:read(a.author_name,256),title,url,text,color:typeof a.color==='string'&&/^#[0-9a-fA-F]{6}$/.test(a.color)?a.color:null,fields};
+  const title=read(a.title,512),text=read(a.text,8192),pretext=read(a.pretext,8192);
+  if(!title&&!text&&!pretext&&!fields.length)return null;
+  return {author:read(a.author_name,256),title,url,pretext,text,color:typeof a.color==='string'&&/^#[0-9a-fA-F]{6}$/.test(a.color)?a.color:null,fields};
 }

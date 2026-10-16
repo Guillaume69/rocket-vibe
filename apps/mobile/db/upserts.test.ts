@@ -273,6 +273,14 @@ describe('upserts idempotents', () => {
     assert.deepEqual(read(), { thread_followers: '["me"]' });
   });
 
+  test('a webhook author override and the bot flag round trip, and a later version clears them', () => {
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'h1', authorBot: true, authorAlias: 'Uptime Kuma', authorAvatar: 'https://cdn.test/k.png', updatedAt: 100 }));
+    const read = () => row(db.prepare('SELECT author_bot, author_alias, author_avatar FROM messages WHERE id = ?').get('h1'));
+    assert.deepEqual(read(), { author_bot: 1, author_alias: 'Uptime Kuma', author_avatar: 'https://cdn.test/k.png' });
+    db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'h1', updatedAt: 101 }));
+    assert.deepEqual(read(), { author_bot: 0, author_alias: null, author_avatar: null });
+  });
+
   test('an event with the same timestamp is applied (idempotent replay)', () => {
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'a', updatedAt: 100 }));
     db.prepare(UPSERT_MESSAGE).run(...msg({ id: 'm1', text: 'b', updatedAt: 100 }));

@@ -511,6 +511,7 @@
     "apps/mobile/lib/reactions.ts",
     "apps/mobile/lib/readReceipts.ts",
     "apps/mobile/lib/reconnect.ts",
+    "apps/mobile/lib/reminder.ts",
     "apps/mobile/lib/reminders.ts",
     "apps/mobile/lib/rest.ts",
     "apps/mobile/lib/rocketchatReactions.ts",
@@ -5043,73 +5044,73 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1284,
+      "line": 1285,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 1285,
+      "line": 1286,
       "kind": "endpoint",
       "surface": "e2e.explanation"
-    },
-    {
-      "file": "apps/mobile/ui/messages.ts",
-      "line": 1287,
-      "kind": "endpoint",
-      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1288,
       "kind": "endpoint",
-      "surface": "e2e.unlock"
+      "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1289,
       "kind": "endpoint",
-      "surface": "e2e.wrongPassword"
+      "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
       "line": 1290,
       "kind": "endpoint",
+      "surface": "e2e.wrongPassword"
+    },
+    {
+      "file": "apps/mobile/ui/messages.ts",
+      "line": 1291,
+      "kind": "endpoint",
       "surface": "e2e.genericError"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3001,
+      "line": 3003,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3002,
+      "line": 3004,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3004,
+      "line": 3006,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3005,
+      "line": 3007,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3006,
+      "line": 3008,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3007,
+      "line": 3009,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

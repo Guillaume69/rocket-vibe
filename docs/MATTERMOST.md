@@ -248,11 +248,15 @@ whole batch when one name does not exist [kChat].
 | `edit_at`, `update_at` | edited marker; the version that arbitrates writes |
 | `delete_at > 0` | deleted |
 | `is_pinned` | pin |
-| `props.override_username` | author shown by an integration |
+| `props.from_webhook` | `"true"` on an incoming webhook's post: honour the overrides below, show the BOT badge [probed] |
+| `props.override_username`, `props.override_icon_url` | the name and picture an incoming webhook posts under, shown instead of the poster's (whose `user_id` is the hook's creator); ignored without `from_webhook`; the icon only as an absolute http(s) URL, fetched without credentials [probed] |
+| `props.from_bot` | `"true"` on a bot account's post: the BOT badge |
+| `props.attachments[]` | integration cards: `pretext` (markdown, above the card), `author_name`, `title`, `title_link`, `text`, `color`, `fields[] {title, value, short}`, `fallback`; title, text and values are markdown. `actions` (buttons, menus) are not rendered |
 | `metadata.files[]` | `{id, name, mime_type, size, width, height, has_preview_image}` |
 | `metadata.reactions[]` | `{user_id, emoji_name}` |
 | `metadata.embeds[]` with `type: "opengraph"` | link card: `url`, `data.title`, `description`, `site_name`, `images[0]` |
-| `type` | system posts, see below |
+| `metadata.embeds[]` with `type: "permalink"` | a post of this server linked in the text: `data.post_id`, `data.post` (the linked post, with `message`, `user_id`, `create_at`, its own `metadata.files`): a quote shown under the text [probed] |
+| `type` | system posts, see below; `reminder`, see below |
 
 System types mapped: `system_join_channel`/`_team` (joined),
 `system_leave_channel`/`_team` (left), `system_add_to_channel`/`_team`
@@ -260,6 +264,31 @@ System types mapped: `system_join_channel`/`_team` (joined),
 (`props.removedUsername`), `system_header_change` (`props.new_header`, the
 topic), `system_purpose_change` (`props.new_purpose`, the description),
 `system_displayname_change` (`props.new_displayname`). Other types show as text.
+
+**Reminders** (`type: "reminder"`, read in Mattermost's server source,
+`app/post.go` `CheckPostReminders`): when a "Remind me" set on a post falls due,
+the system bot posts in its direct channel with me, `props`
+`{username, team_name, post_id}` (the reminded post's author, its team, its id)
+and `message` = `app.post_reminder_dm` in the server's language, in English "Hi
+there, here's your reminder about this message from @<username>:
+<SiteURL>/<team_name>/pl/<post_id>". The apps rebuild the sentence from the props
+in their own language, the permalink embed showing the post. The confirmation
+when it is set is an **ephemeral** post (`ephemeral_message` event, "visible only
+to you", with Delete and View reminders buttons on kChat), never stored: Android
+shows its text as a private note, desktop nothing.
+
+**Incoming webhooks** [probed, 2026-10-17]: a hook cannot be created with a
+`username` field (`POST /hooks/incoming` answers 400
+`api.incoming_webhook.invalid_username.app_error`), but the `username` and
+`icon_url` of the payload POSTed to `/hooks/<id>` become
+`props.override_username` and `props.override_icon_url`, with `from_webhook:
+"true"`, when `ServiceSettings.EnablePostUsernameOverride` and
+`EnablePostIconOverride` are on.
+
+**Permalink previews** [probed, 2026-10-17]: the server adds the `permalink`
+embed only with `ServiceSettings.SiteURL` set; with an empty SiteURL the link is a
+plain `link` embed. Link metadata is cached per URL and hour, so a URL first seen
+before SiteURL was set keeps its `link` embed for that hour.
 
 ### 4.7 Stars (flagged posts)
 
@@ -381,6 +410,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `preferences_changed`, `preferences_deleted` | stars (4.7), the name format (4.5), closed conversations and the list's limit (4.9) |
 | `sidebar_category_created`, `sidebar_category_updated`, `sidebar_category_deleted`, `sidebar_category_order_updated` | categories (4.8) |
 | `badge_updated` (kChat) | read my memberships again (4.2) |
+| `ephemeral_message` | `data.post`, "visible only to you" (a slash command's answer, a reminder's confirmation): never stored; Android shows its text as a private note, desktop does not use it |
 | `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed` | ignored |
 
 Presence snapshot at each connection: `POST /users/status/ids` with known user
@@ -505,8 +535,11 @@ Infomaniak's open-source app and probed in a note-to-self DM:
 ## 8. Not mapped
 
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
-app id), ending a kMeet call nobody joined (`/cancel`), quotes, room settings and roles, end-to-end
-encryption and sending who types. Both apps count a muted channel's
+app id), ending a kMeet call nobody joined (`/cancel`), quoting a post (the
+server's permalink previews do show, 4.6), room settings and roles, end-to-end
+encryption, sending who types, ephemeral posts on desktop (Android shows their
+text only) and the interactive buttons and menus of integration cards
+(`attachments[].actions`). Both apps count a muted channel's
 (`notify_props.mark_unread: "mention"`) mentions only, read a cached root again
 on a live reply (`thread_updated` is quiet), and follow stars changed elsewhere
 (`preferences_changed` / `preferences_deleted`, category `flagged_post`).

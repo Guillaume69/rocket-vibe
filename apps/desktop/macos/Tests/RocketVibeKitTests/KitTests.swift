@@ -226,8 +226,15 @@ final class ServerRailOrderTests: XCTestCase {
                        ["alice", "carol", "dave"])
     }
 
-    func testCommandDigitsOpenTheFirstTenTiles() {
-        XCTAssertEqual((0..<10).map { railShortcutDigit(slot: UInt32($0)) }, [1, 2, 3, 4, 5, 6, 7, 8, 9, 0])
-        XCTAssertNil(railShortcutDigit(slot: 10))
+    func testCommandDigitsOpenTheFirstNineTiles() {
+        XCTAssertEqual((0..<9).map { railShortcutDigit(slot: UInt32($0)) }, [1, 2, 3, 4, 5, 6, 7, 8, 9])
+        XCTAssertNil(railShortcutDigit(slot: 9), "Cmd + 0 resets the zoom")
+    }
+
+    func testZoomStepsStopAtEitherEnd() {
+        XCTAssertEqual(zoomStep(percent: 100, zoomIn: true), 110)
+        XCTAssertEqual(zoomStep(percent: 100, zoomIn: false), 90)
+        XCTAssertEqual(zoomStep(percent: 200, zoomIn: true), 200)
+        XCTAssertEqual(zoomStep(percent: 67, zoomIn: false), 67)
     }
 }

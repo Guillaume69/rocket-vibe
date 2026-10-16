@@ -107,6 +107,29 @@ fn navigation_queue() -> rv_core::native::notification_navigation::NavigationQue
     rv_core::native::notification_navigation::NavigationQueue::new(&glib::user_config_dir().join("rocket-vibe-rs"))
 }
 
+/// What a Ctrl + key press does to the zoom: larger (`Some(Some(true))`) with
+/// + or =, smaller with -, back to 100 % with 0, whatever the layout.
+fn zoom_key(
+    controller: &gtk::EventControllerKey,
+    key: gtk::gdk::Key,
+    code: u32,
+    state: gtk::gdk::ModifierType,
+) -> Option<Option<bool>> {
+    use gtk::gdk::{Key, ModifierType as M};
+    if !state.contains(M::CONTROL_MASK) || state.intersects(M::ALT_MASK | M::SUPER_MASK | M::META_MASK) {
+        return None;
+    }
+    match key {
+        Key::plus | Key::equal | Key::KP_Add => Some(Some(true)),
+        Key::minus | Key::underscore | Key::KP_Subtract => Some(Some(false)),
+        _ => controller
+            .widget()
+            .and_then(|w| crate::rail::shortcut_digit(&w.display(), key, code, state))
+            .filter(|&digit| digit == 0)
+            .map(|_| None),
+    }
+}
+
 fn config_dir() -> PathBuf {
     gtk::glib::user_config_dir().join("rocket-vibe-rs")
 }
@@ -586,12 +609,17 @@ impl AppWindow {
                 this.open_activity();
             }
         });
-        // Ctrl + 1 to 9 opens the rail's first nine accounts, Ctrl + 0 the
-        // tenth, hidden rail included; not on the sign-in page nor under a dialog.
+        // Ctrl + 1 to 9 opens the rail's first nine accounts, hidden rail
+        // included; not on the sign-in page nor under a dialog. Ctrl with +, -
+        // or 0 zooms the text everywhere.
         let keys = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         let weak = Rc::downgrade(&this);
         keys.connect_key_pressed(move |controller, key, code, state| {
             let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            if let Some(zoom) = zoom_key(controller, key, code, state) {
+                crate::style::zoom(zoom);
+                return glib::Propagation::Stop;
+            }
             if this.stack.visible_child_name().as_deref() != Some("chat") || this.window.visible_dialog().is_some() {
                 return glib::Propagation::Proceed;
             }
@@ -616,6 +644,18 @@ impl AppWindow {
             }
         });
         this.window.add_controller(keys);
+        let wheel = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+        );
+        wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
+        wheel.connect_scroll(|controller, _, dy| {
+            if !controller.current_event_state().contains(gtk::gdk::ModifierType::CONTROL_MASK) || dy == 0.0 {
+                return glib::Propagation::Proceed;
+            }
+            crate::style::zoom(Some(dy < 0.0));
+            glib::Propagation::Stop
+        });
+        this.window.add_controller(wheel);
         let weak = Rc::downgrade(&this);
         this.rail.connect_add(move |()| {
             if let Some(this) = weak.upgrade() {

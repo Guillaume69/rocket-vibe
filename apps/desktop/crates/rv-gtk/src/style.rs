@@ -521,17 +521,72 @@ pub(crate) fn watch_window(window: &impl IsA<gtk::Window>) {
     window.connect_unrealize(|window| window.remove_css_class("windows-cairo-shadows"));
 }
 
+thread_local! {
+    static PROVIDER: gtk::CssProvider = gtk::CssProvider::new();
+    static ZOOM: std::cell::Cell<u32> = const { std::cell::Cell::new(rv_core::zoom::DEFAULT) };
+}
+
+fn config_dir() -> std::path::PathBuf {
+    gtk::glib::user_config_dir().join("rocket-vibe-rs")
+}
+
+/// The stylesheet with its text `percent` larger: every pixel font size, and
+/// the theme's own size for the text that sets none.
+fn zoomed(css: &str, percent: u32) -> String {
+    if percent == rv_core::zoom::DEFAULT {
+        return css.to_owned();
+    }
+    let factor = f64::from(percent) / 100.0;
+    let mut out = String::with_capacity(css.len() + 64);
+    let mut rest = css;
+    while let Some(at) = rest.find("font-size:") {
+        let (head, tail) = rest.split_at(at + "font-size:".len());
+        out.push_str(head);
+        let value = tail.trim_start();
+        out.push_str(&tail[..tail.len() - value.len()]);
+        let digits = value.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(value.len());
+        match value[..digits].parse::<f64>() {
+            Ok(px) if value[digits..].starts_with("px") => {
+                out.push_str(&format!("{}px", (px * factor * 100.0).round() / 100.0));
+                rest = &value[digits + 2..];
+            }
+            _ => rest = value,
+        }
+    }
+    out.push_str(rest);
+    out.push_str(&format!("\nwindow {{ font-size: {percent}%; }}\n"));
+    out
+}
+
+fn apply() {
+    let css = zoomed(CSS, ZOOM.get());
+    PROVIDER.with(|provider| provider.load_from_string(&css));
+}
+
+/// Ctrl with +, - or the wheel (`Some(true)` larger), Ctrl + 0 (`None`, back to 100 %).
+pub fn zoom(zoom_in: Option<bool>) {
+    let percent = zoom_in.map_or(rv_core::zoom::DEFAULT, |zoom_in| rv_core::zoom::step(ZOOM.get(), zoom_in));
+    if percent == ZOOM.get() {
+        return;
+    }
+    ZOOM.set(percent);
+    rv_core::zoom::save(&config_dir(), percent);
+    apply();
+}
+
 pub fn load() {
     crate::fonts::register();
     crate::fonts::register_packaged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(CSS);
-    gtk::style_context_add_provider_for_display(
-        &gdk::Display::default().expect("display"),
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    ZOOM.set(rv_core::zoom::load(&config_dir()));
+    apply();
+    PROVIDER.with(|provider| {
+        gtk::style_context_add_provider_for_display(
+            &gdk::Display::default().expect("display"),
+            provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+    });
     let fallback = gtk::CssProvider::new();
     fallback.load_from_string(WINDOWS_CAIRO_CSS);
     gtk::style_context_add_provider_for_display(
@@ -545,7 +600,22 @@ pub fn load() {
         settings.connect_gtk_fontconfig_timestamp_notify(move |_| {
             crate::fonts::register();
             crate::fonts::register_packaged();
-            provider.load_from_string(CSS);
+            apply();
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zoomed;
+
+    #[test]
+    fn every_pixel_font_size_grows_with_the_zoom() {
+        let css = ".a { font-size: 12px; } .b { font-size:13.5px; padding: 4px; } .c { font-size: larger; }";
+        assert_eq!(zoomed(css, 100), css);
+        assert_eq!(
+            zoomed(css, 125),
+            ".a { font-size: 15px; } .b { font-size:16.88px; padding: 4px; } .c { font-size: larger; }\nwindow { font-size: 125%; }\n"
+        );
     }
 }

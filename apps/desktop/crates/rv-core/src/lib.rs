@@ -61,3 +61,4 @@ pub mod voice_prefs;
 pub mod whatsapp;
 pub mod whatsapp_session;
 pub mod x_syndication;
+pub mod zoom;

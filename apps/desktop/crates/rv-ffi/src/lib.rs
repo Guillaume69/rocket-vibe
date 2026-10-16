@@ -191,6 +191,15 @@ impl Client {
         rv_core::collapsed_sections::toggle(&self.dirs.config, &account, &section)
     }
 
+    /// The text zoom in percent, shared with GTK.
+    pub fn zoom(&self) -> u32 {
+        rv_core::zoom::load(&self.dirs.config)
+    }
+
+    pub fn set_zoom(&self, percent: u32) {
+        rv_core::zoom::save(&self.dirs.config, percent)
+    }
+
     /// The room last opened on an account (`Account::key`), reopened when it is switched back to.
     pub fn last_room(&self, account: String) -> Option<String> {
         rv_core::last_room::load(&self.dirs.config, &account)
@@ -986,11 +995,16 @@ pub fn tn(key: String, n: i64) -> String {
     rv_core::i18n::tn(&key, n)
 }
 
-/// The digit of the Cmd shortcut opening the rail's `slot`: 1 to 9, then 0
-/// for the tenth; None past it.
+/// The digit of the Cmd shortcut opening the rail's `slot`: 1 to 9; None past it.
 #[uniffi::export]
 pub fn rail_shortcut_digit(slot: u32) -> Option<u32> {
     rv_core::server_rail::shortcut_digit(slot as usize)
+}
+
+/// The text zoom step after `percent`, larger when `zoom_in`.
+#[uniffi::export]
+pub fn zoom_step(percent: u32, zoom_in: bool) -> u32 {
+    rv_core::zoom::step(percent, zoom_in)
 }
 
 /// What a system message says, after its author's name.

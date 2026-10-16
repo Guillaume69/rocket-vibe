@@ -1,3 +1,4 @@
+import RocketVibeKit
 import SwiftUI
 
 /// The Android app's night palette, as the GTK app carries it.
@@ -50,12 +51,12 @@ extension Color {
 extension Font {
     /// Nunito, the Android app's text face (bundled in the app's Fonts folder).
     static func vibe(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("Nunito", size: size).weight(weight)
+        .custom("Nunito", size: size * AppModel.textScale).weight(weight)
     }
 
     /// Baloo 2, its titles.
     static func vibeTitle(_ size: CGFloat, _ weight: Font.Weight = .heavy) -> Font {
-        .custom("Baloo 2", size: size).weight(weight)
+        .custom("Baloo 2", size: size * AppModel.textScale).weight(weight)
     }
 }
 

@@ -77,6 +77,10 @@ public final class AppModel {
     public private(set) var collapsed: Set<String> = []
     /// The user hid the server rail (Settings > Accounts), shared with GTK.
     public private(set) var railHidden: Bool
+    /// The text zoom in percent (Cmd with +, -, 0 or the wheel), shared with GTK.
+    public private(set) var zoom: UInt32
+    /// `zoom` as a factor, for the fonts (`Font.vibe`).
+    nonisolated(unsafe) public static var textScale: Double = 1
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
@@ -148,6 +152,17 @@ public final class AppModel {
         client = Client(home: home)
         Strings.setUp(configDir: client.configDir())
         railHidden = FileManager.default.fileExists(atPath: client.configDir() + "/hide-server-rail")
+        zoom = client.zoom()
+        Self.textScale = Double(zoom) / 100
+    }
+
+    /// Larger (`true`), smaller, or back to 100 % (`nil`).
+    public func zoom(in larger: Bool?) {
+        let next = larger.map { zoomStep(percent: zoom, zoomIn: $0) } ?? 100
+        guard next != zoom else { return }
+        client.setZoom(percent: next)
+        Self.textScale = Double(next) / 100
+        zoom = next
     }
 
     public var rooms: [Room] { groups.flatMap(\.rooms) }

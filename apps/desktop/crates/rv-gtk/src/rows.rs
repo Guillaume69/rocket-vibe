@@ -649,7 +649,13 @@ fn message_from_provider(
 
     let author = row.author.clone().unwrap_or_default();
     let line = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    if d.show_header {
+    if d.show_header
+        && let Some(alias) = &row.alias
+    {
+        // An integration's own name and picture: not its poster's profile.
+        let tile = widgets::tile(alias, &widgets::initial(alias), TileSize::Message, false);
+        line.append(&with_photo(tile, session, row.alias_avatar.clone()));
+    } else if d.show_header {
         let tile = widgets::tile(&author, &widgets::initial(&author), TileSize::Message, false);
         let tile = with_photo(tile, session, session.filter(|_| !author.is_empty()).map(|s| s.user_avatar(&author)));
         let tile = if let Some(native) = native {
@@ -678,12 +684,18 @@ fn message_from_provider(
     column.set_hexpand(true);
     if d.show_header {
         let header = gtk::Box::new(gtk::Orientation::Horizontal, 7);
-        let shown = session.and_then(|s| s.person_label(&row.author_id)).unwrap_or_else(|| author.clone());
+        let shown = row
+            .alias
+            .clone()
+            .or_else(|| session.and_then(|s| s.person_label(&row.author_id)))
+            .unwrap_or_else(|| author.clone());
         let name = label(&shown, &["author"]);
-        if row.author_id == my_id {
+        if row.author_id == my_id && row.alias.is_none() {
             name.add_css_class("mine");
         }
-        opens_profile(&name, on_event.clone(), &author);
+        if row.alias.is_none() {
+            opens_profile(&name, on_event.clone(), &author);
+        }
         header.append(&name);
         if row.author_bot {
             let bot = widgets::bot_badge();
@@ -700,6 +712,8 @@ fn message_from_provider(
     let pending = row.outbox_status.as_deref() == Some("pending");
     let failed = row.outbox_status.as_deref() == Some("failed");
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
+    let mention_name = |username: &str| session.and_then(|s| s.mention_name(username));
+    let ctx = markdown::Context { me: &me, names: Some(&mention_name) };
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let form = native.and_then(|_| rv_core::native::workflows::row_form(row));
     // A form step's text is its title, which the card shows already.
@@ -712,20 +726,22 @@ fn message_from_provider(
     } else if encrypted {
         // Opened by the list (`Session::open_row`): in clear when unlocked.
         match &row.text {
-            Some(text) => markdown::render(None, Some(text), &markdown::Context { me: &me }),
+            Some(text) => markdown::render(None, Some(text), &ctx),
             None => {
                 vec![markdown::Block::Paragraph(format!("<i>{}</i>", markdown::escape(t("message.encrypted_locked"))))]
             }
         }
     } else {
-        markdown::render(row.md.as_deref(), row.text.as_deref(), &markdown::Context { me: &me })
+        markdown::render(row.md.as_deref(), row.text.as_deref(), &ctx)
     };
     let quote_provider = session
         .map(|s| media::Provider::RocketChat(s.clone()))
         .or_else(|| native.map(|s| media::Provider::Vibez(s.clone())))
         .or_else(|| media_provider.clone());
-    for q in content::quotes(row.attachments.as_deref()) {
-        column.append(&cards::quote(quote_provider.as_ref(), &q, &me));
+    let (below, above): (Vec<_>, Vec<_>) =
+        content::quotes(row.attachments.as_deref()).into_iter().partition(|q| q.below);
+    for q in above {
+        column.append(&cards::quote(quote_provider.as_ref(), &q, &ctx));
     }
     let state: &[&str] = match (pending, failed) {
         (true, _) => &["pending"],
@@ -736,6 +752,9 @@ fn message_from_provider(
         Some(buffer) => column.append(&editor(buffer, on_event.clone())),
         None if !blocks.is_empty() => column.append(&markdown_view::view(&blocks, state)),
         None => {}
+    }
+    for q in below {
+        column.append(&cards::quote(quote_provider.as_ref(), &q, &ctx));
     }
     if let Some(session) = session {
         for image in image_attachments(row.attachments.as_deref()) {
@@ -750,7 +769,7 @@ fn message_from_provider(
             column.append(&cards::file(session, &f));
         }
         for card in content::cards(row.attachments.as_deref()) {
-            column.append(&cards::attachment_card(&card));
+            column.append(&cards::attachment_card(&card, &ctx));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link(session, &row.id, &video));
@@ -799,7 +818,7 @@ fn message_from_provider(
             column.append(&cards::file_provider(provider.clone(), &file));
         }
         for card in content::cards(row.attachments.as_deref()) {
-            column.append(&cards::attachment_card(&card));
+            column.append(&cards::attachment_card(&card, &ctx));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));

@@ -11,6 +11,8 @@ pub const QUOTE_DEPTH: usize = 2;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub unavailable: bool,
+    /// A post the text links to, previewed by the server (Mattermost): shown under the text.
+    pub below: bool,
     pub link: String,
     pub author: Option<String>,
     pub text: String,
@@ -43,6 +45,8 @@ pub struct FileAttachment {
 /// title, text, labelled fields and a colour.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CardAttachment {
+    /// Markdown shown above the card.
+    pub pretext: Option<String>,
     pub author: Option<String>,
     pub title: Option<String>,
     pub link: Option<String>,
@@ -131,6 +135,7 @@ fn quote_of(a: &Value, depth: usize) -> Quote {
     let source = a.get("text").and_then(Value::as_str).unwrap_or_default();
     Quote {
         unavailable,
+        below: a.get("permalink_preview").and_then(Value::as_bool) == Some(true),
         link: if unavailable { String::new() } else { text(a, "message_link").unwrap_or_default() },
         author: if unavailable { None } else { text(a, "author_name") },
         text: if unavailable {
@@ -202,6 +207,7 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                 }
             };
             CardAttachment {
+                pretext: read(a, "pretext"),
                 author: read(a, "author_name"),
                 title: read(a, "title"),
                 link: read(a, "title_link"),
@@ -222,7 +228,7 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                     .unwrap_or_default(),
             }
         })
-        .filter(|c| c.title.is_some() || c.text.is_some() || !c.fields.is_empty())
+        .filter(|c| c.title.is_some() || c.text.is_some() || c.pretext.is_some() || !c.fields.is_empty())
         .collect()
 }
 

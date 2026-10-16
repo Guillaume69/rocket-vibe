@@ -444,7 +444,7 @@ public final class RoomModel {
         }
         if let native = provider.native, let selection = nativeQuote,
            (try? native.quoteSelection(room:selection.roomId,messageId:selection.messageId)) != selection {
-            pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],files:[],quotes:[])
+            pendingQuote = Quote(unavailable:true,below:false,link:"",author:nil,body:[],images:[],files:[],quotes:[])
         }
         if let native = provider.native, let threadId {
             threadWriteAllowed = (try? native.threadWritable(room:room.rid,root:threadId)) == true
@@ -1097,7 +1097,7 @@ public final class RoomModel {
                 guard let source = try provider.messages(rid:room.rid,limit:limit,thread:threadId,unreadAfter:unreadAfter,nativeBoundary:nativeReadBoundary,nativeMembership:nativeMembership).first(where: { $0.id == message.id }),
                       try native.quoteSelection(room:room.rid,messageId:message.id) == selected else { throw CancellationError() }
                 nativeQuote = selected
-                pendingQuote = Quote(unavailable:false,link:"",author:source.author,body:source.body,images:source.images,files:source.files,quotes:[])
+                pendingQuote = Quote(unavailable:false,below:false,link:"",author:source.author,body:source.body,images:source.images,files:source.files,quotes:[])
             } catch { self.error = L("quote.unavailable") }
             return
         }
@@ -1151,7 +1151,7 @@ public final class RoomModel {
                     unreadAfter: nil, nativeMembership: selected.membershipVersion).first(where: { $0.id == selected.messageId }),
                   try native.quoteSelection(room: selected.roomId, messageId: selected.messageId) == selected else { throw CancellationError() }
             nativeQuote = selected
-            pendingQuote = Quote(unavailable:false,link:"",author:source.author,body:source.body,images:source.images,files:source.files,quotes:[])
+            pendingQuote = Quote(unavailable:false,below:false,link:"",author:source.author,body:source.body,images:source.images,files:source.files,quotes:[])
             return
         }
         guard quoteVisible else { throw CancellationError() }
@@ -1182,7 +1182,7 @@ public final class RoomModel {
         guard active, quoteVisible, !quoteAuthorBusy, let author = quoteAuthor, let selected = privateQuote else { return }
         let generation = quoteAuthorGeneration
         quoteAuthorBusy = true
-        pendingQuote = Quote(unavailable:true,link:"",author:nil,body:[],images:[],files:[],quotes:[])
+        pendingQuote = Quote(unavailable:true,below:false,link:"",author:nil,body:[],images:[],files:[],quotes:[])
         defer { if generation == quoteAuthorGeneration { quoteAuthorBusy = false } }
         do {
             let value = try await author.refresh()

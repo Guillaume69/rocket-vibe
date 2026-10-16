@@ -97,7 +97,10 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     until(|| session.status().connection == Connection::Online);
     let row = session.store.messages("room-id", 10).unwrap().remove(0).presentation("room-id", "alice-id");
     let preview = rv_core::content::link_previews(row.urls.as_deref(), 3).remove(0);
-    let integration = attachment_card(&rv_core::content::cards(row.attachments.as_deref()).remove(0));
+    let integration = attachment_card(
+        &rv_core::content::cards(row.attachments.as_deref()).remove(0),
+        &rv_core::markdown::Context { me: "", names: None },
+    );
     assert!(integration.has_css_class("attachment-card"));
     let provider = media::Provider::Vibez(session.clone());
     let card = link_preview_provider(provider.clone(), &preview);

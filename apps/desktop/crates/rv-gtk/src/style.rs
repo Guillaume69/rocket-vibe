@@ -243,6 +243,9 @@ label selection, textview text selection { background: rgba(92, 200, 255, 0.35);
 .md-h4 { font-size: 15px; }
 .md-quote { border-left: 3px solid #2C2946; padding-left: 10px; margin: 2px 0; }
 .md-code { background: #171529; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
+.md-table { border: 1px solid #2C2946; border-radius: 6px; margin: 4px 0; }
+.md-table-cell { padding: 5px 12px; border-right: 1px solid #2C2946; border-bottom: 1px solid #2C2946; }
+.md-table-head { font-weight: 700; color: #F3F0FF; }
 .md-code-text { font-family: monospace; font-size: 13px; color: #E7E3F5; }
 /* The app font is set on every label: Adwaita's .monospace needs restating. */
 label.monospace, .monospace label { font-family: monospace; }

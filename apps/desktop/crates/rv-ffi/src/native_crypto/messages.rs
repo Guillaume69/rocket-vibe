@@ -49,6 +49,7 @@ pub(super) fn preview(value: messages::QuotePreview, username: &str) -> NativePr
         quote: crate::model::quote(
             rv_core::content::Quote {
                 unavailable: false,
+                below: false,
                 link: String::new(),
                 author: Some(value.author),
                 text: value.text,
@@ -57,7 +58,7 @@ pub(super) fn preview(value: messages::QuotePreview, username: &str) -> NativePr
                 files: vec![],
                 quotes: vec![],
             },
-            username,
+            &rv_core::markdown::Context { me: username, names: None },
         ),
     }
 }
@@ -276,7 +277,7 @@ impl NativeCryptoMessages {
         let access = self.access.clone();
         let found = on_tokio(async move { access.search(text).await }).await.map_err(error)?;
         self.access.check().map_err(error)?;
-        let ctx = rv_core::markdown::Context { me: &self.username };
+        let ctx = rv_core::markdown::Context { me: &self.username, names: None };
         Ok(found
             .into_iter()
             .map(|m| crate::people::SearchHit {

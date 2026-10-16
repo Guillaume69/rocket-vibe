@@ -44,6 +44,7 @@ pub fn group(rows: Vec<MessageRow>) -> Vec<Display> {
                     || is_system(&row)
                     || is_system(&prev.row)
                     || prev.row.author_id != row.author_id
+                    || prev.row.alias != row.alias
                     || row.ts - prev.row.ts > GROUPING_GAP_MS;
                 (header, new_day)
             }
@@ -81,6 +82,14 @@ mod tests {
 
     fn noon() -> i64 {
         Local.with_ymd_and_hms(2026, 9, 29, 12, 0, 0).unwrap().timestamp_millis()
+    }
+
+    #[test]
+    fn an_integration_posting_as_its_poster_starts_its_own_group() {
+        let mine = at(0, "u");
+        let hook = MessageRow { alias: Some("Uptime-Kuma".into()), ..at(MIN, "u") };
+        let shown = group(vec![mine, hook.clone(), MessageRow { id: "u2".into(), ..hook }]);
+        assert_eq!(shown.iter().map(|d| d.show_header).collect::<Vec<_>>(), [true, true, false]);
     }
 
     #[test]

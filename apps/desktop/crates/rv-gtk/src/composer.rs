@@ -958,7 +958,7 @@ impl Composer {
         while let Some(child) = self.note_body.first_child() {
             self.note_body.remove(&child);
         }
-        let blocks = rv_core::markdown::render(None, Some(text), &rv_core::markdown::Context { me });
+        let blocks = rv_core::markdown::render(None, Some(text), &rv_core::markdown::Context { me, names: None });
         self.note_body.append(&crate::markdown_view::view(&blocks, &[]));
         self.note.replace(text.to_owned());
         self.note_bar.set_visible(true);

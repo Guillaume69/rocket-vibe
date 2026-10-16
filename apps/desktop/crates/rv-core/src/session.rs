@@ -1068,6 +1068,15 @@ impl Session {
         })
     }
 
+    /// The name a mention of `username` shows: its display name on Mattermost
+    /// and kChat, as their apps do; None keeps the username.
+    pub fn mention_name(&self, username: &str) -> Option<String> {
+        match self.backend() {
+            Backend::Mattermost(mm) => mm.directory.name_of(username),
+            _ => None,
+        }
+    }
+
     /// The account's conversation list settings, kept on the server (Mattermost and kChat).
     pub async fn sidebar_settings(&self) -> Result<mattermost::actions::SidebarSettings, RestError> {
         match self.backend() {

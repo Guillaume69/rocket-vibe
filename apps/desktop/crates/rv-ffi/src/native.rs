@@ -901,7 +901,7 @@ impl NativeChat {
     pub async fn search(&self, room: String, text: String) -> Result<Vec<crate::people::SearchHit>, RvError> {
         let s = self.session.clone();
         let found = on_tokio(async move { s.search(&room, &text).await }).await.map_err(native_error)?;
-        let ctx = rv_core::markdown::Context { me: &self.session.info.username };
+        let ctx = rv_core::markdown::Context { me: &self.session.info.username, names: None };
         Ok(found
             .into_iter()
             .map(|m| crate::people::SearchHit {

@@ -13,6 +13,13 @@ fn visible(blocks: &[BodyBlock]) -> String {
             BodyBlock::Code { text } => text.clone(),
             BodyBlock::List { items } => items.iter().flat_map(|i| &i.runs).map(|r| r.text.clone()).collect(),
             BodyBlock::Break => "\n".into(),
+            BodyBlock::Table { header, rows, .. } => std::iter::once(header)
+                .chain(rows.iter().map(|r| &r.cells))
+                .flatten()
+                .flat_map(|c| &c.runs)
+                .map(|r| r.text.clone())
+                .collect::<Vec<_>>()
+                .join(" "),
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -24,7 +31,8 @@ fn shared_corpus_survives_the_swift_styled_run_projection() {
         serde_json::from_str(include_str!("../../../../../docs/protocol/rendering.fixture.json")).unwrap();
     for case in corpus["markdown"].as_array().unwrap() {
         let source = case["source"].as_str().unwrap();
-        let blocks = markup::blocks(markdown::render(None, Some(source), &markdown::Context { me: "alice" }));
+        let blocks =
+            markup::blocks(markdown::render(None, Some(source), &markdown::Context { me: "alice", names: None }));
         let shown = visible(&blocks);
         for expected in case["contains"].as_array().unwrap() {
             assert!(shown.contains(expected.as_str().unwrap()), "{}: {shown}", case["id"]);

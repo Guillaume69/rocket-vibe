@@ -185,6 +185,40 @@ fn numbered(line: &str) -> Option<(u64, &str)> {
     line[digits..].strip_prefix(". ").map(|rest| (number, rest))
 }
 
+/// A pipe table's cells: `| a | b |`, the outer pipes optional.
+fn table_cells(line: &str) -> Option<Vec<&str>> {
+    let line = line.trim();
+    if !line.contains('|') {
+        return None;
+    }
+    let line = line.strip_prefix('|').unwrap_or(line);
+    let line = line.strip_suffix('|').unwrap_or(line);
+    Some(line.split('|').map(str::trim).collect())
+}
+
+/// A table's separator row (`|:--|:-:|--:|`): each column's alignment.
+fn table_alignments(line: &str) -> Option<Vec<&'static str>> {
+    table_cells(line)?
+        .iter()
+        .map(|cell| {
+            let dashes = cell.trim_start_matches(':').trim_end_matches(':');
+            (!dashes.is_empty() && dashes.chars().all(|c| c == '-')).then_some(
+                match (cell.starts_with(':'), cell.ends_with(':')) {
+                    (true, true) => "center",
+                    (false, true) => "right",
+                    _ => "left",
+                },
+            )
+        })
+        .collect()
+}
+
+fn table_row(line: &str, columns: usize) -> Vec<Value> {
+    let mut cells = table_cells(line).unwrap_or_default();
+    cells.resize(columns, "");
+    cells.into_iter().map(|cell| Value::Array(line_inlines(cell))).collect()
+}
+
 fn only_emoji(nodes: &[Value]) -> bool {
     let emoji = nodes.iter().filter(|n| n["type"] == "EMOJI").count();
     emoji > 0
@@ -220,6 +254,20 @@ pub fn tree(text: &str) -> Vec<Value> {
                 blocks.push(json!({"type": "LINE_BREAK"}));
             }
             i += 1;
+            continue;
+        }
+        if let Some(header) = table_cells(line)
+            && let Some(align) = lines.get(i + 1).and_then(|l| table_alignments(l))
+            && align.len() == header.len()
+        {
+            let columns = align.len();
+            let mut rows = Vec::new();
+            i += 2;
+            while let Some(row) = lines.get(i).filter(|l| !l.trim().is_empty() && l.contains('|')) {
+                rows.push(Value::Array(table_row(row, columns)));
+                i += 1;
+            }
+            blocks.push(json!({"type": "TABLE", "align": align, "header": table_row(line, columns), "rows": rows}));
             continue;
         }
         if let Some((level, rest)) = heading(line) {
@@ -274,6 +322,18 @@ mod tests {
 
     fn types(nodes: &[Value]) -> Vec<&str> {
         nodes.iter().map(|n| n["type"].as_str().unwrap()).collect()
+    }
+
+    #[test]
+    fn a_pipe_table_with_its_alignments_and_an_empty_cell() {
+        let t = tree("#### Up\n\n| Server | Message |\n|:-------|-------:|\n|  | **All** up |\nafter");
+        assert_eq!(types(&t), ["HEADING", "LINE_BREAK", "TABLE", "PARAGRAPH"]);
+        assert_eq!(t[2]["align"], json!(["left", "right"]));
+        assert_eq!(t[2]["header"][1][0]["value"], "Message");
+        let row = t[2]["rows"][0].as_array().unwrap();
+        assert_eq!(row[0], json!([]));
+        assert_eq!(types(row[1].as_array().unwrap()), ["BOLD", "PLAIN_TEXT"]);
+        assert_eq!(types(&tree("a | b\nc | d")), ["PARAGRAPH", "PARAGRAPH"], "no separator, no table");
     }
 
     #[test]

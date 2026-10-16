@@ -1444,6 +1444,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("rooms.account_menu", "Mon compte, réglages et déconnexion", "My account, settings and sign out"),
     ("nav.back", "Précédent", "Back"),
+    (
+        "mm.reminder",
+        "Bonjour, voici votre rappel concernant ce message de @{user} : {link}",
+        "Hi there, here's your reminder about this message from @{user}: {link}",
+    ),
     ("zoom.in", "Agrandir le texte", "Zoom In"),
     ("zoom.out", "Réduire le texte", "Zoom Out"),
     ("zoom.reset", "Taille réelle", "Actual Size"),

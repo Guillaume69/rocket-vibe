@@ -939,8 +939,11 @@ fn lay_out(
     }
     laid.into_iter()
         .map(|d| {
-            let mut item = model::message(d, &info.user_id, &info.username);
-            if let Some(label) = session.person_label(&item.author_id) {
+            let names = |username: &str| session.mention_name(username);
+            let mut item = model::message_named(d, &info.user_id, &info.username, Some(&names));
+            if !item.aliased
+                && let Some(label) = session.person_label(&item.author_id)
+            {
                 item.author_label = label;
             }
             item

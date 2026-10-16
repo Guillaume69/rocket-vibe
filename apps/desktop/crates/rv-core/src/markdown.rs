@@ -20,11 +20,30 @@ pub enum Block {
     List(Vec<(String, String)>),
     BigEmoji(String),
     Break,
+    /// A pipe table: its columns' alignment, its header and its rows, each cell markup.
+    Table {
+        align: Vec<Align>,
+        header: Vec<String>,
+        rows: Vec<Vec<String>>,
+    },
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Center,
+    Right,
+}
+
+/// A username to the name its mention shows.
+pub type Names<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 pub struct Context<'a> {
     /// The signed-in username: mentions of it are highlighted.
     pub me: &'a str,
+    /// The name a mention shows for a username (Mattermost's name format);
+    /// None, or no name, keeps the username.
+    pub names: Option<Names<'a>>,
 }
 
 pub fn escape(text: &str) -> String {
@@ -214,7 +233,8 @@ fn inline(node: &Value, ctx: &Context) -> String {
             let name = text_of(value);
             let mine = name == ctx.me || name == "all" || name == "here";
             let background = if mine { " background=\"#4A2140\"" } else { "" };
-            let span = format!("<span foreground=\"#FF7AB4\" weight=\"bold\"{background}>@{}</span>", escape(&name));
+            let shown = ctx.names.and_then(|names| names(&name)).unwrap_or_else(|| name.clone());
+            let span = format!("<span foreground=\"#FF7AB4\" weight=\"bold\"{background}>@{}</span>", escape(&shown));
             if name == "all" || name == "here" {
                 span
             } else {
@@ -282,6 +302,32 @@ fn block(node: &Value, ctx: &Context) -> Block {
         }
         "BIG_EMOJI" => Block::Paragraph(escape(&items(node).iter().map(text_of).collect::<Vec<_>>().join(" "))),
         "LINE_BREAK" => Block::Break,
+        "TABLE" => {
+            let cells = |row: &Value| {
+                row.as_array().map(|c| c.iter().map(|cell| inlines(cell, ctx)).collect()).unwrap_or_default()
+            };
+            Block::Table {
+                align: node
+                    .get("align")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .map(|v| match v.as_str() {
+                                Some("center") => Align::Center,
+                                Some("right") => Align::Right,
+                                _ => Align::Left,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                header: cells(node.get("header").unwrap_or(&Value::Null)),
+                rows: node
+                    .get("rows")
+                    .and_then(Value::as_array)
+                    .map(|r| r.iter().map(cells).collect())
+                    .unwrap_or_default(),
+            }
+        }
         _ => Block::Paragraph(escape(&text_of(node))),
     }
 }
@@ -374,7 +420,7 @@ mod tests {
     }
     use serde_json::json;
 
-    const CTX: Context = Context { me: "alice" };
+    const CTX: Context = Context { me: "alice", names: None };
 
     fn one(md: Value) -> Vec<Block> {
         render(Some(&md.to_string()), None, &CTX)
@@ -422,6 +468,30 @@ mod tests {
         assert!(markup.contains(">@bob</span>") && !markup.split("@bob").next().unwrap().contains("background"));
         assert!(markup.contains("background=\"#4A2140\">@alice</span>"));
         assert!(markup.contains("<a href=\"rv-user:bob\">"));
+    }
+
+    #[test]
+    fn a_mention_shows_the_name_it_is_given_and_links_the_username() {
+        let names = |u: &str| (u == "bob").then(|| "Bob Builder".to_owned());
+        let ctx = Context { me: "alice", names: Some(&names) };
+        let mention = |u: &str| json!({"type": "MENTION_USER", "value": plain(u)});
+        let blocks = render(
+            Some(&json!([{"type": "PARAGRAPH", "value": [mention("bob"), mention("carol")]}]).to_string()),
+            None,
+            &ctx,
+        );
+        let [Block::Paragraph(markup)] = &blocks[..] else { panic!("{blocks:?}") };
+        assert!(markup.contains("<a href=\"rv-user:bob\">") && markup.contains(">@Bob Builder</span>"));
+        assert!(markup.contains(">@carol</span>"));
+    }
+
+    #[test]
+    fn a_table_keeps_its_alignment_and_marks_up_its_cells() {
+        let blocks = render(None, Some("| a | b |\n|:-:|--:|\n| **x** | |"), &CTX);
+        let [Block::Table { align, header, rows }] = &blocks[..] else { panic!("{blocks:?}") };
+        assert_eq!(align, &[Align::Center, Align::Right]);
+        assert_eq!(header, &["a", "b"]);
+        assert_eq!(rows, &[vec!["<b>x</b>".to_owned(), String::new()]]);
     }
 
     #[test]

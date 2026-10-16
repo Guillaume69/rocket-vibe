@@ -115,6 +115,9 @@ pub struct MessageRow {
     pub discussion_id: Option<String>,
     pub discussion_count: i64,
     pub discussion_last: Option<i64>,
+    /// The integration's own name and picture (`Message::alias`), shown instead of the poster's.
+    pub alias: Option<String>,
+    pub alias_avatar: Option<String>,
 }
 
 impl From<&Message> for MessageRow {
@@ -141,11 +144,13 @@ impl From<&Message> for MessageRow {
             starred: m.starred.clone(),
             thread_last: m.thread_last,
             thread_followers: m.thread_followers.clone(),
-            author_bot: false,
+            author_bot: m.author_bot,
             form: None,
             discussion_id: m.discussion_id.clone(),
             discussion_count: m.discussion_count,
             discussion_last: m.discussion_last,
+            alias: m.alias.clone(),
+            alias_avatar: m.alias_avatar.clone(),
         }
     }
 }
@@ -264,6 +269,9 @@ const MIGRATIONS: &[&str] = &[
      UPDATE uploads SET confirm_started = 1 WHERE file_id IS NOT NULL",
     // The Activity view reads every room newest first and stops at its limit.
     "CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts)",
+    "ALTER TABLE messages ADD COLUMN alias TEXT;
+     ALTER TABLE messages ADD COLUMN alias_avatar TEXT;
+     ALTER TABLE messages ADD COLUMN author_bot INTEGER NOT NULL DEFAULT 0",
 ];
 
 /// How many messages a search across rooms answers at most.
@@ -790,7 +798,7 @@ impl Store {
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
                     m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid,
                     m.pinned, m.starred, m.thread_last, m.thread_followers,
-                    m.discussion_id, m.discussion_count, m.discussion_last
+                    m.discussion_id, m.discussion_count, m.discussion_last, m.alias, m.alias_avatar, m.author_bot
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -821,11 +829,13 @@ impl Store {
                         starred: r.get(18)?,
                         thread_last: r.get(19)?,
                         thread_followers: r.get(20)?,
-                        author_bot: false,
+                        author_bot: r.get(26)?,
                         form: None,
                         discussion_id: r.get(21)?,
                         discussion_count: r.get(22)?,
                         discussion_last: r.get(23)?,
+                        alias: r.get(24)?,
+                        alias_avatar: r.get(25)?,
                     })
                 })?
                 .collect()
@@ -924,9 +934,10 @@ impl Writer<'_> {
             .execute(
                 "INSERT INTO messages (id, rid, text, ts, author_id, author_name, system_type, thread_id,
                    thread_count, thread_last, thread_shown, edited_at, attachments, reactions, encrypted_raw, updated_at, md, urls, call_id,
-                   pinned, starred, thread_followers, discussion_id, discussion_count, discussion_last)
+                   pinned, starred, thread_followers, discussion_id, discussion_count, discussion_last, alias, alias_avatar,
+                   author_bot)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22,
-                   ?23, ?24, ?25)
+                   ?23, ?24, ?25, ?26, ?27, ?28)
                  ON CONFLICT(id) DO UPDATE SET
                    text = CASE WHEN excluded.system_type = 'e2e' THEN COALESCE(excluded.text, messages.text) ELSE excluded.text END,
                    ts = excluded.ts,
@@ -949,13 +960,17 @@ impl Writer<'_> {
                    thread_followers = excluded.thread_followers,
                    discussion_id = excluded.discussion_id,
                    discussion_count = excluded.discussion_count,
-                   discussion_last = excluded.discussion_last
+                   discussion_last = excluded.discussion_last,
+                   alias = excluded.alias,
+                   alias_avatar = excluded.alias_avatar,
+                   author_bot = excluded.author_bot
                  WHERE excluded.updated_at >= messages.updated_at",
                 params![
                     m.id, m.rid, m.text, m.ts, m.author_id, m.author_name, m.system_type, m.thread_id,
                     m.thread_count, m.thread_last, m.thread_shown, m.edited_at, m.attachments, m.reactions,
                     m.encrypted_raw, m.updated_at, m.md, m.urls, m.call_id, m.pinned, m.starred,
-                    m.thread_followers, m.discussion_id, m.discussion_count, m.discussion_last
+                    m.thread_followers, m.discussion_id, m.discussion_count, m.discussion_last, m.alias,
+                    m.alias_avatar, m.author_bot
                 ],
             )
             .or_note(&mut self.failed, "upsert message");

@@ -50,7 +50,7 @@ fn centered(text: &str, classes: &[&str]) -> gtk::Label {
 
 fn section(parent: &gtk::Box, title: &str, text: &str, me: &str) {
     parent.append(&label(title, &["details-section"]));
-    let blocks = markdown::render(None, Some(text), &markdown::Context { me });
+    let blocks = markdown::render(None, Some(text), &markdown::Context { me, names: None });
     parent.append(&markdown_view::view(&blocks, &[]));
 }
 
@@ -836,8 +836,11 @@ fn search_with_source(
                             head.append(&label(m.author_name.as_deref().unwrap_or_default(), &["author"]));
                             head.append(&label(&local(m.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
                             hit.append(&head);
-                            let blocks =
-                                markdown::render(m.md.as_deref(), m.text.as_deref(), &markdown::Context { me: &me });
+                            let blocks = markdown::render(
+                                m.md.as_deref(),
+                                m.text.as_deref(),
+                                &markdown::Context { me: &me, names: None },
+                            );
                             hit.append(&markdown_view::view(&blocks, &[]));
                             hit.set_cursor(gtk::gdk::Cursor::from_name("pointer", None).as_ref());
                             let click = gtk::GestureClick::new();

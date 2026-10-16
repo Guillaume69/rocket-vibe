@@ -355,6 +355,8 @@ impl From<content::FileAttachment> for FileItem {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Quote {
     pub unavailable: bool,
+    /// Shown under the message's text: a post its text links to (Mattermost).
+    pub below: bool,
     pub link: String,
     pub author: Option<String>,
     pub body: Vec<BodyBlock>,
@@ -388,6 +390,10 @@ pub struct Card {
     pub integration: bool,
     pub color: Option<String>,
     pub fields: Vec<CardField>,
+    /// An integration card's title, text and the words above it, as markdown.
+    pub title_body: Vec<BodyBlock>,
+    pub description_body: Vec<BodyBlock>,
+    pub pretext: Vec<BodyBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -395,6 +401,7 @@ pub struct CardField {
     pub title: String,
     pub value: String,
     pub short: bool,
+    pub value_body: Vec<BodyBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -454,6 +461,9 @@ pub struct MessageItem {
     /// The name the header shows: the username, or on Mattermost the name
     /// under the account's name format with the custom status emoji.
     pub author_label: String,
+    /// Posted under an integration's own name (`author_label`) and picture
+    /// (`avatar`, a web address or empty): not its poster's profile.
+    pub aliased: bool,
     /// A `discussion-created` message's discussion, drawn as a card
     /// (Rocket.Chat); its name is `param`.
     pub discussion: Option<DiscussionCard>,
@@ -471,24 +481,30 @@ pub struct DiscussionCard {
     pub last: Option<i64>,
 }
 
-pub fn quote(q: content::Quote, me: &str) -> Quote {
-    let ctx = markdown::Context { me };
+pub fn quote(q: content::Quote, ctx: &markdown::Context) -> Quote {
     Quote {
         unavailable: q.unavailable,
+        below: q.below,
         link: q.link,
         author: q.author,
-        body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), &ctx)),
+        body: markup::blocks(markdown::render(q.md.as_deref(), Some(&q.text), ctx)),
         images: q.images.into_iter().map(ImageItem::from).collect(),
         files: q.files.into_iter().map(FileItem::from).collect(),
-        quotes: q.quotes.into_iter().map(|inner| quote(inner, me)).collect(),
+        quotes: q.quotes.into_iter().map(|inner| quote(inner, ctx)).collect(),
     }
 }
 
 /// `d.row` as `Session::open_row` left it: an encrypted message opened when
 /// the keys read it, its text None when they do not.
 pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
+    message_named(d, me_id, me, None)
+}
+
+/// `message`, its mentions named by `names` (Mattermost's name format).
+pub fn message_named(d: Display, me_id: &str, me: &str, names: Option<markdown::Names>) -> MessageItem {
     let row: MessageRow = d.row;
-    let ctx = markdown::Context { me };
+    let ctx = markdown::Context { me, names };
+    let md = |text: &str| markup::blocks(markdown::render(None, Some(text), &ctx));
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let is_call = row.system_type.as_deref() == Some("videoconf");
     let system = row.system_type.clone().filter(|k| k != "e2e");
@@ -542,19 +558,32 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
             Card { url, title, description, image, site, ..Default::default() }
         }
     }));
-    cards.extend(content::cards(attachments).into_iter().map(|c| Card {
-        url: c.link.unwrap_or_default(),
-        title: c.title,
-        description: c.text,
-        site: c.author,
-        color: c.color,
-        integration: true,
-        fields: c.fields.into_iter().map(|(title, value, short)| CardField { title, value, short }).collect(),
-        ..Default::default()
+    cards.extend(content::cards(attachments).into_iter().map(|c| {
+        Card {
+            url: c.link.unwrap_or_default(),
+            title_body: c.title.as_deref().map(md).unwrap_or_default(),
+            description_body: c.text.as_deref().map(md).unwrap_or_default(),
+            pretext: c.pretext.as_deref().map(md).unwrap_or_default(),
+            title: c.title,
+            description: c.text,
+            site: c.author,
+            color: c.color,
+            integration: true,
+            fields: c
+                .fields
+                .into_iter()
+                .map(|(title, value, short)| CardField { value_body: md(&value), title, value, short })
+                .collect(),
+            ..Default::default()
+        }
     }));
     let author = row.author.clone().unwrap_or_default();
     MessageItem {
-        avatar: media::avatar_path(AvatarTarget::User(&author), None),
+        avatar: match &row.alias {
+            Some(_) => row.alias_avatar.clone().unwrap_or_default(),
+            None => media::avatar_path(AvatarTarget::User(&author), None),
+        },
+        aliased: row.alias.is_some(),
         mine: row.author_id == me_id,
         show_header: d.show_header,
         show_day: d.show_day,
@@ -566,7 +595,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         locked,
         body,
         text,
-        quotes: content::quotes(attachments).into_iter().map(|q| quote(q, me)).collect(),
+        quotes: content::quotes(attachments).into_iter().map(|q| quote(q, &ctx)).collect(),
         images: media::image_attachments(attachments).into_iter().map(ImageItem::from).collect(),
         files: content::files(attachments).into_iter().map(FileItem::from).collect(),
         cards,
@@ -591,7 +620,7 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
         author_bot: row.author_bot,
         social: rv_core::native::social::parse_attachment(row.attachments.as_deref()).map(crate::social::social_item),
         form: form.map(|form| crate::native_workflows::form_item(form, me_id)),
-        author_label: author.clone(),
+        author_label: row.alias.clone().unwrap_or_else(|| author.clone()),
         discussion: row
             .discussion_id
             .clone()

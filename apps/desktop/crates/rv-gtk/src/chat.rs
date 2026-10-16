@@ -278,14 +278,17 @@ pub struct ChatPage {
     menu_open: Rc<Cell<bool>>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
+    /// Back or forward reached a room of another account (its `supervisor::key`, the rid): the window switches to it.
+    on_walk_account: Callback<(String, String)>,
     on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
     /// The Activity view was asked for: the window, which holds every account, opens it.
     on_activity: Callback<()>,
     forward_button: gtk::Button,
-    /// Rooms opened, oldest first, and the position of the open one: mouse back and forward walk it.
-    history: RefCell<Vec<String>>,
+    /// Rooms opened on any account (`supervisor::key`, rid), oldest first, and
+    /// the position of the open one: mouse back and forward walk it.
+    history: RefCell<Vec<(String, String)>>,
     history_at: Cell<usize>,
     walking: Cell<bool>,
     voice: Rc<voice::VoiceUi>,
@@ -661,6 +664,7 @@ impl ChatPage {
             menu_open: Rc::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
+            on_walk_account: RefCell::default(),
             on_user_navigation: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
@@ -1697,8 +1701,6 @@ impl ChatPage {
         self.collapsed.replace(session.as_ref().map(|s| folded_sections(&s.info)).unwrap_or_default());
         self.session.replace(session);
         self.current.replace(None);
-        self.history.borrow_mut().clear();
-        self.history_at.set(0);
         self.update_forward();
         self.list.clear();
         self.content_stack.set_visible_child_name("empty");
@@ -3463,25 +3465,36 @@ impl ChatPage {
     }
 
     fn walk_to(self: &Rc<Self>, at: usize) {
-        let Some(rid) = self.history.borrow().get(at).cloned() else { return };
+        let Some((account, rid)) = self.history.borrow().get(at).cloned() else { return };
         self.user_navigation();
         self.history_at.set(at);
+        if self.account_key().as_deref() != Some(account.as_str()) {
+            for f in self.on_walk_account.borrow().iter() {
+                f((account.clone(), rid.clone()));
+            }
+            return;
+        }
         self.walking.set(true);
         self.open_room(&rid);
         self.walking.set(false);
+    }
+
+    fn account_key(&self) -> Option<String> {
+        self.chat().map(|c| rv_core::supervisor::key(c.info()))
     }
 
     fn remember(&self, rid: &str) {
         if self.walking.get() {
             return;
         }
+        let Some(account) = self.account_key() else { return };
         let mut history = self.history.borrow_mut();
-        if history.get(self.history_at.get()).map(String::as_str) == Some(rid) {
+        if history.get(self.history_at.get()).is_some_and(|(a, r)| *a == account && r == rid) {
             return;
         }
         let keep = if history.is_empty() { 0 } else { self.history_at.get() + 1 };
         history.truncate(keep);
-        history.push(rid.to_owned());
+        history.push((account, rid.to_owned()));
         self.history_at.set(history.len() - 1);
     }
 
@@ -3515,6 +3528,10 @@ impl ChatPage {
 
     pub fn connect_room_opened(&self, f: impl Fn(String) + 'static) {
         self.on_room_opened.borrow_mut().push(Box::new(f));
+    }
+
+    pub fn connect_walk_account(&self, f: impl Fn((String, String)) + 'static) {
+        self.on_walk_account.borrow_mut().push(Box::new(f));
     }
 
     pub fn connect_user_navigation(&self, f: impl Fn() + 'static) {

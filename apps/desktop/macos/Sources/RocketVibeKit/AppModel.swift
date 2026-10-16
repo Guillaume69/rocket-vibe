@@ -112,8 +112,12 @@ public final class AppModel {
     public var onReminder: ((DueReminder) -> Void)?
     @ObservationIgnored var reminderTimer: Task<Void, Never>?
 
-    /// Room ids opened, for back and forward.
-    var history: [String] = []
+    /// Rooms opened on any account, for back and forward.
+    struct Visit: Equatable {
+        let account: String
+        let rid: String
+    }
+    var history: [Visit] = []
     var historyAt = -1
     /// Whether the account being opened goes back to its last room.
     @ObservationIgnored var reopenLastRoom = true
@@ -489,8 +493,6 @@ public final class AppModel {
         media?.close()
         media = nil
         groups = []
-        history = []
-        historyAt = -1
     }
 
     public func signOut() async {
@@ -819,11 +821,13 @@ public final class AppModel {
         if let voice, voice.shown != rid { voice.shown = nil }
         if room?.rid == rid { return }
         selectionId = UUID()
-        if remember {
-            history = Array(history.prefix(historyAt + 1)) + [rid]
-            historyAt = history.count - 1
+        if let key = account?.key {
+            if remember {
+                history = Array(history.prefix(historyAt + 1)) + [Visit(account: key, rid: rid)]
+                historyAt = history.count - 1
+            }
+            client.setLastRoom(account: key, rid: rid)
         }
-        if let key = account?.key { client.setLastRoom(account: key, rid: rid) }
         room?.deactivate()
         closeThread(preserveNavigation:true)
         let model = RoomModel(provider: provider, room: found)
@@ -889,13 +893,26 @@ public final class AppModel {
     public func goBack() {
         guard canGoBack else { return }
         historyAt -= 1
-        open(history[historyAt], remember: false)
+        Task { await walk(to: history[historyAt]) }
     }
 
     public func goForward() {
         guard canGoForward else { return }
         historyAt += 1
-        open(history[historyAt], remember: false)
+        Task { await walk(to: history[historyAt]) }
+    }
+
+    /// A room of the history, on its own account: switching to it first when it is another.
+    func walk(to visit: Visit) async {
+        if account?.key != visit.account {
+            guard let other = accounts.first(where: { $0.key == visit.account }) else {
+                notice = L("links.unavailable")
+                return
+            }
+            await switchAccount(other, reopen: false)
+            guard account?.key == visit.account else { return }
+        }
+        open(visit.rid, remember: false)
     }
 
     /// The room list's "Mark as unread" (`unread`) or "Mark as read", on

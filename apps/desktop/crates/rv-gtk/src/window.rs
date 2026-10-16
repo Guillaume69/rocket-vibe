@@ -77,6 +77,8 @@ pub struct AppWindow {
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
     /// The room the account on screen had open last (account key, rid), reopened once its rooms are there.
     last_room: RefCell<Option<(String, String)>>,
+    /// The next account opened goes to a room of its own: its last room stays closed.
+    skip_last_room: Cell<bool>,
     link_generation: Cell<u64>,
     pending_notification: RefCell<Option<NotificationAction>>,
     notification_request: RefCell<Option<String>>,
@@ -276,6 +278,7 @@ impl AppWindow {
             call_watches: RefCell::default(),
             pending_link: RefCell::default(),
             last_room: RefCell::default(),
+            skip_last_room: Cell::new(false),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
             notification_request: RefCell::default(),
@@ -508,6 +511,12 @@ impl AppWindow {
                     .map(|s| s.notification_key(&rid))
                     .unwrap_or(rid);
                 notifier.withdraw(&key);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_walk_account(move |(account, rid)| {
+            if let Some(this) = weak.upgrade() {
+                this.walk_to_account(&account, rid);
             }
         });
         let weak = Rc::downgrade(&this);
@@ -1319,7 +1328,8 @@ impl AppWindow {
             self.end_background_ring();
         }
         let account = rv_core::last_room::account(&info);
-        self.last_room.replace(rv_core::last_room::load(&config_dir(), &account).map(|rid| (account, rid)));
+        let last = rv_core::last_room::load(&config_dir(), &account).filter(|_| !self.skip_last_room.replace(false));
+        self.last_room.replace(last.map(|rid| (account, rid)));
         let path = database_path(&info);
         match self.accounts.open(&info) {
             Ok(Chat::Native(session)) => {
@@ -1740,6 +1750,30 @@ impl AppWindow {
             user_id: Some(info.user_id.clone()),
             message: target.message,
             root: target.thread,
+        }));
+        self.switch_to_for_link(info);
+    }
+
+    /// Back or forward reached a room of another account: that account opens on it.
+    fn walk_to_account(self: &Rc<Self>, account: &str, rid: String) {
+        let Some(info) = self.accounts.running().into_iter().find(|i| supervisor::key(i) == account) else {
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        };
+        self.cancel_navigation();
+        if rv_core::whatsapp::is_whatsapp(&info) {
+            self.skip_last_room.set(true);
+            self.switch_to(info);
+            self.chat.open_room(&rid);
+            return;
+        }
+        self.pending_link.replace(Some(rv_core::links::RoomLink {
+            rid,
+            host: rv_core::links::service_url(&info.base_url),
+            native: info.native.clone(),
+            user_id: Some(info.user_id.clone()),
+            message: None,
+            root: None,
         }));
         self.switch_to_for_link(info);
     }

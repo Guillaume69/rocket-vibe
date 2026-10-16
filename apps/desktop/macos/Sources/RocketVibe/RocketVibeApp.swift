@@ -27,6 +27,15 @@ struct RocketVibeApp: App {
 
     @MainActor
     func start() async {
+        // The mouse's back and forward buttons walk the rooms opened, as Option + arrows do.
+        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [app] event in
+            switch event.buttonNumber {
+            case 3: app.goBack()
+            case 4: app.goForward()
+            default: return event
+            }
+            return nil
+        }
         let notifier = Notifier.shared
         notifier.onOpen = { [app] rid, message, scope in
             if let scope, app.client.backgroundTarget(scope: scope) != nil {

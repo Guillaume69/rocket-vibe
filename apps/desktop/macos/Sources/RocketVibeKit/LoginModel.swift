@@ -29,6 +29,7 @@ public final class LoginModel {
                 kchatServers = []
                 kchatServer = ""
                 leave()
+                error = nil
                 probeLine = nil
                 probeBad = false
             }
@@ -127,11 +128,11 @@ public final class LoginModel {
             if asked == address, expected == probeRevision { probeLine = nil }
         } catch let RvError.Server(_, _, errorCode, _, _, _) {
             guard asked == address, expected == probeRevision else { return }
-            probeLine = L(errorCode == "not_native" ? "login.not_vibez" : "login.probe_failed")
+            probeLine = errorCode == "not_native" ? L("login.not_vibez") : Self.probeFailed(kind)
             probeBad = true
         } catch {
             guard asked == address, expected == probeRevision else { return }
-            probeLine = L("login.probe_failed")
+            probeLine = Self.probeFailed(kind)
             probeBad = true
         }
     }
@@ -306,8 +307,21 @@ public final class LoginModel {
         case "supported_browser_missing": return L("slack.browserMissing")
         case "browser_closed": return L("slack.browserClosed")
         case "timeout": return L("slack.browserTimeout")
-        default: return L("slack.browserFailed")
+        default: return L("slack.browserFailedCode", ["code": code])
         }
+    }
+
+    /// Nothing answering as the chosen kind; under Auto, as any server the app speaks.
+    private static func probeFailed(_ kind: ServerChoice) -> String {
+        let product: String
+        switch kind {
+        case .rocketChat: product = "Rocket.Chat"
+        case .mattermost: product = "Mattermost"
+        case .kchat: product = "kChat"
+        case .vibez: product = "Vibez"
+        default: return L("login.probe_failed_any")
+        }
+        return L("login.probe_failed", ["product": product])
     }
 
     private func current(_ expected: UUID, address: String, username: String) -> Bool {

@@ -11,6 +11,10 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Changed
+
+- Web client: a private room shows a lock on its coloured tile in the room list and the room header, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their neutral lock.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added

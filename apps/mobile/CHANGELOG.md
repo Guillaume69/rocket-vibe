@@ -7,15 +7,25 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Switching server reopens the room you last had open on that server, unless a link or a notification opens another one.
+- Tables written with pipes (`| a | b |`), as Mattermost and Slack integrations post them, show as a grid that scrolls sideways when it is too wide.
+- Mattermost and kChat: a link to another post shows that post as a quote under the message, as the official apps do.
+- Mattermost and kChat: a reminder the server posts ("Hi there, here's your reminder about this message…") reads in the app's language.
+- Mattermost and kChat: a post from an incoming webhook shows under the webhook's own name and picture, with the BOT badge, as does a bot's post.
+
 ### Changed
 
+- A private room shows a lock on its coloured tile, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their grey lock.
+- Mattermost and kChat: a mention shows the person's name under the account's name format, as the official apps do, instead of the username.
+- Integration cards (kChat's Euria requests, Mattermost bots) show their text above the card, and their titles, texts and field values formatted: emoji, links, bold.
 - kChat signs in with one button, in a sign-in page inside the app; the personal API token field is gone.
 - Experimental Slack accounts sign in with one button, in a sign-in page inside the app, with no browser helper or pasted session; several workspaces are offered to choose from.
 
 ### Fixed
 
 - Signing out of one server opens another server you are still signed in to, rather than the server choice with no way back.
-
 - The sign-in page forgets the previous server type's error when you switch type.
 
 ## [0.19.0] - 2026-10-15

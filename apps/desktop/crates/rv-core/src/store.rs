@@ -1275,10 +1275,15 @@ impl Writer<'_> {
 
     /// `insert_outbox`, with `shown` for a thread reply also sent to the room (`tshow`).
     pub fn insert_reply(&mut self, id: &str, rid: &str, text: &str, thread_id: Option<&str>, shown: bool) {
+        // Stamped from the same clock as `Outbox::started_at`: SQLite's own
+        // clock reads milliseconds behind it on Windows, and a row queued
+        // after the start then looked queued before it, so possibly sent.
+        let now = chrono::Utc::now().timestamp_millis();
         self.conn
             .execute(
-                "INSERT OR IGNORE INTO outbox (id, rid, text, thread_id, shown) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![id, rid, text, thread_id, shown && thread_id.is_some()],
+                "INSERT OR IGNORE INTO outbox (id, rid, text, thread_id, shown, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, rid, text, thread_id, shown && thread_id.is_some(), now],
             )
             .or_note(&mut self.failed, "insert outbox");
         self.touch_messages(rid);

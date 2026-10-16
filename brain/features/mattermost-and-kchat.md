@@ -7,8 +7,9 @@ Rocket.Chat), presence, sending text and files, reactions, edits, deletions,
 pins, stars (Mattermost's flagged posts), favourites and my own sidebar
 categories as room-list sections, search in a room, room info and profiles,
 custom emoji, kChat's kMeet calls (joined from their post, ringing in a direct room while the app
-runs; starting one is not mapped) and live clearing of a read made in another kChat client. Push, quotes
-and E2EE are not mapped (`docs/MATTERMOST.md` §8). A muted channel counts its
+runs; starting one is not mapped) and live clearing of a read made in another kChat client. Push, quoting
+a message and E2EE are not mapped (`docs/MATTERMOST.md` §8); the server's previews of linked posts show as
+quotes ([Post rendering](#post-rendering)). A muted channel counts its
 mentions only, a live reply moves its root's reply count, and stars changed in
 another client show live, in both apps.
 A DM shows its unread count, never mentions: Mattermost counts every DM message
@@ -19,6 +20,17 @@ Rocket.Chat ([mobile-app](../architecture/mobile-app.md)); `MATTERMOST_CAPABILIT
 turns off what the server lacks, so the screens hide it. On desktop the same
 `Session` carries a Mattermost backend ([desktop-core](../architecture/desktop-core.md)),
 so GTK and SwiftUI run unchanged past the sign-in screen.
+
+## Post rendering
+
+Posts read as the official apps show them (both apps, 2026-10-17; `docs/MATTERMOST.md` §4.6):
+
+- **Integration cards** (`props.attachments`): `pretext` stays above the card instead of standing in for its text; title, text and field values are markdown, so kChat's Euria access requests show their emoji and links rather than `:file_folder:` and `[label](url)`. A `fallback` equal to the `pretext` is not repeated as the text. Drawing: [room-view](room-view.md).
+- **Webhook authors.** `props.from_webhook == "true"`: the post shows under `props.override_username` with `props.override_icon_url` (absolute http(s) only, fetched without the bearer, which never leaves for another origin), the BOT badge, no profile, its own group. Without `from_webhook` the override is ignored, as Mattermost does. `props.from_bot` also gives the badge. Mobile `webhookAlias`, `httpUrl` (`translator.ts`, columns `author_alias`, `author_avatar`, `author_bot`); desktop `Translator::message` (`alias`, `alias_avatar`, `author_bot`). The room list preview names the alias on desktop (`last_message_author`).
+- **Permalink previews** (`metadata.embeds[]` of `type: "permalink"`, `data.post`): the linked post becomes a quote attachment (`message_link` `/_redirect/pl/<id>`, absolute on mobile, relative on desktop; `author_name` from the directory, `ts`, `text`) flagged `permalink_preview` and drawn under the text. Mobile also carries the quoted post's files and loads unknown quoted authors with the page (`permalinkPosts` in `live.ts`); desktop shows its text only and names only authors its directory already knows. The server sends them only with `ServiceSettings.SiteURL` set.
+- **Reminders** (`type: "reminder"`, posted by the system bot when a "Remind me" set in a Mattermost or kChat client falls due): the server writes the sentence in English (`app.post_reminder_dm`), so the apps rebuild it from `props.username` and the post's link (the message's last URL, else `<server>/<props.team_name>/pl/<props.post_id>`) and show it in the app's language. Mobile stores the English sentence (`reminderMessage`, `lib/reminder.ts`) and `MessageContent` localizes it on Mattermost and kChat accounts (`localizedReminder`, key `messageRow.reminder`); desktop translates at ingestion (`translate::reminder`, key `mm.reminder`), so a language change applies to new posts only. The permalink embed shows the reminded post under it. These are the server's reminders, apart from the apps' own [reminders](reminders.md).
+- **Mention names.** `@username` shows the person's name under the account's name format (`docs/MATTERMOST.md` §4.5), as the official apps do; the link still targets the username. Mobile: `MmDirectory.mentionNames` through `setDisplayNames` / `useMentionNames` into `mentionOf`, and `MmLive` asks unknown mentioned usernames (and `props.username`) once per session (`mentionedUsernames`, `Directory.ensureUsernames`). Desktop: `Session::mention_name` (`Directory::name_of`) into `markdown::Context.names`, for users the directory already knows. Rocket.Chat keeps `@username`.
+- **Not rendered.** Ephemeral posts (`ephemeral_message`, kChat's "visible only to you" confirmation of a reminder with its Delete and View reminders buttons): Android shows the text as a private note above the composer ([slash-commands](slash-commands.md)), without the buttons; desktop shows nothing. Interactive buttons and menus of a card (`attachments[].actions`) are drawn by no app.
 
 ## Mobile
 
@@ -338,6 +350,14 @@ opens Infomaniak's real page in the GTK sign-in window and forges a redirect for
 another request, which must be caught, refused and close the window.
 
 ## Sources
+
+- apps/mobile/providers/mattermost/translator.ts
+- apps/mobile/providers/mattermost/live.ts
+- apps/mobile/providers/mattermost/directory.ts
+- apps/mobile/lib/reminder.ts
+- apps/mobile/lib/displayNames.ts
+- apps/desktop/crates/rv-core/src/mattermost/translate.rs
+- apps/desktop/crates/rv-core/src/mattermost/directory.rs
 
 - apps/mobile/providers/mattermost/search.ts
 - apps/mobile/providers/mattermost/search.test.ts

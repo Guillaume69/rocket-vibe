@@ -107,6 +107,9 @@ All code, comments and docs are in English. French survives in two places only: 
 | kChat | Infomaniak's Mattermost: same REST, Pusher instead of the WebSocket, Infomaniak bearer sign-in. `ProviderKind` `kchat`. | [mattermost-and-kchat](features/mattermost-and-kchat.md) |
 | `mm:*` envelope | The events `MmLive` emits for the translator (`mm:post`, `mm:room`, `mm:membership`...), already enriched. | `live.ts`, `translator.ts` |
 | `pending_post_id` | The client id a Mattermost post leaves under; echoed back and deduplicated by the server for a short while. | `outbox.ts` |
+| Permalink preview | A post of the server linked in a message, sent by the server as a `permalink` embed (`metadata.embeds`); the apps make it a quote attachment flagged `permalink_preview`, drawn under the text. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
+| Reminder post | A post of `type: "reminder"` the system bot sends when a "Remind me" set in a Mattermost or kChat client falls due; reworded in the app's language. Not the apps' own [reminders](features/reminders.md). | `lib/reminder.ts`, `translate.rs` |
+| Webhook alias | The name and picture an incoming webhook posts under (`override_username`, `override_icon_url`, with `from_webhook`); mobile `authorAlias` / `authorAvatar`, desktop `Message.alias` / `alias_avatar` (which also carry Rocket.Chat's `alias` / `avatar`). | [room-view](features/room-view.md) |
 
 ## Slack (`apps/mobile/providers/slack/`, `apps/desktop/crates/rv-core/src/slack/`)
 
@@ -238,6 +241,8 @@ All code, comments and docs are in English. French survives in two places only: 
 | Background account, `Supervisor` | A signed-in desktop account not on screen, kept connected by rv-core's `supervisor::Supervisor`, which announces its messages, calls, unread state and expiry as `AccountNotice`s. | [login-and-servers](features/login-and-servers.md#desktop) |
 | `ChatEvent` | rv-core `provider::ChatEvent`, from `Chat::events()`: `Changed(Change)` (which rooms), `Reload` (read everything again: a Vibez change that does not say what it touched, or missed changes), `Rooms` (a Vibez live batch touched only these rooms), `Incoming` (a notification), `Session(..)` (the rest, Rocket.Chat, Mattermost and kChat only). | [desktop-gtk](architecture/desktop-gtk.md) |
 | `Backend` | rv-core `sync::Backend`, from `SyncEngine::backend()`: which server family a `Session` speaks to, `RocketChat` or `Mattermost` (with its `MmSync`); every per-server choice in the session, the sync engine, the outbox and the uploads matches on it exhaustively. The Vibez server is a separate type, `NativeSession`. | [desktop-core](architecture/desktop-core.md) |
+| Last room | The room last opened on an account, reopened when the account is switched to (rv-core `last_room`, file `last-rooms.json`; mobile `ui/lastRoomStore.ts`, SecureStore `last-rooms`). | [login-and-servers](features/login-and-servers.md#coming-back-to-an-account) |
+| Text zoom | The desktop's text size in percent, a browser's steps (rv-core `zoom`, file `zoom`), applied by GTK `style::zoomed` and SwiftUI `AppModel.textScale`. | [settings](features/settings.md#text-zoom-desktop) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary

@@ -175,6 +175,19 @@ fn show_experimental_kinds(kind: &gtk::DropDown, shown: bool) {
     }
 }
 
+/// Nothing answering as the chosen kind; under Auto, as any server the app speaks.
+fn probe_failed(kind: rv_core::native::ServerKind) -> String {
+    use rv_core::native::ServerKind;
+    let product = match kind {
+        ServerKind::RocketChat => "Rocket.Chat",
+        ServerKind::Mattermost => "Mattermost",
+        ServerKind::Kchat => "kChat",
+        ServerKind::Vibez => "Vibez",
+        _ => return t("login.probe_failed_any").to_owned(),
+    };
+    crate::i18n::tf("login.probe_failed", &[("product", product)])
+}
+
 fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
     use rv_core::native::ServerKind;
     match kind.selected() {
@@ -462,6 +475,10 @@ impl LoginPage {
         kind.connect_selected_notify(glib::clone!(
             #[weak]
             whatsapp,
+            #[weak]
+            error,
+            #[weak]
+            probe,
             #[strong]
             previous_kind,
             #[weak]
@@ -513,8 +530,16 @@ impl LoginPage {
                 kchat_row.set_visible(false);
                 slack_status.set_visible(slack);
                 slack_workspace_row.set_visible(false);
-                submit.set_label(t(if slack { "slack.signIn" } else { "login.sign_in" }));
+                submit.set_label(t(if slack {
+                    "slack.signIn"
+                } else if kchat {
+                    "login.infomaniak"
+                } else {
+                    "login.sign_in"
+                }));
                 infomaniak.set_visible(false);
+                error.set_visible(false);
+                probe.set_visible(false);
                 if !slack {
                     server.emit_by_name::<()>("changed", &[]);
                 }
@@ -567,7 +592,7 @@ impl LoginPage {
                         probe.remove_css_class("bad");
                         let token = matches!(&found, Ok(p) if p.genre == "kchat");
                         password_caption.set_label(t(if token { "login.kchat_token" } else { "login.password" }));
-                        infomaniak.set_visible(token);
+                        infomaniak.set_visible(false);
                         match found {
                             Ok(p) if !p.password_login => {
                                 probe.add_css_class("bad");
@@ -592,11 +617,11 @@ impl LoginPage {
                             }
                             Err(e) => {
                                 probe.add_css_class("bad");
-                                probe.set_label(t(if e.error.as_deref() == Some("not_native") {
-                                    "login.not_vibez"
+                                probe.set_label(&if e.error.as_deref() == Some("not_native") {
+                                    t("login.not_vibez").to_owned()
                                 } else {
-                                    "login.probe_failed"
-                                }));
+                                    probe_failed(chosen)
+                                });
                             }
                         }
                     });
@@ -807,13 +832,18 @@ impl LoginPage {
     }
 
     /// The kind of server chosen under the address.
-    /// Opens Infomaniak's sign-in, as a click would; false while the button is hidden.
+    /// Opens Infomaniak's sign-in, as a click would; false off a kChat account.
     pub fn open_infomaniak(&self) -> bool {
-        let shown = self.infomaniak.is_visible();
-        if shown {
+        let kchat = self.server_kind() == rv_core::native::ServerKind::Kchat;
+        if kchat {
             self.infomaniak.emit_clicked();
         }
-        shown
+        kchat
+    }
+
+    /// kChat with no token yet: the button signs in with Infomaniak.
+    pub fn kchat_needs_sign_in(&self) -> bool {
+        self.server_kind() == rv_core::native::ServerKind::Kchat && self.password.text().is_empty()
     }
 
     pub fn server_kind(&self) -> rv_core::native::ServerKind {

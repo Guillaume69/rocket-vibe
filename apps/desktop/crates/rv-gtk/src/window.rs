@@ -753,6 +753,10 @@ impl AppWindow {
             attempt.cancel();
         }
         self.login.clear_slack_workspaces();
+        if self.login.kchat_needs_sign_in() {
+            self.login.open_infomaniak();
+            return;
+        }
         let pending_native = self.pending_native.borrow().clone();
         if let Some(saved) = pending_native {
             self.submit_native_factor(saved);
@@ -910,9 +914,9 @@ impl AppWindow {
             Err(error) => {
                 self.login.set_busy(false);
                 self.login.set_cancel(self.previous.borrow().is_some());
-                self.login.set_error(Some(match error.code {
-                    "supported_browser_missing" => t("slack.browserMissing"),
-                    _ => t("slack.browserFailed"),
+                self.login.set_error(Some(&*match error.code {
+                    "supported_browser_missing" => t("slack.browserMissing").to_owned(),
+                    code => crate::i18n::tf("slack.browserFailedCode", &[("code", code)]),
                 }));
                 return;
             }
@@ -948,11 +952,11 @@ impl AppWindow {
                     this.slack_browser_login.borrow_mut().take();
                     this.login.set_busy(false);
                     this.login.set_cancel(this.previous.borrow().is_some());
-                    this.login.set_error(Some(match code {
-                        "supported_browser_missing" => t("slack.browserMissing"),
-                        "browser_closed" => t("slack.browserClosed"),
-                        "timeout" => t("slack.browserTimeout"),
-                        _ => t("slack.browserFailed"),
+                    this.login.set_error(Some(&*match code {
+                        "supported_browser_missing" => t("slack.browserMissing").to_owned(),
+                        "browser_closed" => t("slack.browserClosed").to_owned(),
+                        "timeout" => t("slack.browserTimeout").to_owned(),
+                        code => crate::i18n::tf("slack.browserFailedCode", &[("code", code)]),
                     }));
                     glib::ControlFlow::Break
                 }
@@ -996,9 +1000,9 @@ impl AppWindow {
                     this.slack_browser_login.borrow_mut().take();
                     this.login.set_busy(false);
                     this.login.set_cancel(this.previous.borrow().is_some());
-                    this.login.set_error(Some(match error.code {
-                        "workspace_unavailable" => t("slack.chooseWorkspace"),
-                        _ => t("slack.browserFailed"),
+                    this.login.set_error(Some(&*match error.code {
+                        "workspace_unavailable" => t("slack.chooseWorkspace").to_owned(),
+                        code => crate::i18n::tf("slack.browserFailedCode", &[("code", code)]),
                     }));
                 }
             }

@@ -31,6 +31,7 @@ struct LoginView: View {
         if login.kind == .slack {
             return L(login.slackWorkspaces.isEmpty ? "slack.signIn" : "slack.continue")
         }
+        if login.kind == .kchat && login.password.isEmpty { return L("login.infomaniak") }
         return L(login.method == nil
             ? login.recovering && login.canRecover ? "login.reset_password"
                 : login.registering && login.canRegister ? "login.create_account" : "login.sign_in"
@@ -141,10 +142,7 @@ struct LoginView: View {
                             .focused($focus, equals: .user)
                             .textContentType(.username)
                     }
-                    if login.kind != .slack {
-                        if login.tokenLogin {
-                            Button(L("login.infomaniak"), action: signInWithInfomaniak)
-                        }
+                    if login.kind != .slack && login.kind != .kchat {
                         SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
                             .focused($focus, equals: .password)
                             .textContentType(.password)
@@ -244,6 +242,7 @@ struct LoginView: View {
     }
 
     func submit() {
+        if login.kind == .kchat && login.password.isEmpty { return signInWithInfomaniak() }
         Task { await app.submitLogin() }
     }
 

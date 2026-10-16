@@ -539,11 +539,18 @@ async fn a_refusal_fails_the_send_without_a_lookup() {
         other => panic!("unexpected {other}"),
     })
     .await;
+    let rest = RestClient::slack(server.url.clone(), Zeroizing::new(COOKIE.to_owned()));
+    rest.set_credentials(Some(rv_core::rest::Credentials { auth_token: TOKEN.into(), user_id: "U000".into() }));
+    let direct = rest.post("chat.postMessage", rv_core::rest::CallOptions::params([("channel", "C001")])).await;
+    assert!(
+        direct.as_ref().is_err_and(|e| e.understood && e.error.as_deref() == Some("is_archived")),
+        "the refusal must read as Slack's own: {direct:?}"
+    );
     let (store, outbox) = outbox(&server);
     let id = outbox.enqueue("C001", "hi", None);
     outbox.process().await;
     assert_eq!(status(&store, "C001", &id).as_deref(), Some("failed"));
-    assert_eq!(server.requests().len(), 1);
+    assert_eq!(server.requests().len(), 2);
 }
 
 /// A 502 to the send, then a history holding one message from me with `marker`.

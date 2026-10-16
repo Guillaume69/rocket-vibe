@@ -507,7 +507,7 @@ export default function LoginScreen() {
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
               {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat'],...(experimental ? [['slack','login.kindSlack']] as const : [])] as const).map(([value,label]) => (
-                <Pressable key={value} onPress={() => setKind(value)} disabled={busy}
+                <Pressable key={value} onPress={() => { setKind(value); setMessage(null); }} disabled={busy}
                   accessibilityRole="radio" accessibilityState={{checked:kind===value}}
                   style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>
                   <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>

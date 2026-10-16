@@ -209,7 +209,7 @@ impl FakeHttp {
                             .map(|(_, v)| v.as_str())
                             .unwrap_or("application/json");
                         let mut out = format!(
-                            "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\n",
+                            "HTTP/1.1 {} X\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
                             response.status,
                             content_type,
                             response.binary.as_ref().map_or(response.body.len(), Vec::len)
@@ -222,9 +222,12 @@ impl FakeHttp {
                         out.push_str("\r\n");
                         let mut bytes = out.into_bytes();
                         bytes.extend(response.binary.as_deref().unwrap_or(response.body.as_bytes()));
-                        if socket.write_all(&bytes).await.is_err() {
-                            return;
-                        }
+                        let _ = socket.write_all(&bytes).await;
+                        // One request per connection: a kept-alive socket the server
+                        // later closes raced reqwest's pool on Windows, so a clean
+                        // refusal read as a lost answer. Close, and reqwest reconnects.
+                        let _ = socket.shutdown().await;
+                        return;
                     }
                 });
             }

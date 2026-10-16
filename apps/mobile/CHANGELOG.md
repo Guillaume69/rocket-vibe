@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- The sign-in page forgets the previous server type's error when you switch type.
+
 ## [0.19.0] - 2026-10-15
 
 ### Added

@@ -9,6 +9,8 @@ section here.
 
 ### Fixed
 
+- The sign-in page forgets the previous server type's error when you switch type, names the type you chose when an address does not answer ("No Mattermost server reachable"), and kChat has a single "Sign in with Infomaniak" button.
+- A failed Slack sign-in now says why, with a short code, instead of a generic "could not be completed".
 - Signing in to Slack no longer stays stuck on Slack's "Launching" page in Edge on Windows: the app completes the sign-in from that page.
 
 ## [0.22.0] - 2026-10-15

@@ -3077,13 +3077,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/rows.rs",
-      "line": 403,
+      "line": 406,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/rows.rs",
-      "line": 405,
+      "line": 408,
       "kind": "endpoint",
       "surface": "rooms.encrypted"
     },

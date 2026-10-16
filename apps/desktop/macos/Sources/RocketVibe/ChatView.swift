@@ -455,7 +455,7 @@ struct RoomRow: View {
                         .background(LinearGradient(colors: [Vibe.muted, Color(hex: 0x5A5573)], startPoint: .topLeading, endPoint: .bottomTrailing),
                                     in: RoundedRectangle(cornerRadius: 10))
                 } else {
-                    Avatar(path: room.avatar, name: room.name, size: 36)
+                    Avatar(path: room.avatar, name: room.name, size: 36, symbol: room.kind == "p" ? "lock.fill" : nil)
                 }
                 if let presence = room.presence {
                     PresenceDot(presence: presence)

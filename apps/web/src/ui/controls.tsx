@@ -113,6 +113,7 @@ export function Avatar({
   size = "message",
   glyph,
   icon,
+  tinted = false,
   children,
 }: {
   app: App;
@@ -123,6 +124,8 @@ export function Avatar({
   glyph?: string;
   /** A symbolic icon in the glyph's place (a locked room), never an emoji. */
   icon?: string;
+  /** The icon on the name's colour (a private room) rather than the neutral tile. */
+  tinted?: boolean;
   children?: ReactNode;
 }) {
   const [image, setImage] = useState<{ scope: string; url: string }>();
@@ -223,7 +226,7 @@ export function Avatar({
         "tile tile-" +
         size +
         // A locked room's tile is neutral, as on the desktop.
-        (icon ? " tile-neutral" : " tile-g" + gradient(name))
+        (icon && !tinted ? " tile-neutral" : " tile-g" + gradient(name))
       }
       data-avatar-user={user?.id}
       data-avatar-room={room?.id}

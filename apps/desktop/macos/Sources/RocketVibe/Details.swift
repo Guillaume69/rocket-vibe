@@ -78,7 +78,7 @@ struct RoomInfoView: View {
             Form {
                 if let d = details {
                     HStack(spacing: 12) {
-                        Avatar(path: model.room.avatar, name: d.name, size: 48)
+                        Avatar(path: model.room.avatar, name: d.name, size: 48, symbol: d.kind == "p" ? "lock.fill" : nil)
                         VStack(alignment: .leading) {
                             Text(d.name).font(.title3.bold())
                             Text(flags(d)).foregroundStyle(.secondary)

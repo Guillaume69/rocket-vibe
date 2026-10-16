@@ -9,14 +9,21 @@ struct Avatar: View {
     let path: String?
     let name: String
     let size: CGFloat
+    var symbol: String? = nil
     @State var image: NSImage?
 
     var body: some View {
         ZStack {
             LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
-            Text(initial)
-                .font(.vibeTitle(size * 0.5))
-                .foregroundStyle(Vibe.ink.opacity(0.85))
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(Vibe.ink.opacity(0.85))
+            } else {
+                Text(initial)
+                    .font(.vibeTitle(size * 0.5))
+                    .foregroundStyle(Vibe.ink.opacity(0.85))
+            }
             if let shown {
                 AnimatedImage(image: shown)
             }

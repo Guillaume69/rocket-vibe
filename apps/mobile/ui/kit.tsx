@@ -189,7 +189,7 @@ export function AvatarTile({
 
 /**
  * A ROOM's avatar, by type: neutral lock if encrypted, first letter for a DM,
- * `#` for a channel. One rule, shared by the list and the room header
+ * a lock for a private room, `#` for a public channel. One rule, shared by the list and the room header
  * (otherwise the two drift).
  */
 export function RoomAvatar({
@@ -263,6 +263,11 @@ export function RoomAvatar({
       c={c}
       hueKey={name}
       initial={isDM ? name.charAt(0) || '?' : '#'}
+      child={
+        type === 'p' ? (
+          <Icon name="channel-secure" size={Math.round(size * 0.42)} color={c.onAvatarGradient} />
+        ) : undefined
+      }
       uri={uri}
       size={size}
       radius={radius}

@@ -179,6 +179,9 @@ pub fn room_tile(name: &str, kind: &str, encrypted: bool, size: TileSize) -> gtk
     if encrypted {
         return widgets::icon_tile(name, "channel-secure-symbolic", size, true);
     }
+    if kind == "p" {
+        return widgets::icon_tile(name, "channel-secure-symbolic", size, false);
+    }
     let glyph = if kind == "d" { widgets::initial(name) } else { "#".to_owned() };
     widgets::tile(name, &glyph, size, false)
 }

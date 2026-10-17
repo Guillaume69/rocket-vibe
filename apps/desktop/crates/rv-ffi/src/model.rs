@@ -549,12 +549,7 @@ pub fn quote(q: content::Quote, ctx: &markdown::Context) -> Quote {
 /// `d.row` as `Session::open_row` left it: an encrypted message opened when
 /// the keys read it, its text None when they do not.
 pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
-    message_named(d, me_id, me, None, &stored_reactor)
-}
-
-/// A reactor as the row names them: the name stored beside the username, else the username.
-pub fn stored_reactor(username: &str, stored: &str) -> String {
-    if stored.is_empty() { username.to_owned() } else { stored.to_owned() }
+    message_named(d, me_id, me, None, &rv_core::actions::stored_reactor)
 }
 
 /// `message`, its mentions named by `names` (Mattermost's name format), its

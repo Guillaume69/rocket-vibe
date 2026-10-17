@@ -233,7 +233,8 @@ impl Access {
                     match entry.header.kind {
                         groups::MessageKind::Edit => edited(row, text),
                         groups::MessageKind::React | groups::MessageKind::Unreact => {
-                            let me = usernames.get(&entry.header.author).unwrap_or(&entry.header.author);
+                            let author = &entry.header.author;
+                            let me = (usernames.get(author).map_or(author.as_str(), String::as_str), names.get(author));
                             react(row, &text, me, entry.header.kind == groups::MessageKind::React)?;
                         }
                         _ => (),
@@ -526,14 +527,15 @@ fn journaled(
     }
     for reaction in &entry.reactions {
         for user in &reaction.users {
-            react(&mut row, &reaction.emoji, usernames.get(user).unwrap_or(user), true)?;
+            let username = usernames.get(user).map_or(user.as_str(), String::as_str);
+            react(&mut row, &reaction.emoji, (username, names.get(user)), true)?;
         }
     }
     Ok(row)
 }
 /// Adds or removes one user's reaction in the row's reaction map, keyed like
-/// the ordinary native rows (`{":name:": {"usernames": [...]}}`).
-fn react(message: &mut Message, emoji: &str, username: &str, present: bool) -> Result<()> {
+/// the ordinary native rows (`{":name:": {"usernames": [...], "names": [...]}}`).
+fn react(message: &mut Message, emoji: &str, (username, name): (&str, Option<&String>), present: bool) -> Result<()> {
     let mut map = message
         .row
         .reactions
@@ -543,17 +545,23 @@ fn react(message: &mut Message, emoji: &str, username: &str, present: bool) -> R
         .map_err(|_| room_changed())?
         .unwrap_or_default();
     let key = format!(":{emoji}:");
-    let mut users = map
-        .remove(&key)
-        .and_then(|v| v.get("usernames").cloned())
-        .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
-        .unwrap_or_default();
-    users.retain(|u| u != username);
+    let entry = map.remove(&key);
+    let list = |field: &str| {
+        entry
+            .as_ref()
+            .and_then(|v| v.get(field).cloned())
+            .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+            .unwrap_or_default()
+    };
+    let (users, mut names) = (list("usernames"), list("names"));
+    names.resize(users.len(), String::new());
+    let mut people: Vec<(String, String)> = users.into_iter().zip(names).filter(|(u, _)| u != username).collect();
     if present {
-        users.push(username.to_owned());
+        people.push((username.to_owned(), name.cloned().unwrap_or_default()));
     }
-    if !users.is_empty() {
-        map.insert(key, serde_json::json!({ "usernames": users }));
+    if !people.is_empty() {
+        let (users, names): (Vec<String>, Vec<String>) = people.into_iter().unzip();
+        map.insert(key, serde_json::json!({ "usernames": users, "names": names }));
     }
     message.row.reactions =
         if map.is_empty() { None } else { Some(serde_json::to_string(&map).map_err(|_| room_changed())?) };

@@ -299,20 +299,20 @@ pub fn reactions(json: Option<&str>, me: &str) -> Vec<Reaction> {
     let Some(map) = json.and_then(|j| serde_json::from_str::<serde_json::Map<String, Value>>(j).ok()) else {
         return Vec::new();
     };
-    let strings = |v: &Value, key: &str| -> Vec<String> {
-        v.get(key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    };
     map.into_iter()
         .filter_map(|(shortcode, v)| {
-            let mut names = strings(&v, "names").into_iter();
-            let people: Vec<(String, String)> =
-                strings(&v, "usernames").into_iter().map(|user| (user, names.next().unwrap_or_default())).collect();
+            // Paired by position, so one odd entry does not shift the names after it.
+            let names = v.get("names").and_then(Value::as_array);
+            let people: Vec<(String, String)> = v
+                .get("usernames")?
+                .as_array()?
+                .iter()
+                .enumerate()
+                .filter_map(|(i, user)| {
+                    let name = names.and_then(|n| n.get(i)).and_then(Value::as_str).unwrap_or_default();
+                    Some((user.as_str()?.to_owned(), name.to_owned()))
+                })
+                .collect();
             (!people.is_empty()).then(|| Reaction {
                 mine: people.iter().any(|(user, _)| user == me),
                 count: people.len(),
@@ -330,25 +330,29 @@ pub const REACTORS_SHOWN: usize = 12;
 /// as "You", the others as `name(username, stored name)` says, those past
 /// `REACTORS_SHOWN` only counted.
 pub fn reactors_text(reaction: &Reaction, me: &str, name: impl Fn(&str, &str) -> String) -> String {
-    let (mine, others): (Vec<&(String, String)>, Vec<_>) = reaction.people.iter().partition(|(user, _)| user == me);
     let mut shown: Vec<String> = Vec::new();
-    if !mine.is_empty() {
+    if reaction.mine {
         shown.push(crate::i18n::t("reactions.you").to_owned());
     }
-    let room = REACTORS_SHOWN.saturating_sub(shown.len());
+    let others: Vec<&(String, String)> = reaction.people.iter().filter(|(user, _)| user != me).collect();
+    let room = REACTORS_SHOWN - shown.len();
     shown.extend(others.iter().take(room).map(|(user, stored)| name(user, stored)));
     let rest = others.len().saturating_sub(room);
-    let people = match shown.split_last() {
-        _ if rest > 0 => crate::i18n::tf(
-            "reactions.and",
-            &[("first", &shown.join(", ")), ("last", &crate::i18n::tn("reactions.others", rest as i64))],
-        ),
-        Some((last, first)) if !first.is_empty() => {
-            crate::i18n::tf("reactions.and", &[("first", &first.join(", ")), ("last", last)])
-        }
-        _ => shown.concat(),
+    let people = if rest > 0 {
+        crate::i18n::tn("receipts.and_others", rest as i64).replace("{names}", &shown.join(", "))
+    } else if let [first @ .., last] = shown.as_slice()
+        && !first.is_empty()
+    {
+        crate::i18n::tf("reactions.and", &[("first", &first.join(", ")), ("last", last)])
+    } else {
+        shown.concat()
     };
     format!("{}\n{people}", reaction.shortcode)
+}
+
+/// A reactor as the row names them: the name stored beside the username, else the username.
+pub fn stored_reactor(username: &str, stored: &str) -> String {
+    if stored.is_empty() { username.to_owned() } else { stored.to_owned() }
 }
 
 pub const QUICK_REACTIONS: [&str; 6] = [":+1:", ":heart:", ":joy:", ":tada:", ":open_mouth:", ":pray:"];
@@ -719,16 +723,33 @@ mod tests {
             r#"{":+1:":{"usernames":["bob","me","ann"],"names":["Bob B","Me M","Ann A"]},":x:":{"usernames":["bob"]}}"#;
         let r = reactions(Some(json), "me");
         assert_eq!(r[0].people[2], ("ann".to_owned(), "Ann A".to_owned()));
-        let stored = |user: &str, name: &str| if name.is_empty() { user.to_owned() } else { name.to_owned() };
-        assert_eq!(reactors_text(&r[0], "me", stored), ":+1:\nYou, Bob B and Ann A");
-        assert_eq!(reactors_text(&r[1], "me", stored), ":x:\nbob");
-        let many: Vec<String> = (0..15).map(|i| format!("u{i}")).collect();
-        let crowd = reactions(Some(&serde_json::json!({":tada:": {"usernames": many}}).to_string()), "me");
-        let text = reactors_text(&crowd[0], "me", stored);
-        assert!(text.ends_with("u10, u11 and 3 others"), "{text}");
+        assert_eq!(reactors_text(&r[0], "me", stored_reactor), ":+1:\nYou, Bob B and Ann A");
+        assert_eq!(reactors_text(&r[1], "me", stored_reactor), ":x:\nbob");
+        let crowd = |n: usize, me_too: bool| {
+            let mut users: Vec<String> = (0..n).map(|i| format!("u{i}")).collect();
+            if me_too {
+                users.push("me".into());
+            }
+            let r = reactions(Some(&serde_json::json!({":tada:": {"usernames": users}}).to_string()), "me");
+            reactors_text(&r[0], "me", stored_reactor)
+        };
+        assert!(crowd(15, false).ends_with("u10, u11 and 3 others"), "{}", crowd(15, false));
+        assert!(crowd(12, false).ends_with("u10 and u11"), "{}", crowd(12, false));
+        assert!(crowd(13, false).ends_with("u11 and 1 other"), "{}", crowd(13, false));
+        let mine = crowd(12, true);
+        assert!(mine.starts_with(":tada:\nYou, u0,") && mine.ends_with("u10 and 1 other"), "{mine}");
         crate::i18n::set(crate::i18n::Lang::Fr);
-        assert_eq!(reactors_text(&r[0], "me", stored), ":+1:\nToi, Bob B et Ann A");
+        assert_eq!(reactors_text(&r[0], "me", stored_reactor), ":+1:\nVous, Bob B et Ann A");
         crate::i18n::set(crate::i18n::Lang::En);
+    }
+
+    #[test]
+    fn reactor_names_pair_with_usernames_by_position() {
+        let json =
+            r#"{":+1:":{"usernames":["bob",7,"carol"],"names":["B",null,"C"]},":x:":{"usernames":["ann"],"names":[]}}"#;
+        let r = reactions(Some(json), "me");
+        assert_eq!(r[0].people, vec![("bob".to_owned(), "B".to_owned()), ("carol".to_owned(), "C".to_owned())]);
+        assert_eq!(r[1].people, vec![("ann".to_owned(), String::new())]);
     }
 
     #[test]

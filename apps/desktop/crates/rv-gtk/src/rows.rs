@@ -890,17 +890,16 @@ fn message_from_provider(
                     chip.set_child(Some(&content));
                 }
             }
-            // Who reacted, named when hovered: the names can change after the row is built.
+            // Who reacted, named at the first hover (GTK asks again on every motion),
+            // so a row drawn before its names were known still names them.
             chip.set_has_tooltip(true);
             let (session, me, shown) = (session.cloned(), me.to_owned(), reaction.clone());
+            let text = std::cell::OnceCell::new();
             chip.connect_query_tooltip(move |_, _, _, _, tooltip| {
-                let text = match &session {
+                tooltip.set_text(Some(text.get_or_init(|| match &session {
                     Some(session) => rv_core::actions::reactors_text(&shown, &me, session.reactor_names()),
-                    None => rv_core::actions::reactors_text(&shown, &me, |user, stored| {
-                        if stored.is_empty() { user.to_owned() } else { stored.to_owned() }
-                    }),
-                };
-                tooltip.set_text(Some(&text));
+                    None => rv_core::actions::reactors_text(&shown, &me, rv_core::actions::stored_reactor),
+                })));
                 true
             });
             let (on_event, id) = (on_event.clone(), row.id.clone());

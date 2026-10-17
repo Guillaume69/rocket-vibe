@@ -1099,7 +1099,9 @@ async fn private_edits_and_deletions_show_on_their_target_and_resume_like_sends(
     assert_eq!(view.messages.len(), 1);
     let reactions: serde_json::Value =
         serde_json::from_str(view.messages[0].row.reactions.as_deref().unwrap()).unwrap();
-    assert_eq!(reactions, serde_json::json!({":thumbsup:": {"usernames": ["alice"]}}));
+    assert_eq!(reactions[":thumbsup:"]["usernames"], serde_json::json!(["alice"]));
+    // Each reactor's display name, beside the username, for the hover text.
+    assert_eq!(reactions[":thumbsup:"]["names"].as_array().map(Vec::len), Some(1));
     assert!(chat.react(id.clone(), "not-an-emoji".into(), true).await.is_err());
     chat.react(id.clone(), "thumbsup".into(), false).await.unwrap();
     assert!(chat.refresh(None, 50).await.unwrap().messages[0].row.reactions.is_none());

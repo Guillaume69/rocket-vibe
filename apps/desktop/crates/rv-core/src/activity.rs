@@ -170,21 +170,9 @@ fn others_reactions(json: Option<&str>, me: &str) -> (Vec<String>, Vec<String>) 
 /// (`{":e:": {"usernames": [...], "names": [...]}}`, in the same order, sent
 /// when the server shows real names), by username.
 pub fn reaction_names(json: Option<&str>) -> HashMap<String, String> {
-    let Some(map) = json.and_then(|j| serde_json::from_str::<serde_json::Map<String, Value>>(j).ok()) else {
-        return HashMap::new();
-    };
-    let list = |entry: &Value, key: &str| -> Vec<String> {
-        entry
-            .get(key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect()
-    };
-    map.values()
-        .flat_map(|entry| list(entry, "usernames").into_iter().zip(list(entry, "names")))
+    crate::actions::reactions(json, "")
+        .into_iter()
+        .flat_map(|reaction| reaction.people)
         .filter(|(_, name)| !name.is_empty())
         .collect()
 }

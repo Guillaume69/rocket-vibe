@@ -371,6 +371,7 @@ impl Chat {
             new_marker: false,
             seen: None,
         };
-        crate::model::message(d, &info.user_id, &info.username)
+        let reactor = self.session.reactor_names();
+        crate::model::message_named(d, &info.user_id, &info.username, None, &reactor)
     }
 }

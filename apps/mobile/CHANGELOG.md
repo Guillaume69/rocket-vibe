@@ -13,13 +13,15 @@ release, and its notes are that version's section here.
 - Tables written with pipes (`| a | b |`), as Mattermost and Slack integrations post them, show as a grid that scrolls sideways when it is too wide.
 - Mattermost and kChat: a link to another post shows that post as a quote under the message, as the official apps do.
 - Mattermost and kChat: a reminder the server posts ("Hi there, here's your reminder about this message…") reads in the app's language.
-- Mattermost and kChat: a post from an incoming webhook shows under the webhook's own name and picture, with the BOT badge, as does a bot's post.
+- A post from a Mattermost or kChat incoming webhook, or a Rocket.Chat message sent under an alias, shows under its own name and picture, with the BOT badge for an integration or a bot account (kChat's Euria too), and is grouped apart from its poster's own messages.
+- Mattermost and kChat: the buttons of integration cards are drawn and work, in the room and in a post only you can see (kChat's Delete and View reminders): the integration's answer shows as a note only you see or opens its page, and a refusal says "This action failed".
 
 ### Changed
 
 - A private room shows a lock on its coloured tile, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their grey lock.
 - Mattermost and kChat: a mention shows the person's name under the account's name format, as the official apps do, instead of the username.
 - Integration cards (kChat's Euria requests, Mattermost bots) show their text above the card, and their titles, texts and field values formatted: emoji, links, bold.
+- Mattermost and kChat: a post only you can see (a command's answer, kChat's confirmation of a reminder) now shows its cards too, and a reminder's confirmation reads in the app's language with its due time instead of the server's English.
 - kChat signs in with one button, in a sign-in page inside the app; the personal API token field is gone.
 - Experimental Slack accounts sign in with one button, in a sign-in page inside the app, with no browser helper or pasted session; several workspaces are offered to choose from.
 

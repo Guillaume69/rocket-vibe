@@ -13,15 +13,17 @@ section here.
 - Back and forward (Alt + arrows and the mouse's side buttons; on macOS Option + arrows and the header arrows) now walk the rooms you opened on every account, switching account when the room belongs to another one. On macOS the mouse's back and forward buttons work too.
 - Zoom the text: Ctrl (Cmd on macOS) with + or -, or with the mouse wheel, in steps from 67 % to 200 %, and Ctrl (Cmd) + 0 back to 100 %, as in a browser. The size is kept for the next launch, the same on GTK and SwiftUI. On macOS the View menu has Zoom In, Zoom Out and Actual Size.
 - Tables written with pipes (`| a | b |`), as Mattermost and Slack integrations post them, show as a grid that scrolls sideways when it is too wide.
-- Mattermost and kChat: a link to another post shows that post as a quote under the message, as the official apps do.
+- Mattermost and kChat: a link to another post shows that post as a quote under the message, with its files and its author's name, as the official apps do.
 - Mattermost and kChat: a reminder the server posts ("Hi there, here's your reminder about this message…") reads in the app's language.
-- A post from a Mattermost or kChat incoming webhook, or a Rocket.Chat message sent under an alias, shows under its own name and picture, with the BOT badge for an integration or a bot, and is grouped apart from its poster's own messages.
+- A post from a Mattermost or kChat incoming webhook, or a Rocket.Chat message sent under an alias, shows under its own name and picture, with the BOT badge for an integration or a bot account (kChat's Euria too), and is grouped apart from its poster's own messages.
+- Mattermost and kChat: a post only you can see (a command's answer, kChat's confirmation of a reminder) shows above the composer with its text formatted and its cards; a reminder's confirmation reads in the app's language with its due time ("You will be reminded about this message from @bob tomorrow at 09:00").
+- Mattermost and kChat: the buttons of integration cards are drawn and work, in the room and in a post only you can see (kChat's Delete and View reminders): the integration's answer shows as a note only you see or opens its page, and a refusal says "This action failed".
 
 ### Changed
 
 - Ctrl (Cmd) + 0 resets the zoom instead of opening the tenth account of the server rail: the rail's shortcuts stop at the ninth.
 - A private room shows a lock on its coloured tile, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their grey lock.
-- Mattermost and kChat: a mention shows the person's name under the account's name format, as the official apps do, instead of the username.
+- Mattermost and kChat: a mention shows the person's name under the account's name format, as the official apps do, instead of the username, also for someone the app had not met yet.
 - Integration cards (kChat's Euria requests, Mattermost bots) show their text above the card, and their titles, texts and field values formatted: emoji and links instead of raw `:file_folder:` and `[label](url)`.
 
 ### Fixed

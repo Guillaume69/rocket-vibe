@@ -6,7 +6,7 @@ import { TeamsPreview } from '../ui/teamsPreview.tsx';
 import { slackFailure } from '../ui/slackSignIn.tsx';
 import { SignInWebView } from '../ui/signInWebView.tsx';
 import { WebCookies } from '../modules/web-cookies/index.ts';
-import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
+import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, SLACK_WEB_USER_AGENT, isSlackWebDone, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
 import * as Crypto from 'expo-crypto';
 import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -691,7 +691,7 @@ export default function LoginScreen() {
           onDone={(redirect) => void kchatRedirected(redirect, webSignIn.pkce)} onCancel={() => setWebSignIn(null)} />
       )}
       {webSignIn?.kind === 'slack' && (
-        <SignInWebView title={t('slack.signIn')} start={SLACK_WEB_START}
+        <SignInWebView title={t('slack.signIn')} start={SLACK_WEB_START} userAgent={SLACK_WEB_USER_AGENT}
           isPage={isSlackWebPage} isDone={isSlackWebDone}
           doneScript={(url) => (new URL(url).pathname.startsWith('/ssb/') ? null : CLIENT_HOSTS_SCRIPT)}
           onDone={(reached, answer) => void slackReached(reached, answer)}

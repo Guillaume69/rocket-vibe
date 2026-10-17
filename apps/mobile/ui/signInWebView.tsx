@@ -18,6 +18,8 @@ import { FONTS, useColors } from './theme.ts';
 export type SignInWebViewProps = {
   title: string;
   start: string;
+  /** Sent instead of the phone's, for a provider that answers a phone with its app's store page. */
+  userAgent?: string;
   isPage: (url: string) => boolean;
   isDone: (url: string) => boolean;
   /** Run in the page once done is reached, when it must say something; its `postMessage` answer comes back in `onDone`. */
@@ -26,7 +28,7 @@ export type SignInWebViewProps = {
   onCancel: () => void;
 };
 
-export function SignInWebView({ title, start, isPage, isDone, doneScript, onDone, onCancel }: SignInWebViewProps) {
+export function SignInWebView({ title, start, userAgent, isPage, isDone, doneScript, onDone, onCancel }: SignInWebViewProps) {
   const c = useColors();
   const t = useT();
   const insets = useSafeAreaInsets();
@@ -57,6 +59,8 @@ export function SignInWebView({ title, start, isPage, isDone, doneScript, onDone
           ref={web}
           source={{ uri: start }}
           style={styles.web}
+          userAgent={userAgent}
+          originWhitelist={EVERY_ADDRESS}
           domStorageEnabled
           setSupportMultipleWindows={false}
           mediaPlaybackRequiresUserAction
@@ -86,6 +90,9 @@ export function SignInWebView({ title, start, isPage, isDone, doneScript, onDone
     </Modal>
   );
 }
+
+/** Every address reaches `onShouldStartLoadWithRequest`: the default list hands any other scheme, the provider's redirect to the app included, to the system first. */
+const EVERY_ADDRESS = ['*'];
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },

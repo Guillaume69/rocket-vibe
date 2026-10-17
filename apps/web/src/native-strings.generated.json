@@ -1736,8 +1736,12 @@
     "A little sparkle. When off: system sound, or silence for RocketVibe cards."
   ],
   "login.probe_failed": [
-    "Pas de Rocket.Chat joignable à cette adresse",
-    "No Rocket.Chat reachable at this address"
+    "Pas de serveur {product} joignable à cette adresse",
+    "No {product} server reachable at this address"
+  ],
+  "login.probe_failed_any": [
+    "Pas de serveur de discussion joignable à cette adresse",
+    "No chat server reachable at this address"
   ],
   "login.not_vibez": [
     "Pas de serveur Vibez à cette adresse",
@@ -1749,6 +1753,7 @@
   "login.kind_vibez": ["Vibez", "Vibez"],
   "login.kind_mattermost": ["Mattermost", "Mattermost"],
   "login.kind_kchat": ["kChat", "kChat"],
+  "login.kind_slack": ["Slack", "Slack"],
   "login.kchat_token": ["Jeton d'API Infomaniak", "Infomaniak API token"],
   "login.kchat_server": ["Serveur kChat", "kChat server"],
   "login.kchat_token_rejected": [

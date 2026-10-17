@@ -60,10 +60,10 @@ Typing `/giphy` opens the GIF picker in unencrypted rooms and threads. Its searc
 
 ## The private answer
 
-The private message is shown above the composer of the page it concerns, rendered as markdown, under a "only you" title, until closed. A newer note replaces the previous one. It is volatile: memory only, no database row.
+The private message is shown above the composer of the page it concerns, rendered as markdown, under a "only you" title, until closed. A newer note replaces the previous one. It is volatile: memory only, no database row. On Mattermost and kChat the same note carries the server's "visible only to you" posts (`ephemeral_message`), with their integration cards and working buttons, and a reminder's confirmation reworded in the app's language ([mattermost-and-kchat](mattermost-and-kchat.md#post-rendering)); a button's `ephemeral_text` answer replaces it.
 
-- Mobile: `ui/sync.tsx` routes each DDP event through `provider.privateNote`, then `setPrivateNote`; `ui/privateNotes.tsx` keeps one note per room in a module store read with `useSyncExternalStore`.
-- Desktop: `Session::apply_live` emits `SessionEvent::Private { rid, text }`; GTK's `Chat::on_private` shows it in the open thread's composer if the thread belongs to that room, else in the room's composer if it is open (`Composer::show_private`). Binding a composer to another room hides the note. SwiftUI keeps it in `RoomModel.note` and shows `PrivateNote`.
+- Mobile: `ui/sync.tsx` routes each event through `provider.privateNote` (a `PrivateNoteData`: `rid`, `text`, and for Mattermost `postId`, `cards`, `reminder`), then `setPrivateNote`; `ui/privateNoteStore.ts` keeps one note per room in a module store read with `useSyncExternalStore`, and `ui/privateNotes.tsx` draws it (`PrivateNote`, the cards through `IntegrationCard` with the note's `postId`).
+- Desktop: `Session::apply_live` (Rocket.Chat's private message) and the Mattermost `ephemeral_message` handler emit `SessionEvent::Private { rid, text, attachments, post_id }`; GTK's `ChatPage::on_private` shows it in the open thread's composer if the thread belongs to that room, else in the room's composer if it is open (`Composer::show_private`: the text as markdown with mention names, then `cards::attachment_card` for each card, its buttons pressed through `post_id`). Binding a composer to another room hides the note. SwiftUI: rv-ffi's `Event::PrivateNote` carries `body`, `cards` and `post_id`, kept as a `PrivateNoteItem` in `RoomModel.note` and drawn by `PrivateNote` (`BodyView`, `IntegrationCard`).
 
 ## Parity
 
@@ -86,6 +86,7 @@ Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rul
 - apps/mobile/lib/commands.ts
 - apps/mobile/ui/commandCompletion.tsx
 - apps/mobile/ui/privateNotes.tsx
+- apps/mobile/ui/privateNoteStore.ts
 - apps/mobile/ui/composer.tsx
 - apps/mobile/ui/sync.tsx
 - apps/mobile/lib/permissions.ts

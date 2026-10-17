@@ -110,6 +110,8 @@ All code, comments and docs are in English. French survives in two places only: 
 | Permalink preview | A post of the server linked in a message, sent by the server as a `permalink` embed (`metadata.embeds`); the apps make it a quote attachment flagged `permalink_preview`, drawn under the text. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 | Reminder post | A post of `type: "reminder"` the system bot sends when a "Remind me" set in a Mattermost or kChat client falls due; reworded in the app's language. Not the apps' own [reminders](features/reminders.md). | `lib/reminder.ts`, `translate.rs` |
 | Webhook alias | The name and picture an incoming webhook posts under (`override_username`, `override_icon_url`, with `from_webhook`); mobile `authorAlias` / `authorAvatar`, desktop `Message.alias` / `alias_avatar` (which also carry Rocket.Chat's `alias` / `avatar`). | [room-view](features/room-view.md) |
+| Ephemeral post | A Mattermost or kChat post "visible only to you" (`ephemeral_message`: a command's answer, a reminder's confirmation), never stored; the apps show it as the private note above the composer. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
+| Card button | An integration card's `actions[]` button (Mattermost and kChat), pressed through `POST /posts/<post>/actions/<action>` with the `cookie` an ephemeral post's button carries. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 
 ## Slack (`apps/mobile/providers/slack/`, `apps/desktop/crates/rv-core/src/slack/`)
 
@@ -169,7 +171,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `MessageRow` | Message row, shared by room and thread. | `apps/mobile/ui/messageRow.tsx` |
 | `messages` | The i18n catalog (`fr` is the reference, `en` typed against it). | `apps/mobile/ui/messages.ts` |
 | Open rooms (`openRooms`) | Which room screens are mounted and which one is displayed (the only room the catch-up targets). | `apps/mobile/ui/openRooms.ts` |
-| Private notes (`privateNotes`) | The server's answer to a slash command, shown above the composer, in memory only. | `apps/mobile/ui/privateNotes.tsx` |
+| Private notes (`privateNotes`) | What the server tells me alone in a room (a slash command's answer, a Mattermost or kChat ephemeral post with its cards), shown above the composer, in memory only. | `apps/mobile/ui/privateNoteStore.ts`, `apps/mobile/ui/privateNotes.tsx` |
 | Reply target (`reply`) | The channel between the actions sheet and the composer. | `apps/mobile/ui/reply.ts` |
 | `sessionToken` | UI session token that lets module-level caches refuse a late write after sign-out. | `apps/mobile/ui/sessionToken.ts` |
 | `SessionProvider`, `SyncProvider` | Session lifecycle (optimistic resume, sign-out) and the sync wiring per session. | `apps/mobile/ui/session.tsx`, `apps/mobile/ui/sync.tsx` |

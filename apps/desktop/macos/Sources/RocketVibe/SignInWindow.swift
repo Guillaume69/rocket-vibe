@@ -113,7 +113,14 @@ final class SignInWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindow
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {
+        let target = navigationAction.request.url?.absoluteString ?? ""
+        let stays = switch kind {
+        case .kchat: kchatIsSignInPage(url: target) || kchatIsRedirect(url: target)
+        case .slack: slackWindowPage(url: target) || slackWindowDone(url: target)
+        }
+        if stays {
+            webView.load(navigationAction.request)
+        } else if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {
             NSWorkspace.shared.open(url)
         }
         return nil

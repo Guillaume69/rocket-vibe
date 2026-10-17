@@ -69,14 +69,19 @@ define_class!(
         #[unsafe(method_id(webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:))]
         fn create_window(
             &self,
-            _web: &WKWebView,
+            web: &WKWebView,
             _configuration: &WKWebViewConfiguration,
             action: &WKNavigationAction,
             _features: &WKWindowFeatures,
         ) -> Option<Retained<WKWebView>> {
             if let Some(target) = target_of(action) {
-                call_event("left for the browser", &target);
-                open_in_browser(&target);
+                if stays_in_window(&self.ivars().mode, &target) {
+                    // SAFETY: loading, in this window, the request WebKit wanted a new one for.
+                    unsafe { web.loadRequest(&action.request()) };
+                } else {
+                    call_event("left for the browser", &target);
+                    open_in_browser(&target);
+                }
             }
             None
         }
@@ -204,6 +209,15 @@ fn origin_address(origin: &WKSecurityOrigin) -> String {
     // SAFETY: plain property reads of the origin WebKit hands us.
     let (scheme, host, port) = unsafe { (origin.protocol().to_string(), origin.host().to_string(), origin.port()) };
     if port > 0 { format!("{scheme}://{host}:{port}") } else { format!("{scheme}://{host}") }
+}
+
+/// A sign-in page opened in a new window (Slack's workspace list does) stays in this one.
+fn stays_in_window(mode: &Mode, target: &str) -> bool {
+    match mode {
+        Mode::Session(session) => (session.page)(target) || (session.done)(target),
+        Mode::SignIn(sign_in) => (sign_in.page)(target) || (sign_in.redirect)(target),
+        Mode::Call(..) => false,
+    }
 }
 
 fn target_of(action: &WKNavigationAction) -> Option<String> {

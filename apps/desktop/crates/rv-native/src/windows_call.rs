@@ -33,6 +33,15 @@ use crate::{Cookie, SessionSignIn, SignIn, call_event};
 
 type Allowed = fn(&str, &str) -> bool;
 
+/// A sign-in page opened in a new window (Slack's workspace list does) stays in this one.
+fn stays_in_window(mode: &Mode, uri: &str) -> bool {
+    match mode {
+        Mode::Session(session) => (session.page)(uri) || (session.done)(uri),
+        Mode::SignIn(sign_in) => (sign_in.page)(uri) || (sign_in.redirect)(uri),
+        Mode::Call(..) => false,
+    }
+}
+
 #[derive(Clone)]
 enum Mode {
     Call(Allowed, Vec<Cookie>),
@@ -281,6 +290,7 @@ unsafe fn attach(
 
         let origin = call_url.to_owned();
         let args_page = page.clone();
+        let (opener, opened_page) = (mode.clone(), page.clone());
         page.add_NavigationStarting(
             &NavigationStartingEventHandler::create(Box::new(move |_, args| {
                 let Some(args) = args else { return Ok(()) };
@@ -331,6 +341,11 @@ unsafe fn attach(
                 args.Uri(&mut uri)?;
                 let uri = take_pwstr(uri);
                 args.SetHandled(true)?;
+                if stays_in_window(&opener, &uri) {
+                    let url = CoTaskMemPWSTR::from(uri.as_str());
+                    opened_page.Navigate(*url.as_ref().as_pcwstr())?;
+                    return Ok(());
+                }
                 call_event("left for the browser", &uri);
                 if uri.starts_with("https://") || uri.starts_with("http://") {
                     open_in_browser(&uri);

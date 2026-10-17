@@ -90,6 +90,10 @@ fn show(anchor: &gtk::Widget, caught: Caught) -> Result<(), String> {
             return false;
         }
         decision.ignore();
+        if kind == webkit6::PolicyDecisionType::NewWindowAction && window_page(&target) {
+            web.load_uri(&target);
+            return true;
+        }
         if clicked && (target.starts_with("https://") || target.starts_with("http://")) {
             crate::cards::open_uri(web, &target);
         }

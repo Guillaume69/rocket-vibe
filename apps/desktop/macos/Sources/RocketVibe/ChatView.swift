@@ -448,15 +448,7 @@ struct RoomRow: View {
     var row: some View {
         HStack(spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                if room.encrypted && room.avatar == nil {
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(Vibe.ink.opacity(0.8))
-                        .frame(width: 36, height: 36)
-                        .background(LinearGradient(colors: [Vibe.muted, Color(hex: 0x5A5573)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    in: RoundedRectangle(cornerRadius: 10))
-                } else {
-                    Avatar(path: room.avatar, name: room.name, size: 36, symbol: room.kind == "p" ? "lock.fill" : nil)
-                }
+                RoomTile(room: room, size: 36)
                 if let presence = room.presence {
                     PresenceDot(presence: presence)
                 }

@@ -260,6 +260,8 @@ public final class RoomModel {
     }
     public var canAbandon: Bool { provider.native != nil }
     public private(set) var error: String?
+    /// Shown by the app at once, however often it repeats.
+    @ObservationIgnored public var onNotice: ((String) -> Void)?
     var active = true
     public private(set) var messages: [MessageItem] = []
     public private(set) var hasOlder = true
@@ -1269,7 +1271,7 @@ extension RoomModel {
             }
             return answer.open.flatMap(URL.init(string:))
         } catch {
-            self.error = L("mm.action_failed")
+            onNotice?(L("mm.action_failed"))
             return nil
         }
     }

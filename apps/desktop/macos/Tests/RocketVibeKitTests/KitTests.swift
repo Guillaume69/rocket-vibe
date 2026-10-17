@@ -238,3 +238,45 @@ final class ServerRailOrderTests: XCTestCase {
         XCTAssertEqual(zoomStep(percent: 67, zoomIn: false), 67)
     }
 }
+
+final class NavigationHistoryTests: XCTestCase {
+    typealias Visit = AppModel.Visit
+
+    func testAnAccountGoneLeavesTheHistoryWithTheCursorOnTheNearestVisit() {
+        let one = Visit(account: "a", rid: "1"), two = Visit(account: "b", rid: "2"), three = Visit(account: "a", rid: "3")
+        var pruned = AppModel.pruned([one, two, three, two], at: 3) { $0.account != "b" }
+        XCTAssertEqual(pruned.0, [one, three])
+        XCTAssertEqual(pruned.1, 1)
+        pruned = AppModel.pruned([one, two, one], at: 1) { $0.account != "b" }
+        XCTAssertEqual(pruned.0, [one])
+        XCTAssertEqual(pruned.1, 0)
+        pruned = AppModel.pruned([two, one], at: 0) { $0.account != "b" }
+        XCTAssertEqual(pruned.0, [one])
+        XCTAssertEqual(pruned.1, -1)
+    }
+
+    @MainActor
+    func testAStepOntoAnAccountGoneLeavesTheCursorWhereItWas() async {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-history-\(getpid())").path
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let app = AppModel(home: home)
+        app.history = [Visit(account: "gone", rid: "1"), Visit(account: "gone", rid: "2")]
+        app.historyAt = 1
+        await app.step(-1)
+        XCTAssertEqual(app.historyAt, 1)
+        XCTAssertEqual(app.notice, L("links.unavailable"))
+    }
+
+    @MainActor
+    func testALinkOrANotificationWinsOverTheLastRoom() async {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("rv-last-room-\(getpid())").path
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let app = AppModel(home: home)
+        app.pendingLastRoom = "last"
+        await app.openLink("https://chat.example.com/channel/general")
+        XCTAssertNil(app.pendingLastRoom)
+        app.pendingLastRoom = "last"
+        await app.notificationAction(key: "key", message: "message")
+        XCTAssertNil(app.pendingLastRoom)
+    }
+}

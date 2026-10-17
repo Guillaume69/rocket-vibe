@@ -14,7 +14,6 @@ struct RocketVibeApp: App {
             RootView()
                 .environment(app)
                 .environment(modals)
-                .vibe()
                 .frame(minWidth: 420, minHeight: 360)
                 .task { await start() }
                 .onOpenURL { url in open(url) }
@@ -27,7 +26,6 @@ struct RocketVibeApp: App {
 
     @MainActor
     func start() async {
-        // The mouse's back and forward buttons walk the rooms opened, as Option + arrows do.
         NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [app] event in
             switch event.buttonNumber {
             case 3: app.goBack()
@@ -36,11 +34,16 @@ struct RocketVibeApp: App {
             }
             return nil
         }
-        // Cmd + wheel zooms the text; a trackpad's fine steps add up to one notch.
         let wheel = WheelZoom()
         NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [app] event in
             guard event.modifierFlags.contains(.command) else { return event }
             if let larger = wheel.notch(event) { app.zoom(in: larger) }
+            return nil
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [app] event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.shift, .numericPad, .capsLock])
+            guard modifiers == .command, event.charactersIgnoringModifiers == "+" else { return event }
+            app.zoom(in: true)
             return nil
         }
         let notifier = Notifier.shared
@@ -156,11 +159,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// Cmd + wheel as zoom notches, larger when the wheel turns up whatever the
 /// scrolling direction setting: one per wheel click, one per 20 points a
-/// trackpad scrolls.
+/// trackpad gesture scrolls, its momentum left out.
 final class WheelZoom {
     var travel = 0.0
 
     func notch(_ event: NSEvent) -> Bool? {
+        guard event.momentumPhase.isEmpty else { return nil }
+        if event.phase.contains(.began) { travel = 0 }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            travel = 0
+            return nil
+        }
         let up = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
         guard event.hasPreciseScrollingDeltas else {
             return up == 0 ? nil : up > 0
@@ -176,9 +185,7 @@ struct RootView: View {
     @Environment(AppModel.self) var app
 
     var body: some View {
-        content
-            // The fonts read the zoom when drawn: a new zoom draws everything again.
-            .id(app.zoom)
+        content.vibe()
     }
 
     var content: some View {

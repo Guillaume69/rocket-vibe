@@ -152,7 +152,6 @@ struct BlockView: View {
         case .break:
             Spacer().frame(height: 4)
         case let .table(align, header, rows):
-            // Wider than the message: it scrolls sideways, never cut.
             ScrollView(.horizontal) {
                 Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                     GridRow { cells(header, align: align).font(.vibe(14, .heavy)) }

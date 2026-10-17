@@ -251,7 +251,7 @@ whole batch when one name does not exist [kChat].
 | `props.from_webhook` | `"true"` on an incoming webhook's post: honour the overrides below, show the BOT badge [probed] |
 | `props.override_username`, `props.override_icon_url` | the name and picture an incoming webhook posts under, shown instead of the poster's (whose `user_id` is the hook's creator); ignored without `from_webhook`; the icon only as an absolute http(s) URL, fetched without credentials [probed] |
 | `props.from_bot` | `"true"` on a bot account's post: the BOT badge |
-| `props.attachments[]` | integration cards: `pretext` (markdown, above the card), `author_name`, `title`, `title_link`, `text`, `color`, `fields[] {title, value, short}`, `fallback`; title, text and values are markdown. `actions` (buttons, menus) are not rendered |
+| `props.attachments[]` | integration cards: `pretext` (markdown, above the card), `author_name`, `title`, `title_link`, `text`, `color`, `fields[] {title, value, short}`, `fallback`; title, text and values are markdown. `actions[]` `{id, name, type, style, cookie}`: buttons (`type` absent or `button`, at most 10) drawn and pressed (6.3); menus (`type: "select"`) left out |
 | `metadata.files[]` | `{id, name, mime_type, size, width, height, has_preview_image}` |
 | `metadata.reactions[]` | `{user_id, emoji_name}` |
 | `metadata.embeds[]` with `type: "opengraph"` | link card: `url`, `data.title`, `description`, `site_name`, `images[0]` |
@@ -274,8 +274,12 @@ there, here's your reminder about this message from @<username>:
 <SiteURL>/<team_name>/pl/<post_id>". The apps rebuild the sentence from the props
 in their own language, the permalink embed showing the post. The confirmation
 when it is set is an **ephemeral** post (`ephemeral_message` event, "visible only
-to you", with Delete and View reminders buttons on kChat), never stored: Android
-shows its text as a private note, desktop nothing.
+to you", with Delete and View reminders buttons on kChat), never stored: `props`
+`{type: "reminder", target_time, username, team_name, post_id}`, `target_time` in
+seconds, and an English `message` carrying the link and an RFC 822 time. The apps show it as
+a private note above the composer, reworded in their language ("You will be
+reminded about [this message](<link>) from @<username> <when>", `<when>` from
+each app's own "Remind me" formatter), with its cards and their buttons.
 
 **Incoming webhooks** [probed, 2026-10-17]: a hook cannot be created with a
 `username` field (`POST /hooks/incoming` answers 400
@@ -410,7 +414,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `preferences_changed`, `preferences_deleted` | stars (4.7), the name format (4.5), closed conversations and the list's limit (4.9) |
 | `sidebar_category_created`, `sidebar_category_updated`, `sidebar_category_deleted`, `sidebar_category_order_updated` | categories (4.8) |
 | `badge_updated` (kChat) | read my memberships again (4.2) |
-| `ephemeral_message` | `data.post`, "visible only to you" (a slash command's answer, a reminder's confirmation): never stored; Android shows its text as a private note, desktop does not use it |
+| `ephemeral_message` | `data.post`, "visible only to you" (a slash command's answer, a reminder's confirmation, an integration's `ephemeral_text`): never stored; a private note above the composer with its markdown text and its cards, whose buttons press through `data.post.id` and each button's `cookie` (6.3) |
 | `hello`, `thread_*`, `config_changed`, `license_changed`, `plugin_statuses_changed` | ignored |
 
 Presence snapshot at each connection: `POST /users/status/ids` with known user
@@ -485,8 +489,20 @@ refuses an oversize file with 413.
 | Notification preference | read `notify_props.desktop` from `/users/me`, write it back whole with `PUT /users/me/patch {notify_props}` (a patch replaces the map) |
 | People search | `POST /users/search {term, limit}`; channels `POST /teams/<team>/channels/search {term}` |
 | Permalink | `<server>/_redirect/pl/<postId>` (the server finds the team) |
+| Press a card button | `POST /posts/<postId>/actions/<actionId> {cookie?}` (the cookie the button carries on an ephemeral post, which the server cannot look up; `{}` otherwise) |
 
 Search qualification (2026-10-11, Mattermost 11.11.1): `in:<channel-name>` selects a public or private channel; `in:@<username>` selects a DM, including oneself; `in:@<all-member-usernames>` selects a group conversation. The apps read current channel metadata and paged membership, resolve usernames, and reject an unresolved scope rather than searching the whole team. A 120-post unrelated flood produces 100 unscoped hits despite the requested `per_page: 60`, hiding older room targets; all five scoped searches return only their target. Run `node scripts/probe-mattermost-search.mjs` on the seeded disposable local bench. The script deletes its probe posts. Source: Mattermost's [search documentation](https://docs.mattermost.com/end-user-guide/collaborate/search-for-messages) and [11.11.1 channel-name resolver](https://github.com/mattermost/mattermost/blob/v11.11.1/server/channels/app/post.go). These scopes have not been probed against kChat's proprietary backend.
+
+**Card buttons** (read in Mattermost's 11.11.1 source, `app/integration_action.go`
+`DoPostActionWithCookie`, `model/integration_action.go`; not probed): the server
+POSTs the button's integration and answers the client
+`{status: "OK", trigger_id, goto_location?}`. What the integration answered
+reaches the client by other paths: its `ephemeral_text` as an `ephemeral_message`
+(5.3), its `update` applied to the post and broadcast as `post_edited`. The apps
+open `goto_location` when it is an http(s) URL and, should a server answer them
+in the body, also take `ephemeral_text` as a private note (desktop also stores an
+`update` post); a refusal shows "This action failed". Mattermost and kChat
+accounts only: Rocket.Chat and Vibez cards carry no buttons.
 
 ### 6.4 Custom emoji [probed]
 
@@ -537,9 +553,9 @@ Infomaniak's open-source app and probed in a note-to-self DM:
 Push (a third-party app gets none on kChat: Infomaniak's proxy routes to its own
 app id), ending a kMeet call nobody joined (`/cancel`), quoting a post (the
 server's permalink previews do show, 4.6), room settings and roles, end-to-end
-encryption, sending who types, ephemeral posts on desktop (Android shows their
-text only) and the interactive buttons and menus of integration cards
-(`attachments[].actions`). Both apps count a muted channel's
+encryption, sending who types, the menus of integration cards
+(`attachments[].actions` of `type: "select"`) and the dialogs a button's
+`trigger_id` may open (`open_dialog`). Both apps count a muted channel's
 (`notify_props.mark_unread: "mention"`) mentions only, read a cached root again
 on a live reply (`thread_updated` is quiet), and follow stars changed elsewhere
 (`preferences_changed` / `preferences_deleted`, category `flagged_post`).

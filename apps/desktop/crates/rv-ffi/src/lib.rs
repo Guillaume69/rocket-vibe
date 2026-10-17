@@ -614,6 +614,11 @@ impl Chat {
     }
 
     /// A Slack account: none of Rocket.Chat's own features (its encryption, GIFs, stickers).
+    /// The session cookie a Slack huddle's call window starts with.
+    pub fn huddle_cookie(&self) -> Option<String> {
+        self.session.huddle_cookie().map(|c| c.to_string())
+    }
+
     pub fn is_slack(&self) -> bool {
         self.session.info.slack.is_some()
     }
@@ -1112,6 +1117,35 @@ impl KchatSignIn {
         let pkce = self.pkce.clone();
         on_tokio(async move { pkce.exchange(&code).await }).await.map_err(RvError::local)
     }
+}
+
+/// Where the Slack sign-in window starts, and whose cookies it reads.
+#[uniffi::export]
+pub fn slack_window_start() -> String {
+    rv_core::slack::browser_login::WINDOW_START.to_owned()
+}
+
+#[uniffi::export]
+pub fn slack_window_cookie_url() -> String {
+    rv_core::slack::browser_login::WINDOW_COOKIES.to_owned()
+}
+
+/// The Slack pages the sign-in window shows.
+#[uniffi::export]
+pub fn slack_window_page(url: String) -> bool {
+    rv_core::slack::browser_login::window_page(&url)
+}
+
+/// The Slack page the sign-in window stops on: the session is set.
+#[uniffi::export]
+pub fn slack_window_done(url: String) -> bool {
+    rv_core::slack::browser_login::window_done(&url)
+}
+
+/// Where a Slack huddle's call window may go.
+#[uniffi::export]
+pub fn slack_huddle_allowed(url: String) -> bool {
+    rv_core::slack::translate::huddle_allowed(&url, "")
 }
 
 #[uniffi::export]

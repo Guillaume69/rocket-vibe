@@ -12,21 +12,27 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
     private let window: NSWindow
     private let web: WKWebView
     private let callURL: String
+    private let huddle: Bool
 
-    static func show(_ url: URL, title: String) {
-        // A Slack huddle has no API to join: it opens in the browser, signed in there.
-        if url.scheme == "https", let host = url.host?.lowercased(), host == "slack.com" || host.hasSuffix(".slack.com") {
+    /// A Slack huddle opens signed in with `slackCookie`, its store kept in
+    /// memory; without the cookie it goes to the browser, signed in there.
+    static func show(_ url: URL, title: String, slackCookie: String? = nil) {
+        let slack = url.scheme == "https" && slackHuddleAllowed(url: url.absoluteString)
+        if slack && slackCookie == nil {
             NSWorkspace.shared.open(url)
             return
         }
-        let call = CallWindow(url: url, title: title)
+        let call = CallWindow(url: url, title: title, slackCookie: slack ? slackCookie : nil)
         windows.append(call)
         call.window.makeKeyAndOrderFront(nil)
     }
 
-    private init(url: URL, title: String) {
+    private init(url: URL, title: String, slackCookie: String?) {
         callURL = url.absoluteString
-        web = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        huddle = slackCookie != nil
+        let configuration = WKWebViewConfiguration()
+        if slackCookie != nil { configuration.websiteDataStore = .nonPersistent() }
+        web = WKWebView(frame: .zero, configuration: configuration)
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -41,7 +47,23 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
         window.center()
         web.uiDelegate = self
         web.navigationDelegate = self
-        web.load(URLRequest(url: url))
+        let cookie = slackCookie.flatMap { value in
+            HTTPCookie(properties: [
+                .name: "d", .value: value, .domain: ".slack.com", .path: "/", .secure: "TRUE",
+                HTTPCookiePropertyKey("HttpOnly"): "TRUE",
+            ])
+        }
+        if let cookie {
+            web.configuration.websiteDataStore.httpCookieStore.setCookie(cookie) { [web] in
+                web.load(URLRequest(url: url))
+            }
+        } else {
+            web.load(URLRequest(url: url))
+        }
+    }
+
+    private func allowed(_ address: String) -> Bool {
+        huddle ? slackHuddleAllowed(url: address) : callAllowed(url: address, callUrl: callURL)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -59,7 +81,7 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
         let address = origin.port > 0
             ? "\(origin.protocol)://\(origin.host):\(origin.port)"
             : "\(origin.protocol)://\(origin.host)"
-        return callAllowed(url: address, callUrl: callURL) ? .grant : .deny
+        return allowed(address) ? .grant : .deny
     }
 
     func webView(
@@ -67,7 +89,7 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
         let target = navigationAction.request.url?.absoluteString ?? ""
-        if callAllowed(url: target, callUrl: callURL) {
+        if allowed(target) || (huddle && navigationAction.targetFrame?.isMainFrame == false) {
             return .allow
         }
         if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {

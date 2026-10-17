@@ -480,6 +480,11 @@ pub fn huddle_page(link: &str) -> Option<String> {
     }
 }
 
+/// Where a huddle's call window may go: Slack's own pages and the page's blobs.
+pub fn huddle_allowed(url: &str, _call_url: &str) -> bool {
+    url == "about:blank" || url == "about:srcdoc" || url.strip_prefix("blob:").is_some_and(slack_web) || slack_web(url)
+}
+
 /// An `https` page of Slack's own web app, the only kind a huddle opens.
 pub fn slack_web(link: &str) -> bool {
     url::Url::parse(link).is_ok_and(|url| {
@@ -681,6 +686,18 @@ pub fn subscription(rid: &str, counts: Option<&Value>, updated_at: i64, open: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_huddle_window_stays_on_slack() {
+        let call = "https://app.slack.com/huddle/T1/C1";
+        assert!(huddle_allowed(call, call));
+        assert!(huddle_allowed("https://acme.slack.com/client", call));
+        assert!(huddle_allowed("blob:https://app.slack.com/4d2f", call));
+        assert!(huddle_allowed("about:blank", call));
+        assert!(!huddle_allowed("blob:https://evil.example/4d2f", call));
+        assert!(!huddle_allowed("https://slack.com.evil.example/", call));
+        assert!(!huddle_allowed("http://app.slack.com/", call));
+    }
 
     #[test]
     fn outgoing_markdown_becomes_mrkdwn() {

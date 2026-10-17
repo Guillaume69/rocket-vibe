@@ -242,7 +242,14 @@ struct LoginView: View {
     }
 
     func submit() {
-        if app.login.kind == .kchat && app.login.password.isEmpty { return signInWithInfomaniak() }
+        let login = app.login
+        if login.kind == .kchat && login.password.isEmpty { return signInWithInfomaniak() }
+        if login.kind == .slack && login.slackWorkspaces.isEmpty {
+            return SignInWindow.showSlack(title: L("slack.signIn")) { reached, cookies in
+                login.useSlackWindow(reached: reached, cookies: cookies)
+                Task { await app.submitLogin() }
+            }
+        }
         Task { await app.submitLogin() }
     }
 

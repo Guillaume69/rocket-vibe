@@ -955,27 +955,31 @@ impl AppWindow {
         self.login.set_error(None);
         self.login.clear_slack_workspaces();
         self.login.set_slack_status(t("slack.browserHelp"));
+        let weak = Rc::downgrade(self);
+        let opened = crate::slack_window::open(&self.login.widget, move |reached, cookies| {
+            let Some(this) = weak.upgrade() else { return };
+            if !this.login_is_current(generation) {
+                return;
+            }
+            let attempt = {
+                let _guard = runtime().enter();
+                rv_core::slack::browser_login::BrowserLogin::from_window(&reached, cookies)
+            };
+            this.follow_slack_login(attempt, generation);
+        });
+        if let Err(e) = opened {
+            eprintln!("Slack sign-in window not opened: {e}");
+            self.login.set_error(Some(&crate::i18n::tf("slack.browserFailedCode", &[("code", "window_unavailable")])));
+        }
+    }
+
+    /// The workspaces a finished sign-in found: one is opened, several are
+    /// offered, a failure says why.
+    fn follow_slack_login(self: &Rc<Self>, attempt: Arc<rv_core::slack::browser_login::BrowserLogin>, generation: u64) {
         self.login.set_busy(true);
         self.login.set_cancel(true);
         self.login.set_cancel_label(t("actions.cancel"));
         self.login.set_cancel_enabled(true);
-
-        let attempt = {
-            let _guard = runtime().enter();
-            rv_core::slack::browser_login::BrowserLogin::start()
-        };
-        let attempt = match attempt {
-            Ok(attempt) => attempt,
-            Err(error) => {
-                self.login.set_busy(false);
-                self.login.set_cancel(self.previous.borrow().is_some());
-                self.login.set_error(Some(&*match error.code {
-                    "supported_browser_missing" => t("slack.browserMissing").to_owned(),
-                    code => crate::i18n::tf("slack.browserFailedCode", &[("code", code)]),
-                }));
-                return;
-            }
-        };
         self.slack_browser_login.replace(Some(attempt.clone()));
         let weak = Rc::downgrade(self);
         glib::timeout_add_local(std::time::Duration::from_millis(300), move || {

@@ -43,6 +43,16 @@ pub struct SlackBrowserStatus {
     pub workspaces: Vec<SlackWorkspace>,
     pub error: Option<String>,
 }
+/// A cookie the app's Slack sign-in window read.
+#[derive(Clone, uniffi::Record)]
+pub struct SlackCookie {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+}
 #[derive(uniffi::Object)]
 pub struct SlackBrowserLogin {
     login: Arc<rv_core::slack::browser_login::BrowserLogin>,
@@ -100,6 +110,29 @@ impl Client {
     pub async fn slack_browser_login(&self) -> Result<Arc<SlackBrowserLogin>, RvError> {
         let login =
             on_tokio(async move { rv_core::slack::browser_login::BrowserLogin::start().map_err(error) }).await?;
+        Ok(Arc::new(SlackBrowserLogin { login }))
+    }
+
+    /// A sign-in the app's Slack window finished on `reached`, with the cookies
+    /// it held: its workspaces are read as a browser sign-in's are.
+    pub async fn slack_window_login(
+        &self,
+        reached: String,
+        cookies: Vec<SlackCookie>,
+    ) -> Result<Arc<SlackBrowserLogin>, RvError> {
+        let cookies = cookies
+            .into_iter()
+            .map(|c| rv_core::slack::browser_login::WindowCookie {
+                name: c.name,
+                value: zeroize::Zeroizing::new(c.value),
+                domain: c.domain,
+                path: c.path,
+                secure: c.secure,
+                http_only: c.http_only,
+            })
+            .collect();
+        let login =
+            on_tokio(async move { rv_core::slack::browser_login::BrowserLogin::from_window(&reached, cookies) }).await;
         Ok(Arc::new(SlackBrowserLogin { login }))
     }
 

@@ -64,6 +64,12 @@ public final class LoginModel {
     public var selectedSlackWorkspace = ""
     public private(set) var slackBrowserActive = false
     @ObservationIgnored private var slackBrowserAttempt: SlackBrowserLogin?
+    /// What the Slack sign-in window handed back, read by the next `submitSlack`.
+    @ObservationIgnored private var slackWindow: (reached: String, cookies: [SlackCookie])?
+
+    public func useSlackWindow(reached: String, cookies: [SlackCookie]) {
+        slackWindow = (reached, cookies)
+    }
     /// What sign-in goes to: the address typed, or for kChat the server picked, else its directory.
     public var address: String {
         guard kind == .kchat else { return server }
@@ -254,7 +260,9 @@ public final class LoginModel {
         }
 
         do {
-            let attempt = try await client.slackBrowserLogin()
+            guard let window = slackWindow else { return nil }
+            slackWindow = nil
+            let attempt = try await client.slackWindowLogin(reached: window.reached, cookies: window.cookies)
             guard expected == generation, !Task.isCancelled else { attempt.cancel(); return nil }
             slackBrowserAttempt = attempt
             slackBrowserActive = true

@@ -171,7 +171,8 @@ This is what we will use for the action sheet on a message, the emoji picker and
 > locked by the same rule, written once in Rust (`apps/desktop/crates/rv-core/src/call.rs`,
 > a port of `origin.ts`): navigation outside the origin is cancelled and handed to the browser, and
 > this time the camera and microphone are also arbitrated per origin, which WebView2 and WKWebView
-> allow. On Linux, no embedded engine: distributions build WebKitGTK without WebRTC
+> allow. A Slack huddle uses the same window, with Slack's session cookie set in its own store before
+> the page loads and the origin locked to Slack's pages. On Linux, no embedded engine: distributions build WebKitGTK without WebRTC
 > (checked on Fedora 44 and Arch, `RTCPeerConnection` missing), so the call opens an application
 > window of a Chromium browser (`--app`) when there is one, otherwise the browser.
 >

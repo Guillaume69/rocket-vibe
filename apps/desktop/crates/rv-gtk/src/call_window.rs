@@ -108,6 +108,32 @@ fn open_window(url: &str, room: &str, fallback: impl Fn() + 'static) {
     }
 }
 
+/// A Slack huddle in a call window already signed in with the session's
+/// cookie, like a kMeet call; the browser when the window cannot open.
+#[cfg(not(target_os = "linux"))]
+pub fn open_slack(
+    widget: &impl IsA<gtk::Widget>,
+    url: &str,
+    room: &str,
+    cookie: zeroize::Zeroizing<String>,
+    toast: impl Fn(String) + 'static,
+) {
+    let title = crate::i18n::tf("call.window_title", &[("room", room)]);
+    let cookie = rv_native::Cookie {
+        name: "d".to_owned(),
+        value: cookie.to_string(),
+        domain: ".slack.com".to_owned(),
+        path: "/".to_owned(),
+        secure: true,
+        http_only: true,
+    };
+    if let Err(e) = rv_native::call_window_with(url, &title, rv_core::slack::translate::huddle_allowed, vec![cookie]) {
+        eprintln!("Huddle window not opened: {e}");
+        crate::cards::open_uri(widget, url);
+        toast(t("call.in_browser").to_owned());
+    }
+}
+
 /// The call at `url`, in its own window; `toast` says so when it goes to the browser instead.
 pub fn open(widget: &impl IsA<gtk::Widget>, url: &str, room: &str, toast: impl Fn(String) + 'static) {
     let (anchor, target) = (widget.clone().upcast::<gtk::Widget>(), url.to_owned());

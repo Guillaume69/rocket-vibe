@@ -99,6 +99,10 @@ fn show(anchor: &gtk::Widget, url: &str, caught: Rc<dyn Fn(String)>) -> Result<(
             return false;
         }
         decision.ignore();
+        if kind == webkit6::PolicyDecisionType::NewWindowAction && oauth::is_sign_in_page(&target) {
+            web.load_uri(&target);
+            return true;
+        }
         if !clicked {
             return true;
         }

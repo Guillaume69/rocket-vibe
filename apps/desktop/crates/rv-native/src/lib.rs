@@ -103,6 +103,30 @@ pub struct SignIn {
     pub caught: std::rc::Rc<dyn Fn(String)>,
 }
 
+/// A cookie a session sign-in read, or a call window starts with.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Cookie {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+}
+
+/// A sign-in that ends on a page, not on a redirect: the window shows the
+/// pages `page` accepts; the first navigation `done` recognises is cancelled,
+/// the window's cookies for `cookie_url` are read and wiped from its store,
+/// and `caught` gets that address with them on the main thread before the
+/// window closes. No camera or microphone.
+#[derive(Clone)]
+pub struct SessionSignIn {
+    pub page: fn(&str) -> bool,
+    pub done: fn(&str) -> bool,
+    pub cookie_url: &'static str,
+    pub caught: std::rc::Rc<dyn Fn(String, Vec<Cookie>)>,
+}
+
 /// A rectangle of the window, in its logical pixels from its top-left corner.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Rect {
@@ -131,7 +155,7 @@ mod windows_shell;
 #[cfg(windows)]
 mod windows_toast;
 #[cfg(windows)]
-pub use windows_call::{call_window, sign_in_window};
+pub use windows_call::{call_window, call_window_with, session_sign_in_window, sign_in_window};
 #[cfg(windows)]
 pub use windows_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(windows)]
@@ -152,7 +176,7 @@ mod macos_player;
 #[cfg(target_os = "macos")]
 mod macos_shell;
 #[cfg(target_os = "macos")]
-pub use macos_call::{call_window, sign_in_window};
+pub use macos_call::{call_window, call_window_with, session_sign_in_window, sign_in_window};
 #[cfg(target_os = "macos")]
 pub use macos_impl::{available, badge, delivered, init, set_window, show, withdraw};
 #[cfg(target_os = "macos")]
@@ -162,7 +186,7 @@ pub use macos_shell::{app_events, autostart, autostart_supported, claim_instance
 
 #[cfg(not(any(windows, target_os = "macos")))]
 mod other {
-    use super::{AppHandler, Handler, SignIn, Toast, TrayLabels};
+    use super::{AppHandler, Cookie, Handler, SessionSignIn, SignIn, Toast, TrayLabels};
 
     pub fn app_events(_handler: AppHandler) {}
     pub fn claim_instance(_args: &[String]) -> bool {
@@ -196,11 +220,22 @@ mod other {
     pub fn sign_in_window(_url: &str, _title: &str, _sign_in: SignIn) -> Result<(), String> {
         Err("no sign-in window here".to_owned())
     }
+    pub fn session_sign_in_window(_url: &str, _title: &str, _sign_in: SessionSignIn) -> Result<(), String> {
+        Err("no sign-in window here".to_owned())
+    }
+    pub fn call_window_with(
+        _url: &str,
+        _title: &str,
+        _allowed: fn(&str, &str) -> bool,
+        _cookies: Vec<Cookie>,
+    ) -> Result<(), String> {
+        Err("no call window here".to_owned())
+    }
 }
 #[cfg(not(any(windows, target_os = "macos")))]
 pub use other::{
-    app_events, autostart, autostart_supported, available, badge, call_window, claim_instance, delivered, init,
-    set_autostart, set_window, show, sign_in_window, tray, withdraw,
+    app_events, autostart, autostart_supported, available, badge, call_window, call_window_with, claim_instance,
+    delivered, init, session_sign_in_window, set_autostart, set_window, show, sign_in_window, tray, withdraw,
 };
 
 /// Whether the system holds notifications back now (Windows only), so the

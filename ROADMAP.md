@@ -128,7 +128,7 @@ Your constraint is *"only native components as long as possible, except for an e
 | **0: Pure RN primitives** | `View`, `Text`, `Pressable`, `ScrollView`, `TextInput`, `Modal`, `Image` | No justification required. |
 | **1: Native bindings** (expose an OS capability, not a design system) | `react-native-screens` (native stack **and native bottom sheets**), `react-native-safe-area-context` (edge-to-edge enforced by targetSdk 36), `react-native-gesture-handler`, `expo-haptics` | Justified: each maps a native Android capability, none imposes a look. `expo-image` and `@react-native-menu/menu`, planned here, were not installed in the end. |
 | **1b: Native SDK in a local module** | **`io.livekit:livekit-android`** inside `modules/voice` (Kotlin): the Vibez voice engine (WebRTC audio, LiveKit signalling). Not `react-native-webrtc`, a fragile bet under the New Architecture; no JS media, no view. About +6.5 MB compressed per ABI. Its screen-capture service is removed from the manifest. | Justified (2026-10-06): voice needs WebRTC, and this is the platform SDK of the chosen SFU. |
-| **2: Accepted exceptions** | **`@shopify/flash-list`**: native view recycling, indispensable for thousands of messages. **`react-native-keyboard-controller`**: `KeyboardAvoidingView` is mediocre on Android; this lib subscribes to `WindowInsetsAnimationCallback` for a composer synchronised frame by frame. **`@rocket.chat/message-parser`**: a pure JS parser, not UI. **`react-native-webview`**: the Jitsi call screen, and it alone; see the box below. | Four exceptions, each motivated. |
+| **2: Accepted exceptions** | **`@shopify/flash-list`**: native view recycling, indispensable for thousands of messages. **`react-native-keyboard-controller`**: `KeyboardAvoidingView` is mediocre on Android; this lib subscribes to `WindowInsetsAnimationCallback` for a composer synchronised frame by frame. **`@rocket.chat/message-parser`**: a pure JS parser, not UI. **`react-native-webview`**: the call screen and the provider sign-in page, and nothing else; see the box below. | Four exceptions, each motivated. |
 
 **Bottom sheets are native, no dependency to add.** `react-native-screens` 4.25 ships an Android implementation built on Material's `BottomSheetBehavior` (`android/src/main/java/com/swmansion/rnscreens/bottomsheet/`, dependency `com.google.android.material:material:1.13.0`), and the native `UISheetPresentationController` on iOS. `expo-router` exposes it directly:
 
@@ -150,7 +150,7 @@ This is what we will use for the action sheet on a message, the emoji picker and
 
 **Firm bans**: any UI kit (NativeBase, Tamagui, gluestack, RN Paper), any **WebView** outside the bounded exception below, `react-native-markdown-display`, `react-native-render-html`, and **`@gorhom/bottom-sheet`**: it is a JS/Reanimated reimplementation of a component the platform already provides.
 
-> **The WebView exception: the call screen, and nothing else** (recorded in workstream 16, delivered
+> **The WebView exception: the call screen and the sign-in page, and nothing else** (recorded in workstream 16, delivered
 > on 2026-07-12, `61fc7d4`). Jitsi video conferencing is a **web app**: the native alternative,
 > `@jitsi/react-native-sdk`, targets RN ~0.79 and bundles `react-native-webrtc`, a fragile New
 > Architecture bet against our RN 0.86. `apps/mobile/app/call/[callId].tsx` therefore loads the URL returned
@@ -174,6 +174,15 @@ This is what we will use for the action sheet on a message, the emoji picker and
 > allow. On Linux, no embedded engine: distributions build WebKitGTK without WebRTC
 > (checked on Fedora 44 and Arch, `RTCPeerConnection` missing), so the call opens an application
 > window of a Chromium browser (`--app`) when there is one, otherwise the browser.
+>
+> **A second mobile use: the provider sign-in page** (2026-10-17). kChat's Infomaniak page and
+> Slack's sign-in open in `apps/mobile/ui/signInWebView.tsx`, the desktops' sign-in window, because
+> neither works through the browser: Infomaniak redirects to the app by script after its 2FA, which
+> Chrome refuses, and Slack's session lives in an HttpOnly cookie only the web view's own store
+> exposes (`modules/web-cookies`, Android `CookieManager`). The bounds: shown pages are the
+> provider's `https` pages only (`isKchatSignInPage`, `isSlackWebPage`), any other link goes to the
+> browser, the end address is caught before it loads, no camera, microphone or new window, and the
+> store is cleared once the session is read.
 >
 > **Desktop has a second use, with no mobile equivalent**: YouTube, Dailymotion and Vimeo cards
 > play inside the card, through an embedded web engine (WebKitGTK on Linux, WebView2 on Windows,

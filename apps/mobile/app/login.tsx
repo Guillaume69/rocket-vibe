@@ -3,9 +3,11 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
 import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
 import { TeamsPreview } from '../ui/teamsPreview.tsx';
-import { SlackSignIn, slackFailure } from '../ui/slackSignIn.tsx';
+import { slackFailure } from '../ui/slackSignIn.tsx';
+import { SignInWebView } from '../ui/signInWebView.tsx';
+import { WebCookies } from '../modules/web-cookies/index.ts';
+import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
 import * as Crypto from 'expo-crypto';
-import * as WebBrowser from 'expo-web-browser';
 import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,7 +17,7 @@ import { RestClient, TwoFactorError, RestError, type TwoFactorCode } from '../li
 import { discoverServer, NotMattermostError, NotVibezError, type ServerKind, type ServerProfile as ServerProfile } from '../lib/serverKind.ts';
 import { KCHAT_DIRECTORY, kchatServers, loginMattermost, loginWithToken, MmMfaRequired, type KchatServer } from '../providers/mattermost/auth.ts';
 import { MmError } from '../providers/mattermost/client.ts';
-import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, KCHAT_REDIRECT } from '../providers/mattermost/kchatOAuth.ts';
+import { authorizeUrl, codeFromRedirect, createPkce, exchangeCode, isKchatRedirect, isKchatSignInPage, type Pkce } from '../providers/mattermost/kchatOAuth.ts';
 import { startNativeLogin, startNativeAccountCodeLogin, type LoginChallenge } from '../providers/vibez/authentication.ts';
 import type { SecondFactor } from '../providers/vibez/protocol.generated.ts';
 import { nativeAuthenticationVault, completeNativeAuthentication } from '../lib/nativeAuthenticationStore.ts';
@@ -74,12 +76,14 @@ export default function LoginScreen() {
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
-  const [token, setToken] = useState('');
   const [registration, setRegistration] = useState(false);
   const [recovery, setRecovery] = useState(false);
   const [invitation, setInvitation] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  /** The sign-in page shown in the app's web view, the desktops' sign-in window. */
+  const [webSignIn, setWebSignIn] = useState<{ kind: 'kchat'; pkce: Pkce } | { kind: 'slack' } | null>(null);
+  const [slackChoices, setSlackChoices] = useState<Session[]>([]);
   const unlockProviders = useCallback(() => {
     if (!experimental && unlock.current.tap(Date.now())) {
       void setExperimentalProviders(true).catch(() => setMessage(t('slack.unlockFailed')));
@@ -305,7 +309,6 @@ export default function LoginScreen() {
   const openKchatServer = useCallback(async (server: KchatServer, bearer: string) => {
     const session = await loginWithToken(server.url, bearer, 'kchat');
     await connect(session);
-    setToken('');
     router.replace('/');
   }, [connect, router]);
 
@@ -319,18 +322,20 @@ export default function LoginScreen() {
     setPhase({ name: 'kchatServers', profile: phase.profile, client: phase.client, token: bearer, servers });
   }, [phase, openKchatServer, t]);
 
-  const kchatOAuth = useCallback(() => runKchat(async () => {
+  const kchatOAuth = useCallback(async () => {
     const pkce = await createPkce(
       size => Crypto.getRandomBytes(size),
       async text => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, new TextEncoder().encode(text))),
     );
-    // An auth session, not the browser app: Chrome refuses to open an app from a
-    // navigation no tap started (Infomaniak's page redirects by script after 2FA).
-    const result = await WebBrowser.openAuthSessionAsync(authorizeUrl(pkce), KCHAT_REDIRECT);
-    if (result.type !== 'success' || !isKchatRedirect(result.url)) throw new Error(t('login.kchatTimeout'));
-    const bearer = await exchangeCode(codeFromRedirect(result.url, pkce), pkce);
+    setWebSignIn({ kind: 'kchat', pkce });
+  }, []);
+
+  const kchatRedirected = useCallback((redirect: string, pkce: Pkce) => runKchat(async () => {
+    setWebSignIn(null);
+    await WebCookies?.clear();
+    const bearer = await exchangeCode(codeFromRedirect(redirect, pkce), pkce);
     await signInKchat(bearer);
-  }), [runKchat, signInKchat, t]);
+  }), [runKchat, signInKchat]);
 
   const runSlack = useCallback(async (action: () => Promise<void>) => {
     if (inFlight.current) return;
@@ -348,9 +353,31 @@ export default function LoginScreen() {
   }, [t]);
 
   const openSlack = useCallback(async (session: Session) => {
+    setSlackChoices([]);
     await connect(session);
     router.replace('/');
   }, [connect, router]);
+
+  const startSlack = useCallback(async () => {
+    setMessage(null);
+    setSlackChoices([]);
+    if (WebCookies === null) return setMessage(t('slack.webUnavailable'));
+    await WebCookies.clear();
+    setWebSignIn({ kind: 'slack' });
+  }, [t]);
+
+  /** The page the web view stopped on, and the workspace hosts the web client named. */
+  const slackReached = useCallback((reached: string, answer: string | null) => runSlack(async () => {
+    setWebSignIn(null);
+    const cookies = WebCookies?.get(SLACK_WEB_COOKIES) ?? '';
+    await WebCookies?.clear();
+    let hosts: string[] = [];
+    try { hosts = (JSON.parse(answer ?? '{}') as { hosts?: unknown }).hosts as string[] ?? []; } catch { hosts = []; }
+    const sessions = await signInFromWeb(reached, cookies, Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string') : []);
+    if (sessions.length === 1) return openSlack(sessions[0]!);
+    setSlackChoices(sessions);
+    setMessage(t('slack.chooseWorkspace'));
+  }), [runSlack, openSlack, t]);
 
   const validateNativeFactor = useCallback(async () => {
     if (inFlight.current || phase.name !== 'nativeFactor' || !code.trim() && !phase.challenge.pending) return;
@@ -523,7 +550,13 @@ export default function LoginScreen() {
               )}
             </View>
             {kind === 'slack'
-              ? <SlackSignIn c={c} busy={busy} run={runSlack} onSession={openSlack} />
+              ? <>
+                  <PrimaryButton c={c} busy={busy} onPress={() => void startSlack()} title={t('slack.signIn')} />
+                  {slackChoices.map((session) => (
+                    <PrimaryButton key={session.slackTeamId ?? session.baseUrl} c={c} busy={busy}
+                      title={hostOf(session.baseUrl) ?? session.baseUrl} onPress={() => void runSlack(() => openSlack(session))} />
+                  ))}
+                </>
               : <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />}
 
             {knownServers.length > 0 && (
@@ -542,10 +575,6 @@ export default function LoginScreen() {
         {phase.name === 'credentials' && phase.profile.mattermost?.kind === 'kchat' && (
           <>
             <PrimaryButton c={c} busy={busy} onPress={() => void kchatOAuth()} title={t('login.kchatSignIn')} />
-            <Text style={[styles.help, { color: c.dimmed }]}>{t('login.kchatTokenHelp')}</Text>
-            <PillField c={c} label={t('login.kchatToken')} value={token} editable={!busy} onChangeText={setToken}
-              onSubmitEditing={() => void runKchat(() => signInKchat(token.trim()))} secureTextEntry />
-            <PrimaryButton c={c} busy={busy} onPress={() => void runKchat(() => signInKchat(token.trim()))} title={t('login.kchatUseToken')} />
           </>
         )}
 
@@ -656,6 +685,18 @@ export default function LoginScreen() {
           </Pressable>
         )}
       </ScrollView>
+      {webSignIn?.kind === 'kchat' && (
+        <SignInWebView title={t('login.kchatSignIn')} start={authorizeUrl(webSignIn.pkce)}
+          isPage={isKchatSignInPage} isDone={isKchatRedirect}
+          onDone={(redirect) => void kchatRedirected(redirect, webSignIn.pkce)} onCancel={() => setWebSignIn(null)} />
+      )}
+      {webSignIn?.kind === 'slack' && (
+        <SignInWebView title={t('slack.signIn')} start={SLACK_WEB_START}
+          isPage={isSlackWebPage} isDone={isSlackWebDone}
+          doneScript={(url) => (new URL(url).pathname.startsWith('/ssb/') ? null : CLIENT_HOSTS_SCRIPT)}
+          onDone={(reached, answer) => void slackReached(reached, answer)}
+          onCancel={() => { setWebSignIn(null); void WebCookies?.clear(); }} />
+      )}
     </KeyboardAvoidingContainer>
   );
 }

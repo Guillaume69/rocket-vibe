@@ -87,3 +87,15 @@ function base64Url(bytes: Uint8Array): string {
   }
   return out;
 }
+
+/** The pages the sign-in web view shows: Infomaniak's own `https` pages. */
+export function isKchatSignInPage(raw: string): boolean {
+  if (raw.includes('\\')) return false;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' && !url.username && !url.port && (host === 'infomaniak.com' || /^[a-z0-9.-]+\.infomaniak\.com$/.test(host));
+  } catch {
+    return false;
+  }
+}

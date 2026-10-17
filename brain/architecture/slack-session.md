@@ -23,7 +23,7 @@ localConfig_v2 workspace tokens or one selected inline boot token, and validates
 pairs with fixed-origin auth.test. It never attaches to an existing profile. The
 local pairing page selects a validated workspace and exports only a provider-specific
 X25519/HKDF-SHA256/AES-256-GCM rvslack1 envelope to the public key of Android's sign-in
-pairing code (`ui/slackSignIn.tsx`, `providers/slack/handoff.ts`). Import consumes that
+pairing code (`providers/slack/handoff.ts`; no longer reached by Android, which signs in through its web view, see [experimental integrations](../features/experimental-integrations.md)). Import consumes that
 private key and the app rechecks the transferred team/user. An envelope past its
 five-minute transfer deadline, or whose stated expiry is not within the hour, is refused;
 once signed in, the saved account no longer carries that expiry. The desktop keeps the
@@ -256,7 +256,7 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 
 ## Sources
 
-- apps/mobile/providers/slack/ (`handoff.ts`, `auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
+- apps/mobile/providers/slack/ (`handoff.ts`, `auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/providers/slack/webSignIn.ts, apps/mobile/ui/signInWebView.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
 - scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
 - apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `directory.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `open_huddle_window`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`, `already_posted`), apps/desktop/crates/rv-core/src/media.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs

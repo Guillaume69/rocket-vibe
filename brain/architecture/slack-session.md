@@ -40,8 +40,8 @@ browser: GTK `slack_window.rs` (a WebKitGTK `adw::Dialog` on an ephemeral
 `NetworkSession` on Linux; `rv_native::session_sign_in_window` elsewhere), SwiftUI
 `SignInWindow.showSlack`, both on WebView2 (`rv-native/src/windows_call.rs`) and WKWebView
 (`macos_call.rs`, `SignInWindow.swift`) over a non-persistent store. The window shows
-Slack's own `https` pages only (`browser_login::window_page`), hands other links to the
-browser, and stops on the first navigation `window_done` recognises (the `/ssb/` handoff or
+Slack's own `https` pages only (`browser_login::window_page`), loads one in itself when the
+page asks for a new window (the workspace list does), hands other links to the browser, and stops on the first navigation `window_done` recognises (the `/ssb/` handoff or
 the web client), which is cancelled. Its cookies for `WINDOW_COOKIES` are then read
 (`GetCookies`, `WKHTTPCookieStore.getAllCookies`, the WebKit `CookieManager`) and wiped,
 and `BrowserLogin::from_window` derives the workspaces from them exactly as below

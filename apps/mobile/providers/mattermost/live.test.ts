@@ -211,3 +211,24 @@ describe('MmLive.ensureAuthors', () => {
     assert.equal(asked().length, before);
   });
 });
+
+describe('MmLive.ensureAuthors on a failing network', () => {
+  test('a name the server never answered for is asked again', async () => {
+    let offline = true;
+    const { live, server } = setup((call) => {
+      if (call.path !== '/users/usernames') return undefined;
+      if (offline) throw new TypeError('Network request failed');
+      return { body: (call.body as string[]).map((n) => ({ id: `u-${n}`, username: n, first_name: 'Carol' })) };
+    });
+    const mentioning = post('p1', { message: 'ping @carol' });
+    await live.ensureAuthors([mentioning]);
+    const asked = () => server.calls.filter((c) => c.path === '/users/usernames').length;
+    const offlineCalls = asked();
+    assert.ok(offlineCalls > 0);
+    offline = false;
+    await live.ensureAuthors([mentioning]);
+    assert.ok(asked() > offlineCalls);
+    const { directory } = live as unknown as { directory: MmDirectory };
+    assert.equal(directory.nameOf('carol'), 'Carol');
+  });
+});

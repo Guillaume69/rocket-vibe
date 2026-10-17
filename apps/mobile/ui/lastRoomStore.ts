@@ -10,7 +10,7 @@ import type { Session } from '../lib/auth.ts';
 import { LAST_ROOMS_KEY } from '../lib/storageKeys.ts';
 
 import { foldAccount } from './homeSections.ts';
-import { type LastRooms, readLastRooms, writeLastRooms } from './lastRooms.ts';
+import { createReopenRequest, type LastRooms, readLastRooms, writeLastRooms } from './lastRooms.ts';
 
 function read(): LastRooms {
   try {
@@ -21,7 +21,7 @@ function read(): LastRooms {
 }
 
 let rooms = read();
-let requested: string | null = null;
+const request = createReopenRequest();
 
 function save(next: LastRooms): void {
   rooms = next;
@@ -29,21 +29,22 @@ function save(next: LastRooms): void {
 }
 
 export function rememberLastRoom(account: string, rid: string): void {
+  request.opened(account);
   if (rooms.get(account) !== rid) save(new Map(rooms).set(account, rid));
 }
 
 /** A server switch: its account's list opens its last room. */
 export function requestLastRoom(session: Pick<Session, 'baseUrl' | 'userId'>): void {
-  requested = foldAccount(session.baseUrl, session.userId);
+  request.request(foldAccount(session.baseUrl, session.userId));
 }
 
 /** The room to reopen on the account's list, while the switch's request stands. */
 export function requestedLastRoom(account: string): string | null {
-  return requested === account ? (rooms.get(account) ?? null) : null;
+  return request.room(account, rooms);
 }
 
 export function settleLastRoomRequest(): void {
-  requested = null;
+  request.settle();
 }
 
 /** Signing out: the account's room goes with it. */

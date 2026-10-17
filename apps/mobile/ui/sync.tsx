@@ -89,6 +89,7 @@ import { forgetReplies } from './reply.ts';
 import { forgetIdentities } from './identityStore.ts';
 import { setPrivateNote } from './privateNoteStore.ts';
 import { useSession } from './session.tsx';
+import { foldAccount } from './homeSections.ts';
 import { armUploadProbe } from './uploadProbe.ts';
 import { forgetLoadedThreads } from './loadedThreads.ts';
 import { releaseHotRooms } from './hotRooms.ts';
@@ -118,6 +119,8 @@ export type SyncState =
   | { phase: 'preparing' }
   | {
       phase: 'ready';
+      /** The `foldAccount` of the session this state was built for. */
+      account: string;
       base: LocalDatabase;
       /** Composer drafts, in the write queue like everything else. */
       drafts: DraftStore;
@@ -276,7 +279,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const appState = AppState.addEventListener('change',next => { if (connected) present(next === 'active'); });
         stop = () => { unstatus(); unfiles(); appState.remove(); if (connected) present(false); provider.listener.close(); };
         setSync({
-          phase:'ready',base,drafts:createDraftStore(raw,writeQueue),engine,outbox,files,
+          phase:'ready',account:foldAccount(session.baseUrl,session.userId),base,drafts:createDraftStore(raw,writeQueue),engine,outbox,files,
           ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
           declareOpenRoom:openRooms.declare,presence,activity,e2e,
           unlockE2E:async () => { throw new Error('Unsupported WhatsApp feature'); },lockE2E:async () => {},generation:0,
@@ -373,7 +376,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         });
         stop = () => { unlisten();unpush();unlive();unprofile();uncalls();unemojis();unpreviews();unfiles();files.close?.();presence.invalidate();chat.stop(); };
         setSync({
-          phase:'ready',base,drafts:store.drafts(),engine,outbox,
+          phase:'ready',account:foldAccount(session.baseUrl,session.userId),base,drafts:store.drafts(),engine,outbox,
           files,
           ddp:provider.listener,provider,actions:provider.actions,capabilities:provider.capabilities,
           declareOpenRoom:openRooms.declare,presence,activity,e2e,
@@ -562,6 +565,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
       // cache without waiting for the network.
       setSync({
         phase: 'ready',
+        account: foldAccount(session.baseUrl, session.userId),
         base,
         drafts: createDraftStore(raw, writeQueue),
         engine,

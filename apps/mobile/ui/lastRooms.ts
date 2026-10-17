@@ -35,3 +35,22 @@ export function reopenDecision(
   const row = rows.find((r) => r.rid === rid);
   return row !== undefined && row.voice !== true ? 'open' : 'drop';
 }
+
+/** The one account a server switch asked to reopen its last room on. */
+export function createReopenRequest() {
+  let account: string | null = null;
+  return {
+    request(next: string): void {
+      account = next;
+    },
+    room(on: string, rooms: LastRooms): string | null {
+      return account === on ? (rooms.get(on) ?? null) : null;
+    },
+    settle(): void {
+      account = null;
+    },
+    opened(on: string): void {
+      if (account === on) account = null;
+    },
+  };
+}

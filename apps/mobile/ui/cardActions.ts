@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-import type { CardAction } from '../lib/integrationCards.ts';
+import { type CardAction, pressCardAction } from '../lib/integrationCards.ts';
 import { openExternalLink } from './externalLink.ts';
 import { useT } from './i18n.ts';
 import { setPrivateNote } from './privateNoteStore.ts';
@@ -17,13 +17,12 @@ export function useCardAction(rid: string, postId: string | null | undefined): (
   const run = useCallback(
     async (action: CardAction) => {
       if (actions?.cardAction === undefined || !postId) return;
-      try {
-        const answer = await actions.cardAction(postId, action.id, action.cookie);
-        if (answer.ephemeralText !== null) setPrivateNote({ rid, text: answer.ephemeralText });
-        if (answer.gotoLocation !== null && /^https?:\/\//i.test(answer.gotoLocation)) openExternalLink(answer.gotoLocation);
-      } catch {
-        notify(t('card.actionFailed'));
-      }
+      const target = actions;
+      await pressCardAction(() => target.cardAction!(postId, action.id, action.cookie), {
+        note: (text) => setPrivateNote({ rid, text }),
+        open: openExternalLink,
+        failed: () => notify(t('card.actionFailed')),
+      });
     },
     [actions, postId, rid, t],
   );

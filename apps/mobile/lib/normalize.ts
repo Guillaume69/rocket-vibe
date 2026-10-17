@@ -6,6 +6,7 @@
  */
 
 import { followerIds, starredIds } from './marks.ts';
+import { httpUrl } from './origin.ts';
 
 /** The server sends either `{"$date": epochMs}` (EJSON) or an ISO string. */
 export function toEpoch(value: unknown): number | null {
@@ -74,9 +75,9 @@ export type LocalMessage = {
   discussionCount?: number;
   discussionLast?: number | null;
   updatedAt: number;
-  /** The author is a bot account (Vibez, RFC 0003) or a Mattermost webhook or bot post. */
+  /** The author is a bot account (Vibez), a Rocket.Chat integration or a Mattermost webhook or bot. */
   authorBot?: boolean;
-  /** A Mattermost webhook post's chosen author name, shown instead of the poster's. */
+  /** An integration's chosen author name (Rocket.Chat `alias`, Mattermost webhook), shown instead of the poster's. */
   authorAlias?: string | null;
   /** Its chosen picture, an absolute http(s) URL. */
   authorAvatar?: string | null;
@@ -190,17 +191,6 @@ function blockCallId(blocks: unknown): string | null {
     }
   }
   return null;
-}
-
-function httpUrl(value: unknown): string | null {
-  const url = asString(value);
-  if (url === null) return null;
-  try {
-    const parsed = new URL(url);
-    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname !== '' ? url : null;
-  } catch {
-    return null;
-  }
 }
 
 export function toMessage(raw: Record<string, unknown>): LocalMessage | null {

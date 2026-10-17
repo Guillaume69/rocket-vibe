@@ -211,14 +211,14 @@ function RoomList({ c, client, account }: { c: Colors; client: RestClient; accou
       </View>
     );
   }
-  if (sync.phase !== 'ready') {
+  if (sync.phase !== 'ready' || sync.account !== account) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={c.accent} />
       </View>
     );
   }
-  return <Rooms c={c} base={sync.base} client={client} e2e={sync.e2e} account={account} />;
+  return <Rooms key={account} c={c} base={sync.base} client={client} e2e={sync.e2e} account={account} />;
 }
 
 function Rooms({
@@ -244,19 +244,20 @@ function Rooms({
   // The query already orders by descending recency (`null`s last). The
   // grouping `filter`s below PRESERVE that order: each section stays newest
   // to oldest without an explicit re-sort.
-  const { data: roomRows } = useCoalescedLiveQuery(
+  const { data: roomRows, loaded: roomsLoaded } = useCoalescedLiveQuery(
     base.select().from(rooms).orderBy(desc(rooms.lastMessageTs)),
   );
   const { data: subscriptionRows } = useCoalescedLiveQuery(base.select().from(subscriptions));
   const router = useRouter();
   useEffect(() => {
+    if (!roomsLoaded) return;
     const rid = requestedLastRoom(account);
     if (rid === null) return;
     const decision = reopenDecision(rid, roomRows);
     if (decision === 'wait') return;
     settleLastRoomRequest();
     if (decision === 'open') router.push({ pathname: '/room/[rid]', params: { rid } });
-  }, [account, roomRows, router]);
+  }, [account, roomRows, roomsLoaded, router]);
 
   // Merging, hiding, unread lifting, splitting, empty sections removed: the
   // projection lives in `ui/homeSections.ts`, tested under Node.

@@ -14,7 +14,7 @@ import type { PrivateNoteData, Translation, Translator } from '../../lib/provide
 import { integrationCard, type IntegrationCard } from '../../lib/integrationCards.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { MmCategories } from './categories.ts';
-import { sameOrigin } from '../../lib/origin.ts';
+import { httpUrl, sameOrigin } from '../../lib/origin.ts';
 import { reminderMessage } from '../../lib/reminder.ts';
 import type { MmDirectory } from './directory.ts';
 
@@ -487,14 +487,34 @@ export function permalinkPosts(embeds: unknown): Record<string, unknown>[] {
 const EVERYONE = new Set(['all', 'here', 'channel']);
 const MENTION = /(?:^|[^\p{L}\p{N}_.@-])@([a-z0-9][a-z0-9._-]*)/giu;
 
-/** The usernames a post's text mentions, `@all` and the like left out. */
+/** The usernames a post's text mentions, `@all` and the like left out, code ignored. */
 export function mentionedUsernames(text: string): string[] {
   const out: string[] = [];
-  for (const m of text.matchAll(MENTION)) {
+  for (const m of outsideCode(text).matchAll(MENTION)) {
     const name = m[1]!.toLowerCase().replace(/[._-]+$/, '');
     if (name !== '' && !EVERYONE.has(name)) out.push(name);
   }
   return out;
+}
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+function outsideCode(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split('\n')) {
+    const opener = FENCE.exec(line)?.[1] ?? null;
+    if (fence !== null) {
+      if (opener !== null && opener[0] === fence[0] && opener.length >= fence.length && line.trim() === opener) fence = null;
+      continue;
+    }
+    if (opener !== null) {
+      fence = opener;
+      continue;
+    }
+    kept.push(line.replace(/(`+)[\s\S]*?[^`]\1(?!`)/g, ' '));
+  }
+  return kept.join('\n');
 }
 
 /** A webhook's chosen author name: Mattermost shows it only for webhook posts. */
@@ -506,18 +526,6 @@ function flag(value: unknown): boolean {
   return value === 'true' || value === true;
 }
 
-function httpUrl(value: unknown): string | null {
-  const url = str(value);
-  if (url === null) return null;
-  try {
-    const parsed = new URL(url);
-    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname !== '' ? url : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The server words a reminder in its own language: rebuilt from its props, localized when drawn. */
 /** A post only I see (`ephemeral_message`): its text, its cards, and a reminder's acknowledgement. */
 export function ephemeralNote(raw: unknown, base: string): PrivateNoteData | null {
   const post = record(raw);
@@ -533,20 +541,23 @@ export function ephemeralNote(raw: unknown, base: string): PrivateNoteData | nul
 
 function reminderAck(props: Record<string, unknown>, message: string, base: string): { username: string; link: string; at: number } | null {
   const username = str(props.username);
-  const seconds = positive(props.target_time);
+  const target = props.target_time;
+  const seconds = positive(typeof target === 'string' && /^\d+(?:\.\d+)?$/.test(target) ? Number(target) : target);
   if (username === null || seconds === null) return null;
-  const team = str(props.team_name);
-  const postId = str(props.post_id);
-  const link = message.match(/https?:\/\/[^\s)>\]]+/)?.[0] ?? (team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null);
+  const link = message.match(/https?:\/\/[^\s)>\]]+/)?.[0] ?? reminderPermalink(props, base);
   return link === null ? null : { username, link, at: seconds * 1000 };
 }
 
+/** The server words a reminder in its own language: rebuilt from its props, localized when drawn. */
 function reminderOf(props: Record<string, unknown>, message: string | null, base: string): string | null {
   const username = str(props.username);
   if (username === null) return null;
-  const said = message?.match(/(https?:\/\/\S+)\s*$/)?.[1] ?? null;
+  const link = message?.match(/(https?:\/\/\S+)\s*$/)?.[1] ?? reminderPermalink(props, base);
+  return link === null ? null : reminderMessage(username, link);
+}
+
+function reminderPermalink(props: Record<string, unknown>, base: string): string | null {
   const team = str(props.team_name);
   const postId = str(props.post_id);
-  const link = said ?? (team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null);
-  return link === null ? null : reminderMessage(username, link);
+  return team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null;
 }

@@ -7,7 +7,7 @@
 
 import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import { rememberUserId } from '../../lib/mediaAuth.ts';
-import type { MmClient } from './client.ts';
+import { type MmClient, MmError } from './client.ts';
 
 export type MmUser = {
   id: string;
@@ -172,14 +172,27 @@ export class MmDirectory {
     return user !== undefined && (user.fullName !== undefined || user.nickname !== undefined);
   }
 
-  /** Same as `ensure`, for the usernames a group DM's title lists. */
-  ensureUsernames(usernames: Iterable<string>): Promise<void> {
+  /**
+   * Same as `ensure`, for the usernames a group DM's title lists. Resolves to
+   * the names the server answered for, found or not.
+   */
+  ensureUsernames(usernames: Iterable<string>): Promise<ReadonlySet<string>> {
     const missing = [...new Set(usernames)].filter((u) => u !== '' && !this.byUsername.has(u));
-    if (missing.length === 0) return this.inFlight;
+    if (missing.length === 0) return this.inFlight.then(() => new Set());
+    const answered = new Set<string>();
     this.inFlight = this.inFlight.then(async () => {
       const still = missing.filter((u) => !this.byUsername.has(u));
       const fetch = (names: string[]) =>
-        this.client.post<Record<string, unknown>[]>('/users/usernames', { body: names }).catch(() => null);
+        this.client.post<Record<string, unknown>[]>('/users/usernames', { body: names }).then(
+          (users) => {
+            for (const name of names) answered.add(name);
+            return users;
+          },
+          (e: unknown) => {
+            if (names.length === 1 && e instanceof MmError && e.status >= 400 && e.status < 500) answered.add(names[0]!);
+            return null;
+          },
+        );
       for (let i = 0; i < still.length; i += BATCH) {
         const batch = still.slice(i, i + BATCH);
         // A group DM's title is cut at 64 characters: one cut username refuses the whole batch.
@@ -191,7 +204,7 @@ export class MmDirectory {
         }
       }
     });
-    return this.inFlight;
+    return this.inFlight.then(() => answered);
   }
 
   username(id: string): string | null {

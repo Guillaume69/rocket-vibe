@@ -399,10 +399,9 @@ export class MmLive {
       if (typeof post.message === 'string') usernames.push(...mentionedUsernames(post.message));
     }
     await this.directory.ensure(ids);
-    // Asked once per session: an unknown name would otherwise cost a request per post.
     const fresh = [...new Set(usernames)].filter((u) => !this.mentionsAsked.has(u) && this.directory.idOf(u) === null);
-    for (const u of fresh) this.mentionsAsked.add(u);
-    if (fresh.length > 0) await this.directory.ensureUsernames(fresh);
+    if (fresh.length === 0) return;
+    for (const u of await this.directory.ensureUsernames(fresh)) this.mentionsAsked.add(u);
   }
 }
 

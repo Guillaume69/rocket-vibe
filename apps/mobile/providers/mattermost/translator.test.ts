@@ -281,6 +281,13 @@ describe('MmTranslator integrations and links', () => {
   test('`mentionedUsernames` finds people, not everyone mentions, emails or trailing punctuation', () => {
     assert.deepEqual(mentionedUsernames('hi @Marc-Etienne.Barrut. and @here, mail a@b.c, (@bob)'), ['marc-etienne.barrut', 'bob']);
   });
+
+  test('`mentionedUsernames` skips code spans and fenced blocks, closed or not', () => {
+    assert.deepEqual(mentionedUsernames('use `@Override` and ``a @Inject b`` with @carol'), ['carol']);
+    assert.deepEqual(mentionedUsernames('@dan\n```java\n@Override\nvoid f() {}\n```\nthen @erin'), ['dan', 'erin']);
+    assert.deepEqual(mentionedUsernames('~~~\n@Test\n```\n@Still\n~~~\n@frank'), ['frank']);
+    assert.deepEqual(mentionedUsernames('@gus\n```\n@Override'), ['gus']);
+  });
 });
 
 
@@ -312,6 +319,10 @@ describe('ephemeralNote', () => {
     assert.deepEqual(said?.reminder, { username: 'bob', link: 'http://mm.test/team/pl/q9', at });
     const built = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props }, 'http://mm.test');
     assert.equal(built?.reminder?.link, 'http://mm.test/team/pl/q1');
+    const textual = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props: { ...props, target_time: String(at / 1000) } }, 'http://mm.test');
+    assert.equal(textual?.reminder?.at, at);
+    const garbled = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props: { ...props, target_time: 'soon' } }, 'http://mm.test');
+    assert.equal(garbled?.reminder, null);
     for (const language of ['fr', 'en'] as const) {
       const when = reminderFormatter(language);
       const text = reminderAcknowledgement((k, p) => translate(language, k, p), (ms) => when(ms), said!.reminder!);

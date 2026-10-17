@@ -150,7 +150,6 @@ export const MessageRow = memo(function MessageRow({
   const identities = useIdentities();
   const etags = useAvatarEtags();
   const t = useT();
-  // A webhook's chosen name stands for it alone: never the poster's names, photo or profile.
   const alias = message.authorAlias ?? null;
   const username = alias ?? (identities.get(message.authorId) ?? message.authorName) ?? '?';
   // A deleted Vibez account keeps its messages (`lib/deletedUser.ts`).

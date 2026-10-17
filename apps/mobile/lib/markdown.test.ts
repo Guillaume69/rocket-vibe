@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { textPreview, messageTree, textOf, emojiUnicode, isTable, mentionOf, type Table } from './markdown.ts';
+import { textPreview, messageTree, textOf, emojiUnicode, isTable, mentionOf, splitTables, type Table } from './markdown.ts';
 
 describe('messageTree', () => {
   test('prefers the server `md` when present', () => {
@@ -179,5 +179,18 @@ describe('mentionOf', () => {
     assert.equal(mentionOf('bob', names).label, '@bob');
     assert.equal(mentionOf('here', new Map([['here', 'Here']])).label, '@here');
     assert.equal(mentionOf('marc-etienne.barrut', new Map()).label, '@marc-etienne.barrut');
+  });
+});
+
+describe('splitTables and an unclosed fence', () => {
+  test('a table after an unclosed fence stays code', () => {
+    assert.equal(splitTables('```\n| a | b |\n|---|---|\n| 1 | 2 |'), null);
+  });
+
+  test('a table before it is cut out, the unclosed fence kept as text', () => {
+    const chunks = splitTables('| a | b |\n|---|---|\n| 1 | 2 |\n```\n| c | d |\n|---|---|');
+    assert.equal(chunks?.length, 2);
+    assert.ok(chunks !== null && 'table' in chunks[0]!);
+    assert.deepEqual(chunks?.[1], { text: '```\n| c | d |\n|---|---|' });
   });
 });

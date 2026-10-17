@@ -76,6 +76,7 @@ try{
   await reader.updateProfile({operation_id:id(),expected_revision:committed.profile.revision,username:b.user.username,display_name:'More recent name',bio:'Newer remote bio',status:'away',status_text:'Other device'});
   resumed=createVibezProvider(account,client,id,store,{transport:reader});const fresh=resumed.native!.chat;await fresh.connect();
   await until(async()=>await store.profileOperations.get('profile')===null);
+  await until(()=>fresh.status.online);
   assert.equal(profileWrites[profileWrites.length-1],profileWrites[0]);
   assert.equal((await fresh.ownProfile()).profile.bio,'Newer remote bio','Replay must not undo a later update');
   const preferences=(await fresh.ownProfile()).preferences;

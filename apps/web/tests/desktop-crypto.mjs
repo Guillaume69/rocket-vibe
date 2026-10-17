@@ -177,6 +177,7 @@ try {
     .all())
     await check.check();
   await page
+    .locator(".crypto-group-dialog")
     .getByRole("button", { name: "Review device changes", exact: true })
     .click();
   await page

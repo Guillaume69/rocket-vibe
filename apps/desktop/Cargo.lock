@@ -4094,7 +4094,7 @@ dependencies = [
 
 [[package]]
 name = "rocket-vibe-gtk"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "async-channel",
  "chrono",
@@ -4273,7 +4273,7 @@ dependencies = [
 
 [[package]]
 name = "rv-core"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -4344,7 +4344,7 @@ dependencies = [
 
 [[package]]
 name = "rv-ffi"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "chrono",
  "futures",
@@ -4363,7 +4363,7 @@ dependencies = [
 
 [[package]]
 name = "rv-native"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "block2",
  "objc2",
@@ -4389,7 +4389,7 @@ dependencies = [
 
 [[package]]
 name = "rv-voice-protocol"
-version = "0.22.0"
+version = "0.23.0"
 dependencies = [
  "serde",
  "serde_json",

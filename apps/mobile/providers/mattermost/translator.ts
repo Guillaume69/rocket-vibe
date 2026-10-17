@@ -10,7 +10,8 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
-import type { Translation, Translator } from '../../lib/provider.ts';
+import type { PrivateNoteData, Translation, Translator } from '../../lib/provider.ts';
+import { integrationCard, type IntegrationCard } from '../../lib/integrationCards.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { MmCategories } from './categories.ts';
 import { sameOrigin } from '../../lib/origin.ts';
@@ -149,7 +150,7 @@ export class MmTranslator implements Translator {
       authorName,
       authorAlias: alias,
       authorAvatar: alias === null ? null : httpUrl(props.override_icon_url),
-      authorBot: flag(props.from_webhook) || flag(props.from_bot),
+      authorBot: flag(props.from_webhook) || flag(props.from_bot) || author?.bot === true,
       systemType: call?.type ?? system?.type ?? null,
       threadId: rootId,
       threadCount: rootId === null ? num(raw.reply_count) : 0,
@@ -419,7 +420,7 @@ export function kmeetCall(props: Record<string, unknown>): { type: string; param
 }
 
 /** Integrations' Slack-style cards (`props.attachments`), in the shape Rocket.Chat's attachments already render. */
-function cards(raw: unknown): Record<string, unknown>[] {
+export function cards(raw: unknown): Record<string, unknown>[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     const a = record(item);
@@ -429,7 +430,26 @@ function cards(raw: unknown): Record<string, unknown>[] {
     const fallback = str(a.fallback);
     const text = str(a.text) ?? (fallback === str(a.pretext) ? null : fallback);
     if (text !== null) card.text = text;
+    const buttons = cardActions(a.actions);
+    if (buttons.length > 0) card.actions = buttons;
     return Object.keys(card).length > 0 ? [card] : [];
+  });
+}
+
+/** An integration's buttons (`actions[]`); menus are left out. */
+function cardActions(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const a = record(item);
+    const id = str(a?.id);
+    const name = str(a?.name);
+    if (a === null || id === null || name === null || (a.type !== undefined && a.type !== 'button')) return [];
+    const button: Record<string, unknown> = { id, name };
+    const style = str(a.style);
+    const cookie = str(a.cookie);
+    if (style !== null) button.style = style;
+    if (cookie !== null) button.cookie = cookie;
+    return [button];
   });
 }
 
@@ -498,6 +518,29 @@ function httpUrl(value: unknown): string | null {
 }
 
 /** The server words a reminder in its own language: rebuilt from its props, localized when drawn. */
+/** A post only I see (`ephemeral_message`): its text, its cards, and a reminder's acknowledgement. */
+export function ephemeralNote(raw: unknown, base: string): PrivateNoteData | null {
+  const post = record(raw);
+  const rid = str(post?.channel_id);
+  if (post === null || rid === null) return null;
+  const props = record(post.props) ?? {};
+  const text = typeof post.message === 'string' ? post.message : '';
+  const list = cards(props.attachments).map(integrationCard).filter((c): c is IntegrationCard => c !== null);
+  const reminder = props.type === 'reminder' ? reminderAck(props, text, base) : null;
+  if (text.trim() === '' && list.length === 0 && reminder === null) return null;
+  return { rid, text, postId: str(post.id), cards: list, reminder };
+}
+
+function reminderAck(props: Record<string, unknown>, message: string, base: string): { username: string; link: string; at: number } | null {
+  const username = str(props.username);
+  const seconds = positive(props.target_time);
+  if (username === null || seconds === null) return null;
+  const team = str(props.team_name);
+  const postId = str(props.post_id);
+  const link = message.match(/https?:\/\/[^\s)>\]]+/)?.[0] ?? (team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null);
+  return link === null ? null : { username, link, at: seconds * 1000 };
+}
+
 function reminderOf(props: Record<string, unknown>, message: string | null, base: string): string | null {
   const username = str(props.username);
   if (username === null) return null;

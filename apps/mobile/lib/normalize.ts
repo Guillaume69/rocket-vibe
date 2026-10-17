@@ -192,6 +192,17 @@ function blockCallId(blocks: unknown): string | null {
   return null;
 }
 
+function httpUrl(value: unknown): string | null {
+  const url = asString(value);
+  if (url === null) return null;
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname !== '' ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
   const id = asString(raw._id);
   const rid = asString(raw.rid);
@@ -213,6 +224,9 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     authorId,
     authorName: asString(author?.username),
     authorRealName: asString(author?.name),
+    authorAlias: asString(raw.alias),
+    authorAvatar: httpUrl(raw.avatar),
+    authorBot: raw.bot !== null && typeof raw.bot === 'object',
     systemType,
     threadId: asString(raw.tmid),
     threadCount: asInt(raw.tcount),

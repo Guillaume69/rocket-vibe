@@ -307,3 +307,21 @@ describe('toSubscription', () => {
     assert.equal(a?.open, false);
   });
 });
+
+describe('toMessage: integration authors', () => {
+  const base = { _id: 'm1', rid: 'r1', ts: 1000, u: { _id: 'u1', username: 'hook' }, msg: 'built' };
+
+  test('an alias, an http(s) avatar and a bot object name the post', () => {
+    const m = toMessage({ ...base, alias: 'CI', avatar: 'https://ci.test/logo.png', bot: { i: 'app' } });
+    assert.equal(m?.authorAlias, 'CI');
+    assert.equal(m?.authorAvatar, 'https://ci.test/logo.png');
+    assert.equal(m?.authorBot, true);
+  });
+
+  test('a relative or non-web avatar is dropped, a non-object bot is not a bot', () => {
+    for (const avatar of ['/avatar/x', 'javascript:alert(1)', ':emoji:']) assert.equal(toMessage({ ...base, avatar })?.authorAvatar, null);
+    const plain = toMessage({ ...base, bot: true });
+    assert.equal(plain?.authorBot, false);
+    assert.equal(plain?.authorAlias, null);
+  });
+});

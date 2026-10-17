@@ -322,6 +322,8 @@ export const MessageRow = memo(function MessageRow({
             attachments={attachedFiles}
             client={client}
             onLongPress={longPress}
+            rid={message.rid}
+            postId={message.id}
           />
         )}
         {reactions.length > 0 && (
@@ -913,11 +915,15 @@ function Attachments({
   attachments,
   client,
   onLongPress,
+  rid,
+  postId,
 }: {
   c: Colors;
   attachments: Attachment[];
   client: RestClient;
   onLongPress: (() => void) | undefined;
+  rid: string;
+  postId: string;
 }) {
   const { width: screenWidth } = useWindowDimensions();
   const availableWidth = availableBodyWidth(screenWidth);
@@ -927,7 +933,7 @@ function Attachments({
       {attachments.map((attachment, i) => {
         if(socialValue(attachment))return null;
         const card=integrationCard(attachment);
-        if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress}/>;
+        if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress} rid={rid} postId={postId}/>;
         const encryption = attachmentEncryption(attachment);
         if (encryption !== null) {
           return (

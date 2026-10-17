@@ -574,6 +574,7 @@
     "apps/mobile/ui/bots.tsx",
     "apps/mobile/ui/botsModel.ts",
     "apps/mobile/ui/callRing.tsx",
+    "apps/mobile/ui/cardActions.ts",
     "apps/mobile/ui/collapsedSections.ts",
     "apps/mobile/ui/commandCompletion.tsx",
     "apps/mobile/ui/composer.tsx",
@@ -644,6 +645,7 @@
     "apps/mobile/ui/postReadonly.ts",
     "apps/mobile/ui/prepareAttachment.ts",
     "apps/mobile/ui/presence.ts",
+    "apps/mobile/ui/privateNoteStore.ts",
     "apps/mobile/ui/privateNotes.tsx",
     "apps/mobile/ui/privateQuotes.ts",
     "apps/mobile/ui/qrCode.tsx",
@@ -5086,37 +5088,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3003,
+      "line": 3005,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3004,
+      "line": 3006,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3006,
+      "line": 3008,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3007,
+      "line": 3009,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3008,
+      "line": 3010,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3009,
+      "line": 3011,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

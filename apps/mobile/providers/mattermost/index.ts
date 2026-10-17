@@ -30,7 +30,7 @@ import { KchatPusher } from './pusher.ts';
 import { MmLive } from './live.ts';
 import { MmOutbox } from './outbox.ts';
 import { MmSocket } from './socket.ts';
-import { MM_ROOM, MmTranslator, record } from './translator.ts';
+import { ephemeralNote, MM_ROOM, MmTranslator, record } from './translator.ts';
 import { MmUploadQueue } from './uploads.ts';
 
 export const MATTERMOST_CAPABILITIES: Capabilities = {
@@ -150,8 +150,9 @@ export function createMattermostProvider(
     privateNote(event: DdpEvent) {
       if (event.collection !== 'ephemeral_message') return null;
       const post = record(record(event.args[0])?.post);
-      if (post === null || typeof post.channel_id !== 'string' || typeof post.message !== 'string') return null;
-      return { rid: post.channel_id, text: post.message };
+      const note = ephemeralNote(post, directory.baseUrl);
+      if (post !== null && note !== null) void live.ensureAuthors([post]).catch(() => {});
+      return note;
     },
     callSignal: (event: DdpEvent) => liveCallSignal(translator, event),
     loadHistory: (engine, rid, _type, latest) => history.loadHistory(engine, rid, latest),

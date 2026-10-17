@@ -25,3 +25,12 @@ export function localizedReminder(t: TranslateFn, text: string): string {
   const parts = reminderParts(text);
   return parts === null ? text : t('messageRow.reminder', parts);
 }
+
+/** Mattermost's acknowledgement of `/remind` (an ephemeral post), in the language of `t`; `when` formats the due time. */
+export function reminderAcknowledgement(
+  t: TranslateFn,
+  when: (ms: number) => string,
+  reminder: { username: string; link: string; at: number },
+): string {
+  return t('room.reminderAck', { username: reminder.username, link: reminder.link, when: when(reminder.at) });
+}

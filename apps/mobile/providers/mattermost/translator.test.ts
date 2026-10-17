@@ -5,14 +5,17 @@ import { reactionList } from '../../lib/reactions.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { post } from './testing.ts';
-import { MM_POST, MM_QUIET, MmTranslator, membershipCounts, mentionedUsernames, permalinkPosts, record } from './translator.ts';
+import { MM_POST, MM_QUIET, MmTranslator, ephemeralNote, membershipCounts, mentionedUsernames, permalinkPosts, record } from './translator.ts';
 import { quoteText } from '../../lib/quote.ts';
 import { integrationCard } from '../../lib/integrationCards.ts';
+import { reminderAcknowledgement } from '../../lib/reminder.ts';
+import { reminderFormatter, translate } from '../../ui/messages.ts';
 
 function translator() {
   const directory = new MmDirectory(new MmClient('http://mm.test', 't'));
   directory.remember({ id: 'u-me', username: 'me', displayName: 'Me Myself', lastPictureUpdate: null });
   directory.remember({ id: 'u-bob', username: 'bob', displayName: 'Bob Builder', lastPictureUpdate: null });
+  directory.remember({ id: 'u-euria', username: 'euria', displayName: 'Euria', lastPictureUpdate: null, bot: true });
   return new MmTranslator(directory, 'u-me');
 }
 
@@ -195,6 +198,32 @@ describe('MmTranslator integrations and links', () => {
     assert.equal(summary?.text, 'plain summary');
   });
 
+  test('a card keeps only its buttons, with their id, name, style and cookie', () => {
+    const m = translator().toMessage(post('p1', {
+      props: { attachments: [{ text: 'Deploy?', actions: [
+        { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1', integration: { url: 'https://hook.test' } },
+        { id: 'no', name: 'Reject', type: 'button', style: 'danger' },
+        { id: 'pick', name: 'Pick', type: 'select', options: [] },
+        { id: '', name: 'No id' },
+        { id: 'unnamed' },
+      ] }] },
+    }));
+    const [raw] = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
+    assert.deepEqual(raw?.actions, [{ id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' }, { id: 'no', name: 'Reject', style: 'danger' }]);
+    assert.deepEqual(integrationCard(raw)?.actions, [
+      { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' },
+      { id: 'no', name: 'Reject', style: 'danger', cookie: null },
+    ]);
+  });
+
+  test('a card shows at most ten buttons, their names capped like a title', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `b${i}`, name: `B${i}` }));
+    assert.equal(integrationCard({ text: 'x', actions: many })?.actions.length, 10);
+    const card = integrationCard({ text: 'x', actions: [{ id: 'long', name: 'é'.repeat(257) }, { id: 'ok', name: 'Fine' }] });
+    assert.deepEqual(card?.actions.map((a) => a.id), ['ok']);
+    assert.equal(integrationCard({ actions: [{ id: 'only', name: 'Only a button' }] })?.actions.length, 1, 'a card of buttons alone still shows');
+  });
+
   test('a permalink embed becomes a quote of the linked post, named like an author', () => {
     const m = translator().toMessage(post('p1', {
       message: 'see http://mm.test/team/pl/q1',
@@ -246,6 +275,7 @@ describe('MmTranslator integrations and links', () => {
     assert.equal(notHook?.authorName, 'bob');
     assert.equal(notHook?.authorBot, false);
     assert.equal(t.toMessage(post('p4', { props: { from_bot: 'true' } }))?.authorBot, true);
+    assert.equal(t.toMessage(post('p5', { user_id: 'u-euria' }))?.authorBot, true);
   });
 
   test('`mentionedUsernames` finds people, not everyone mentions, emails or trailing punctuation', () => {
@@ -253,3 +283,42 @@ describe('MmTranslator integrations and links', () => {
   });
 });
 
+
+describe('ephemeralNote', () => {
+  const card = { text: 'Pick one', actions: [{ id: 'yes', name: 'Yes', cookie: 'srv' }] };
+
+  test('reads text, cards and post id from an object or a JSON string', () => {
+    const raw = { id: 'e1', channel_id: 'r1', message: 'Hi @bob', props: { attachments: [card] } };
+    for (const value of [raw, JSON.stringify(raw)]) {
+      const note = ephemeralNote(value, 'http://mm.test');
+      assert.equal(note?.rid, 'r1');
+      assert.equal(note?.postId, 'e1');
+      assert.equal(note?.text, 'Hi @bob');
+      assert.deepEqual(note?.cards?.[0]?.actions, [{ id: 'yes', name: 'Yes', style: null, cookie: 'srv' }]);
+      assert.equal(note?.reminder, null);
+    }
+  });
+
+  test('a note with only cards still shows; one with nothing does not', () => {
+    assert.equal(ephemeralNote({ id: 'e1', channel_id: 'r1', message: '', props: { attachments: [card] } }, 'http://mm.test')?.cards?.length, 1);
+    assert.equal(ephemeralNote({ id: 'e1', channel_id: 'r1', message: '' }, 'http://mm.test'), null);
+    assert.equal(ephemeralNote({ id: 'e1', message: 'x' }, 'http://mm.test'), null);
+  });
+
+  test('a reminder acknowledgement reads in the app language with its due time', () => {
+    const at = Date.UTC(2026, 9, 14, 7, 0);
+    const props = { type: 'reminder', target_time: at / 1000, username: 'bob', post_id: 'q1', team_name: 'team' };
+    const said = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded about http://mm.test/team/pl/q9 by @bob at Wed, 14 Oct 2026 07:00:00 UTC', props }, 'http://mm.test');
+    assert.deepEqual(said?.reminder, { username: 'bob', link: 'http://mm.test/team/pl/q9', at });
+    const built = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props }, 'http://mm.test');
+    assert.equal(built?.reminder?.link, 'http://mm.test/team/pl/q1');
+    for (const language of ['fr', 'en'] as const) {
+      const when = reminderFormatter(language);
+      const text = reminderAcknowledgement((k, p) => translate(language, k, p), (ms) => when(ms), said!.reminder!);
+      assert.equal(text, language === 'fr'
+        ? `Vous recevrez un rappel de [ce message](http://mm.test/team/pl/q9) de @bob ${when(at)}`
+        : `You will be reminded about [this message](http://mm.test/team/pl/q9) from @bob ${when(at)}`);
+      assert.ok(when(at).length > 0);
+    }
+  });
+});

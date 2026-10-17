@@ -87,7 +87,7 @@ import { forgetNotificationState } from './notificationState.ts';
 import { translateCurrent } from './i18n.ts';
 import { forgetReplies } from './reply.ts';
 import { forgetIdentities } from './identityStore.ts';
-import { setPrivateNote } from './privateNotes.tsx';
+import { setPrivateNote } from './privateNoteStore.ts';
 import { useSession } from './session.tsx';
 import { armUploadProbe } from './uploadProbe.ts';
 import { forgetLoadedThreads } from './loadedThreads.ts';
@@ -608,7 +608,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         if (discarded) return;
         presence.apply(event);
         const note = provider.privateNote(event);
-        if (note !== null) setPrivateNote(note.rid, note.text);
+        if (note !== null) setPrivateNote(note);
         engine.apply(event).catch(() => {
           // A failing write must not kill the listener; the step 5.2 REST
           // catch-up will bring the document through again.

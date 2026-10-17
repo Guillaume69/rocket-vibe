@@ -19,6 +19,8 @@ export type MmUser = {
   nickname?: string | null;
   /** The custom status's emoji, as a glyph; `null` without one or once expired. */
   statusEmoji?: string | null;
+  /** A bot account (kChat's Euria, a Mattermost bot): the BOT badge. */
+  bot?: boolean;
 };
 
 /**
@@ -50,7 +52,7 @@ export function toMmUser(raw: Record<string, unknown>): MmUser | null {
     ? raw.last_picture_update
     : null;
   const fullName = full === '' ? null : full;
-  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname, statusEmoji: statusEmojiOf(raw) };
+  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname, statusEmoji: statusEmojiOf(raw), bot: raw.is_bot === true };
 }
 
 /**

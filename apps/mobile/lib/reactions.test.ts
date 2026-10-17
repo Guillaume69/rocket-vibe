@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { reactionList } from './reactions.ts';
+import { reactionList, reactionPeople } from './reactions.ts';
 
 describe('reactionList', () => {
   it('returns [] on null, unreadable JSON or an unexpected shape', () => {
@@ -47,5 +47,31 @@ describe('reactionList', () => {
   it('does not mistake a username that CONTAINS mine', () => {
     const raw = JSON.stringify({ ':+1:': { usernames: ['alice-bis'] } });
     assert.equal(reactionList(raw, 'alice')[0]?.byMe, false);
+  });
+});
+
+describe('reactionPeople', () => {
+  it('lists who reacted per emoji, me first, with the names the row stored', () => {
+    const raw = JSON.stringify({
+      ':+1:': { usernames: ['bob', 'alice', 'carol'], names: ['Bob B', 'Alice A', ''] },
+      ':tada:': { usernames: ['bob', 7] },
+      ':x:': { usernames: [] },
+    });
+    assert.deepEqual(reactionPeople(raw, 'alice'), [
+      {
+        code: '+1',
+        people: [
+          { username: 'alice', name: 'Alice A' },
+          { username: 'bob', name: 'Bob B' },
+          { username: 'carol', name: null },
+        ],
+      },
+      { code: 'tada', people: [{ username: 'bob', name: null }] },
+    ]);
+  });
+
+  it('returns [] on null or unreadable JSON', () => {
+    assert.deepEqual(reactionPeople(null, 'alice'), []);
+    assert.deepEqual(reactionPeople('{', 'alice'), []);
   });
 });

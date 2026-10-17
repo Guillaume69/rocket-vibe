@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- A long press on a reaction under a message shows who reacted: a sheet with a tab per emoji and the people behind it, you first.
 - Switching server reopens the room you last had open on that server, unless a link or a notification opens another one.
 - Tables written with pipes (`| a | b |`), as Mattermost and Slack integrations post them, show as a grid that scrolls sideways when it is too wide.
 - Mattermost and kChat: a link to another post shows that post as a quote under the message, with its files and its author's name, as the official apps do.

@@ -142,6 +142,10 @@ export const MessageRow = memo(function MessageRow({
   const time = formatTime(message.ts);
 
   const longPress = onLongPress === null ? undefined : () => onLongPress(message.id);
+  const router = useRouter();
+  // Who reacted: a long press on a chip, read-only chips (search) included.
+  const showReactors = (code: string) =>
+    router.push({ pathname: '/reactions', params: { reactions: message.reactions ?? '', code, me: me ?? '' } });
   // Username to DISPLAY, resolved by UID (`ui/identities`): `authorName` is the
   // snapshot frozen at ingestion, which keeps the OLD name after a rename (the
   // history is not re-downloaded). The identity table, kept up to date, gives the
@@ -344,6 +348,7 @@ export const MessageRow = memo(function MessageRow({
                         onReact(message.rid, message.id, reaction.code, !reaction.byMe);
                       }
                 }
+                onLongPress={() => showReactors(reaction.code)}
               />
             ))}
           </View>
@@ -457,28 +462,32 @@ function Placeholder({ c, text }: { c: Colors; text: string }) {
  * A reaction chip: the emoji (standard glyph, custom image, or literal `:name:`
  * as a last resort, same resolution order as the message body) and the count.
  * Border and count ACCENTED when my reaction is in it: that is also the hint
- * that tapping removes instead of adding.
+ * that tapping removes instead of adding. A long press shows who reacted.
  */
 function ReactionChip({
   c,
   reaction,
   onPress,
+  onLongPress,
 }: {
   c: Colors;
   reaction: DisplayedReaction;
   onPress: (() => void) | undefined;
+  onLongPress: () => void;
 }) {
   useCatalogueEmojis();
+  const t = useT();
   const glyph = unicodeOfShortcode(reaction.code);
   const uri = glyph === null ? customEmojiUrl(reaction.code) : null;
   return (
     <Pressable
       onPress={onPress}
-      disabled={onPress === undefined}
+      onLongPress={onLongPress}
       unstable_pressDelay={LIST_PRESS_DELAY}
       accessibilityRole="button"
       accessibilityState={{ selected: reaction.byMe }}
       accessibilityLabel={`:${reaction.code}: ${reaction.total}`}
+      accessibilityHint={t('reactions.hint')}
       style={({ pressed }) => [
         styles.reactionChip,
         {

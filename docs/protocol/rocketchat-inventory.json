@@ -424,6 +424,7 @@
     "apps/mobile/app/new-room.tsx",
     "apps/mobile/app/presence.tsx",
     "apps/mobile/app/profile.tsx",
+    "apps/mobile/app/reactions.tsx",
     "apps/mobile/app/remind-me.tsx",
     "apps/mobile/app/reminders.tsx",
     "apps/mobile/app/room-info.tsx",
@@ -5088,37 +5089,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3005,
+      "line": 3008,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3006,
+      "line": 3009,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3008,
+      "line": 3011,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3009,
+      "line": 3012,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3010,
+      "line": 3013,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3011,
+      "line": 3014,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

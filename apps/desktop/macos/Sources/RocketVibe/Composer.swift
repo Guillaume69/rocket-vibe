@@ -199,7 +199,7 @@ struct Composer: View {
 
     var height: CGFloat {
         let lines = max(1, model.draft.split(separator: "\n", omittingEmptySubsequences: false).count)
-        let scale = TextScale.shared.factor
+        let scale = CGFloat(TextScale.shared.factor)
         return min(170 * scale, CGFloat(lines) * 20 * scale + 6)
     }
 
@@ -640,8 +640,8 @@ struct ComposerField: NSViewRepresentable {
     let scale: Double
 
     static func font(_ scale: Double) -> NSFont {
-        let size = 14.5 * scale
-        return NSFont(name: "Nunito-Regular", size: size) ?? .systemFont(ofSize: (NSFont.systemFontSize + 1) * scale)
+        let factor = CGFloat(scale)
+        return NSFont(name: "Nunito-Regular", size: 14.5 * factor) ?? .systemFont(ofSize: (NSFont.systemFontSize + 1) * factor)
     }
 
     func makeCoordinator() -> Coordinator {

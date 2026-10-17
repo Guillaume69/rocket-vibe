@@ -33,9 +33,7 @@ import {
   quoteText,
 } from '../lib/quote.ts';
 import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts';
-import { unicodeOfShortcode } from '../lib/emojis.ts';
-import { customEmojiUrl } from '../lib/customEmojis.ts';
-import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
+import { ReactionEmoji } from './emojiImage.tsx';
 import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { BotBadge } from './botBadge.tsx';
@@ -337,10 +335,11 @@ export const MessageRow = memo(function MessageRow({
                 c={c}
                 reaction={reaction}
                 // The tap TOGGLES: `chat.react` can also remove; hard-wiring `put`
-                // to `true` made the reaction impossible to undo.
+                // to `true` made the reaction impossible to undo. A read-only
+                // chip (search) passes the tap to the row, which opens the result.
                 onPress={
                   onReact === null
-                    ? undefined
+                    ? onPress === undefined ? undefined : () => onPress(message.id)
                     : () => {
                         // Joining a reaction is a use of that emoji (quick
                         // reactions of the sheet); withdrawing mine is not.
@@ -475,10 +474,7 @@ function ReactionChip({
   onPress: (() => void) | undefined;
   onLongPress: () => void;
 }) {
-  useCatalogueEmojis();
   const t = useT();
-  const glyph = unicodeOfShortcode(reaction.code);
-  const uri = glyph === null ? customEmojiUrl(reaction.code) : null;
   return (
     <Pressable
       onPress={onPress}
@@ -497,15 +493,12 @@ function ReactionChip({
         },
       ]}
     >
-      {glyph !== null ? (
-        <Text style={styles.reactionEmoji}>{glyph}</Text>
-      ) : uri !== null ? (
-        <ImageEmoji uri={uri} style={styles.reactionImage} code={reaction.code}/>
-      ) : (
-        <Text style={[styles.reactionCode, { color: c.dimmed }]} numberOfLines={1}>
-          :{reaction.code}:
-        </Text>
-      )}
+      <ReactionEmoji
+        code={reaction.code}
+        glyphStyle={styles.reactionEmoji}
+        imageStyle={styles.reactionImage}
+        codeStyle={[styles.reactionCode, { color: c.dimmed }]}
+      />
       <Text
         style={[styles.reactionTotal, { color: reaction.byMe ? c.accent : c.dimmed }]}
       >

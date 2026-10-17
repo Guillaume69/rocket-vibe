@@ -70,6 +70,14 @@ describe('reactionPeople', () => {
     ]);
   });
 
+  it('pairs names by position, an odd entry shifting nothing', () => {
+    const raw = JSON.stringify({ ':+1:': { usernames: ['bob', 7, 'carol'], names: ['B', null, 'C'] } });
+    assert.deepEqual(reactionPeople(raw, null)[0]?.people, [
+      { username: 'bob', name: 'B' },
+      { username: 'carol', name: 'C' },
+    ]);
+  });
+
   it('returns [] on null or unreadable JSON', () => {
     assert.deepEqual(reactionPeople(null, 'alice'), []);
     assert.deepEqual(reactionPeople('{', 'alice'), []);

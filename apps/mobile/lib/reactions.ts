@@ -27,28 +27,12 @@ export type DisplayedReaction = {
  * The server's order is preserved.
  */
 export function reactionList(raw: string | null, me: string | null): DisplayedReaction[] {
-  if (raw === null) return [];
-  let root: unknown;
-  try {
-    root = JSON.parse(raw);
-  } catch {
-    return [];
-  }
-  if (typeof root !== 'object' || root === null || Array.isArray(root)) return [];
-  const out: DisplayedReaction[] = [];
-  for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
-    const rawUsernames = (value as { usernames?: unknown } | null)?.usernames;
-    const usernames = Array.isArray(rawUsernames)
-      ? rawUsernames.filter((u): u is string => typeof u === 'string')
-      : [];
-    if (usernames.length === 0) continue;
-    out.push({
-      code: key.replace(/^:/, '').replace(/:$/, ''),
-      total: usernames.length,
-      byMe: me !== null && usernames.includes(me),
-    });
-  }
-  return out;
+  // `reactionPeople` puts me first: one look at the head says whether it is mine.
+  return reactionPeople(raw, me).map(({ code, people }) => ({
+    code,
+    total: people.length,
+    byMe: me !== null && people[0]?.username === me,
+  }));
 }
 
 /** Someone who reacted: their username and the name the row stored beside it, if any. */

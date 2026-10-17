@@ -3,13 +3,12 @@ import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { customEmojiUrl } from '../lib/customEmojis.ts';
-import { unicodeOfShortcode } from '../lib/emojis.ts';
+import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { reactionPeople, type Reactor } from '../lib/reactions.ts';
 import { avatarUrl } from '../lib/upload.ts';
-import { ImageEmoji, useCatalogueEmojis } from '../ui/emojiImage.tsx';
+import { ReactionEmoji } from '../ui/emojiImage.tsx';
 import { useT } from '../ui/i18n.ts';
-import { useAvatarEtags, useDisplayNames, useIdentities } from '../ui/identities.tsx';
+import { useAvatarEtags, usePersonByUsername } from '../ui/identities.tsx';
 import { AvatarTile } from '../ui/kit.tsx';
 import { useSession } from '../ui/session.tsx';
 import { Tappable } from '../ui/tappable.tsx';
@@ -35,23 +34,24 @@ export default function ReactionsSheet() {
   const { height } = useWindowDimensions();
   const { state } = useSession();
   const client = state.phase === 'connected' ? state.client : null;
-  const names = useDisplayNames();
-  const identities = useIdentities();
   const etags = useAvatarEtags();
-  useCatalogueEmojis();
-  // Reactions name people by username; the shown name is keyed by uid.
-  const uidOf = useMemo(() => new Map([...identities].map(([uid, name]) => [name, uid])), [identities]);
+  const byUsername = usePersonByUsername();
   const label = (p: Reactor): string => {
     if (p.username === me) return t('reactions.you');
-    const uid = uidOf.get(p.username);
-    return (uid === undefined ? undefined : names.get(uid)) ?? p.name ?? p.username;
+    if (client?.kind === 'vibez' && isDeletedUsername(p.username)) return t('common.deletedUser');
+    return byUsername(p.username).name ?? p.name ?? p.username;
   };
 
   if (group === undefined) return null;
   return (
-    <View style={[styles.sheet, { maxHeight: height * 0.7, paddingBottom: insets.bottom + 12 }]}>
+    <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
       <Text style={[styles.title, { color: c.text }]}>{t('reactions.title')}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tabRow}
+        contentContainerStyle={styles.tabs}
+      >
         {groups.map((g) => {
           const on = g.code === group.code;
           return (
@@ -63,24 +63,30 @@ export default function ReactionsSheet() {
               accessibilityLabel={`:${g.code}: ${g.people.length}`}
               style={[styles.tab, { backgroundColor: c.card, borderColor: on ? c.accent : c.border }]}
             >
-              <Emoji code={g.code} color={c.dimmed} />
+              <ReactionEmoji
+                code={g.code}
+                glyphStyle={styles.glyph}
+                imageStyle={styles.image}
+                codeStyle={[styles.code, { color: c.dimmed }]}
+              />
               <Text style={[styles.count, { color: on ? c.accent : c.dimmed }]}>{g.people.length}</Text>
             </Tappable>
           );
         })}
       </ScrollView>
-      <ScrollView contentContainerStyle={styles.people}>
-        {group.people.map((p) => {
+      {/* The list alone scrolls, capped, so the title and tabs keep their height. */}
+      <ScrollView style={{ maxHeight: height * 0.55 }} contentContainerStyle={styles.people}>
+        {group.people.map((p, i) => {
           const shown = label(p);
-          const uid = uidOf.get(p.username);
+          const { uid } = byUsername(p.username);
           return (
-            <View key={p.username} style={styles.person}>
+            <View key={`${i}:${p.username}`} style={styles.person}>
               <AvatarTile
                 c={c}
                 hueKey={p.username}
                 initial={shown.charAt(0) || '?'}
                 uri={client === null ? null : avatarUrl(client, {
-                  username: p.username,
+                  username: uid === p.username ? undefined : p.username,
                   uid,
                   etag: etags.byUsername.get(p.username) ?? (uid === undefined ? undefined : etags.byUid.get(uid)),
                 })}
@@ -96,18 +102,10 @@ export default function ReactionsSheet() {
   );
 }
 
-/** A reaction's emoji as its chip draws it: glyph, custom image, else `:code:`. */
-function Emoji({ code, color }: { code: string; color: string }) {
-  const glyph = unicodeOfShortcode(code);
-  const uri = glyph === null ? customEmojiUrl(code) : null;
-  if (glyph !== null) return <Text style={styles.glyph}>{glyph}</Text>;
-  if (uri !== null) return <ImageEmoji uri={uri} style={styles.image} code={code} />;
-  return <Text style={[styles.code, { color }]} numberOfLines={1}>:{code}:</Text>;
-}
-
 const styles = StyleSheet.create({
   sheet: { paddingTop: 20, gap: 12 },
   title: { fontFamily: FONTS.titleStrong, fontSize: 20, paddingHorizontal: 20 },
+  tabRow: { flexGrow: 0, flexShrink: 0 },
   tabs: { gap: 8, paddingHorizontal: 20 },
   tab: {
     flexDirection: 'row',

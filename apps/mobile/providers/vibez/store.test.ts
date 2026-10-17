@@ -249,7 +249,7 @@ test('reaction metadata survives replay and projection reopen without altering m
     const reacted={...message,revision:'9007199254740994',reactions:[{emoji:'heart',users:[message.author]}]};
     await store.ingest([reacted]); await store.ingest([message]);
     const row=db.prepare('SELECT reactions,edited_at,ts FROM messages WHERE id=?').get(message.id)!;
-    assert.deepEqual(JSON.parse(row.reactions as string),{':heart:':{usernames:[message.author.username]}});
+    assert.deepEqual(JSON.parse(row.reactions as string),{':heart:':{usernames:[message.author.username],names:[message.author.display_name]}});
     assert.equal(row.edited_at,null);
     assert.equal(row.ts,Date.parse(message.created_at));
     assert.equal(await store.oldestPosition(room.id),message.position);

@@ -47,7 +47,7 @@ function commandRow(row:NativeCommandRow):NativeCommand {
 /** Projection consumed by the existing message renderer and action sheet. */
 export function nativeReactions(reactions: Message['reactions']): string|null {
   return reactions?.length ? JSON.stringify(Object.fromEntries(reactions.map(reaction=>[
-    `:${reaction.emoji}:`,{usernames:reaction.users.map(user=>user.username)},
+    `:${reaction.emoji}:`,{usernames:reaction.users.map(user=>user.username),names:reaction.users.map(user=>user.deleted?'':user.display_name)},
   ]))) : null;
 }
 

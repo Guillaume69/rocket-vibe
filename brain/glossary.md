@@ -244,7 +244,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | `ChatEvent` | rv-core `provider::ChatEvent`, from `Chat::events()`: `Changed(Change)` (which rooms), `Reload` (read everything again: a Vibez change that does not say what it touched, or missed changes), `Rooms` (a Vibez live batch touched only these rooms), `Incoming` (a notification), `Session(..)` (the rest, Rocket.Chat, Mattermost and kChat only). | [desktop-gtk](architecture/desktop-gtk.md) |
 | `Backend` | rv-core `sync::Backend`, from `SyncEngine::backend()`: which server family a `Session` speaks to, `RocketChat` or `Mattermost` (with its `MmSync`); every per-server choice in the session, the sync engine, the outbox and the uploads matches on it exhaustively. The Vibez server is a separate type, `NativeSession`. | [desktop-core](architecture/desktop-core.md) |
 | Last room | The room last opened on an account, reopened when the account is switched to (rv-core `last_room`, file `last-rooms.json`; mobile `ui/lastRoomStore.ts`, SecureStore `last-rooms`). | [login-and-servers](features/login-and-servers.md#coming-back-to-an-account) |
-| Text zoom | The desktop's text size in percent, a browser's steps (rv-core `zoom`, file `zoom`), applied by GTK `style::zoomed` and SwiftUI `AppModel.textScale`. | [settings](features/settings.md#text-zoom-desktop) |
+| Text zoom | The desktop's text size in percent, a browser's steps (rv-core `zoom`, file `zoom`), applied by GTK `style::zoomed` and SwiftUI `TextScale.shared.factor`. | [settings](features/settings.md#text-zoom-desktop) |
 | `timeline` | rv-core's message-list grouping (headers, day separators, new-messages marker), shared by both UIs. | [room-view](features/room-view.md) |
 
 ## Project vocabulary

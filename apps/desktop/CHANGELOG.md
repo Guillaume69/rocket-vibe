@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-17
+
 ### Added
 
 - Hovering a reaction under a message shows who reacted with it, you first, named as the room names people.
@@ -1313,7 +1315,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...HEAD
+[0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
 [0.21.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1
 [0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...desktop-v0.21.0

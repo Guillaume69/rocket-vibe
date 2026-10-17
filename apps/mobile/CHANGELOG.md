@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-17
+
 ### Added
 
 - A long press on a reaction under a message shows who reacted: a sheet with a tab per emoji and the people behind it, you first.
@@ -839,7 +841,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...HEAD
+[0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
 [0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1
 [0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0

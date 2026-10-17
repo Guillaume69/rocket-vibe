@@ -954,12 +954,23 @@ impl Composer {
     }
 
     /// What the server told me alone here, such as a command's answer.
-    pub fn show_private(&self, text: &str, me: &str) {
+    pub fn show_private(
+        &self,
+        text: &str,
+        ctx: &rv_core::markdown::Context,
+        cards: &[rv_core::content::CardAttachment],
+        press: Option<&crate::cards::PressAction>,
+    ) {
         while let Some(child) = self.note_body.first_child() {
             self.note_body.remove(&child);
         }
-        let blocks = rv_core::markdown::render(None, Some(text), &rv_core::markdown::Context { me, names: None });
-        self.note_body.append(&crate::markdown_view::view(&blocks, &[]));
+        if !text.trim().is_empty() {
+            let blocks = rv_core::markdown::render(None, Some(text), ctx);
+            self.note_body.append(&crate::markdown_view::view(&blocks, &[]));
+        }
+        for card in cards {
+            self.note_body.append(&crate::cards::attachment_card(card, ctx, press));
+        }
         self.note.replace(text.to_owned());
         self.note_bar.set_visible(true);
     }

@@ -117,10 +117,15 @@ pub enum Event {
     Incoming {
         incoming: Incoming,
     },
-    /// What the server told me alone in a room: a slash command's answer.
+    /// What the server told me alone in a room: a slash command's answer, or
+    /// a Mattermost "visible only to you" post with its cards, whose buttons
+    /// press through `post_id`.
     PrivateNote {
         rid: String,
         text: String,
+        body: Vec<markup::BodyBlock>,
+        cards: Vec<model::Card>,
+        post_id: Option<String>,
     },
     /// The voice session, the rings or the listening choices moved (Vibez).
     Voice,
@@ -404,7 +409,7 @@ fn state(c: Connection) -> ConnectionState {
     }
 }
 
-fn event(e: SessionEvent) -> Event {
+fn event(e: SessionEvent, session: Option<&Session>) -> Event {
     match e {
         SessionEvent::Connection(c) => Event::Connection { state: state(c) },
         SessionEvent::Expired => Event::Expired,
@@ -424,7 +429,18 @@ fn event(e: SessionEvent) -> Event {
                 mentions_me: i.mentions_me,
             },
         },
-        SessionEvent::Private { rid, text } => Event::PrivateNote { rid, text },
+        SessionEvent::Private { rid, text, attachments, post_id } => {
+            let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
+            let names = |username: &str| session.and_then(|s| s.mention_name(username));
+            let ctx = rv_core::markdown::Context { me: &me, names: Some(&names) };
+            Event::PrivateNote {
+                body: markup::blocks(rv_core::markdown::render(None, Some(&text), &ctx)),
+                cards: model::integration_cards(attachments.as_deref(), &ctx),
+                rid,
+                text,
+                post_id,
+            }
+        }
         SessionEvent::CallRing => Event::CallRing,
     }
 }
@@ -460,7 +476,7 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                     e = events.recv() => match e {
-                        Ok(e) => event(e),
+                        Ok(e) => event(e, session.upgrade().as_deref()),
                         Err(RecvError::Lagged(_)) => continue,
                         Err(RecvError::Closed) => return,
                     },
@@ -642,6 +658,31 @@ impl Chat {
             None => Ok(false),
             Some(result) => result.map(|()| true).map_err(Into::into),
         }
+    }
+
+    /// A card's button (Mattermost and kChat), on the post it belongs to.
+    pub async fn press_card_action(
+        &self,
+        post_id: String,
+        action: model::CardAction,
+    ) -> Result<model::ActionAnswer, RvError> {
+        let s = self.session.clone();
+        let action = rv_core::content::CardAction {
+            id: action.id,
+            name: action.name,
+            style: action.style,
+            cookie: action.cookie,
+        };
+        let session = self.session.clone();
+        let answer = on_tokio(async move { s.press_card_action(&post_id, &action).await }).await?;
+        let names = |username: &str| session.mention_name(username);
+        let ctx = rv_core::markdown::Context { me: &session.info.username, names: Some(&names) };
+        let note_body = answer
+            .note
+            .as_deref()
+            .map(|text| markup::blocks(rv_core::markdown::render(None, Some(text), &ctx)))
+            .unwrap_or_default();
+        Ok(model::ActionAnswer { note: answer.note, note_body, open: answer.open })
     }
 
     pub async fn retry(&self, id: String) {

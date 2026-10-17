@@ -575,7 +575,9 @@ struct MessageRow: View, Equatable {
             } else if card.xPost {
                 XPostCard(card: card, chat: model?.provider.legacy)
             } else if card.integration {
-                IntegrationCard(card: card)
+                IntegrationCard(card: card, press: model.map { model in
+                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: message.id, action: action) }
+                })
             } else {
                 LinkCard(card: card)
             }
@@ -1073,6 +1075,9 @@ struct LinkCard: View {
 struct IntegrationCard: View {
     @Environment(\.openURL) var openURL
     let card: Card
+    /// Presses a button through the server; the page it answers opens.
+    var press: ((CardAction) async -> URL?)? = nil
+    @State private var pressing: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1101,6 +1106,32 @@ struct IntegrationCard: View {
                         }
                     }
                 }
+                if let press, !card.actions.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(card.actions, id: \.id) { action in
+                            Button {
+                                guard pressing == nil else { return }
+                                pressing = action.id
+                                Task {
+                                    if let url = await press(action) { openURL(url) }
+                                    pressing = nil
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if pressing == action.id { ProgressView().controlSize(.small) }
+                                    Text(action.name).font(.vibe(12.5, .bold))
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .foregroundStyle(tint(action.style))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint(action.style).opacity(0.5)))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(pressing != nil)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
             .padding(8)
             .padding(.leading, 4)
@@ -1120,6 +1151,14 @@ struct IntegrationCard: View {
             else { rows.append([field]) }
         }
         return rows
+    }
+
+    func tint(_ style: String) -> Color {
+        switch style {
+        case "danger": return Vibe.pink
+        case "primary", "good", "success": return Vibe.mint
+        default: return Vibe.text
+        }
     }
 }
 

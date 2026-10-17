@@ -406,7 +406,7 @@ impl NativeChat {
                     n = incoming.recv() => {
                         match n {
                             Ok(n) => if let Some(s)=session.upgrade() && s.notification_current(&n) {
-                                listener.on_event(crate::event(rv_core::session::SessionEvent::Incoming(Box::new(n))));
+                                listener.on_event(crate::event(rv_core::session::SessionEvent::Incoming(Box::new(n)), None));
                             },
                             Err(RecvError::Closed)=>return,
                             Err(RecvError::Lagged(_))=>{},

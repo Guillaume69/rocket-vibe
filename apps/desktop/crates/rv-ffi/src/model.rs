@@ -394,6 +394,56 @@ pub struct Card {
     pub title_body: Vec<BodyBlock>,
     pub description_body: Vec<BodyBlock>,
     pub pretext: Vec<BodyBlock>,
+    /// Its buttons (Mattermost's interactive messages): `Chat::press_card_action`.
+    pub actions: Vec<CardAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CardAction {
+    pub id: String,
+    pub name: String,
+    /// `primary`, `danger`, `good`… as the integration asks; empty for the default.
+    pub style: String,
+    pub cookie: Option<String>,
+}
+
+/// What the server answered a button: words for me alone, a page to open.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ActionAnswer {
+    pub note: Option<String>,
+    /// `note` as markdown.
+    pub note_body: Vec<BodyBlock>,
+    pub open: Option<String>,
+}
+
+/// The integration cards of `attachments`, their texts as markdown.
+pub fn integration_cards(attachments: Option<&str>, ctx: &markdown::Context) -> Vec<Card> {
+    let md = |text: &str| markup::blocks(markdown::render(None, Some(text), ctx));
+    content::cards(attachments)
+        .into_iter()
+        .map(|c| Card {
+            url: c.link.unwrap_or_default(),
+            title_body: c.title.as_deref().map(md).unwrap_or_default(),
+            description_body: c.text.as_deref().map(md).unwrap_or_default(),
+            pretext: c.pretext.as_deref().map(md).unwrap_or_default(),
+            title: c.title,
+            description: c.text,
+            site: c.author,
+            color: c.color,
+            integration: true,
+            fields: c
+                .fields
+                .into_iter()
+                .map(|(title, value, short)| CardField { value_body: md(&value), title, value, short })
+                .collect(),
+            actions: c
+                .actions
+                .into_iter()
+                .map(|a| CardAction { id: a.id, name: a.name, style: a.style, cookie: a.cookie })
+                .collect(),
+            ..Default::default()
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -504,7 +554,6 @@ pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
 pub fn message_named(d: Display, me_id: &str, me: &str, names: Option<markdown::Names>) -> MessageItem {
     let row: MessageRow = d.row;
     let ctx = markdown::Context { me, names };
-    let md = |text: &str| markup::blocks(markdown::render(None, Some(text), &ctx));
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let is_call = row.system_type.as_deref() == Some("videoconf");
     let system = row.system_type.clone().filter(|k| k != "e2e");
@@ -558,25 +607,7 @@ pub fn message_named(d: Display, me_id: &str, me: &str, names: Option<markdown::
             Card { url, title, description, image, site, ..Default::default() }
         }
     }));
-    cards.extend(content::cards(attachments).into_iter().map(|c| {
-        Card {
-            url: c.link.unwrap_or_default(),
-            title_body: c.title.as_deref().map(md).unwrap_or_default(),
-            description_body: c.text.as_deref().map(md).unwrap_or_default(),
-            pretext: c.pretext.as_deref().map(md).unwrap_or_default(),
-            title: c.title,
-            description: c.text,
-            site: c.author,
-            color: c.color,
-            integration: true,
-            fields: c
-                .fields
-                .into_iter()
-                .map(|(title, value, short)| CardField { value_body: md(&value), title, value, short })
-                .collect(),
-            ..Default::default()
-        }
-    }));
+    cards.extend(integration_cards(attachments, &ctx));
     let author = row.author.clone().unwrap_or_default();
     MessageItem {
         avatar: match &row.alias {

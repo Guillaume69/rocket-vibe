@@ -266,6 +266,9 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .link-title { font-weight: 800; color: #E7E3F5; }
 .attachment-title { font-size: 13px; font-weight: 700; }
 .attachment-card { border-left: 4px solid #5C5680; }
+.card-action { padding: 3px 12px; min-height: 0; border-radius: 8px; background: transparent; border: 1px solid #3A3658; color: #E7E3F5; font-weight: 700; }
+.card-action.primary { color: #5BD6A0; border-color: #2F6B55; }
+.card-action.danger { color: #FF6B81; border-color: #7A2C3B; }
 .card-field-name { font-size: 12px; font-weight: 700; color: #8F89AB; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }

@@ -45,6 +45,12 @@ pub enum RowEvent {
         add: bool,
     },
     OpenThread(String),
+    /// A card's button (Mattermost), on the post it belongs to.
+    CardAction {
+        post: String,
+        action: rv_core::content::CardAction,
+        button: gtk::Button,
+    },
     /// A discussion card's Open, by the discussion's rid (Rocket.Chat).
     OpenDiscussion(String),
     /// The in-place editor: Enter saves, Escape gives up.
@@ -714,6 +720,10 @@ fn message_from_provider(
     let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
     let mention_name = |username: &str| session.and_then(|s| s.mention_name(username));
     let ctx = markdown::Context { me: &me, names: Some(&mention_name) };
+    let press: cards::PressAction = {
+        let (on_event, post) = (on_event.clone(), row.id.clone());
+        std::rc::Rc::new(move |action, button| on_event(RowEvent::CardAction { post: post.clone(), action, button }))
+    };
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let form = native.and_then(|_| rv_core::native::workflows::row_form(row));
     // A form step's text is its title, which the card shows already.
@@ -769,7 +779,7 @@ fn message_from_provider(
             column.append(&cards::file(session, &f));
         }
         for card in content::cards(row.attachments.as_deref()) {
-            column.append(&cards::attachment_card(&card, &ctx));
+            column.append(&cards::attachment_card(&card, &ctx, Some(&press)));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link(session, &row.id, &video));
@@ -818,7 +828,7 @@ fn message_from_provider(
             column.append(&cards::file_provider(provider.clone(), &file));
         }
         for card in content::cards(row.attachments.as_deref()) {
-            column.append(&cards::attachment_card(&card, &ctx));
+            column.append(&cards::attachment_card(&card, &ctx, Some(&press)));
         }
         for video in content::video_links(row.text.as_deref().unwrap_or_default(), row.urls.as_deref(), 3) {
             column.append(&cards::video_link_provider(provider.clone(), &row.id, &video));

@@ -54,6 +54,26 @@ pub struct CardAttachment {
     pub color: Option<String>,
     /// Label, value, and whether it sits beside the next one.
     pub fields: Vec<(String, String, bool)>,
+    /// Its buttons (Mattermost's interactive messages).
+    pub actions: Vec<CardAction>,
+}
+
+/// What the server answered a button: words for me alone, a page to open.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActionAnswer {
+    pub note: Option<String>,
+    pub open: Option<String>,
+}
+
+/// A card's button: pressed through the server (`Session::press_card_action`),
+/// with the cookie a "visible only to you" post carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CardAction {
+    pub id: String,
+    pub name: String,
+    /// `primary`, `danger`, `good`… as the integration asks; empty for the default.
+    pub style: String,
+    pub cookie: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,9 +246,33 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                actions: a
+                    .get("actions")
+                    .and_then(Value::as_array)
+                    .map(|actions| {
+                        actions
+                            .iter()
+                            .filter_map(|b| {
+                                Some(CardAction {
+                                    id: read(b, "id")?,
+                                    name: read(b, "name")?,
+                                    style: read(b, "style").unwrap_or_default(),
+                                    cookie: read(b, "cookie"),
+                                })
+                            })
+                            .take(10)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }
         })
-        .filter(|c| c.title.is_some() || c.text.is_some() || c.pretext.is_some() || !c.fields.is_empty())
+        .filter(|c| {
+            c.title.is_some()
+                || c.text.is_some()
+                || c.pretext.is_some()
+                || !c.fields.is_empty()
+                || !c.actions.is_empty()
+        })
         .collect()
 }
 

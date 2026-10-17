@@ -782,10 +782,13 @@ pub fn voice_call(kind: &str, param: &str, joinable: bool, on_event: OnRowEvent)
     card.upcast()
 }
 
+/// A card's button pressed, with the button to give back once answered.
+pub type PressAction = Rc<dyn Fn(rv_core::content::CardAction, gtk::Button)>;
+
 /// A bot's or an integration's card: the text above it, its colour down the
 /// side, the author, the linked title, the text and the fields, two abreast
 /// when short. Every text but the field names is markdown.
-pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context) -> gtk::Widget {
+pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Option<&PressAction>) -> gtk::Widget {
     let md = |text: &str, class: &str| markdown_view::view(&markdown::render(None, Some(text), ctx), &[class]);
     let column = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -852,6 +855,24 @@ pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context) -> gtk::W
     }
     if !card.fields.is_empty() {
         column.append(&grid);
+    }
+    if let Some(press) = press.filter(|_| !card.actions.is_empty()) {
+        let buttons = gtk::Box::builder().spacing(8).margin_top(4).css_classes(["card-actions"]).build();
+        for action in &card.actions {
+            let button = gtk::Button::builder().label(&action.name).css_classes(["card-action"]).build();
+            match action.style.as_str() {
+                "danger" => button.add_css_class("danger"),
+                "primary" | "good" | "success" => button.add_css_class("primary"),
+                _ => {}
+            }
+            let (press, action) = (press.clone(), action.clone());
+            button.connect_clicked(move |button| {
+                button.set_sensitive(false);
+                press(action.clone(), button.clone());
+            });
+            buttons.append(&button);
+        }
+        column.append(&buttons);
     }
     let Some(pretext) = &card.pretext else { return column.upcast() };
     let outer = gtk::Box::new(gtk::Orientation::Vertical, 4);

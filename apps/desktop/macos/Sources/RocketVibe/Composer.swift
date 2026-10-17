@@ -69,7 +69,9 @@ struct Composer: View {
                 ScheduledChip(count: scheduled.items.count) { showingScheduled = true }
             }
             if let note = model.note {
-                PrivateNote(text: note) { model.note = nil }
+                PrivateNote(note: note, press: note.postId.map { postId in
+                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: postId, action: action) }
+                }) { model.note = nil }
             }
             if let quote = model.pendingQuote {
                 HStack(alignment:.top) {
@@ -449,16 +451,21 @@ struct SuggestionList: View {
     }
 }
 
-/// A slash command's answer, which the server shows to me alone.
+/// What the server shows to me alone: a slash command's answer, a
+/// Mattermost "visible only to you" post with its cards.
 struct PrivateNote: View {
-    let text: String
+    let note: PrivateNoteItem
+    var press: ((CardAction) async -> URL?)? = nil
     let close: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(L("command.only_you")).font(.vibe(12, .bold)).foregroundStyle(Vibe.mint)
-                Text(markdown).font(.vibe(13)).textSelection(.enabled)
+                if !note.body.isEmpty { BodyView(blocks: note.body).font(.vibe(13)) }
+                ForEach(Array(note.cards.enumerated()), id: \.offset) { _, card in
+                    IntegrationCard(card: card, press: press)
+                }
             }
             Spacer()
             Button(action: close) { Image(systemName: "xmark").foregroundStyle(Vibe.muted) }
@@ -471,10 +478,6 @@ struct PrivateNote: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    var markdown: AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-    }
 }
 
 /// The MIME type sent for a file: by its extension, `.m4a` as `audio/mp4`

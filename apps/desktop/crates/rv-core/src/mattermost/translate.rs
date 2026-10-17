@@ -157,7 +157,7 @@ impl Translator<'_> {
             discussion_last: None,
             alias,
             alias_avatar,
-            author_bot: webhook || flag("from_bot"),
+            author_bot: webhook || flag("from_bot") || self.directory.user(author_id).is_some_and(|u| u.bot),
         })
     }
 
@@ -185,6 +185,11 @@ impl Translator<'_> {
                 }
                 if let Some(ts) = positive(post, "create_at") {
                     quote["ts"] = json!(ts);
+                }
+                if let Some(files) =
+                    attachments(post.pointer("/metadata/files")).and_then(|f| serde_json::from_str(&f).ok())
+                {
+                    quote["attachments"] = files;
                 }
                 Some(quote)
             })
@@ -296,6 +301,48 @@ impl Translator<'_> {
     }
 }
 
+/// A "visible only to you" post (`ephemeral_message`): its room, its words
+/// (a reminder's acknowledgement in the app's language), its cards and its id,
+/// which its buttons are pressed through.
+pub struct Ephemeral {
+    pub rid: String,
+    pub text: String,
+    pub attachments: Option<String>,
+    pub post_id: String,
+}
+
+impl Translator<'_> {
+    pub fn ephemeral(&self, post: &Value) -> Option<Ephemeral> {
+        let rid = str_of(post, "channel_id")?.to_owned();
+        let post_id = str_of(post, "id")?.to_owned();
+        let props = post.get("props").cloned().unwrap_or(Value::Null);
+        let message = str_of(post, "message").unwrap_or_default();
+        let text = reminder_set(&props, message).unwrap_or_else(|| message.trim().to_owned());
+        let cards = cards(props.get("attachments"));
+        let attachments = (!cards.is_empty()).then(|| Value::Array(cards).to_string());
+        (!text.is_empty() || attachments.is_some()).then_some(Ephemeral { rid, text, attachments, post_id })
+    }
+}
+
+/// The acknowledgement of a reminder just set (`props.type: "reminder"`,
+/// `target_time` in seconds): the server's English carries an RFC 822 time.
+fn reminder_set(props: &Value, message: &str) -> Option<String> {
+    if str_of(props, "type") != Some("reminder") {
+        return None;
+    }
+    let due = props.get("target_time").and_then(|t| t.as_i64().or_else(|| t.as_str()?.parse().ok()))?;
+    let username = str_of(props, "username")?;
+    let link = message
+        .split_whitespace()
+        .find(|w| crate::content::is_web_link(w))
+        .map(str::to_owned)
+        .or_else(|| Some(format!("/{}/pl/{}", str_of(props, "team_name")?, str_of(props, "post_id")?)))?;
+    Some(crate::i18n::tf(
+        "mm.reminder_set",
+        &[("user", username), ("link", &link), ("when", &crate::reminders::when(due))],
+    ))
+}
+
 /// The server's reminder of a post (`type: "reminder"`) in the app's language:
 /// its text is the server's English, the link at its end.
 fn reminder(props: &Value, message: &str) -> Option<String> {
@@ -322,6 +369,25 @@ fn cards(raw: Option<&Value>) -> Vec<Value> {
                 if let Some(v) = a.get(key) {
                     card.insert(key.to_owned(), v.clone());
                 }
+            }
+            let buttons: Vec<Value> = a
+                .get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|b| matches!(str_of(b, "type"), None | Some("button")))
+                .filter_map(|b| {
+                    let mut button = json!({"id": str_of(b, "id")?, "name": str_of(b, "name")?});
+                    for key in ["style", "cookie"] {
+                        if let Some(v) = str_of(b, key) {
+                            button[key] = json!(v);
+                        }
+                    }
+                    Some(button)
+                })
+                .collect();
+            if !buttons.is_empty() {
+                card.insert("actions".into(), Value::Array(buttons));
             }
             let text =
                 ["text", "fallback"].iter().find_map(|k| a.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()));
@@ -483,6 +549,8 @@ mod tests {
             .unwrap();
         assert_eq!((claimed.alias, claimed.alias_avatar, claimed.author_bot), (None, None, false));
         assert!(t.message(&post("p3", json!({"props": {"from_bot": "true"}}))).unwrap().author_bot);
+        d.remember(User { id: "u-euria".into(), username: "euria".into(), bot: true, ..Default::default() });
+        assert!(t.message(&post("p4", json!({"user_id": "u-euria"}))).unwrap().author_bot);
     }
 
     #[test]
@@ -505,6 +573,39 @@ mod tests {
         let quotes = crate::content::quotes(m.attachments.as_deref());
         assert_eq!(quotes.len(), 1);
         assert_eq!((quotes[0].author.as_deref(), quotes[0].text.as_str()), (Some("Bob Builder"), "test pra"));
+    }
+
+    #[test]
+    fn a_post_for_me_alone_keeps_its_buttons_and_reads_a_reminder_in_my_language() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me" };
+        let note = t
+            .ephemeral(&json!({"id": "e1", "channel_id": "ch1", "message": "",
+                "props": {"attachments": [{"text": "Remind?", "actions": [
+                    {"id": "del", "name": "Delete", "style": "danger", "cookie": "c1"},
+                    {"id": "menu", "name": "Pick", "type": "select"},
+                    {"id": "", "name": "Nameless id"}]}]}}))
+            .unwrap();
+        assert_eq!((note.rid.as_str(), note.post_id.as_str(), note.text.as_str()), ("ch1", "e1", ""));
+        let card = crate::content::cards(note.attachments.as_deref()).remove(0);
+        assert_eq!(
+            card.actions,
+            [crate::content::CardAction {
+                id: "del".into(),
+                name: "Delete".into(),
+                style: "danger".into(),
+                cookie: Some("c1".into())
+            }]
+        );
+        let link = "https://chat.example.com/team/pl/p0";
+        let ack = t
+            .ephemeral(&json!({"id": "e2", "channel_id": "ch1",
+                "message": format!("You will be reminded about {link} by @bob at 19 Oct 26 09:00 UTC"),
+                "props": {"type": "reminder", "target_time": 1_792_400_400, "username": "bob", "team_name": "team", "post_id": "p0"}}))
+            .unwrap();
+        assert!(ack.text.contains(&format!("]({link})")) && ack.text.contains("@bob"), "{}", ack.text);
+        assert!(!ack.text.contains("UTC"));
+        assert!(t.ephemeral(&json!({"id": "e3", "channel_id": "ch1", "message": "  "})).is_none());
     }
 
     #[test]

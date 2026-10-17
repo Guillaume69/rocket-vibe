@@ -1445,6 +1445,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rooms.account_menu", "Mon compte, réglages et déconnexion", "My account, settings and sign out"),
     ("nav.back", "Précédent", "Back"),
     (
+        "mm.reminder_set",
+        "Vous recevrez un rappel de [ce message]({link}) de @{user} {when}",
+        "You will be reminded about [this message]({link}) from @{user} {when}",
+    ),
+    ("mm.action_failed", "Cette action a échoué", "This action failed"),
+    (
         "mm.reminder",
         "Bonjour, voici votre rappel concernant ce message de @{user} : {link}",
         "Hi there, here's your reminder about this message from @{user}: {link}",

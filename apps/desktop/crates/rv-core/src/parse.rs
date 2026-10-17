@@ -229,6 +229,27 @@ fn only_emoji(nodes: &[Value]) -> bool {
         })
 }
 
+/// The usernames `text` mentions, `@all`, `@here` and `@channel` aside.
+pub fn mentioned(text: &str) -> Vec<String> {
+    fn walk(node: &Value, out: &mut Vec<String>) {
+        match node {
+            Value::Array(items) => items.iter().for_each(|n| walk(n, out)),
+            Value::Object(o) if o.get("type").and_then(Value::as_str) == Some("MENTION_USER") => {
+                if let Some(name) = o.get("value").and_then(|v| v.get("value")).and_then(Value::as_str)
+                    && !matches!(name, "all" | "here" | "channel")
+                {
+                    out.push(name.to_owned());
+                }
+            }
+            Value::Object(o) => o.values().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(&Value::Array(tree(text)), &mut out);
+    out
+}
+
 /// The blocks of `text`, as `md` would hold them.
 pub fn tree(text: &str) -> Vec<Value> {
     let mut blocks: Vec<Value> = Vec::new();
@@ -322,6 +343,12 @@ mod tests {
 
     fn types(nodes: &[Value]) -> Vec<&str> {
         nodes.iter().map(|n| n["type"].as_str().unwrap()).collect()
+    }
+
+    #[test]
+    fn mentioned_usernames_leave_the_room_wide_ones_aside() {
+        assert_eq!(mentioned("hi @bob and @carol.x, @all @here @channel"), ["bob", "carol.x"]);
+        assert!(mentioned("mail@x.y").is_empty());
     }
 
     #[test]

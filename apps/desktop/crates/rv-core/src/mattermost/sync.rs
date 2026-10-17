@@ -298,14 +298,27 @@ impl MmSync {
         *self.flagged.lock().unwrap() = ids.collect();
     }
 
+    /// The people the posts name: authors, reactors, the authors of the posts
+    /// they preview, and whom they mention.
     pub async fn ensure_authors(&self, posts: &[Value]) {
         let mut ids = Vec::new();
+        let mut names = Vec::new();
         for post in posts {
             ids.extend(text(post, "user_id").map(str::to_owned));
             let reactions = post.pointer("/metadata/reactions").and_then(Value::as_array);
             ids.extend(reactions.into_iter().flatten().filter_map(|r| text(r, "user_id").map(str::to_owned)));
+            let embeds = post.pointer("/metadata/embeds").and_then(Value::as_array);
+            ids.extend(
+                embeds
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.pointer("/data/post/user_id")?.as_str().map(str::to_owned)),
+            );
+            names.extend(text(post, "message").map(crate::parse::mentioned).unwrap_or_default());
+            names.extend(post.pointer("/props/username").and_then(Value::as_str).map(str::to_owned));
         }
         self.directory.ensure(&self.rest, ids).await;
+        self.directory.ensure_usernames(&self.rest, names).await;
     }
 
     /// Posts already resolved by `ensure_authors`, or mine.
@@ -616,6 +629,36 @@ impl MmSync {
                 w.upsert_subscription(s);
             }
         });
+    }
+
+    /// A "visible only to you" post, its people looked up first. Never stored.
+    pub async fn ephemeral(&self, data: &Value) -> Option<super::translate::Ephemeral> {
+        let post = Value::Object(object(data.get("post")?)?);
+        self.ensure_authors(std::slice::from_ref(&post)).await;
+        self.translator().ephemeral(&post)
+    }
+
+    /// Presses a card's button: `POST /posts/<post>/actions/<action>`, with the
+    /// cookie a "visible only to you" post's button carries.
+    pub async fn press_action(
+        &self,
+        post_id: &str,
+        action_id: &str,
+        cookie: Option<&str>,
+    ) -> Result<crate::content::ActionAnswer, RestError> {
+        let body = match cookie {
+            Some(cookie) => json!({"cookie": cookie}),
+            None => json!({}),
+        };
+        let answer = self.rest.post(&format!("posts/{post_id}/actions/{action_id}"), CallOptions::body(body)).await?;
+        if let Some(post) = answer.get("update").filter(|p| p.is_object() && text(p, "id").is_some()) {
+            self.ensure_authors(std::slice::from_ref(post)).await;
+            self.ingest(std::slice::from_ref(post));
+        }
+        Ok(crate::content::ActionAnswer {
+            note: text(&answer, "ephemeral_text").map(str::to_owned),
+            open: text(&answer, "goto_location").filter(|url| crate::content::is_web_link(url)).map(str::to_owned),
+        })
     }
 
     /// One live event into the store. Returns someone else's new post, for the

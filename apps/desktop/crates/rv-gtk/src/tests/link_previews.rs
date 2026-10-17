@@ -100,6 +100,7 @@ fn native_link_previews_paint_existing_cards_and_revoke_the_old_membership() {
     let integration = attachment_card(
         &rv_core::content::cards(row.attachments.as_deref()).remove(0),
         &rv_core::markdown::Context { me: "", names: None },
+        None,
     );
     assert!(integration.has_css_class("attachment-card"));
     let provider = media::Provider::Vibez(session.clone());

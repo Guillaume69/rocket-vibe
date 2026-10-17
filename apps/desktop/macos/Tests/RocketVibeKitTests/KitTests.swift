@@ -125,7 +125,7 @@ final class LiveTests: XCTestCase {
         room.draft = "/join #kit-missing-\(getpid())"
         let refusal = await room.send()
         XCTAssertNil(refusal)
-        try await until { room.note?.contains("kit-missing-\(getpid())") ?? false }
+        try await until { room.note?.text.contains("kit-missing-\(getpid())") ?? false }
 
         let avatar = await app.media?.load(app.media!.avatar(user: "alice"))
         XCTAssertFalse(avatar?.bytes.isEmpty ?? true)

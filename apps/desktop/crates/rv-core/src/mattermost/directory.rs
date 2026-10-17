@@ -54,6 +54,8 @@ pub struct User {
     pub status_emoji: Option<String>,
     /// Read from the server, names included: me, registered at sign-in with my username only, is not.
     pub named: bool,
+    /// A bot account (kChat's Euria, a Mattermost bot): the BOT badge.
+    pub bot: bool,
 }
 
 impl User {
@@ -71,6 +73,7 @@ impl User {
             nickname: part("nickname").map(str::to_owned),
             status_emoji: status_emoji(raw),
             named: true,
+            bot: raw.get("is_bot").and_then(Value::as_bool) == Some(true),
         })
     }
 
@@ -108,6 +111,8 @@ fn status_emoji(raw: &Value) -> Option<String> {
 pub struct Directory {
     by_id: Mutex<HashMap<String, User>>,
     format: Mutex<NameFormat>,
+    /// Usernames already asked for: a name that is nobody is asked once a session.
+    asked: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Directory {
@@ -190,8 +195,11 @@ impl Directory {
     pub async fn ensure_usernames(&self, rest: &RestClient, names: impl IntoIterator<Item = String>) {
         let missing: Vec<String> = {
             let known = self.by_id.lock().unwrap();
-            let mut names: Vec<String> =
-                names.into_iter().filter(|n| !n.is_empty() && !known.values().any(|u| &u.username == n)).collect();
+            let mut asked = self.asked.lock().unwrap();
+            let mut names: Vec<String> = names
+                .into_iter()
+                .filter(|n| !n.is_empty() && !known.values().any(|u| &u.username == n) && asked.insert(n.clone()))
+                .collect();
             names.sort();
             names.dedup();
             names

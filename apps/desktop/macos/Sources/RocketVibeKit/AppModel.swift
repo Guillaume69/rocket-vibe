@@ -605,11 +605,12 @@ public final class AppModel {
         case .callRing:
             ringingCall = chat?.incomingCall()
             onCallRing?(ringingCall)
-        case let .privateNote(rid, text):
+        case let .privateNote(rid, text, body, cards, postId):
+            let note = PrivateNoteItem(text: text, body: body, cards: cards, postId: postId)
             if thread?.rid == rid {
-                thread?.note = text
+                thread?.note = note
             } else if room?.rid == rid {
-                room?.note = text
+                room?.note = note
             }
         }
     }
@@ -658,7 +659,10 @@ public final class AppModel {
             pendingLastRoom = nil
             return
         }
-        guard rooms.contains(where: { $0.rid == rid }) else { return }
+        guard rooms.contains(where: { $0.rid == rid }) else {
+            if !rooms.isEmpty { pendingLastRoom = nil }
+            return
+        }
         pendingLastRoom = nil
         open(rid, preserveNavigation: true)
     }

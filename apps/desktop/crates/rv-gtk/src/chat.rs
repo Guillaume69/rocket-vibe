@@ -1256,6 +1256,11 @@ impl ChatPage {
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::OpenDiscussion(drid) => self.open_discussion(&drid),
+            RowEvent::CardAction { post, action, button } => {
+                if let Some(rid) = self.current_rid() {
+                    self.press_card_action(&rid, post, action, button);
+                }
+            }
             RowEvent::Profile(username) => self.show_profile(&username, false),
             // Vibez call rows only.
             RowEvent::VoiceCall { .. } => {}
@@ -3367,16 +3372,57 @@ impl ChatPage {
     }
 
     /// A slash command's answer, shown under the page it was typed in.
-    pub fn on_private(&self, rid: &str, text: &str) {
+    /// What the server told me alone in `rid`: a command's answer, or a
+    /// Mattermost "visible only to you" post with its cards, whose buttons
+    /// press through `post_id`.
+    pub fn on_private(self: &Rc<Self>, rid: &str, text: &str, attachments: Option<&str>, post_id: Option<&str>) {
         let Some(session) = self.session.borrow().clone() else { return };
-        let me = &session.info.username;
+        let cards = rv_core::content::cards(attachments);
+        let press: Option<crate::cards::PressAction> = post_id.map(|post| {
+            let (weak, rid, post) = (Rc::downgrade(self), rid.to_owned(), post.to_owned());
+            Rc::new(move |action, button| {
+                if let Some(this) = weak.upgrade() {
+                    this.press_card_action(&rid, post.clone(), action, button);
+                }
+            }) as crate::cards::PressAction
+        });
+        let names = |username: &str| session.mention_name(username);
+        let ctx = rv_core::markdown::Context { me: &session.info.username, names: Some(&names) };
         if let Some(thread) = self.thread.borrow().as_ref().filter(|t| t.rid == rid) {
-            thread.composer.show_private(text, me);
+            thread.composer.show_private(text, &ctx, &cards, press.as_ref());
             return;
         }
         if self.current.borrow().as_ref().is_some_and(|open| open.rid == rid) {
-            self.composer.show_private(text, me);
+            self.composer.show_private(text, &ctx, &cards, press.as_ref());
         }
+    }
+
+    /// A card's button: the server's answer may be words for me alone or a page to open.
+    fn press_card_action(
+        self: &Rc<Self>,
+        rid: &str,
+        post: String,
+        action: rv_core::content::CardAction,
+        button: gtk::Button,
+    ) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let (weak, rid) = (Rc::downgrade(self), rid.to_owned());
+        glib::spawn_future_local(async move {
+            let answer = on_tokio(async move { session.press_card_action(&post, &action).await }).await;
+            button.set_sensitive(true);
+            let Some(this) = weak.upgrade() else { return };
+            match answer {
+                Ok(answer) => {
+                    if let Some(note) = answer.note {
+                        this.on_private(&rid, &note, None, None);
+                    }
+                    if let Some(url) = answer.open {
+                        crate::cards::open_uri(&button, &url);
+                    }
+                }
+                Err(_) => this.toast(t("mm.action_failed").to_owned()),
+            }
+        });
     }
 
     fn retry(&self, id: String) {

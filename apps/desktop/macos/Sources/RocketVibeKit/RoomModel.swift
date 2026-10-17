@@ -271,8 +271,9 @@ public final class RoomModel {
     public private(set) var uploads: [Upload] = []
     /// Set to scroll to a message (a notification, a pinned one): cleared by the view.
     public var reveal: String?
-    /// What the server told me alone here, such as a slash command's answer.
-    public var note: String?
+    /// What the server told me alone here: a slash command's answer, or a
+    /// Mattermost "visible only to you" post with its cards.
+    public var note: PrivateNoteItem?
     public let unreadAfter: Int64?
     /// The decrypted quote cards last projected, by message: a reload keeps
     /// them until the next projection, or they would blink out each time.
@@ -1238,5 +1239,38 @@ public final class RoomModel {
         chat?.discardUpload(id: id)
         try? provider.native?.discardUpload(id: id)
         refreshUploads()
+    }
+}
+
+/// What the server told me alone in a room, its cards' buttons pressed through `postId`.
+public struct PrivateNoteItem: Equatable {
+    public let text: String
+    public let body: [BodyBlock]
+    public let cards: [Card]
+    public let postId: String?
+
+    public init(text: String, body: [BodyBlock], cards: [Card], postId: String?) {
+        self.text = text
+        self.body = body
+        self.cards = cards
+        self.postId = postId
+    }
+}
+
+extension RoomModel {
+    /// A card's button (Mattermost and kChat): the server's words for me
+    /// alone become the note; the page it names is returned to open.
+    public func pressCardAction(postId: String, action: CardAction) async -> URL? {
+        guard let chat else { return nil }
+        do {
+            let answer = try await chat.pressCardAction(postId: postId, action: action)
+            if let text = answer.note {
+                note = PrivateNoteItem(text: text, body: answer.noteBody, cards: [], postId: nil)
+            }
+            return answer.open.flatMap(URL.init(string:))
+        } catch {
+            self.error = L("mm.action_failed")
+            return nil
+        }
     }
 }

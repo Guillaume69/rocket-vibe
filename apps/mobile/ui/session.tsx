@@ -28,6 +28,7 @@ import {
   saveKnownServer,
   saveSession,
   readLastServer,
+  listKnownServers,
   readRememberedPushToken,
   readSession,
   listPendingLogouts,
@@ -98,6 +99,17 @@ async function clearTraces(session: Session): Promise<void> {
   forgetCollapsedSections(session);
 }
 
+/** A session still signed in on another known server, to land on when this one ends. */
+async function otherSession(leaving: string): Promise<Session | null> {
+  const servers = await listKnownServers().catch(() => [] as string[]);
+  for (const server of servers) {
+    if (server === leaving) continue;
+    const session = await readSession(server).catch(() => null);
+    if (session !== null) return session;
+  }
+  return null;
+}
+
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SessionState>({ phase: 'starting' });
 
@@ -134,7 +146,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
    * No `POST /logout`: the token is already dead server-side, calling it would
    * only earn another 401. Clear, and show the login screen.
    */
-  const revoke = useCallback((session: Session, token: string) => {
+  /**
+   * Where a session that ended leaves the app: on another server still signed
+   * in when there is one, the login screen otherwise. `still` re-checks, after
+   * the reads, that nothing replaced the ended session meanwhile.
+   */
+  const land = useCallback(async (leaving: string, still: () => boolean, rejected: (session: Session, token: string) => void) => {
+    const next = await otherSession(leaving);
+    if (!still()) return;
+    if (next === null) return setState({ phase: 'disconnected' });
+    await saveLastServer(next.baseUrl).catch(() => {});
+    if (!still()) return;
+    setState({ phase: 'connected', session: next, client: clientFor(next, (token) => rejected(next, token)) });
+  }, []);
+
+  const revoke = useCallback(function revoked(session: Session, token: string) {
     if (currentToken.current !== token) return;
     void (async () => {
       // LOOK before destroying. `connect()` persists the new session BEFORE
@@ -146,9 +172,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (stored !== null && stored.authToken !== token) return;
       await clearTraces(session);
       // Read again AFTER the wait, for the same reason.
-      if (currentToken.current === token) setState({ phase: 'disconnected' });
+      if (currentToken.current === token) await land(session.baseUrl, () => currentToken.current === token, revoked);
     })();
-  }, []);
+  }, [land]);
 
   useEffect(() => {
     let discarded = false;
@@ -216,7 +242,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         // it no longer has an account to belong to.
         await clearTraces(session);
         if (!discarded && currentToken.current === session.authToken) {
-          setState({ phase: 'disconnected' });
+          await land(session.baseUrl, () => !discarded && currentToken.current === session.authToken, revoke);
         }
       }
     })().catch(() => {
@@ -228,7 +254,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
     // `revoke` is stable (useCallback with no dependency): citing it does not
     // replay this effect, which must run once and only once.
-  }, [revoke]);
+  }, [revoke, land]);
 
   const connect = useCallback(async (session: Session) => {
     // Persist BEFORE switching the UI: if the write fails, the user stays on
@@ -264,16 +290,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     resumeSession(client, session).catch(async (e: unknown) => {
       if (sessionRejected(e) && currentToken.current === session.authToken) {
         await clearTraces(session);
-        if (currentToken.current === session.authToken) setState({ phase: 'disconnected' });
+        if (currentToken.current === session.authToken) await land(session.baseUrl, () => currentToken.current === session.authToken, revoke);
       }
     });
     return true;
-  }, [revoke]);
+  }, [revoke, land]);
 
   const handleLogOut = useCallback(async () => {
     if (state.phase !== 'connected') return;
     const { client, session } = state;
-    setState({ phase: 'disconnected' });
+    await land(session.baseUrl, () => currentToken.current === session.authToken, revoke);
     try {
       // The FCM token comes from the Keystore, where it was kept AT REGISTRATION
       // (`ui/sync.tsx`). Asking `getFcmToken()` for it again here created the
@@ -314,7 +340,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Local state is already logged out; nothing useful to report.
     }
-  }, [state]);
+  }, [state, land, revoke]);
 
   const updateSessionProfile = useCallback(
     async (update: { username?: string }) => {

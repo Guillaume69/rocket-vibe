@@ -45,11 +45,19 @@ pub enum RowEvent {
         add: bool,
     },
     OpenThread(String),
-    /// A card's button (Mattermost), on the post it belongs to.
+    /// A card's button or menu choice (Mattermost), on the post it belongs to.
     CardAction {
         post: String,
         action: rv_core::content::CardAction,
-        button: gtk::Button,
+        selected: Option<String>,
+        anchor: gtk::Widget,
+        done: cards::PressDone,
+    },
+    /// A card menu's people or channels for a search term.
+    CardMenuOptions {
+        source: rv_core::content::MenuSource,
+        term: String,
+        reply: cards::MenuReply,
     },
     /// A discussion card's Open, by the discussion's rid (Rocket.Chat).
     OpenDiscussion(String),
@@ -720,8 +728,13 @@ fn message_from_provider(
     let mention_name = |username: &str| session.and_then(|s| s.mention_name(username));
     let ctx = markdown::Context { me: &me, names: Some(&mention_name) };
     let press: cards::PressAction = {
-        let (on_event, post) = (on_event.clone(), row.id.clone());
-        std::rc::Rc::new(move |action, button| on_event(RowEvent::CardAction { post: post.clone(), action, button }))
+        let (on_event, searching, post) = (on_event.clone(), on_event.clone(), row.id.clone());
+        std::rc::Rc::new(cards::CardHandlers {
+            press: Box::new(move |action, selected, anchor, done| {
+                on_event(RowEvent::CardAction { post: post.clone(), action, selected, anchor, done })
+            }),
+            search: Box::new(move |source, term, reply| searching(RowEvent::CardMenuOptions { source, term, reply })),
+        })
     };
     let encrypted = row.system_type.as_deref() == Some("e2e");
     let form = native.and_then(|_| rv_core::native::workflows::row_form(row));

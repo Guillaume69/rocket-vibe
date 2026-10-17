@@ -3108,13 +3108,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/rows.rs",
-      "line": 412,
+      "line": 420,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/rows.rs",
-      "line": 414,
+      "line": 422,
       "kind": "endpoint",
       "surface": "rooms.encrypted"
     },

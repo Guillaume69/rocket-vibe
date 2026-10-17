@@ -410,8 +410,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:44](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L44) | endpoint | im.reply-with-text |
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:53](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L53) | endpoint | im.reply-with-text |
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:58](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L58) | endpoint | im.received |
-| [apps/desktop/crates/rv-gtk/src/rows.rs:412](../../apps/desktop/crates/rv-gtk/src/rows.rs#L412) | endpoint | rooms.quoted_message |
-| [apps/desktop/crates/rv-gtk/src/rows.rs:414](../../apps/desktop/crates/rv-gtk/src/rows.rs#L414) | endpoint | rooms.encrypted |
+| [apps/desktop/crates/rv-gtk/src/rows.rs:420](../../apps/desktop/crates/rv-gtk/src/rows.rs#L420) | endpoint | rooms.quoted_message |
+| [apps/desktop/crates/rv-gtk/src/rows.rs:422](../../apps/desktop/crates/rv-gtk/src/rows.rs#L422) | endpoint | rooms.encrypted |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:74](../../apps/desktop/crates/rv-gtk/src/settings.rs#L74) | endpoint | rooms.sign_out |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:399](../../apps/desktop/crates/rv-gtk/src/settings.rs#L399) | endpoint | e2e.status |
 | [apps/desktop/crates/rv-gtk/src/settings.rs:400](../../apps/desktop/crates/rv-gtk/src/settings.rs#L400) | endpoint | e2e.locked |

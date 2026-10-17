@@ -47,7 +47,7 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   account. "Sign in with Infomaniak" runs authorization code + PKCE with the
   client id and redirect of Infomaniak's own kChat app
   (`providers/mattermost/kchatOAuth.ts`) in the app's sign-in web view
-  (`ui/signInWebView.tsx`, `app/login.tsx`), the desktops' sign-in window: it
+  (`ui/signInWebView.tsx`, `app/login.tsx`), its button on the first screen as soon as kChat is chosen, the desktops' sign-in window: it
   shows Infomaniak's pages only (`isKchatSignInPage`), and catches the
   `com.infomaniak.chat` redirect before it loads, so no browser has to hand an
   app link back after Infomaniak's script-driven 2FA redirect. Its cookies are

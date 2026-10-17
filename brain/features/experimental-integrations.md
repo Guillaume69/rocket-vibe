@@ -47,7 +47,7 @@ persists only the enable flag in SecureStore. app/login.tsx attaches it to the
 unicorn button, gates the Slack kind and the WhatsApp entry on it, and mounts
 `TeamsPreview` (ui/teamsPreview.tsx) while unlocked. Slack's sign-in is one button: ui/signInWebView.tsx shows slack.com/signin and only
 Slack's https pages, and stops on the desktop handoff (`/ssb/`) or the web client
-(`isSlackWebDone`), where a script reads the workspace hosts of `localConfig_v2` (never
+(`isSlackWebDone`), presenting a desktop Chrome of the system web view's own version (`slackUserAgent`, from `WebCookies.userAgent`, since slack.com serves a phone the app's download page and warns an old version off), where a script reads the workspace hosts of `localConfig_v2` (never
 its tokens). The session's HttpOnly `d` cookie is read from the web view's store by the
 local module modules/web-cookies (Android `CookieManager`), which is then cleared;
 providers/slack/webSignIn.ts fetches each workspace's boot page with that cookie for its

@@ -138,12 +138,8 @@ fn section_header(title: &str, collapsed: bool, count: usize, add: Option<Sectio
     header
 }
 
-fn config_dir() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs")
-}
-
 fn folded_sections(info: &rv_core::session::SessionInfo) -> Vec<String> {
-    rv_core::collapsed_sections::load(&config_dir(), &rv_core::collapsed_sections::account(info))
+    rv_core::collapsed_sections::load(&crate::config_dir(), &rv_core::collapsed_sections::account(info))
 }
 
 /// A right click on a room offers to star it, or to take the star away, and
@@ -278,14 +274,18 @@ pub struct ChatPage {
     menu_open: Rc<Cell<bool>>,
     on_room_changed: Callback<Option<String>>,
     on_room_opened: Callback<String>,
+    /// Back or forward reached a room of another account (its `supervisor::key`, the rid, the
+    /// history entry): the window switches to it and moves the cursor (`walked`).
+    on_walk_account: Callback<(String, String, usize)>,
     on_user_navigation: RefCell<Vec<Box<dyn Fn()>>>,
     account_actions: RefCell<Option<Rc<crate::settings::AccountActions>>>,
     on_rooms_loaded: Callback<()>,
     /// The Activity view was asked for: the window, which holds every account, opens it.
     on_activity: Callback<()>,
     forward_button: gtk::Button,
-    /// Rooms opened, oldest first, and the position of the open one: mouse back and forward walk it.
-    history: RefCell<Vec<String>>,
+    /// Rooms opened on any account (`supervisor::key`, rid), oldest first, and
+    /// the position of the open one: mouse back and forward walk it.
+    history: RefCell<Vec<(String, String)>>,
     history_at: Cell<usize>,
     walking: Cell<bool>,
     voice: Rc<voice::VoiceUi>,
@@ -661,6 +661,7 @@ impl ChatPage {
             menu_open: Rc::default(),
             on_room_changed: RefCell::default(),
             on_room_opened: RefCell::default(),
+            on_walk_account: RefCell::default(),
             on_user_navigation: RefCell::default(),
             account_actions: RefCell::default(),
             on_rooms_loaded: RefCell::default(),
@@ -1252,6 +1253,11 @@ impl ChatPage {
             }
             RowEvent::OpenThread(root) => self.open_thread(&root),
             RowEvent::OpenDiscussion(drid) => self.open_discussion(&drid),
+            RowEvent::CardAction { post, action, button } => {
+                if let Some(rid) = self.current_rid() {
+                    self.press_card_action(&rid, post, action, button);
+                }
+            }
             RowEvent::Profile(username) => self.show_profile(&username, false),
             // Vibez call rows only.
             RowEvent::VoiceCall { .. } => {}
@@ -1697,8 +1703,6 @@ impl ChatPage {
         self.collapsed.replace(session.as_ref().map(|s| folded_sections(&s.info)).unwrap_or_default());
         self.session.replace(session);
         self.current.replace(None);
-        self.history.borrow_mut().clear();
-        self.history_at.set(0);
         self.update_forward();
         self.list.clear();
         self.content_stack.set_visible_child_name("empty");
@@ -2853,7 +2857,7 @@ impl ChatPage {
             .or_else(|| self.session.borrow().as_ref().map(|s| s.info.clone()));
         let Some(info) = account else { return };
         let folded = rv_core::collapsed_sections::toggle(
-            &config_dir(),
+            &crate::config_dir(),
             &rv_core::collapsed_sections::account(&info),
             &section.key(),
         );
@@ -3364,17 +3368,57 @@ impl ChatPage {
         });
     }
 
-    /// A slash command's answer, shown under the page it was typed in.
-    pub fn on_private(&self, rid: &str, text: &str) {
+    /// What the server told me alone in `rid`: a command's answer, or a
+    /// Mattermost "visible only to you" post with its cards, whose buttons
+    /// press through `post_id`.
+    pub fn on_private(self: &Rc<Self>, rid: &str, text: &str, attachments: Option<&str>, post_id: Option<&str>) {
         let Some(session) = self.session.borrow().clone() else { return };
-        let me = &session.info.username;
+        let cards = rv_core::content::cards(attachments);
+        let press: Option<crate::cards::PressAction> = post_id.map(|post| {
+            let (weak, rid, post) = (Rc::downgrade(self), rid.to_owned(), post.to_owned());
+            Rc::new(move |action, button| {
+                if let Some(this) = weak.upgrade() {
+                    this.press_card_action(&rid, post.clone(), action, button);
+                }
+            }) as crate::cards::PressAction
+        });
+        let names = |username: &str| session.mention_name(username);
+        let ctx = rv_core::markdown::Context { me: &session.info.username, names: Some(&names) };
         if let Some(thread) = self.thread.borrow().as_ref().filter(|t| t.rid == rid) {
-            thread.composer.show_private(text, me);
+            thread.composer.show_private(text, &ctx, &cards, press.as_ref());
             return;
         }
         if self.current.borrow().as_ref().is_some_and(|open| open.rid == rid) {
-            self.composer.show_private(text, me);
+            self.composer.show_private(text, &ctx, &cards, press.as_ref());
         }
+    }
+
+    /// A card's button: the server's answer may be words for me alone or a page to open.
+    fn press_card_action(
+        self: &Rc<Self>,
+        rid: &str,
+        post: String,
+        action: rv_core::content::CardAction,
+        button: gtk::Button,
+    ) {
+        let Some(session) = self.session.borrow().clone() else { return };
+        let (weak, rid) = (Rc::downgrade(self), rid.to_owned());
+        glib::spawn_future_local(async move {
+            let answer = on_tokio(async move { session.press_card_action(&post, &action).await }).await;
+            button.set_sensitive(true);
+            let Some(this) = weak.upgrade() else { return };
+            match answer {
+                Ok(answer) => {
+                    if let Some(note) = answer.note {
+                        this.on_private(&rid, &note, None, None);
+                    }
+                    if let Some(url) = answer.open {
+                        crate::cards::open_uri(&button, &url);
+                    }
+                }
+                Err(_) => this.toast(t("mm.action_failed").to_owned()),
+            }
+        });
     }
 
     fn retry(&self, id: String) {
@@ -3463,25 +3507,50 @@ impl ChatPage {
     }
 
     fn walk_to(self: &Rc<Self>, at: usize) {
-        let Some(rid) = self.history.borrow().get(at).cloned() else { return };
+        let Some((account, rid)) = self.history.borrow().get(at).cloned() else { return };
         self.user_navigation();
+        if self.account_key().as_deref() != Some(account.as_str()) {
+            for f in self.on_walk_account.borrow().iter() {
+                f((account.clone(), rid.clone(), at));
+            }
+            return;
+        }
         self.history_at.set(at);
         self.walking.set(true);
         self.open_room(&rid);
         self.walking.set(false);
     }
 
+    pub fn walked(&self, at: usize) {
+        self.history_at.set(at);
+    }
+
+    /// An account signed out or gone: back and forward no longer reach it.
+    pub fn forget_history(&self, account: &str) {
+        let mut history = self.history.borrow_mut();
+        let at = self.history_at.get();
+        let before = history.iter().take(at).filter(|(a, _)| a != account).count();
+        let kept = history.get(at).is_some_and(|(a, _)| a != account);
+        history.retain(|(a, _)| a != account);
+        self.history_at.set(if kept { before } else { before.saturating_sub(1) });
+    }
+
+    fn account_key(&self) -> Option<String> {
+        self.chat().map(|c| rv_core::supervisor::key(c.info()))
+    }
+
     fn remember(&self, rid: &str) {
         if self.walking.get() {
             return;
         }
+        let Some(account) = self.account_key() else { return };
         let mut history = self.history.borrow_mut();
-        if history.get(self.history_at.get()).map(String::as_str) == Some(rid) {
+        if history.get(self.history_at.get()).is_some_and(|(a, r)| *a == account && r == rid) {
             return;
         }
         let keep = if history.is_empty() { 0 } else { self.history_at.get() + 1 };
         history.truncate(keep);
-        history.push(rid.to_owned());
+        history.push((account, rid.to_owned()));
         self.history_at.set(history.len() - 1);
     }
 
@@ -3515,6 +3584,10 @@ impl ChatPage {
 
     pub fn connect_room_opened(&self, f: impl Fn(String) + 'static) {
         self.on_room_opened.borrow_mut().push(Box::new(f));
+    }
+
+    pub fn connect_walk_account(&self, f: impl Fn((String, String, usize)) + 'static) {
+        self.on_walk_account.borrow_mut().push(Box::new(f));
     }
 
     pub fn connect_user_navigation(&self, f: impl Fn() + 'static) {

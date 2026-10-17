@@ -25,6 +25,12 @@ fn visible(blocks: &[markdown::Block]) -> String {
                 items.iter().map(|(_, s)| markdown::without_custom(s)).collect::<Vec<_>>().join(" ")
             }
             markdown::Block::Break => "\n".into(),
+            markdown::Block::Table { header, rows, .. } => std::iter::once(header)
+                .chain(rows)
+                .flatten()
+                .map(|s| markdown::without_custom(s))
+                .collect::<Vec<_>>()
+                .join(" "),
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -38,7 +44,7 @@ fn shared_markdown_corpus_reaches_the_desktop_renderer() {
         for expected in case["nodes"].as_array().unwrap() {
             assert!(has_type(&tree, expected.as_str().unwrap()), "{}: missing {expected}", case["id"]);
         }
-        let context = markdown::Context { me: "alice" };
+        let context = markdown::Context { me: "alice", names: None };
         let rendered = markdown::render(None, Some(source), &context);
         assert_eq!(rendered, markdown::render(Some("corrupt-json"), Some(source), &context));
         let shown = visible(&rendered);

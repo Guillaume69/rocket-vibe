@@ -7,7 +7,7 @@
 
 import { unicodeOfShortcode } from '../../lib/emojis.ts';
 import { rememberUserId } from '../../lib/mediaAuth.ts';
-import type { MmClient } from './client.ts';
+import { type MmClient, MmError } from './client.ts';
 
 export type MmUser = {
   id: string;
@@ -19,6 +19,8 @@ export type MmUser = {
   nickname?: string | null;
   /** The custom status's emoji, as a glyph; `null` without one or once expired. */
   statusEmoji?: string | null;
+  /** A bot account (kChat's Euria, a Mattermost bot): the BOT badge. */
+  bot?: boolean;
 };
 
 /**
@@ -50,7 +52,7 @@ export function toMmUser(raw: Record<string, unknown>): MmUser | null {
     ? raw.last_picture_update
     : null;
   const fullName = full === '' ? null : full;
-  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname, statusEmoji: statusEmojiOf(raw) };
+  return { id, username, displayName: fullName, lastPictureUpdate: picture, fullName, nickname, statusEmoji: statusEmojiOf(raw), bot: raw.is_bot === true };
 }
 
 /**
@@ -82,10 +84,15 @@ export class MmDirectory {
   private readonly listeners = new Set<() => void>();
   private names: ReadonlyMap<string, string> | null = null;
   private statuses: ReadonlyMap<string, string> | null = null;
+  private mentions: ReadonlyMap<string, string> | null = null;
   private notifying = false;
 
   constructor(client: MmClient) {
     this.client = client;
+  }
+
+  get baseUrl(): string {
+    return this.client.baseUrl;
   }
 
   get nameFormat(): NameFormat {
@@ -114,6 +121,12 @@ export class MmDirectory {
     return this.names;
   }
 
+  /** `username → name`, for the `@username` mentions in posts. */
+  mentionNames(): ReadonlyMap<string, string> {
+    this.mentions ??= new Map([...this.byUsername.values()].flatMap((u) => (u.displayName === null ? [] : [[u.username, u.displayName] as const])));
+    return this.mentions;
+  }
+
   /** `user id → status emoji` for the people who set one. */
   statusEmojis(): ReadonlyMap<string, string> {
     this.statuses ??= new Map([...this.byId.values()].flatMap((u) => (u.statusEmoji ? [[u.id, u.statusEmoji] as const] : [])));
@@ -129,6 +142,7 @@ export class MmDirectory {
   private changed(): void {
     this.names = null;
     this.statuses = null;
+    this.mentions = null;
     if (this.notifying) return;
     this.notifying = true;
     queueMicrotask(() => {
@@ -158,14 +172,27 @@ export class MmDirectory {
     return user !== undefined && (user.fullName !== undefined || user.nickname !== undefined);
   }
 
-  /** Same as `ensure`, for the usernames a group DM's title lists. */
-  ensureUsernames(usernames: Iterable<string>): Promise<void> {
+  /**
+   * Same as `ensure`, for the usernames a group DM's title lists. Resolves to
+   * the names the server answered for, found or not.
+   */
+  ensureUsernames(usernames: Iterable<string>): Promise<ReadonlySet<string>> {
     const missing = [...new Set(usernames)].filter((u) => u !== '' && !this.byUsername.has(u));
-    if (missing.length === 0) return this.inFlight;
+    if (missing.length === 0) return this.inFlight.then(() => new Set());
+    const answered = new Set<string>();
     this.inFlight = this.inFlight.then(async () => {
       const still = missing.filter((u) => !this.byUsername.has(u));
       const fetch = (names: string[]) =>
-        this.client.post<Record<string, unknown>[]>('/users/usernames', { body: names }).catch(() => null);
+        this.client.post<Record<string, unknown>[]>('/users/usernames', { body: names }).then(
+          (users) => {
+            for (const name of names) answered.add(name);
+            return users;
+          },
+          (e: unknown) => {
+            if (names.length === 1 && e instanceof MmError && e.status >= 400 && e.status < 500) answered.add(names[0]!);
+            return null;
+          },
+        );
       for (let i = 0; i < still.length; i += BATCH) {
         const batch = still.slice(i, i + BATCH);
         // A group DM's title is cut at 64 characters: one cut username refuses the whole batch.
@@ -177,7 +204,7 @@ export class MmDirectory {
         }
       }
     });
-    return this.inFlight;
+    return this.inFlight.then(() => answered);
   }
 
   username(id: string): string | null {

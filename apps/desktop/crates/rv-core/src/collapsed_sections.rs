@@ -16,19 +16,27 @@ pub fn account(info: &SessionInfo) -> String {
     crate::server_rail::key(info)
 }
 
-fn read(config: &Path) -> Saved {
-    std::fs::read_to_string(config.join(FILE))
+pub(crate) fn read_map<T: serde::de::DeserializeOwned>(config: &Path, file: &str) -> BTreeMap<String, T> {
+    std::fs::read_to_string(config.join(file))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()
 }
 
-fn write(config: &Path, saved: &Saved) {
+pub(crate) fn write_map<T: serde::Serialize>(config: &Path, file: &str, saved: &BTreeMap<String, T>) {
     if std::fs::create_dir_all(config).is_ok()
         && let Ok(text) = serde_json::to_string_pretty(saved)
     {
-        let _ = std::fs::write(config.join(FILE), text);
+        let _ = std::fs::write(config.join(file), text);
     }
+}
+
+fn read(config: &Path) -> Saved {
+    read_map(config, FILE)
+}
+
+fn write(config: &Path, saved: &Saved) {
+    write_map(config, FILE, saved);
 }
 
 fn legacy(config: &Path) -> Option<Vec<String>> {

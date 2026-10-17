@@ -151,6 +151,36 @@ struct BlockView: View {
             RunsText(runs: runs, size: 44).font(.system(size: 40))
         case .break:
             Spacer().frame(height: 4)
+        case let .table(align, header, rows):
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                    GridRow { cells(header, align: align).font(.vibe(14, .heavy)) }
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                        GridRow { cells(row.cells, align: align) }
+                    }
+                }
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Vibe.violet.opacity(0.35)))
+                .padding(1)
+            }
+        }
+    }
+
+    @ViewBuilder func cells(_ cells: [TableCell], align: [TableAlign]) -> some View {
+        ForEach(Array(cells.enumerated()), id: \.offset) { index, cell in
+            RunsText(runs: cell.runs)
+                .textSelection(.enabled)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .gridColumnAlignment(index < align.count ? alignment(align[index]) : .leading)
+        }
+    }
+
+    func alignment(_ align: TableAlign) -> HorizontalAlignment {
+        switch align {
+        case .left: return .leading
+        case .center: return .center
+        case .right: return .trailing
         }
     }
 }

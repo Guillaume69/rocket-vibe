@@ -14,7 +14,6 @@ struct RocketVibeApp: App {
             RootView()
                 .environment(app)
                 .environment(modals)
-                .vibe()
                 .frame(minWidth: 420, minHeight: 360)
                 .task { await start() }
                 .onOpenURL { url in open(url) }
@@ -27,6 +26,26 @@ struct RocketVibeApp: App {
 
     @MainActor
     func start() async {
+        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [app] event in
+            switch event.buttonNumber {
+            case 3: app.goBack()
+            case 4: app.goForward()
+            default: return event
+            }
+            return nil
+        }
+        let wheel = WheelZoom()
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [app] event in
+            guard event.modifierFlags.contains(.command) else { return event }
+            if let larger = wheel.notch(event) { app.zoom(in: larger) }
+            return nil
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [app] event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.shift, .numericPad, .capsLock])
+            guard modifiers == .command, event.charactersIgnoringModifiers == "+" else { return event }
+            app.zoom(in: true)
+            return nil
+        }
         let notifier = Notifier.shared
         notifier.onOpen = { [app] rid, message, scope in
             if let scope, app.client.backgroundTarget(scope: scope) != nil {
@@ -138,10 +157,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Cmd + wheel as zoom notches, larger when the wheel turns up whatever the
+/// scrolling direction setting: one per wheel click, one per 20 points a
+/// trackpad gesture scrolls, its momentum left out.
+final class WheelZoom {
+    var travel = 0.0
+
+    func notch(_ event: NSEvent) -> Bool? {
+        guard event.momentumPhase.isEmpty else { return nil }
+        if event.phase.contains(.began) { travel = 0 }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            travel = 0
+            return nil
+        }
+        let up = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+        guard event.hasPreciseScrollingDeltas else {
+            return up == 0 ? nil : up > 0
+        }
+        travel += up
+        guard abs(travel) >= 20 else { return nil }
+        defer { travel = 0 }
+        return travel > 0
+    }
+}
+
 struct RootView: View {
     @Environment(AppModel.self) var app
 
     var body: some View {
+        content.vibe()
+    }
+
+    var content: some View {
         Group {
             if SmokeGallery.requested {
                 GalleryView()
@@ -208,6 +255,13 @@ struct AppCommands: Commands {
                 .keyboardShortcut(",", modifiers: .command)
         }
         CommandGroup(after: .toolbar) {
+            Button(L("zoom.in")) { app.zoom(in: true) }
+                .keyboardShortcut("=", modifiers: .command)
+            Button(L("zoom.out")) { app.zoom(in: false) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button(L("zoom.reset")) { app.zoom(in: nil) }
+                .keyboardShortcut("0", modifiers: .command)
+            Divider()
             Button(L("nav.back")) { app.goBack() }
                 .keyboardShortcut(.leftArrow, modifiers: .option)
             Button(L("nav.forward")) { app.goForward() }
@@ -215,10 +269,10 @@ struct AppCommands: Commands {
             // Not over the settings or the administration, which cover the rooms.
             Button(L("switcher.title") + "…") { if !app.panelShown && app.account != nil { app.switching = true } }
                 .keyboardShortcut("k", modifiers: .command)
-            // Cmd + 1 to 9 opens the rail's first nine accounts, Cmd + 0 the
-            // tenth (GTK: Ctrl), hidden rail included; not over a panel.
+            // Cmd + 1 to 9 opens the rail's first nine accounts (GTK: Ctrl),
+            // hidden rail included; not over a panel.
             Divider()
-            ForEach(Array(app.railAccounts.prefix(10).enumerated()), id: \.element.key) { slot, account in
+            ForEach(Array(app.railAccounts.prefix(9).enumerated()), id: \.element.key) { slot, account in
                 if let digit = railShortcutDigit(slot: UInt32(slot)), let key = String(digit).first {
                     Button("\(ServerRail.host(account)) · @\(account.username)") {
                         if !app.panelShown && app.account != nil { Task { await app.openRailSlot(slot) } }

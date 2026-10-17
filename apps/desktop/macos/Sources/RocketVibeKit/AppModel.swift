@@ -8,6 +8,14 @@ public enum Screen: Equatable {
     case chat
 }
 
+/// `AppModel.zoom` as a factor, which `Font.vibe` reads: a view drawing
+/// with it is drawn again when the zoom changes.
+@Observable
+public final class TextScale: @unchecked Sendable {
+    public static let shared = TextScale()
+    public internal(set) var factor = 1.0
+}
+
 /// The app's state: signed in or not, the room list, the open room.
 @MainActor @Observable
 public final class AppModel {
@@ -23,6 +31,8 @@ public final class AppModel {
         didSet {
             let saved = (try? String(contentsOfFile: client.configDir() + "/server-rail-order", encoding: .utf8)) ?? ""
             railAccounts = Self.orderForRail(accounts, keys: saved.split(separator: "\n").map(String.init))
+            let keys = Set(accounts.map(\.key))
+            (history, historyAt) = Self.pruned(history, at: historyAt) { keys.contains($0.account) }
         }
     }
     /// Tile positions are independent of the active-first list used at startup.
@@ -77,6 +87,8 @@ public final class AppModel {
     public private(set) var collapsed: Set<String> = []
     /// The user hid the server rail (Settings > Accounts), shared with GTK.
     public private(set) var railHidden: Bool
+    /// The text zoom in percent (Cmd with +, -, 0 or the wheel), shared with GTK.
+    public private(set) var zoom: UInt32
     /// Bumped when photos or custom emoji change: views reload their images.
     public private(set) var imagesVersion = 0
     public private(set) var media: MediaStore?
@@ -112,9 +124,15 @@ public final class AppModel {
     public var onReminder: ((DueReminder) -> Void)?
     @ObservationIgnored var reminderTimer: Task<Void, Never>?
 
-    /// Room ids opened, for back and forward.
-    var history: [String] = []
+    /// Rooms opened on any account, for back and forward.
+    struct Visit: Equatable {
+        let account: String
+        let rid: String
+    }
+    var history: [Visit] = []
     var historyAt = -1
+    /// The open account's last room, reopened once its row is there.
+    @ObservationIgnored var pendingLastRoom: String?
     @ObservationIgnored var pending = Pending()
     @ObservationIgnored var flush: Task<Void, Never>?
     @ObservationIgnored public private(set) var sessionId = UUID()
@@ -140,6 +158,17 @@ public final class AppModel {
         client = Client(home: home)
         Strings.setUp(configDir: client.configDir())
         railHidden = FileManager.default.fileExists(atPath: client.configDir() + "/hide-server-rail")
+        zoom = client.zoom()
+        TextScale.shared.factor = Double(zoom) / 100
+    }
+
+    /// Larger (`true`), smaller, or back to 100 % (`nil`).
+    public func zoom(in larger: Bool?) {
+        let next = larger.map { zoomStep(percent: zoom, zoomIn: $0) } ?? 100
+        guard next != zoom else { return }
+        client.setZoom(percent: next)
+        TextScale.shared.factor = Double(next) / 100
+        zoom = next
     }
 
     public var rooms: [Room] { groups.flatMap(\.rooms) }
@@ -187,7 +216,7 @@ public final class AppModel {
     }
 
     @discardableResult
-    public func resume(_ account: Account, preserveNavigation: Bool = false) async -> Bool {
+    public func resume(_ account: Account, preserveNavigation: Bool = false, reopen: Bool = true) async -> Bool {
         if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         let selected = UUID()
         selectionId = selected
@@ -199,7 +228,7 @@ public final class AppModel {
                 provider = .rocketChat(try await client.resume(key: account.key))
             }
             guard selected == selectionId else { provider.shutdown(); return false }
-            begin(provider)
+            begin(provider, reopen: reopen && !preserveNavigation)
             return true
         } catch { return false }
     }
@@ -358,7 +387,7 @@ public final class AppModel {
     public func answerBackgroundCall(_ call: BackgroundCall) async -> String? {
         endBackgroundCall()
         guard let target = accounts.first(where: { $0.key == call.account }) else { return nil }
-        await switchAccount(target)
+        await switchAccount(target, reopen: !call.voice)
         guard account?.key == call.account else { return nil }
         if call.voice {
             answer(VoiceCall(id: call.id, room: call.rid, callerId: "", callerName: call.caller,
@@ -389,16 +418,16 @@ public final class AppModel {
                 notice = L("links.unavailable")
                 return
             }
-            await switchAccount(other)
+            await switchAccount(other, reopen: false)
             guard account?.key == target.account else { return }
         }
         if message.isEmpty { open(target.rid) } else { await open(target.rid, message: message) }
     }
 
-    /// From the server rail: the account opens, unless it is the open one.
-    public func switchAccount(_ target: Account) async {
+    /// From the server rail: the account opens on its last room, unless it is the open one.
+    public func switchAccount(_ target: Account, reopen: Bool = true) async {
         guard target.key != account?.key, !leaving.contains(target.key) else { return }
-        await resume(target)
+        await resume(target, reopen: reopen)
     }
 
     public func showLogin(error: String?) {
@@ -417,7 +446,7 @@ public final class AppModel {
         if signedIn { screen = .chat }
     }
 
-    func begin(_ provider: ChatProvider) {
+    func begin(_ provider: ChatProvider, reopen: Bool = true) {
         if case let .vibez(native) = provider { native.activateAccount() }
         end()
         self.provider = provider
@@ -441,6 +470,7 @@ public final class AppModel {
             self.handle(event)
         })
         e2eUnlocked = chat?.e2eUnlocked() ?? false
+        pendingLastRoom = reopen ? client.lastRoom(account: opened.key) : nil
         reloadRooms()
         screen = .chat
         Task { await refreshAdministrator() }
@@ -482,8 +512,6 @@ public final class AppModel {
         media?.close()
         media = nil
         groups = []
-        history = []
-        historyAt = -1
     }
 
     public func signOut() async {
@@ -581,11 +609,12 @@ public final class AppModel {
         case .callRing:
             ringingCall = chat?.incomingCall()
             onCallRing?(ringingCall)
-        case let .privateNote(rid, text):
+        case let .privateNote(rid, text, body, cards, postId):
+            let note = PrivateNoteItem(text: text, body: body, cards: cards, postId: postId)
             if thread?.rid == rid {
-                thread?.note = text
+                thread?.note = note
             } else if room?.rid == rid {
-                room?.note = text
+                room?.note = note
             }
         }
     }
@@ -625,11 +654,27 @@ public final class AppModel {
         }
         followRoomLink(roomsLoaded: true)
         followNotification(roomsLoaded: true)
+        reopenLastRoomIfListed()
+    }
+
+    private func reopenLastRoomIfListed() {
+        guard let rid = pendingLastRoom else { return }
+        if pendingRoomLink != nil || pendingNotification != nil || room != nil {
+            pendingLastRoom = nil
+            return
+        }
+        guard rooms.contains(where: { $0.rid == rid }) else {
+            if !rooms.isEmpty { pendingLastRoom = nil }
+            return
+        }
+        pendingLastRoom = nil
+        open(rid, preserveNavigation: true)
     }
 
     /// Used for both a cold launch URL and a link received by an open window.
     public func openLink(_ url: String) async {
         cancelNotificationNavigation()
+        pendingLastRoom = nil
         let request = UUID()
         roomLinkRequest = request
         pendingRoomLink = nil
@@ -647,6 +692,7 @@ public final class AppModel {
     /// catch-up, then read privately before opening or enqueueing a reply.
     public func notificationAction(key: String, message: String, text: String? = nil) async {
         cancelNotificationNavigation()
+        pendingLastRoom = nil
         let request = UUID()
         roomLinkRequest = request
         pendingRoomLink = nil
@@ -800,13 +846,17 @@ public final class AppModel {
         if let voice, voice.shown != rid { voice.shown = nil }
         if room?.rid == rid { return }
         selectionId = UUID()
-        if remember {
-            history = Array(history.prefix(historyAt + 1)) + [rid]
-            historyAt = history.count - 1
+        if let key = account?.key {
+            if remember {
+                history = Array(history.prefix(historyAt + 1)) + [Visit(account: key, rid: rid)]
+                historyAt = history.count - 1
+            }
+            client.setLastRoom(account: key, rid: rid)
         }
         room?.deactivate()
         closeThread(preserveNavigation:true)
         let model = RoomModel(provider: provider, room: found)
+        model.onNotice = { [weak self] in self?.notice = $0 }
         room = model
         Task { await model.load() }
     }
@@ -849,6 +899,7 @@ public final class AppModel {
         if let native = provider.native, !native.supportedFeatures().contains("threads") { return }
         if !preserveNavigation { cancelNotificationNavigation(); pendingRoomLink = nil }
         let model = RoomModel(provider: provider, room: room.room, threadId: rootId)
+        model.onNotice = { [weak self] in self?.notice = $0 }
         thread?.deactivate()
         thread = model
         Task {
@@ -868,14 +919,51 @@ public final class AppModel {
 
     public func goBack() {
         guard canGoBack else { return }
-        historyAt -= 1
-        open(history[historyAt], remember: false)
+        Task { await step(-1) }
     }
 
     public func goForward() {
         guard canGoForward else { return }
-        historyAt += 1
-        open(history[historyAt], remember: false)
+        Task { await step(1) }
+    }
+
+    /// Moves along the history; the cursor goes back where it was when the room cannot open.
+    func step(_ offset: Int) async {
+        let from = historyAt
+        let to = from + offset
+        guard history.indices.contains(to) else { return }
+        historyAt = to
+        let visit = history[to]
+        if !(await walk(to: visit)), historyAt == to, from < history.count {
+            historyAt = from
+        }
+    }
+
+    /// A room of the history, on its own account: switching to it first when it is another.
+    func walk(to visit: Visit) async -> Bool {
+        if account?.key != visit.account {
+            guard let other = accounts.first(where: { $0.key == visit.account }) else {
+                notice = L("links.unavailable")
+                return false
+            }
+            await switchAccount(other, reopen: false)
+            guard account?.key == visit.account,
+                  await waitListed(visit.rid, account: sessionId, selected: selectionId) else { return false }
+        }
+        open(visit.rid, remember: false)
+        return room?.rid == visit.rid
+    }
+
+    /// The history without the visits `keep` refuses, the cursor on the
+    /// nearest visit kept at or before it, adjacent repeats merged.
+    nonisolated static func pruned(_ history: [Visit], at: Int, keep: (Visit) -> Bool) -> ([Visit], Int) {
+        var kept: [Visit] = []
+        var cursor = -1
+        for (index, visit) in history.enumerated() where keep(visit) {
+            if kept.last != visit { kept.append(visit) }
+            if index <= at { cursor = kept.count - 1 }
+        }
+        return (kept, cursor)
     }
 
     /// The room list's "Mark as unread" (`unread`) or "Mark as read", on
@@ -983,7 +1071,7 @@ public final class AppModel {
                 notice = L("links.unavailable")
                 return
             }
-            await switchAccount(other)
+            await switchAccount(other, reopen: false)
             guard account?.key == target else { return }
         }
         if let message, let thread {

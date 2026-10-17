@@ -75,6 +75,10 @@ pub struct AppWindow {
     call_watches: RefCell<std::collections::HashSet<usize>>,
     /// A room link waiting for its account's rooms to be loaded.
     pending_link: RefCell<Option<rv_core::links::RoomLink>>,
+    /// The room the account on screen had open last (account key, rid), reopened once its rooms are there.
+    last_room: RefCell<Option<(String, String)>>,
+    /// The next account opened goes to a room of its own: its last room stays closed.
+    skip_last_room: Cell<bool>,
     link_generation: Cell<u64>,
     pending_notification: RefCell<Option<NotificationAction>>,
     notification_request: RefCell<Option<String>>,
@@ -101,6 +105,29 @@ fn last_server_file() -> PathBuf {
 
 fn navigation_queue() -> rv_core::native::notification_navigation::NavigationQueue {
     rv_core::native::notification_navigation::NavigationQueue::new(&glib::user_config_dir().join("rocket-vibe-rs"))
+}
+
+/// What a Ctrl + key press does to the zoom: larger (`Some(Some(true))`) with
+/// + or =, smaller with -, back to 100 % with 0, whatever the layout.
+fn zoom_key(
+    controller: &gtk::EventControllerKey,
+    key: gtk::gdk::Key,
+    code: u32,
+    state: gtk::gdk::ModifierType,
+) -> Option<Option<bool>> {
+    use gtk::gdk::{Key, ModifierType as M};
+    if !state.contains(M::CONTROL_MASK) || state.intersects(M::ALT_MASK | M::SUPER_MASK | M::META_MASK) {
+        return None;
+    }
+    match key {
+        Key::plus | Key::equal | Key::KP_Add => Some(Some(true)),
+        Key::minus | Key::underscore | Key::KP_Subtract => Some(Some(false)),
+        _ => controller
+            .widget()
+            .and_then(|w| crate::rail::shortcut_digit(&w.display(), key, code, state))
+            .filter(|&digit| digit == 0)
+            .map(|_| None),
+    }
 }
 
 fn database_path(info: &SessionInfo) -> PathBuf {
@@ -269,6 +296,8 @@ impl AppWindow {
             unlinking: Cell::new(false),
             call_watches: RefCell::default(),
             pending_link: RefCell::default(),
+            last_room: RefCell::default(),
+            skip_last_room: Cell::new(false),
             link_generation: Cell::new(0),
             pending_notification: RefCell::default(),
             notification_request: RefCell::default(),
@@ -488,6 +517,9 @@ impl AppWindow {
         );
         let weak = Rc::downgrade(&this);
         this.chat.connect_room_opened(move |rid| {
+            if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
+                rv_core::last_room::save(&crate::config_dir(), &rv_core::last_room::account(&info), &rid);
+            }
             if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
                 if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
                     notifier.withdraw(&supervisor::notification_key(&info, &rid));
@@ -498,6 +530,12 @@ impl AppWindow {
                     .map(|s| s.notification_key(&rid))
                     .unwrap_or(rid);
                 notifier.withdraw(&key);
+            }
+        });
+        let weak = Rc::downgrade(&this);
+        this.chat.connect_walk_account(move |(account, rid, at)| {
+            if let Some(this) = weak.upgrade() {
+                this.walk_to_account(&account, rid, at);
             }
         });
         let weak = Rc::downgrade(&this);
@@ -567,12 +605,17 @@ impl AppWindow {
                 this.open_activity();
             }
         });
-        // Ctrl + 1 to 9 opens the rail's first nine accounts, Ctrl + 0 the
-        // tenth, hidden rail included; not on the sign-in page nor under a dialog.
+        // Ctrl + 1 to 9 opens the rail's first nine accounts, hidden rail
+        // included; not on the sign-in page nor under a dialog. Ctrl with +, -
+        // or 0 zooms the text everywhere.
         let keys = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
         let weak = Rc::downgrade(&this);
         keys.connect_key_pressed(move |controller, key, code, state| {
             let Some(this) = weak.upgrade() else { return glib::Propagation::Proceed };
+            if let Some(zoom) = zoom_key(controller, key, code, state) {
+                crate::style::zoom(zoom);
+                return glib::Propagation::Stop;
+            }
             if this.stack.visible_child_name().as_deref() != Some("chat") || this.window.visible_dialog().is_some() {
                 return glib::Propagation::Proceed;
             }
@@ -597,6 +640,18 @@ impl AppWindow {
             }
         });
         this.window.add_controller(keys);
+        let wheel = gtk::EventControllerScroll::new(
+            gtk::EventControllerScrollFlags::VERTICAL | gtk::EventControllerScrollFlags::DISCRETE,
+        );
+        wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
+        wheel.connect_scroll(|controller, _, dy| {
+            if !controller.current_event_state().contains(gtk::gdk::ModifierType::CONTROL_MASK) || dy == 0.0 {
+                return glib::Propagation::Proceed;
+            }
+            crate::style::zoom(Some(dy < 0.0));
+            glib::Propagation::Stop
+        });
+        this.window.add_controller(wheel);
         let weak = Rc::downgrade(&this);
         this.rail.connect_add(move |()| {
             if let Some(this) = weak.upgrade() {
@@ -1264,7 +1319,9 @@ impl AppWindow {
             ChatEvent::Session(SessionEvent::Upload(rid)) => self.chat.on_upload(&rid),
             ChatEvent::Session(SessionEvent::Avatar) => self.chat.on_avatar(),
             ChatEvent::Session(SessionEvent::Incoming(incoming)) => self.notify(&incoming),
-            ChatEvent::Session(SessionEvent::Private { rid, text }) => self.chat.on_private(&rid, &text),
+            ChatEvent::Session(SessionEvent::Private { rid, text, attachments, post_id }) => {
+                self.chat.on_private(&rid, &text, attachments.as_deref(), post_id.as_deref())
+            }
             ChatEvent::Session(SessionEvent::CallRing) => self.on_call_ring(),
             ChatEvent::Session(SessionEvent::E2e) => {
                 self.chat.on_e2e();
@@ -1308,6 +1365,10 @@ impl AppWindow {
         if self.background_ring.borrow().as_ref().is_some_and(|r| r.key == key) {
             self.end_background_ring();
         }
+        let account = rv_core::last_room::account(&info);
+        let skip = self.skip_last_room.replace(false);
+        let last = rv_core::last_room::load(&crate::config_dir(), &account).filter(|_| !skip);
+        self.last_room.replace(last.map(|rid| (account, rid)));
         let path = database_path(&info);
         match self.accounts.open(&info) {
             Ok(Chat::Native(session)) => {
@@ -1677,6 +1738,7 @@ impl AppWindow {
             }
         }
         self.rail.forget_unread(key);
+        self.chat.forget_history(key);
         crate::badge::set_account(key, None);
         crate::reminders::forget(info);
         let info = info.clone();
@@ -1728,6 +1790,33 @@ impl AppWindow {
             user_id: Some(info.user_id.clone()),
             message: target.message,
             root: target.thread,
+        }));
+        self.switch_to_for_link(info);
+    }
+
+    /// Back or forward reached a room of another account: that account opens on it.
+    fn walk_to_account(self: &Rc<Self>, account: &str, rid: String, at: usize) {
+        let Some(info) = self.accounts.running().into_iter().find(|i| supervisor::key(i) == account) else {
+            self.chat.forget_history(account);
+            self.chat.toast(t("links.unavailable").to_owned());
+            return;
+        };
+        self.cancel_navigation();
+        self.chat.walked(at);
+        if rv_core::whatsapp::is_whatsapp(&info) {
+            self.skip_last_room.set(true);
+            self.switch_to(info);
+            self.skip_last_room.set(false);
+            self.chat.open_room(&rid);
+            return;
+        }
+        self.pending_link.replace(Some(rv_core::links::RoomLink {
+            rid,
+            host: rv_core::links::service_url(&info.base_url),
+            native: info.native.clone(),
+            user_id: Some(info.user_id.clone()),
+            message: None,
+            root: None,
         }));
         self.switch_to_for_link(info);
     }
@@ -1971,6 +2060,7 @@ impl AppWindow {
             let key = supervisor::key(&info);
             self.accounts.remove(&key);
             self.rail.forget_unread(&key);
+            self.chat.forget_history(&key);
             crate::badge::set_account(&key, None);
         }
         self.accounts.set_active(None);
@@ -2348,6 +2438,7 @@ impl AppWindow {
         let Some(info) = self.open_account() else {
             return;
         };
+        self.reopen_last_room(&info, rooms_loaded);
         let link = self.pending_link.borrow().clone();
         if rooms_loaded
             && self.chat.native_session().is_some_and(|s| s.status().connection == rv_core::session::Connection::Online)
@@ -2384,6 +2475,24 @@ impl AppWindow {
             }
             self.pending_link.replace(None);
             self.show_room_link(&link);
+        }
+    }
+
+    /// Reopens the room the account had open, unless a link or the user opened one first.
+    fn reopen_last_room(self: &Rc<Self>, info: &SessionInfo, rooms_loaded: bool) {
+        let Some((account, rid)) = self.last_room.borrow().clone() else { return };
+        if account != rv_core::last_room::account(info)
+            || self.pending_link.borrow().is_some()
+            || self.chat.current_rid().is_some()
+        {
+            self.last_room.take();
+            return;
+        }
+        if self.chat.has_room(&rid) {
+            self.last_room.take();
+            self.chat.open_room(&rid);
+        } else if rooms_loaded {
+            self.last_room.take();
         }
     }
 

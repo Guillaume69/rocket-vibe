@@ -50,6 +50,8 @@ import { useMentionCandidates } from '../../ui/mentionCompletion.tsx';
 import { Composer } from '../../ui/composer.tsx';
 import { RoomHeader } from '../../ui/roomHeader.tsx';
 import { sessionToken } from '../../ui/sessionToken.ts';
+import { foldAccount } from '../../ui/homeSections.ts';
+import { rememberLastRoom } from '../../ui/lastRoomStore.ts';
 import { insertUnreadBar,insertNativeUnreadBar, type BarRow } from '../../ui/unreadBar.ts';
 import { INITIAL_PILL_STATE, nextPillState, onPillPress, unreadSummary } from '../../ui/newMessagesPill.ts';
 import {ObservedRead} from '../../ui/observedRead.ts';
@@ -145,6 +147,10 @@ export default function RoomScreen() {
   const { state } = useSession();
   const sync = useSync();
   const c = useColors();
+  const account = state.phase === 'connected' ? foldAccount(state.session.baseUrl, state.session.userId) : null;
+  useEffect(() => {
+    if (account !== null && typeof rid === 'string' && !external) rememberLastRoom(account, rid);
+  }, [account, rid, external]);
 
   // This guard is the counterpart of index.tsx's: a deep link (tapping a
   // notification, step 6.2) can land here without a session.

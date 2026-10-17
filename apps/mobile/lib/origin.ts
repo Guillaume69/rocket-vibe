@@ -40,3 +40,14 @@ export function sameOrigin(url: string, origin: string): boolean {
   const theirs = originOf(url);
   return theirs !== null && theirs === originOf(origin);
 }
+
+/** A non-empty `http(s)` URL with a host, as given; `null` otherwise. */
+export function httpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && parsed.hostname !== '' ? value : null;
+  } catch {
+    return null;
+  }
+}

@@ -117,10 +117,15 @@ pub enum Event {
     Incoming {
         incoming: Incoming,
     },
-    /// What the server told me alone in a room: a slash command's answer.
+    /// What the server told me alone in a room: a slash command's answer, or
+    /// a Mattermost "visible only to you" post with its cards, whose buttons
+    /// press through `post_id`.
     PrivateNote {
         rid: String,
         text: String,
+        body: Vec<markup::BodyBlock>,
+        cards: Vec<model::Card>,
+        post_id: Option<String>,
     },
     /// The voice session, the rings or the listening choices moved (Vibez).
     Voice,
@@ -189,6 +194,24 @@ impl Client {
 
     pub fn toggle_collapsed_section(&self, account: String, section: String) -> Vec<String> {
         rv_core::collapsed_sections::toggle(&self.dirs.config, &account, &section)
+    }
+
+    /// The text zoom in percent, shared with GTK.
+    pub fn zoom(&self) -> u32 {
+        rv_core::zoom::load(&self.dirs.config)
+    }
+
+    pub fn set_zoom(&self, percent: u32) {
+        rv_core::zoom::save(&self.dirs.config, percent)
+    }
+
+    /// The room last opened on an account (`Account::key`), reopened when it is switched back to.
+    pub fn last_room(&self, account: String) -> Option<String> {
+        rv_core::last_room::load(&self.dirs.config, &account)
+    }
+
+    pub fn set_last_room(&self, account: String, rid: String) {
+        rv_core::last_room::save(&self.dirs.config, &account, &rid)
     }
 
     /// The rail's order (`keys`, `Account::key`) once `moved` is dropped on
@@ -386,7 +409,7 @@ fn state(c: Connection) -> ConnectionState {
     }
 }
 
-fn event(e: SessionEvent) -> Event {
+fn event(e: SessionEvent, session: Option<&Session>) -> Event {
     match e {
         SessionEvent::Connection(c) => Event::Connection { state: state(c) },
         SessionEvent::Expired => Event::Expired,
@@ -406,7 +429,18 @@ fn event(e: SessionEvent) -> Event {
                 mentions_me: i.mentions_me,
             },
         },
-        SessionEvent::Private { rid, text } => Event::PrivateNote { rid, text },
+        SessionEvent::Private { rid, text, attachments, post_id } => {
+            let me = session.map(|s| s.info.username.clone()).unwrap_or_default();
+            let names = |username: &str| session.and_then(|s| s.mention_name(username));
+            let ctx = rv_core::markdown::Context { me: &me, names: Some(&names) };
+            Event::PrivateNote {
+                body: markup::blocks(rv_core::markdown::render(None, Some(&text), &ctx)),
+                cards: model::integration_cards(attachments.as_deref(), &ctx),
+                rid,
+                text,
+                post_id,
+            }
+        }
         SessionEvent::CallRing => Event::CallRing,
     }
 }
@@ -442,7 +476,7 @@ impl Chat {
                         Err(RecvError::Closed) => return,
                     },
                     e = events.recv() => match e {
-                        Ok(e) => event(e),
+                        Ok(e) => event(e, session.upgrade().as_deref()),
                         Err(RecvError::Lagged(_)) => continue,
                         Err(RecvError::Closed) => return,
                     },
@@ -624,6 +658,31 @@ impl Chat {
             None => Ok(false),
             Some(result) => result.map(|()| true).map_err(Into::into),
         }
+    }
+
+    /// A card's button (Mattermost and kChat), on the post it belongs to.
+    pub async fn press_card_action(
+        &self,
+        post_id: String,
+        action: model::CardAction,
+    ) -> Result<model::ActionAnswer, RvError> {
+        let s = self.session.clone();
+        let action = rv_core::content::CardAction {
+            id: action.id,
+            name: action.name,
+            style: action.style,
+            cookie: action.cookie,
+        };
+        let session = self.session.clone();
+        let answer = on_tokio(async move { s.press_card_action(&post_id, &action).await }).await?;
+        let names = |username: &str| session.mention_name(username);
+        let ctx = rv_core::markdown::Context { me: &session.info.username, names: Some(&names) };
+        let note_body = answer
+            .note
+            .as_deref()
+            .map(|text| markup::blocks(rv_core::markdown::render(None, Some(text), &ctx)))
+            .unwrap_or_default();
+        Ok(model::ActionAnswer { note: answer.note, note_body, open: answer.open })
     }
 
     pub async fn retry(&self, id: String) {
@@ -921,8 +980,11 @@ fn lay_out(
     }
     laid.into_iter()
         .map(|d| {
-            let mut item = model::message(d, &info.user_id, &info.username);
-            if let Some(label) = session.person_label(&item.author_id) {
+            let names = |username: &str| session.mention_name(username);
+            let mut item = model::message_named(d, &info.user_id, &info.username, Some(&names));
+            if !item.aliased
+                && let Some(label) = session.person_label(&item.author_id)
+            {
                 item.author_label = label;
             }
             item
@@ -977,11 +1039,16 @@ pub fn tn(key: String, n: i64) -> String {
     rv_core::i18n::tn(&key, n)
 }
 
-/// The digit of the Cmd shortcut opening the rail's `slot`: 1 to 9, then 0
-/// for the tenth; None past it.
+/// The digit of the Cmd shortcut opening the rail's `slot`: 1 to 9; None past it.
 #[uniffi::export]
 pub fn rail_shortcut_digit(slot: u32) -> Option<u32> {
     rv_core::server_rail::shortcut_digit(slot as usize)
+}
+
+/// The text zoom step after `percent`, larger when `zoom_in`.
+#[uniffi::export]
+pub fn zoom_step(percent: u32, zoom_in: bool) -> u32 {
+    rv_core::zoom::step(percent, zoom_in)
 }
 
 /// What a system message says, after its author's name.

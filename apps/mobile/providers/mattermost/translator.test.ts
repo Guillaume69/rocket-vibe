@@ -5,12 +5,17 @@ import { reactionList } from '../../lib/reactions.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
 import { post } from './testing.ts';
-import { MM_POST, MM_QUIET, MmTranslator, membershipCounts, record } from './translator.ts';
+import { MM_POST, MM_QUIET, MmTranslator, ephemeralNote, membershipCounts, mentionedUsernames, permalinkPosts, record } from './translator.ts';
+import { quoteText } from '../../lib/quote.ts';
+import { integrationCard } from '../../lib/integrationCards.ts';
+import { reminderAcknowledgement } from '../../lib/reminder.ts';
+import { reminderFormatter, translate } from '../../ui/messages.ts';
 
 function translator() {
   const directory = new MmDirectory(new MmClient('http://mm.test', 't'));
   directory.remember({ id: 'u-me', username: 'me', displayName: 'Me Myself', lastPictureUpdate: null });
   directory.remember({ id: 'u-bob', username: 'bob', displayName: 'Bob Builder', lastPictureUpdate: null });
+  directory.remember({ id: 'u-euria', username: 'euria', displayName: 'Euria', lastPictureUpdate: null, bot: true });
   return new MmTranslator(directory, 'u-me');
 }
 
@@ -172,5 +177,159 @@ describe('membershipCounts', () => {
       membershipCounts(channel, { msg_count_root: 7, mention_count: 0, notify_props: { mark_unread: 'all' } }),
       { unread: 3, mentions: 0 },
     );
+  });
+});
+
+describe('MmTranslator integrations and links', () => {
+  test('a card keeps its pretext apart; its text falls back on the fallback, not the pretext', () => {
+    const m = translator().toMessage(post('p1', {
+      props: { attachments: [
+        { pretext: ':file_folder: New push', text: '[abc](https://git.test/abc) **fix**', title: 'Repo', fields: [{ title: 'Branch', value: '`main`', short: true }] },
+        { pretext: 'Only a pretext', fallback: 'Only a pretext' },
+        { fallback: 'plain summary' },
+      ] },
+    }));
+    const [full, pretextOnly, summary] = (JSON.parse(m?.attachments ?? '[]') as unknown[]).map(integrationCard);
+    assert.equal(full?.pretext, ':file_folder: New push');
+    assert.equal(full?.text, '[abc](https://git.test/abc) **fix**');
+    assert.equal(full?.fields[0]?.value, '`main`');
+    assert.equal(pretextOnly?.pretext, 'Only a pretext');
+    assert.equal(pretextOnly?.text, null);
+    assert.equal(summary?.text, 'plain summary');
+  });
+
+  test('a card keeps only its buttons, with their id, name, style and cookie', () => {
+    const m = translator().toMessage(post('p1', {
+      props: { attachments: [{ text: 'Deploy?', actions: [
+        { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1', integration: { url: 'https://hook.test' } },
+        { id: 'no', name: 'Reject', type: 'button', style: 'danger' },
+        { id: 'pick', name: 'Pick', type: 'select', options: [] },
+        { id: '', name: 'No id' },
+        { id: 'unnamed' },
+      ] }] },
+    }));
+    const [raw] = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
+    assert.deepEqual(raw?.actions, [{ id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' }, { id: 'no', name: 'Reject', style: 'danger' }]);
+    assert.deepEqual(integrationCard(raw)?.actions, [
+      { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' },
+      { id: 'no', name: 'Reject', style: 'danger', cookie: null },
+    ]);
+  });
+
+  test('a card shows at most ten buttons, their names capped like a title', () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `b${i}`, name: `B${i}` }));
+    assert.equal(integrationCard({ text: 'x', actions: many })?.actions.length, 10);
+    const card = integrationCard({ text: 'x', actions: [{ id: 'long', name: 'é'.repeat(257) }, { id: 'ok', name: 'Fine' }] });
+    assert.deepEqual(card?.actions.map((a) => a.id), ['ok']);
+    assert.equal(integrationCard({ actions: [{ id: 'only', name: 'Only a button' }] })?.actions.length, 1, 'a card of buttons alone still shows');
+  });
+
+  test('a permalink embed becomes a quote of the linked post, named like an author', () => {
+    const m = translator().toMessage(post('p1', {
+      message: 'see http://mm.test/team/pl/q1',
+      metadata: { embeds: [
+        { type: 'permalink', data: { post_id: 'q1', channel_display_name: 'Town', team_name: 'team', post: { id: 'q1', user_id: 'u-bob', message: 'the **original**', create_at: 5000 } } },
+        { type: 'permalink', data: { post_id: 'q2' } },
+        { type: 'opengraph', url: 'https://x.test' },
+      ] },
+    }));
+    const attachments = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
+    assert.equal(attachments.length, 1, 'an embed without its post is skipped');
+    const [quoted] = attachments;
+    assert.equal(quoted?.message_link, 'http://mm.test/_redirect/pl/q1');
+    assert.equal(quoted?.author_name, 'Bob Builder');
+    assert.equal(quoted?.ts, new Date(5000).toISOString());
+    assert.equal(quoteText(quoted as { text?: string }), 'the **original**');
+    assert.equal(integrationCard(quoted), null, 'a quote is never drawn as a card');
+  });
+
+  test('`permalinkPosts` reads only permalink embeds that carry their post', () => {
+    assert.deepEqual(permalinkPosts([{ type: 'permalink', data: { post_id: 'q1', post: { message: 'x' } } }, { type: 'image' }, null]), [{ message: 'x', id: 'q1' }]);
+    assert.deepEqual(permalinkPosts(undefined), []);
+  });
+
+  test('a reminder is rebuilt from its props, the server link kept', () => {
+    const t = translator();
+    const said = t.toMessage(post('p1', {
+      type: 'reminder',
+      message: "Hi there, here's your reminder about this message from @bob: http://mm.test/team/pl/q1",
+      props: { username: 'bob', team_name: 'team', post_id: 'q1' },
+    }));
+    assert.equal(said?.text, "Hi there, here's your reminder about this message from @bob: http://mm.test/team/pl/q1");
+    assert.equal(said?.systemType, null);
+    const built = t.toMessage(post('p2', { type: 'reminder', message: 'Rappel !', props: { username: 'bob', team_name: 'team', post_id: 'q9' } }));
+    assert.equal(built?.text, "Hi there, here's your reminder about this message from @bob: http://mm.test/team/pl/q9");
+  });
+
+  test('a webhook post shows its chosen name and icon, flagged as a bot; the poster stays the author', () => {
+    const t = translator();
+    const hook = t.toMessage(post('p1', { props: { from_webhook: 'true', override_username: 'Uptime Kuma', override_icon_url: 'https://cdn.test/kuma.png' } }));
+    assert.equal(hook?.authorName, 'bob');
+    assert.equal(hook?.authorAlias, 'Uptime Kuma');
+    assert.equal(hook?.authorAvatar, 'https://cdn.test/kuma.png');
+    assert.equal(hook?.authorBot, true);
+    const relative = t.toMessage(post('p2', { props: { from_webhook: 'true', override_username: 'Hook', override_icon_url: '/static/x.png' } }));
+    assert.equal(relative?.authorAvatar, null);
+    const notHook = t.toMessage(post('p3', { props: { override_username: 'Spoof' } }));
+    assert.equal(notHook?.authorAlias, null);
+    assert.equal(notHook?.authorName, 'bob');
+    assert.equal(notHook?.authorBot, false);
+    assert.equal(t.toMessage(post('p4', { props: { from_bot: 'true' } }))?.authorBot, true);
+    assert.equal(t.toMessage(post('p5', { user_id: 'u-euria' }))?.authorBot, true);
+  });
+
+  test('`mentionedUsernames` finds people, not everyone mentions, emails or trailing punctuation', () => {
+    assert.deepEqual(mentionedUsernames('hi @Marc-Etienne.Barrut. and @here, mail a@b.c, (@bob)'), ['marc-etienne.barrut', 'bob']);
+  });
+
+  test('`mentionedUsernames` skips code spans and fenced blocks, closed or not', () => {
+    assert.deepEqual(mentionedUsernames('use `@Override` and ``a @Inject b`` with @carol'), ['carol']);
+    assert.deepEqual(mentionedUsernames('@dan\n```java\n@Override\nvoid f() {}\n```\nthen @erin'), ['dan', 'erin']);
+    assert.deepEqual(mentionedUsernames('~~~\n@Test\n```\n@Still\n~~~\n@frank'), ['frank']);
+    assert.deepEqual(mentionedUsernames('@gus\n```\n@Override'), ['gus']);
+  });
+});
+
+
+describe('ephemeralNote', () => {
+  const card = { text: 'Pick one', actions: [{ id: 'yes', name: 'Yes', cookie: 'srv' }] };
+
+  test('reads text, cards and post id from an object or a JSON string', () => {
+    const raw = { id: 'e1', channel_id: 'r1', message: 'Hi @bob', props: { attachments: [card] } };
+    for (const value of [raw, JSON.stringify(raw)]) {
+      const note = ephemeralNote(value, 'http://mm.test');
+      assert.equal(note?.rid, 'r1');
+      assert.equal(note?.postId, 'e1');
+      assert.equal(note?.text, 'Hi @bob');
+      assert.deepEqual(note?.cards?.[0]?.actions, [{ id: 'yes', name: 'Yes', style: null, cookie: 'srv' }]);
+      assert.equal(note?.reminder, null);
+    }
+  });
+
+  test('a note with only cards still shows; one with nothing does not', () => {
+    assert.equal(ephemeralNote({ id: 'e1', channel_id: 'r1', message: '', props: { attachments: [card] } }, 'http://mm.test')?.cards?.length, 1);
+    assert.equal(ephemeralNote({ id: 'e1', channel_id: 'r1', message: '' }, 'http://mm.test'), null);
+    assert.equal(ephemeralNote({ id: 'e1', message: 'x' }, 'http://mm.test'), null);
+  });
+
+  test('a reminder acknowledgement reads in the app language with its due time', () => {
+    const at = Date.UTC(2026, 9, 14, 7, 0);
+    const props = { type: 'reminder', target_time: at / 1000, username: 'bob', post_id: 'q1', team_name: 'team' };
+    const said = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded about http://mm.test/team/pl/q9 by @bob at Wed, 14 Oct 2026 07:00:00 UTC', props }, 'http://mm.test');
+    assert.deepEqual(said?.reminder, { username: 'bob', link: 'http://mm.test/team/pl/q9', at });
+    const built = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props }, 'http://mm.test');
+    assert.equal(built?.reminder?.link, 'http://mm.test/team/pl/q1');
+    const textual = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props: { ...props, target_time: String(at / 1000) } }, 'http://mm.test');
+    assert.equal(textual?.reminder?.at, at);
+    const garbled = ephemeralNote({ id: 'e1', channel_id: 'r1', message: 'You will be reminded', props: { ...props, target_time: 'soon' } }, 'http://mm.test');
+    assert.equal(garbled?.reminder, null);
+    for (const language of ['fr', 'en'] as const) {
+      const when = reminderFormatter(language);
+      const text = reminderAcknowledgement((k, p) => translate(language, k, p), (ms) => when(ms), said!.reminder!);
+      assert.equal(text, language === 'fr'
+        ? `Vous recevrez un rappel de [ce message](http://mm.test/team/pl/q9) de @bob ${when(at)}`
+        : `You will be reminded about [this message](http://mm.test/team/pl/q9) from @bob ${when(at)}`);
+      assert.ok(when(at).length > 0);
+    }
   });
 });

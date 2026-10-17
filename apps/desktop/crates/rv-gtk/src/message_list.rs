@@ -784,7 +784,7 @@ impl MessageList {
                     let blocks = rv_core::markdown::render(
                         display.row.md.as_deref(),
                         display.row.text.as_deref(),
-                        &rv_core::markdown::Context { me: "" },
+                        &rv_core::markdown::Context { me: "", names: None },
                     );
                     vec![(rv_core::runs::text(&blocks), Vec::new())]
                 }),

@@ -21,7 +21,11 @@ fn entry(row: &MessageRow, me: &str) -> gtk::Widget {
     header.append(&label(row.author.as_deref().unwrap_or_default(), &["author"]));
     header.append(&label(&local(row.ts).format("%d/%m/%Y %H:%M").to_string(), &["message-time"]));
     column.append(&header);
-    let blocks = rv_core::markdown::render(row.md.as_deref(), row.text.as_deref(), &rv_core::markdown::Context { me });
+    let blocks = rv_core::markdown::render(
+        row.md.as_deref(),
+        row.text.as_deref(),
+        &rv_core::markdown::Context { me, names: None },
+    );
     if blocks.is_empty() {
         column.append(&label(t("marked.attachment"), &["message-body"]));
     } else {

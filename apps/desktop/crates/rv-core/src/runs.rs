@@ -117,6 +117,9 @@ fn block_text(block: &Block, out: &mut Vec<String>) {
         Block::Quote(inner) => inner.iter().for_each(|b| block_text(b, out)),
         Block::Code(code) => out.push(code.clone()),
         Block::List(items) => out.extend(items.iter().map(|(marker, m)| format!("{marker} {}", plain(m)))),
+        Block::Table { header, rows, .. } => out.extend(
+            std::iter::once(header).chain(rows).map(|row| row.iter().map(|m| plain(m)).collect::<Vec<_>>().join(" | ")),
+        ),
         Block::Break => {}
     }
 }
@@ -130,7 +133,7 @@ pub fn text(blocks: &[Block]) -> String {
 
 /// A message on one line, formatting gone, for the room list.
 pub fn preview(text: &str) -> String {
-    let blocks = markdown::render(None, Some(text), &markdown::Context { me: "" });
+    let blocks = markdown::render(None, Some(text), &markdown::Context { me: "", names: None });
     self::text(&blocks).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

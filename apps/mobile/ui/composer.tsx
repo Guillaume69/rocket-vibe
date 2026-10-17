@@ -62,7 +62,8 @@ import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 import { VideoModal } from './videoPlayer.tsx';
 import { isImage } from './mime.ts';
 import { EmojiPicker, useEmojiPanel } from './emojiPicker.tsx';
-import { PrivateNote, usePrivateNote } from './privateNotes.tsx';
+import { PrivateNote } from './privateNotes.tsx';
+import { usePrivateNote } from './privateNoteStore.ts';
 import { StagedAttachments, type StagedAttachment } from './stagedAttachments.tsx';
 import { compressAttachment } from './prepareAttachment.ts';
 import { compressionOffered, type SendQuality } from './attachmentQuality.ts';
@@ -823,7 +824,7 @@ export function Composer({
       {response !== null && (
         <ReplyBanner c={c} target={response} client={client} onCancel={cancelQuote} />
       )}
-      {privateNote !== null && <PrivateNote c={c} rid={rid} text={privateNote} />}
+      {privateNote !== null && <PrivateNote c={c} note={privateNote} />}
       {scheduledChip}
       {!emoji.open && (
         <CommandCompletionBanner

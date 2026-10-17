@@ -474,6 +474,39 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
             label.upcast()
         }
         Block::Break => gtk::Box::builder().height_request(8).build().upcast(),
+        Block::Table { align, header, rows } => {
+            let grid = gtk::Grid::builder().css_classes(["md-table"]).halign(gtk::Align::Start).build();
+            for (y, row) in std::iter::once(header).chain(rows).enumerate() {
+                for (x, markup) in row.iter().enumerate() {
+                    let class = if y == 0 { "md-table-head" } else { "message-body" };
+                    let content = body(markup, &with(class, extra));
+                    // A wrapping label is measured at its narrowest under a sideways scroller: very tall.
+                    if let Some(label) = content.downcast_ref::<gtk::Label>() {
+                        label.set_wrap(false);
+                    }
+                    content.set_halign(match align.get(x) {
+                        Some(rv_core::markdown::Align::Center) => gtk::Align::Center,
+                        Some(rv_core::markdown::Align::Right) => gtk::Align::End,
+                        _ => gtk::Align::Start,
+                    });
+                    let cell = gtk::Box::builder().css_classes(["md-table-cell"]).build();
+                    content.set_hexpand(true);
+                    cell.append(&content);
+                    grid.attach(&cell, x as i32, y as i32, 1, 1);
+                }
+            }
+            gtk::ScrolledWindow::builder()
+                .child(&grid)
+                .vscrollbar_policy(gtk::PolicyType::Never)
+                .hscrollbar_policy(gtk::PolicyType::Automatic)
+                .propagate_natural_width(true)
+                .propagate_natural_height(true)
+                .halign(gtk::Align::Start)
+                .valign(gtk::Align::Start)
+                .vexpand(false)
+                .build()
+                .upcast()
+        }
     }
 }
 

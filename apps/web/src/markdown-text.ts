@@ -81,6 +81,19 @@ export function inlineText(text: string, depth = 0): Node[] {
   return out;
 }
 
+/** A title drawn inside its own link: inline markdown on one line, its links reduced to their text. */
+export function linkedTitle(text: string): Node[] {
+  const flatten = (nodes: Node[]): Node[] =>
+    nodes.flatMap((node): Node[] =>
+      node.kind === "link"
+        ? flatten(node.children)
+        : "children" in node
+          ? [{ ...node, children: flatten(node.children) }]
+          : [node],
+    );
+  return flatten(inlineText(text.replace(/\s*\n\s*/g, " ")));
+}
+
 export function metadataMarkdown(text: string, depth = 0): Node[] {
   if (depth > 16)
     return [{ kind: "paragraph", children: [{ kind: "text", text }] }];

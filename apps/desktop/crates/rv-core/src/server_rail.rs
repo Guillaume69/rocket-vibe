@@ -59,21 +59,19 @@ pub fn save(config: &Path, keys: &[String]) {
 }
 
 /// The rail position a Ctrl (Cmd on SwiftUI) + digit shortcut opens: 1 to 9
-/// the first nine accounts, 0 the tenth.
+/// the first nine accounts. Ctrl + 0 resets the zoom (`zoom`).
 pub fn shortcut_slot(digit: u32) -> Option<usize> {
     match digit {
         1..=9 => Some(digit as usize - 1),
-        0 => Some(9),
         _ => None,
     }
 }
 
 /// The digit of the shortcut that opens the rail's `slot`, for its tooltip or
-/// menu; None past the tenth account.
+/// menu; None past the ninth account.
 pub fn shortcut_digit(slot: usize) -> Option<u32> {
     match slot {
         0..=8 => Some(slot as u32 + 1),
-        9 => Some(0),
         _ => None,
     }
 }
@@ -98,14 +96,14 @@ mod tests {
     }
 
     #[test]
-    fn digits_open_the_first_ten_accounts() {
+    fn digits_open_the_first_nine_accounts() {
         assert_eq!((1..=9).map(shortcut_slot).collect::<Vec<_>>(), (0..9).map(Some).collect::<Vec<_>>());
-        assert_eq!(shortcut_slot(0), Some(9));
+        assert_eq!(shortcut_slot(0), None, "Ctrl + 0 resets the zoom");
         assert_eq!(shortcut_slot(10), None);
-        for slot in 0..10 {
+        for slot in 0..9 {
             assert_eq!(shortcut_digit(slot).and_then(shortcut_slot), Some(slot));
         }
-        assert_eq!(shortcut_digit(10), None);
+        assert_eq!(shortcut_digit(9), None);
     }
 
     #[test]

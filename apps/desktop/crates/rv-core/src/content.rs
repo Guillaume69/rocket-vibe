@@ -11,6 +11,8 @@ pub const QUOTE_DEPTH: usize = 2;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub unavailable: bool,
+    /// A post the text links to, previewed by the server (Mattermost): shown under the text.
+    pub below: bool,
     pub link: String,
     pub author: Option<String>,
     pub text: String,
@@ -43,6 +45,8 @@ pub struct FileAttachment {
 /// title, text, labelled fields and a colour.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CardAttachment {
+    /// Markdown shown above the card.
+    pub pretext: Option<String>,
     pub author: Option<String>,
     pub title: Option<String>,
     pub link: Option<String>,
@@ -50,6 +54,26 @@ pub struct CardAttachment {
     pub color: Option<String>,
     /// Label, value, and whether it sits beside the next one.
     pub fields: Vec<(String, String, bool)>,
+    /// Its buttons (Mattermost's interactive messages).
+    pub actions: Vec<CardAction>,
+}
+
+/// What the server answered a button: words for me alone, a page to open.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActionAnswer {
+    pub note: Option<String>,
+    pub open: Option<String>,
+}
+
+/// A card's button: pressed through the server (`Session::press_card_action`),
+/// with the cookie a "visible only to you" post carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CardAction {
+    pub id: String,
+    pub name: String,
+    /// `primary`, `danger`, `good`… as the integration asks; empty for the default.
+    pub style: String,
+    pub cookie: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +155,7 @@ fn quote_of(a: &Value, depth: usize) -> Quote {
     let source = a.get("text").and_then(Value::as_str).unwrap_or_default();
     Quote {
         unavailable,
+        below: a.get("permalink_preview").and_then(Value::as_bool) == Some(true),
         link: if unavailable { String::new() } else { text(a, "message_link").unwrap_or_default() },
         author: if unavailable { None } else { text(a, "author_name") },
         text: if unavailable {
@@ -202,6 +227,7 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                 }
             };
             CardAttachment {
+                pretext: read(a, "pretext"),
                 author: read(a, "author_name"),
                 title: read(a, "title"),
                 link: read(a, "title_link"),
@@ -220,9 +246,33 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                             .collect()
                     })
                     .unwrap_or_default(),
+                actions: a
+                    .get("actions")
+                    .and_then(Value::as_array)
+                    .map(|actions| {
+                        actions
+                            .iter()
+                            .filter_map(|b| {
+                                Some(CardAction {
+                                    id: read(b, "id")?,
+                                    name: read(b, "name")?,
+                                    style: read(b, "style").unwrap_or_default(),
+                                    cookie: read(b, "cookie"),
+                                })
+                            })
+                            .take(10)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             }
         })
-        .filter(|c| c.title.is_some() || c.text.is_some() || !c.fields.is_empty())
+        .filter(|c| {
+            c.title.is_some()
+                || c.text.is_some()
+                || c.pretext.is_some()
+                || !c.fields.is_empty()
+                || !c.actions.is_empty()
+        })
         .collect()
 }
 
@@ -656,6 +706,17 @@ mod tests {
         );
         let f = files(Some(&attachments));
         assert_eq!(f.iter().map(|f| f.title.as_str()).collect::<Vec<_>>(), ["doc.pdf", "ext.pdf"]);
+    }
+
+    #[test]
+    fn a_card_of_pretext_or_buttons_alone_shows_and_keeps_ten_buttons() {
+        let buttons: Vec<Value> = (0..12).map(|i| json!({"id": format!("b{i}"), "name": format!("B{i}")})).collect();
+        let attachments = json!([{"pretext": "Above"}, {"actions": buttons}, {"color": "#fff"}]).to_string();
+        let c = cards(Some(&attachments));
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0].pretext.as_deref(), Some("Above"));
+        assert_eq!(c[1].actions.len(), 10);
+        assert_eq!(c[1].actions[9].id, "b9");
     }
 
     #[test]

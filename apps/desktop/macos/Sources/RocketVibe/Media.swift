@@ -9,14 +9,22 @@ struct Avatar: View {
     let path: String?
     let name: String
     let size: CGFloat
+    var symbol: String? = nil
+    var glyph: String? = nil
     @State var image: NSImage?
 
     var body: some View {
         ZStack {
             LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
-            Text(initial)
-                .font(.vibeTitle(size * 0.5))
-                .foregroundStyle(Vibe.ink.opacity(0.85))
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.42, weight: .bold))
+                    .foregroundStyle(Vibe.ink.opacity(0.85))
+            } else {
+                Text(glyph ?? initial)
+                    .font(.vibeTitle(size * 0.5))
+                    .foregroundStyle(Vibe.ink.opacity(0.85))
+            }
             if let shown {
                 AnimatedImage(image: shown)
             }
@@ -42,6 +50,28 @@ struct Avatar: View {
             return
         }
         image = await Pictures.load(path, pixels: Pictures.pixels(size), media: media)
+    }
+}
+
+/// A room's tile, as GTK's `room_tile` draws it: a neutral lock for an
+/// encrypted room without a photo, a lock for a private one, `#` for a
+/// channel, the initial for a direct conversation; its photo over it.
+struct RoomTile: View {
+    let room: Room
+    let size: CGFloat
+
+    var body: some View {
+        if room.encrypted && room.avatar == nil {
+            Image(systemName: "lock.fill")
+                .font(.system(size: size * 0.42, weight: .bold))
+                .foregroundStyle(Vibe.ink.opacity(0.8))
+                .frame(width: size, height: size)
+                .background(LinearGradient(colors: [Vibe.muted, Color(hex: 0x5A5573)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: size * 0.28))
+        } else {
+            Avatar(path: room.avatar, name: room.name, size: size, symbol: room.kind == "p" ? "lock.fill" : nil,
+                   glyph: room.kind == "d" ? nil : "#")
+        }
     }
 }
 

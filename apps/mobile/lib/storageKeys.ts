@@ -97,6 +97,9 @@ export const STORED_KEYS = {
 /** The room list's folds of every account, replacing the device-wide `collapsedSections`. */
 export const FOLDS_BY_ACCOUNT_KEY = 'collapsed-sections-by-account';
 
+/** The room last opened on each account, reopened by a server switch. */
+export const LAST_ROOMS_KEY = 'last-rooms';
+
 export type StoredKey = { readonly key: string; readonly legacy: string };
 
 export type AsyncKeyStore = {

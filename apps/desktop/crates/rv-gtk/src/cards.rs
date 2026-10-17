@@ -49,7 +49,7 @@ fn on_click(widget: &impl IsA<gtk::Widget>, f: impl Fn(&gtk::Widget) + 'static) 
 }
 
 /// The quoted message: author, words, images, and the message it quoted in turn.
-pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Widget {
+pub fn quote(provider: Option<&media::Provider>, q: &Quote, ctx: &markdown::Context) -> gtk::Widget {
     let card =
         gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(3).css_classes(["quote-card"]).build();
     if q.unavailable {
@@ -60,10 +60,10 @@ pub fn quote(provider: Option<&media::Provider>, q: &Quote, me: &str) -> gtk::Wi
         card.append(&label(author, &["quote-author"]));
     }
     for nested in &q.quotes {
-        card.append(&quote(provider, nested, me));
+        card.append(&quote(provider, nested, ctx));
     }
     if !q.text.trim().is_empty() {
-        let blocks = markdown::render(q.md.as_deref(), Some(&q.text), &markdown::Context { me });
+        let blocks = markdown::render(q.md.as_deref(), Some(&q.text), ctx);
         card.append(&markdown_view::view(&blocks, &["quote-text"]));
     }
     if let Some(provider) = provider {
@@ -782,9 +782,14 @@ pub fn voice_call(kind: &str, param: &str, joinable: bool, on_event: OnRowEvent)
     card.upcast()
 }
 
-/// A bot's or an integration's card: its colour down the side, the author,
-/// the linked title, the text and the fields, two abreast when short.
-pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {
+/// A card's button pressed, with the button to give back once answered.
+pub type PressAction = Rc<dyn Fn(rv_core::content::CardAction, gtk::Button)>;
+
+/// A bot's or an integration's card: the text above it, its colour down the
+/// side, the author, the linked title, the text and the fields, two abreast
+/// when short. Every text but the field names is markdown.
+pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Option<&PressAction>) -> gtk::Widget {
+    let md = |text: &str, class: &str| markdown_view::view(&markdown::render(None, Some(text), ctx), &[class]);
     let column = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(3)
@@ -798,19 +803,20 @@ pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {
         column.append(&label(author, &["link-site"]));
     }
     if let Some(title) = &card.title {
-        let shown = glib::markup_escape_text(title);
-        let markup = match &card.link {
-            Some(link) => format!("<a href=\"{}\">{shown}</a>", glib::markup_escape_text(link)),
-            None => shown.to_string(),
-        };
-        let title = label("", &["link-title"]);
-        title.set_markup(&markup);
-        column.append(&title);
+        let mut blocks = markdown::render(None, Some(title), ctx);
+        if let Some(link) = &card.link {
+            for block in &mut blocks {
+                if let markdown::Block::Paragraph(markup) = block
+                    && !markup.contains("<a ")
+                {
+                    *markup = format!("<a href=\"{}\">{markup}</a>", glib::markup_escape_text(link));
+                }
+            }
+        }
+        column.append(&markdown_view::view(&blocks, &["link-title"]));
     }
     if let Some(text) = &card.text {
-        let text = label(text, &["link-description"]);
-        text.set_selectable(true);
-        column.append(&text);
+        column.append(&md(text, "link-description"));
     }
     let grid = gtk::Grid::builder().column_spacing(16).row_spacing(4).build();
     let (mut row, mut col) = (0, 0);
@@ -824,7 +830,17 @@ pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {
             l
         };
         cell.append(&one_line(name, "card-field-name"));
-        cell.append(&one_line(value, "link-description"));
+        // One line, as before: a wrapping label in the grid is measured at its narrowest, too tall.
+        let value = md(value, "link-description");
+        let mut child = value.first_child();
+        while let Some(widget) = child {
+            if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+                label.set_wrap(false);
+                label.set_ellipsize(pango::EllipsizeMode::End);
+            }
+            child = widget.next_sibling();
+        }
+        cell.append(&value);
         let span = if *short { 1 } else { 2 };
         if col + span > 2 {
             row += 1;
@@ -840,7 +856,29 @@ pub fn attachment_card(card: &CardAttachment) -> gtk::Widget {
     if !card.fields.is_empty() {
         column.append(&grid);
     }
-    column.upcast()
+    if let Some(press) = press.filter(|_| !card.actions.is_empty()) {
+        let buttons = gtk::Box::builder().spacing(8).margin_top(4).css_classes(["card-actions"]).build();
+        for action in &card.actions {
+            let button = gtk::Button::builder().label(&action.name).css_classes(["card-action"]).build();
+            match action.style.as_str() {
+                "danger" => button.add_css_class("danger"),
+                "primary" | "good" | "success" => button.add_css_class("primary"),
+                _ => {}
+            }
+            let (press, action) = (press.clone(), action.clone());
+            button.connect_clicked(move |button| {
+                button.set_sensitive(false);
+                press(action.clone(), button.clone());
+            });
+            buttons.append(&button);
+        }
+        column.append(&buttons);
+    }
+    let Some(pretext) = &card.pretext else { return column.upcast() };
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    outer.append(&md(pretext, "link-description"));
+    outer.append(&column);
+    outer.upcast()
 }
 
 /// A style class drawing the card's left edge in `color`, the rule added once.

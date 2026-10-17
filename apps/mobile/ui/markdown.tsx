@@ -17,11 +17,12 @@
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
-import { textOf, emojiUnicode, type Root } from '../lib/markdown.ts';
+import { textOf, emojiUnicode, isTable, mentionOf, type Root, type Table, type TableAlign } from '../lib/markdown.ts';
+import { useMentionNames } from './identityStore.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
@@ -96,9 +97,10 @@ function Link({ url, label, c }: { url: string; label: string; c: Colors }) {
   );
 }
 
-function Mention({ username, c }: { username: string; c: Colors }) {
+function Mention({ username: written, c }: { username: string; c: Colors }) {
   const longPress = useContext(MessageLongPress);
   const me = useContext(MentionSelf);
+  const { username, label } = mentionOf(written, useMentionNames());
   const mine = username === 'all' || username === 'here' || (me !== null && username === me);
   return (
     <TappableText
@@ -106,8 +108,40 @@ function Mention({ username, c }: { username: string; c: Colors }) {
       onPress={() => openProfile(username)}
       onLongPress={longPress}
     >
-      @{username}
+      {label}
     </TappableText>
+  );
+}
+
+const ALIGN: Record<NonNullable<TableAlign>, 'left' | 'center' | 'right'> = { left: 'left', center: 'center', right: 'right' };
+
+/** Each column as wide as its longest cell, within bounds: rows are separate views, so widths are set, not measured. */
+function columnWidths(table: Table): number[] {
+  return table.align.map((_, i) => {
+    const longest = Math.max(0, ...table.value.map((row) => textOf(row.value[i]).length));
+    return Math.min(260, Math.max(48, longest * 8 + 20));
+  });
+}
+
+function TableBlock({ table, c }: { table: Table; c: Colors }) {
+  const widths = columnWidths(table);
+  const line = { borderColor: c.border };
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tableScroll}>
+      <View style={[styles.table, line]}>
+        {table.value.map((row, r) => (
+          <View key={r} style={[styles.tableRow, r > 0 && styles.tableRule, line, row.header && { backgroundColor: c.card }]}>
+            {row.value.map((cell, i) => (
+              <View key={i} style={[styles.tableCell, i > 0 && styles.tableDivider, line, { width: widths[i] }]}>
+                <Text style={[styles.paragraph, row.header && styles.gras, { color: c.text, textAlign: ALIGN[table.align[i] ?? 'left'] }]}>
+                  {renderInlines(cell.value, c)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    </ScrollView>
   );
 }
 
@@ -123,6 +157,7 @@ export function MessageBody({ tree, c }: { tree: Root; c: Colors }) {
 }
 
 function Block({ block, c }: { block: Paragraph | Blocks | BigEmoji; c: Colors }) {
+  if (isTable(block)) return <TableBlock table={block} c={c} />;
   switch (block.type) {
     case 'PARAGRAPH':
       return (
@@ -368,4 +403,10 @@ const styles = StyleSheet.create({
   bar: { textDecorationLine: 'line-through' },
   link: { textDecorationLine: 'underline' },
   mention: { fontFamily: FONTS.bodySemi },
+  tableScroll: { flexGrow: 0, marginVertical: 2 },
+  table: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 6, overflow: 'hidden' },
+  tableRow: { flexDirection: 'row' },
+  tableRule: { borderTopWidth: StyleSheet.hairlineWidth },
+  tableDivider: { borderLeftWidth: StyleSheet.hairlineWidth },
+  tableCell: { paddingHorizontal: 8, paddingVertical: 4 },
 });

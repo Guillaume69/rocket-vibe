@@ -16,6 +16,8 @@ The settings gather my profile, the notification preference, the language, the e
 | Keep running, start at login | device | n/a | Windows, macOS |
 | Automatic update checks | device | Android: `app-updates.json` | file `no-update-check` (absent = on) |
 | Hide the server rail | device | SecureStore `hide-server-rail` (`1` = hidden) | file `hide-server-rail` (present = hidden), GTK and SwiftUI |
+| Text zoom | device | n/a: the system font scale | file `zoom` (a step in percent, absent = 100), GTK and SwiftUI, [below](#text-zoom-desktop) |
+| Last room of each account | device | SecureStore `last-rooms` (JSON, account key to rid) | file `last-rooms.json`, GTK and SwiftUI, [login-and-servers](login-and-servers.md#coming-back-to-an-account) |
 
 ## Layout: the same categories everywhere
 
@@ -82,6 +84,10 @@ The settings dialog (`settings` in `apps/web/src/panels.ts`) follows GTK's categ
 
 Setting up an authenticator on a Vibez account (Security category, `POST /api/v1/me/factors/totp/setup`) shows a QR code of the `provisioning_uri` the server returns, in all four apps, beside the key and the copy or open actions that stay for manual entry. The server builds the link (`factor_crypto::provisioning_uri` in `apps/server`): Key Uri Format, label `Vibez-<first 8 of the instance id>:<username>`, `issuer=` repeated, SHA1, 6 digits, 30 s, label and issuer percent-encoded; a 20-byte secret makes it about 140 bytes, a version 8 symbol at correction level M. Every app draws only a link starting `otpauth://totp/` and paints black modules on a white square with a four-module quiet zone whatever the theme, so it scans in dark mode too. The link and the matrix are never logged. Encoders: web and mobile use `uqr` (MIT, a port of Project Nayuki's generator; `apps/web/src/totp-qr.ts` as an SVG path, `apps/mobile/ui/totpQr.ts` as runs of plain views), GTK the `qrcode` crate without default features, SwiftUI CoreImage. Rocket.Chat, Mattermost and kChat accounts have no authenticator enrolment in the apps (only the login challenge), so no QR there.
 
+## Text zoom (desktop)
+
+Ctrl (Cmd on SwiftUI) with + or =, - or with the mouse wheel steps the text through a browser's levels, 67, 75, 80, 90, 100, 110, 125, 150, 175 and 200 %, and Ctrl (Cmd) + 0 goes back to 100 % (user request, 2026-10-17; it took Ctrl + 0 from the rail, [decisions](../decisions.md#desktop)). `rv_core::zoom` holds the steps (`step`, stopping at either end) and the shared config dir's `zoom` file (`load`, `save`; 100 leaves no file, a value that is not a step reads as 100), so GTK and SwiftUI open at the same size. GTK `style::zoom` rewrites its stylesheet through `zoomed`: every `font-size: Npx` scaled, plus `window { font-size: N% }` for the theme's own text, reloaded into one `CssProvider`; `window.rs` catches the keys in its capture-phase handler (`zoom_key`, the digit 0 read through `rail::shortcut_digit` so AZERTY works) and Ctrl + wheel with an `EventControllerScroll`, everywhere in the window. SwiftUI: `AppModel.zoom` (`zoom(in:)`, rv-ffi `Client.zoom` / `setZoom`, `zoomStep`) sets the observable `TextScale.shared.factor`, which `Font.vibe` and `vibeTitle` multiply (`Theme.swift`), so every view drawing with them redraws without losing its state, and `RootView` carries the default font; the View menu has Zoom In, Zoom Out and Actual Size (`zoom.*` keys; Cmd + also through a key monitor, for layouts where + needs Shift), and a Cmd + scroll-wheel monitor (`WheelZoom`: one notch per wheel click, per 20 points of trackpad travel, momentum ignored, up meaning larger whatever the scrolling direction setting). Only text scales; icons, tiles and spacing keep their size. Android follows the system font scale (only `ui/icon.tsx` opts out); the web app is zoomed by the browser.
+
 ## Parity
 
 [parity](../parity.md) §9: the categories, profile card, notification preference, language, encryption, accounts and the version exist in all three; the Voice category in GTK and SwiftUI, mobile having no voice settings. Mobile only: FCM diagnostic. GTK only: backend description, background and login start, update checks, logs folder (the web maps it with its Diagnostics download). Mobile holds one account per server, so its Accounts page shows only the open one. The language changes live on mobile and after a restart on desktop.
@@ -93,6 +99,14 @@ providers: the Slack server kind and the Teams read preview. The flag is not a s
 [experimental-integrations](experimental-integrations.md).
 
 ## Sources
+
+- apps/desktop/crates/rv-core/src/zoom.rs
+- apps/desktop/crates/rv-gtk/src/style.rs
+- apps/desktop/crates/rv-gtk/src/window.rs
+- apps/desktop/macos/Sources/RocketVibe/RocketVibeApp.swift
+- apps/desktop/macos/Sources/RocketVibe/Theme.swift
+- apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift
+- apps/mobile/ui/lastRoomStore.ts
 
 - apps/web/src/sidebar.ts
 - apps/web/src/settings-parity.css

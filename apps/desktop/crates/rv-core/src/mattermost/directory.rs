@@ -54,6 +54,8 @@ pub struct User {
     pub status_emoji: Option<String>,
     /// Read from the server, names included: me, registered at sign-in with my username only, is not.
     pub named: bool,
+    /// A bot account (kChat's Euria, a Mattermost bot): the BOT badge.
+    pub bot: bool,
 }
 
 impl User {
@@ -71,6 +73,7 @@ impl User {
             nickname: part("nickname").map(str::to_owned),
             status_emoji: status_emoji(raw),
             named: true,
+            bot: raw.get("is_bot").and_then(Value::as_bool) == Some(true),
         })
     }
 
@@ -108,6 +111,7 @@ fn status_emoji(raw: &Value) -> Option<String> {
 pub struct Directory {
     by_id: Mutex<HashMap<String, User>>,
     format: Mutex<NameFormat>,
+    asked: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Directory {
@@ -188,6 +192,21 @@ impl Directory {
     /// that title at 64 characters, and one cut username refuses the whole
     /// batch: names are then asked one by one.
     pub async fn ensure_usernames(&self, rest: &RestClient, names: impl IntoIterator<Item = String>) {
+        self.lookup(rest, names).await;
+    }
+
+    /// The usernames posts mention: one the server answered for, known or not,
+    /// is not asked again this session.
+    pub async fn ensure_mentioned(&self, rest: &RestClient, names: impl IntoIterator<Item = String>) {
+        let names: Vec<String> = {
+            let asked = self.asked.lock().unwrap();
+            names.into_iter().filter(|n| !asked.contains(n)).collect()
+        };
+        let answered = self.lookup(rest, names).await;
+        self.asked.lock().unwrap().extend(answered);
+    }
+
+    async fn lookup(&self, rest: &RestClient, names: impl IntoIterator<Item = String>) -> Vec<String> {
         let missing: Vec<String> = {
             let known = self.by_id.lock().unwrap();
             let mut names: Vec<String> =
@@ -196,14 +215,23 @@ impl Directory {
             names.dedup();
             names
         };
+        let mut answered = Vec::new();
         for batch in missing.chunks(BATCH) {
             let users = match rest.post("users/usernames", CallOptions::body(json!(batch))).await {
-                Ok(users) => users.as_array().cloned().unwrap_or_default(),
+                Ok(users) => {
+                    answered.extend_from_slice(batch);
+                    users.as_array().cloned().unwrap_or_default()
+                }
                 Err(_) => {
                     let mut found = Vec::new();
                     for name in batch {
-                        if let Ok(users) = rest.post("users/usernames", CallOptions::body(json!([name]))).await {
-                            found.extend(users.as_array().cloned().unwrap_or_default());
+                        match rest.post("users/usernames", CallOptions::body(json!([name]))).await {
+                            Ok(users) => {
+                                answered.push(name.clone());
+                                found.extend(users.as_array().cloned().unwrap_or_default());
+                            }
+                            Err(e) if matches!(e.status, 400 | 404) => answered.push(name.clone()),
+                            Err(_) => {}
                         }
                     }
                     found
@@ -213,6 +241,7 @@ impl Directory {
                 self.remember(user);
             }
         }
+        answered
     }
 
     pub async fn by_name(&self, rest: &RestClient, username: &str) -> Option<User> {
@@ -223,5 +252,83 @@ impl Directory {
         let user = User::from_json(&raw)?;
         self.remember(user.clone());
         Some(user)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn server(answers: Vec<(u16, &'static str)>) -> (RestClient, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rest = RestClient::mattermost(format!("http://{}", listener.local_addr().unwrap()).parse().unwrap());
+        let task = tokio::spawn(async move {
+            let mut bodies = Vec::new();
+            for (status, body) in answers {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut buf = Vec::new();
+                let mut chunk = [0; 2048];
+                let head = loop {
+                    let n = socket.read(&mut chunk).await.unwrap();
+                    assert!(n > 0);
+                    buf.extend_from_slice(&chunk[..n]);
+                    if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                        break at + 4;
+                    }
+                };
+                let length = String::from_utf8_lossy(&buf[..head])
+                    .lines()
+                    .find_map(|l| {
+                        l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())
+                    })
+                    .unwrap_or(0);
+                while buf.len() < head + length {
+                    let n = socket.read(&mut chunk).await.unwrap();
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                bodies.push(String::from_utf8_lossy(&buf[head..]).into_owned());
+                let reply = format!(
+                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            }
+            bodies
+        });
+        (rest, task)
+    }
+
+    const NOBODY: &str = r#"{"id":"api.user.get_by_username.app_error","status_code":400,"message":"no"}"#;
+
+    #[tokio::test]
+    async fn a_mention_the_server_answered_is_asked_once() {
+        let (rest, task) = server(vec![(200, r#"[{"id":"u-bob","username":"bob"}]"#)]).await;
+        let d = Directory::default();
+        d.ensure_mentioned(&rest, ["bob".to_owned(), "nobody".to_owned()]).await;
+        d.ensure_mentioned(&rest, ["bob".to_owned(), "nobody".to_owned()]).await;
+        assert_eq!(task.await.unwrap(), [r#"["bob","nobody"]"#]);
+        assert_eq!(d.id_of("bob").as_deref(), Some("u-bob"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_lookup_is_asked_again() {
+        let (rest, task) =
+            server(vec![(500, "{}"), (500, "{}"), (400, NOBODY), (200, r#"[{"id":"u-bob","username":"bob"}]"#)]).await;
+        let d = Directory::default();
+        d.ensure_mentioned(&rest, ["bob".to_owned(), "nobody".to_owned()]).await;
+        assert_eq!(d.id_of("bob"), None);
+        d.ensure_mentioned(&rest, ["bob".to_owned(), "nobody".to_owned()]).await;
+        assert_eq!(task.await.unwrap(), [r#"["bob","nobody"]"#, r#"["bob"]"#, r#"["nobody"]"#, r#"["bob"]"#]);
+        assert_eq!(d.id_of("bob").as_deref(), Some("u-bob"));
+    }
+
+    #[tokio::test]
+    async fn a_group_title_is_not_held_back_by_mentions() {
+        let (rest, task) = server(vec![(200, "[]"), (200, "[]")]).await;
+        let d = Directory::default();
+        d.ensure_mentioned(&rest, ["carol".to_owned()]).await;
+        d.ensure_usernames(&rest, ["carol".to_owned()]).await;
+        assert_eq!(task.await.unwrap().len(), 2);
     }
 }

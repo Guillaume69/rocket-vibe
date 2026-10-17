@@ -20,16 +20,12 @@ thread_local! {
     static PRESENTER: RefCell<Option<Presenter>> = RefCell::default();
 }
 
-fn config_dir() -> PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs")
-}
-
 fn cache_file() -> PathBuf {
     glib::user_cache_dir().join("rocket-vibe-rs").join("update.json")
 }
 
 fn off_file() -> PathBuf {
-    config_dir().join("no-update-check")
+    crate::config_dir().join("no-update-check")
 }
 
 pub fn automatic() -> bool {
@@ -40,7 +36,7 @@ pub fn set_automatic(on: bool) {
     if on {
         let _ = std::fs::remove_file(off_file());
     } else {
-        let _ = std::fs::create_dir_all(config_dir());
+        let _ = std::fs::create_dir_all(crate::config_dir());
         let _ = std::fs::write(off_file(), "");
     }
 }

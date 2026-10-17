@@ -42,7 +42,7 @@ struct RoomSwitcher: View {
 
     func row(_ room: Room, selected: Bool) -> some View {
         HStack(spacing: 8) {
-            Avatar(path: room.avatar, name: room.name, size: 24)
+            RoomTile(room: room, size: 24)
             Text((room.kind == "c" ? "#" : "") + room.name).lineLimit(1)
                 .fontWeight(room.unread > 0 || room.alert ? .bold : .regular)
             Spacer()

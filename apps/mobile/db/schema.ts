@@ -153,18 +153,24 @@ export const messages = sqliteTable(
     discussionLast: integer('discussion_last'),
     updatedAt: integer('updated_at').notNull().default(0),
     /**
-     * The author is a bot account (Vibez, RFC 0003): the row shows a
-     * "BOT" badge after the name. Written by the native store only, after its
-     * upsert (`providers/vibez/store.ts`); always false on Rocket.Chat.
+     * The author is a bot account (Vibez, RFC 0003), a Rocket.Chat integration
+     * (`bot`) or a Mattermost webhook or bot: the row shows a "BOT" badge.
      */
     authorBot: integer('author_bot', { mode: 'boolean' }).notNull().default(false),
     /**
      * The form a workflow posted with this message (Vibez, RFC 0004):
      * `Message.form` (`WorkflowForm`) as JSON, `null` without one. Written by
-     * the native store only, after its upsert, like `author_bot`; drawn as a
+     * the native store only, after its upsert; drawn as a
      * card by `ui/messageRow.tsx` and answered in `app/answer-form.tsx`.
      */
     form: text('form'),
+    /**
+     * An integration's chosen author name (Rocket.Chat `alias`, Mattermost
+     * webhook `override_username`), shown instead of the poster's.
+     */
+    authorAlias: text('author_alias'),
+    /** Its chosen picture (`override_icon_url`), an absolute http(s) URL. */
+    authorAvatar: text('author_avatar'),
   },
   // `idx_messages_room_ts` covers the room screen's query: `WHERE rid = ? ORDER BY ts DESC`.
   // `idx_messages_ts` lets the cross-room reads (`ACTIVITY_CANDIDATES`,

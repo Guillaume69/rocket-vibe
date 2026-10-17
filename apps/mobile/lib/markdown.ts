@@ -11,7 +11,7 @@
  * Node. The nested <Text> rendering lives in `ui/markdown.tsx`.
  */
 
-import { parse, type Root } from '@rocket.chat/message-parser';
+import { parse, type Inlines, type Root } from '@rocket.chat/message-parser';
 
 import { withoutQuoteLinks } from './quote.ts';
 import { unicodeOfShortcode } from './emojis.ts';
@@ -67,6 +67,115 @@ function splitPlain(node: unknown): unknown[] | null {
   return out;
 }
 
+/**
+ * A GFM pipe table, which `@rocket.chat/message-parser` does not know:
+ * Mattermost and Slack integrations post them. Built here, from text parsed
+ * locally only, and drawn by `ui/markdown.tsx` as a grid.
+ */
+export type TableAlign = 'left' | 'center' | 'right' | null;
+export type TableCell = { type: 'TABLE_CELL'; value: Inlines[] };
+export type TableRow = { type: 'TABLE_ROW'; header: boolean; value: TableCell[] };
+export type Table = { type: 'TABLE'; align: TableAlign[]; value: TableRow[] };
+
+export function isTable(node: unknown): node is Table {
+  return typeof node === 'object' && node !== null && (node as { type?: unknown }).type === 'TABLE' && Array.isArray((node as { value?: unknown }).value);
+}
+
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+const DELIMITER = /^\s*:?-+:?\s*$/;
+
+function rowCells(line: string): string[] {
+  let body = line.trim();
+  if (body.startsWith('|')) body = body.slice(1);
+  if (body.endsWith('|') && !body.endsWith('\\|')) body = body.slice(0, -1);
+  return body.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, '|').trim());
+}
+
+function alignments(header: string, delimiter: string): TableAlign[] | null {
+  if (!header.includes('|') || !delimiter.includes('|')) return null;
+  const cells = rowCells(delimiter);
+  if (cells.length !== rowCells(header).length || !cells.every((c) => DELIMITER.test(c))) return null;
+  return cells.map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : null));
+}
+
+function cellInlines(cell: string): Inlines[] {
+  if (cell === '') return [];
+  const plain: Inlines[] = [{ type: 'PLAIN_TEXT', value: cell }];
+  try {
+    const blocks = parse(cell) as unknown[];
+    const inlines = blocks.flatMap((block): Inlines[] => {
+      const b = block as { type?: unknown; value?: unknown };
+      if ((b.type === 'PARAGRAPH' || b.type === 'BIG_EMOJI') && Array.isArray(b.value)) return b.value as Inlines[];
+      return b.type === 'LINE_BREAK' ? [] : plain;
+    });
+    return accentedEmoji(inlines) as Inlines[];
+  } catch {
+    return plain;
+  }
+}
+
+function table(lines: string[], align: TableAlign[]): Table {
+  const row = (line: string, header: boolean): TableRow => {
+    const cells = rowCells(line);
+    return { type: 'TABLE_ROW', header, value: align.map((_, i) => ({ type: 'TABLE_CELL', value: cellInlines(cells[i] ?? '') })) };
+  };
+  return { type: 'TABLE', align, value: [row(lines[0]!, true), ...lines.slice(2).map((l) => row(l, false))] };
+}
+
+/** The text cut into tables and the runs of text around them; `null` without a table. */
+export function splitTables(text: string): ({ text: string } | { table: Table })[] | null {
+  if (!text.includes('|')) return null;
+  const lines = text.split('\n');
+  const out: ({ text: string } | { table: Table })[] = [];
+  let run: string[] = [];
+  let fence: string | null = null;
+  const flush = () => {
+    while (run.length > 0 && run[0]!.trim() === '') run.shift();
+    while (run.length > 0 && run[run.length - 1]!.trim() === '') run.pop();
+    if (run.length > 0) out.push({ text: run.join('\n') });
+    run = [];
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const opening = FENCE.exec(line)?.[1] ?? null;
+    if (fence !== null) {
+      if (opening !== null && opening[0] === fence[0] && opening.length >= fence.length) fence = null;
+      run.push(line);
+      continue;
+    }
+    const align = opening === null && i + 1 < lines.length ? alignments(line, lines[i + 1]!) : null;
+    if (align === null) {
+      if (opening !== null) fence = opening;
+      run.push(line);
+      continue;
+    }
+    let end = i + 2;
+    while (end < lines.length && lines[end]!.trim() !== '' && lines[end]!.includes('|') && !FENCE.test(lines[end]!)) end++;
+    flush();
+    out.push({ table: table(lines.slice(i, end), align) });
+    i = end - 1;
+  }
+  if (out.length === 0) return null;
+  flush();
+  return out;
+}
+
+function parsed(text: string): Root {
+  try {
+    return accentedEmoji(parse(text)) as Root;
+  } catch {
+    // The parser (generated PEG grammar) may throw on input it does not
+    // consume: raw text beats a dead screen.
+    return [{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: text }] }];
+  }
+}
+
+function localTree(text: string): Root {
+  const chunks = splitTables(text);
+  if (chunks === null) return parsed(text);
+  return chunks.flatMap((chunk) => ('table' in chunk ? [chunk.table] : (parsed(chunk.text) as unknown[]))) as unknown as Root;
+}
+
 export function messageTree(md: string | null, text: string | null): Root | null {
   // A quote's permalink (`[ ](…?msg=…)`) is stripped from the body: the quote
   // renders separately (`message_link` attachment), and for an optimistic send,
@@ -89,15 +198,7 @@ export function messageTree(md: string | null, text: string | null): Root | null
       // Unreadable `md`: fall back to the text, as if it did not exist.
     }
   }
-  if (text !== null && text.trim() !== '') {
-    try {
-      return stripped(accentedEmoji(parse(text)) as Root);
-    } catch {
-      // The parser (generated PEG grammar) may throw on input it does not
-      // consume: raw text beats a dead screen.
-      return [{ type: 'PARAGRAPH', value: [{ type: 'PLAIN_TEXT', value: text }] }];
-    }
-  }
+  if (text !== null && text.trim() !== '') return stripped(localTree(text));
   return null;
 }
 
@@ -116,6 +217,8 @@ export function textOf(node: unknown): string {
       unicode?: unknown;
       fallback?: unknown;
     };
+    if (obj.type === 'TABLE' && Array.isArray(obj.value)) return obj.value.map(textOf).join('\n');
+    if (obj.type === 'TABLE_ROW' && Array.isArray(obj.value)) return obj.value.map(textOf).join(' | ');
     if (obj.type === 'EMOJI') {
       const glyph = emojiUnicode(obj);
       // Unknown short code (server custom emoji, typo): the literal is
@@ -160,12 +263,33 @@ function online(node: unknown): string {
       return Array.isArray(n.value) ? n.value.map(textOf).join(' ') : textOf(n.value);
     case 'LINE_BREAK':
       return ' ';
+    case 'TABLE':
+      return Array.isArray(n.value)
+        ? n.value
+            .map((row) => (Array.isArray((row as { value?: unknown }).value) ? ((row as { value: unknown[] }).value) : []).map(online).filter((cell) => cell.trim() !== '').join(' | '))
+            .join(' · ')
+        : '';
     case 'EMOJI':
     case 'PLAIN_TEXT':
       return textOf(node);
     default:
       return 'value' in n ? online(n.value) : textOf(node);
   }
+}
+
+/**
+ * How an `@username` mention reads: under the person's name when the server
+ * names people apart from usernames (`names`, Mattermost), else as written.
+ * A sentence's punctuation the parser kept (`@bob.`) stays after the name.
+ */
+export function mentionOf(written: string, names: ReadonlyMap<string, string>): { username: string; label: string } {
+  if (written === 'all' || written === 'here' || written === 'channel' || names.size === 0) return { username: written, label: `@${written}` };
+  const trail = /[._-]+$/.exec(written)?.[0] ?? '';
+  for (const [username, rest] of [[written, ''], [written.slice(0, written.length - trail.length), trail]] as const) {
+    const name = names.get(username) ?? names.get(username.toLowerCase());
+    if (username !== '' && name !== undefined) return { username, label: `@${name}${rest}` };
+  }
+  return { username: written, label: `@${written}` };
 }
 
 /** A message on one line, without syntax: the room list preview. */

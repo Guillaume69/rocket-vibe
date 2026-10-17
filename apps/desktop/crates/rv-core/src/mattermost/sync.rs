@@ -122,7 +122,7 @@ impl MmSync {
     }
 
     fn translator(&self) -> Translator<'_> {
-        Translator { directory: &self.directory, me: &self.me }
+        Translator { directory: &self.directory, me: &self.me, base: self.rest.base().as_str() }
     }
 
     /// A call starting or ending in a `posted` or `post_edited` event (`crate::call_ring`).
@@ -298,14 +298,27 @@ impl MmSync {
         *self.flagged.lock().unwrap() = ids.collect();
     }
 
+    /// The people the posts name: authors, reactors, the authors of the posts
+    /// they preview, and whom they mention.
     pub async fn ensure_authors(&self, posts: &[Value]) {
         let mut ids = Vec::new();
+        let mut names = Vec::new();
         for post in posts {
             ids.extend(text(post, "user_id").map(str::to_owned));
             let reactions = post.pointer("/metadata/reactions").and_then(Value::as_array);
             ids.extend(reactions.into_iter().flatten().filter_map(|r| text(r, "user_id").map(str::to_owned)));
+            let embeds = post.pointer("/metadata/embeds").and_then(Value::as_array);
+            ids.extend(
+                embeds
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.pointer("/data/post/user_id")?.as_str().map(str::to_owned)),
+            );
+            names.extend(text(post, "message").map(crate::parse::mentioned).unwrap_or_default());
+            names.extend(post.pointer("/props/username").and_then(Value::as_str).map(str::to_owned));
         }
         self.directory.ensure(&self.rest, ids).await;
+        self.directory.ensure_mentioned(&self.rest, names).await;
     }
 
     /// Posts already resolved by `ensure_authors`, or mine.
@@ -618,6 +631,39 @@ impl MmSync {
         });
     }
 
+    /// A "visible only to you" post, its people looked up first. Never stored.
+    pub async fn ephemeral(&self, data: &Value) -> Option<super::translate::Ephemeral> {
+        let post = Value::Object(object(data.get("post")?)?);
+        self.ensure_authors(std::slice::from_ref(&post)).await;
+        self.translator().ephemeral(&post)
+    }
+
+    /// Presses a card's button: `POST /posts/<post>/actions/<action>`, with the
+    /// cookie a "visible only to you" post's button carries.
+    pub async fn press_action(
+        &self,
+        post_id: &str,
+        action_id: &str,
+        cookie: Option<&str>,
+    ) -> Result<crate::content::ActionAnswer, RestError> {
+        let body = match cookie {
+            Some(cookie) => json!({"cookie": cookie}),
+            None => json!({}),
+        };
+        let (Some(post_id), Some(action_id)) = (path_segment(post_id), path_segment(action_id)) else {
+            return Err(RestError { status: 400, ..RestError::network("invalid post action".to_owned()) });
+        };
+        let answer = self.rest.post(&format!("posts/{post_id}/actions/{action_id}"), CallOptions::body(body)).await?;
+        if let Some(post) = answer.get("update").filter(|p| p.is_object() && text(p, "id").is_some()) {
+            self.ensure_authors(std::slice::from_ref(post)).await;
+            self.ingest(std::slice::from_ref(post));
+        }
+        Ok(crate::content::ActionAnswer {
+            note: text(&answer, "ephemeral_text").map(str::to_owned),
+            open: text(&answer, "goto_location").filter(|url| crate::content::is_web_link(url)).map(str::to_owned),
+        })
+    }
+
     /// One live event into the store. Returns someone else's new post, for the
     /// notification rule.
     pub async fn apply_event(&self, name: &str, data: &Value, broadcast: &Value) -> Option<Message> {
@@ -839,6 +885,10 @@ fn mentions(raw: Option<&Value>) -> Vec<String> {
     parsed.as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect()
 }
 
+fn path_segment(id: &str) -> Option<&str> {
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then_some(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -900,5 +950,29 @@ mod tests {
         sync.apply_event("posted", &json!({"post": post("p2", "u-bob", "p1")}), &json!({})).await;
         let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
         assert_eq!((room.unread, room.last_message.as_deref()), (0, Some("m p1")));
+    }
+
+    #[tokio::test]
+    async fn an_ephemeral_update_is_never_stored() {
+        let (store, sync) = sync();
+        let mut ephemeral = post("e1", "u-bob", "");
+        ephemeral["type"] = json!("system_ephemeral");
+        sync.apply_event("post_edited", &json!({"post": ephemeral.to_string()}), &json!({})).await;
+        sync.apply_event("post_edited", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
+        let ids: Vec<String> = store.messages("ch1", 10).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["p1"]);
+    }
+
+    #[tokio::test]
+    async fn an_action_id_never_leaves_its_route() {
+        let (_, sync) = sync();
+        for (post_id, action_id) in
+            [("p1", "../../../users/me/sessions/revoke/all"), ("p1", "a/b"), ("..", "a1"), ("p1", "")]
+        {
+            let refused = sync.press_action(post_id, action_id, None).await.unwrap_err();
+            assert_eq!(refused.status, 400, "{post_id} {action_id}");
+        }
+        assert_eq!(path_segment("abc_DEF-123"), Some("abc_DEF-123"));
+        assert_eq!(path_segment("%2e%2e"), None);
     }
 }

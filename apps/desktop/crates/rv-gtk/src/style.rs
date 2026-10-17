@@ -243,6 +243,9 @@ label selection, textview text selection { background: rgba(92, 200, 255, 0.35);
 .md-h4 { font-size: 15px; }
 .md-quote { border-left: 3px solid #2C2946; padding-left: 10px; margin: 2px 0; }
 .md-code { background: #171529; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
+.md-table { border: 1px solid #2C2946; border-radius: 6px; margin: 4px 0; }
+.md-table-cell { padding: 5px 12px; border-right: 1px solid #2C2946; border-bottom: 1px solid #2C2946; }
+.md-table-head { font-weight: 700; color: #F3F0FF; }
 .md-code-text { font-family: monospace; font-size: 13px; color: #E7E3F5; }
 /* The app font is set on every label: Adwaita's .monospace needs restating. */
 label.monospace, .monospace label { font-family: monospace; }
@@ -263,6 +266,9 @@ button.file-action, button.call-join { background: linear-gradient(135deg, #FF5F
 .link-title { font-weight: 800; color: #E7E3F5; }
 .attachment-title { font-size: 13px; font-weight: 700; }
 .attachment-card { border-left: 4px solid #5C5680; }
+.card-action { padding: 3px 12px; min-height: 0; border-radius: 8px; background: transparent; border: 1px solid #3A3658; color: #E7E3F5; font-weight: 700; }
+.card-action.primary { color: #5BD6A0; border-color: #2F6B55; }
+.card-action.danger { color: #FF6B81; border-color: #7A2C3B; }
 .card-field-name { font-size: 12px; font-weight: 700; color: #8F89AB; }
 .link-description { font-size: 13px; color: #BDB7D6; }
 .preview-image { background: #0D0B1A; border-radius: 10px; }
@@ -521,17 +527,68 @@ pub(crate) fn watch_window(window: &impl IsA<gtk::Window>) {
     window.connect_unrealize(|window| window.remove_css_class("windows-cairo-shadows"));
 }
 
+thread_local! {
+    static PROVIDER: gtk::CssProvider = gtk::CssProvider::new();
+    static ZOOM: std::cell::Cell<u32> = const { std::cell::Cell::new(rv_core::zoom::DEFAULT) };
+}
+
+/// The stylesheet with its text `percent` larger: every pixel font size, and
+/// the theme's own size for the text that sets none.
+fn zoomed(css: &str, percent: u32) -> String {
+    if percent == rv_core::zoom::DEFAULT {
+        return css.to_owned();
+    }
+    let factor = f64::from(percent) / 100.0;
+    let mut out = String::with_capacity(css.len() + 64);
+    let mut rest = css;
+    while let Some(at) = rest.find("font-size:") {
+        let (head, tail) = rest.split_at(at + "font-size:".len());
+        out.push_str(head);
+        let value = tail.trim_start();
+        out.push_str(&tail[..tail.len() - value.len()]);
+        let digits = value.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(value.len());
+        match value[..digits].parse::<f64>() {
+            Ok(px) if value[digits..].starts_with("px") => {
+                out.push_str(&format!("{}px", (px * factor * 100.0).round() / 100.0));
+                rest = &value[digits + 2..];
+            }
+            _ => rest = value,
+        }
+    }
+    out.push_str(rest);
+    out.push_str(&format!("\nwindow {{ font-size: {percent}%; }}\n"));
+    out
+}
+
+fn apply() {
+    let css = zoomed(CSS, ZOOM.get());
+    PROVIDER.with(|provider| provider.load_from_string(&css));
+}
+
+/// Ctrl with +, - or the wheel (`Some(true)` larger), Ctrl + 0 (`None`, back to 100 %).
+pub fn zoom(zoom_in: Option<bool>) {
+    let percent = zoom_in.map_or(rv_core::zoom::DEFAULT, |zoom_in| rv_core::zoom::step(ZOOM.get(), zoom_in));
+    if percent == ZOOM.get() {
+        return;
+    }
+    ZOOM.set(percent);
+    rv_core::zoom::save(&crate::config_dir(), percent);
+    apply();
+}
+
 pub fn load() {
     crate::fonts::register();
     crate::fonts::register_packaged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
-    let provider = gtk::CssProvider::new();
-    provider.load_from_string(CSS);
-    gtk::style_context_add_provider_for_display(
-        &gdk::Display::default().expect("display"),
-        &provider,
-        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-    );
+    ZOOM.set(rv_core::zoom::load(&crate::config_dir()));
+    apply();
+    PROVIDER.with(|provider| {
+        gtk::style_context_add_provider_for_display(
+            &gdk::Display::default().expect("display"),
+            provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        )
+    });
     let fallback = gtk::CssProvider::new();
     fallback.load_from_string(WINDOWS_CAIRO_CSS);
     gtk::style_context_add_provider_for_display(
@@ -545,7 +602,22 @@ pub fn load() {
         settings.connect_gtk_fontconfig_timestamp_notify(move |_| {
             crate::fonts::register();
             crate::fonts::register_packaged();
-            provider.load_from_string(CSS);
+            apply();
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zoomed;
+
+    #[test]
+    fn every_pixel_font_size_grows_with_the_zoom() {
+        let css = ".a { font-size: 12px; } .b { font-size:13.5px; padding: 4px; } .c { font-size: larger; }";
+        assert_eq!(zoomed(css, 100), css);
+        assert_eq!(
+            zoomed(css, 125),
+            ".a { font-size: 15px; } .b { font-size:16.88px; padding: 4px; } .c { font-size: larger; }\nwindow { font-size: 125%; }\n"
+        );
     }
 }

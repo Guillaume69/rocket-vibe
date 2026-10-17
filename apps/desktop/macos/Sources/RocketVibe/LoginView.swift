@@ -242,7 +242,7 @@ struct LoginView: View {
     }
 
     func submit() {
-        if login.kind == .kchat && login.password.isEmpty { return signInWithInfomaniak() }
+        if app.login.kind == .kchat && app.login.password.isEmpty { return signInWithInfomaniak() }
         Task { await app.submitLogin() }
     }
 

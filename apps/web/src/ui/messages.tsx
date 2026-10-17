@@ -30,7 +30,7 @@ import { SocialMessage } from "../social";
 import { useApp } from "./context";
 import { elementView, renderView } from "./portals";
 import { QuoteCard } from "./quote-card";
-import { metadataMarkdown } from "../markdown-text";
+import { linkedTitle, metadataMarkdown } from "../markdown-text";
 
 export function Emoji({ code }: { code: string }) {
   const app = useApp();
@@ -851,14 +851,18 @@ export function MessageView({
                     rel="noopener noreferrer"
                     target="_blank"
                   >
-                    {card.title}
+                    <Markdown nodes={linkedTitle(card.title)} />
                   </a>
                 ) : (
-                  card.title
+                  <Markdown nodes={metadataMarkdown(card.title)} />
                 )}
               </div>
             )}
-            {card.text && <div className="message-body">{card.text}</div>}
+            {card.text && (
+              <div className="message-body">
+                <Markdown nodes={metadataMarkdown(card.text)} />
+              </div>
+            )}
             <div className="card-fields">
               {(card.fields || []).map((field, number) => (
                 <div
@@ -866,7 +870,9 @@ export function MessageView({
                   className={"card-field" + (field.short ? " short" : "")}
                 >
                   <strong>{field.title}</strong>
-                  <div>{field.value}</div>
+                  <div>
+                    <Markdown nodes={metadataMarkdown(field.value)} />
+                  </div>
                 </div>
               ))}
             </div>

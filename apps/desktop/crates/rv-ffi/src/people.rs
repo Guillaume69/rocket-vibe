@@ -219,7 +219,7 @@ impl Chat {
         let s = self.session.clone();
         let found = on_tokio(async move { s.search(&rid, &text).await }).await?;
         let me = self.session.info.username.clone();
-        let ctx = rv_core::markdown::Context { me: &me };
+        let ctx = rv_core::markdown::Context { me: &me, names: None };
         Ok(found
             .into_iter()
             .map(|m| SearchHit {

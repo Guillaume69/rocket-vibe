@@ -10,10 +10,12 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
-import type { Translation, Translator } from '../../lib/provider.ts';
+import type { PrivateNoteData, Translation, Translator } from '../../lib/provider.ts';
+import { integrationCard, type IntegrationCard } from '../../lib/integrationCards.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
 import type { MmCategories } from './categories.ts';
-import { sameOrigin } from '../../lib/origin.ts';
+import { httpUrl, sameOrigin } from '../../lib/origin.ts';
+import { reminderMessage } from '../../lib/reminder.ts';
 import type { MmDirectory } from './directory.ts';
 
 export const MM_POST = 'mm:post';
@@ -131,19 +133,24 @@ export class MmTranslator implements Translator {
     if (num(raw.delete_at) > 0) return null;
     const props = record(raw.props) ?? {};
     const author = this.directory.user(authorId);
-    const authorName = str(props.override_username) ?? author?.username ?? null;
+    const authorName = author?.username ?? null;
     const mmType = str(raw.type) ?? '';
     const system = SYSTEM_TYPES[mmType];
     const metadata = record(raw.metadata) ?? {};
     const rootId = str(raw.root_id);
     const call = mmType === 'custom_call' ? kmeetCall(props) : null;
+    const reminder = mmType === 'reminder' ? reminderOf(props, str(raw.message), this.directory.baseUrl) : null;
+    const alias = webhookAlias(props);
     return {
       id,
       rid,
-      text: call !== null ? call.param : system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null),
+      text: call !== null ? call.param : reminder ?? (system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null)),
       ts,
       authorId,
       authorName,
+      authorAlias: alias,
+      authorAvatar: alias === null ? null : httpUrl(props.override_icon_url),
+      authorBot: flag(props.from_webhook) || flag(props.from_bot) || author?.bot === true,
       systemType: call?.type ?? system?.type ?? null,
       threadId: rootId,
       threadCount: rootId === null ? num(raw.reply_count) : 0,
@@ -151,7 +158,7 @@ export class MmTranslator implements Translator {
       threadShown: false,
       editedAt: positive(raw.edit_at),
       md: null,
-      attachments: joinAttachments(this.attachments(metadata.files), cards(props.attachments)),
+      attachments: joinAttachments(this.attachments(metadata.files), [...cards(props.attachments), ...this.permalinkQuotes(metadata.embeds)]),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),
       callId: call?.conferenceId ?? null,
@@ -239,6 +246,27 @@ export class MmTranslator implements Translator {
     const others = display.split(',').map((n) => n.trim()).filter((n) => n !== '' && n !== me);
     const named = others.map((n, i) => this.directory.nameOf(n) ?? (i === others.length - 1 ? this.directory.nameOfCut(n) : null) ?? n);
     return named.length > 0 ? named.join(', ') : display;
+  }
+
+  /** Posts linked by permalink, as the quote attachments `lib/quote.ts` reads. */
+  private permalinkQuotes(embeds: unknown): Record<string, unknown>[] {
+    return permalinkPosts(embeds).flatMap((post) => {
+      const id = str(post.id);
+      if (id === null) return [];
+      const uid = str(post.user_id);
+      const user = uid === null ? null : this.directory.user(uid);
+      const author = webhookAlias(record(post.props) ?? {}) ?? user?.displayName ?? user?.username ?? null;
+      const created = positive(post.create_at);
+      const files = this.attachments(record(post.metadata)?.files);
+      return [{
+        message_link: `${this.directory.baseUrl}/_redirect/pl/${encodeURIComponent(id)}`,
+        permalink_preview: true,
+        ...(author === null ? {} : { author_name: author }),
+        text: str(post.message) ?? '',
+        ...(created === null ? {} : { ts: new Date(created).toISOString() }),
+        attachments: files === null ? [] : (JSON.parse(files) as unknown[]),
+      }];
+    });
   }
 
   private reactions(raw: unknown): string | null {
@@ -392,16 +420,36 @@ export function kmeetCall(props: Record<string, unknown>): { type: string; param
 }
 
 /** Integrations' Slack-style cards (`props.attachments`), in the shape Rocket.Chat's attachments already render. */
-function cards(raw: unknown): Record<string, unknown>[] {
+export function cards(raw: unknown): Record<string, unknown>[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     const a = record(item);
     if (a === null) return [];
     const card: Record<string, unknown> = {};
-    for (const key of ['author_name', 'title', 'title_link', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
-    const text = str(a.text) ?? str(a.pretext) ?? str(a.fallback);
+    for (const key of ['author_name', 'title', 'title_link', 'color', 'fields', 'pretext']) if (a[key] !== undefined) card[key] = a[key];
+    const fallback = str(a.fallback);
+    const text = str(a.text) ?? (fallback === str(a.pretext) ? null : fallback);
     if (text !== null) card.text = text;
+    const buttons = cardActions(a.actions);
+    if (buttons.length > 0) card.actions = buttons;
     return Object.keys(card).length > 0 ? [card] : [];
+  });
+}
+
+/** An integration's buttons (`actions[]`); menus are left out. */
+function cardActions(raw: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const a = record(item);
+    const id = str(a?.id);
+    const name = str(a?.name);
+    if (a === null || id === null || name === null || (a.type !== undefined && a.type !== 'button')) return [];
+    const button: Record<string, unknown> = { id, name };
+    const style = str(a.style);
+    const cookie = str(a.cookie);
+    if (style !== null) button.style = style;
+    if (cookie !== null) button.cookie = cookie;
+    return [button];
   });
 }
 
@@ -420,4 +468,96 @@ function previewOf(attachments: string | null): string | null {
     if (label !== null) return label;
   }
   return null;
+}
+
+/** `metadata.embeds[]` of type `permalink`: the posts a message links to, when the server sent them. */
+export function permalinkPosts(embeds: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(embeds)) return [];
+  return embeds.flatMap((item) => {
+    const embed = record(item);
+    if (embed?.type !== 'permalink') return [];
+    const data = record(embed.data);
+    const post = record(data?.post);
+    if (data === null || post === null) return [];
+    const id = str(post.id) ?? str(data.post_id);
+    return id === null ? [] : [{ ...post, id }];
+  });
+}
+
+const EVERYONE = new Set(['all', 'here', 'channel']);
+const MENTION = /(?:^|[^\p{L}\p{N}_.@-])@([a-z0-9][a-z0-9._-]*)/giu;
+
+/** The usernames a post's text mentions, `@all` and the like left out, code ignored. */
+export function mentionedUsernames(text: string): string[] {
+  const out: string[] = [];
+  for (const m of outsideCode(text).matchAll(MENTION)) {
+    const name = m[1]!.toLowerCase().replace(/[._-]+$/, '');
+    if (name !== '' && !EVERYONE.has(name)) out.push(name);
+  }
+  return out;
+}
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+
+function outsideCode(text: string): string {
+  const kept: string[] = [];
+  let fence: string | null = null;
+  for (const line of text.split('\n')) {
+    const opener = FENCE.exec(line)?.[1] ?? null;
+    if (fence !== null) {
+      if (opener !== null && opener[0] === fence[0] && opener.length >= fence.length && line.trim() === opener) fence = null;
+      continue;
+    }
+    if (opener !== null) {
+      fence = opener;
+      continue;
+    }
+    kept.push(line.replace(/(`+)[\s\S]*?[^`]\1(?!`)/g, ' '));
+  }
+  return kept.join('\n');
+}
+
+/** A webhook's chosen author name: Mattermost shows it only for webhook posts. */
+function webhookAlias(props: Record<string, unknown>): string | null {
+  return flag(props.from_webhook) ? str(props.override_username) : null;
+}
+
+function flag(value: unknown): boolean {
+  return value === 'true' || value === true;
+}
+
+/** A post only I see (`ephemeral_message`): its text, its cards, and a reminder's acknowledgement. */
+export function ephemeralNote(raw: unknown, base: string): PrivateNoteData | null {
+  const post = record(raw);
+  const rid = str(post?.channel_id);
+  if (post === null || rid === null) return null;
+  const props = record(post.props) ?? {};
+  const text = typeof post.message === 'string' ? post.message : '';
+  const list = cards(props.attachments).map(integrationCard).filter((c): c is IntegrationCard => c !== null);
+  const reminder = props.type === 'reminder' ? reminderAck(props, text, base) : null;
+  if (text.trim() === '' && list.length === 0 && reminder === null) return null;
+  return { rid, text, postId: str(post.id), cards: list, reminder };
+}
+
+function reminderAck(props: Record<string, unknown>, message: string, base: string): { username: string; link: string; at: number } | null {
+  const username = str(props.username);
+  const target = props.target_time;
+  const seconds = positive(typeof target === 'string' && /^\d+(?:\.\d+)?$/.test(target) ? Number(target) : target);
+  if (username === null || seconds === null) return null;
+  const link = message.match(/https?:\/\/[^\s)>\]]+/)?.[0] ?? reminderPermalink(props, base);
+  return link === null ? null : { username, link, at: seconds * 1000 };
+}
+
+/** The server words a reminder in its own language: rebuilt from its props, localized when drawn. */
+function reminderOf(props: Record<string, unknown>, message: string | null, base: string): string | null {
+  const username = str(props.username);
+  if (username === null) return null;
+  const link = message?.match(/(https?:\/\/\S+)\s*$/)?.[1] ?? reminderPermalink(props, base);
+  return link === null ? null : reminderMessage(username, link);
+}
+
+function reminderPermalink(props: Record<string, unknown>, base: string): string | null {
+  const team = str(props.team_name);
+  const postId = str(props.post_id);
+  return team !== null && postId !== null ? `${base}/${team}/pl/${postId}` : null;
 }

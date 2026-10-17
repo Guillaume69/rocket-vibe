@@ -159,7 +159,7 @@ pub(crate) fn message_entry(
     entry.append(&head);
     // An encrypted message's words were opened by the session; its stored `md` is the server's.
     let md = row.md.as_deref().filter(|_| row.system_type.is_none());
-    let blocks = markdown::render(md, row.text.as_deref(), &markdown::Context { me });
+    let blocks = markdown::render(md, row.text.as_deref(), &markdown::Context { me, names: None });
     entry.append(&markdown_view::view(&blocks, &[]));
     entry
 }

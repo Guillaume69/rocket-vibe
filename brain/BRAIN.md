@@ -75,7 +75,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | Doc | What's here |
 |---|---|
 | [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock; the experimental Slack server kind (saved accounts) and the transient Teams browser-import read preview; live Teams sign-in remains unqualified. |
-| [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account. |
+| [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account, the last room reopened on a switch, back and forward across accounts. |
 | [whatsapp.md](features/whatsapp.md) | A personal WhatsApp account linked by QR through a local helper, as an account of the GTK app. |
 | [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |
 | [offline-and-sync.md](features/offline-and-sync.md) | Local-first sync: catch-up layers, hot rooms, write queue and outbox, retention, reconnection. |
@@ -97,7 +97,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [avatars.md](features/avatars.md) | Avatar URLs, etag cache busting and its sources, the no-photo marker, own photo. |
 | [emoji.md](features/emoji.md) | The shortcode table, custom emoji, rendering order, completion, pickers, quick reactions. |
 | [room-info-and-profiles.md](features/room-info-and-profiles.md) | Room info, user profiles, editing my own profile. |
-| [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app. |
+| [settings.md](features/settings.md) | What each setting is and where it is stored, the categories and their layout per app, the desktop's text zoom. |
 | [administration.md](features/administration.md) | Server administration and reports: the model per provider, the Rocket.Chat mapping, the Vibez contract, deleted accounts. |
 | [scheduled-messages.md](features/scheduled-messages.md) | Vibez scheduled messages. |
 | [activity.md](features/activity.md) | The Activity view: mentions, thread replies and reactions across rooms (and accounts on desktop), on the device. |
@@ -126,6 +126,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | Where does a new piece of mobile code go? | [architecture/mobile-app.md](architecture/mobile-app.md) |
 | How does a message reach the screen, and why never straight from the network? | [architecture/overview.md](architecture/overview.md), [features/offline-and-sync.md](features/offline-and-sync.md) |
 | Which endpoint or stream does X, and what does the server answer? | [architecture/rocket-chat.md](architecture/rocket-chat.md) |
+| Why does a webhook post show another name, or a Mattermost table, reminder or linked post render as it does? | [features/mattermost-and-kchat.md](features/mattermost-and-kchat.md#post-rendering), [features/room-view.md](features/room-view.md) |
 | When does a 401 sign the user out? | [architecture/mobile-transport.md](architecture/mobile-transport.md), [features/login-and-servers.md](features/login-and-servers.md) |
 | What happens after a reconnection, and why not resync every room? | [features/offline-and-sync.md](features/offline-and-sync.md) |
 | Why can't an upload be confirmed twice, and how is the duplicate avoided? | [features/uploads.md](features/uploads.md) |

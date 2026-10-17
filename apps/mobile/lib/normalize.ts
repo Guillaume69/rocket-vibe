@@ -6,6 +6,7 @@
  */
 
 import { followerIds, starredIds } from './marks.ts';
+import { httpUrl } from './origin.ts';
 
 /** The server sends either `{"$date": epochMs}` (EJSON) or an ISO string. */
 export function toEpoch(value: unknown): number | null {
@@ -74,14 +75,15 @@ export type LocalMessage = {
   discussionCount?: number;
   discussionLast?: number | null;
   updatedAt: number;
-  /**
-   * The author is a bot account (Vibez only, RFC 0003). Not written by
-   * the shared upsert: the native store sets the column itself.
-   */
+  /** The author is a bot account (Vibez), a Rocket.Chat integration or a Mattermost webhook or bot. */
   authorBot?: boolean;
+  /** An integration's chosen author name (Rocket.Chat `alias`, Mattermost webhook), shown instead of the poster's. */
+  authorAlias?: string | null;
+  /** Its chosen picture, an absolute http(s) URL. */
+  authorAvatar?: string | null;
   /**
    * A workflow's form (Vibez only, RFC 0004), `Message.form` as JSON.
-   * Like `authorBot`, set by the native store itself, never the shared upsert.
+   * Set by the native store itself, never the shared upsert.
    */
   form?: string | null;
 };
@@ -212,6 +214,9 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     authorId,
     authorName: asString(author?.username),
     authorRealName: asString(author?.name),
+    authorAlias: asString(raw.alias),
+    authorAvatar: httpUrl(raw.avatar),
+    authorBot: raw.bot !== null && typeof raw.bot === 'object',
     systemType,
     threadId: asString(raw.tmid),
     threadCount: asInt(raw.tcount),

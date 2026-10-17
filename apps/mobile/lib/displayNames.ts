@@ -7,11 +7,17 @@
 
 let names: ReadonlyMap<string, string> = new Map();
 let statuses: ReadonlyMap<string, string> = new Map();
+let mentions: ReadonlyMap<string, string> = new Map();
 const listeners = new Set<() => void>();
 
-export function setDisplayNames(next: ReadonlyMap<string, string>, nextStatuses: ReadonlyMap<string, string> = new Map()): void {
+export function setDisplayNames(
+  next: ReadonlyMap<string, string>,
+  nextStatuses: ReadonlyMap<string, string> = new Map(),
+  nextMentions: ReadonlyMap<string, string> = new Map(),
+): void {
   names = next;
   statuses = nextStatuses;
+  mentions = nextMentions;
   for (const listener of [...listeners]) listener();
 }
 
@@ -24,6 +30,11 @@ export function statusEmojis(): ReadonlyMap<string, string> {
   return statuses;
 }
 
+/** `username → name`, for `@username` mentions shown under the name format (Mattermost). */
+export function mentionNames(): ReadonlyMap<string, string> {
+  return mentions;
+}
+
 export function onDisplayNamesChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -33,13 +44,15 @@ export function onDisplayNamesChange(listener: () => void): () => void {
 export type DisplayNameSource = {
   names(): ReadonlyMap<string, string>;
   statuses(): ReadonlyMap<string, string>;
+  mentions?(): ReadonlyMap<string, string>;
   subscribe(listener: () => void): () => void;
 };
 
 export function mountDisplayNames(source: DisplayNameSource | undefined): () => void {
   if (source === undefined) return () => {};
-  setDisplayNames(source.names(), source.statuses());
-  const unsubscribe = source.subscribe(() => setDisplayNames(source.names(), source.statuses()));
+  const apply = () => setDisplayNames(source.names(), source.statuses(), source.mentions?.());
+  apply();
+  const unsubscribe = source.subscribe(apply);
   return () => {
     unsubscribe();
     setDisplayNames(new Map());

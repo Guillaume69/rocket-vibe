@@ -15,7 +15,7 @@
 
 import { useSyncExternalStore } from 'react';
 
-import { displayNames, onDisplayNamesChange, statusEmojis } from '../lib/displayNames.ts';
+import { displayNames, mentionNames, onDisplayNamesChange, statusEmojis } from '../lib/displayNames.ts';
 
 let identities: ReadonlyMap<string, string> = new Map();
 const listeners = new Set<() => void>();
@@ -118,6 +118,11 @@ export function roomTitle(
 ): string {
   const peer = room.type === 'd' && room.dmOtherUid !== null ? names.get(room.dmOtherUid) : undefined;
   return peer ?? room.displayName ?? room.name ?? room.rid;
+}
+
+/** `username → name` for mentions (Mattermost); empty elsewhere. */
+export function useMentionNames(): ReadonlyMap<string, string> {
+  return useSyncExternalStore(onDisplayNamesChange, mentionNames, mentionNames);
 }
 
 /** `uid → custom status emoji` (Mattermost); empty elsewhere. */

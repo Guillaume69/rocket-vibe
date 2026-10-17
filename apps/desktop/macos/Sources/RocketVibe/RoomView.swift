@@ -473,7 +473,7 @@ struct MessageRow: View, Equatable {
                         HStack(alignment: .firstTextBaseline, spacing: 7) {
                             Text(message.authorLabel)
                                 .font(.vibe(13.5, .heavy))
-                                .foregroundStyle(message.mine ? Vibe.pink : Vibe.text)
+                                .foregroundStyle(message.mine && !message.aliased ? Vibe.pink : Vibe.text)
                             if message.authorBot { AdminBadge(text: L("bots.badge"), color: Vibe.sky) }
                             Text(Formatting.time(message.ts)).font(.vibe(11, .semibold)).foregroundStyle(Vibe.faint)
                                 .help(model?.messageTimeHelp ?? "")
@@ -516,7 +516,11 @@ struct MessageRow: View, Equatable {
 
     @ViewBuilder var gutter: some View {
         if message.showHeader {
-            Avatar(path: message.avatar, name: message.author, size: 34)
+            if message.aliased {
+                Avatar(path: message.avatar.isEmpty ? nil : message.avatar, name: message.authorLabel, size: 34)
+            } else {
+                Avatar(path: message.avatar, name: message.author, size: 34)
+            }
         } else {
             Text(message.gutterTime ? Formatting.time(message.ts) : "")
                 .help(model?.messageTimeHelp ?? "")
@@ -542,13 +546,16 @@ struct MessageRow: View, Equatable {
         } else if message.locked {
             Text(L("message.encrypted_locked")).italic().foregroundStyle(.secondary)
         }
-        ForEach(Array(message.quotes.enumerated()), id: \.offset) { _, quote in
+        ForEach(Array(message.quotes.filter { !$0.below }.enumerated()), id: \.offset) { _, quote in
             QuoteCard(quote: quote)
         }
         if editing {
             editor
         } else if message.social == nil && !message.body.isEmpty {
             BodyView(blocks: message.body, dimmed: message.delivery != .sent)
+        }
+        ForEach(Array(message.quotes.filter(\.below).enumerated()), id: \.offset) { _, quote in
+            QuoteCard(quote: quote)
         }
         ForEach(Array(message.images.enumerated()), id: \.offset) { _, image in
             let size = displaySize(width: image.width, height: image.height)
@@ -567,6 +574,10 @@ struct MessageRow: View, Equatable {
                 VideoCard(card: card, page: page)
             } else if card.xPost {
                 XPostCard(card: card, chat: model?.provider.legacy)
+            } else if card.integration {
+                IntegrationCard(card: card, press: model.map { model in
+                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: message.id, action: action) }
+                })
             } else {
                 LinkCard(card: card)
             }
@@ -1054,6 +1065,100 @@ struct LinkCard: View {
             else { rows.append([field]) }
         }
         return rows
+    }
+}
+
+/// A bot's or an integration's card: the words above it, its colour down the
+/// side, the author, the title (opening its link), the text and the fields,
+/// two abreast when short; all but the field names as markdown, their links
+/// opening on their own.
+struct IntegrationCard: View {
+    @Environment(\.openURL) var openURL
+    let card: Card
+    /// Presses a button through the server; the page it answers opens.
+    var press: ((CardAction) async -> URL?)? = nil
+    @State private var pressing: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !card.pretext.isEmpty { BodyView(blocks: card.pretext) }
+            VStack(alignment: .leading, spacing: 3) {
+                if let site = card.site { Text(site).font(.vibe(11.5, .bold)).foregroundStyle(Vibe.muted) }
+                if !card.titleBody.isEmpty {
+                    BodyView(blocks: card.titleBody)
+                        .font(.vibe(13.5, .heavy))
+                        .onTapGesture {
+                            if let url = URL(string: card.url), !card.url.isEmpty { openURL(url) }
+                        }
+                }
+                if !card.descriptionBody.isEmpty {
+                    BodyView(blocks: card.descriptionBody).font(.vibe(12)).foregroundStyle(Vibe.soft)
+                }
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                    ForEach(Array(fieldRows.enumerated()), id: \.offset) { _, fields in
+                        GridRow {
+                            ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(field.title).font(.vibe(11, .bold)).foregroundStyle(Vibe.muted)
+                                    BodyView(blocks: field.valueBody).font(.vibe(12)).foregroundStyle(Vibe.soft)
+                                }.gridCellColumns(field.short ? 1 : 2)
+                            }
+                        }
+                    }
+                }
+                if let press, !card.actions.isEmpty {
+                    HStack(spacing: 8) {
+                        ForEach(card.actions, id: \.id) { action in
+                            Button {
+                                guard pressing == nil else { return }
+                                pressing = action.id
+                                Task {
+                                    if let url = await press(action) { openURL(url) }
+                                    pressing = nil
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if pressing == action.id { ProgressView().controlSize(.small) }
+                                    Text(action.name).font(.vibe(12.5, .bold))
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 4)
+                                .foregroundStyle(tint(action.style))
+                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint(action.style).opacity(0.5)))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(pressing != nil)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .padding(8)
+            .padding(.leading, 4)
+            .frame(maxWidth: 420, alignment: .leading)
+            .vibeCard()
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2).fill(card.color.flatMap { UInt32($0.dropFirst(), radix: 16) }.map { Color(hex: $0) } ?? Vibe.pink)
+                    .frame(width: 3).padding(.vertical, 8)
+            }
+        }
+    }
+
+    var fieldRows: [[CardField]] {
+        var rows: [[CardField]] = []
+        for field in card.fields {
+            if field.short, let last = rows.last, last.count == 1, last[0].short { rows[rows.count - 1].append(field) }
+            else { rows.append([field]) }
+        }
+        return rows
+    }
+
+    func tint(_ style: String) -> Color {
+        switch style {
+        case "danger": return Vibe.pink
+        case "primary", "good", "success": return Vibe.mint
+        default: return Vibe.text
+        }
     }
 }
 

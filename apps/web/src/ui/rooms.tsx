@@ -176,7 +176,8 @@ function RoomEntry({ app, room }: { app: App; room: Room }) {
           user={peer}
           room={room.kind === "direct" ? undefined : room}
           size="room"
-          icon={room.encrypted ? "lock" : undefined}
+          icon={room.encrypted || room.kind === "private" ? "lock" : undefined}
+          tinted={!room.encrypted}
           glyph={room.kind === "direct" ? undefined : "#"}
         >
           {entry && (

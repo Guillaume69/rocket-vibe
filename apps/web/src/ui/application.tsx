@@ -470,7 +470,10 @@ function RoomHeader({ app }: { app: App }) {
               user={peer}
               room={room.kind === "direct" ? undefined : room}
               size="header"
-              icon={room.encrypted ? "lock" : undefined}
+              icon={
+                room.encrypted || room.kind === "private" ? "lock" : undefined
+              }
+              tinted={!room.encrypted}
               glyph={room.kind === "direct" ? undefined : "#"}
             />
             <span className="room-heading-text">

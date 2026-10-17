@@ -574,6 +574,9 @@ impl Translator<'_> {
             discussion_id: None,
             discussion_count: 0,
             discussion_last: None,
+            alias: None,
+            alias_avatar: None,
+            author_bot: false,
         })
     }
 

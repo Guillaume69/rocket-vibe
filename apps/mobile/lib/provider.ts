@@ -193,6 +193,17 @@ export type SidebarSettings = {
   dmLimit: number;
 };
 
+export type CardActionAnswer = { ephemeralText: string | null; gotoLocation: string | null };
+
+/** What the server tells me alone in a room; `reminder.at` in ms. */
+export type PrivateNoteData = {
+  rid: string;
+  text: string;
+  postId?: string | null;
+  cards?: readonly import('./integrationCards.ts').IntegrationCard[];
+  reminder?: { username: string; link: string; at: number } | null;
+};
+
 export interface ProviderActions {
   /** Decimal positions stay strings; a timer captures this opening membership. */
   roomReadState?(rid:string):Promise<RoomReadState|null>;
@@ -231,6 +242,8 @@ export interface ProviderActions {
   /** Writes the given settings of the room (only those present). */
   saveRoomSettings?(rid: string, fields: RoomSettingsChange): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
+  /** Presses an integration card's button (Mattermost `actions[]`). Absent where cards carry none. */
+  cardAction?(postId: string, actionId: string, cookie: string | null): Promise<CardActionAnswer>;
   /**
    * Makes the room unread again from its last message; the subscription the
    * server rebroadcasts carries the badge. Absent where the server cannot.
@@ -450,7 +463,7 @@ export interface Provider {
    * What a transport event tells me alone in a room (a slash command's reply),
    * or `null` if it is not that.
    */
-  privateNote(event: DdpEvent): { rid: string; text: string } | null;
+  privateNote(event: DdpEvent): PrivateNoteData | null;
   /** A call starting or ending in a live event, for ringing (`lib/callRing.ts`). */
   callSignal?(event: DdpEvent): import('./callRing.ts').CallSignal | null;
   /**

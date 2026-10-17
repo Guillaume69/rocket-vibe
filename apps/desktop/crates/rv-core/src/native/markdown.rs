@@ -93,7 +93,7 @@ mod tests {
     fn existing_composer_markers_keep_their_actual_styles() {
         let document = rv_protocol::markdown::parse("*gras* _italique_ ~barré~ __double italique__");
         let md = serde_json::to_string(&tree(&document)).unwrap();
-        let blocks = crate::markdown::render(Some(&md), None, &crate::markdown::Context { me: "" });
+        let blocks = crate::markdown::render(Some(&md), None, &crate::markdown::Context { me: "", names: None });
         let crate::markdown::Block::Paragraph(markup) = &blocks[0] else { panic!("paragraph expected") };
         let runs = crate::runs::runs(markup);
         assert!(runs.iter().any(|r| r.text == "gras" && r.bold && !r.italic));
@@ -110,7 +110,8 @@ mod tests {
             let document: Document = serde_json::from_value(case["document"].clone()).unwrap();
             assert_eq!(serde_json::to_value(tree(&document)).unwrap(), case["local_tree"], "{}", case["id"]);
             let md = serde_json::to_string(&tree(&document)).unwrap();
-            let blocks = crate::markdown::render(Some(&md), None, &crate::markdown::Context { me: "alice" });
+            let blocks =
+                crate::markdown::render(Some(&md), None, &crate::markdown::Context { me: "alice", names: None });
             let shown = crate::runs::text(&blocks);
             for expected in case["contains"].as_array().unwrap() {
                 assert!(shown.contains(expected.as_str().unwrap()), "{} missing {}: {shown}", case["id"], expected);

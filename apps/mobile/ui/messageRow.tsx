@@ -43,6 +43,7 @@ import { formState, parseForm } from './workflowsModel.ts';
 import { messageTree, textPreview } from '../lib/markdown.ts';
 import { useJoinVoice, useVoice } from './voice.tsx';
 import { callSummaryText, systemText } from '../lib/systemMessages.ts';
+import { localizedReminder } from '../lib/reminder.ts';
 import { reactionList, type DisplayedReaction } from '../lib/reactions.ts';
 import { openProfileCard } from '../lib/profilePreload.ts';
 import type { RestClient } from '../lib/rest.ts';
@@ -78,8 +79,10 @@ import { Tappable } from './tappable.tsx';
 import { useAuthorizedUri } from './authorizedImage.ts';
 
 /** `authorBot`, `form` and `threadFollowers` optional: render-only rows (search, pins, encrypted projections) may not carry them. */
-export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'form' | 'threadFollowers' | 'discussionId' | 'discussionCount' | 'discussionLast'> & {
+export type MessageRowData = Omit<typeof messages.$inferSelect, 'authorBot' | 'authorAlias' | 'authorAvatar' | 'form' | 'threadFollowers' | 'discussionId' | 'discussionCount' | 'discussionLast'> & {
   authorBot?: boolean;
+  authorAlias?: string | null;
+  authorAvatar?: string | null;
   form?: string | null;
   threadFollowers?: string | null;
   discussionId?: string | null;
@@ -147,12 +150,13 @@ export const MessageRow = memo(function MessageRow({
   const identities = useIdentities();
   const etags = useAvatarEtags();
   const t = useT();
-  const username = (identities.get(message.authorId) ?? message.authorName) ?? '?';
+  const alias = message.authorAlias ?? null;
+  const username = alias ?? (identities.get(message.authorId) ?? message.authorName) ?? '?';
   // A deleted Vibez account keeps its messages (`lib/deletedUser.ts`).
   const deletedAuthor = client.kind === 'vibez' && isDeletedUsername(username);
   const shownName = useDisplayNames().get(message.authorId);
   const statusEmoji = useStatusEmojis().get(message.authorId);
-  const author = deletedAuthor ? t('common.deletedUser') : (shownName ?? username) + (statusEmoji ? ` ${statusEmoji}` : '');
+  const author = alias ?? (deletedAuthor ? t('common.deletedUser') : (shownName ?? username) + (statusEmoji ? ` ${statusEmoji}` : ''));
   // The username takes the first tint of its own avatar tile: name and avatar
   // match, and the same person keeps their color from one message to the next.
   const authorTint = avatarGradient(deletedAuthor ? author : username, c.avatarGradients)[0];
@@ -165,12 +169,13 @@ export const MessageRow = memo(function MessageRow({
   // `openProfileCard` preloads the card BEFORE opening the sheet (final height
   // from the first frame, no jump), see lib/profilePreload.
   const openProfile =
-    message.authorName === null || deletedAuthor
+    message.authorName === null || deletedAuthor || alias !== null
       ? undefined
       : () => void openProfileCard({ uid: message.authorId });
 
   // Attachments: quotes (`message_link`) split from files. The quote renders
-  // ABOVE the body (one reads first what is being replied to); files stay below.
+  // ABOVE the body (one reads first what is being replied to), except a post
+  // the text links to (`permalink_preview`, Mattermost); files stay below.
   const attachments = useMemo(() => parseAttachments(message.attachments), [message.attachments]);
   // A form's message text is its title, for clients that cannot show the card:
   // shown above the card it would only say the title twice.
@@ -179,7 +184,8 @@ export const MessageRow = memo(function MessageRow({
     [message.form, client.kind],
   );
   const textIsFormTitle = formTitle !== null && (message.text ?? '').trim() === formTitle.trim();
-  const quotes = attachments.filter((j) => isQuoteAttachment(j));
+  const quotes = attachments.filter((j) => isQuoteAttachment(j) && j.permalink_preview !== true);
+  const linkedPosts = attachments.filter((j) => isQuoteAttachment(j) && j.permalink_preview === true);
   const attachedFiles = attachments.filter((j) => !isQuoteAttachment(j));
 
   // Reactions, FINALLY read: the column was written from day one and refreshed
@@ -246,7 +252,7 @@ export const MessageRow = memo(function MessageRow({
             // The `etag` (photo version) is what refreshes the image when the
             // person changes avatar: by username if known, by uid otherwise; both
             // indexes point to the same version.
-            uri={avatarUrl(client, {
+            uri={alias !== null ? (message.authorAvatar ?? null) : avatarUrl(client, {
               username: identities.get(message.authorId),
               uid: message.authorId,
               etag:
@@ -291,10 +297,13 @@ export const MessageRow = memo(function MessageRow({
         {!textIsFormTitle && (
           <MessageLongPress.Provider value={longPress}>
             <MentionSelf.Provider value={me}>
-              {!attachments.some(a=>socialValue(a)) && <MessageContent c={c} message={message} />}
+              {!attachments.some(a=>socialValue(a)) && <MessageContent c={c} message={message} reminders={client.kind === 'mattermost' || client.kind === 'kchat'} />}
             </MentionSelf.Provider>
           </MessageLongPress.Provider>
         )}
+        {linkedPosts.map((attachment, i) => (
+          <Quote key={i} c={c} attachment={attachment} client={client} onLongPress={longPress} />
+        ))}
         {client.kind==='vibez' && attachments.map((a,i)=>{const value=socialValue(a);return value?<SocialMessage key={i} value={value} id={message.id} room={message.rid} author={message.authorId} c={c}/>:null;})}
         {message.form != null && client.kind === 'vibez' && <FormCard c={c} id={message.id} json={message.form} />}
         {message.systemType === null && (
@@ -312,6 +321,8 @@ export const MessageRow = memo(function MessageRow({
             attachments={attachedFiles}
             client={client}
             onLongPress={longPress}
+            rid={message.rid}
+            postId={message.id}
           />
         )}
         {reactions.length > 0 && (
@@ -371,8 +382,9 @@ export const MessageRow = memo(function MessageRow({
  * 4.3), a plain stand-in for encrypted and system messages (their translation
  * comes in 4.4).
  */
-function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) {
+function MessageContent({ c, message, reminders }: { c: Colors; message: MessageRowData; reminders: boolean }) {
   const t = useT();
+  const text = reminders && message.text !== null ? localizedReminder(t, message.text) : message.text;
   // Keys = the STRINGS, stable across the object churn of
   // `useCoalescedLiveQuery` (which defeats MessageRow's memo): otherwise every
   // database write would re-parse the markdown of every visible row.
@@ -382,8 +394,8 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
   const decryptedEncrypted = message.systemType === 'e2e' && message.text !== null;
   const isOrdinary = message.systemType === null || decryptedEncrypted;
   const tree = useMemo(
-    () => (isOrdinary ? messageTree(message.md, message.text) : null),
-    [isOrdinary, message.md, message.text],
+    () => (isOrdinary ? messageTree(message.md, text) : null),
+    [isOrdinary, message.md, text],
   );
 
   if (message.systemType === 'e2e' && message.text === null) {
@@ -429,8 +441,8 @@ function MessageContent({ c, message }: { c: Colors; message: MessageRowData }) 
     // left the message stuck on its bare text until the cell was recycled
     // (the guard was the only link with no reset).
     <RenderGuard
-      key={message.md ?? message.text ?? ''}
-      fallback={<Text style={[styles.text, { color: c.text }]}>{message.text}</Text>}
+      key={message.md ?? text ?? ''}
+      fallback={<Text style={[styles.text, { color: c.text }]}>{text}</Text>}
     >
       <MessageBody tree={tree} c={c} />
     </RenderGuard>
@@ -850,6 +862,8 @@ function VoiceCallCard({ c, rid, type, param }: { c: Colors; rid: string; type: 
 type Attachment = {
   native_file?: unknown;
   native_unavailable?: boolean;
+  /** A post the text links to, previewed by the server (Mattermost): shown under the text. */
+  permalink_preview?: boolean;
   title?: string;
   title_link?: string;
   image_url?: string;
@@ -900,11 +914,15 @@ function Attachments({
   attachments,
   client,
   onLongPress,
+  rid,
+  postId,
 }: {
   c: Colors;
   attachments: Attachment[];
   client: RestClient;
   onLongPress: (() => void) | undefined;
+  rid: string;
+  postId: string;
 }) {
   const { width: screenWidth } = useWindowDimensions();
   const availableWidth = availableBodyWidth(screenWidth);
@@ -914,7 +932,7 @@ function Attachments({
       {attachments.map((attachment, i) => {
         if(socialValue(attachment))return null;
         const card=integrationCard(attachment);
-        if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress}/>;
+        if(card)return <IntegrationCard key={i} c={c} card={card} onLongPress={onLongPress} rid={rid} postId={postId}/>;
         const encryption = attachmentEncryption(attachment);
         if (encryption !== null) {
           return (

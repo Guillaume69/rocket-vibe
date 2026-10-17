@@ -88,10 +88,14 @@ pub enum SessionEvent {
     Incoming(Box<crate::notify::Incoming>),
     /// The call ringing here changed: `Session::incoming_call`.
     CallRing,
-    /// What the server told me alone in a room: a slash command's answer.
+    /// What the server told me alone in a room: a slash command's answer, a
+    /// Mattermost "visible only to you" post with its cards (`attachments`)
+    /// and the id their buttons are pressed through.
     Private {
         rid: String,
         text: String,
+        attachments: Option<String>,
+        post_id: Option<String>,
     },
 }
 
@@ -626,6 +630,16 @@ impl Session {
                     let _ = self.events.send(SessionEvent::Presence);
                 }
             }
+            "ephemeral_message" => {
+                if let Some(note) = mm.ephemeral(data).await {
+                    let _ = self.events.send(SessionEvent::Private {
+                        rid: note.rid,
+                        text: note.text,
+                        attachments: note.attachments,
+                        post_id: Some(note.post_id),
+                    });
+                }
+            }
             _ => {
                 if let Some(signal) = mm.call_signal(name, data) {
                     self.call_signal(signal);
@@ -727,7 +741,7 @@ impl Session {
         }
         if collection == STREAM_NOTIFY_USER && key == format!("{}/{}", self.info.user_id, live::PRIVATE_MESSAGE) {
             if let Some((rid, text)) = live::private_message(args) {
-                let _ = self.events.send(SessionEvent::Private { rid, text });
+                let _ = self.events.send(SessionEvent::Private { rid, text, attachments: None, post_id: None });
             }
             return;
         }
@@ -1066,6 +1080,15 @@ impl Session {
             Some(emoji) => format!("{name} {emoji}"),
             None => name,
         })
+    }
+
+    /// The name a mention of `username` shows: its display name on Mattermost
+    /// and kChat, as their apps do; None keeps the username.
+    pub fn mention_name(&self, username: &str) -> Option<String> {
+        match self.backend() {
+            Backend::Mattermost(mm) => mm.directory.name_of(username),
+            _ => None,
+        }
     }
 
     /// The account's conversation list settings, kept on the server (Mattermost and kChat).
@@ -1751,6 +1774,18 @@ impl Session {
         }
         self.store.write(|w| w.set_favorite(rid, on));
         Ok(())
+    }
+
+    /// A card's button, on Mattermost and kChat; elsewhere cards have none.
+    pub async fn press_card_action(
+        &self,
+        post_id: &str,
+        action: &crate::content::CardAction,
+    ) -> Result<crate::content::ActionAnswer, RestError> {
+        match self.backend() {
+            Backend::Mattermost(mm) => mm.press_action(post_id, &action.id, action.cookie.as_deref()).await,
+            _ => Err(RestError::incomplete("card buttons are Mattermost's")),
+        }
     }
 
     pub async fn pin(&self, msg_id: &str) -> Result<(), RestError> {

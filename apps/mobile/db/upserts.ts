@@ -21,8 +21,8 @@ INSERT INTO messages (
   id, rid, text, ts, author_id, author_name, system_type,
   thread_id, thread_count, thread_last, thread_shown, edited_at, md,
   attachments, reactions, urls, call_id, encrypted_raw, pinned, starred, thread_followers,
-  discussion_id, discussion_count, discussion_last, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  discussion_id, discussion_count, discussion_last, author_bot, author_alias, author_avatar, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   -- Encrypted message: keep the already decrypted plaintext if the resync
   -- arrives without a key (excluded.text null). Ordinary message: unchanged.
@@ -58,6 +58,9 @@ ON CONFLICT(id) DO UPDATE SET
   discussion_id = excluded.discussion_id,
   discussion_count = excluded.discussion_count,
   discussion_last = excluded.discussion_last,
+  author_bot = excluded.author_bot,
+  author_alias = excluded.author_alias,
+  author_avatar = excluded.author_avatar,
   updated_at = excluded.updated_at
 WHERE excluded.updated_at >= messages.updated_at
 `;
@@ -807,6 +810,9 @@ export function messageParams(m: LocalMessage): SqlParam[] {
     m.discussionId ?? null,
     m.discussionCount ?? 0,
     m.discussionLast ?? null,
+    b(m.authorBot ?? false),
+    m.authorAlias ?? null,
+    m.authorAvatar ?? null,
     m.updatedAt,
   ];
 }

@@ -95,6 +95,7 @@ pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {
 pub struct Translator<'a> {
     pub directory: &'a Directory,
     pub me: &'a str,
+    pub base: &'a str,
 }
 
 impl Translator<'_> {
@@ -103,34 +104,48 @@ impl Translator<'_> {
         let rid = str_of(post, "channel_id")?;
         let ts = positive(post, "create_at")?;
         let author_id = str_of(post, "user_id")?;
-        if deleted(post) {
+        if deleted(post) || str_of(post, "type") == Some("system_ephemeral") {
             return None;
         }
         let props = post.get("props").cloned().unwrap_or(Value::Null);
         let author = self.directory.username(author_id);
-        let author_name = str_of(&props, "override_username").map(str::to_owned).or_else(|| author.clone());
+        let flag = |key: &str| {
+            matches!(props.get(key), Some(Value::String(s)) if s == "true")
+                || props.get(key) == Some(&Value::Bool(true))
+        };
+        let webhook = flag("from_webhook");
+        let alias = str_of(&props, "override_username").filter(|_| webhook).map(str::to_owned);
+        let alias_avatar = str_of(&props, "override_icon_url")
+            .filter(|url| webhook && crate::content::is_web_link(url))
+            .map(str::to_owned);
         let metadata = post.get("metadata").cloned().unwrap_or(Value::Null);
         let root = str_of(post, "root_id");
         let mm_kind = str_of(post, "type").unwrap_or_default();
         let system = system(mm_kind, &props, author.as_deref());
+        let message = str_of(post, "message").unwrap_or_default();
         let text = match &system {
             Some((_, param)) => param.clone(),
-            None => Some(str_of(post, "message").unwrap_or_default().to_owned()),
+            None if mm_kind == "reminder" => {
+                Some(reminder(&props, message, self.base).unwrap_or_else(|| message.to_owned()))
+            }
+            None => Some(message.to_owned()),
         };
+        let mut cards = cards(props.get("attachments"));
+        cards.extend(self.permalinks(metadata.get("embeds")));
         Some(Message {
             id: id.to_owned(),
             rid: rid.to_owned(),
             text,
             ts,
             author_id: author_id.to_owned(),
-            author_name,
+            author_name: author.clone(),
             system_type: system.map(|(t, _)| t.to_owned()),
             thread_id: root.map(str::to_owned),
             thread_count: if root.is_none() { num_of(post, "reply_count") } else { 0 },
             thread_last: root.is_none().then(|| positive(post, "last_reply_at")).flatten(),
             thread_shown: false,
             edited_at: positive(post, "edit_at"),
-            attachments: join_attachments(attachments(metadata.get("files")), cards(props.get("attachments"))),
+            attachments: join_attachments(attachments(metadata.get("files")), cards),
             reactions: self.reactions(metadata.get("reactions")),
             encrypted_raw: None,
             updated_at: positive(post, "update_at").unwrap_or(ts),
@@ -143,7 +158,45 @@ impl Translator<'_> {
             discussion_id: None,
             discussion_count: 0,
             discussion_last: None,
+            alias,
+            alias_avatar,
+            author_bot: webhook || flag("from_bot") || self.directory.user(author_id).is_some_and(|u| u.bot),
         })
+    }
+
+    /// Posts linked in the text that the server previews (`permalink` embeds),
+    /// as the quotes Rocket.Chat's attachments already render.
+    fn permalinks(&self, embeds: Option<&Value>) -> Vec<Value> {
+        embeds
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|e| str_of(e, "type") == Some("permalink"))
+            .filter_map(|e| {
+                let data = e.get("data")?;
+                let post = data.get("post")?;
+                let id = str_of(post, "id").or_else(|| str_of(data, "post_id"))?;
+                let author = str_of(post, "user_id")
+                    .and_then(|uid| self.directory.display_name(uid).or_else(|| self.directory.username(uid)));
+                let mut quote = json!({
+                    "message_link": super::actions::permalink("", id),
+                    "permalink_preview": true,
+                    "text": str_of(post, "message").unwrap_or_default(),
+                });
+                if let Some(author) = author {
+                    quote["author_name"] = json!(author);
+                }
+                if let Some(ts) = positive(post, "create_at") {
+                    quote["ts"] = json!(ts);
+                }
+                if let Some(files) =
+                    attachments(post.pointer("/metadata/files")).and_then(|f| serde_json::from_str(&f).ok())
+                {
+                    quote["attachments"] = files;
+                }
+                Some(quote)
+            })
+            .collect()
     }
 
     /// `<idA>__<idB>`: the id that is not mine, or mine for a note-to-self.
@@ -189,7 +242,7 @@ impl Translator<'_> {
                 m.text.clone().filter(|t| !t.is_empty()).or_else(|| preview_of(m.attachments.as_deref()))
             }),
             last_message_type: last.as_ref().and_then(|m| m.system_type.clone()),
-            last_message_author: last.as_ref().and_then(|m| m.author_name.clone()),
+            last_message_author: last.as_ref().and_then(|m| m.alias.clone().or_else(|| m.author_name.clone())),
             last_encrypted: None,
             last_message_ts: last.as_ref().map(|m| m.ts).or(last_post_at),
             avatar_etag: None,
@@ -251,7 +304,66 @@ impl Translator<'_> {
     }
 }
 
-/// Files as Rocket.Chat-shaped attachments on the file API, images with their preview.
+/// A "visible only to you" post (`ephemeral_message`): its room, its words
+/// (a reminder's acknowledgement in the app's language), its cards and its id,
+/// which its buttons are pressed through.
+pub struct Ephemeral {
+    pub rid: String,
+    pub text: String,
+    pub attachments: Option<String>,
+    pub post_id: String,
+}
+
+impl Translator<'_> {
+    pub fn ephemeral(&self, post: &Value) -> Option<Ephemeral> {
+        let rid = str_of(post, "channel_id")?.to_owned();
+        let post_id = str_of(post, "id")?.to_owned();
+        let props = post.get("props").cloned().unwrap_or(Value::Null);
+        let message = str_of(post, "message").unwrap_or_default();
+        let text = reminder_set(&props, message, self.base).unwrap_or_else(|| message.trim().to_owned());
+        let cards = cards(props.get("attachments"));
+        let attachments = (!cards.is_empty()).then(|| Value::Array(cards).to_string());
+        (!text.is_empty() || attachments.is_some()).then_some(Ephemeral { rid, text, attachments, post_id })
+    }
+}
+
+/// The acknowledgement of a reminder just set (`props.type: "reminder"`,
+/// `target_time` in seconds): the server's English carries an RFC 822 time.
+fn reminder_set(props: &Value, message: &str, base: &str) -> Option<String> {
+    if str_of(props, "type") != Some("reminder") {
+        return None;
+    }
+    let due = props.get("target_time").and_then(|t| t.as_i64().or_else(|| t.as_str()?.parse().ok()))?;
+    let username = str_of(props, "username")?;
+    let link = message
+        .split_whitespace()
+        .find(|w| crate::content::is_web_link(w))
+        .map(str::to_owned)
+        .or_else(|| post_link(props, base))?;
+    Some(crate::i18n::tf(
+        "mm.reminder_set",
+        &[("user", username), ("link", &link), ("when", &crate::reminders::when(due))],
+    ))
+}
+
+fn post_link(props: &Value, base: &str) -> Option<String> {
+    let (team, post) = (str_of(props, "team_name")?, str_of(props, "post_id")?);
+    Some(format!("{}/{team}/pl/{post}", base.trim_end_matches('/')))
+}
+
+/// The server's reminder of a post (`type: "reminder"`) in the app's language:
+/// its text is the server's English, the link at its end.
+fn reminder(props: &Value, message: &str, base: &str) -> Option<String> {
+    let username = str_of(props, "username")?;
+    let link = message
+        .split_whitespace()
+        .last()
+        .filter(|w| crate::content::is_web_link(w))
+        .map(str::to_owned)
+        .or_else(|| post_link(props, base))?;
+    Some(crate::i18n::tf("mm.reminder", &[("user", username), ("link", &link)]))
+}
+
 /// Integrations' Slack-style cards (`props.attachments`), in the shape
 /// Rocket.Chat's attachments already render.
 fn cards(raw: Option<&Value>) -> Vec<Value> {
@@ -261,14 +373,32 @@ fn cards(raw: Option<&Value>) -> Vec<Value> {
         .filter_map(|a| {
             let a = a.as_object()?;
             let mut card = Map::new();
-            for key in ["author_name", "title", "title_link", "color", "fields"] {
+            for key in ["author_name", "title", "title_link", "color", "fields", "pretext"] {
                 if let Some(v) = a.get(key) {
                     card.insert(key.to_owned(), v.clone());
                 }
             }
-            let text = ["text", "pretext", "fallback"]
-                .iter()
-                .find_map(|k| a.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()));
+            let buttons: Vec<Value> = a
+                .get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|b| matches!(str_of(b, "type"), None | Some("button")))
+                .filter_map(|b| {
+                    let mut button = json!({"id": str_of(b, "id")?, "name": str_of(b, "name")?});
+                    for key in ["style", "cookie"] {
+                        if let Some(v) = str_of(b, key) {
+                            button[key] = json!(v);
+                        }
+                    }
+                    Some(button)
+                })
+                .collect();
+            if !buttons.is_empty() {
+                card.insert("actions".into(), Value::Array(buttons));
+            }
+            let text =
+                ["text", "fallback"].iter().find_map(|k| a.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()));
             if let Some(text) = text {
                 card.insert("text".into(), json!(text));
             }
@@ -381,7 +511,7 @@ mod tests {
     #[test]
     fn a_post_names_its_author_and_keeps_server_times() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let m = t.message(&post("p1", json!({"create_at": 10, "update_at": 20, "edit_at": 15}))).unwrap();
         assert_eq!(m.author_name.as_deref(), Some("bob"));
         assert_eq!((m.ts, m.updated_at, m.edited_at), (10, 20, Some(15)));
@@ -391,7 +521,7 @@ mod tests {
     #[test]
     fn reactions_and_files_take_the_renderers_shapes() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let m = t
             .message(&post(
                 "p1",
@@ -408,9 +538,119 @@ mod tests {
     }
 
     #[test]
+    fn an_integration_posts_under_its_own_name_and_picture() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let hook = t
+            .message(&post(
+                "p1",
+                json!({"props": {"from_webhook": "true", "override_username": "Uptime-Kuma",
+                    "override_icon_url": "https://example.com/kuma.png"}}),
+            ))
+            .unwrap();
+        assert_eq!(hook.author_name.as_deref(), Some("bob"));
+        assert_eq!(hook.alias.as_deref(), Some("Uptime-Kuma"));
+        assert_eq!(hook.alias_avatar.as_deref(), Some("https://example.com/kuma.png"));
+        assert!(hook.author_bot);
+        let claimed = t
+            .message(&post("p2", json!({"props": {"override_username": "Admin", "override_icon_url": "/x.png"}})))
+            .unwrap();
+        assert_eq!((claimed.alias, claimed.alias_avatar, claimed.author_bot), (None, None, false));
+        assert!(t.message(&post("p3", json!({"props": {"from_bot": "true"}}))).unwrap().author_bot);
+        d.remember(User { id: "u-euria".into(), username: "euria".into(), bot: true, ..Default::default() });
+        assert!(t.message(&post("p4", json!({"user_id": "u-euria"}))).unwrap().author_bot);
+    }
+
+    #[test]
+    fn a_reminder_reads_in_the_apps_language_and_quotes_its_post() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let link = "https://chat.example.com/team/pl/p0";
+        let m = t
+            .message(&post(
+                "p1",
+                json!({"type": "reminder", "message": format!("Hi there, here's your reminder about this message from @bob: {link}"),
+                    "props": {"username": "bob", "team_name": "team", "post_id": "p0"},
+                    "metadata": {"embeds": [{"type": "permalink", "data": {"post_id": "p0",
+                        "post": {"id": "p0", "user_id": "u-bob", "message": "test pra", "create_at": 5}}}]}}),
+            ))
+            .unwrap();
+        assert_eq!(m.system_type, None);
+        let text = m.text.unwrap();
+        assert!(text.contains("@bob") && text.ends_with(link), "{text}");
+        let quotes = crate::content::quotes(m.attachments.as_deref());
+        assert_eq!(quotes.len(), 1);
+        assert_eq!((quotes[0].author.as_deref(), quotes[0].text.as_str()), (Some("Bob Builder"), "test pra"));
+        let props = json!({"username": "bob", "team_name": "team", "post_id": "p0"});
+        let bare = t.message(&post("p2", json!({"type": "reminder", "message": "Hi there", "props": props}))).unwrap();
+        assert!(bare.text.as_deref().unwrap().ends_with(link), "{:?}", bare.text);
+        let mut set = props.clone();
+        set["type"] = json!("reminder");
+        set["target_time"] = json!(1_792_400_400);
+        let ack = t.ephemeral(&json!({"id": "e1", "channel_id": "ch1", "message": "Set", "props": set})).unwrap();
+        assert!(ack.text.contains(&format!("]({link})")), "{}", ack.text);
+    }
+
+    #[test]
+    fn an_ephemeral_post_is_never_a_message() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        assert!(t.message(&post("p1", json!({"type": "system_ephemeral"}))).is_none());
+    }
+
+    #[test]
+    fn a_post_for_me_alone_keeps_its_buttons_and_reads_a_reminder_in_my_language() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let note = t
+            .ephemeral(&json!({"id": "e1", "channel_id": "ch1", "message": "",
+                "props": {"attachments": [{"text": "Remind?", "actions": [
+                    {"id": "del", "name": "Delete", "style": "danger", "cookie": "c1"},
+                    {"id": "menu", "name": "Pick", "type": "select"},
+                    {"id": "", "name": "Nameless id"}]}]}}))
+            .unwrap();
+        assert_eq!((note.rid.as_str(), note.post_id.as_str(), note.text.as_str()), ("ch1", "e1", ""));
+        let card = crate::content::cards(note.attachments.as_deref()).remove(0);
+        assert_eq!(
+            card.actions,
+            [crate::content::CardAction {
+                id: "del".into(),
+                name: "Delete".into(),
+                style: "danger".into(),
+                cookie: Some("c1".into())
+            }]
+        );
+        let link = "https://chat.example.com/team/pl/p0";
+        let ack = t
+            .ephemeral(&json!({"id": "e2", "channel_id": "ch1",
+                "message": format!("You will be reminded about {link} by @bob at 19 Oct 26 09:00 UTC"),
+                "props": {"type": "reminder", "target_time": 1_792_400_400, "username": "bob", "team_name": "team", "post_id": "p0"}}))
+            .unwrap();
+        assert!(ack.text.contains(&format!("]({link})")) && ack.text.contains("@bob"), "{}", ack.text);
+        assert!(!ack.text.contains("UTC"));
+        assert!(t.ephemeral(&json!({"id": "e3", "channel_id": "ch1", "message": "  "})).is_none());
+    }
+
+    #[test]
+    fn a_cards_pretext_stays_above_it() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let m = t
+            .message(&post(
+                "p1",
+                json!({"message": "", "props": {"attachments": [{"pretext": "New **access** request",
+                    "title": ":file_folder: [MGP](https://drive.example.com/f/1)", "text": "stp"}]}}),
+            ))
+            .unwrap();
+        let card = crate::content::cards(m.attachments.as_deref()).remove(0);
+        assert_eq!(card.pretext.as_deref(), Some("New **access** request"));
+        assert_eq!(card.text.as_deref(), Some("stp"));
+    }
+
+    #[test]
     fn system_posts_and_threads() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let joined =
             t.message(&post("p1", json!({"type": "system_join_channel", "props": {"username": "bob"}}))).unwrap();
         assert_eq!((joined.system_type.as_deref(), joined.text.as_deref()), (Some("uj"), Some("bob")));
@@ -422,7 +662,7 @@ mod tests {
     #[test]
     fn rooms_and_memberships() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let dm = t.room(&json!({"id": "d1", "type": "D", "name": "u-bob__u-me"}), None).unwrap();
         assert_eq!(
             (dm.kind.as_str(), dm.name.as_deref(), dm.display_name.as_deref()),

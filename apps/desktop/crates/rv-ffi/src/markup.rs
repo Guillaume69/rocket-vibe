@@ -34,6 +34,24 @@ pub enum BodyBlock {
     List { items: Vec<ListItem> },
     BigEmoji { runs: Vec<Run> },
     Break,
+    Table { align: Vec<TableAlign>, header: Vec<TableCell>, rows: Vec<TableRow> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum TableAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TableCell {
+    pub runs: Vec<Run>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TableRow {
+    pub cells: Vec<TableCell>,
 }
 
 pub fn blocks(rendered: Vec<Block>) -> Vec<BodyBlock> {
@@ -49,6 +67,21 @@ pub fn blocks(rendered: Vec<Block>) -> Vec<BodyBlock> {
             },
             Block::BigEmoji(m) => BodyBlock::BigEmoji { runs: runs(&m) },
             Block::Break => BodyBlock::Break,
+            Block::Table { align, header, rows } => {
+                let cells = |row: Vec<String>| row.iter().map(|m| TableCell { runs: runs(m) }).collect::<Vec<_>>();
+                BodyBlock::Table {
+                    align: align
+                        .into_iter()
+                        .map(|a| match a {
+                            rv_core::markdown::Align::Left => TableAlign::Left,
+                            rv_core::markdown::Align::Center => TableAlign::Center,
+                            rv_core::markdown::Align::Right => TableAlign::Right,
+                        })
+                        .collect(),
+                    header: cells(header),
+                    rows: rows.into_iter().map(|row| TableRow { cells: cells(row) }).collect(),
+                }
+            }
         })
         .collect()
 }
@@ -90,7 +123,7 @@ mod tests {
     fn a_whole_message() {
         let md = r#"[{"type":"PARAGRAPH","value":[{"type":"PLAIN_TEXT","value":"hello "},{"type":"BOLD","value":[{"type":"PLAIN_TEXT","value":"world"}]}]},
             {"type":"UNORDERED_LIST","value":[{"type":"LIST_ITEM","value":[{"type":"PLAIN_TEXT","value":"one"}]}]}]"#;
-        let b = blocks(markdown::render(Some(md), None, &markdown::Context { me: "me" }));
+        let b = blocks(markdown::render(Some(md), None, &markdown::Context { me: "me", names: None }));
         assert_eq!(
             b,
             [

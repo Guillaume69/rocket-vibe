@@ -103,6 +103,11 @@ thread_local! {
     static WINDOW: std::cell::RefCell<Option<std::rc::Rc<window::AppWindow>>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Where the settings are kept, shared with the SwiftUI app.
+pub fn config_dir() -> std::path::PathBuf {
+    glib::user_config_dir().join("rocket-vibe-rs")
+}
+
 fn window_of(app: &adw::Application) -> std::rc::Rc<window::AppWindow> {
     if let Some(window) = WINDOW.with_borrow(Clone::clone) {
         window.window.present();

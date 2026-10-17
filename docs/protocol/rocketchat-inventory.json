@@ -372,6 +372,7 @@
     "apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/BotsModel.swift",
+    "apps/desktop/macos/Sources/RocketVibeKit/CardMenus.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/ChatProvider.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/CryptoHistory.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/CryptoModel.swift",

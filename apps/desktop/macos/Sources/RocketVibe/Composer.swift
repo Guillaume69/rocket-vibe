@@ -69,9 +69,7 @@ struct Composer: View {
                 ScheduledChip(count: scheduled.items.count) { showingScheduled = true }
             }
             if let note = model.note {
-                PrivateNote(note: note, press: note.postId.map { postId in
-                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: postId, action: action) }
-                }) { model.note = nil }
+                PrivateNote(note: note, press: note.postId.map { model.cardPress(postId: $0) }) { model.note = nil }
             }
             if let quote = model.pendingQuote {
                 HStack(alignment:.top) {
@@ -455,7 +453,7 @@ struct SuggestionList: View {
 /// Mattermost "visible only to you" post with its cards.
 struct PrivateNote: View {
     let note: PrivateNoteItem
-    var press: ((CardAction) async -> URL?)? = nil
+    var press: CardPress? = nil
     let close: () -> Void
 
     var body: some View {

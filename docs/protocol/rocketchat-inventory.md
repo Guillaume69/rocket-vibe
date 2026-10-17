@@ -513,7 +513,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:919](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L919) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:920](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L920) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:923](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L923) | endpoint | e2e.failed |
-| [apps/mobile/app/login.tsx:531](../../apps/mobile/app/login.tsx#L531) | endpoint | chat.example.org |
+| [apps/mobile/app/login.tsx:533](../../apps/mobile/app/login.tsx#L533) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:120](../../apps/mobile/app/message-actions.tsx#L120) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:121](../../apps/mobile/app/message-actions.tsx#L121) | endpoint | settings.public |
 | [apps/mobile/app/my-profile.tsx:189](../../apps/mobile/app/my-profile.tsx#L189) | call:POST | 'users.resetAvatar' |

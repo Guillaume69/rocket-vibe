@@ -3719,7 +3719,7 @@
     },
     {
       "file": "apps/mobile/app/login.tsx",
-      "line": 531,
+      "line": 533,
       "kind": "endpoint",
       "surface": "chat.example.org"
     },

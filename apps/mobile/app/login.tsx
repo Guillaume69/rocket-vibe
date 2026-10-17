@@ -161,8 +161,8 @@ export default function LoginScreen() {
     [switchServer, router],
   );
 
-  const submitServer = useCallback(async () => {
-    if (inFlight.current || kind === 'slack') return;
+  const submitServer = useCallback(async (): Promise<boolean> => {
+    if (inFlight.current || kind === 'slack') return false;
     inFlight.current = true;
     query.current?.abort();
     const controller = new AbortController();
@@ -171,17 +171,19 @@ export default function LoginScreen() {
     setMessage(null);
     try {
       const profile = await discoverServer(kind === 'kchat' ? KCHAT_DIRECTORY : address, controller.signal, fetch, kind);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return false;
       if (!profile.loginForm && profile.mattermost?.kind !== 'kchat') {
         // `Accounts_ShowFormLogin = false`: the server only offers SSO. The API
         // sometimes accepts a direct login anyway: we warn without blocking.
         setMessage(t('login.noPasswordLogin'));
       }
       setPhase({ name: 'credentials', profile, client: new RestClient(profile.baseUrl) });
+      return true;
     } catch (e) {
       if (!controller.signal.aborted) {
         setMessage(e instanceof NotVibezError ? t('login.notVibez') : e instanceof NotMattermostError ? t('login.notMattermost') : e instanceof Error ? e.message : t('login.serverUnreachable'));
       }
+      return false;
     } finally {
       inFlight.current = false;
       if (!controller.signal.aborted) setBusy(false);
@@ -557,7 +559,9 @@ export default function LoginScreen() {
                       title={hostOf(session.baseUrl) ?? session.baseUrl} onPress={() => void runSlack(() => openSlack(session))} />
                   ))}
                 </>
-              : <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />}
+              : kind === 'kchat'
+                ? <PrimaryButton c={c} busy={busy} onPress={() => void submitServer().then(found => found ? kchatOAuth() : undefined)} title={t('login.kchatSignIn')} />
+                : <PrimaryButton c={c} busy={busy} onPress={() => void submitServer()} title={t('login.continue')} />}
 
             {knownServers.length > 0 && (
               <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
@@ -688,7 +692,8 @@ export default function LoginScreen() {
       {webSignIn?.kind === 'kchat' && (
         <SignInWebView title={t('login.kchatSignIn')} start={authorizeUrl(webSignIn.pkce)}
           isPage={isKchatSignInPage} isDone={isKchatRedirect}
-          onDone={(redirect) => void kchatRedirected(redirect, webSignIn.pkce)} onCancel={() => setWebSignIn(null)} />
+          onDone={(redirect) => void kchatRedirected(redirect, webSignIn.pkce)}
+          onCancel={() => { setWebSignIn(null); if (kind === 'kchat') backToServer(); }} />
       )}
       {webSignIn?.kind === 'slack' && (
         <SignInWebView title={t('slack.signIn')} start={SLACK_WEB_START} userAgent={SLACK_WEB_USER_AGENT}

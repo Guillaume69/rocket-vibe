@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { linkedTitle } from "../src/markdown-text.ts";
 
 test("a linked card title keeps its inline markdown but no link or block of its own", () => {
-  const nodes = linkedTitle("**Build** [PR 42](https://ci.test/42) failed\non https://ci.test");
+  const nodes = linkedTitle(
+    "**Build** [PR 42](https://ci.test/42) failed\non https://ci.test",
+  );
   assert.deepEqual(nodes, [
     { kind: "bold", children: [{ kind: "text", text: "Build" }] },
     { kind: "text", text: " " },

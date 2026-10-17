@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { cardActionRoute, pressCardAction } from './integrationCards.ts';
+import { type CardAction, cardActionRoute, filterMenuOptions, menuLabel, pressCardAction } from './integrationCards.ts';
 
 function recorder() {
   const seen: string[] = [];
@@ -38,5 +38,29 @@ describe('cardActionRoute', () => {
     assert.equal(cardActionRoute('p1', '..'), null);
     assert.equal(cardActionRoute('p1', '%2e%2e'), null);
     assert.equal(cardActionRoute('', 'a'), null);
+  });
+});
+
+describe('card menus', () => {
+  const options = [{ label: 'Élevée', value: 'high' }, { label: 'Basse', value: 'low' }];
+  const menu = (initial: string | null): CardAction => ({ id: 'm', name: 'Priority', style: null, cookie: null, menu: { source: 'options', options, initial } });
+
+  test('a menu shows the choice made, else its listed default, else its name', () => {
+    assert.equal(menuLabel(menu('low'), 'Élevée'), 'Élevée');
+    assert.equal(menuLabel(menu('low'), null), 'Basse');
+    assert.equal(menuLabel(menu('gone'), null), 'Priority');
+    assert.equal(menuLabel(menu(null), null), 'Priority');
+  });
+
+  test('typing filters the listed choices, case and accents ignored', () => {
+    assert.deepEqual(filterMenuOptions(options, ' elev '), [options[0]]);
+    assert.deepEqual(filterMenuOptions(options, ''), options);
+    assert.deepEqual(filterMenuOptions(options, 'zz'), []);
+  });
+
+  test('a press that fails reports false, one that answers true', async () => {
+    const r = recorder();
+    assert.equal(await pressCardAction(() => Promise.reject(new Error('no')), r.then), false);
+    assert.equal(await pressCardAction(() => Promise.resolve({ ephemeralText: null, gotoLocation: null }), r.then), true);
   });
 });

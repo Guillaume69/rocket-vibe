@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::{gdk, gio, glib, pango};
-use rv_core::content::{CardAttachment, FileAttachment, FileKind, LinkPreview, Quote, VideoLink, XPost, human_size};
+use rv_core::content::{
+    CardAction, CardAttachment, CardMenu, FileAttachment, FileKind, LinkPreview, MenuSource, Quote, VideoLink, XPost,
+    human_size,
+};
 use rv_core::markdown;
 use rv_core::session::Session;
 
@@ -782,8 +785,21 @@ pub fn voice_call(kind: &str, param: &str, joinable: bool, on_event: OnRowEvent)
     card.upcast()
 }
 
-/// A card's button pressed, with the button to give back once answered.
-pub type PressAction = Rc<dyn Fn(rv_core::content::CardAction, gtk::Button)>;
+/// Told whether the press went through once the server answered.
+pub type PressDone = Rc<dyn Fn(bool)>;
+/// Given a menu's people or channels, as (label, value), `None` when the search failed.
+pub type MenuReply = Rc<dyn Fn(Option<Vec<(String, String)>>)>;
+
+/// What a card's buttons and menus ask of the page: a press, with the menu's
+/// choice and the widget a page opens from, and a menu's server search.
+pub struct CardHandlers {
+    pub press: Box<dyn Fn(CardAction, Option<String>, gtk::Widget, PressDone)>,
+    pub search: Box<dyn Fn(MenuSource, String, MenuReply)>,
+}
+
+pub type PressAction = Rc<CardHandlers>;
+
+type MenuFill = Rc<dyn Fn(&[(String, String)], &str)>;
 
 /// A bot's or an integration's card: the text above it, its colour down the
 /// side, the author, the linked title, the text and the fields, two abreast
@@ -859,6 +875,10 @@ pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Op
     if let Some(press) = press.filter(|_| !card.actions.is_empty()) {
         let buttons = gtk::Box::builder().spacing(8).margin_top(4).css_classes(["card-actions"]).build();
         for action in &card.actions {
+            if let Some(menu) = &action.menu {
+                buttons.append(&card_menu(action, menu, press));
+                continue;
+            }
             let button = gtk::Button::builder().label(&action.name).css_classes(["card-action"]).build();
             match action.style.as_str() {
                 "danger" => button.add_css_class("danger"),
@@ -868,7 +888,13 @@ pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Op
             let (press, action) = (press.clone(), action.clone());
             button.connect_clicked(move |button| {
                 button.set_sensitive(false);
-                press(action.clone(), button.clone());
+                let again = button.clone();
+                (press.press)(
+                    action.clone(),
+                    None,
+                    button.clone().upcast(),
+                    Rc::new(move |_| again.set_sensitive(true)),
+                );
             });
             buttons.append(&button);
         }
@@ -879,6 +905,125 @@ pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Op
     outer.append(&md(pretext, "link-description"));
     outer.append(&column);
     outer.upcast()
+}
+
+/// The listed choices whose label holds `term`, whatever the case.
+fn matching<'a>(options: &'a [(String, String)], term: &str) -> Vec<&'a (String, String)> {
+    let term = term.trim().to_lowercase();
+    options.iter().filter(|(label, _)| term.is_empty() || label.to_lowercase().contains(&term)).collect()
+}
+
+/// A card's menu: its choice, else its default, else its name; a popover to
+/// search the listed choices, or the server's people or channels.
+fn card_menu(action: &CardAction, menu: &CardMenu, press: &PressAction) -> gtk::Widget {
+    let shown = Rc::new(RefCell::new(menu.initial_label().unwrap_or(&action.name).to_owned()));
+    let button = gtk::MenuButton::builder().label(shown.borrow().as_str()).css_classes(["card-menu"]).build();
+    let search = gtk::SearchEntry::builder().placeholder_text(t("card.menu_search")).build();
+    let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["card-menu-list"]).build();
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_height(true)
+        .max_content_height(300)
+        .min_content_width(220)
+        .child(&list)
+        .build();
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    column.append(&search);
+    column.append(&scroller);
+    let popover = gtk::Popover::builder().child(&column).build();
+    button.set_popover(Some(&popover));
+
+    let fill: MenuFill = {
+        let (list, button, popover, shown, press, action) =
+            (list.clone(), button.clone(), popover.clone(), shown.clone(), press.clone(), action.clone());
+        Rc::new(move |options, empty| {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            if options.is_empty() {
+                list.append(&gtk::Label::builder().label(empty).css_classes(["dim-label"]).build());
+            }
+            for (label, value) in options {
+                let (label, value) = (label.clone(), value.clone());
+                let row = gtk::Button::builder()
+                    .child(
+                        &gtk::Label::builder().label(&label).xalign(0.0).ellipsize(pango::EllipsizeMode::End).build(),
+                    )
+                    .css_classes(["flat"])
+                    .build();
+                let (button, popover, shown, press, action) =
+                    (button.clone(), popover.clone(), shown.clone(), press.clone(), action.clone());
+                row.connect_clicked(move |_| {
+                    popover.popdown();
+                    let before = shown.replace(label.clone());
+                    button.set_label(&label);
+                    button.set_sensitive(false);
+                    let (again, shown) = (button.clone(), shown.clone());
+                    let done: PressDone = Rc::new(move |ok| {
+                        again.set_sensitive(true);
+                        if !ok {
+                            shown.replace(before.clone());
+                            again.set_label(&before);
+                        }
+                    });
+                    (press.press)(action.clone(), Some(value.clone()), button.clone().upcast(), done);
+                });
+                list.append(&row);
+            }
+        })
+    };
+
+    if menu.source == MenuSource::Options {
+        let options = Rc::new(menu.options.clone());
+        let refill = {
+            let (fill, options) = (fill.clone(), options.clone());
+            move |term: &str| {
+                fill(&matching(&options, term).into_iter().cloned().collect::<Vec<_>>(), t("card.menu_none"))
+            }
+        };
+        refill("");
+        search.connect_search_changed(move |entry| refill(&entry.text()));
+    } else {
+        let generation = Rc::new(std::cell::Cell::new(0u64));
+        let pending: Rc<RefCell<Option<glib::SourceId>>> = Rc::default();
+        let query: Rc<dyn Fn(String)> = {
+            let (press, fill, source, generation, list) =
+                (press.clone(), fill.clone(), menu.source.clone(), generation.clone(), list.clone());
+            Rc::new(move |term| {
+                let asked = generation.get() + 1;
+                generation.set(asked);
+                while let Some(child) = list.first_child() {
+                    list.remove(&child);
+                }
+                list.append(&gtk::Spinner::builder().spinning(true).margin_top(6).margin_bottom(6).build());
+                let (fill, generation) = (fill.clone(), generation.clone());
+                let reply: MenuReply = Rc::new(move |found| {
+                    if generation.get() == asked {
+                        match found {
+                            Some(found) => fill(&found, t("card.menu_none")),
+                            None => fill(&[], t("card.menu_failed")),
+                        }
+                    }
+                });
+                (press.search)(source.clone(), term, reply);
+            })
+        };
+        let opened = query.clone();
+        let entry = search.clone();
+        popover.connect_show(move |_| opened(entry.text().to_string()));
+        search.connect_search_changed(move |entry| {
+            if let Some(id) = pending.borrow_mut().take() {
+                id.remove();
+            }
+            let (query, term, slot) = (query.clone(), entry.text().to_string(), pending.clone());
+            let id = glib::timeout_add_local_once(std::time::Duration::from_millis(250), move || {
+                slot.borrow_mut().take();
+                query(term);
+            });
+            pending.replace(Some(id));
+        });
+    }
+    button.upcast()
 }
 
 /// A style class drawing the card's left edge in `color`, the rule added once.

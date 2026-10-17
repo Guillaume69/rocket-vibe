@@ -251,7 +251,7 @@ whole batch when one name does not exist [kChat].
 | `props.from_webhook` | `"true"` on an incoming webhook's post: honour the overrides below, show the BOT badge [probed] |
 | `props.override_username`, `props.override_icon_url` | the name and picture an incoming webhook posts under, shown instead of the poster's (whose `user_id` is the hook's creator); ignored without `from_webhook`; the icon only as an absolute http(s) URL, fetched without credentials [probed] |
 | `props.from_bot` | `"true"` on a bot account's post: the BOT badge |
-| `props.attachments[]` | integration cards: `pretext` (markdown, above the card), `author_name`, `title`, `title_link`, `text`, `color`, `fields[] {title, value, short}`, `fallback`; title, text and values are markdown. `actions[]` `{id, name, type, style, cookie}`: buttons (`type` absent or `button`, at most 10) drawn and pressed (6.3); menus (`type: "select"`) left out |
+| `props.attachments[]` | integration cards: `pretext` (markdown, above the card), `author_name`, `title`, `title_link`, `text`, `color`, `fields[] {title, value, short}`, `fallback`; title, text and values are markdown. `actions[]` `{id, name, type, style, cookie}`: buttons (`type` absent or `button`) and menus (`type: "select"`: `options[] {text, value}`, or `data_source` `users` / `channels`, `default_option` a value), at most 10 in all, drawn and pressed (6.3); other types left out |
 | `metadata.files[]` | `{id, name, mime_type, size, width, height, has_preview_image}` |
 | `metadata.reactions[]` | `{user_id, emoji_name}` |
 | `metadata.embeds[]` with `type: "opengraph"` | link card: `url`, `data.title`, `description`, `site_name`, `images[0]` |
@@ -482,6 +482,8 @@ refuses an oversize file with 413.
 | Favourite a room | `PUT /users/me/preferences [{user_id, category: "favorite_channel", name: channelId, value: "true" \| "false"}]` (4.8) |
 | Open a DM | `POST /channels/direct [myId, otherId]` (idempotent) |
 | Join a channel | `POST /channels/<id>/members {user_id}` |
+| Card button or menu | `POST /posts/<post>/actions/<action> {cookie?, selected_option?}`: `cookie` the one an ephemeral post's action carries, `selected_option` a menu's chosen value (a user or channel id for `data_source` `users` / `channels`, as Mattermost's webapp sends); answers `{ephemeral_text?, goto_location?, update?}` |
+| Card menu choices | `users`: `POST /users/search {term, limit: 20}` (label `username`, value `id`); `channels`: `POST /teams/<team>/channels/search {term}`, the team the room's `team_id`, else my first (label `display_name`, value `id`) |
 | Search a room | `POST /teams/<team>/posts/search {terms, is_or_search: false, page: 0, per_page: 60}` with an exact `in:` scope before the page limit, then keep only the room's posts. A DM has no team: use any team of mine (`GET /users/me/teams`) |
 | Room info | `GET /channels/<id>` (`header` = topic, `purpose` = description) and `/channels/<id>/stats` (`member_count`) |
 | Profile | `GET /users/<id>` or `/users/username/<u>`, `GET /users/<id>/status`; custom status in `props.customStatus` (JSON-encoded, `text`) |

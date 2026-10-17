@@ -109,13 +109,32 @@ export class MmActions implements ProviderActions {
     await this.client.post('/channels/members/me/view', { body: { channel_id: rid } });
   }
 
-  async cardAction(postId: string, actionId: string, cookie: string | null): Promise<CardActionAnswer> {
+  async cardAction(postId: string, actionId: string, cookie: string | null, selected?: string): Promise<CardActionAnswer> {
     const route = cardActionRoute(postId, actionId);
     if (route === null) throw new Error('card action outside its route');
     const answer = await this.client.post<Doc | null>(route, {
-      body: cookie === null ? {} : { cookie },
+      body: { ...(cookie === null ? {} : { cookie }), ...(selected === undefined ? {} : { selected_option: selected }) },
     });
     return { ephemeralText: text(answer?.ephemeral_text), gotoLocation: text(answer?.goto_location) };
+  }
+
+  /** People by username, or channels of the room's team by display name, the value their id. */
+  async cardMenuOptions(rid: string, source: 'users' | 'channels', term: string): Promise<{ label: string; value: string }[]> {
+    const clean = term.trim().replace(/^[@~]+/, '');
+    let found: unknown;
+    if (source === 'users') {
+      found = await this.client.post('/users/search', { body: { term: clean, limit: 20 } });
+    } else {
+      const team = text(this.live.channels.get(rid)?.team_id) ?? text((await this.client.get<Doc[]>('/users/me/teams'))[0]?.id);
+      if (team === null) return [];
+      found = await this.client.post(`/teams/${team}/channels/search`, { body: { term: clean } });
+    }
+    const key = source === 'users' ? 'username' : 'display_name';
+    return (Array.isArray(found) ? (found as Doc[]) : []).flatMap((doc) => {
+      const label = text(doc[key]) ?? text(doc.name);
+      const value = text(doc.id);
+      return label !== null && value !== null ? [{ label, value }] : [];
+    }).slice(0, 20);
   }
 
   async openOrCreateDm(username: string, uid?: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {

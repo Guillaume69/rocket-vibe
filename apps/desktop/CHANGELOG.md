@@ -19,6 +19,8 @@ section here.
 - A post from a Mattermost or kChat incoming webhook, or a Rocket.Chat message sent under an alias, shows under its own name and picture, with the BOT badge for an integration or a bot account (kChat's Euria too), and is grouped apart from its poster's own messages.
 - Mattermost and kChat: a post only you can see (a command's answer, kChat's confirmation of a reminder) shows above the composer with its text formatted and its cards; a reminder's confirmation reads in the app's language with its due time ("You will be reminded about this message from @bob tomorrow at 09:00").
 - Mattermost and kChat: the buttons of integration cards are drawn and work, in the room and in a post only you can see (kChat's Delete and View reminders): the integration's answer shows as a note only you see or opens its page, and a refusal says "This action failed".
+- Mattermost and kChat: the menus of integration cards work too: a click opens the integration's choices, or people or channels searched as you type, and the choice goes to the integration, which answers like a button.
+- macOS: the text you type in the message box now follows the zoom too.
 
 ### Changed
 

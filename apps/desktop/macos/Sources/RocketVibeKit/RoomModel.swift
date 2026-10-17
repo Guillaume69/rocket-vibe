@@ -1260,19 +1260,26 @@ public struct PrivateNoteItem: Equatable {
 }
 
 extension RoomModel {
-    /// A card's button (Mattermost and kChat): the server's words for me
-    /// alone become the note; the page it names is returned to open.
-    public func pressCardAction(postId: String, action: CardAction) async -> URL? {
-        guard let chat else { return nil }
+    /// A card's button, or a menu's `selected` value (Mattermost and kChat):
+    /// the server's words for me alone become the note; the page it names is
+    /// returned to open.
+    public func pressCardAction(postId: String, action: CardAction, selected: String? = nil) async -> CardPressOutcome {
+        guard let chat else { return .failed }
         do {
-            let answer = try await chat.pressCardAction(postId: postId, action: action)
+            let answer = try await chat.pressCardAction(postId: postId, action: action, selected: selected)
             if let text = answer.note {
                 note = PrivateNoteItem(text: text, body: answer.noteBody, cards: [], postId: nil)
             }
-            return answer.open.flatMap(URL.init(string:))
+            return .done(answer.open.flatMap(URL.init(string:)))
         } catch {
             onNotice?(L("mm.action_failed"))
-            return nil
+            return .failed
         }
+    }
+
+    /// The people or channels a card menu offers for `term`; `nil` when the server cannot say.
+    public func cardMenuOptions(source: MenuSource, term: String) async -> [MenuOption]? {
+        guard let chat else { return nil }
+        return try? await chat.cardMenuOptions(rid: rid, source: source, term: term)
     }
 }

@@ -383,13 +383,17 @@ fn cards(raw: Option<&Value>) -> Vec<Value> {
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .filter(|b| matches!(str_of(b, "type"), None | Some("button")))
                 .filter_map(|b| {
                     let mut button = json!({"id": str_of(b, "id")?, "name": str_of(b, "name")?});
                     for key in ["style", "cookie"] {
                         if let Some(v) = str_of(b, key) {
                             button[key] = json!(v);
                         }
+                    }
+                    match str_of(b, "type") {
+                        None | Some("button") => {}
+                        Some("select") => menu_of(b, &mut button),
+                        Some(_) => return None,
                     }
                     Some(button)
                 })
@@ -480,6 +484,24 @@ fn previews(raw: Option<&Value>) -> Option<String> {
         out.push(json!({"url": url, "meta": meta}));
     }
     (!out.is_empty()).then(|| Value::Array(out).to_string())
+}
+
+fn menu_of(action: &Value, menu: &mut Value) {
+    menu["type"] = json!("select");
+    let options: Vec<Value> = action
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|o| Some(json!({"text": str_of(o, "text")?, "value": o.get("value")?.as_str()?})))
+        .collect();
+    menu["options"] = Value::Array(options);
+    if let Some(source @ ("users" | "channels")) = str_of(action, "data_source") {
+        menu["source"] = json!(source);
+    }
+    if let Some(default) = str_of(action, "default_option") {
+        menu["default"] = json!(default);
+    }
 }
 
 #[cfg(test)]
@@ -617,7 +639,8 @@ mod tests {
                 id: "del".into(),
                 name: "Delete".into(),
                 style: "danger".into(),
-                cookie: Some("c1".into())
+                cookie: Some("c1".into()),
+                menu: None,
             }]
         );
         let link = "https://chat.example.com/team/pl/p0";
@@ -629,6 +652,42 @@ mod tests {
         assert!(ack.text.contains(&format!("]({link})")) && ack.text.contains("@bob"), "{}", ack.text);
         assert!(!ack.text.contains("UTC"));
         assert!(t.ephemeral(&json!({"id": "e3", "channel_id": "ch1", "message": "  "})).is_none());
+    }
+
+    #[test]
+    fn a_cards_menus_keep_their_options_source_and_default() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let p = post(
+            "p1",
+            json!({"props": {"attachments": [{"text": "Triage", "actions": [
+            {"id": "prio", "name": "Priority", "type": "select", "default_option": "low",
+                "options": [{"text": "Low", "value": "low"}, {"text": "High", "value": "high"}, {"text": "No value"}]},
+            {"id": "who", "name": "Assign", "type": "select", "data_source": "users", "cookie": "c2"},
+            {"id": "where", "name": "Move", "type": "select", "data_source": "channels"},
+            {"id": "x", "name": "Unknown", "type": "datepicker"}]}]}}),
+        );
+        let m = t.message(&p).unwrap();
+        let card = crate::content::cards(m.attachments.as_deref()).remove(0);
+        use crate::content::{CardMenu, MenuSource};
+        let menus: Vec<_> = card.actions.iter().map(|a| (a.id.as_str(), a.menu.clone().unwrap())).collect();
+        assert_eq!(
+            menus,
+            [
+                (
+                    "prio",
+                    CardMenu {
+                        source: MenuSource::Options,
+                        options: vec![("Low".into(), "low".into()), ("High".into(), "high".into())],
+                        initial: Some("low".into()),
+                    }
+                ),
+                ("who", CardMenu { source: MenuSource::Users, ..Default::default() }),
+                ("where", CardMenu { source: MenuSource::Channels, ..Default::default() }),
+            ]
+        );
+        assert_eq!(menus[0].1.initial_label(), Some("Low"));
+        assert_eq!(card.actions[1].cookie.as_deref(), Some("c2"));
     }
 
     #[test]

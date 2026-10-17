@@ -436,19 +436,31 @@ export function cards(raw: unknown): Record<string, unknown>[] {
   });
 }
 
-/** An integration's buttons (`actions[]`); menus are left out. */
+/** An integration's buttons and menus (`actions[]`). */
 function cardActions(raw: unknown): Record<string, unknown>[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     const a = record(item);
     const id = str(a?.id);
     const name = str(a?.name);
-    if (a === null || id === null || name === null || (a.type !== undefined && a.type !== 'button')) return [];
+    if (a === null || id === null || name === null || ![undefined, 'button', 'select'].includes(a.type as string | undefined)) return [];
     const button: Record<string, unknown> = { id, name };
     const style = str(a.style);
     const cookie = str(a.cookie);
     if (style !== null) button.style = style;
     if (cookie !== null) button.cookie = cookie;
+    if (a.type === 'select') {
+      button.type = 'select';
+      button.options = (Array.isArray(a.options) ? a.options : []).flatMap((option: unknown) => {
+        const o = record(option);
+        const text = str(o?.text);
+        return text !== null && typeof o?.value === 'string' ? [{ text, value: o.value }] : [];
+      });
+      const source = str(a.data_source);
+      if (source === 'users' || source === 'channels') button.source = source;
+      const initial = str(a.default_option);
+      if (initial !== null) button.default = initial;
+    }
     return [button];
   });
 }

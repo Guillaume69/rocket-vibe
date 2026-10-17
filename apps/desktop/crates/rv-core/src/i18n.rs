@@ -1450,6 +1450,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "You will be reminded about [this message]({link}) from @{user} {when}",
     ),
     ("mm.action_failed", "Cette action a échoué", "This action failed"),
+    ("card.menu_search", "Chercher", "Search"),
+    ("card.menu_none", "Aucun choix", "No choices"),
+    ("card.menu_failed", "Les choix n’ont pas pu être lus", "The choices could not be loaded"),
     (
         "mm.reminder",
         "Bonjour, voici votre rappel concernant ce message de @{user} : {link}",

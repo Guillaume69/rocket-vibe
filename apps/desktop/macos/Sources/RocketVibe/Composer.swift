@@ -69,9 +69,7 @@ struct Composer: View {
                 ScheduledChip(count: scheduled.items.count) { showingScheduled = true }
             }
             if let note = model.note {
-                PrivateNote(note: note, press: note.postId.map { postId in
-                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: postId, action: action) }
-                }) { model.note = nil }
+                PrivateNote(note: note, press: note.postId.map { model.cardPress(postId: $0) }) { model.note = nil }
             }
             if let quote = model.pendingQuote {
                 HStack(alignment:.top) {
@@ -113,7 +111,8 @@ struct Composer: View {
                         onUpInEmpty: editLast,
                         onPasteFiles: { if model.supportsFiles { staged.append(contentsOf: $0) } },
                         onCursor: suggest,
-                        onKey: key
+                        onKey: key,
+                        scale: TextScale.shared.factor
                     )
                     .frame(height: height)
                     Button { picking = true } label: { Image(systemName: "face.smiling").foregroundStyle(Vibe.muted) }
@@ -200,7 +199,8 @@ struct Composer: View {
 
     var height: CGFloat {
         let lines = max(1, model.draft.split(separator: "\n", omittingEmptySubsequences: false).count)
-        return min(170, CGFloat(lines) * 20 + 6)
+        let scale = CGFloat(TextScale.shared.factor)
+        return min(170 * scale, CGFloat(lines) * 20 * scale + 6)
     }
 
     func suggest(_ before: String) {
@@ -455,7 +455,7 @@ struct SuggestionList: View {
 /// Mattermost "visible only to you" post with its cards.
 struct PrivateNote: View {
     let note: PrivateNoteItem
-    var press: ((CardAction) async -> URL?)? = nil
+    var press: CardPress? = nil
     let close: () -> Void
 
     var body: some View {
@@ -637,6 +637,12 @@ struct ComposerField: NSViewRepresentable {
     let onPasteFiles: ([URL]) -> Void
     let onCursor: (String) -> Void
     let onKey: (ComposerKey) -> Bool
+    let scale: Double
+
+    static func font(_ scale: Double) -> NSFont {
+        let factor = CGFloat(scale)
+        return NSFont(name: "Nunito-Regular", size: 14.5 * factor) ?? .systemFont(ofSize: (NSFont.systemFontSize + 1) * factor)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -655,7 +661,7 @@ struct ComposerField: NSViewRepresentable {
         view.isRichText = false
         view.importsGraphics = false
         view.allowsUndo = true
-        view.font = NSFont(name: "Nunito-Regular", size: 14.5) ?? .systemFont(ofSize: NSFont.systemFontSize + 1)
+        view.font = Self.font(scale)
         view.textColor = NSColor(Vibe.text)
         view.insertionPointColor = NSColor(Vibe.pink)
         view.isContinuousSpellCheckingEnabled = true
@@ -678,6 +684,11 @@ struct ComposerField: NSViewRepresentable {
         context.coordinator.parent = self
         guard let view = scroll.documentView as? NSTextView else { return }
         bridge.view = view
+        let font = Self.font(scale)
+        if view.font != font {
+            view.font = font
+            view.typingAttributes[.font] = font
+        }
         if view.string != text {
             view.string = text
             view.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))

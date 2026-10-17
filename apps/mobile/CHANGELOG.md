@@ -16,6 +16,7 @@ release, and its notes are that version's section here.
 - Mattermost and kChat: a reminder the server posts ("Hi there, here's your reminder about this message…") reads in the app's language.
 - A post from a Mattermost or kChat incoming webhook, or a Rocket.Chat message sent under an alias, shows under its own name and picture, with the BOT badge for an integration or a bot account (kChat's Euria too), and is grouped apart from its poster's own messages.
 - Mattermost and kChat: the buttons of integration cards are drawn and work, in the room and in a post only you can see (kChat's Delete and View reminders): the integration's answer shows as a note only you see or opens its page, and a refusal says "This action failed".
+- Mattermost and kChat: the menus of integration cards work too: a tap opens a sheet with the integration's choices, or people or channels searched as you type, and the choice goes to the integration, which answers like a button.
 
 ### Changed
 

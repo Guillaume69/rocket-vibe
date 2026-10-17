@@ -576,9 +576,7 @@ struct MessageRow: View, Equatable {
             } else if card.xPost {
                 XPostCard(card: card, chat: model?.provider.legacy)
             } else if card.integration {
-                IntegrationCard(card: card, press: model.map { model in
-                    { (action: CardAction) async -> URL? in await model.pressCardAction(postId: message.id, action: action) }
-                })
+                IntegrationCard(card: card, press: model?.cardPress(postId: message.id))
             } else {
                 LinkCard(card: card)
             }
@@ -1077,8 +1075,8 @@ struct LinkCard: View {
 struct IntegrationCard: View {
     @Environment(\.openURL) var openURL
     let card: Card
-    /// Presses a button through the server; the page it answers opens.
-    var press: ((CardAction) async -> URL?)? = nil
+    /// Presses a button or a menu's choice through the server; the page it answers opens.
+    var press: CardPress? = nil
     @State private var pressing: String?
 
     var body: some View {
@@ -1111,25 +1109,29 @@ struct IntegrationCard: View {
                 if let press, !card.actions.isEmpty {
                     HStack(spacing: 8) {
                         ForEach(card.actions, id: \.id) { action in
-                            Button {
-                                guard pressing == nil else { return }
-                                pressing = action.id
-                                Task {
-                                    if let url = await press(action) { openURL(url) }
-                                    pressing = nil
+                            if let menu = action.menu {
+                                CardMenuControl(action: action, menu: menu, press: press, pressing: $pressing)
+                            } else {
+                                Button {
+                                    guard pressing == nil else { return }
+                                    pressing = action.id
+                                    Task {
+                                        if case let .done(url?) = await press.press(action, nil) { openURL(url) }
+                                        pressing = nil
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        if pressing == action.id { ProgressView().controlSize(.small) }
+                                        Text(action.name).font(.vibe(12.5, .bold))
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .foregroundStyle(tint(action.style))
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint(action.style).opacity(0.5)))
                                 }
-                            } label: {
-                                HStack(spacing: 6) {
-                                    if pressing == action.id { ProgressView().controlSize(.small) }
-                                    Text(action.name).font(.vibe(12.5, .bold))
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 4)
-                                .foregroundStyle(tint(action.style))
-                                .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint(action.style).opacity(0.5)))
+                                .buttonStyle(.plain)
+                                .disabled(pressing != nil)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(pressing != nil)
                         }
                     }
                     .padding(.top, 4)
@@ -1160,6 +1162,121 @@ struct IntegrationCard: View {
         case "danger": return Vibe.pink
         case "primary", "good", "success": return Vibe.mint
         default: return Vibe.text
+        }
+    }
+}
+
+/// A card's way to the server: pressing a button or a menu's choice, and
+/// the people or channels a menu offers for a search.
+struct CardPress {
+    let press: (CardAction, String?) async -> CardPressOutcome
+    let options: (MenuSource, String) async -> [MenuOption]?
+}
+
+extension RoomModel {
+    func cardPress(postId: String) -> CardPress {
+        CardPress(
+            press: { action, selected in await self.pressCardAction(postId: postId, action: action, selected: selected) },
+            options: { source, term in await self.cardMenuOptions(source: source, term: term) }
+        )
+    }
+}
+
+/// A card's menu: the choice made, else its listed initial value, else its name;
+/// a popover lists the integration's options, or searches people or channels
+/// on the server, and choosing presses with the value.
+struct CardMenuControl: View {
+    @Environment(\.openURL) var openURL
+    let action: CardAction
+    let menu: CardMenu
+    let press: CardPress
+    @Binding var pressing: String?
+    @State private var chosen: String?
+    @State private var open = false
+    @State private var term = ""
+    @State private var found: [MenuOption]?
+    @State private var failed = false
+    @State private var search: Task<Void, Never>?
+
+    var body: some View {
+        let label = CardMenus.label(menu, name: action.name, chosen: chosen)
+        Button { open = true } label: {
+            HStack(spacing: 6) {
+                if pressing == action.id { ProgressView().controlSize(.small) }
+                Text(label).font(.vibe(12.5, .bold)).lineLimit(1)
+                    .foregroundStyle(chosen == nil && label == action.name ? Vibe.muted : Vibe.text)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(Vibe.muted)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Vibe.text.opacity(0.25)))
+        }
+        .buttonStyle(.plain)
+        .disabled(pressing != nil)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                TextField(L("card.menu_search"), text: $term).textFieldStyle(.roundedBorder)
+                if menu.source != .options && found == nil && !failed {
+                    ProgressView().controlSize(.small).padding(6)
+                } else if failed {
+                    Text(L("card.menu_failed")).font(.vibe(12)).foregroundStyle(Vibe.muted).padding(6)
+                } else if shown.isEmpty {
+                    Text(L("card.menu_none")).font(.vibe(12)).foregroundStyle(Vibe.muted).padding(6)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(shown, id: \.value) { option in
+                                Button { choose(option) } label: {
+                                    Text(option.label).font(.vibe(13)).lineLimit(1)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 5).padding(.horizontal, 6)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                }
+            }
+            .padding(10)
+            .frame(width: 260)
+            .onAppear { term = ""; lookUp("", wait: false) }
+            .onDisappear { search?.cancel() }
+            .onChange(of: term) { _, value in lookUp(value, wait: true) }
+        }
+    }
+
+    var shown: [MenuOption] { menu.source == .options ? CardMenus.filter(menu.options, term) : found ?? [] }
+
+    func lookUp(_ value: String, wait: Bool) {
+        guard menu.source != .options else { return }
+        search?.cancel()
+        found = nil
+        failed = false
+        let source = menu.source
+        search = Task {
+            if wait { try? await Task.sleep(for: .milliseconds(250)) }
+            guard !Task.isCancelled else { return }
+            let list = await press.options(source, value)
+            guard !Task.isCancelled else { return }
+            found = list
+            failed = list == nil
+        }
+    }
+
+    func choose(_ option: MenuOption) {
+        guard pressing == nil else { return }
+        open = false
+        let previous = chosen
+        chosen = option.label
+        pressing = action.id
+        Task {
+            switch await press.press(action, option.value) {
+            case .failed: chosen = previous
+            case let .done(url): if let url { openURL(url) }
+            }
+            pressing = nil
         }
     }
 }

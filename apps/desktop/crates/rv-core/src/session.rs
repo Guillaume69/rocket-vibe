@@ -1794,15 +1794,29 @@ impl Session {
         Ok(())
     }
 
-    /// A card's button, on Mattermost and kChat; elsewhere cards have none.
+    /// A card's button, or a menu's choice, on Mattermost and kChat; elsewhere cards have none.
     pub async fn press_card_action(
         &self,
         post_id: &str,
         action: &crate::content::CardAction,
+        selected: Option<&str>,
     ) -> Result<crate::content::ActionAnswer, RestError> {
         match self.backend() {
-            Backend::Mattermost(mm) => mm.press_action(post_id, &action.id, action.cookie.as_deref()).await,
+            Backend::Mattermost(mm) => mm.press_action(post_id, &action.id, action.cookie.as_deref(), selected).await,
             _ => Err(RestError::incomplete("card buttons are Mattermost's")),
+        }
+    }
+
+    /// The people or channels a card menu of room `rid` offers for `term`, as (label, value).
+    pub async fn card_menu_options(
+        &self,
+        rid: &str,
+        source: &crate::content::MenuSource,
+        term: &str,
+    ) -> Result<Vec<(String, String)>, RestError> {
+        match self.backend() {
+            Backend::Mattermost(_) => mattermost::actions::menu_options(&self.rest, rid, source, term).await,
+            _ => Err(RestError::incomplete("card menus are Mattermost's")),
         }
     }
 

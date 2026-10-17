@@ -28,6 +28,13 @@ export function integrationCard(value:unknown):IntegrationCard|null {
 }
 
 /** Presses a card button: its answer becomes a private note or an opened http(s) link, a failure `failed`. */
+const ROUTE_ID = /^[A-Za-z0-9_-]+$/;
+
+/** A button's route, `null` when an id could climb out of it. */
+export function cardActionRoute(postId: string, actionId: string): string | null {
+  return ROUTE_ID.test(postId) && ROUTE_ID.test(actionId) ? `/posts/${postId}/actions/${actionId}` : null;
+}
+
 export async function pressCardAction(
   press: () => Promise<CardActionAnswer>,
   then: { note: (text: string) => void; open: (url: string) => void; failed: () => void },

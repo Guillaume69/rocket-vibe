@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { pressCardAction } from './integrationCards.ts';
+import { cardActionRoute, pressCardAction } from './integrationCards.ts';
 
 function recorder() {
   const seen: string[] = [];
@@ -28,5 +28,15 @@ describe('pressCardAction', () => {
     await pressCardAction(async () => ({ ephemeralText: null, gotoLocation: 'javascript:alert(1)' }), r.then);
     await pressCardAction(async () => ({ ephemeralText: null, gotoLocation: null }), r.then);
     assert.deepEqual(r.seen, ['note:Done', 'open:https://example.com/x']);
+  });
+});
+
+describe('cardActionRoute', () => {
+  test('an id that could leave the route is refused', () => {
+    assert.equal(cardActionRoute('p1', 'confirm_2'), '/posts/p1/actions/confirm_2');
+    assert.equal(cardActionRoute('p1', '../../users/me/sessions/revoke/all'), null);
+    assert.equal(cardActionRoute('p1', '..'), null);
+    assert.equal(cardActionRoute('p1', '%2e%2e'), null);
+    assert.equal(cardActionRoute('', 'a'), null);
   });
 });

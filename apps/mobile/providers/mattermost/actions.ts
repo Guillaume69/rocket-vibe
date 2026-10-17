@@ -4,6 +4,7 @@
  * field of the post.
  */
 
+import { cardActionRoute } from '../../lib/integrationCards.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
 import type { CardActionAnswer, ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
 import type { MmCategories } from './categories.ts';
@@ -109,7 +110,9 @@ export class MmActions implements ProviderActions {
   }
 
   async cardAction(postId: string, actionId: string, cookie: string | null): Promise<CardActionAnswer> {
-    const answer = await this.client.post<Doc | null>(`/posts/${encodeURIComponent(postId)}/actions/${encodeURIComponent(actionId)}`, {
+    const route = cardActionRoute(postId, actionId);
+    if (route === null) throw new Error('card action outside its route');
+    const answer = await this.client.post<Doc | null>(route, {
       body: cookie === null ? {} : { cookie },
     });
     return { ephemeralText: text(answer?.ephemeral_text), gotoLocation: text(answer?.goto_location) };

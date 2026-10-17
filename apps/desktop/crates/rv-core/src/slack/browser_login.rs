@@ -92,6 +92,31 @@ impl BrowserLogin {
         self.inner.state()
     }
 
+    /// A sign-in an app window finished: `reached` is the Slack page it
+    /// stopped on, `cookies` what it held. Its workspaces are then read as a
+    /// browser sign-in's are; the state moves on as for `start`.
+    pub fn from_window(reached: &str, cookies: Vec<WindowCookie>) -> Arc<Self> {
+        let (cancel, _) = watch::channel(false);
+        let inner =
+            Arc::new(Inner { state: Mutex::new(State::SigningIn), credentials: Mutex::new(HashMap::new()), cancel });
+        let hosts: Vec<String> = slack_url(reached).and_then(|u| u.host_str().map(str::to_owned)).into_iter().collect();
+        let mut result = json!({"cookies": cookies.iter().map(|c| json!({
+            "name": c.name, "value": c.value.as_str(), "domain": c.domain, "path": c.path,
+            "secure": c.secure, "httpOnly": c.http_only, "expires": -1,
+        })).collect::<Vec<_>>()});
+        drop(cookies);
+        let task = inner.clone();
+        tokio::spawn(async move {
+            derive_from(&task, &result, &hosts).await;
+            zeroize_json(&mut result);
+            task.set_state(match workspaces(&task) {
+                Some(workspaces) => State::Ready(workspaces),
+                None => State::Failed("authentication_failed"),
+            });
+        });
+        Arc::new(Self { inner })
+    }
+
     pub fn cancel(&self) {
         self.inner.cancel.send_replace(true);
     }
@@ -477,33 +502,8 @@ impl Browser {
     /// boot page.
     async fn derive(&self, inner: &Arc<Inner>, handoff_hosts: &[String]) {
         let Ok(mut result) = self.cdp.command("Storage.getCookies", json!({}), None).await else { return };
-        let cookie = session_cookie(&result, None);
-        let mut hosts: Vec<String> = handoff_hosts.to_vec();
-        if let Some(cookies) = result["cookies"].as_array() {
-            hosts.extend(
-                cookies.iter().filter_map(|c| c["domain"].as_str()).map(|d| d.trim_start_matches('.').to_owned()),
-            );
-        }
+        derive_from(inner, &result, handoff_hosts).await;
         zeroize_json(&mut result);
-        let Some(cookie) = cookie else { return };
-        for host in workspace_hosts(&hosts).into_iter().take(20) {
-            let Some(token) = boot_token(&host, &cookie).await else { continue };
-            if let Ok(mut info) = account::login(&token, &cookie, None).await {
-                let Some(account) = info.slack.take() else {
-                    info.auth_token.zeroize();
-                    continue;
-                };
-                let label = host.strip_suffix(".slack.com").unwrap_or(&host).to_owned();
-                let credential = Credential {
-                    team_id: account.team_id,
-                    user_id: info.user_id.clone(),
-                    label,
-                    token: Zeroizing::new(std::mem::take(&mut info.auth_token)),
-                    cookie: account.cookie,
-                };
-                inner.credentials.lock().expect("Slack browser login").insert(credential.team_id.clone(), credential);
-            }
-        }
     }
 
     async fn inspect(
@@ -633,6 +633,60 @@ impl Drop for Browser {
 const HANDOFF_PAGE: &str = "PCFkb2N0eXBlIGh0bWw+PG1ldGEgY2hhcnNldD11dGYtOD48dGl0bGU+U2xhY2s8L3RpdGxlPjxib2R5IHN0eWxlPSJmb250OjE2cHggc3lzdGVtLXVpO3RleHQtYWxpZ246Y2VudGVyO21hcmdpbi10b3A6MjB2aCI+U2lnbmVkIGluLiBSb2NrZXRWaWJlIGlzIGZpbmlzaGluZyB1cC48L2JvZHk+";
 
 const SNAPSHOT: &str = r#"(()=>{const u=new URL(location.href);if(u.protocol!=="https:"||u.port||!/^([a-z0-9-]+\.)?slack\.com$/.test(u.hostname)||!/^\/(client|app)(\/|$)/.test(u.pathname))return null;let config=null;try{const s=localStorage.getItem("localConfig_v2");if(s&&s.length<=2000000)config=s}catch{}let total=0;const tokens=new Set();for(const s of document.scripts){const t=s.textContent||"";total+=t.length;if(total>2000000)break;for(const m of t.matchAll(/["']api_token["']\s*:\s*["'](xoxc-[A-Za-z0-9-]+)["']/g))tokens.add(m[1])}return{url:u.href,config,bootToken:tokens.size===1?[...tokens][0]:null}})()"#;
+
+/// The session cookie among `result`'s (CDP `Storage.getCookies` shape) and
+/// the workspace hosts the handoff and the cookie domains name: each host's
+/// boot page gives its token, kept as a credential once Slack accepts it.
+async fn derive_from(inner: &Arc<Inner>, result: &Value, handoff_hosts: &[String]) {
+    let cookie = session_cookie(result, None);
+    let mut hosts: Vec<String> = handoff_hosts.to_vec();
+    if let Some(cookies) = result["cookies"].as_array() {
+        hosts.extend(cookies.iter().filter_map(|c| c["domain"].as_str()).map(|d| d.trim_start_matches('.').to_owned()));
+    }
+    let Some(cookie) = cookie else { return };
+    for host in workspace_hosts(&hosts).into_iter().take(20) {
+        let Some(token) = boot_token(&host, &cookie).await else { continue };
+        if let Ok(mut info) = account::login(&token, &cookie, None).await {
+            let Some(account) = info.slack.take() else {
+                info.auth_token.zeroize();
+                continue;
+            };
+            let label = host.strip_suffix(".slack.com").unwrap_or(&host).to_owned();
+            let credential = Credential {
+                team_id: account.team_id,
+                user_id: info.user_id.clone(),
+                label,
+                token: Zeroizing::new(std::mem::take(&mut info.auth_token)),
+                cookie: account.cookie,
+            };
+            inner.credentials.lock().expect("Slack browser login").insert(credential.team_id.clone(), credential);
+        }
+    }
+}
+
+/// A cookie an app window read: what `derive_from` reads from CDP.
+pub struct WindowCookie {
+    pub name: String,
+    pub value: Zeroizing<String>,
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+}
+
+/// Where an app window's Slack sign-in may go: Slack's own `https` pages.
+pub fn window_page(raw: &str) -> bool {
+    slack_url(raw).is_some()
+}
+
+/// Where it ends: the desktop handoff, or the web client loading instead.
+pub fn window_done(raw: &str) -> bool {
+    slack_url(raw).is_some_and(|url| is_handoff_url(&url) || is_client_url(&url))
+}
+
+/// The address an app window's Slack sign-in starts on, and whose cookies it reads.
+pub const WINDOW_START: &str = "https://slack.com/signin";
+pub const WINDOW_COOKIES: &str = "https://slack.com";
 
 /// The one secure, HttpOnly, unexpired Slack `d` cookie of a CDP cookie list,
 /// scoped to `url` when one is given.

@@ -480,6 +480,11 @@ pub fn huddle_page(link: &str) -> Option<String> {
     }
 }
 
+/// Where a huddle's call window may go: Slack's own pages and the page's blobs.
+pub fn huddle_allowed(url: &str, _call_url: &str) -> bool {
+    url == "about:blank" || url == "about:srcdoc" || url.strip_prefix("blob:").is_some_and(slack_web) || slack_web(url)
+}
+
 /// An `https` page of Slack's own web app, the only kind a huddle opens.
 pub fn slack_web(link: &str) -> bool {
     url::Url::parse(link).is_ok_and(|url| {

@@ -2013,6 +2013,11 @@ impl Session {
         actions::join_call(&self.rest, &call_id).await
     }
 
+    /// The session cookie a huddle's call window starts with, on a Slack account.
+    pub fn huddle_cookie(&self) -> Option<zeroize::Zeroizing<String>> {
+        self.info.slack.as_ref().map(|account| account.cookie.clone())
+    }
+
     /// A Slack huddle's page in an app window signed in with this session,
     /// so it needs no sign-in of its own; answers the browser used.
     pub async fn open_huddle_window(&self, url: &str) -> Result<std::path::PathBuf, RestError> {

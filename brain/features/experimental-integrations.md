@@ -20,8 +20,7 @@ person's status emoji after their name. A huddle shows as the kChat-style call c
 Join opens it in Slack's web app, as does the room header's call button, which
 starts one: on GTK Linux in a temporary Chromium app window already signed in with the
 session cookie (no second sign-in), on GTK elsewhere, macOS and Android in the system
-browser (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room info, settings, members, leave, favorites, quotes, scheduled messages and the account and profile screens stay hidden. A thread reply marks its room unread and notifies only when it names me; a conversation created or joined elsewhere appears live. Android hides reactions Slack does not know (`slackReactable`); GTK and SwiftUI hide Rocket.Chat's GIFs, stickers and encryption on Slack (`is_slack`). Android (`ui/slackSignIn.tsx`) takes the
-helper's encrypted handoff or a pasted token and cookie. GTK and SwiftUI hide the server
+browser (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room info, settings, members, leave, favorites, quotes, scheduled messages and the account and profile screens stay hidden. A thread reply marks its room unread and notifies only when it names me; a conversation created or joined elsewhere appears live. Android hides reactions Slack does not know (`slackReactable`); GTK and SwiftUI hide Rocket.Chat's GIFs, stickers and encryption on Slack (`is_slack`). Android signs in with one button, in the app's sign-in web view (`providers/slack/webSignIn.ts`), the way the desktops use their browser. GTK and SwiftUI hide the server
 and password fields and offer "Sign in to Slack": the app opens a temporary browser,
 the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a
 workspace picker appears when the session holds several. Cancel stops the attempt and
@@ -46,11 +45,15 @@ accounts stay.
 lib/experimentalUnlock.ts implements the sequence; ui/experimentalProviders.ts
 persists only the enable flag in SecureStore. app/login.tsx attaches it to the
 unicorn button, gates the Slack kind and the WhatsApp entry on it, and mounts
-`TeamsPreview` (ui/teamsPreview.tsx) while unlocked. Slack's pairing lives in
-ui/slackSignIn.tsx: a masked public pairing code, the helper's encrypted response opened
-by providers/slack/handoff.ts, or a pasted token and cookie; providers/slack/auth.ts
-checks them with `auth.test` and the session (token, team id, `d` cookie) is saved like
-any account. providers/slack/client.ts sends form POSTs only to https://slack.com/api/,
+`TeamsPreview` (ui/teamsPreview.tsx) while unlocked. Slack's sign-in is one button: ui/signInWebView.tsx shows slack.com/signin and only
+Slack's https pages, and stops on the desktop handoff (`/ssb/`) or the web client
+(`isSlackWebDone`), where a script reads the workspace hosts of `localConfig_v2` (never
+its tokens). The session's HttpOnly `d` cookie is read from the web view's store by the
+local module modules/web-cookies (Android `CookieManager`), which is then cleared;
+providers/slack/webSignIn.ts fetches each workspace's boot page with that cookie for its
+`xoxc` token and proves it with `auth.test` (providers/slack/auth.ts). Several workspaces
+are offered as buttons; the session (token, team id, `d` cookie) is saved like any
+account. providers/slack/handoff.ts (the helper's pairing) is no longer reached. providers/slack/client.ts sends form POSTs only to https://slack.com/api/,
 with Bearer and the exact original cookie bytes; credentials=omit disables the native
 shared cookie jar. IDs use workspace and user identity, and message timestamps remain
 six-decimal strings; conversion to seconds occurs only for a displayed date.
@@ -211,6 +214,9 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - apps/mobile/ui/experimentalProviders.ts
 - apps/mobile/app/login.tsx
 - apps/mobile/ui/slackSignIn.tsx
+- apps/mobile/ui/signInWebView.tsx
+- apps/mobile/providers/slack/webSignIn.ts
+- apps/mobile/modules/web-cookies/
 - apps/mobile/ui/teamsPreview.tsx
 - apps/mobile/providers/slack/auth.ts
 - apps/mobile/providers/slack/emojis.ts

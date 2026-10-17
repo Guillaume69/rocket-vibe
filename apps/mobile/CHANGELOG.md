@@ -7,7 +7,14 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Changed
+
+- kChat signs in with one button, in a sign-in page inside the app; the personal API token field is gone.
+- Experimental Slack accounts sign in with one button, in a sign-in page inside the app, with no browser helper or pasted session; several workspaces are offered to choose from.
+
 ### Fixed
+
+- Signing out of one server opens another server you are still signed in to, rather than the server choice with no way back.
 
 - The sign-in page forgets the previous server type's error when you switch type.
 

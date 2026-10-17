@@ -46,13 +46,14 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
 - kChat: an Infomaniak bearer token used as is on every kChat server of the
   account. "Sign in with Infomaniak" runs authorization code + PKCE with the
   client id and redirect of Infomaniak's own kChat app
-  (`providers/mattermost/kchatOAuth.ts`) as an auth session in a Custom Tab
-  (`expo-web-browser` `openAuthSessionAsync`, `app/login.tsx`): Infomaniak's page
-  redirects by script after its 2FA, and Chrome refuses to open an app from a
-  navigation no tap started, while an auth session hands the redirect back. The
-  scheme `com.infomaniak.chat` is declared in `app.json` and swallowed by
-  `app/+native-intent.tsx`. Run on a real account with 2FA (2026-10-09).
-  Or paste a personal API token. The servers come from
+  (`providers/mattermost/kchatOAuth.ts`) in the app's sign-in web view
+  (`ui/signInWebView.tsx`, `app/login.tsx`), the desktops' sign-in window: it
+  shows Infomaniak's pages only (`isKchatSignInPage`), and catches the
+  `com.infomaniak.chat` redirect before it loads, so no browser has to hand an
+  app link back after Infomaniak's script-driven 2FA redirect. Its cookies are
+  cleared after the exchange (`modules/web-cookies`). The scheme stays declared
+  in `app.json` and swallowed by `app/+native-intent.tsx`. There is no
+  token field any more, like the desktops. The servers come from
   `GET https://kchat.infomaniak.com/api/v4/users/me/servers`. Choosing kChat
   hides the address (`app/login.tsx` probes `KCHAT_DIRECTORY`); a team host typed
   in automatic mode picks its server, a single server is taken, several are

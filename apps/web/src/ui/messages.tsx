@@ -30,7 +30,7 @@ import { SocialMessage } from "../social";
 import { useApp } from "./context";
 import { elementView, renderView } from "./portals";
 import { QuoteCard } from "./quote-card";
-import { metadataMarkdown } from "../markdown-text";
+import { linkedTitle, metadataMarkdown } from "../markdown-text";
 
 export function Emoji({ code }: { code: string }) {
   const app = useApp();
@@ -851,7 +851,7 @@ export function MessageView({
                     rel="noopener noreferrer"
                     target="_blank"
                   >
-                    <Markdown nodes={metadataMarkdown(card.title)} />
+                    <Markdown nodes={linkedTitle(card.title)} />
                   </a>
                 ) : (
                   <Markdown nodes={metadataMarkdown(card.title)} />

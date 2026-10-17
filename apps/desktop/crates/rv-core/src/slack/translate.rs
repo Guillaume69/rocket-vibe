@@ -688,6 +688,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_huddle_window_stays_on_slack() {
+        let call = "https://app.slack.com/huddle/T1/C1";
+        assert!(huddle_allowed(call, call));
+        assert!(huddle_allowed("https://acme.slack.com/client", call));
+        assert!(huddle_allowed("blob:https://app.slack.com/4d2f", call));
+        assert!(huddle_allowed("about:blank", call));
+        assert!(!huddle_allowed("blob:https://evil.example/4d2f", call));
+        assert!(!huddle_allowed("https://slack.com.evil.example/", call));
+        assert!(!huddle_allowed("http://app.slack.com/", call));
+    }
+
+    #[test]
     fn outgoing_markdown_becomes_mrkdwn() {
         let id_of = |u: &str| (u == "alice").then(|| "U001".to_owned());
         let out = |t: &str| markdown_to_mrkdwn(t, &id_of);

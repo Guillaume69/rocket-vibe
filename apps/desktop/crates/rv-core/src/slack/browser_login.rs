@@ -1049,6 +1049,41 @@ mod tests {
     }
 
     #[test]
+    fn the_app_window_shows_slack_pages_and_stops_on_the_handoff_or_the_client() {
+        assert!(window_page(WINDOW_START));
+        assert!(window_page("https://acme.slack.com/signin"));
+        assert!(!window_page("https://slack.com.evil.example/"));
+        assert!(!window_page("http://slack.com/signin"));
+        assert!(window_done("https://acme.slack.com/ssb/redirect"));
+        assert!(window_done("https://app.slack.com/client/T1/C1"));
+        assert!(!window_done(WINDOW_START));
+        assert!(!window_done("https://evil.example/ssb/redirect"));
+    }
+
+    #[tokio::test]
+    async fn an_app_window_without_its_session_cookie_fails_without_a_request() {
+        let cookie = |name: &str, http_only| WindowCookie {
+            name: name.to_owned(),
+            value: Zeroizing::new("xoxd-abc".to_owned()),
+            domain: ".slack.com".to_owned(),
+            path: "/".to_owned(),
+            secure: true,
+            http_only,
+        };
+        let login = BrowserLogin::from_window(
+            "https://acme.slack.com/ssb/redirect",
+            vec![cookie("b", true), cookie("d", false)],
+        );
+        for _ in 0..200 {
+            if !matches!(login.state(), State::SigningIn) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        assert!(matches!(login.state(), State::Failed("authentication_failed")));
+    }
+
+    #[test]
     fn client_and_handoff_paths() {
         let url = |raw| slack_url(raw).unwrap();
         assert!(is_client_url(&url("https://app.slack.com/client")));

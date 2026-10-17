@@ -84,9 +84,12 @@ test('reactions become shortcode chips, mine under my username, a removal emptie
   p.apply({ type: 'reaction', reaction: { message: 'alice@s.whatsapp.net:1', sender: 'me', emoji: '👍', ts: 1 } });
   p.apply({ type: 'reaction', reaction: { message: 'alice@s.whatsapp.net:1', sender: 'alice@s.whatsapp.net', emoji: '❤️', ts: 2 } });
   await p.flush();
-  const chips = JSON.parse(fake.messages.get('alice@s.whatsapp.net:1')!.reactions!) as Record<string, { usernames: string[] }>;
+  const chips = JSON.parse(fake.messages.get('alice@s.whatsapp.net:1')!.reactions!) as Record<string, { usernames: string[]; names: string[] }>;
   assert.deepEqual(chips[':+1:']!.usernames, [me.username]);
   assert.deepEqual(chips[':heart:']!.usernames, ['alice@s.whatsapp.net']);
+  // Named as the timeline names them, for the "who reacted" sheet.
+  assert.deepEqual(chips[':+1:']!.names, ['Me']);
+  assert.equal(chips[':heart:']!.names.length, 1);
   p.apply({ type: 'reaction', reaction: { message: 'alice@s.whatsapp.net:1', sender: 'me', emoji: '', ts: 3 } });
   p.apply({ type: 'reaction', reaction: { message: 'alice@s.whatsapp.net:1', sender: 'alice@s.whatsapp.net', emoji: '', ts: 4 } });
   await p.flush();

@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Hovering a reaction under a message shows who reacted with it, you first, named as the room names people.
 - Switching account or server reopens the room you last had open on it, and so does a launch, unless a link or a notification opens another one.
 - Back and forward (Alt + arrows and the mouse's side buttons; on macOS Option + arrows and the header arrows) now walk the rooms you opened on every account, switching account when the room belongs to another one. On macOS the mouse's back and forward buttons work too.
 - Zoom the text: Ctrl (Cmd on macOS) with + or -, or with the mouse wheel, in steps from 67 % to 200 %, and Ctrl (Cmd) + 0 back to 100 %, as in a browser. The size is kept for the next launch, the same on GTK and SwiftUI. On macOS the View menu has Zoom In, Zoom Out and Actual Size.
@@ -29,6 +30,7 @@ section here.
 
 ### Fixed
 
+- GTK, Vibez rooms: your own reactions under a message are now outlined, and clicking one takes it back instead of adding it once more.
 - The sign-in page forgets the previous server type's error when you switch type, names the type you chose when an address does not answer ("No Mattermost server reachable"), and kChat has a single "Sign in with Infomaniak" button.
 - A failed Slack sign-in now says why, with a short code, instead of a generic "could not be completed".
 - Signing in to Slack no longer stays stuck on Slack's "Launching" page in Edge on Windows: the app completes the sign-in from that page.

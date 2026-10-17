@@ -33,9 +33,7 @@ import {
   quoteText,
 } from '../lib/quote.ts';
 import { attachmentEncryption, type FileEncryption } from '../lib/e2e/crypto.ts';
-import { unicodeOfShortcode } from '../lib/emojis.ts';
-import { customEmojiUrl } from '../lib/customEmojis.ts';
-import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
+import { ReactionEmoji } from './emojiImage.tsx';
 import { recordReaction } from './emojiUsage.ts';
 import { isDeletedUsername } from '../lib/deletedUser.ts';
 import { BotBadge } from './botBadge.tsx';
@@ -142,6 +140,10 @@ export const MessageRow = memo(function MessageRow({
   const time = formatTime(message.ts);
 
   const longPress = onLongPress === null ? undefined : () => onLongPress(message.id);
+  const router = useRouter();
+  // Who reacted: a long press on a chip, read-only chips (search) included.
+  const showReactors = (code: string) =>
+    router.push({ pathname: '/reactions', params: { reactions: message.reactions ?? '', code, me: me ?? '' } });
   // Username to DISPLAY, resolved by UID (`ui/identities`): `authorName` is the
   // snapshot frozen at ingestion, which keeps the OLD name after a rename (the
   // history is not re-downloaded). The identity table, kept up to date, gives the
@@ -333,10 +335,11 @@ export const MessageRow = memo(function MessageRow({
                 c={c}
                 reaction={reaction}
                 // The tap TOGGLES: `chat.react` can also remove; hard-wiring `put`
-                // to `true` made the reaction impossible to undo.
+                // to `true` made the reaction impossible to undo. A read-only
+                // chip (search) passes the tap to the row, which opens the result.
                 onPress={
                   onReact === null
-                    ? undefined
+                    ? onPress === undefined ? undefined : () => onPress(message.id)
                     : () => {
                         // Joining a reaction is a use of that emoji (quick
                         // reactions of the sheet); withdrawing mine is not.
@@ -344,6 +347,7 @@ export const MessageRow = memo(function MessageRow({
                         onReact(message.rid, message.id, reaction.code, !reaction.byMe);
                       }
                 }
+                onLongPress={() => showReactors(reaction.code)}
               />
             ))}
           </View>
@@ -457,28 +461,29 @@ function Placeholder({ c, text }: { c: Colors; text: string }) {
  * A reaction chip: the emoji (standard glyph, custom image, or literal `:name:`
  * as a last resort, same resolution order as the message body) and the count.
  * Border and count ACCENTED when my reaction is in it: that is also the hint
- * that tapping removes instead of adding.
+ * that tapping removes instead of adding. A long press shows who reacted.
  */
 function ReactionChip({
   c,
   reaction,
   onPress,
+  onLongPress,
 }: {
   c: Colors;
   reaction: DisplayedReaction;
   onPress: (() => void) | undefined;
+  onLongPress: () => void;
 }) {
-  useCatalogueEmojis();
-  const glyph = unicodeOfShortcode(reaction.code);
-  const uri = glyph === null ? customEmojiUrl(reaction.code) : null;
+  const t = useT();
   return (
     <Pressable
       onPress={onPress}
-      disabled={onPress === undefined}
+      onLongPress={onLongPress}
       unstable_pressDelay={LIST_PRESS_DELAY}
       accessibilityRole="button"
       accessibilityState={{ selected: reaction.byMe }}
       accessibilityLabel={`:${reaction.code}: ${reaction.total}`}
+      accessibilityHint={t('reactions.hint')}
       style={({ pressed }) => [
         styles.reactionChip,
         {
@@ -488,15 +493,12 @@ function ReactionChip({
         },
       ]}
     >
-      {glyph !== null ? (
-        <Text style={styles.reactionEmoji}>{glyph}</Text>
-      ) : uri !== null ? (
-        <ImageEmoji uri={uri} style={styles.reactionImage} code={reaction.code}/>
-      ) : (
-        <Text style={[styles.reactionCode, { color: c.dimmed }]} numberOfLines={1}>
-          :{reaction.code}:
-        </Text>
-      )}
+      <ReactionEmoji
+        code={reaction.code}
+        glyphStyle={styles.reactionEmoji}
+        imageStyle={styles.reactionImage}
+        codeStyle={[styles.reactionCode, { color: c.dimmed }]}
+      />
       <Text
         style={[styles.reactionTotal, { color: reaction.byMe ? c.accent : c.dimmed }]}
       >

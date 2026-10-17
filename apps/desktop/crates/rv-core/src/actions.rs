@@ -288,19 +288,71 @@ pub struct Reaction {
     pub shortcode: String,
     pub count: usize,
     pub mine: bool,
+    /// Who reacted, in the server's order: each username with the name the
+    /// row stored beside it (Rocket.Chat's `names` when it shows real names,
+    /// a WhatsApp contact's name), empty when none.
+    pub people: Vec<(String, String)>,
 }
 
-/// `{":smile:": {"usernames": [...]}}`, in the server's order.
+/// `{":smile:": {"usernames": [...], "names": [...]}}`, in the server's order.
 pub fn reactions(json: Option<&str>, me: &str) -> Vec<Reaction> {
     let Some(map) = json.and_then(|j| serde_json::from_str::<serde_json::Map<String, Value>>(j).ok()) else {
         return Vec::new();
     };
     map.into_iter()
         .filter_map(|(shortcode, v)| {
-            let users: Vec<&str> = v.get("usernames")?.as_array()?.iter().filter_map(Value::as_str).collect();
-            (!users.is_empty()).then(|| Reaction { mine: users.contains(&me), count: users.len(), shortcode })
+            // Paired by position, so one odd entry does not shift the names after it.
+            let names = v.get("names").and_then(Value::as_array);
+            let people: Vec<(String, String)> = v
+                .get("usernames")?
+                .as_array()?
+                .iter()
+                .enumerate()
+                .filter_map(|(i, user)| {
+                    let name = names.and_then(|n| n.get(i)).and_then(Value::as_str).unwrap_or_default();
+                    Some((user.as_str()?.to_owned(), name.to_owned()))
+                })
+                .collect();
+            (!people.is_empty()).then(|| Reaction {
+                mine: people.iter().any(|(user, _)| user == me),
+                count: people.len(),
+                shortcode,
+                people,
+            })
         })
         .collect()
+}
+
+/// How many people a reaction's hover text names before "and N others".
+pub const REACTORS_SHOWN: usize = 12;
+
+/// What hovering a reaction chip shows: its code, then who reacted, me first
+/// as "You", the others as `name(username, stored name)` says, those past
+/// `REACTORS_SHOWN` only counted.
+pub fn reactors_text(reaction: &Reaction, me: &str, name: impl Fn(&str, &str) -> String) -> String {
+    let mut shown: Vec<String> = Vec::new();
+    if reaction.mine {
+        shown.push(crate::i18n::t("reactions.you").to_owned());
+    }
+    let others: Vec<&(String, String)> = reaction.people.iter().filter(|(user, _)| user != me).collect();
+    let room = REACTORS_SHOWN - shown.len();
+    shown.extend(others.iter().take(room).map(|(user, stored)| name(user, stored)));
+    let rest = others.len().saturating_sub(room);
+    let people = if rest > 0 {
+        crate::i18n::tn("receipts.and_others", rest as i64).replace("{names}", &shown.join(", "))
+    } else if let [first @ .., last] = shown.as_slice()
+        && !first.is_empty()
+    {
+        crate::i18n::tf("reactions.and", &[("first", &first.join(", ")), ("last", last)])
+    } else {
+        shown.concat()
+    };
+    format!("{}\n{people}", reaction.shortcode)
+}
+
+/// A reactor as the row names them: the name stored beside the username, else the username.
+pub fn stored_reactor(username: &str, stored: &str) -> String {
+    if stored.is_empty() { username.to_owned() } else { stored.to_owned() }
 }
 
 pub const QUICK_REACTIONS: [&str; 6] = [":+1:", ":heart:", ":joy:", ":tada:", ":open_mouth:", ":pray:"];
@@ -657,9 +709,47 @@ mod tests {
         let json = r#"{":+1:":{"usernames":["bob","me"]},":tada:":{"usernames":["bob"]},":x:":{"usernames":[]}}"#;
         let r = reactions(Some(json), "me");
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0], Reaction { shortcode: ":+1:".into(), count: 2, mine: true });
+        let people = vec![("bob".to_owned(), String::new()), ("me".to_owned(), String::new())];
+        assert_eq!(r[0], Reaction { shortcode: ":+1:".into(), count: 2, mine: true, people });
         assert!(!r[1].mine);
         assert!(reactions(None, "me").is_empty());
+    }
+
+    #[test]
+    fn a_reaction_names_who_reacted_me_first() {
+        let _serial = crate::i18n::LANGUAGE.lock().unwrap();
+        crate::i18n::set(crate::i18n::Lang::En);
+        let json =
+            r#"{":+1:":{"usernames":["bob","me","ann"],"names":["Bob B","Me M","Ann A"]},":x:":{"usernames":["bob"]}}"#;
+        let r = reactions(Some(json), "me");
+        assert_eq!(r[0].people[2], ("ann".to_owned(), "Ann A".to_owned()));
+        assert_eq!(reactors_text(&r[0], "me", stored_reactor), ":+1:\nYou, Bob B and Ann A");
+        assert_eq!(reactors_text(&r[1], "me", stored_reactor), ":x:\nbob");
+        let crowd = |n: usize, me_too: bool| {
+            let mut users: Vec<String> = (0..n).map(|i| format!("u{i}")).collect();
+            if me_too {
+                users.push("me".into());
+            }
+            let r = reactions(Some(&serde_json::json!({":tada:": {"usernames": users}}).to_string()), "me");
+            reactors_text(&r[0], "me", stored_reactor)
+        };
+        assert!(crowd(15, false).ends_with("u10, u11 and 3 others"), "{}", crowd(15, false));
+        assert!(crowd(12, false).ends_with("u10 and u11"), "{}", crowd(12, false));
+        assert!(crowd(13, false).ends_with("u11 and 1 other"), "{}", crowd(13, false));
+        let mine = crowd(12, true);
+        assert!(mine.starts_with(":tada:\nYou, u0,") && mine.ends_with("u10 and 1 other"), "{mine}");
+        crate::i18n::set(crate::i18n::Lang::Fr);
+        assert_eq!(reactors_text(&r[0], "me", stored_reactor), ":+1:\nVous, Bob B et Ann A");
+        crate::i18n::set(crate::i18n::Lang::En);
+    }
+
+    #[test]
+    fn reactor_names_pair_with_usernames_by_position() {
+        let json =
+            r#"{":+1:":{"usernames":["bob",7,"carol"],"names":["B",null,"C"]},":x:":{"usernames":["ann"],"names":[]}}"#;
+        let r = reactions(Some(json), "me");
+        assert_eq!(r[0].people, vec![("bob".to_owned(), "B".to_owned()), ("carol".to_owned(), "C".to_owned())]);
+        assert_eq!(r[1].people, vec![("ann".to_owned(), String::new())]);
     }
 
     #[test]

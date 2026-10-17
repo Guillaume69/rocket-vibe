@@ -570,7 +570,7 @@ impl NativeStore {
         let reactions = if message.reactions.is_empty() {
             None
         } else {
-            Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|if user.deleted {super::deleted_user().to_owned()} else {user.username.clone()}).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
+            Some(json(&message.reactions.iter().map(|reaction|(format!(":{}:",reaction.emoji),serde_json::json!({"usernames":reaction.users.iter().map(|user|if user.deleted {super::deleted_user().to_owned()} else {user.username.clone()}).collect::<Vec<_>>(),"names":reaction.users.iter().map(|user|if user.deleted {String::new()} else {user.display_name.clone()}).collect::<Vec<_>>()}))).collect::<std::collections::BTreeMap<_,_>>())?)
         };
         let system = message.system.as_deref().map(|activity| match activity {
             rv_protocol::system::SystemMessage::CallStarted { .. } => call_presentation(message.call.as_deref()),
@@ -1588,6 +1588,7 @@ mod tests {
         assert_eq!(row.author_id, "carol-id");
         let groups: serde_json::Value = serde_json::from_str(row.reactions.as_deref().unwrap()).unwrap();
         assert_eq!(groups[":heart:"]["usernames"][0], crate::native::deleted_user());
+        assert_eq!(groups[":heart:"]["names"][0], "");
     }
     #[test]
     fn bot_authors_keep_their_badge_from_the_message_or_the_profile_cache() {
@@ -1651,6 +1652,7 @@ mod tests {
         assert!(!rows[0].edited);
         let groups: serde_json::Value = serde_json::from_str(rows[0].reactions.as_deref().unwrap()).unwrap();
         assert_eq!(groups[":heart:"]["usernames"][0], message.author.username);
+        assert_eq!(groups[":heart:"]["names"][0], message.author.display_name);
         drop(store);
         let reopened = NativeStore::open(&path, identity()).unwrap();
         assert_eq!(reopened.messages(&message.room_id, 10).unwrap()[0].reactions, rows[0].reactions);

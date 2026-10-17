@@ -461,6 +461,8 @@ pub struct Reaction {
     pub glyph: Option<String>,
     pub count: u32,
     pub mine: bool,
+    /// Who reacted, for the chip's hover text (`actions::reactors_text`).
+    pub reactors: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -547,11 +549,18 @@ pub fn quote(q: content::Quote, ctx: &markdown::Context) -> Quote {
 /// `d.row` as `Session::open_row` left it: an encrypted message opened when
 /// the keys read it, its text None when they do not.
 pub fn message(d: Display, me_id: &str, me: &str) -> MessageItem {
-    message_named(d, me_id, me, None)
+    message_named(d, me_id, me, None, &rv_core::actions::stored_reactor)
 }
 
-/// `message`, its mentions named by `names` (Mattermost's name format).
-pub fn message_named(d: Display, me_id: &str, me: &str, names: Option<markdown::Names>) -> MessageItem {
+/// `message`, its mentions named by `names` (Mattermost's name format), its
+/// reactors by `reactor(username, stored name)`.
+pub fn message_named(
+    d: Display,
+    me_id: &str,
+    me: &str,
+    names: Option<markdown::Names>,
+    reactor: &dyn Fn(&str, &str) -> String,
+) -> MessageItem {
     let row: MessageRow = d.row;
     let ctx = markdown::Context { me, names };
     let encrypted = row.system_type.as_deref() == Some("e2e");
@@ -634,6 +643,7 @@ pub fn message_named(d: Display, me_id: &str, me: &str, names: Option<markdown::
             .into_iter()
             .map(|r| Reaction {
                 glyph: rv_core::emoji::unicode(&r.shortcode).map(str::to_owned),
+                reactors: rv_core::actions::reactors_text(&r, me, reactor),
                 shortcode: r.shortcode,
                 count: r.count as u32,
                 mine: r.mine,
@@ -755,9 +765,11 @@ mod tests {
         assert_eq!(m.images[0].source, "/file-upload/1/cat.png");
         assert_eq!(m.files.len(), 1);
         assert_eq!(m.files[0].size.as_deref(), Some("2.0 KB"));
+        let reactors = m.reactions[0].reactors.clone();
+        assert!(reactors.starts_with(":+1:\n") && reactors.ends_with(" bob"), "{reactors}");
         assert_eq!(
             m.reactions[0],
-            Reaction { shortcode: ":+1:".into(), glyph: Some("👍".into()), count: 2, mine: true }
+            Reaction { shortcode: ":+1:".into(), glyph: Some("👍".into()), count: 2, mine: true, reactors }
         );
         assert_eq!(m.reactions[1].glyph, None);
         assert!(matches!(&m.body[0], BodyBlock::Paragraph { runs } if runs[0].text == "look"));

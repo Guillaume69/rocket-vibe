@@ -13,7 +13,7 @@
  * nor the reverse.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
 
 import { displayNames, mentionNames, onDisplayNamesChange, statusEmojis } from '../lib/displayNames.ts';
 
@@ -35,6 +35,29 @@ function subscribe(cb: () => void): () => void {
 /** Map `uid → current username`. Re-renders the caller when an identity changes. */
 export function useIdentities(): ReadonlyMap<string, string> {
   return useSyncExternalStore(subscribe, () => identities);
+}
+
+/** Who a username names: their uid (for the avatar), and the name to show if not the username. */
+export type PersonByUsername = { uid: string | undefined; name: string | undefined };
+
+/**
+ * For what lists people by username (reactions): the uid from the identity
+ * store, and the shown name, keyed by uid. A "username" that is a uid itself
+ * (a private Vibez conversation's reactions) resolves as that uid, its
+ * username then shown when no other name is.
+ */
+export function usePersonByUsername(): (username: string) => PersonByUsername {
+  const known = useIdentities();
+  const names = useDisplayNames();
+  const uidOf = useMemo(() => new Map([...known].map(([uid, name]) => [name, uid])), [known]);
+  return useCallback(
+    (username: string) => {
+      const uid = uidOf.get(username) ?? (known.has(username) ? username : undefined);
+      if (uid === undefined) return { uid, name: undefined };
+      return { uid, name: names.get(uid) ?? (uid === username ? known.get(uid) : undefined) };
+    },
+    [uidOf, known, names],
+  );
 }
 
 /**

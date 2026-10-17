@@ -612,6 +612,7 @@ struct MessageRow: View, Equatable {
                             .animation(Vibe.spring, value: reaction.count)
                     }
                     .buttonStyle(ReactionPress())
+                    .help(reaction.reactors)
                 }
             }
         }

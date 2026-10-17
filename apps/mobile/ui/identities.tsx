@@ -41,7 +41,9 @@ export {
   useMentionNames,
   useStatusEmojis,
   useIdentities,
+  usePersonByUsername,
   type AvatarEtags,
+  type PersonByUsername,
 } from './identityStore.ts';
 
 /**

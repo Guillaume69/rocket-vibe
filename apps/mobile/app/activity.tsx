@@ -10,7 +10,7 @@ import { unicodeOfShortcode } from '../lib/emojis.ts';
 import { textPreview } from '../lib/markdown.ts';
 import { stripQuotePrefix } from '../lib/quote.ts';
 import { useListTimeFormatter, useT } from '../ui/i18n.ts';
-import { roomTitle, useDisplayNames, useIdentities } from '../ui/identities.tsx';
+import { roomTitle, useDisplayNames, useIdentities, usePersonByUsername } from '../ui/identities.tsx';
 import { UnreadBadge } from '../ui/kit.tsx';
 import { useCoalescedLiveQuery } from '../ui/liveQuery.ts';
 import { readActivity } from '../ui/localSearch.ts';
@@ -88,11 +88,8 @@ function Activity({ c, base, me, none }: { c: Colors; base: LocalDatabase; me: {
     return room === undefined ? '…' : roomTitle(room, names);
   };
   // Reactions name people by username; the shown name is keyed by uid.
-  const uidOf = useMemo(() => new Map([...identities].map(([uid, name]) => [name, uid])), [identities]);
-  const person = (name: string): string => {
-    const uid = uidOf.get(name);
-    return (uid === undefined ? undefined : names.get(uid)) ?? name;
-  };
+  const byUsername = usePersonByUsername();
+  const person = (name: string): string => byUsername(name).name ?? name;
   const author = (m: ActivityMessage): string => names.get(m.authorId) ?? identities.get(m.authorId) ?? m.authorName ?? '?';
 
   const open = useCallback(

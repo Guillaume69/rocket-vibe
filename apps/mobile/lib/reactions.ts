@@ -27,6 +27,27 @@ export type DisplayedReaction = {
  * The server's order is preserved.
  */
 export function reactionList(raw: string | null, me: string | null): DisplayedReaction[] {
+  // `reactionPeople` puts me first: one look at the head says whether it is mine.
+  return reactionPeople(raw, me).map(({ code, people }) => ({
+    code,
+    total: people.length,
+    byMe: me !== null && people[0]?.username === me,
+  }));
+}
+
+/** Someone who reacted: their username and the name the row stored beside it, if any. */
+export type Reactor = { username: string; name: string | null };
+
+/** One emoji of a message and who reacted with it, for the "who reacted" sheet. */
+export type ReactionPeople = { code: string; people: Reactor[] };
+
+/**
+ * Who reacted with each emoji, from the same column as `reactionList` and in
+ * the same order, me FIRST in each list. `names`, when the row carries it, is
+ * parallel to `usernames`: Rocket.Chat sends it when it shows real names, the
+ * WhatsApp projection always. Same tolerance as `reactionList`.
+ */
+export function reactionPeople(raw: string | null, me: string | null): ReactionPeople[] {
   if (raw === null) return [];
   let root: unknown;
   try {
@@ -35,17 +56,21 @@ export function reactionList(raw: string | null, me: string | null): DisplayedRe
     return [];
   }
   if (typeof root !== 'object' || root === null || Array.isArray(root)) return [];
-  const out: DisplayedReaction[] = [];
+  const out: ReactionPeople[] = [];
   for (const [key, value] of Object.entries(root as Record<string, unknown>)) {
-    const rawUsernames = (value as { usernames?: unknown } | null)?.usernames;
-    const usernames = Array.isArray(rawUsernames)
-      ? rawUsernames.filter((u): u is string => typeof u === 'string')
-      : [];
-    if (usernames.length === 0) continue;
+    const entry = value as { usernames?: unknown; names?: unknown } | null;
+    const usernames: unknown[] = Array.isArray(entry?.usernames) ? entry.usernames : [];
+    const names: unknown[] = Array.isArray(entry?.names) ? entry.names : [];
+    const people: Reactor[] = [];
+    usernames.forEach((username, i) => {
+      if (typeof username !== 'string') return;
+      const name = names[i];
+      people.push({ username, name: typeof name === 'string' && name !== '' ? name : null });
+    });
+    if (people.length === 0) continue;
     out.push({
       code: key.replace(/^:/, '').replace(/:$/, ''),
-      total: usernames.length,
-      byMe: me !== null && usernames.includes(me),
+      people: [...people.filter((p) => p.username === me), ...people.filter((p) => p.username !== me)],
     });
   }
   return out;

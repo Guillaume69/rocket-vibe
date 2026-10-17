@@ -211,6 +211,8 @@ export class WhatsAppProjection {
     for (const chat of this.last.keys()) if (changed.has(chat)) this.mark(this.dirtyRooms, chat);
     for (const jid of changed) if ((this.photos.has(jid) || this.authors.has(jid)) && !isGroup(jid)) this.mark(this.dirtyPeople, jid);
     for (const m of this.messages.values()) if (!m.mine && changed.has(m.sender)) this.mark(this.dirtyMessages, m.id);
+    // Their reactions name them too.
+    for (const [id, by] of this.reactions) if ([...by.keys()].some((sender) => changed.has(sender))) this.mark(this.dirtyMessages, id);
   }
 
   private mark(set: Set<string>, key: string): void {
@@ -284,10 +286,13 @@ export class WhatsAppProjection {
     const by = this.reactions.get(m.id);
     let reactions: string | null = null;
     if (by !== undefined && !m.deleted) {
-      const grouped: Record<string, { usernames: string[] }> = {};
+      // `names` beside `usernames`, as Rocket.Chat does: who reacted, named.
+      const grouped: Record<string, { usernames: string[]; names: string[] }> = {};
       for (const [sender, glyph] of by) {
         const key = `:${shortcodeOfUnicode(glyph) ?? glyph}:`;
-        (grouped[key] ??= { usernames: [] }).usernames.push(sender === 'me' ? this.me.username : sender);
+        const bucket = (grouped[key] ??= { usernames: [], names: [] });
+        bucket.usernames.push(sender === 'me' ? this.me.username : sender);
+        bucket.names.push(sender === 'me' ? this.labels.me : this.nameOf(sender));
       }
       reactions = JSON.stringify(grouped);
     }

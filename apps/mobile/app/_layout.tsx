@@ -100,6 +100,13 @@ export default function RootLayout() {
                         sheetGrabberVisible: true, sheetCornerRadius: 24,
                         contentStyle: { backgroundColor: darkColors.deepCard } }}
                     />
+                    {/* Who reacted to a message: a long press on a reaction chip. */}
+                    <Stack.Screen
+                      name="reactions"
+                      options={{ presentation: 'formSheet', headerShown: false, sheetAllowedDetents: 'fitToContents',
+                        sheetGrabberVisible: true, sheetCornerRadius: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard } }}
+                    />
                     <Stack.Screen
                       name="message-actions"
                       options={{

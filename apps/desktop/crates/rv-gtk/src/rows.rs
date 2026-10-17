@@ -854,7 +854,11 @@ fn message_from_provider(
     }
 
     // Without a session (a provider pilot) my reactions are listed under my id.
-    let me = session.map(|s| s.info.username.as_str()).unwrap_or(if native.is_some() { "" } else { my_id });
+    let me = match (session, native) {
+        (Some(s), _) => s.info.username.as_str(),
+        (None, Some(n)) => n.info.username.as_str(),
+        (None, None) => my_id,
+    };
     let reactions = rv_core::actions::reactions(row.reactions.as_deref(), me);
     if !reactions.is_empty() {
         let chips = gtk::FlowBox::builder()
@@ -886,6 +890,18 @@ fn message_from_provider(
                     chip.set_child(Some(&content));
                 }
             }
+            // Who reacted, named at the first hover (GTK asks again on every motion),
+            // so a row drawn before its names were known still names them.
+            chip.set_has_tooltip(true);
+            let (session, me, shown) = (session.cloned(), me.to_owned(), reaction.clone());
+            let text = std::cell::OnceCell::new();
+            chip.connect_query_tooltip(move |_, _, _, _, tooltip| {
+                tooltip.set_text(Some(text.get_or_init(|| match &session {
+                    Some(session) => rv_core::actions::reactors_text(&shown, &me, session.reactor_names()),
+                    None => rv_core::actions::reactors_text(&shown, &me, rv_core::actions::stored_reactor),
+                })));
+                true
+            });
             let (on_event, id) = (on_event.clone(), row.id.clone());
             chip.connect_clicked(move |_| {
                 on_event(RowEvent::React { id: id.clone(), shortcode: reaction.shortcode.clone(), add: !reaction.mine })

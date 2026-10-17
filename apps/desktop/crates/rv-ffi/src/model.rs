@@ -405,6 +405,54 @@ pub struct CardAction {
     /// `primary`, `danger`, `good`… as the integration asks; empty for the default.
     pub style: String,
     pub cookie: Option<String>,
+    /// A menu rather than a button: its choice goes to `Chat::press_card_action`.
+    pub menu: Option<CardMenu>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum MenuSource {
+    Options,
+    Users,
+    Channels,
+}
+
+/// A card menu: its listed choices, or people or channels searched with
+/// `Chat::card_menu_options`, and the value chosen before any press.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct CardMenu {
+    pub source: MenuSource,
+    pub options: Vec<MenuOption>,
+    pub initial: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct MenuOption {
+    pub label: String,
+    pub value: String,
+}
+
+impl From<&content::MenuSource> for MenuSource {
+    fn from(source: &content::MenuSource) -> Self {
+        match source {
+            content::MenuSource::Options => Self::Options,
+            content::MenuSource::Users => Self::Users,
+            content::MenuSource::Channels => Self::Channels,
+        }
+    }
+}
+
+impl From<&MenuSource> for content::MenuSource {
+    fn from(source: &MenuSource) -> Self {
+        match source {
+            MenuSource::Options => Self::Options,
+            MenuSource::Users => Self::Users,
+            MenuSource::Channels => Self::Channels,
+        }
+    }
+}
+
+pub fn menu_options(options: Vec<(String, String)>) -> Vec<MenuOption> {
+    options.into_iter().map(|(label, value)| MenuOption { label, value }).collect()
 }
 
 /// What the server answered a button: words for me alone, a page to open.
@@ -439,7 +487,17 @@ pub fn integration_cards(attachments: Option<&str>, ctx: &markdown::Context) -> 
             actions: c
                 .actions
                 .into_iter()
-                .map(|a| CardAction { id: a.id, name: a.name, style: a.style, cookie: a.cookie })
+                .map(|a| CardAction {
+                    menu: a.menu.map(|m| CardMenu {
+                        source: (&m.source).into(),
+                        options: menu_options(m.options),
+                        initial: m.initial,
+                    }),
+                    id: a.id,
+                    name: a.name,
+                    style: a.style,
+                    cookie: a.cookie,
+                })
                 .collect(),
             ..Default::default()
         })

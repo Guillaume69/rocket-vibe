@@ -660,11 +660,12 @@ impl Chat {
         }
     }
 
-    /// A card's button (Mattermost and kChat), on the post it belongs to.
+    /// A card's button, or a menu's `selected` value (Mattermost and kChat), on the post it belongs to.
     pub async fn press_card_action(
         &self,
         post_id: String,
         action: model::CardAction,
+        selected: Option<String>,
     ) -> Result<model::ActionAnswer, RvError> {
         let s = self.session.clone();
         let action = rv_core::content::CardAction {
@@ -672,9 +673,10 @@ impl Chat {
             name: action.name,
             style: action.style,
             cookie: action.cookie,
+            menu: None,
         };
         let session = self.session.clone();
-        let answer = on_tokio(async move { s.press_card_action(&post_id, &action).await }).await?;
+        let answer = on_tokio(async move { s.press_card_action(&post_id, &action, selected.as_deref()).await }).await?;
         let names = |username: &str| session.mention_name(username);
         let ctx = rv_core::markdown::Context { me: &session.info.username, names: Some(&names) };
         let note_body = answer
@@ -683,6 +685,19 @@ impl Chat {
             .map(|text| markup::blocks(rv_core::markdown::render(None, Some(text), &ctx)))
             .unwrap_or_default();
         Ok(model::ActionAnswer { note: answer.note, note_body, open: answer.open })
+    }
+
+    /// The people or channels a card menu of room `rid` offers for `term`.
+    pub async fn card_menu_options(
+        &self,
+        rid: String,
+        source: model::MenuSource,
+        term: String,
+    ) -> Result<Vec<model::MenuOption>, RvError> {
+        let s = self.session.clone();
+        let source = rv_core::content::MenuSource::from(&source);
+        let options = on_tokio(async move { s.card_menu_options(&rid, &source, &term).await }).await?;
+        Ok(model::menu_options(options))
     }
 
     pub async fn retry(&self, id: String) {

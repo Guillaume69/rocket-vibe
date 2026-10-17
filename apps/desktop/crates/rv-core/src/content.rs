@@ -54,7 +54,7 @@ pub struct CardAttachment {
     pub color: Option<String>,
     /// Label, value, and whether it sits beside the next one.
     pub fields: Vec<(String, String, bool)>,
-    /// Its buttons (Mattermost's interactive messages).
+    /// Its buttons and menus (Mattermost's interactive messages).
     pub actions: Vec<CardAction>,
 }
 
@@ -74,6 +74,37 @@ pub struct CardAction {
     /// `primary`, `danger`, `good`… as the integration asks; empty for the default.
     pub style: String,
     pub cookie: Option<String>,
+    /// A menu rather than a button: its choice is sent as `selected_option`.
+    pub menu: Option<CardMenu>,
+}
+
+/// Where a card menu's choices come from.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum MenuSource {
+    /// The `options` the integration listed.
+    #[default]
+    Options,
+    /// People of the server, searched (`data_source: "users"`).
+    Users,
+    /// Channels of the room's team, searched (`data_source: "channels"`).
+    Channels,
+}
+
+/// A card menu: its listed choices as (label, value), and the value chosen
+/// before any press (`default_option`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CardMenu {
+    pub source: MenuSource,
+    pub options: Vec<(String, String)>,
+    pub initial: Option<String>,
+}
+
+impl CardMenu {
+    /// The label of the choice made before any press, when it is a listed one.
+    pub fn initial_label(&self) -> Option<&str> {
+        let initial = self.initial.as_deref()?;
+        self.options.iter().find(|(_, value)| value == initial).map(|(label, _)| label.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,11 +284,16 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                         actions
                             .iter()
                             .filter_map(|b| {
+                                let menu = card_menu(b);
+                                if menu.is_none() && b.get("type").and_then(Value::as_str) == Some("select") {
+                                    return None;
+                                }
                                 Some(CardAction {
                                     id: read(b, "id")?,
                                     name: read(b, "name")?,
                                     style: read(b, "style").unwrap_or_default(),
                                     cookie: read(b, "cookie"),
+                                    menu,
                                 })
                             })
                             .take(10)
@@ -274,6 +310,30 @@ pub fn cards(attachments: Option<&str>) -> Vec<CardAttachment> {
                 || !c.actions.is_empty()
         })
         .collect()
+}
+
+fn card_menu(action: &Value) -> Option<CardMenu> {
+    if action.get("type").and_then(Value::as_str) != Some("select") {
+        return None;
+    }
+    let source = match action.get("source").and_then(Value::as_str) {
+        Some("users") => MenuSource::Users,
+        Some("channels") => MenuSource::Channels,
+        _ => MenuSource::Options,
+    };
+    let options: Vec<(String, String)> = action
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|o| Some((text(o, "text")?, o.get("value").and_then(Value::as_str)?.to_owned())))
+        .take(500)
+        .collect();
+    (source != MenuSource::Options || !options.is_empty()).then(|| CardMenu {
+        source,
+        options,
+        initial: action.get("default").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned),
+    })
 }
 
 /// "1.4 MB", "830 KB", "12 B".

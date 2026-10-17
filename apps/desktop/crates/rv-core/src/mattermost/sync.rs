@@ -638,18 +638,16 @@ impl MmSync {
         self.translator().ephemeral(&post)
     }
 
-    /// Presses a card's button: `POST /posts/<post>/actions/<action>`, with the
-    /// cookie a "visible only to you" post's button carries.
+    /// Presses a card's button or picks in its menu: `POST /posts/<post>/actions/<action>`,
+    /// with the cookie a "visible only to you" post's action carries and the menu's choice.
     pub async fn press_action(
         &self,
         post_id: &str,
         action_id: &str,
         cookie: Option<&str>,
+        selected: Option<&str>,
     ) -> Result<crate::content::ActionAnswer, RestError> {
-        let body = match cookie {
-            Some(cookie) => json!({"cookie": cookie}),
-            None => json!({}),
-        };
+        let body = action_body(cookie, selected);
         let (Some(post_id), Some(action_id)) = (path_segment(post_id), path_segment(action_id)) else {
             return Err(RestError { status: 400, ..RestError::network("invalid post action".to_owned()) });
         };
@@ -885,6 +883,17 @@ fn mentions(raw: Option<&Value>) -> Vec<String> {
     parsed.as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect()
 }
 
+fn action_body(cookie: Option<&str>, selected: Option<&str>) -> Value {
+    let mut body = json!({});
+    if let Some(cookie) = cookie {
+        body["cookie"] = json!(cookie);
+    }
+    if let Some(selected) = selected {
+        body["selected_option"] = json!(selected);
+    }
+    body
+}
+
 fn path_segment(id: &str) -> Option<&str> {
     (!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')).then_some(id)
 }
@@ -963,13 +972,20 @@ mod tests {
         assert_eq!(ids, ["p1"]);
     }
 
+    #[test]
+    fn a_menu_choice_travels_as_the_selected_option_beside_the_cookie() {
+        assert_eq!(action_body(None, None), json!({}));
+        assert_eq!(action_body(Some("c1"), Some("u-bob")), json!({"cookie": "c1", "selected_option": "u-bob"}));
+        assert_eq!(action_body(None, Some("high")), json!({"selected_option": "high"}));
+    }
+
     #[tokio::test]
     async fn an_action_id_never_leaves_its_route() {
         let (_, sync) = sync();
         for (post_id, action_id) in
             [("p1", "../../../users/me/sessions/revoke/all"), ("p1", "a/b"), ("..", "a1"), ("p1", "")]
         {
-            let refused = sync.press_action(post_id, action_id, None).await.unwrap_err();
+            let refused = sync.press_action(post_id, action_id, None, None).await.unwrap_err();
             assert_eq!(refused.status, 400, "{post_id} {action_id}");
         }
         assert_eq!(path_segment("abc_DEF-123"), Some("abc_DEF-123"));

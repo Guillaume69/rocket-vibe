@@ -198,6 +198,41 @@ async fn first_team(rest: &RestClient) -> Result<String, RestError> {
         .ok_or_else(|| RestError::incomplete("users/me/teams: no team"))
 }
 
+/// A card menu's people (label the username, value the id) or channels of the
+/// room's team (label the display name, value the id) matching `term`.
+pub async fn menu_options(
+    rest: &RestClient,
+    rid: &str,
+    source: &crate::content::MenuSource,
+    term: &str,
+) -> Result<Vec<(String, String)>, RestError> {
+    use crate::content::MenuSource;
+    let term = term.trim().trim_start_matches(['@', '~']);
+    let found = match source {
+        MenuSource::Options => return Ok(Vec::new()),
+        MenuSource::Users => rest.post("users/search", CallOptions::body(json!({"term": term, "limit": 20}))).await?,
+        MenuSource::Channels => {
+            let room = rest.get(&format!("channels/{rid}"), CallOptions::default()).await.ok();
+            let team = match room.as_ref().and_then(|room| text(room, "team_id")) {
+                Some(team) => team,
+                None => first_team(rest).await?,
+            };
+            rest.post(&format!("teams/{team}/channels/search"), CallOptions::body(json!({"term": term}))).await?
+        }
+    };
+    let (label, fallback) = match source {
+        MenuSource::Channels => ("display_name", "name"),
+        _ => ("username", "username"),
+    };
+    Ok(found
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| Some((text(v, label).or_else(|| text(v, fallback))?, text(v, "id")?)))
+        .take(20)
+        .collect())
+}
+
 /// Matches in the room, newest first.
 pub async fn search(rest: &RestClient, mm: &MmSync, rid: &str, terms: &str) -> Result<Vec<Message>, RestError> {
     let (team, scope) = search_target(rest, mm, rid).await?;

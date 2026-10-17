@@ -6,22 +6,28 @@
 use std::cell::RefCell;
 
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::runtime::ProtocolObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowStyleMask, NSWorkspace};
-use objc2_foundation::{NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL, NSURLRequest};
+use objc2_foundation::{
+    NSArray, NSDictionary, NSHTTPCookie, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString, NSURL,
+    NSURLRequest,
+};
 use objc2_web_kit::{
     WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
+    WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKWindowFeatures,
 };
 
-use crate::{SignIn, call_event};
+use crate::{Cookie, SessionSignIn, SignIn, call_event};
 
 type Allowed = fn(&str, &str) -> bool;
 
 enum Mode {
-    Call(Allowed),
+    Call(Allowed, Vec<Cookie>),
     SignIn(SignIn),
+    Session(SessionSignIn),
 }
 
 pub struct Ivars {
@@ -49,7 +55,8 @@ define_class!(
             handler: &block2::DynBlock<dyn Fn(WKPermissionDecision)>,
         ) {
             let address = origin_address(origin);
-            let grant = matches!(self.ivars().mode, Mode::Call(allowed) if allowed(&address, &self.ivars().call_url));
+            let grant =
+                matches!(&self.ivars().mode, Mode::Call(allowed, _) if allowed(&address, &self.ivars().call_url));
             let what = match kind {
                 WKMediaCaptureType::Camera => "camera",
                 WKMediaCaptureType::Microphone => "microphone",
@@ -92,7 +99,16 @@ define_class!(
         ) {
             let target = target_of(action).unwrap_or_default();
             let allowed = match &self.ivars().mode {
-                Mode::Call(allowed) => allowed(&target, &self.ivars().call_url),
+                Mode::Call(allowed, cookies) => {
+                    allowed(&target, &self.ivars().call_url) || (!cookies.is_empty() && !is_main_frame(action))
+                }
+                Mode::Session(session) if (session.done)(&target) => {
+                    handler.call((WKNavigationActionPolicy::Cancel,));
+                    call_event("sign-in", "session reached");
+                    harvest(web, session.clone(), target);
+                    return;
+                }
+                Mode::Session(session) => (session.page)(&target) || !is_main_frame(action),
                 Mode::SignIn(sign_in) if (sign_in.redirect)(&target) => {
                     handler.call((WKNavigationActionPolicy::Cancel,));
                     call_event("sign-in", "redirect caught");
@@ -132,6 +148,58 @@ impl CallDelegate {
     }
 }
 
+/// Reads the page's cookies for the session's address, hands them on and
+/// closes the window. The store is the window's own, kept in memory only.
+fn harvest(web: &WKWebView, session: SessionSignIn, reached: String) {
+    let rest = session.cookie_url.split_once("://").map_or(session.cookie_url, |(_, rest)| rest);
+    let host = rest.split(['/', ':', '?', '#']).next().unwrap_or_default().to_ascii_lowercase();
+    let window = web.window();
+    let read = block2::RcBlock::new(move |list: std::ptr::NonNull<NSArray<NSHTTPCookie>>| {
+        // SAFETY: the array WebKit hands the completion, alive for the call.
+        let list = unsafe { list.as_ref() };
+        let cookies: Vec<Cookie> = list
+            .iter()
+            .filter_map(|cookie| {
+                let domain = cookie.domain().to_string();
+                let bare = domain.trim_start_matches('.');
+                (host == bare || host.ends_with(&format!(".{bare}"))).then(|| Cookie {
+                    name: cookie.name().to_string(),
+                    value: cookie.value().to_string(),
+                    domain,
+                    path: cookie.path().to_string(),
+                    secure: cookie.isSecure(),
+                    http_only: cookie.isHTTPOnly(),
+                })
+            })
+            .collect();
+        call_event("sign-in", &format!("{} cookies read", cookies.len()));
+        (session.caught)(reached.clone(), cookies);
+        if let Some(window) = &window {
+            window.close();
+        }
+    });
+    // SAFETY: the view's own store, read on the main thread.
+    unsafe { web.configuration().websiteDataStore().httpCookieStore().getAllCookies(&read) };
+}
+
+fn ns_cookie(cookie: &Cookie) -> Option<Retained<NSHTTPCookie>> {
+    let truth = |on: bool| NSString::from_str(if on { "TRUE" } else { "FALSE" });
+    let pairs = [
+        ("Name", NSString::from_str(&cookie.name)),
+        ("Value", NSString::from_str(&cookie.value)),
+        ("Domain", NSString::from_str(&cookie.domain)),
+        ("Path", NSString::from_str(&cookie.path)),
+        ("Secure", truth(cookie.secure)),
+        ("HttpOnly", truth(cookie.http_only)),
+    ];
+    let keys: Vec<Retained<NSString>> = pairs.iter().map(|(k, _)| NSString::from_str(k)).collect();
+    let key_refs: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
+    let values: Vec<&AnyObject> = pairs.iter().map(|(_, v)| -> &AnyObject { v }).collect();
+    let properties = NSDictionary::from_slices(&key_refs, &values);
+    // SAFETY: a cookie made from a dictionary of the documented property names.
+    unsafe { NSHTTPCookie::cookieWithProperties(&properties) }
+}
+
 fn origin_address(origin: &WKSecurityOrigin) -> String {
     // SAFETY: plain property reads of the origin WebKit hands us.
     let (scheme, host, port) = unsafe { (origin.protocol().to_string(), origin.host().to_string(), origin.port()) };
@@ -159,6 +227,33 @@ fn open_in_browser(target: &str) {
 
 type Open = (Retained<NSWindow>, Retained<WKWebView>, Retained<CallDelegate>);
 
+/// Loads `address` once every cookie is in the view's store.
+fn load_with(web: &Retained<WKWebView>, address: &Retained<NSURL>, cookies: Vec<Cookie>) {
+    let made: Vec<Retained<NSHTTPCookie>> = cookies.iter().filter_map(ns_cookie).collect();
+    // SAFETY: WebKit calls on the main thread.
+    let store = unsafe { web.configuration().websiteDataStore().httpCookieStore() };
+    let left = std::rc::Rc::new(std::cell::Cell::new(made.len()));
+    let (web, address) = (web.clone(), address.clone());
+    let load = std::rc::Rc::new(move || {
+        // SAFETY: loading the page on the main thread.
+        unsafe { web.loadRequest(&NSURLRequest::requestWithURL(&address)) };
+    });
+    if made.is_empty() {
+        return load();
+    }
+    for cookie in made {
+        let (left, load) = (left.clone(), load.clone());
+        let set = block2::RcBlock::new(move || {
+            left.set(left.get() - 1);
+            if left.get() == 0 {
+                load();
+            }
+        });
+        // SAFETY: the view's own store, written on the main thread.
+        unsafe { store.setCookie_completionHandler(&cookie, Some(&set)) };
+    }
+}
+
 thread_local! {
     static OPEN: RefCell<Vec<Open>> = RefCell::default();
 }
@@ -166,7 +261,17 @@ thread_local! {
 /// The call at `url` in a window titled `title`; `allowed(address, url)` says
 /// where it may go and which origin gets the camera and the microphone.
 pub fn call_window(url: &str, title: &str, allowed: Allowed) -> Result<(), String> {
-    open(url, title, Mode::Call(allowed))
+    open(url, title, Mode::Call(allowed, Vec::new()))
+}
+
+/// [`call_window`], the page's store holding `cookies` before it loads.
+pub fn call_window_with(url: &str, title: &str, allowed: Allowed, cookies: Vec<Cookie>) -> Result<(), String> {
+    open(url, title, Mode::Call(allowed, cookies))
+}
+
+/// The sign-in page at `url` in a window titled `title`, see [`SessionSignIn`].
+pub fn session_sign_in_window(url: &str, title: &str, sign_in: SessionSignIn) -> Result<(), String> {
+    open(url, title, Mode::Session(sign_in))
 }
 
 /// The sign-in page at `url` in a window titled `title`, see [`SignIn`].
@@ -197,8 +302,16 @@ fn open(url: &str, title: &str, mode: Mode) -> Result<(), String> {
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(&NSString::from_str(title));
     // SAFETY: WebKit objects made and used on the main thread.
+    let cookies = match &mode {
+        Mode::Call(_, cookies) => cookies.clone(),
+        _ => Vec::new(),
+    };
+    let private = matches!(mode, Mode::Session(_)) || !cookies.is_empty();
     let web = unsafe {
         let configuration = WKWebViewConfiguration::new(mtm);
+        if private {
+            configuration.setWebsiteDataStore(&WKWebsiteDataStore::nonPersistentDataStore(mtm));
+        }
         WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), frame, &configuration)
     };
     let delegate = CallDelegate::new(mtm, url, mode);
@@ -206,8 +319,8 @@ fn open(url: &str, title: &str, mode: Mode) -> Result<(), String> {
     unsafe {
         web.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         web.setNavigationDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        web.loadRequest(&NSURLRequest::requestWithURL(&address));
     }
+    load_with(&web, &address, cookies);
     window.setContentView(Some(&web));
     window.center();
     window.makeKeyAndOrderFront(None);

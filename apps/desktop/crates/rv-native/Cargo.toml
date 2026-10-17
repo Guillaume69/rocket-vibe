@@ -43,9 +43,10 @@ objc2-app-kit = { version = "0.3", features = [
     "NSWindow",
     "NSWorkspace",
 ] }
-objc2-foundation = { version = "0.3", features = ["NSString", "NSSet", "NSArray", "NSError", "NSObject", "NSBundle", "NSGeometry", "NSURL", "NSURLRequest"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSSet", "NSArray", "NSError", "NSObject", "NSBundle", "NSGeometry", "NSURL", "NSURLRequest", "NSHTTPCookie", "NSDictionary"] }
 objc2-web-kit = { version = "0.3", features = [
     "WKFrameInfo",
+    "WKHTTPCookieStore",
     "WKNavigation",
     "WKNavigationAction",
     "WKNavigationDelegate",

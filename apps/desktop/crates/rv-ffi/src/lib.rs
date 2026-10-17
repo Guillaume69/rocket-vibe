@@ -983,10 +983,11 @@ fn lay_out(
     if let Some(seen) = unread_after {
         timeline::mark_new(&mut laid, seen, &info.user_id);
     }
+    let reactor = session.reactor_names();
     laid.into_iter()
         .map(|d| {
             let names = |username: &str| session.mention_name(username);
-            let mut item = model::message_named(d, &info.user_id, &info.username, Some(&names));
+            let mut item = model::message_named(d, &info.user_id, &info.username, Some(&names), &reactor);
             if !item.aliased
                 && let Some(label) = session.person_label(&item.author_id)
             {

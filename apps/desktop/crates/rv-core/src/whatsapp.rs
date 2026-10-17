@@ -140,10 +140,30 @@ impl Snapshot {
                 named.unwrap_or_else(|| if !m.author.is_empty() { m.author.clone() } else { fallback_name(&m.sender) }),
             );
         }
-        row.reactions = self.reactions.get(&m.id).and_then(reactions_json);
+        row.reactions = self.reactions.get(&m.id).and_then(|by_sender| self.reactions_json(by_sender));
         let attachments: Vec<serde_json::Value> = self.quote(m).into_iter().chain(attachment_json(m)).collect();
         row.attachments = (!attachments.is_empty()).then(|| serde_json::Value::Array(attachments).to_string());
         row
+    }
+    /// `{":shortcode:": {"usernames": [sender, ...], "names": [...]}}`, the
+    /// shape the timeline's reaction chips read, each sender named as the
+    /// timeline names them; a glyph with no shortcode is keyed by itself.
+    fn reactions_json(&self, by_sender: &BTreeMap<String, String>) -> Option<String> {
+        let mut grouped: BTreeMap<String, (Vec<&str>, Vec<String>)> = BTreeMap::new();
+        for (sender, emoji) in by_sender {
+            let code = crate::emoji::shortcode(emoji).unwrap_or(emoji.as_str());
+            let (users, names) = grouped.entry(format!(":{code}:")).or_default();
+            users.push(sender);
+            names.push(match sender.as_str() {
+                "me" => crate::i18n::t("wa.me").to_owned(),
+                jid => self.name_of(jid).map(str::to_owned).unwrap_or_else(|| fallback_name(jid)),
+            });
+        }
+        let value: serde_json::Map<String, serde_json::Value> = grouped
+            .into_iter()
+            .map(|(code, (users, names))| (code, json!({ "usernames": users, "names": names })))
+            .collect();
+        (!value.is_empty()).then(|| serde_json::Value::Object(value).to_string())
     }
     /// The quoted message as the timeline's quote card: its current text when
     /// cached (edited or deleted since), else the text the reply carried.
@@ -191,19 +211,6 @@ pub fn fallback_name(jid: &str) -> String {
         Some((user, _)) => user.to_owned(),
         None => jid.to_owned(),
     }
-}
-
-/// `{":shortcode:": {"usernames": [sender, ...]}}`, the shape the timeline's
-/// reaction chips read; a glyph with no shortcode is keyed by itself.
-fn reactions_json(by_sender: &BTreeMap<String, String>) -> Option<String> {
-    let mut grouped: BTreeMap<String, Vec<&str>> = BTreeMap::new();
-    for (sender, emoji) in by_sender {
-        let code = crate::emoji::shortcode(emoji).unwrap_or(emoji.as_str());
-        grouped.entry(format!(":{code}:")).or_default().push(sender);
-    }
-    let value: serde_json::Map<String, serde_json::Value> =
-        grouped.into_iter().map(|(code, users)| (code, json!({ "usernames": users }))).collect();
-    (!value.is_empty()).then(|| serde_json::Value::Object(value).to_string())
 }
 
 /// The glyph WhatsApp sends for a reaction chip's shortcode.
@@ -980,6 +987,7 @@ mod tests {
         let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");
         assert_eq!(reactions.len(), 1);
         assert_eq!((reactions[0].count, reactions[0].mine), (2, true));
+        assert_eq!(reactions[0].people[0], ("b".to_owned(), "b".to_owned()));
         assert_eq!(reaction_glyph(&reactions[0].shortcode), "👍");
         s.apply(wire(json!({"type":"reaction","reaction":{"message":"g@g.us:1","sender":"me","emoji":"","ts":13}})));
         let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");

@@ -14,45 +14,45 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/examples/kchat-smoke.rs:70](../../apps/desktop/crates/rv-core/examples/kchat-smoke.rs#L70) | call:GET | &format!("channels/{…}/posts") |
 | [apps/desktop/crates/rv-core/src/actions.rs:51](../../apps/desktop/crates/rv-core/src/actions.rs#L51) | call:GET | "settings.public", options).await { |
 | [apps/desktop/crates/rv-core/src/actions.rs:51](../../apps/desktop/crates/rv-core/src/actions.rs#L51) | endpoint | settings.public |
-| [apps/desktop/crates/rv-core/src/actions.rs:311](../../apps/desktop/crates/rv-core/src/actions.rs#L311) | call:POST | "chat.react" |
-| [apps/desktop/crates/rv-core/src/actions.rs:311](../../apps/desktop/crates/rv-core/src/actions.rs#L311) | endpoint | chat.react |
-| [apps/desktop/crates/rv-core/src/actions.rs:316](../../apps/desktop/crates/rv-core/src/actions.rs#L316) | call:POST | "chat.update" |
-| [apps/desktop/crates/rv-core/src/actions.rs:316](../../apps/desktop/crates/rv-core/src/actions.rs#L316) | endpoint | chat.update |
-| [apps/desktop/crates/rv-core/src/actions.rs:330](../../apps/desktop/crates/rv-core/src/actions.rs#L330) | call:POST | "chat.update" |
-| [apps/desktop/crates/rv-core/src/actions.rs:330](../../apps/desktop/crates/rv-core/src/actions.rs#L330) | endpoint | chat.update |
-| [apps/desktop/crates/rv-core/src/actions.rs:336](../../apps/desktop/crates/rv-core/src/actions.rs#L336) | call:POST | "video-conference.start" |
-| [apps/desktop/crates/rv-core/src/actions.rs:336](../../apps/desktop/crates/rv-core/src/actions.rs#L336) | endpoint | video-conference.start |
-| [apps/desktop/crates/rv-core/src/actions.rs:346](../../apps/desktop/crates/rv-core/src/actions.rs#L346) | call:POST | "video-conference.join" |
-| [apps/desktop/crates/rv-core/src/actions.rs:346](../../apps/desktop/crates/rv-core/src/actions.rs#L346) | endpoint | video-conference.join |
-| [apps/desktop/crates/rv-core/src/actions.rs:352](../../apps/desktop/crates/rv-core/src/actions.rs#L352) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/actions.rs:352](../../apps/desktop/crates/rv-core/src/actions.rs#L352) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/actions.rs:358](../../apps/desktop/crates/rv-core/src/actions.rs#L358) | call:POST | "video-conference.cancel" |
-| [apps/desktop/crates/rv-core/src/actions.rs:358](../../apps/desktop/crates/rv-core/src/actions.rs#L358) | endpoint | video-conference.cancel |
-| [apps/desktop/crates/rv-core/src/actions.rs:362](../../apps/desktop/crates/rv-core/src/actions.rs#L362) | call:POST | "chat.delete" |
-| [apps/desktop/crates/rv-core/src/actions.rs:362](../../apps/desktop/crates/rv-core/src/actions.rs#L362) | endpoint | chat.delete |
-| [apps/desktop/crates/rv-core/src/actions.rs:366](../../apps/desktop/crates/rv-core/src/actions.rs#L366) | call:POST | "rooms.favorite" |
-| [apps/desktop/crates/rv-core/src/actions.rs:366](../../apps/desktop/crates/rv-core/src/actions.rs#L366) | endpoint | rooms.favorite |
-| [apps/desktop/crates/rv-core/src/actions.rs:378](../../apps/desktop/crates/rv-core/src/actions.rs#L378) | call:POST | "subscriptions.unread", options).await.map(\|_\| ()) |
-| [apps/desktop/crates/rv-core/src/actions.rs:378](../../apps/desktop/crates/rv-core/src/actions.rs#L378) | endpoint | subscriptions.unread |
-| [apps/desktop/crates/rv-core/src/actions.rs:386](../../apps/desktop/crates/rv-core/src/actions.rs#L386) | call:POST | "subscriptions.read", options).await.map(\|_\| ()) |
-| [apps/desktop/crates/rv-core/src/actions.rs:386](../../apps/desktop/crates/rv-core/src/actions.rs#L386) | endpoint | subscriptions.read |
-| [apps/desktop/crates/rv-core/src/actions.rs:411](../../apps/desktop/crates/rv-core/src/actions.rs#L411) | call:POST | "rooms.saveNotification" |
-| [apps/desktop/crates/rv-core/src/actions.rs:411](../../apps/desktop/crates/rv-core/src/actions.rs#L411) | endpoint | rooms.saveNotification |
-| [apps/desktop/crates/rv-core/src/actions.rs:415](../../apps/desktop/crates/rv-core/src/actions.rs#L415) | call:POST | "chat.pinMessage" |
-| [apps/desktop/crates/rv-core/src/actions.rs:415](../../apps/desktop/crates/rv-core/src/actions.rs#L415) | endpoint | chat.pinMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:419](../../apps/desktop/crates/rv-core/src/actions.rs#L419) | call:POST | "chat.unPinMessage" |
-| [apps/desktop/crates/rv-core/src/actions.rs:419](../../apps/desktop/crates/rv-core/src/actions.rs#L419) | endpoint | chat.unPinMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:423](../../apps/desktop/crates/rv-core/src/actions.rs#L423) | endpoint | chat.starMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:423](../../apps/desktop/crates/rv-core/src/actions.rs#L423) | endpoint | chat.unStarMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:424](../../apps/desktop/crates/rv-core/src/actions.rs#L424) | call:POST | endpoint |
-| [apps/desktop/crates/rv-core/src/actions.rs:430](../../apps/desktop/crates/rv-core/src/actions.rs#L430) | endpoint | chat.getPinnedMessages |
-| [apps/desktop/crates/rv-core/src/actions.rs:430](../../apps/desktop/crates/rv-core/src/actions.rs#L430) | endpoint | chat.getStarredMessages |
-| [apps/desktop/crates/rv-core/src/actions.rs:431](../../apps/desktop/crates/rv-core/src/actions.rs#L431) | call:GET | endpoint |
-| [apps/desktop/crates/rv-core/src/actions.rs:438](../../apps/desktop/crates/rv-core/src/actions.rs#L438) | endpoint | chat.followMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:438](../../apps/desktop/crates/rv-core/src/actions.rs#L438) | endpoint | chat.unfollowMessage |
-| [apps/desktop/crates/rv-core/src/actions.rs:440](../../apps/desktop/crates/rv-core/src/actions.rs#L440) | call:POST | endpoint, options).await.map(\|_\| ()) |
-| [apps/desktop/crates/rv-core/src/actions.rs:457](../../apps/desktop/crates/rv-core/src/actions.rs#L457) | call:GET | "chat.getThreadsList" |
-| [apps/desktop/crates/rv-core/src/actions.rs:457](../../apps/desktop/crates/rv-core/src/actions.rs#L457) | endpoint | chat.getThreadsList |
+| [apps/desktop/crates/rv-core/src/actions.rs:359](../../apps/desktop/crates/rv-core/src/actions.rs#L359) | call:POST | "chat.react" |
+| [apps/desktop/crates/rv-core/src/actions.rs:359](../../apps/desktop/crates/rv-core/src/actions.rs#L359) | endpoint | chat.react |
+| [apps/desktop/crates/rv-core/src/actions.rs:364](../../apps/desktop/crates/rv-core/src/actions.rs#L364) | call:POST | "chat.update" |
+| [apps/desktop/crates/rv-core/src/actions.rs:364](../../apps/desktop/crates/rv-core/src/actions.rs#L364) | endpoint | chat.update |
+| [apps/desktop/crates/rv-core/src/actions.rs:378](../../apps/desktop/crates/rv-core/src/actions.rs#L378) | call:POST | "chat.update" |
+| [apps/desktop/crates/rv-core/src/actions.rs:378](../../apps/desktop/crates/rv-core/src/actions.rs#L378) | endpoint | chat.update |
+| [apps/desktop/crates/rv-core/src/actions.rs:384](../../apps/desktop/crates/rv-core/src/actions.rs#L384) | call:POST | "video-conference.start" |
+| [apps/desktop/crates/rv-core/src/actions.rs:384](../../apps/desktop/crates/rv-core/src/actions.rs#L384) | endpoint | video-conference.start |
+| [apps/desktop/crates/rv-core/src/actions.rs:394](../../apps/desktop/crates/rv-core/src/actions.rs#L394) | call:POST | "video-conference.join" |
+| [apps/desktop/crates/rv-core/src/actions.rs:394](../../apps/desktop/crates/rv-core/src/actions.rs#L394) | endpoint | video-conference.join |
+| [apps/desktop/crates/rv-core/src/actions.rs:400](../../apps/desktop/crates/rv-core/src/actions.rs#L400) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/actions.rs:400](../../apps/desktop/crates/rv-core/src/actions.rs#L400) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/actions.rs:406](../../apps/desktop/crates/rv-core/src/actions.rs#L406) | call:POST | "video-conference.cancel" |
+| [apps/desktop/crates/rv-core/src/actions.rs:406](../../apps/desktop/crates/rv-core/src/actions.rs#L406) | endpoint | video-conference.cancel |
+| [apps/desktop/crates/rv-core/src/actions.rs:410](../../apps/desktop/crates/rv-core/src/actions.rs#L410) | call:POST | "chat.delete" |
+| [apps/desktop/crates/rv-core/src/actions.rs:410](../../apps/desktop/crates/rv-core/src/actions.rs#L410) | endpoint | chat.delete |
+| [apps/desktop/crates/rv-core/src/actions.rs:414](../../apps/desktop/crates/rv-core/src/actions.rs#L414) | call:POST | "rooms.favorite" |
+| [apps/desktop/crates/rv-core/src/actions.rs:414](../../apps/desktop/crates/rv-core/src/actions.rs#L414) | endpoint | rooms.favorite |
+| [apps/desktop/crates/rv-core/src/actions.rs:426](../../apps/desktop/crates/rv-core/src/actions.rs#L426) | call:POST | "subscriptions.unread", options).await.map(\|_\| ()) |
+| [apps/desktop/crates/rv-core/src/actions.rs:426](../../apps/desktop/crates/rv-core/src/actions.rs#L426) | endpoint | subscriptions.unread |
+| [apps/desktop/crates/rv-core/src/actions.rs:434](../../apps/desktop/crates/rv-core/src/actions.rs#L434) | call:POST | "subscriptions.read", options).await.map(\|_\| ()) |
+| [apps/desktop/crates/rv-core/src/actions.rs:434](../../apps/desktop/crates/rv-core/src/actions.rs#L434) | endpoint | subscriptions.read |
+| [apps/desktop/crates/rv-core/src/actions.rs:459](../../apps/desktop/crates/rv-core/src/actions.rs#L459) | call:POST | "rooms.saveNotification" |
+| [apps/desktop/crates/rv-core/src/actions.rs:459](../../apps/desktop/crates/rv-core/src/actions.rs#L459) | endpoint | rooms.saveNotification |
+| [apps/desktop/crates/rv-core/src/actions.rs:463](../../apps/desktop/crates/rv-core/src/actions.rs#L463) | call:POST | "chat.pinMessage" |
+| [apps/desktop/crates/rv-core/src/actions.rs:463](../../apps/desktop/crates/rv-core/src/actions.rs#L463) | endpoint | chat.pinMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:467](../../apps/desktop/crates/rv-core/src/actions.rs#L467) | call:POST | "chat.unPinMessage" |
+| [apps/desktop/crates/rv-core/src/actions.rs:467](../../apps/desktop/crates/rv-core/src/actions.rs#L467) | endpoint | chat.unPinMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:471](../../apps/desktop/crates/rv-core/src/actions.rs#L471) | endpoint | chat.starMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:471](../../apps/desktop/crates/rv-core/src/actions.rs#L471) | endpoint | chat.unStarMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:472](../../apps/desktop/crates/rv-core/src/actions.rs#L472) | call:POST | endpoint |
+| [apps/desktop/crates/rv-core/src/actions.rs:478](../../apps/desktop/crates/rv-core/src/actions.rs#L478) | endpoint | chat.getPinnedMessages |
+| [apps/desktop/crates/rv-core/src/actions.rs:478](../../apps/desktop/crates/rv-core/src/actions.rs#L478) | endpoint | chat.getStarredMessages |
+| [apps/desktop/crates/rv-core/src/actions.rs:479](../../apps/desktop/crates/rv-core/src/actions.rs#L479) | call:GET | endpoint |
+| [apps/desktop/crates/rv-core/src/actions.rs:486](../../apps/desktop/crates/rv-core/src/actions.rs#L486) | endpoint | chat.followMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:486](../../apps/desktop/crates/rv-core/src/actions.rs#L486) | endpoint | chat.unfollowMessage |
+| [apps/desktop/crates/rv-core/src/actions.rs:488](../../apps/desktop/crates/rv-core/src/actions.rs#L488) | call:POST | endpoint, options).await.map(\|_\| ()) |
+| [apps/desktop/crates/rv-core/src/actions.rs:505](../../apps/desktop/crates/rv-core/src/actions.rs#L505) | call:GET | "chat.getThreadsList" |
+| [apps/desktop/crates/rv-core/src/actions.rs:505](../../apps/desktop/crates/rv-core/src/actions.rs#L505) | endpoint | chat.getThreadsList |
 | [apps/desktop/crates/rv-core/src/admin.rs:731](../../apps/desktop/crates/rv-core/src/admin.rs#L731) | call:UPLOAD | "assets.setAsset", "asset", png, "icon.png", "image/png", texts, \|_, _\| {…}).await?; |
 | [apps/desktop/crates/rv-core/src/admin.rs:736](../../apps/desktop/crates/rv-core/src/admin.rs#L736) | call:POST | "assets.unsetAsset" |
 | [apps/desktop/crates/rv-core/src/admin.rs:794](../../apps/desktop/crates/rv-core/src/admin.rs#L794) | call:UPLOAD | "emoji-custom.create", "emoji", image, file_name, mime, texts, \|_, _\| {…}).await?; |
@@ -281,33 +281,33 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:870](../../apps/desktop/crates/rv-core/src/session.rs#L870) | endpoint | users.getPresence |
 | [apps/desktop/crates/rv-core/src/session.rs:968](../../apps/desktop/crates/rv-core/src/session.rs#L968) | call:GET | "e2e.fetchMyKeys" |
 | [apps/desktop/crates/rv-core/src/session.rs:968](../../apps/desktop/crates/rv-core/src/session.rs#L968) | endpoint | e2e.fetchMyKeys |
-| [apps/desktop/crates/rv-core/src/session.rs:1164](../../apps/desktop/crates/rv-core/src/session.rs#L1164) | call:POST | "users.profile.set" |
-| [apps/desktop/crates/rv-core/src/session.rs:1164](../../apps/desktop/crates/rv-core/src/session.rs#L1164) | endpoint | users.profile.set |
-| [apps/desktop/crates/rv-core/src/session.rs:1226](../../apps/desktop/crates/rv-core/src/session.rs#L1226) | endpoint | users.setAvatar |
-| [apps/desktop/crates/rv-core/src/session.rs:1228](../../apps/desktop/crates/rv-core/src/session.rs#L1228) | call:UPLOAD | &path, "image", bytes, &name, mime, Vec::new(), \|_, _\| {…}).await.map(\|_\| ()) |
-| [apps/desktop/crates/rv-core/src/session.rs:1259](../../apps/desktop/crates/rv-core/src/session.rs#L1259) | call:DELETE | &path |
-| [apps/desktop/crates/rv-core/src/session.rs:1287](../../apps/desktop/crates/rv-core/src/session.rs#L1287) | endpoint | spotlight |
-| [apps/desktop/crates/rv-core/src/session.rs:1433](../../apps/desktop/crates/rv-core/src/session.rs#L1433) | call:GET | "settings.public" |
-| [apps/desktop/crates/rv-core/src/session.rs:1433](../../apps/desktop/crates/rv-core/src/session.rs#L1433) | endpoint | settings.public |
-| [apps/desktop/crates/rv-core/src/session.rs:1471](../../apps/desktop/crates/rv-core/src/session.rs#L1471) | call:GET | "emoji-custom.list" |
-| [apps/desktop/crates/rv-core/src/session.rs:1471](../../apps/desktop/crates/rv-core/src/session.rs#L1471) | endpoint | emoji-custom.list |
-| [apps/desktop/crates/rv-core/src/session.rs:1526](../../apps/desktop/crates/rv-core/src/session.rs#L1526) | call:POST | "subscriptions.read", read).await; |
-| [apps/desktop/crates/rv-core/src/session.rs:1526](../../apps/desktop/crates/rv-core/src/session.rs#L1526) | endpoint | subscriptions.read |
-| [apps/desktop/crates/rv-core/src/session.rs:1607](../../apps/desktop/crates/rv-core/src/session.rs#L1607) | call:GET | "permissions.listAll" |
-| [apps/desktop/crates/rv-core/src/session.rs:1607](../../apps/desktop/crates/rv-core/src/session.rs#L1607) | endpoint | permissions.listAll |
-| [apps/desktop/crates/rv-core/src/session.rs:1608](../../apps/desktop/crates/rv-core/src/session.rs#L1608) | call:GET | "me" |
-| [apps/desktop/crates/rv-core/src/session.rs:1632](../../apps/desktop/crates/rv-core/src/session.rs#L1632) | call:GET | "commands.list" |
-| [apps/desktop/crates/rv-core/src/session.rs:1666](../../apps/desktop/crates/rv-core/src/session.rs#L1666) | call:POST | "commands.run" |
-| [apps/desktop/crates/rv-core/src/session.rs:1837](../../apps/desktop/crates/rv-core/src/session.rs#L1837) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:1837](../../apps/desktop/crates/rv-core/src/session.rs#L1837) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2077](../../apps/desktop/crates/rv-core/src/session.rs#L2077) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/session.rs:2077](../../apps/desktop/crates/rv-core/src/session.rs#L2077) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/session.rs:2163](../../apps/desktop/crates/rv-core/src/session.rs#L2163) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:2163](../../apps/desktop/crates/rv-core/src/session.rs#L2163) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2174](../../apps/desktop/crates/rv-core/src/session.rs#L2174) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:2174](../../apps/desktop/crates/rv-core/src/session.rs#L2174) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2509](../../apps/desktop/crates/rv-core/src/session.rs#L2509) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2509](../../apps/desktop/crates/rv-core/src/session.rs#L2509) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:1182](../../apps/desktop/crates/rv-core/src/session.rs#L1182) | call:POST | "users.profile.set" |
+| [apps/desktop/crates/rv-core/src/session.rs:1182](../../apps/desktop/crates/rv-core/src/session.rs#L1182) | endpoint | users.profile.set |
+| [apps/desktop/crates/rv-core/src/session.rs:1244](../../apps/desktop/crates/rv-core/src/session.rs#L1244) | endpoint | users.setAvatar |
+| [apps/desktop/crates/rv-core/src/session.rs:1246](../../apps/desktop/crates/rv-core/src/session.rs#L1246) | call:UPLOAD | &path, "image", bytes, &name, mime, Vec::new(), \|_, _\| {…}).await.map(\|_\| ()) |
+| [apps/desktop/crates/rv-core/src/session.rs:1277](../../apps/desktop/crates/rv-core/src/session.rs#L1277) | call:DELETE | &path |
+| [apps/desktop/crates/rv-core/src/session.rs:1305](../../apps/desktop/crates/rv-core/src/session.rs#L1305) | endpoint | spotlight |
+| [apps/desktop/crates/rv-core/src/session.rs:1451](../../apps/desktop/crates/rv-core/src/session.rs#L1451) | call:GET | "settings.public" |
+| [apps/desktop/crates/rv-core/src/session.rs:1451](../../apps/desktop/crates/rv-core/src/session.rs#L1451) | endpoint | settings.public |
+| [apps/desktop/crates/rv-core/src/session.rs:1489](../../apps/desktop/crates/rv-core/src/session.rs#L1489) | call:GET | "emoji-custom.list" |
+| [apps/desktop/crates/rv-core/src/session.rs:1489](../../apps/desktop/crates/rv-core/src/session.rs#L1489) | endpoint | emoji-custom.list |
+| [apps/desktop/crates/rv-core/src/session.rs:1544](../../apps/desktop/crates/rv-core/src/session.rs#L1544) | call:POST | "subscriptions.read", read).await; |
+| [apps/desktop/crates/rv-core/src/session.rs:1544](../../apps/desktop/crates/rv-core/src/session.rs#L1544) | endpoint | subscriptions.read |
+| [apps/desktop/crates/rv-core/src/session.rs:1625](../../apps/desktop/crates/rv-core/src/session.rs#L1625) | call:GET | "permissions.listAll" |
+| [apps/desktop/crates/rv-core/src/session.rs:1625](../../apps/desktop/crates/rv-core/src/session.rs#L1625) | endpoint | permissions.listAll |
+| [apps/desktop/crates/rv-core/src/session.rs:1626](../../apps/desktop/crates/rv-core/src/session.rs#L1626) | call:GET | "me" |
+| [apps/desktop/crates/rv-core/src/session.rs:1650](../../apps/desktop/crates/rv-core/src/session.rs#L1650) | call:GET | "commands.list" |
+| [apps/desktop/crates/rv-core/src/session.rs:1684](../../apps/desktop/crates/rv-core/src/session.rs#L1684) | call:POST | "commands.run" |
+| [apps/desktop/crates/rv-core/src/session.rs:1855](../../apps/desktop/crates/rv-core/src/session.rs#L1855) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:1855](../../apps/desktop/crates/rv-core/src/session.rs#L1855) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2095](../../apps/desktop/crates/rv-core/src/session.rs#L2095) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/session.rs:2095](../../apps/desktop/crates/rv-core/src/session.rs#L2095) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/session.rs:2181](../../apps/desktop/crates/rv-core/src/session.rs#L2181) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:2181](../../apps/desktop/crates/rv-core/src/session.rs#L2181) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2192](../../apps/desktop/crates/rv-core/src/session.rs#L2192) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:2192](../../apps/desktop/crates/rv-core/src/session.rs#L2192) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:2521](../../apps/desktop/crates/rv-core/src/session.rs#L2521) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2521](../../apps/desktop/crates/rv-core/src/session.rs#L2521) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:14](../../apps/desktop/crates/rv-core/src/slack/api.rs#L14) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:18](../../apps/desktop/crates/rv-core/src/slack/api.rs#L18) | endpoint | users.info |

@@ -288,19 +288,67 @@ pub struct Reaction {
     pub shortcode: String,
     pub count: usize,
     pub mine: bool,
+    /// Who reacted, in the server's order: each username with the name the
+    /// row stored beside it (Rocket.Chat's `names` when it shows real names,
+    /// a WhatsApp contact's name), empty when none.
+    pub people: Vec<(String, String)>,
 }
 
-/// `{":smile:": {"usernames": [...]}}`, in the server's order.
+/// `{":smile:": {"usernames": [...], "names": [...]}}`, in the server's order.
 pub fn reactions(json: Option<&str>, me: &str) -> Vec<Reaction> {
     let Some(map) = json.and_then(|j| serde_json::from_str::<serde_json::Map<String, Value>>(j).ok()) else {
         return Vec::new();
     };
+    let strings = |v: &Value, key: &str| -> Vec<String> {
+        v.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect()
+    };
     map.into_iter()
         .filter_map(|(shortcode, v)| {
-            let users: Vec<&str> = v.get("usernames")?.as_array()?.iter().filter_map(Value::as_str).collect();
-            (!users.is_empty()).then(|| Reaction { mine: users.contains(&me), count: users.len(), shortcode })
+            let mut names = strings(&v, "names").into_iter();
+            let people: Vec<(String, String)> =
+                strings(&v, "usernames").into_iter().map(|user| (user, names.next().unwrap_or_default())).collect();
+            (!people.is_empty()).then(|| Reaction {
+                mine: people.iter().any(|(user, _)| user == me),
+                count: people.len(),
+                shortcode,
+                people,
+            })
         })
         .collect()
+}
+
+/// How many people a reaction's hover text names before "and N others".
+pub const REACTORS_SHOWN: usize = 12;
+
+/// What hovering a reaction chip shows: its code, then who reacted, me first
+/// as "You", the others as `name(username, stored name)` says, those past
+/// `REACTORS_SHOWN` only counted.
+pub fn reactors_text(reaction: &Reaction, me: &str, name: impl Fn(&str, &str) -> String) -> String {
+    let (mine, others): (Vec<&(String, String)>, Vec<_>) = reaction.people.iter().partition(|(user, _)| user == me);
+    let mut shown: Vec<String> = Vec::new();
+    if !mine.is_empty() {
+        shown.push(crate::i18n::t("reactions.you").to_owned());
+    }
+    let room = REACTORS_SHOWN.saturating_sub(shown.len());
+    shown.extend(others.iter().take(room).map(|(user, stored)| name(user, stored)));
+    let rest = others.len().saturating_sub(room);
+    let people = match shown.split_last() {
+        _ if rest > 0 => crate::i18n::tf(
+            "reactions.and",
+            &[("first", &shown.join(", ")), ("last", &crate::i18n::tn("reactions.others", rest as i64))],
+        ),
+        Some((last, first)) if !first.is_empty() => {
+            crate::i18n::tf("reactions.and", &[("first", &first.join(", ")), ("last", last)])
+        }
+        _ => shown.concat(),
+    };
+    format!("{}\n{people}", reaction.shortcode)
 }
 
 pub const QUICK_REACTIONS: [&str; 6] = [":+1:", ":heart:", ":joy:", ":tada:", ":open_mouth:", ":pray:"];
@@ -657,9 +705,30 @@ mod tests {
         let json = r#"{":+1:":{"usernames":["bob","me"]},":tada:":{"usernames":["bob"]},":x:":{"usernames":[]}}"#;
         let r = reactions(Some(json), "me");
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0], Reaction { shortcode: ":+1:".into(), count: 2, mine: true });
+        let people = vec![("bob".to_owned(), String::new()), ("me".to_owned(), String::new())];
+        assert_eq!(r[0], Reaction { shortcode: ":+1:".into(), count: 2, mine: true, people });
         assert!(!r[1].mine);
         assert!(reactions(None, "me").is_empty());
+    }
+
+    #[test]
+    fn a_reaction_names_who_reacted_me_first() {
+        let _serial = crate::i18n::LANGUAGE.lock().unwrap();
+        crate::i18n::set(crate::i18n::Lang::En);
+        let json =
+            r#"{":+1:":{"usernames":["bob","me","ann"],"names":["Bob B","Me M","Ann A"]},":x:":{"usernames":["bob"]}}"#;
+        let r = reactions(Some(json), "me");
+        assert_eq!(r[0].people[2], ("ann".to_owned(), "Ann A".to_owned()));
+        let stored = |user: &str, name: &str| if name.is_empty() { user.to_owned() } else { name.to_owned() };
+        assert_eq!(reactors_text(&r[0], "me", stored), ":+1:\nYou, Bob B and Ann A");
+        assert_eq!(reactors_text(&r[1], "me", stored), ":x:\nbob");
+        let many: Vec<String> = (0..15).map(|i| format!("u{i}")).collect();
+        let crowd = reactions(Some(&serde_json::json!({":tada:": {"usernames": many}}).to_string()), "me");
+        let text = reactors_text(&crowd[0], "me", stored);
+        assert!(text.ends_with("u10, u11 and 3 others"), "{text}");
+        crate::i18n::set(crate::i18n::Lang::Fr);
+        assert_eq!(reactors_text(&r[0], "me", stored), ":+1:\nToi, Bob B et Ann A");
+        crate::i18n::set(crate::i18n::Lang::En);
     }
 
     #[test]

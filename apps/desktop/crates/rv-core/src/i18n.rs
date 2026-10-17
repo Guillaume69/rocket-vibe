@@ -2072,6 +2072,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("activity.mention", "Vous a mentionné", "Mentioned you"),
     ("activity.reply", "A répondu dans un fil", "Replied in a thread"),
     ("activity.reaction", "Réactions de {names} : {emojis}", "{names} reacted {emojis}"),
+    ("reactions.you", "Toi", "You"),
+    ("reactions.and", "{first} et {last}", "{first} and {last}"),
+    ("reactions.others", "{n} autre | {n} autres", "{n} other | {n} others"),
     ("activity.recent", "Récent", "Recent"),
     (
         "activity.empty",

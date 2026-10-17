@@ -1082,6 +1082,24 @@ impl Session {
         })
     }
 
+    /// Who reacted, as the room names people: the directory's name on
+    /// Mattermost and Slack, the name Rocket.Chat stored beside the username
+    /// (`stored`) when it shows real names, else the username. The setting is
+    /// read once, when the namer is made.
+    pub fn reactor_names(&self) -> impl Fn(&str, &str) -> String + '_ {
+        let real_names = self.store.real_names();
+        move |username, stored| self.reactor_name_with(username, stored, real_names)
+    }
+
+    fn reactor_name_with(&self, username: &str, stored: &str, real_names: bool) -> String {
+        let shown = match self.backend() {
+            Backend::Mattermost(mm) => mm.directory.name_of(username),
+            Backend::Slack(slack) => slack.directory.name_of(username),
+            Backend::RocketChat => (real_names && !stored.is_empty()).then(|| stored.to_owned()),
+        };
+        shown.unwrap_or_else(|| username.to_owned())
+    }
+
     /// The name a mention of `username` shows: its display name on Mattermost
     /// and kChat, as their apps do; None keeps the username.
     pub fn mention_name(&self, username: &str) -> Option<String> {
@@ -2261,14 +2279,8 @@ impl Session {
             }
             let names = crate::activity::reaction_names(item.message.reactions.as_deref());
             for reactor in &mut item.reactors {
-                let shown = match self.backend() {
-                    Backend::Mattermost(mm) => mm.directory.name_of(reactor),
-                    Backend::Slack(slack) => slack.directory.name_of(reactor),
-                    Backend::RocketChat => names.get(reactor.as_str()).filter(|_| real_names).cloned(),
-                };
-                if let Some(shown) = shown {
-                    *reactor = shown;
-                }
+                let stored = names.get(reactor.as_str()).map_or("", String::as_str);
+                *reactor = self.reactor_name_with(reactor, stored, real_names);
             }
         }
         activity

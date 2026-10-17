@@ -10,6 +10,8 @@ import { requireOptionalNativeModule } from 'expo-modules-core';
 type NativeWebCookies = {
   /** The `name=value; …` cookies a request to `url` would carry, HttpOnly included. */
   get(url: string): string;
+  /** The system web view's own user agent, or null before the app's context exists. */
+  userAgent(): string | null;
   /** Empties the web views' cookie store. */
   clear(): Promise<void>;
 };

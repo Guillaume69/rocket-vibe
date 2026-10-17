@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { isKchatSignInPage } from '../mattermost/kchatOAuth.ts';
-import { isSlackWebDone, isSlackWebPage, scrapeToken, sessionCookie, signInFromWeb, workspaceHosts } from './webSignIn.ts';
+import { isSlackWebDone, isSlackWebPage, scrapeToken, sessionCookie, signInFromWeb, slackUserAgent, workspaceHosts } from './webSignIn.ts';
 import { AUTH, COOKIE, TOKEN, fakeSlack } from './testing.ts';
 
 test('the web view shows Slack pages only and stops on the handoff or the web client', () => {
@@ -23,6 +23,13 @@ test('workspace hosts leave Slack infrastructure out; the cookie is the one xoxd
   assert.equal(sessionCookie(`b=1; d=${COOKIE}; x=2`), COOKIE);
   assert.equal(sessionCookie('d=nope'), null);
   assert.equal(sessionCookie(`d=${COOKIE}; d=xoxd-other`), null, 'two sessions: which one is unknowable');
+});
+
+test("Slack is shown a desktop browser of the web view's own Chromium version", () => {
+  const phone = 'Mozilla/5.0 (Linux; Android 16; SM-S938B Build/BP2A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/155.0.7390.24 Mobile Safari/537.36';
+  assert.equal(slackUserAgent(phone), 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36');
+  assert.match(slackUserAgent(null), /Chrome\/141\.0\.0\.0 Safari/);
+  assert.ok(!slackUserAgent(phone).includes('Android'));
 });
 
 test('the boot page token is scraped, the keyed one first', () => {

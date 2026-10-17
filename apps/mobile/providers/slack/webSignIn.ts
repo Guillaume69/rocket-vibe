@@ -11,8 +11,14 @@ import { loginSlack, type SlackLoginOptions } from './auth.ts';
 import { SlackError } from './client.ts';
 
 export const SLACK_WEB_START = 'https://slack.com/signin';
-/** A desktop browser's: slack.com answers a phone's with the app's download page, and its web client with the app too. */
-export const SLACK_WEB_USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+/**
+ * A desktop browser's, carrying the web view's real Chromium version: slack.com
+ * answers a phone's with the app's download page, and warns an old version off.
+ */
+export function slackUserAgent(webViewAgent: string | null): string {
+  const version = /\bChrome\/(\d+)\./.exec(webViewAgent ?? '')?.[1] ?? '141';
+  return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version}.0.0.0 Safari/537.36`;
+}
 /** Whose cookies the session is read from: the `d` cookie is set on `.slack.com`. */
 export const SLACK_WEB_COOKIES = 'https://slack.com';
 

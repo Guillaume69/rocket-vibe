@@ -1,6 +1,7 @@
 package com.rocketvibe.webcookies
 
 import android.webkit.CookieManager
+import android.webkit.WebSettings
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -18,6 +19,11 @@ class WebCookiesModule : Module() {
     /** The `name=value` pairs CookieManager would send to `url`, or "" when none. */
     Function("get") { url: String ->
       CookieManager.getInstance().getCookie(url) ?: ""
+    }
+
+    /** The system web view's own user agent, which carries its Chromium version. */
+    Function("userAgent") {
+      appContext.reactContext?.let { WebSettings.getDefaultUserAgent(it) }
     }
 
     AsyncFunction("clear") { promise: Promise ->

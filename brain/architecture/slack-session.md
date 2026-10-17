@@ -35,6 +35,22 @@ it, with no refresh. Only Slack's own session error codes count as a revoked ses
 
 ### Desktop browser sign-in
 
+**The app's window (current).** Both desktops sign in in a window of the app, not a
+browser: GTK `slack_window.rs` (a WebKitGTK `adw::Dialog` on an ephemeral
+`NetworkSession` on Linux; `rv_native::session_sign_in_window` elsewhere), SwiftUI
+`SignInWindow.showSlack`, both on WebView2 (`rv-native/src/windows_call.rs`) and WKWebView
+(`macos_call.rs`, `SignInWindow.swift`) over a non-persistent store. The window shows
+Slack's own `https` pages only (`browser_login::window_page`), hands other links to the
+browser, and stops on the first navigation `window_done` recognises (the `/ssb/` handoff or
+the web client), which is cancelled. Its cookies for `WINDOW_COOKIES` are then read
+(`GetCookies`, `WKHTTPCookieStore.getAllCookies`, the WebKit `CookieManager`) and wiped,
+and `BrowserLogin::from_window` derives the workspaces from them exactly as below
+(`derive_from`: the one secure HttpOnly `d` cookie, each host's boot page, `auth.test`), so
+the picker and `take` are unchanged. No camera, microphone or debugging port. rv-ffi
+exposes it as `slack_window_start`, `slack_window_cookie_url`, `slack_window_page`,
+`slack_window_done` and `slack_window_login`. The browser route below stays in rv-core but
+no interface starts it.
+
 `slack/browser_login.rs` reuses the helper's acquisition inside the app, with no helper
 and no pairing: it launches an installed Chromium-family browser (Chromium, Chrome,
 Edge, Brave, searched at fixed paths then on `PATH`; none answers
@@ -176,9 +192,14 @@ before the page loads. The browser picks its own debugging port on 127.0.0.1 and
 reads it from the profile's `DevToolsActivePort` (no port chosen and freed for another
 process to take); the process is killed with the app (`kill_on_drop`) and the profile
 deleted when the window closes. If that fails, the ordinary call window opens. On GTK off
-Linux, macOS and Android the huddle opens in the system browser (`cards::open_uri`,
-`CallWindow.show`, `providers/slack/calls.ts` and the Slack branch of
-`app/call/[callId].tsx`, which asks no camera permission). Huddle media has no session API: no native participation. Slackbot's
+Linux and in SwiftUI it opens in the app's call window, WebView2 or WKWebView, which gets
+the `d` cookie (`Session::huddle_cookie`, rv-ffi `Chat::huddle_cookie`) before the page
+loads (`rv_native::call_window_with`, `CallWindow.show(slackCookie:)`), on a store of its
+own, and stays on Slack's pages and their blobs (`translate::huddle_allowed`, rv-ffi
+`slack_huddle_allowed`); camera and microphone are granted on Slack's pages only
+(`call_window::open_slack`, `ChatPage::open_call`). On Android the huddle opens in the
+system browser (`providers/slack/calls.ts` and the Slack branch of `app/call/[callId].tsx`,
+which asks no camera permission). Huddle media has no session API: no native participation. Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Files

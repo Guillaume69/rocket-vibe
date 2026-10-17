@@ -25,6 +25,7 @@ section here.
 - A private room shows a lock on its coloured tile, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their grey lock.
 - Mattermost and kChat: a mention shows the person's name under the account's name format, as the official apps do, instead of the username, also for someone the app had not met yet.
 - Integration cards (kChat's Euria requests, Mattermost bots) show their text above the card, and their titles, texts and field values formatted: emoji and links instead of raw `:file_folder:` and `[label](url)`.
+- Experimental Slack accounts sign in in a window of the app, with no browser to find or drive (Edge and Firefox are enough on Windows). Joining or starting a huddle on Windows and macOS opens it in a window of the app already signed in to Slack, instead of your browser.
 
 ### Fixed
 

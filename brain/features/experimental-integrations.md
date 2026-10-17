@@ -18,13 +18,14 @@ and reacts; opening a room marks it read. All three apps send typing. Slack's em
 names and skin tones show as emoji, the workspace's custom emoji as images, and a
 person's status emoji after their name. A huddle shows as the kChat-style call card: while it runs,
 Join opens it in Slack's web app, as does the room header's call button, which
-starts one: on GTK Linux in a temporary Chromium app window already signed in with the
-session cookie (no second sign-in), on GTK elsewhere, macOS and Android in the system
-browser (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room info, settings, members, leave, favorites, quotes, scheduled messages and the account and profile screens stay hidden. A thread reply marks its room unread and notifies only when it names me; a conversation created or joined elsewhere appears live. Android hides reactions Slack does not know (`slackReactable`); GTK and SwiftUI hide Rocket.Chat's GIFs, stickers and encryption on Slack (`is_slack`). Android signs in with one button, in the app's sign-in web view (`providers/slack/webSignIn.ts`), the way the desktops use their browser. GTK and SwiftUI hide the server
-and password fields and offer "Sign in to Slack": the app opens a temporary browser,
-the user signs in there (password, SSO, MFA are Slack's), the app closes it, and a
+starts one already signed in with the session cookie (no second sign-in): on GTK Linux in
+a temporary Chromium app window (WebKitGTK has no WebRTC), on GTK elsewhere and SwiftUI in
+the app's call window (WebView2, WKWebView), on Android in the system browser (huddles have no native media); once over, its length. Received files show as attachments (images, video and audio play in the app, other files open or save) and files are sent from the composer; a room is searched, messages are pinned and saved (Slack's "saved for later" is the app's star) with both lists shown, and presence shows on people and can be set (Slack has online and away only; the status text is not offered, the account screens being unwired). Room info, settings, members, leave, favorites, quotes, scheduled messages and the account and profile screens stay hidden. A thread reply marks its room unread and notifies only when it names me; a conversation created or joined elsewhere appears live. Android hides reactions Slack does not know (`slackReactable`); GTK and SwiftUI hide Rocket.Chat's GIFs, stickers and encryption on Slack (`is_slack`). Android signs in with one button, in the app's sign-in web view (`providers/slack/webSignIn.ts`), the way the desktops use their browser. GTK and SwiftUI hide the server
+and password fields and offer "Sign in to Slack": the app opens a sign-in window of its own
+(WebKitGTK, WebView2, WKWebView), the user signs in there (password, SSO, MFA are Slack's),
+the window closes once Slack hands the session over, and a
 workspace picker appears when the session holds several. Cancel stops the attempt and
-closes the browser. Hiding the experimental integrations removes the Slack kind. See
+closes the window. Hiding the experimental integrations removes the Slack kind. See
 [Slack architecture](../architecture/slack-session.md#desktop-browser-sign-in).
 
 ## Unlock
@@ -79,10 +80,8 @@ browser session.
 ## Limits
 
 Slack and Teams use provider-separated encrypted public-key handoffs from separate
-development browser helpers; the desktops also sign in to Slack in an app-owned
-temporary browser. Installed Android and macOS runtime qualification remains outstanding.
-Slack still lacks phone-only sign-in on Android, the pasted-session fallback on the
-desktops, native huddle media, killed-app push and the screens listed above; Teams lacks
+development browser helpers; the desktops sign in to Slack in a window of the app. Installed Android and macOS runtime qualification remains outstanding.
+Slack still lacks a pasted-session fallback, native huddle media, killed-app push and the screens listed above; Teams lacks
 everything past its read preview. See [parity](../parity.md#19-experimental-integrations).
 
 ## Validation

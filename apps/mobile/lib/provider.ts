@@ -242,8 +242,10 @@ export interface ProviderActions {
   /** Writes the given settings of the room (only those present). */
   saveRoomSettings?(rid: string, fields: RoomSettingsChange): Promise<void>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
-  /** Presses an integration card's button (Mattermost `actions[]`). Absent where cards carry none. */
-  cardAction?(postId: string, actionId: string, cookie: string | null): Promise<CardActionAnswer>;
+  /** Presses an integration card's button, or picks `selected` in its menu (Mattermost `actions[]`). Absent where cards carry none. */
+  cardAction?(postId: string, actionId: string, cookie: string | null, selected?: string): Promise<CardActionAnswer>;
+  /** The people or channels a card menu of room `rid` offers for `term`. */
+  cardMenuOptions?(rid: string, source: 'users' | 'channels', term: string): Promise<{ label: string; value: string }[]>;
   /**
    * Makes the room unread again from its last message; the subscription the
    * server rebroadcasts carries the badge. Absent where the server cannot.

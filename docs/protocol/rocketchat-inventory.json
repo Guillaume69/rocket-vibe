@@ -412,6 +412,7 @@
     "apps/mobile/app/attach.tsx",
     "apps/mobile/app/call-ring/[callId].tsx",
     "apps/mobile/app/call/[callId].tsx",
+    "apps/mobile/app/card-menu.tsx",
     "apps/mobile/app/forward.tsx",
     "apps/mobile/app/index.tsx",
     "apps/mobile/app/licenses.tsx",
@@ -576,6 +577,7 @@
     "apps/mobile/ui/botsModel.ts",
     "apps/mobile/ui/callRing.tsx",
     "apps/mobile/ui/cardActions.ts",
+    "apps/mobile/ui/cardMenuStore.ts",
     "apps/mobile/ui/collapsedSections.ts",
     "apps/mobile/ui/commandCompletion.tsx",
     "apps/mobile/ui/composer.tsx",
@@ -5107,37 +5109,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3005,
+      "line": 3008,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3006,
+      "line": 3009,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3008,
+      "line": 3011,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3009,
+      "line": 3012,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3010,
+      "line": 3013,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3011,
+      "line": 3014,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

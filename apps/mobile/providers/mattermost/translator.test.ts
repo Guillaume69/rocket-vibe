@@ -198,7 +198,7 @@ describe('MmTranslator integrations and links', () => {
     assert.equal(summary?.text, 'plain summary');
   });
 
-  test('a card keeps only its buttons, with their id, name, style and cookie', () => {
+  test('a card keeps its buttons and menus, with their id, name, style and cookie', () => {
     const m = translator().toMessage(post('p1', {
       props: { attachments: [{ text: 'Deploy?', actions: [
         { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1', integration: { url: 'https://hook.test' } },
@@ -209,10 +209,32 @@ describe('MmTranslator integrations and links', () => {
       ] }] },
     }));
     const [raw] = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
-    assert.deepEqual(raw?.actions, [{ id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' }, { id: 'no', name: 'Reject', style: 'danger' }]);
-    assert.deepEqual(integrationCard(raw)?.actions, [
+    assert.deepEqual(raw?.actions, [
       { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1' },
-      { id: 'no', name: 'Reject', style: 'danger', cookie: null },
+      { id: 'no', name: 'Reject', style: 'danger' },
+      { id: 'pick', name: 'Pick', type: 'select', options: [] },
+    ]);
+    assert.deepEqual(integrationCard(raw)?.actions, [
+      { id: 'ok', name: 'Approve', style: 'primary', cookie: 'c1', menu: null },
+      { id: 'no', name: 'Reject', style: 'danger', cookie: null, menu: null },
+    ], 'a menu with nothing to pick is left out');
+  });
+
+  test('a card menu keeps its options, its source and its default choice', () => {
+    const m = translator().toMessage(post('p1', {
+      props: { attachments: [{ text: 'Triage', actions: [
+        { id: 'prio', name: 'Priority', type: 'select', default_option: 'low',
+          options: [{ text: 'Low', value: 'low' }, { text: 'High', value: 'high' }, { text: 'No value' }] },
+        { id: 'who', name: 'Assign', type: 'select', data_source: 'users', cookie: 'c2' },
+        { id: 'where', name: 'Move', type: 'select', data_source: 'channels' },
+        { id: 'when', name: 'Date', type: 'datepicker' },
+      ] }] },
+    }));
+    const [raw] = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
+    assert.deepEqual(integrationCard(raw)?.actions.map((a) => [a.id, a.menu, a.cookie]), [
+      ['prio', { source: 'options', options: [{ label: 'Low', value: 'low' }, { label: 'High', value: 'high' }], initial: 'low' }, null],
+      ['who', { source: 'users', options: [], initial: null }, 'c2'],
+      ['where', { source: 'channels', options: [], initial: null }, null],
     ]);
   });
 
@@ -301,7 +323,7 @@ describe('ephemeralNote', () => {
       assert.equal(note?.rid, 'r1');
       assert.equal(note?.postId, 'e1');
       assert.equal(note?.text, 'Hi @bob');
-      assert.deepEqual(note?.cards?.[0]?.actions, [{ id: 'yes', name: 'Yes', style: null, cookie: 'srv' }]);
+      assert.deepEqual(note?.cards?.[0]?.actions, [{ id: 'yes', name: 'Yes', style: null, cookie: 'srv', menu: null }]);
       assert.equal(note?.reminder, null);
     }
   });

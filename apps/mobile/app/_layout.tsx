@@ -224,6 +224,19 @@ export default function RootLayout() {
                         contentStyle: { backgroundColor: darkColors.deepCard },
                       }}
                     />
+                    {/* Picking in an integration card's menu (Mattermost, kChat). */}
+                    <Stack.Screen
+                      name="card-menu"
+                      options={{
+                        presentation: 'formSheet',
+                        headerShown: false,
+                        sheetAllowedDetents: [0.6, 1.0],
+                        sheetGrabberVisible: true,
+                        sheetCornerRadius: 24,
+                        sheetElevation: 24,
+                        contentStyle: { backgroundColor: darkColors.deepCard },
+                      }}
+                    />
                     {/* New room, voice channels included (Vibez server). */}
                     <Stack.Screen
                       name="new-room"

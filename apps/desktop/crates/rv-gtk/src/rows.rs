@@ -658,7 +658,6 @@ fn message_from_provider(
     if d.show_header
         && let Some(alias) = &row.alias
     {
-        // An integration's own name and picture: not its poster's profile.
         let tile = widgets::tile(alias, &widgets::initial(alias), TileSize::Message, false);
         line.append(&with_photo(tile, session, row.alias_avatar.clone()));
     } else if d.show_header {

@@ -61,13 +61,8 @@ pub fn reload_icons() {
     }
 }
 
-/// Where the rail's order and visibility are kept, shared with the SwiftUI app.
-fn config_dir() -> std::path::PathBuf {
-    glib::user_config_dir().join("rocket-vibe-rs")
-}
-
 fn hidden_file() -> std::path::PathBuf {
-    config_dir().join("hide-server-rail")
+    crate::config_dir().join("hide-server-rail")
 }
 
 fn now_ms() -> i64 {
@@ -99,18 +94,18 @@ pub fn is_muted(info: &SessionInfo) -> bool {
 /// Mutes the account until `until` (ms), or until unmuted with None; `mutes`
 /// reads it back.
 pub fn mute(info: &SessionInfo, until: Option<i64>) {
-    rv_core::account_mute::mute(&config_dir(), &account_key(info), until);
+    rv_core::account_mute::mute(&crate::config_dir(), &account_key(info), until);
 }
 
 pub fn unmute(info: &SessionInfo) {
-    rv_core::account_mute::unmute(&config_dir(), &account_key(info));
+    rv_core::account_mute::unmute(&crate::config_dir(), &account_key(info));
 }
 
 /// Reads the mutes (the SwiftUI app may have changed them): the muted
 /// accounts' keys now, and the earliest end of a timed mute.
 pub fn mutes() -> (std::collections::HashSet<String>, Option<i64>) {
     use rv_core::account_mute::Mute;
-    let active = rv_core::account_mute::active(&config_dir(), now_ms());
+    let active = rv_core::account_mute::active(&crate::config_dir(), now_ms());
     let next = active
         .values()
         .filter_map(|mute| match mute {
@@ -394,7 +389,7 @@ impl Rail {
             let (Some(this), Ok(moved)) = (weak.upgrade(), value.get::<String>()) else { return false };
             let keys: Vec<String> = this.accounts.borrow().iter().map(account_key).collect();
             let Some(order) = rv_core::server_rail::reordered(&keys, &moved, &key) else { return false };
-            rv_core::server_rail::save(&config_dir(), &order);
+            rv_core::server_rail::save(&crate::config_dir(), &order);
             // Rebuilt once the drop is over: the buttons handling it go.
             glib::idle_add_local_once(move || {
                 let mut accounts = this.accounts.borrow().clone();

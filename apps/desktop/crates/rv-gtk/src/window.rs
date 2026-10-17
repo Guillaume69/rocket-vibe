@@ -130,10 +130,6 @@ fn zoom_key(
     }
 }
 
-fn config_dir() -> PathBuf {
-    gtk::glib::user_config_dir().join("rocket-vibe-rs")
-}
-
 fn database_path(info: &SessionInfo) -> PathBuf {
     // A WhatsApp account keeps its own sealed state (`whatsapp::state_location`).
     if let Some(state) = rv_core::whatsapp::state_id(&info.base_url) {
@@ -522,7 +518,7 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.chat.connect_room_opened(move |rid| {
             if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
-                rv_core::last_room::save(&config_dir(), &rv_core::last_room::account(&info), &rid);
+                rv_core::last_room::save(&crate::config_dir(), &rv_core::last_room::account(&info), &rid);
             }
             if let Some(notifier) = weak.upgrade().and_then(|this| this.notifier.borrow().clone()) {
                 if let Some(info) = weak.upgrade().and_then(|this| this.open_account()) {
@@ -537,9 +533,9 @@ impl AppWindow {
             }
         });
         let weak = Rc::downgrade(&this);
-        this.chat.connect_walk_account(move |(account, rid)| {
+        this.chat.connect_walk_account(move |(account, rid, at)| {
             if let Some(this) = weak.upgrade() {
-                this.walk_to_account(&account, rid);
+                this.walk_to_account(&account, rid, at);
             }
         });
         let weak = Rc::downgrade(&this);
@@ -1370,7 +1366,8 @@ impl AppWindow {
             self.end_background_ring();
         }
         let account = rv_core::last_room::account(&info);
-        let last = rv_core::last_room::load(&config_dir(), &account).filter(|_| !self.skip_last_room.replace(false));
+        let skip = self.skip_last_room.replace(false);
+        let last = rv_core::last_room::load(&crate::config_dir(), &account).filter(|_| !skip);
         self.last_room.replace(last.map(|rid| (account, rid)));
         let path = database_path(&info);
         match self.accounts.open(&info) {
@@ -1741,6 +1738,7 @@ impl AppWindow {
             }
         }
         self.rail.forget_unread(key);
+        self.chat.forget_history(key);
         crate::badge::set_account(key, None);
         crate::reminders::forget(info);
         let info = info.clone();
@@ -1797,15 +1795,18 @@ impl AppWindow {
     }
 
     /// Back or forward reached a room of another account: that account opens on it.
-    fn walk_to_account(self: &Rc<Self>, account: &str, rid: String) {
+    fn walk_to_account(self: &Rc<Self>, account: &str, rid: String, at: usize) {
         let Some(info) = self.accounts.running().into_iter().find(|i| supervisor::key(i) == account) else {
+            self.chat.forget_history(account);
             self.chat.toast(t("links.unavailable").to_owned());
             return;
         };
         self.cancel_navigation();
+        self.chat.walked(at);
         if rv_core::whatsapp::is_whatsapp(&info) {
             self.skip_last_room.set(true);
             self.switch_to(info);
+            self.skip_last_room.set(false);
             self.chat.open_room(&rid);
             return;
         }
@@ -2059,6 +2060,7 @@ impl AppWindow {
             let key = supervisor::key(&info);
             self.accounts.remove(&key);
             self.rail.forget_unread(&key);
+            self.chat.forget_history(&key);
             crate::badge::set_account(&key, None);
         }
         self.accounts.set_active(None);

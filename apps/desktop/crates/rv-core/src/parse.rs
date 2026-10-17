@@ -185,15 +185,31 @@ fn numbered(line: &str) -> Option<(u64, &str)> {
     line[digits..].strip_prefix(". ").map(|rest| (number, rest))
 }
 
-/// A pipe table's cells: `| a | b |`, the outer pipes optional.
-fn table_cells(line: &str) -> Option<Vec<&str>> {
+/// A pipe table's cells: `| a | b |`, the outer pipes optional, `\|` a literal pipe.
+fn table_cells(line: &str) -> Option<Vec<String>> {
     let line = line.trim();
     if !line.contains('|') {
         return None;
     }
     let line = line.strip_prefix('|').unwrap_or(line);
-    let line = line.strip_suffix('|').unwrap_or(line);
-    Some(line.split('|').map(str::trim).collect())
+    let line = line.strip_suffix('|').filter(|rest| !rest.ends_with('\\')).unwrap_or(line);
+    let mut cells = vec![String::new()];
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                chars.next();
+                cells.last_mut().unwrap().push('|');
+            }
+            '|' => cells.push(String::new()),
+            _ => cells.last_mut().unwrap().push(c),
+        }
+    }
+    Some(cells.into_iter().map(|cell| cell.trim().to_owned()).collect())
+}
+
+fn is_fence(line: &str) -> bool {
+    line.trim_start().starts_with("```")
 }
 
 /// A table's separator row (`|:--|:-:|--:|`): each column's alignment.
@@ -215,8 +231,8 @@ fn table_alignments(line: &str) -> Option<Vec<&'static str>> {
 
 fn table_row(line: &str, columns: usize) -> Vec<Value> {
     let mut cells = table_cells(line).unwrap_or_default();
-    cells.resize(columns, "");
-    cells.into_iter().map(|cell| Value::Array(line_inlines(cell))).collect()
+    cells.resize(columns, String::new());
+    cells.into_iter().map(|cell| Value::Array(line_inlines(&cell))).collect()
 }
 
 fn only_emoji(nodes: &[Value]) -> bool {
@@ -257,10 +273,10 @@ pub fn tree(text: &str) -> Vec<Value> {
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
-        if line.trim_start().starts_with("```") {
+        if is_fence(line) {
             let mut code = Vec::new();
             let mut j = i + 1;
-            while j < lines.len() && !lines[j].trim_start().starts_with("```") {
+            while j < lines.len() && !is_fence(lines[j]) {
                 code.push(json!({"type": "CODE_LINE", "value": plain(lines[j])}));
                 j += 1;
             }
@@ -284,7 +300,7 @@ pub fn tree(text: &str) -> Vec<Value> {
             let columns = align.len();
             let mut rows = Vec::new();
             i += 2;
-            while let Some(row) = lines.get(i).filter(|l| !l.trim().is_empty() && l.contains('|')) {
+            while let Some(row) = lines.get(i).filter(|l| !l.trim().is_empty() && l.contains('|') && !is_fence(l)) {
                 rows.push(Value::Array(table_row(row, columns)));
                 i += 1;
             }
@@ -361,6 +377,37 @@ mod tests {
         assert_eq!(row[0], json!([]));
         assert_eq!(types(row[1].as_array().unwrap()), ["BOLD", "PLAIN_TEXT"]);
         assert_eq!(types(&tree("a | b\nc | d")), ["PARAGRAPH", "PARAGRAPH"], "no separator, no table");
+    }
+
+    #[test]
+    fn mentions_in_code_are_not_people() {
+        assert_eq!(mentioned("`@Override` and @bob\n```\n@param x\n```"), ["bob"]);
+    }
+
+    #[test]
+    fn an_escaped_pipe_stays_in_its_cell() {
+        let t = tree("| a | b |\n|---|---|\n| x \\| y | `p\\|q` |");
+        let row = t[0]["rows"][0].as_array().unwrap();
+        assert_eq!(row.len(), 2);
+        assert_eq!(row[0][0]["value"], "x | y");
+        assert_eq!(row[1][0]["type"], "INLINE_CODE");
+        assert_eq!(row[1][0]["value"]["value"], "p|q");
+    }
+
+    #[test]
+    fn rows_take_the_header_width() {
+        let t = tree("| a | b |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |");
+        let rows = t[0]["rows"].as_array().unwrap();
+        assert_eq!(rows[0], json!([[{"type": "PLAIN_TEXT", "value": "1"}], []]));
+        assert_eq!(rows[1].as_array().unwrap().len(), 2);
+        assert_eq!(types(&tree("| a | b |\n|---|\n| 1 | 2 |")), ["PARAGRAPH", "PARAGRAPH", "PARAGRAPH"]);
+    }
+
+    #[test]
+    fn a_fence_ends_the_table() {
+        let t = tree("| a | b |\n|---|---|\n| 1 | 2 |\n```\n| x | y |\n```");
+        assert_eq!(types(&t), ["TABLE", "CODE"]);
+        assert_eq!(t[0]["rows"].as_array().unwrap().len(), 1);
     }
 
     #[test]

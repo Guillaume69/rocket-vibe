@@ -532,10 +532,6 @@ thread_local! {
     static ZOOM: std::cell::Cell<u32> = const { std::cell::Cell::new(rv_core::zoom::DEFAULT) };
 }
 
-fn config_dir() -> std::path::PathBuf {
-    gtk::glib::user_config_dir().join("rocket-vibe-rs")
-}
-
 /// The stylesheet with its text `percent` larger: every pixel font size, and
 /// the theme's own size for the text that sets none.
 fn zoomed(css: &str, percent: u32) -> String {
@@ -576,7 +572,7 @@ pub fn zoom(zoom_in: Option<bool>) {
         return;
     }
     ZOOM.set(percent);
-    rv_core::zoom::save(&config_dir(), percent);
+    rv_core::zoom::save(&crate::config_dir(), percent);
     apply();
 }
 
@@ -584,7 +580,7 @@ pub fn load() {
     crate::fonts::register();
     crate::fonts::register_packaged();
     adw::StyleManager::default().set_color_scheme(adw::ColorScheme::ForceDark);
-    ZOOM.set(rv_core::zoom::load(&config_dir()));
+    ZOOM.set(rv_core::zoom::load(&crate::config_dir()));
     apply();
     PROVIDER.with(|provider| {
         gtk::style_context_add_provider_for_display(

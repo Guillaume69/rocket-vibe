@@ -495,7 +495,6 @@ fn block(b: &Block, extra: &[&str]) -> gtk::Widget {
                     grid.attach(&cell, x as i32, y as i32, 1, 1);
                 }
             }
-            // Wider than the message: it scrolls sideways, never cut.
             gtk::ScrolledWindow::builder()
                 .child(&grid)
                 .vscrollbar_policy(gtk::PolicyType::Never)

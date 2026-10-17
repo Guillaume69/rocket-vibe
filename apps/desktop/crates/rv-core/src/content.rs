@@ -709,6 +709,17 @@ mod tests {
     }
 
     #[test]
+    fn a_card_of_pretext_or_buttons_alone_shows_and_keeps_ten_buttons() {
+        let buttons: Vec<Value> = (0..12).map(|i| json!({"id": format!("b{i}"), "name": format!("B{i}")})).collect();
+        let attachments = json!([{"pretext": "Above"}, {"actions": buttons}, {"color": "#fff"}]).to_string();
+        let c = cards(Some(&attachments));
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[0].pretext.as_deref(), Some("Above"));
+        assert_eq!(c[1].actions.len(), 10);
+        assert_eq!(c[1].actions[9].id, "b9");
+    }
+
+    #[test]
     fn previews_skip_videos_and_empty_meta() {
         let urls = json!([
             {"url":"https://example.com/a","meta":{"ogTitle":"A &amp; B","ogDescription":"desc","ogImage":"https://example.com/a.png"}},

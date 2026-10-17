@@ -4,29 +4,19 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::session::SessionInfo;
+pub use crate::collapsed_sections::account;
+use crate::collapsed_sections::{read_map, write_map};
 
 const FILE: &str = "last-rooms.json";
 
 type Saved = BTreeMap<String, String>;
 
-pub fn account(info: &SessionInfo) -> String {
-    crate::server_rail::key(info)
-}
-
 fn read(config: &Path) -> Saved {
-    std::fs::read_to_string(config.join(FILE))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
+    read_map(config, FILE)
 }
 
 fn write(config: &Path, saved: &Saved) {
-    if std::fs::create_dir_all(config).is_ok()
-        && let Ok(text) = serde_json::to_string_pretty(saved)
-    {
-        let _ = std::fs::write(config.join(FILE), text);
-    }
+    write_map(config, FILE, saved);
 }
 
 pub fn load(config: &Path, account: &str) -> Option<String> {

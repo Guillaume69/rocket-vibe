@@ -95,6 +95,7 @@ pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {
 pub struct Translator<'a> {
     pub directory: &'a Directory,
     pub me: &'a str,
+    pub base: &'a str,
 }
 
 impl Translator<'_> {
@@ -103,7 +104,7 @@ impl Translator<'_> {
         let rid = str_of(post, "channel_id")?;
         let ts = positive(post, "create_at")?;
         let author_id = str_of(post, "user_id")?;
-        if deleted(post) {
+        if deleted(post) || str_of(post, "type") == Some("system_ephemeral") {
             return None;
         }
         let props = post.get("props").cloned().unwrap_or(Value::Null);
@@ -124,7 +125,9 @@ impl Translator<'_> {
         let message = str_of(post, "message").unwrap_or_default();
         let text = match &system {
             Some((_, param)) => param.clone(),
-            None if mm_kind == "reminder" => Some(reminder(&props, message).unwrap_or_else(|| message.to_owned())),
+            None if mm_kind == "reminder" => {
+                Some(reminder(&props, message, self.base).unwrap_or_else(|| message.to_owned()))
+            }
             None => Some(message.to_owned()),
         };
         let mut cards = cards(props.get("attachments"));
@@ -317,7 +320,7 @@ impl Translator<'_> {
         let post_id = str_of(post, "id")?.to_owned();
         let props = post.get("props").cloned().unwrap_or(Value::Null);
         let message = str_of(post, "message").unwrap_or_default();
-        let text = reminder_set(&props, message).unwrap_or_else(|| message.trim().to_owned());
+        let text = reminder_set(&props, message, self.base).unwrap_or_else(|| message.trim().to_owned());
         let cards = cards(props.get("attachments"));
         let attachments = (!cards.is_empty()).then(|| Value::Array(cards).to_string());
         (!text.is_empty() || attachments.is_some()).then_some(Ephemeral { rid, text, attachments, post_id })
@@ -326,7 +329,7 @@ impl Translator<'_> {
 
 /// The acknowledgement of a reminder just set (`props.type: "reminder"`,
 /// `target_time` in seconds): the server's English carries an RFC 822 time.
-fn reminder_set(props: &Value, message: &str) -> Option<String> {
+fn reminder_set(props: &Value, message: &str, base: &str) -> Option<String> {
     if str_of(props, "type") != Some("reminder") {
         return None;
     }
@@ -336,23 +339,28 @@ fn reminder_set(props: &Value, message: &str) -> Option<String> {
         .split_whitespace()
         .find(|w| crate::content::is_web_link(w))
         .map(str::to_owned)
-        .or_else(|| Some(format!("/{}/pl/{}", str_of(props, "team_name")?, str_of(props, "post_id")?)))?;
+        .or_else(|| post_link(props, base))?;
     Some(crate::i18n::tf(
         "mm.reminder_set",
         &[("user", username), ("link", &link), ("when", &crate::reminders::when(due))],
     ))
 }
 
+fn post_link(props: &Value, base: &str) -> Option<String> {
+    let (team, post) = (str_of(props, "team_name")?, str_of(props, "post_id")?);
+    Some(format!("{}/{team}/pl/{post}", base.trim_end_matches('/')))
+}
+
 /// The server's reminder of a post (`type: "reminder"`) in the app's language:
 /// its text is the server's English, the link at its end.
-fn reminder(props: &Value, message: &str) -> Option<String> {
+fn reminder(props: &Value, message: &str, base: &str) -> Option<String> {
     let username = str_of(props, "username")?;
     let link = message
         .split_whitespace()
         .last()
         .filter(|w| crate::content::is_web_link(w))
         .map(str::to_owned)
-        .or_else(|| Some(format!("/{}/pl/{}", str_of(props, "team_name")?, str_of(props, "post_id")?)))?;
+        .or_else(|| post_link(props, base))?;
     Some(crate::i18n::tf("mm.reminder", &[("user", username), ("link", &link)]))
 }
 
@@ -503,7 +511,7 @@ mod tests {
     #[test]
     fn a_post_names_its_author_and_keeps_server_times() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let m = t.message(&post("p1", json!({"create_at": 10, "update_at": 20, "edit_at": 15}))).unwrap();
         assert_eq!(m.author_name.as_deref(), Some("bob"));
         assert_eq!((m.ts, m.updated_at, m.edited_at), (10, 20, Some(15)));
@@ -513,7 +521,7 @@ mod tests {
     #[test]
     fn reactions_and_files_take_the_renderers_shapes() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let m = t
             .message(&post(
                 "p1",
@@ -532,7 +540,7 @@ mod tests {
     #[test]
     fn an_integration_posts_under_its_own_name_and_picture() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let hook = t
             .message(&post(
                 "p1",
@@ -556,7 +564,7 @@ mod tests {
     #[test]
     fn a_reminder_reads_in_the_apps_language_and_quotes_its_post() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let link = "https://chat.example.com/team/pl/p0";
         let m = t
             .message(&post(
@@ -573,12 +581,27 @@ mod tests {
         let quotes = crate::content::quotes(m.attachments.as_deref());
         assert_eq!(quotes.len(), 1);
         assert_eq!((quotes[0].author.as_deref(), quotes[0].text.as_str()), (Some("Bob Builder"), "test pra"));
+        let props = json!({"username": "bob", "team_name": "team", "post_id": "p0"});
+        let bare = t.message(&post("p2", json!({"type": "reminder", "message": "Hi there", "props": props}))).unwrap();
+        assert!(bare.text.as_deref().unwrap().ends_with(link), "{:?}", bare.text);
+        let mut set = props.clone();
+        set["type"] = json!("reminder");
+        set["target_time"] = json!(1_792_400_400);
+        let ack = t.ephemeral(&json!({"id": "e1", "channel_id": "ch1", "message": "Set", "props": set})).unwrap();
+        assert!(ack.text.contains(&format!("]({link})")), "{}", ack.text);
+    }
+
+    #[test]
+    fn an_ephemeral_post_is_never_a_message() {
+        let d = directory();
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        assert!(t.message(&post("p1", json!({"type": "system_ephemeral"}))).is_none());
     }
 
     #[test]
     fn a_post_for_me_alone_keeps_its_buttons_and_reads_a_reminder_in_my_language() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let note = t
             .ephemeral(&json!({"id": "e1", "channel_id": "ch1", "message": "",
                 "props": {"attachments": [{"text": "Remind?", "actions": [
@@ -611,7 +634,7 @@ mod tests {
     #[test]
     fn a_cards_pretext_stays_above_it() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let m = t
             .message(&post(
                 "p1",
@@ -627,7 +650,7 @@ mod tests {
     #[test]
     fn system_posts_and_threads() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let joined =
             t.message(&post("p1", json!({"type": "system_join_channel", "props": {"username": "bob"}}))).unwrap();
         assert_eq!((joined.system_type.as_deref(), joined.text.as_deref()), (Some("uj"), Some("bob")));
@@ -639,7 +662,7 @@ mod tests {
     #[test]
     fn rooms_and_memberships() {
         let d = directory();
-        let t = Translator { directory: &d, me: "u-me" };
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
         let dm = t.room(&json!({"id": "d1", "type": "D", "name": "u-bob__u-me"}), None).unwrap();
         assert_eq!(
             (dm.kind.as_str(), dm.name.as_deref(), dm.display_name.as_deref()),

@@ -181,10 +181,10 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:437](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L437) | call:POST | "users/status/ids" |
 | [apps/desktop/crates/rv-core/src/mattermost/categories.rs:25](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L25) | call:GET | "users/me/teams" |
 | [apps/desktop/crates/rv-core/src/mattermost/categories.rs:29](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L29) | call:GET | &format!("users/me/teams/{…}/channels/categories") |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:185](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L185) | call:POST | "users/ids" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:208](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L208) | call:POST | "users/usernames" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:213](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L213) | call:POST | "users/usernames" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:230](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L230) | call:GET | &format!("users/username/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:184](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L184) | call:POST | "users/ids" |
+| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:220](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L220) | call:POST | "users/usernames" |
+| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L228) | call:POST | "users/usernames" |
+| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:251](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L251) | call:GET | &format!("users/username/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:71](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L71) | url | /api/v4/system/ping |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:104](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L104) | url | /api/v4/users/login |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:130](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L130) | call:GET | "users/me" |
@@ -204,9 +204,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:592](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L592) | call:GET | &format!("posts/{…}/thread") |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:602](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L602) | call:GET | &channel_path |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:603](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L603) | call:GET | &member_path |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:653](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L653) | call:POST | &format!("posts/{…}/actions/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:685](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L685) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:816](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L816) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:656](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L656) | call:POST | &format!("posts/{…}/actions/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:688](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L688) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:819](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L819) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/translate.rs:11](../../apps/desktop/crates/rv-core/src/mattermost/translate.rs#L11) | url | /api/v4/files |
 | [apps/desktop/crates/rv-core/src/media.rs:42](../../apps/desktop/crates/rv-core/src/media.rs#L42) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:43](../../apps/desktop/crates/rv-core/src/media.rs#L43) | resource | /avatar/uid/{…} |

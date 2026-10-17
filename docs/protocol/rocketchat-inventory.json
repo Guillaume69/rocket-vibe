@@ -1734,25 +1734,25 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 185,
+      "line": 184,
       "kind": "call:POST",
       "surface": "\"users/ids\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 208,
+      "line": 220,
       "kind": "call:POST",
       "surface": "\"users/usernames\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 213,
+      "line": 228,
       "kind": "call:POST",
       "surface": "\"users/usernames\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 230,
+      "line": 251,
       "kind": "call:GET",
       "surface": "&format!(\"users/username/{…}\")"
     },
@@ -1872,19 +1872,19 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 653,
+      "line": 656,
       "kind": "call:POST",
       "surface": "&format!(\"posts/{…}/actions/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 685,
+      "line": 688,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 816,
+      "line": 819,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },

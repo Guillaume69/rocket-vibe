@@ -161,6 +161,10 @@ impl Directory {
         self.by_id.lock().unwrap().get(id).cloned()
     }
 
+    pub fn is_bot(&self, id: &str) -> bool {
+        self.by_id.lock().unwrap().get(id).is_some_and(|u| u.bot)
+    }
+
     pub fn username(&self, id: &str) -> Option<String> {
         self.by_id.lock().unwrap().get(id).map(|u| u.username.clone())
     }

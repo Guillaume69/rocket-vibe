@@ -17,9 +17,10 @@ interface Options {
 function Profile({ options }: { options: Options }) {
   const { app, profile } = options;
   useSyncExternalStore(app.view.subscribe, app.view.getSnapshot);
-  const status =
-    app.live?.presence.find((value) => value.user.id === profile.user.id)
-      ?.status || (app.live && !app.live.limited ? "offline" : undefined);
+  const status = profile.user.bot
+    ? undefined
+    : app.live?.presence.find((value) => value.user.id === profile.user.id)
+        ?.status || (app.live && !app.live.limited ? "offline" : undefined);
   const other = profile.user.id !== app.account?.session.user.id;
   return (
     <>

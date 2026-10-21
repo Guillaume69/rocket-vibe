@@ -108,7 +108,7 @@ export function createMattermostProvider(
       return posts.map((p) => translator.toMessage(p)).filter((m): m is LocalMessage => m !== null);
     },
     async loadPresence() {
-      const ids = directory.knownIds();
+      const ids = directory.knownIds().filter((id) => directory.user(id)?.bot !== true);
       if (ids.length === 0) return [];
       const list = await client.post<unknown>('/users/status/ids', { body: ids });
       return (Array.isArray(list) ? list : []).flatMap((raw) => {
@@ -143,7 +143,7 @@ export function createMattermostProvider(
       directory.remember(user);
       const named = directory.user(user.id) ?? user;
       const roles = String(raw.roles ?? '').split(/\s+/).includes('system_admin') ? ['admin'] : [];
-      return { _id: user.id, username: user.username, name: named.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null };
+      return { _id: user.id, username: user.username, name: named.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null, bot: user.bot === true };
     },
     initialSubscriptions: () => [],
     roomSubscriptions: (rid: string) => [[MM_ROOM, rid]],

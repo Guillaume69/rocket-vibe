@@ -82,6 +82,13 @@ pub struct Profile {
     pub bot_owner: Option<String>,
 }
 
+impl Profile {
+    /// Bots have no presence: Vibez and Mattermost bot accounts, Rocket.Chat's `bot` role.
+    pub fn shows_presence(&self) -> bool {
+        !self.bot && !self.roles.iter().any(|role| role == "bot")
+    }
+}
+
 /// `users.info`'s `user`.
 pub fn profile(user: &Value) -> Option<Profile> {
     Some(Profile {

@@ -142,7 +142,11 @@ impl Chat {
         Ok(Person {
             avatar: media::avatar_path(AvatarTarget::User(&p.username), p.avatar_etag.as_deref()),
             local_time: p.utc_offset.map(|o| rv_core::info::local_time(o, chrono::Utc::now())),
-            presence: self.session.presence(&p.id).or(p.presence).map(Presence::from),
+            presence: p
+                .shows_presence()
+                .then(|| self.session.presence(&p.id).or(p.presence))
+                .flatten()
+                .map(Presence::from),
             id: p.id,
             username: p.username,
             name: p.name,

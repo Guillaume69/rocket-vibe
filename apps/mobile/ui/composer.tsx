@@ -905,7 +905,7 @@ export function Composer({
               )}
             </Tappable>
           )}
-          {!encrypted && (client.kind==='rocketchat'||client.kind==='vibez') && <SocialButton room={rid} thread={threadId}/>}
+          {!encrypted && (client.kind==='rocketchat'||client.kind==='vibez') && <SocialButton room={rid} thread={threadId} style={styles.pillButton} labelStyle={styles.pillLabel}/>}
           <TextInput
             ref={fieldRef}
             value={draft}
@@ -942,7 +942,7 @@ export function Composer({
             accessibilityState={{ expanded: formatting }}
             accessibilityLabel={t('format.toolbar')}
           >
-            <Text style={[styles.formatToggle, { color: formatting ? c.accent : c.dimmed }]}>Aa</Text>
+            <Text allowFontScaling={false} style={[styles.pillLabel, { color: formatting ? c.accent : c.dimmed }]}>Aa</Text>
           </Tappable>
           {files !== null && (
             <Tappable
@@ -1067,10 +1067,9 @@ const FORMATS: readonly {
 ];
 
 const styles = StyleSheet.create({
-  formatRow: { gap: 6, paddingHorizontal: 12, paddingTop: 6 },
+  formatRow: { gap: 6, paddingHorizontal: 12, paddingTop: 6, paddingBottom: 6 },
   formatButton: { minWidth: 38, height: 34, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   formatGlyph: { fontFamily: FONTS.bodySemi, fontSize: 15 },
-  formatToggle: { fontFamily: FONTS.bodyStrong, fontSize: 17 },
   alsoInRoom: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingTop: 6 },
   alsoInRoomText: { fontFamily: FONTS.bodySemi, fontSize: 13 },
   composer: {
@@ -1104,7 +1103,10 @@ const styles = StyleSheet.create({
   scheduledChip: { alignSelf: 'flex-start', marginHorizontal: 12, marginTop: 6, borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
   scheduledChipText: { fontFamily: FONTS.bodySemi, fontSize: 12.5 },
   sendLater: { width: 32, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  pillButton: { paddingVertical: 11, paddingHorizontal: 4 },
+  // One box for every button of the pill, the height of a one-line field, so
+  // icons and text labels share a centre line.
+  pillButton: { height: 41, minWidth: 28, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+  pillLabel: { fontFamily: FONTS.bodyStrong, fontSize: 15, lineHeight: 18 },
   composerError: { fontSize: 12, textAlign: 'center', paddingTop: 6, paddingHorizontal: 12 },
   noteComposer: {
     flex: 1,

@@ -14,6 +14,7 @@ release, and its notes are that version's section here.
 ### Fixed
 
 - Rocket.Chat (Jitsi) and kChat (kMeet) calls go on with the app in the background or the phone locked: the microphone, the camera and the sound no longer cut and the call no longer drops. An ongoing call notification shows the call and hangs up.
+- The message bar's buttons line up, the polls, stickers and GIFs button reads "GIF" instead of a second smiley, and the formatting row no longer touches the bar.
 
 ## [0.20.0] - 2026-10-17
 

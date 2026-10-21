@@ -124,7 +124,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   post would insert an old root the cache lacks, and the room pages back from
   its oldest row.
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
-  memberships again and emit the rooms whose counts moved.
+  memberships again and emit the rooms whose counts moved. A membership viewed
+  after the channel's `last_post_at` also sets the cached channel totals to its
+  own counts (`settle`), so totals that drifted above the server's clear.
 - People: `MmDirectory` names users under the account's name format (my
   `display_settings/name_format`, else `TeammateNameDisplay`, read by
   `MmCatchUp.nameFormat` and followed live by `MmLive.preferences`), resolves
@@ -168,7 +170,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   message, the room's preview and the membership with its counters. Mattermost
   sends no membership on a new post: unread root posts and mentions are derived
   from the channel totals and the cached membership, reset on
-  `multiple_channels_viewed`.
+  `multiple_channels_viewed`. A join or leave post (`isJoinLeave`, Mattermost's
+  `IsJoinLeaveMessage` types) moves `last_post_at` without adding to the totals,
+  as the server does not count it.
 
 ### Translation and loading
 
@@ -302,7 +306,8 @@ there, so the UIs read the same store:
   room rings (`MmSync::call_signal`, `decline_conference`, [calls](calls.md#ringing)). GTK draws an ended call
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
-- `badge_updated`: `MmSync::recount`, as on mobile.
+- `badge_updated`: `MmSync::recount` (`recounted` realigns the totals), as on
+  mobile; join and leave posts add nothing to the totals (`translate::join_leave`).
 - People, listing, cards and kMeet as on mobile: `directory::NameFormat`,
   `Directory::ensure_usernames`, `name_of_cut`, `status_emoji`;
   `categories::Sidebar`; `MmSync::load_preferences`, `preferences_changed`;

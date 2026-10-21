@@ -18,6 +18,7 @@ use crate::sync::{HISTORY_PAGE, HistoryPage};
 
 const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
 const OLDER_PAGES: usize = 20;
+const PREVIEW_LOOKBACK: usize = 20;
 
 /// An aggregator chat or channel, and the team (id, name) a channel belongs to.
 type Entry = (Value, Option<(String, String)>);
@@ -176,6 +177,42 @@ impl TeamsSync {
         Some((entry.clone(), team.clone()))
     }
 
+    /// Whether a message is the one its room's entry previews.
+    fn is_preview(&self, rid: &str, resource: &Value) -> bool {
+        let entries = self.entries.lock().unwrap();
+        let shown =
+            entries.get(rid).and_then(|(entry, _)| entry.get("lastMessage")).and_then(|l| translate::int_of(l, "id"));
+        shown.is_some() && shown == translate::int_of(resource, "id")
+    }
+
+    /// The room's entry previewing `resource` instead (an empty text for none), at the time it showed.
+    fn with_preview(&self, rid: &str, resource: Option<&Value>) -> Option<Entry> {
+        let mut entries = self.entries.lock().unwrap();
+        let (entry, team) = entries.get_mut(rid)?;
+        let at = entry.pointer("/lastMessage/composeTime").cloned().unwrap_or(Value::Null);
+        entry["lastMessage"] = match resource {
+            Some(r) => serde_json::json!({
+                "messageType": r.get("messagetype"), "content": r.get("content"),
+                "from": r.get("from"), "imDisplayName": r.get("imdisplayname"),
+                "composeTime": at, "id": r.get("id"),
+            }),
+            None => serde_json::json!({ "messageType": "Text", "content": "", "composeTime": at }),
+        };
+        Some((entry.clone(), team.clone()))
+    }
+
+    /// The room's preview after its message was deleted: the newest message left in the room itself.
+    async fn preview_after_delete(&self, rid: &str) -> Option<Entry> {
+        let query = format!("view={VIEW}&pageSize={PREVIEW_LOOKBACK}");
+        let (messages, _) = self.page(self.conversation_url(rid, &["messages"], &query).await.ok()?).await.ok()?;
+        let next = messages.iter().find(|m| {
+            !translate::deleted(m)
+                && matches!(str_of(m, "messagetype"), Some("Text" | "RichText/Html" | "RichText"))
+                && translate::message(rid, m, &self.directory).is_some_and(|x| x.thread_id.is_none())
+        });
+        self.with_preview(rid, next)
+    }
+
     /// A pushed chat event into the store; a new message from someone else
     /// is answered, for a notification.
     pub async fn apply_event(&self, name: &str, resource: &Value) -> Option<Message> {
@@ -195,6 +232,12 @@ impl TeamsSync {
             if let Some(id) = str_of(resource, "id") {
                 self.store.write(|w| w.delete_message(&translate::message_id(&rid, id)));
             }
+            if self.is_preview(&rid, resource)
+                && let Some((entry, team)) = self.preview_after_delete(&rid).await
+                && let Some((room, _)) = self.row(&entry, team.as_ref())
+            {
+                self.store.write(|w| w.upsert_room(&room));
+            }
             return None;
         }
         let message = translate::message(&rid, resource, &self.directory)?;
@@ -205,11 +248,18 @@ impl TeamsSync {
         }
         let updated = (fresh && message.thread_id.is_none()).then(|| self.with_last(&rid, resource, mine)).flatten();
         let row = updated.and_then(|(entry, team)| self.row(&entry, team.as_ref()));
+        let edited = (!fresh && self.is_preview(&rid, resource))
+            .then(|| self.with_preview(&rid, Some(resource)))
+            .flatten()
+            .and_then(|(entry, team)| self.row(&entry, team.as_ref()));
         self.store.write(|w| {
             w.upsert_message(&message);
             if let Some((room, sub)) = &row {
                 w.upsert_room(room);
                 w.upsert_subscription(sub);
+            }
+            if let Some((room, _)) = &edited {
+                w.upsert_room(room);
             }
         });
         (fresh && !mine).then_some(message)

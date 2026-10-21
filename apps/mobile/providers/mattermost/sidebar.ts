@@ -61,12 +61,17 @@ export class MmSidebar {
   /**
    * The conversations within the limit, most recent first, closed ones left
    * out. The limit counts the Direct Messages category only: `elsewhere`
-   * names the ones in Favourites or a category of my own.
+   * names the ones in Favourites or a category of my own. Returns the
+   * conversations that entered or left the list.
    */
-  rank(channels: Iterable<Doc>, elsewhere: (rid: string) => boolean = () => false): void {
-    const open = [...channels].filter((c) => (c.type === 'D' || c.type === 'G') && !this.closed(c) && !elsewhere(String(c.id)));
+  rank(channels: Iterable<Doc>, elsewhere: (rid: string) => boolean = () => false): string[] {
+    const conversations = [...channels].filter((c) => c.type === 'D' || c.type === 'G');
+    const open = conversations.filter((c) => !this.closed(c) && !elsewhere(String(c.id)));
     open.sort((a, b) => lastPostAt(b) - lastPostAt(a));
-    this.listed = new Set([...open.slice(0, this.limit).map((c) => String(c.id)), ...this.revealed]);
+    const before = this.listed;
+    const listed = new Set([...open.slice(0, this.limit).map((c) => String(c.id)), ...this.revealed]);
+    this.listed = listed;
+    return conversations.map((c) => String(c.id)).filter((rid) => (before === null || before.has(rid)) !== listed.has(rid));
   }
 
   /** A conversation I just opened: listed whatever its age, as Mattermost does. */

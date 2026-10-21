@@ -138,6 +138,8 @@ pub enum ServerKind {
     Kchat,
     /// A Slack browser session: never found by probing an address.
     Slack,
+    /// A Teams account signed in with a Microsoft device code: never probed either.
+    Teams,
 }
 
 /// `probe` under the user's choice: Rocket.Chat never asks for native
@@ -145,7 +147,9 @@ pub enum ServerKind {
 pub async fn probe_as(base: &url::Url, kind: ServerKind) -> Result<Option<Discovery>, Error> {
     match kind {
         ServerKind::Auto => probe(base).await,
-        ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat | ServerKind::Slack => Ok(None),
+        ServerKind::RocketChat | ServerKind::Mattermost | ServerKind::Kchat | ServerKind::Slack | ServerKind::Teams => {
+            Ok(None)
+        }
         ServerKind::Vibez => probe(base).await?.ok_or(Error::Protocol("not_native")).map(Some),
     }
 }

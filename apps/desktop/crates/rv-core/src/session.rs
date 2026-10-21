@@ -160,6 +160,9 @@ pub async fn login_as(
     if kind == ServerKind::Slack {
         return crate::slack::login(user, password, None).await;
     }
+    if kind == ServerKind::Teams {
+        return Err(crate::slack::not_supported("Teams password sign-in"));
+    }
     if kind == ServerKind::Kchat || (kind == ServerKind::Auto && mattermost::is_kchat_host(server)) {
         return mattermost::login_kchat(server, password).await;
     }

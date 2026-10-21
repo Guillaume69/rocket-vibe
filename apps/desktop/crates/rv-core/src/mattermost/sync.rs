@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::categories::{self, Placement};
 use super::directory::{Directory, NameFormat, User};
-use super::translate::{Translator, deleted, object};
+use super::translate::{Translator, deleted, join_leave, object};
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
@@ -250,6 +250,10 @@ impl MmSync {
     /// memberships are read again and the rooms whose counts moved rewritten.
     async fn recount(&self) {
         let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        self.recounted(members);
+    }
+
+    fn recounted(&self, members: Vec<Value>) {
         let moved: Vec<String> = {
             let mut live = self.live.lock().unwrap();
             members
@@ -260,6 +264,17 @@ impl MmSync {
                     let keys = ["msg_count", "msg_count_root", "mention_count", "mention_count_root", "last_viewed_at"];
                     if keys.iter().all(|k| known.get(k) == member.get(k)) {
                         return None;
+                    }
+                    if let Some(channel) = live.channels.get_mut(&rid)
+                        && int(&member, "last_viewed_at") >= int(channel, "last_post_at")
+                    {
+                        for (total, count) in
+                            [("total_msg_count", "msg_count"), ("total_msg_count_root", "msg_count_root")]
+                        {
+                            if let Some(n) = member.get(count).filter(|n| n.is_i64()) {
+                                channel[total] = n.clone();
+                            }
+                        }
                     }
                     live.members.insert(rid.clone(), member);
                     live.touch(&rid);
@@ -781,14 +796,15 @@ impl MmSync {
         let mine = text(&post, "user_id") == Some(self.me.as_str());
         let mentioned = mentions(data.get("mentions")).contains(&self.me);
         let at = int(&post, "create_at");
+        let counted = if join_leave(&post) { 0 } else { 1 };
         let fresh = !self.store.has_message(text(&post, "id").unwrap_or_default());
         {
             let mut live = self.live.lock().unwrap();
             if let Some(channel) = live.channels.get_mut(&rid) {
-                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + 1);
+                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + counted);
                 channel["last_post_at"] = json!(at);
                 if root {
-                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + 1);
+                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + counted);
                     channel["last_root_post_at"] = json!(at);
                 }
                 let (total, total_root) = (channel["total_msg_count"].clone(), channel["total_msg_count_root"].clone());
@@ -959,6 +975,63 @@ mod tests {
         sync.apply_event("posted", &json!({"post": post("p2", "u-bob", "p1")}), &json!({})).await;
         let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
         assert_eq!((room.unread, room.last_message.as_deref()), (0, Some("m p1")));
+    }
+
+    #[tokio::test]
+    async fn a_join_or_leave_post_adds_no_unread() {
+        let (store, sync) = sync();
+        for kind in ["system_add_to_channel", "system_join_channel", "system_leave_team", "system_join_leave"] {
+            let mut joined = post(&format!("j-{kind}"), "u-bob", "");
+            joined["type"] = json!(kind);
+            sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+            let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+            assert_eq!(room.unread, 0, "{kind}");
+        }
+        sync.apply_event("posted", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
+    }
+
+    #[tokio::test]
+    async fn a_read_elsewhere_after_a_join_post_leaves_the_room_read() {
+        let (store, sync) = sync();
+        let mut joined = post("j1", "u-bob", "");
+        joined["type"] = json!("system_add_to_channel");
+        sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_read_elsewhere_realigns_totals_drifted_above_the_server() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count"] = json!(11);
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_membership_viewed_before_the_last_post_keeps_the_room_unread() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 30})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
     }
 
     #[tokio::test]

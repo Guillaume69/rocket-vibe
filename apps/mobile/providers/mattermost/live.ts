@@ -26,6 +26,7 @@ import {
   MM_THREAD,
   MM_ROOM,
   MM_ROOM_DELETED,
+  isJoinLeave,
   mentionedUsernames,
   permalinkPosts,
   record,
@@ -224,9 +225,10 @@ export class MmLive {
     const isRoot = str(post.root_id) === null;
     const createdAt = typeof post.create_at === 'number' ? post.create_at : Date.now();
     if (channel !== undefined) {
-      const next: Doc = { ...channel, total_msg_count: num(channel.total_msg_count) + 1, last_post_at: createdAt };
+      const counted = isJoinLeave(post) ? 0 : 1;
+      const next: Doc = { ...channel, total_msg_count: num(channel.total_msg_count) + counted, last_post_at: createdAt };
       if (isRoot) {
-        next.total_msg_count_root = num(channel.total_msg_count_root) + 1;
+        next.total_msg_count_root = num(channel.total_msg_count_root) + counted;
         next.last_root_post_at = createdAt;
       }
       this.channels.set(rid, next);
@@ -284,10 +286,21 @@ export class MmLive {
       const known = rid === null ? undefined : this.members.get(rid);
       if (rid === null || known === undefined || !countsMoved(known, member)) continue;
       this.members.set(rid, member);
+      this.settle(rid, member);
       this.touch(rid);
       out.push(this.membershipEvent(rid));
     }
     return compact(out);
+  }
+
+  /** A membership viewed after the channel's last post holds the server's true totals. */
+  private settle(rid: string, member: Doc): void {
+    const channel = this.channels.get(rid);
+    if (channel === undefined || num(member.last_viewed_at) < num(channel.last_post_at)) return;
+    const next: Doc = { ...channel };
+    if (typeof member.msg_count === 'number') next.total_msg_count = member.msg_count;
+    if (typeof member.msg_count_root === 'number') next.total_msg_count_root = member.msg_count_root;
+    this.channels.set(rid, next);
   }
 
   /**

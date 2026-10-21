@@ -307,7 +307,7 @@ export class NativeStore {
     return reset;
   }
   private async preview(rid: string): Promise<void> {
-    const last = await this.db.getFirstAsync<{text:string;ts:number;system_type:string|null}>('SELECT m.text,m.ts,m.system_type FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[rid]);
+    const last = await this.db.getFirstAsync<{text:string;ts:number;system_type:string|null}>('SELECT m.text,m.ts,m.system_type FROM messages m JOIN native_positions p ON p.id=m.id WHERE m.rid=? AND m.thread_id IS NULL ORDER BY length(p.position) DESC,p.position DESC LIMIT 1',[rid]);
     await this.db.runAsync('UPDATE rooms SET last_message=?,last_message_ts=?,last_message_type=? WHERE rid=?',[last?.text??null,last?.ts??null,last?.system_type??null,rid]);
   }
   private async message(message: Message): Promise<void> {

@@ -1074,4 +1074,145 @@ mod tests {
         assert_eq!(path_segment("abc_DEF-123"), Some("abc_DEF-123"));
         assert_eq!(path_segment("%2e%2e"), None);
     }
+
+    type Asked = Arc<Mutex<Vec<String>>>;
+
+    /// Answers each request by its path (query left out), 404 when `route` has nothing.
+    async fn routed(route: fn(&str) -> Option<Value>) -> (RestClient, Asked) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rest = RestClient::mattermost(format!("http://{}", listener.local_addr().unwrap()).parse().unwrap());
+        let asked: Asked = Arc::default();
+        let log = asked.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let log = log.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0; 2048];
+                    let head = loop {
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break at + 4;
+                        }
+                    };
+                    let head_text = String::from_utf8_lossy(&buf[..head]).into_owned();
+                    let length: usize = head_text
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())
+                        })
+                        .unwrap_or(0);
+                    while buf.len() < head + length {
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                    let target = head_text.split_whitespace().nth(1).unwrap_or_default();
+                    let path = target.split('?').next().unwrap_or_default();
+                    let path = path.strip_prefix("/api/v4").unwrap_or(path).trim_start_matches('/').to_owned();
+                    let answer = route(&path);
+                    log.lock().unwrap().push(path);
+                    let (status, body) = match answer {
+                        Some(body) => (200, body.to_string()),
+                        None => (404, json!({"id": "api.context.404.app_error", "message": "Not found"}).to_string()),
+                    };
+                    let reply = format!(
+                        "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                });
+            }
+        });
+        (rest, asked)
+    }
+
+    /// Direct messages `d1` (newest) and `d2`, ranked with `limit` listed.
+    fn conversations(rest: RestClient, limit: usize) -> (Arc<Store>, MmSync) {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let sync = MmSync::new(store.clone(), rest, "u-me", "me", true);
+        sync.sidebar.lock().unwrap().apply(
+            &json!([{"category": "sidebar_settings", "name": "limit_visible_dms_gms", "value": limit.to_string()}]),
+            true,
+        );
+        for (rid, other, at) in [("d1", "u-bob", 20), ("d2", "u-carol", 10)] {
+            let mut live = sync.live.lock().unwrap();
+            live.channels.insert(
+                rid.into(),
+                json!({"id": rid, "type": "D", "name": format!("u-me__{other}"), "last_post_at": at, "total_msg_count": 1, "total_msg_count_root": 1}),
+            );
+            live.members.insert(
+                rid.into(),
+                json!({"channel_id": rid, "msg_count": 1, "msg_count_root": 1, "mention_count": 0}),
+            );
+        }
+        for (id, username) in [("u-bob", "bob"), ("u-carol", "carol")] {
+            sync.directory.remember(User { id: id.into(), username: username.into(), ..Default::default() });
+        }
+        sync.rerank();
+        for rid in ["d1", "d2"] {
+            sync.write_room(rid, true);
+        }
+        (store, sync)
+    }
+
+    fn listed(store: &Store) -> Vec<String> {
+        let mut rids: Vec<String> = store.rooms().into_iter().map(|r| r.rid).collect();
+        rids.sort();
+        rids
+    }
+
+    fn group_route(path: &str) -> Option<Value> {
+        match path {
+            "channels/g1" => Some(
+                json!({"id": "g1", "type": "G", "name": "g1", "display_name": "me, bob, dan", "total_msg_count": 0, "total_msg_count_root": 0}),
+            ),
+            "channels/g1/members/me" | "users/me/channel_members" => {
+                let member = json!({"channel_id": "g1", "user_id": "u-me", "msg_count": 0, "msg_count_root": 0, "mention_count": 0});
+                Some(if path == "channels/g1/members/me" { member } else { json!([{"channel_id": "d1"}, member]) })
+            }
+            "users/usernames" => Some(json!([{"id": "u-dan", "username": "dan"}])),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn my_first_post_in_an_unknown_group_lists_it_and_closes_the_one_past_the_limit() {
+        let (rest, asked) = routed(group_route).await;
+        let (store, sync) = conversations(rest, 2);
+        assert_eq!(listed(&store), ["d1", "d2"]);
+        let mut post = post("p1", "u-me", "");
+        post["channel_id"] = json!("g1");
+        sync.apply_event("posted", &json!({"post": post}), &json!({})).await;
+        assert_eq!(listed(&store), ["d1", "g1"]);
+        assert!(asked.lock().unwrap().iter().any(|p| p == "users/usernames"));
+        assert_eq!(sync.directory.username("u-dan").as_deref(), Some("dan"));
+    }
+
+    #[tokio::test]
+    async fn a_new_post_brings_a_direct_message_from_past_the_limit_back() {
+        let (rest, _) = routed(|_| None).await;
+        let (store, sync) = conversations(rest, 1);
+        assert_eq!(listed(&store), ["d1"]);
+        let mut post = post("p1", "u-me", "");
+        post["channel_id"] = json!("d2");
+        sync.apply_event("posted", &json!({"post": post}), &json!({})).await;
+        assert_eq!(listed(&store), ["d2"]);
+    }
+
+    #[tokio::test]
+    async fn a_group_added_without_a_channel_id_loads_the_new_membership() {
+        let (rest, asked) = routed(group_route).await;
+        let (store, sync) = conversations(rest, 5);
+        sync.apply_event("group_added", &json!({"teammate_ids": "[\"u-me\",\"u-bob\",\"u-dan\"]"}), &Value::Null).await;
+        assert_eq!(listed(&store), ["d1", "d2", "g1"]);
+        let asked = asked.lock().unwrap();
+        assert!(asked.iter().any(|p| p == "users/me/channel_members"));
+        assert!(!asked.iter().any(|p| p == "channels/g1/members/me" || p == "channels/d1"));
+    }
 }

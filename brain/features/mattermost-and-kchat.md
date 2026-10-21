@@ -154,6 +154,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 - The global catch-up skips rooms a live event changed during its requests
   (`MmLive.mark`, `changedSince`), and a room written without its last post
   keeps its stored preview (`LocalRoom.keepPreview`, `UPSERT_ROOM`).
+- `post_edited` / `post_deleted` of the previewed root post rewrite the room row
+  (`MmLive.isPreview`, `previewAfterDelete`): an edit or a delete moves none of
+  the channel's times, so no catch-up would (see [room-list](room-list.md)).
 - The outbox confirms a refused send only with a post created since the row
   was queued (`OutboxRow.createdAt`).
 - kMeet: only `https://kmeet.infomaniak.com` (`isKmeetUrl`), in the post and in
@@ -315,6 +318,8 @@ there, so the UIs read the same store:
 - Lists: `mattermost::pages`; `MmSync::channels` reads `/users/me/channels`
   once. The catch-up skips rooms live events stamped during it (`Live::touch`,
   `changed_since`); `Room.keep_preview` keeps a stored preview.
+- `post_edited` / `post_deleted` of the previewed root post rewrite the room row
+  (`Live::is_preview`, `MmSync::preview_after_delete`).
 - `rest::interpret_mattermost` does not count Mattermost's wrong-password 401 as
   understood, so it never signs out; `delay_after_429` reads Mattermost's reset
   as seconds. The outbox's `mine_on_server` needs a post created since the row

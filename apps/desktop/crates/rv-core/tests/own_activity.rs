@@ -39,6 +39,7 @@ async fn activity_changes_preserve_custom_status_and_confirm_without_a_broadcast
                 native: None,
                 mattermost: flavor,
                 slack: None,
+                teams: None,
             },
             &dir.path().join("account.sqlite"),
         )

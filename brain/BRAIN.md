@@ -64,9 +64,9 @@ The experimental [Slack session provider](architecture/slack-session.md) is a fu
 kind behind the nine-activation unlock on Android, GTK and SwiftUI: saved accounts, RTM
 live updates, writes, files, search, pins, saves, presence and huddle call cards.
 
-The developing [Teams provider](architecture/teams.md) has candidate private
-read transport, public-key browser handoff and native previews; live sign-in,
-packaged acquisition and persistent account integration remain pending.
+The experimental [Teams provider](architecture/teams.md) is a full server kind behind
+the same unlock on Android, GTK and SwiftUI: device-code sign-in, saved accounts,
+Trouter live updates and text, edit, delete, react and read written back.
 
 ## Features (the what) - [features/index.md](features/index.md)
 
@@ -74,7 +74,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 
 | Doc | What's here |
 |---|---|
-| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock; the experimental Slack server kind (saved accounts) and the transient Teams browser-import read preview; live Teams sign-in remains unqualified. |
+| [experimental-integrations.md](features/experimental-integrations.md) | Nine-activation unlock; the experimental Slack and Teams server kinds (saved accounts), Teams signed in with a Microsoft device code. |
 | [login-and-servers.md](features/login-and-servers.md) | Server probe, login, 2FA, session resume and revocation, multi-server and multi-account, the last room reopened on a switch, back and forward across accounts. |
 | [whatsapp.md](features/whatsapp.md) | A personal WhatsApp account linked by QR through a local helper, as an account of the GTK app. |
 | [mattermost-and-kchat.md](features/mattermost-and-kchat.md) | Mattermost and kChat servers on the three apps: login, real time, sync, sending, media. |

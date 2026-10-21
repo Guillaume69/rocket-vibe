@@ -48,9 +48,9 @@ impl Details {
     }
 }
 
-/// Only a Rocket.Chat account asks X: not Vibez, Mattermost, kChat or WhatsApp.
+/// Only a Rocket.Chat account asks X: not Vibez, Mattermost, kChat, Teams or WhatsApp.
 pub fn applies(info: &SessionInfo) -> bool {
-    info.native.is_none() && info.mattermost.is_none() && !crate::whatsapp::is_whatsapp(info)
+    info.native.is_none() && info.mattermost.is_none() && info.teams.is_none() && !crate::whatsapp::is_whatsapp(info)
 }
 
 /// JavaScript's `Number.prototype.toString(36)` for a positive finite value,
@@ -452,12 +452,18 @@ mod tests {
             native: None,
             mattermost: None,
             slack: None,
+            teams: None,
         };
         assert!(applies(&rocket_chat));
         let mattermost = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Mattermost), ..rocket_chat.clone() };
         assert!(!applies(&mattermost));
         let kchat = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Kchat), ..rocket_chat.clone() };
         assert!(!applies(&kchat));
+        let teams = SessionInfo {
+            teams: Some(crate::teams::auth::TeamsAccount { tenant_id: "t".into(), refresh: "r".to_owned().into() }),
+            ..rocket_chat.clone()
+        };
+        assert!(!applies(&teams));
         let vibez = SessionInfo {
             native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
             ..rocket_chat

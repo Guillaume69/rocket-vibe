@@ -407,7 +407,7 @@ pub fn open(
     e2e_row.add_suffix(&e2e_button);
     e2e_group.add(&e2e_row);
     encryption.add(&e2e_group);
-    if session.info.mattermost.is_none() && session.info.slack.is_none() {
+    if session.info.mattermost.is_none() && session.info.slack.is_none() && session.info.teams.is_none() {
         add(&dialog, ENCRYPTION, &encryption);
     }
     let (s, h) = (session.clone(), host.clone());

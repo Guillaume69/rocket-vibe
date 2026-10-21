@@ -279,6 +279,7 @@ mod tests {
         let info = crate::session::SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "me-id".into(),
             username: "me".into(),

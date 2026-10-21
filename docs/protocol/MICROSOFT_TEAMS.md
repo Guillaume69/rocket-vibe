@@ -1,43 +1,26 @@
 # Microsoft Teams provider: protocol and implementation handoff
 
-**Status:** client provider under development. Candidate private reads and transient native browser-import previews exist. Live authentication/DTO acceptance, packaged sign-in and persistent account integration are not delivered.
+**Status:** experimental server kind on Android, GTK and SwiftUI since 2026-10-21: device-code sign-in, saved accounts, history, Trouter live updates, text, edit, delete, react and read. Files, threads, pins, search, profiles, presence, calls and push are not delivered. It replaces the 2026-10-09/10 browser-import read preview.
 
 **Reviewed:** 2026-10-08. **Baseline:** master, commit 55115b26.
 
 **Clients:** Android, GTK and SwiftUI. **Goal:** existing-provider feature parity wherever Teams permits it, with explicit debt elsewhere.
 
-## Implementation increment: 2026-10-09
+## Implementation increment: 2026-10-21
 
-After the hidden Slack read preview was pushed, implementation began in
-apps/mobile/providers/teams/{protocol,reader}.ts and
-apps/desktop/crates/rv-core/src/teams.rs. Candidate authz discovery, roster and
-history reads have runtime-validated DTOs, audience-specific in-memory tokens,
-conversation-scoped pagination and synthetic fixture tests. Current route policy
-accepts the observed global Teams proxy aliases only, with discovered regions.
-No archived credential was used. No production request or private DTO success
-has been qualified. See [Teams architecture](../../brain/architecture/teams.md).
-
-## Implementation increment: 2026-10-10
-
-Android, GTK and SwiftUI now expose a transient native Teams preview under the shared
-nine-activation unlock. The [developer browser helper](../TEAMS_PREVIEW.md) launches
-an owned fresh official-browser profile and observes that browser's normal v2 grants.
-It embeds no borrowed client ID and issues no grant or refresh request. Signed ID token
-verification binds tenant/object identity to the observed client and rejects mixed
-accounts. API access tokens stay opaque; refresh tokens never enter the handoff.
-
-Public X25519 pairing, HKDF and AES-GCM create a one-use five-minute encrypted transfer
-for the three audience tokens. Native previews support candidate discovery, roster,
-paged plain-text history and expiry/cancellation. Credentials remain transient; account
-factories, vault refresh, database projection, realtime and all mutations remain absent.
-A developer computer and Node helper are required; packaged one-click/phone-only sign-in
-are still missing. No work/school test account was available. T0/T1 acceptance and live
-T2 private DTO qualification remain open, despite local synthetic/build success.
-
-teams-read.json and teams-handoff.json contain synthetic shared vectors only. Fixture
-success cannot prove accepted browser grants, complete membership or historical
-reconciliation. The archive's evidence and acceptance tasks below continue to apply.
-See [Teams architecture](../../brain/architecture/teams.md) for current source/validation.
+Sign-in is a device code (`/organizations/oauth2/v2.0/devicecode` then `/token`) with
+the public client id of Microsoft's Teams desktop and mobile apps; the web client is
+confidential and refused (AADSTS7000218). Probed live on one tenant on 2026-10-20 with
+read-only calls and writes confined to a self-only test chat, cleaned up afterwards:
+the refresh token rotates on every refresh; authz returns the Skype token and the
+routes; the aggregator lists chats and teams with channels; history pages backward
+only, newest first, through `_metadata.backwardLink`; reactions are
+`properties.emotions` with the classic keys; the read marker is
+`consumptionhorizon`; Trouter's socket.io handshake requires `cor_id` and `con_num`
+(else 400), then `user.authenticate` and a registrar POST deliver `NewMessage`,
+`MessageUpdate` and `ConversationUpdate`. The apps' implementation is described in
+[Teams architecture](../../brain/architecture/teams.md); the browser-import preview,
+its developer helper and its pairing are removed from every app.
 
 ## 1. Implementation brief
 

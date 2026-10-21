@@ -9,6 +9,8 @@ docker build -q -t "$image" -f docker/Dockerfile docker >/dev/null
 docker volume create rv-cargo >/dev/null
 build_user="$(id -u):$(id -g)"
 if command -v cygpath >/dev/null 2>&1; then build_user=0:0; fi
+# Rootless Docker maps the host user to container root: bind mounts need 0:0.
+if docker info -f '{{range .SecurityOptions}}{{println .}}{{end}}' 2>/dev/null | grep -q rootless; then build_user=0:0; fi
 docker run --rm -v rv-cargo:/cargo "$image" chown "$build_user" /cargo
 
 profile=${PROFILE:-dev}

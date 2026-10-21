@@ -21,6 +21,7 @@ import { forgetCollapsedSections } from './collapsedSections.ts';
 import { forgetLastRoom, requestLastRoom } from './lastRoomStore.ts';
 import { forgetReminders } from './reminders.ts';
 import { forgetAuthorizedMedia } from './authorizedMedia.ts';
+import { setTeamsCredentialSink } from '../providers/teams/auth.ts';
 import {
   addPendingLogout,
   clearE2EPrivateKey,
@@ -111,6 +112,14 @@ async function otherSession(leaving: string): Promise<Session | null> {
   }
   return null;
 }
+
+// Microsoft rotates a Teams account's refresh token: the newest one replaces the stored one,
+// as long as that account is still the one stored for its server.
+setTeamsCredentialSink((rotated) => {
+  void readSession(rotated.baseUrl).then((stored) => {
+    if (stored?.kind === 'teams' && stored.userId === rotated.userId) return saveSession(rotated);
+  }).catch(() => {});
+});
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<SessionState>({ phase: 'starting' });

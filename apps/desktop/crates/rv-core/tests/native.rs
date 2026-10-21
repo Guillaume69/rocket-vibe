@@ -39,6 +39,7 @@ async fn encrypted_room_sync_refuses_plaintext_posts_and_preserves_the_old_outbo
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.as_str().into(),
             user_id: "alice-id".into(),
             username: "alice".into(),
@@ -125,6 +126,7 @@ async fn reaction_intentions_survive_restart_and_normalize_aliases_before_retryi
     let info = SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: server.url.as_str().into(),
         user_id: "alice-id".into(),
         username: "alice".into(),
@@ -240,6 +242,7 @@ async fn pin_and_star_intentions_survive_restart_without_becoming_toggles() {
         let info = SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.as_str().into(),
             user_id: "alice-id".into(),
             username: "alice".into(),
@@ -343,6 +346,7 @@ async fn message_commands_survive_restart_with_the_original_revision_and_reject_
     let info = SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: server.url.as_str().into(),
         user_id: "alice-id".into(),
         username: "alice".into(),
@@ -449,6 +453,7 @@ async fn room_creation_retries_a_lost_reply_with_its_durable_intention() {
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),
@@ -659,6 +664,7 @@ async fn prepared_delivery_conflict_keeps_the_desktop_intention_retryable() {
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.as_str().into(),
             user_id: "alice-id".into(),
             username: "alice".into(),

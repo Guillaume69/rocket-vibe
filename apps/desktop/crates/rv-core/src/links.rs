@@ -160,6 +160,7 @@ mod tests {
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: "https://chat.example.org/native".into(),
             user_id: user.into(),
             username: user.into(),

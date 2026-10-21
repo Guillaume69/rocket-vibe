@@ -10,11 +10,16 @@ release, and its notes are that version's section here.
 ### Added
 
 - Settings > Notifications warns when Android does not let the app show an incoming call over the lock screen (Android 14 and later can withdraw it), and its Allow opens the system setting.
+- Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
 
 ### Fixed
 
 - Rocket.Chat (Jitsi) and kChat (kMeet) calls go on with the app in the background or the phone locked: the microphone, the camera and the sound no longer cut and the call no longer drops. An ongoing call notification shows the call and hangs up.
 - The message bar's buttons line up, the polls, stickers and GIFs button reads "GIF" instead of a second smiley, and the formatting row no longer touches the bar.
+
+### Removed
+
+- The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.
 
 ## [0.20.0] - 2026-10-17
 

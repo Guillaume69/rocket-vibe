@@ -15,7 +15,7 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 
 | Doc | What's here |
 |---|---|
-| [experimental-integrations.md](experimental-integrations.md) | Nine-activation unlock; the experimental Slack server kind (saved accounts) and the transient Teams browser-import read preview; live Teams sign-in remains unqualified. |
+| [experimental-integrations.md](experimental-integrations.md) | Nine-activation unlock; the experimental Slack and Teams server kinds (saved accounts), Teams signed in with a Microsoft device code. |
 | [login-and-servers.md](login-and-servers.md) | Server probe, password login, 2FA (TOTP, email, password), optimistic session resume, revocation on a real 401, deferred sign-out; one account per server on mobile, several per server on desktop; the last room reopened on a switch, back and forward across accounts. |
 | [whatsapp.md](whatsapp.md) | WhatsApp linked by QR: the Go helper and its sealed state, `whatsapp://` accounts and `WaSession`, adding and adopting, chats, what stays hidden, mobile plan. |
 | [mattermost-and-kchat.md](mattermost-and-kchat.md) | Mattermost and kChat (Infomaniak) on the three apps: kinds and detection, login with MFA, Infomaniak OAuth or API token, WebSocket and Pusher real time, derived unread counts, `pending_post_id` outbox, bearer media, post rendering (cards, webhook authors, permalink previews, reminders, mention names); on desktop a backend inside `Session`. |

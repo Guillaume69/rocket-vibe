@@ -24,6 +24,7 @@ async fn a_legacy_store_write_arrives_as_its_change() {
         native: None,
         mattermost: None,
         slack: None,
+        teams: None,
     };
     let session = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
     let chat: Chat = session.clone().into();

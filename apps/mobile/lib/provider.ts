@@ -46,7 +46,7 @@ export type SyncChange =
  * A session's server type. Persisted with it: it decides which driver to
  * instantiate at startup. Older sessions stay Rocket.Chat.
  */
-export type ProviderKind = 'rocketchat' | 'vibez' | 'mattermost' | 'kchat' | 'whatsapp' | 'slack';
+export type ProviderKind = 'rocketchat' | 'vibez' | 'mattermost' | 'kchat' | 'whatsapp' | 'slack' | 'teams';
 
 export type ProviderIdentity = {
   kind: ProviderKind;
@@ -66,7 +66,7 @@ export type ProviderError = {
   twoFactorChallenge: boolean;
 };
 
-const KINDS: readonly ProviderKind[] = ['rocketchat', 'vibez', 'mattermost', 'kchat', 'whatsapp', 'slack'];
+const KINDS: readonly ProviderKind[] = ['rocketchat', 'vibez', 'mattermost', 'kchat', 'whatsapp', 'slack', 'teams'];
 
 /**
  * Brings a stored value back to a known `ProviderKind`. Sessions from before

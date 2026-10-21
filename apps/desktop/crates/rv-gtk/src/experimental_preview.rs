@@ -1,6 +1,6 @@
-//! The discoverability gate of experimental integrations, kept on the device,
-//! and the Teams preview it reveals. Slack and WhatsApp sit behind the same
-//! gate as server kinds of the login page.
+//! The discoverability gate of experimental integrations, kept on the device:
+//! WhatsApp, Slack and Teams are server kinds of the login page behind it, and
+//! the panel it reveals hides them again.
 use adw::prelude::*;
 use gtk::glib;
 use std::rc::Rc;
@@ -27,22 +27,24 @@ pub(super) fn set_enabled(value: bool) -> std::io::Result<()> {
 
 pub struct Preview {
     pub root: gtk::Box,
-    teams: Rc<crate::teams_preview::Preview>,
 }
 
 impl Preview {
     pub fn new() -> Rc<Self> {
-        let teams = crate::teams_preview::Preview::new();
         let root = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(10).visible(enabled()).build();
-        root.append(&teams.root);
-        let this = Rc::new(Self { root, teams });
-        let root = this.root.clone();
-        this.teams.root.connect_visible_notify(move |child| {
-            if !child.property::<bool>("visible") {
-                root.set_visible(false);
+        let hide = gtk::Button::with_label(crate::i18n::t("slack.hide"));
+        let status = gtk::Label::builder().wrap(true).xalign(0.0).visible(false).build();
+        root.append(&hide);
+        root.append(&status);
+        let shown = root.clone();
+        hide.connect_clicked(move |_| match set_enabled(false) {
+            Ok(()) => shown.set_visible(false),
+            Err(_) => {
+                status.set_label(crate::i18n::t("slack.unlockFailed"));
+                status.set_visible(true);
             }
         });
-        this
+        Rc::new(Self { root })
     }
 
     pub fn unlock(&self) {
@@ -50,6 +52,5 @@ impl Preview {
         // discoverability, and this session asked for it.
         let _ = set_enabled(true);
         self.root.set_visible(true);
-        self.teams.root.set_visible(true);
     }
 }

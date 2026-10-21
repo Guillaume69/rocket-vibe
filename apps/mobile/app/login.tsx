@@ -2,13 +2,13 @@ import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
 import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
-import { TeamsPreview } from '../ui/teamsPreview.tsx';
+import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, type DeviceCode } from '../providers/teams/auth.ts';
 import { slackFailure } from '../ui/slackSignIn.tsx';
 import { SignInWebView } from '../ui/signInWebView.tsx';
 import { WebCookies } from '../modules/web-cookies/index.ts';
 import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, slackUserAgent, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
 import * as Crypto from 'expo-crypto';
-import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DEFAULT_SERVER } from '../db/migrate.ts';
@@ -69,9 +69,9 @@ export default function LoginScreen() {
 
   const [phase, setPhase] = useState<Phase>({ name: 'server' });
   const [address, setAddress] = useState(DEFAULT_SERVER);
-  const [picked, setKind] = useState<ServerKind | 'slack'>('auto');
+  const [picked, setKind] = useState<ServerKind | 'slack' | 'teams'>('auto');
   const experimental = useExperimentalProviders();
-  const kind = picked === 'slack' && !experimental ? 'auto' : picked;
+  const kind = (picked === 'slack' || picked === 'teams') && !experimental ? 'auto' : picked;
   const unlock = useRef(new ExperimentalUnlock());
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
@@ -84,6 +84,9 @@ export default function LoginScreen() {
   /** The sign-in page shown in the app's web view, the desktops' sign-in window. */
   const [webSignIn, setWebSignIn] = useState<{ kind: 'kchat'; pkce: Pkce } | { kind: 'slack' } | null>(null);
   const [slackChoices, setSlackChoices] = useState<Session[]>([]);
+  /** A Teams device code shown while Microsoft waits for its approval; the ref cancels the wait. */
+  const [teamsCode, setTeamsCode] = useState<DeviceCode | null>(null);
+  const teamsStop = useRef<{ stopped: boolean } | null>(null);
   const unlockProviders = useCallback(() => {
     if (!experimental && unlock.current.tap(Date.now())) {
       void setExperimentalProviders(true).catch(() => setMessage(t('slack.unlockFailed')));
@@ -162,7 +165,7 @@ export default function LoginScreen() {
   );
 
   const submitServer = useCallback(async (): Promise<boolean> => {
-    if (inFlight.current || kind === 'slack') return false;
+    if (inFlight.current || kind === 'slack' || kind === 'teams') return false;
     inFlight.current = true;
     query.current?.abort();
     const controller = new AbortController();
@@ -360,6 +363,43 @@ export default function LoginScreen() {
     router.replace('/');
   }, [connect, router]);
 
+  const cancelTeams = useCallback(() => {
+    if (teamsStop.current) teamsStop.current.stopped = true;
+    teamsStop.current = null;
+    setTeamsCode(null);
+    setBusy(false);
+  }, []);
+
+  /** Microsoft's device code: shown with its page, then the account opens once approved there. */
+  const startTeams = useCallback(async () => {
+    if (teamsStop.current) return;
+    const stop = { stopped: false };
+    teamsStop.current = stop;
+    setMessage(null);
+    setBusy(true);
+    try {
+      const code = await teamsDeviceCode();
+      if (stop.stopped) return;
+      setTeamsCode(code);
+      setBusy(false);
+      const session = await teamsApproved(code, () => stop.stopped);
+      if (stop.stopped) return;
+      teamsStop.current = null;
+      setTeamsCode(null);
+      await connect(session);
+      router.replace('/');
+    } catch (e) {
+      if (stop.stopped) return;
+      teamsStop.current = null;
+      setTeamsCode(null);
+      setBusy(false);
+      const code = e instanceof TeamsError ? e.code : 'connection_failed';
+      setMessage(code === 'expired' ? t('teams.expired') : code === 'declined' ? t('teams.declined') : t('teams.failedCode', { code }));
+    }
+  }, [connect, router, t]);
+
+  useEffect(() => () => { if (teamsStop.current) teamsStop.current.stopped = true; }, []);
+
   const startSlack = useCallback(async () => {
     setMessage(null);
     setSlackChoices([]);
@@ -519,9 +559,14 @@ export default function LoginScreen() {
 
         {phase.name === 'server' && (
           <>
-            {experimental && <TeamsPreview onHide={() => { void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }} />}
+            {experimental && (
+              <Pressable accessibilityRole="button" disabled={busy}
+                onPress={() => { cancelTeams(); void setExperimentalProviders(false).catch(() => setMessage(t('slack.unlockFailed'))); }}>
+                <Text style={[styles.link, { color: c.cyan }]}>{t('teams.hide')}</Text>
+              </Pressable>
+            )}
             {/* kChat: the account's servers come from the directory once signed in; Slack's from its own sign-in. */}
-            {kind !== 'kchat' && kind !== 'slack' && <PillField
+            {kind !== 'kchat' && kind !== 'slack' && kind !== 'teams' && <PillField
               c={c}
               label={t('login.serverAddress')}
               icon="network-server"
@@ -535,8 +580,8 @@ export default function LoginScreen() {
             />}
             {/* Found by probing; forced when the probe gets it wrong behind an unusual proxy. */}
             <View style={styles.kindRow} accessibilityRole="radiogroup" accessibilityLabel={t('login.kind')}>
-              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat'],...(experimental ? [['slack','login.kindSlack']] as const : [])] as const).map(([value,label]) => (
-                <Pressable key={value} onPress={() => { setKind(value); setMessage(null); }} disabled={busy}
+              {([['auto','login.kindAuto'],['rocketchat','login.kindRocketChat'],['vibez','login.kindVibez'],['mattermost','login.kindMattermost'],['kchat','login.kindKchat'],...(experimental ? [['slack','login.kindSlack'],['teams','login.kindTeams']] as const : [])] as const).map(([value,label]) => (
+                <Pressable key={value} onPress={() => { cancelTeams(); setKind(value); setMessage(null); }} disabled={busy}
                   accessibilityRole="radio" accessibilityState={{checked:kind===value}}
                   style={[styles.kindOption,{borderColor:kind===value?c.accent:c.border,backgroundColor:kind===value?c.card:'transparent'}]}>
                   <Text style={[styles.kindText,{color:kind===value?c.text:c.dimmed}]}>{t(label)}</Text>
@@ -551,7 +596,21 @@ export default function LoginScreen() {
                 </Pressable>
               )}
             </View>
-            {kind === 'slack'
+            {kind === 'teams'
+              ? teamsCode === null
+                ? <>
+                    <Text style={[styles.help, { color: c.dimmed }]}>{t('teams.deviceHelp')}</Text>
+                    <PrimaryButton c={c} busy={busy} onPress={() => void startTeams()} title={t('teams.signIn')} />
+                  </>
+                : <>
+                    <Text style={[styles.help, { color: c.dimmed }]}>{t('teams.enterCode')}</Text>
+                    <Text selectable accessibilityLabel={teamsCode.userCode} style={[styles.teamsCode, { color: c.text }]}>{teamsCode.userCode}</Text>
+                    <PrimaryButton c={c} busy={false} onPress={() => void Linking.openURL(teamsCode.verificationUri)} title={t('teams.openPage')} />
+                    <Pressable accessibilityRole="button" onPress={cancelTeams}>
+                      <Text style={[styles.link, { color: c.cyan }]}>{t('common.cancel')}</Text>
+                    </Pressable>
+                  </>
+              : kind === 'slack'
               ? <>
                   <PrimaryButton c={c} busy={busy} onPress={() => void startSlack()} title={t('slack.signIn')} />
                   {slackChoices.map((session) => (
@@ -933,4 +992,5 @@ const styles = StyleSheet.create({
   errorMessage: { fontFamily: FONTS.bodyBold, fontSize: 14 },
   help: { fontFamily: FONTS.body, fontSize: 13, lineHeight: 18 },
   link: { fontFamily: FONTS.bodyBold, fontSize: 14, paddingVertical: 12, textAlign: 'center' },
+  teamsCode: { fontFamily: FONTS.bodyBold, fontSize: 28, letterSpacing: 4, textAlign: 'center', paddingVertical: 8 },
 });

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join,resolve,sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { Cdp,executable } from '../teams/browser.mjs';
+import { Cdp,executable } from './cdp.mjs';
 import { BridgeError,slackUrl,candidates,sessionCookie } from './session.mjs';
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 // Check location in the evaluated context before accessing storage, covering navigation races.

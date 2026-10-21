@@ -25,6 +25,7 @@ async fn deleting_a_failed_send_discards_it_and_tries_the_server() {
         native: None,
         mattermost: None,
         slack: None,
+        teams: None,
     };
     let session = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
     let id = session.outbox.enqueue("room-1", "hi", None);

@@ -44,6 +44,9 @@ export type Session = {
   slackCookie?: string;
   /** The Slack workspace (`T…`) the token was validated for. */
   slackTeamId?: string;
+  /** A Teams account's tenant, and its refresh token, which Microsoft rotates. */
+  teamsTenantId?: string;
+  teamsRefresh?: string;
 };
 
 /** Hex SHA-256, lowercase. */

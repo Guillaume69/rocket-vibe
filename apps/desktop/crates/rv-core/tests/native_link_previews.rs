@@ -96,6 +96,7 @@ async fn existing_cards_and_private_reader_keep_cache_across_reactions_and_fence
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

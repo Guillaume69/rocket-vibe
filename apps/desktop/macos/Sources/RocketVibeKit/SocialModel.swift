@@ -3,7 +3,7 @@ import RocketVibeCore
 
 public extension RoomModel {
     var supportsSocial: Bool { active && membershipIsCurrent && !room.encrypted && provider.native?.socialAvailable(room: rid) == true }
-    var supportsSocialMedia: Bool { active && membershipIsCurrent && !room.encrypted && (provider.legacy.map { !$0.isMattermost() && !$0.isSlack() } == true || provider.native?.supportedFeatures().contains("sticker_shelf") == true) }
+    var supportsSocialMedia: Bool { active && membershipIsCurrent && !room.encrypted && (provider.legacy.map { !$0.isMattermost() && !$0.isSlack() && !$0.isTeams() } == true || provider.native?.supportedFeatures().contains("sticker_shelf") == true) }
     var supportsGiphy: Bool { supportsSocialMedia && (provider.legacy != nil || provider.native?.supportedFeatures().contains("giphy") == true) }
     var socialUser: String { provider.native?.account().userId ?? provider.legacy?.account().userId ?? "" }
     func socialGuard() throws { guard active, membershipIsCurrent, !room.encrypted, !Task.isCancelled else { throw CancellationError() } }

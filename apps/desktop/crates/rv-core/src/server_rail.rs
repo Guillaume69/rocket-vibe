@@ -132,6 +132,7 @@ mod tests {
             native: None,
             mattermost: None,
             slack: None,
+            teams: None,
         }
     }
 

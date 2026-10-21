@@ -32,7 +32,7 @@ struct PendingLogin {
     method: Option<String>,
 }
 enum LoginOutcome {
-    RocketChat(SessionInfo),
+    RocketChat(Box<SessionInfo>),
     Native(Box<rv_core::native::authentication_vault::Prepared>),
 }
 
@@ -63,6 +63,8 @@ pub struct AppWindow {
     pending: RefCell<Option<PendingLogin>>,
     pending_native: RefCell<Option<rv_core::native::authentication::LoginChallenge>>,
     slack_browser_login: RefCell<Option<Arc<rv_core::slack::browser_login::BrowserLogin>>>,
+    /// A Teams device-code sign-in under way: set to stop it.
+    teams_login: RefCell<Option<Arc<std::sync::atomic::AtomicBool>>>,
     login_generation: Cell<u64>,
     login_guard: RefCell<rv_core::native::security::Guard>,
     login_shown: RefCell<Vec<Box<dyn Fn()>>>,
@@ -288,6 +290,7 @@ impl AppWindow {
             pending: RefCell::default(),
             pending_native: RefCell::default(),
             slack_browser_login: RefCell::default(),
+            teams_login: RefCell::default(),
             login_generation: Cell::default(),
             login_guard: RefCell::default(),
             login_shown: RefCell::default(),
@@ -794,6 +797,10 @@ impl AppWindow {
         if self.login.is_busy() {
             return;
         }
+        if self.login.server_kind() == rv_core::native::ServerKind::Teams {
+            self.start_teams_login();
+            return;
+        }
         if self.login.server_kind() == rv_core::native::ServerKind::Slack {
             if let Some(attempt) = self.slack_browser_login.borrow().clone() {
                 if let Some(team_id) = self.login.selected_slack_workspace() {
@@ -872,7 +879,9 @@ impl AppWindow {
                         "invitation_unavailable"
                     })))
                 } else {
-                    session::login_as(&s, kind, &u, &p, two_factor).await.map(LoginOutcome::RocketChat)
+                    session::login_as(&s, kind, &u, &p, two_factor)
+                        .await
+                        .map(|info| LoginOutcome::RocketChat(Box::new(info)))
                 }
             })
             .await;
@@ -896,6 +905,7 @@ impl AppWindow {
                     }
                 },
                 Ok(LoginOutcome::RocketChat(info)) => {
+                    let info = *info;
                     this.login.clear_secrets();
                     let _ = std::fs::write(last_server_file(), &info.base_url);
                     secrets::remember_server(&info.base_url);
@@ -948,6 +958,67 @@ impl AppWindow {
                 }
             }
         });
+    }
+
+    /// Microsoft's device code: shown with its page, then the account is
+    /// saved and opened once the user approves it there.
+    fn start_teams_login(self: &Rc<Self>) {
+        let generation = self.login_generation.get();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.teams_login.replace(Some(stop.clone()));
+        self.login.set_error(None);
+        self.login.set_busy(true);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let code = on_tokio(rv_core::teams::auth::device_code()).await;
+            if !this.login_is_current(generation) {
+                return;
+            }
+            let code = match code {
+                Ok(code) => Arc::new(code),
+                Err(e) => return this.teams_login_failed(&e),
+            };
+            this.login.set_busy(false);
+            this.login.show_teams_code(&code.verification_uri, &code.user_code);
+            this.login.set_waiting();
+            this.login.set_cancel_label(t("actions.cancel"));
+            let waited = code.clone();
+            let watched = stop.clone();
+            let info = on_tokio(async move {
+                rv_core::teams::auth::approved(&waited, || watched.load(std::sync::atomic::Ordering::Acquire)).await
+            })
+            .await;
+            if !this.login_is_current(generation) || stop.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
+            this.teams_login.borrow_mut().take();
+            match info {
+                Ok(info) => {
+                    this.login.clear_secrets();
+                    this.login.set_cancel(false);
+                    let saved = info.clone();
+                    on_tokio(async move { secrets::save(&saved).await }).await;
+                    secrets::set_active(&info);
+                    this.previous.replace(None);
+                    this.start_session(info);
+                }
+                Err(e) => this.teams_login_failed(&e),
+            }
+        });
+    }
+
+    fn teams_login_failed(&self, e: &rv_core::rest::RestError) {
+        self.teams_login.borrow_mut().take();
+        self.login.set_busy(false);
+        self.login.set_cancel(self.previous.borrow().is_some());
+        self.login.set_slack_status(t("teams.deviceHelp"));
+        let message = match e.error.as_deref() {
+            Some("expired") => t("teams.expired").to_owned(),
+            Some("declined") => t("teams.declined").to_owned(),
+            Some(code) => crate::i18n::tf("teams.failedCode", &[("code", code)]),
+            None => crate::i18n::tf("teams.failedCode", &[("code", &e.status.to_string())]),
+        };
+        self.login.set_error(Some(&message));
     }
 
     fn start_slack_browser_login(self: &Rc<Self>) {
@@ -1076,6 +1147,9 @@ impl AppWindow {
     fn invalidate_login(&self) {
         if let Some(attempt) = self.slack_browser_login.borrow_mut().take() {
             attempt.cancel();
+        }
+        if let Some(stop) = self.teams_login.borrow_mut().take() {
+            stop.store(true, std::sync::atomic::Ordering::Release);
         }
         self.login.clear_slack_workspaces();
         self.login.close_recovery_email();

@@ -22,6 +22,7 @@ export function parseSession(raw: string, baseUrl: string): Session | null {
     // `baseUrl` at use), without rewriting.
     const kind = normalizeProviderKind(session.kind ?? session.genre);
     if (kind === 'slack' && (typeof session.slackCookie !== 'string' || typeof session.slackTeamId !== 'string')) return null;
+    if (kind === 'teams' && (typeof session.teamsRefresh !== 'string' || typeof session.teamsTenantId !== 'string')) return null;
     return {
       ...session,
       kind,

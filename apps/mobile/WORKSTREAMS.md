@@ -457,7 +457,7 @@ findings are added here.
 Found by the Slack provider review (2026-10-15), kept for later:
 
 - [ ] 🟢 **The Slack and Mattermost upload queues share about 110 identical lines** (`providers/slack/uploads.ts`, `providers/mattermost/uploads.ts`): only the upload and the posted-file lookup differ; one queue taking a provider strategy would serve both.
-- [ ] 🟢 **The Teams and Slack pairing handoffs are near copies** (`providers/slack/handoff.ts`, `providers/teams/handoff.ts`, and the desktop's `slack/handoff.rs`, `teams_handoff.rs`).
+- [x] 🟢 **The Teams and Slack pairing handoffs are near copies** (`providers/slack/handoff.ts`, `providers/teams/handoff.ts`, and the desktop's `slack/handoff.rs`, `teams_handoff.rs`). Gone with the Teams preview (2026-10-21).
 - [ ] 🟢 **Slack `saved.list` pagination is unprobed**: `providers/slack/saved.ts` follows the cursor (`client.pages`, bounded pages) on the assumption that it pages like Slack's other list methods; a long Later list was never tried.
 
 Repository reliability audit (2026-10-11):

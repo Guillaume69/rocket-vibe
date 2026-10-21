@@ -247,6 +247,7 @@ impl Pilot {
             SessionInfo {
                 mattermost: None,
                 slack: None,
+                teams: None,
                 base_url: server.url.as_str().into(),
                 user_id: user.into(),
                 username: "alice".into(),

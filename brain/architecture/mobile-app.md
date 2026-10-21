@@ -97,8 +97,7 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/assets/icons/README.md
 - apps/mobile/ui/slackSignIn.tsx
 - apps/mobile/ui/signInWebView.tsx
-- apps/mobile/ui/teamsPreview.tsx
-- apps/mobile/providers/teams/handoff.ts
+- apps/mobile/providers/teams/
 
 - apps/mobile/app/_layout.tsx
 - apps/mobile/app/index.tsx

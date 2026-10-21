@@ -99,6 +99,7 @@ fn account(server: &FakeDdp, uid: &str) -> SessionInfo {
         native: None,
         mattermost: None,
         slack: None,
+        teams: None,
     }
 }
 
@@ -293,6 +294,7 @@ async fn reopening_a_paused_native_account_resumes_its_existing_outbox_without_r
         native: Some(Identity { instance_id: "fixture-instance".into(), data_epoch: "fixture-epoch".into() }),
         mattermost: None,
         slack: None,
+        teams: None,
     };
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.sqlite");

@@ -18,7 +18,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 
 | Doc | What is here |
 |---|---|
-| [teams.md](teams.md) | Private Teams read preview, developer browser acquisition, public-key handoff, conservative dynamic routing and live qualification boundary. |
+| [teams.md](teams.md) | The experimental Teams server kind: device-code sign-in and its rotating refresh token, aggregator rooms, backward-paged history, Trouter live updates, delivery proof by client id. |
 | [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. Saved accounts, RTM, writes, files, search, pins, saves, presence and huddles on all three apps, behind the experimental unlock. |
 
 ## Mobile (`apps/mobile`)

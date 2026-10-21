@@ -339,20 +339,16 @@ T0/T1 acceptance work. The next increment adds a clearly experimental transient
 browser-import panel, independent of persistent account UI. See
 [Teams architecture](architecture/teams.md).
 
-## Teams uses an owned browser and public-key handoff (2026-10-10)
+## Teams signs in with a device code, as Microsoft's own app (2026-10-21)
 
-Without a project registration, a developer helper lets the official Teams browser
-perform its own grants in a fresh temporary profile. It observes only known Teams
-v2 service token responses and validates signed identity/client/tenant binding;
-it makes no grant or refresh call and never decodes API tokens. No work/school test
-account was available, so real sign-in and private DTO acceptance remain unqualified.
-Packaged native sign-in and phone-only acquisition remain debt.
-
-Only a public pairing key is copied from the app. Ephemeral X25519, HKDF and authenticated
-encryption protect the response, preventing clipboard history of both public values
-from revealing credentials. The native private key is consumed on import/disposal.
-This remains a transient read preview with no stored account or enabled writes;
-[usage](../docs/TEAMS_PREVIEW.md) records its required developer helper and limitations.
+The browser-import preview (an owned browser, its tokens handed over by public-key
+pairing) needed a developer computer, could not refresh, and stored nothing. A device
+code needs no browser of the app's own and works the same on a phone and a desktop. It
+needs a public client: the Teams web client is confidential and refused (AADSTS7000218),
+so the apps use the client id of Microsoft's Teams desktop and mobile apps, the one
+Microsoft's own device-code sign-in uses, probed live on 2026-10-20. The account keeps
+only the tenant id and the rotating refresh token; access tokens stay in memory. This
+replaced the preview, its helper and its pairing in every app.
 
 ## Slack uses an owned browser and encrypted workspace pairing (2026-10-10)
 
@@ -389,14 +385,8 @@ from `saved.list`.
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
 - `apps/desktop/crates/rv-native/src/windows_notification.rs`
-- scripts/teams-browser-signin.mjs
-- scripts/teams/session.mjs
-- apps/mobile/providers/teams/handoff.ts
-- apps/desktop/crates/rv-core/src/teams_handoff.rs
-
-- apps/mobile/providers/teams/protocol.ts
-- apps/mobile/providers/teams/reader.ts
-- apps/desktop/crates/rv-core/src/teams.rs
+- apps/mobile/providers/teams/auth.ts
+- apps/desktop/crates/rv-core/src/teams/auth.rs
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
 - `docs/protocol/E2EE_FILES.md`

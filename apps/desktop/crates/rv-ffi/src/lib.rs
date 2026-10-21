@@ -153,6 +153,7 @@ impl Client {
     #[uniffi::constructor]
     pub fn new(home: String) -> Arc<Self> {
         let dirs = Arc::new(Dirs::glib(std::path::Path::new(&home)));
+        teams::keep_rotated_tokens(dirs.clone());
         // Sign-outs an earlier run could not tell the server about.
         let pending = dirs.clone();
         runtime().spawn(async move {
@@ -621,6 +622,11 @@ impl Chat {
 
     pub fn is_slack(&self) -> bool {
         self.session.info.slack.is_some()
+    }
+
+    /// A Teams account: none of Rocket.Chat's own features either.
+    pub fn is_teams(&self) -> bool {
+        self.session.info.teams.is_some()
     }
 
     /// The account's conversation list settings (Mattermost and kChat), kept on the server.

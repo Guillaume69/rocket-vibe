@@ -6,6 +6,7 @@ import { MmError } from '../providers/mattermost/client.ts';
 import { logoutMattermost, resumeMattermost } from '../providers/mattermost/auth.ts';
 import { SlackError } from '../providers/slack/client.ts';
 import { resumeSlack } from '../providers/slack/auth.ts';
+import { TeamsError, resumeTeams } from '../providers/teams/auth.ts';
 
 export function clientForSession(session: Session, revoke: (token: string) => void): RestClient {
   // Legacy screens retain URL/account metadata, but cannot issue RC requests to another server.
@@ -21,7 +22,8 @@ export function sessionRejected(error: unknown): boolean {
   return isTokenRejected(error)
     || (error instanceof NativeError && error.status === 401 && error.code === 'session_rejected')
     || (error instanceof MmError && error.rejectsToken)
-    || (error instanceof SlackError && error.rejectsSession);
+    || (error instanceof SlackError && error.rejectsSession)
+    || (error instanceof TeamsError && error.rejectsSession);
 }
 export function resumeSession(client: RestClient, session: Session): Promise<Session> {
   switch (session.kind) {
@@ -30,6 +32,7 @@ export function resumeSession(client: RestClient, session: Session): Promise<Ses
     case 'kchat': return resumeMattermost(session);
     case 'rocketchat': return resumeRocketChatSession(client,session.authToken);
     case 'slack': return resumeSlack(session);
+    case 'teams': return resumeTeams(session);
     // Linked once by the phone: the engine holds the link, nothing to resume.
     case 'whatsapp': return Promise.resolve(session);
   }
@@ -42,7 +45,8 @@ export async function logoutSession(client: RestClient, session: Session): Promi
     return unlinkWhatsApp(session);
   }
   // Local only: revoking the browser session Slack issued would also sign that browser out.
-  if (session.kind === 'slack') { client.auth = null; return true; }
+  // Local only, as for Slack: a refresh token has no revocation of its own.
+  if (session.kind === 'slack' || session.kind === 'teams') { client.auth = null; return true; }
   if (session.kind === 'mattermost' || session.kind === 'kchat') {
     try { return await logoutMattermost(session); } finally { client.auth = null; }
   }

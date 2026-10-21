@@ -214,6 +214,7 @@ fn session_info(base: &Url, token: &str, me: &Value, flavor: Flavor) -> Result<S
         native: None,
         mattermost: Some(flavor),
         slack: None,
+        teams: None,
     })
 }
 

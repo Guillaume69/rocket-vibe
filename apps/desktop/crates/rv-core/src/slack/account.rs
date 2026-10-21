@@ -87,6 +87,7 @@ pub async fn login_at(
         native: None,
         mattermost: None,
         slack: Some(SlackAccount { team_id: who.team_id, cookie }),
+        teams: None,
     })
 }
 
@@ -123,6 +124,7 @@ pub(crate) fn from_secret(value: &Value) -> Option<SessionInfo> {
         native: None,
         mattermost: None,
         slack: Some(SlackAccount { team_id, cookie }),
+        teams: None,
     })
 }
 

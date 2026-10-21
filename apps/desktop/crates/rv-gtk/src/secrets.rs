@@ -278,6 +278,7 @@ pub async fn complete_native_login(saved: &rv_core::native::authentication::Logi
     let info = SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: saved.base_url.clone(),
         user_id: saved.user.id.clone(),
         username: saved.user.username.clone(),

@@ -19,9 +19,7 @@ still in progress.
 ---
 
 Nine login-icon activations unlock the experimental [Slack server kind](../../docs/SLACK_PREVIEW.md) and the
-Teams read preview. Teams requires
-the [development browser helper](../../docs/TEAMS_PREVIEW.md); live sign-in remains
-unverified, and persistent Teams accounts, sync and sending are pending.
+[Teams server kind](../../brain/architecture/teams.md), signed in with a Microsoft device code.
 
 ## What it is
 

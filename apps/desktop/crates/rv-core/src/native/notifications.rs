@@ -322,6 +322,7 @@ mod tests {
         let info = SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "bob".into(),
             username: "bob".into(),
@@ -427,6 +428,7 @@ mod tests {
         let info = SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: "http://127.0.0.1:9/native".into(),
             user_id: "bob".into(),
             username: "bob".into(),

@@ -22,6 +22,7 @@ use crate::slack::translate::{client_msg_id, first_ts_of, markdown_to_mrkdwn, sp
 use crate::store::Store;
 use crate::sync::Backend;
 use crate::sync::SyncEngine;
+use crate::teams::sync::TeamsSync;
 
 /// 24 hex characters: the shape of Rocket.Chat `_id`s.
 pub fn generate_message_id() -> String {
@@ -151,6 +152,9 @@ impl Outbox {
             }
             Backend::Slack(slack) => {
                 return self.pass_slack(slack).await;
+            }
+            Backend::Teams(teams) => {
+                return self.pass_teams(teams).await;
             }
             Backend::RocketChat => {}
         }
@@ -334,6 +338,72 @@ impl Outbox {
             self.slack_delivered(slack, &entry, message).await;
         }
         true
+    }
+
+    /// Teams mints the message id; the row leaves with a client id derived
+    /// from its own, which Teams echoes. A lost answer, or a replay of a row
+    /// that may have gone out, looks for it before ever sending again.
+    async fn pass_teams(&self, teams: &TeamsSync) -> bool {
+        for entry in self.store.pending_outbox() {
+            let explicit = self.explicit_retries.lock().unwrap().remove(&entry.id);
+            let replay =
+                !explicit && (self.attempted.lock().unwrap().contains(&entry.id) || entry.created_at < self.started_at);
+            let client_id = crate::teams::actions::client_message_id(&entry.id);
+            if replay {
+                match self.mine_on_teams(teams, &entry, &client_id).await {
+                    Delivered::Unknown => return false,
+                    Delivered::Ambiguous => {
+                        self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                        continue;
+                    }
+                    Delivered::Yes(message) => {
+                        self.teams_delivered(teams, &entry, &message);
+                        continue;
+                    }
+                    Delivered::No => {}
+                }
+            }
+            self.attempted.lock().unwrap().insert(entry.id.clone());
+            let sent = teams.send(&entry.rid, entry.thread_id.as_deref(), &entry.text, &client_id).await;
+            match sent {
+                Ok(_) => {}
+                Err(e) if e.status == 429 || crate::rest::is_token_rejected(&e) => return false,
+                Err(e) if e.status >= 400 && e.status < 500 => {
+                    self.store.write(|w| {
+                        w.mark_outbox_failed(&entry.id, &format!("Teams refused the message ({}).", e.status))
+                    });
+                    continue;
+                }
+                Err(_) => {}
+            }
+            match self.mine_on_teams(teams, &entry, &client_id).await {
+                Delivered::Unknown => return false,
+                Delivered::Yes(message) => self.teams_delivered(teams, &entry, &message),
+                Delivered::No | Delivered::Ambiguous => {
+                    self.store.write(|w| w.mark_outbox_failed(&entry.id, DELIVERY_UNCERTAIN));
+                }
+            }
+        }
+        true
+    }
+
+    fn teams_delivered(&self, teams: &TeamsSync, entry: &crate::store::OutboxEntry, message: &Value) {
+        self.store.write(|w| {
+            w.delete_outbox(&entry.id);
+            w.delete_message(&entry.id);
+        });
+        teams.ingest_one(&entry.rid, message);
+        self.attempted.lock().unwrap().remove(&entry.id);
+    }
+
+    async fn mine_on_teams(&self, teams: &TeamsSync, entry: &crate::store::OutboxEntry, client_id: &str) -> Delivered {
+        match teams.mine_since(&entry.rid, entry.created_at - CLOCK_SKEW_MS, client_id).await {
+            Ok((Some(message), _)) => Delivered::Yes(message),
+            Ok((None, true)) => Delivered::Ambiguous,
+            Ok((None, false)) => Delivered::No,
+            Err(e) if unanswered(&e) || e.status == 429 || crate::rest::is_token_rejected(&e) => Delivered::Unknown,
+            Err(_) => Delivered::No,
+        }
     }
 
     async fn slack_delivered(&self, slack: &SlackSync, entry: &crate::store::OutboxEntry, message: Value) {

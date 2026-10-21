@@ -1,0 +1,442 @@
+//! A Teams account: signed in with a Microsoft device code as the Teams
+//! desktop app's public client, kept by its refresh token, which Microsoft
+//! rotates on every refresh. Access and Skype tokens live in memory only.
+
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+use zeroize::Zeroizing;
+
+use crate::rest::RestError;
+use crate::session::SessionInfo;
+
+/// The Teams desktop and mobile app: a public client, so a device code completes
+/// (the web client `5e3ce6c0-…` is confidential and answers `AADSTS7000218`).
+pub const CLIENT_ID: &str = "1fec8e78-bce4-4aaf-ab1b-5451cc387264";
+pub const LOGIN: &str = "https://login.microsoftonline.com";
+pub const SPACES: &str = "https://api.spaces.skype.com";
+pub const AGGREGATOR: &str = "https://chatsvcagg.teams.microsoft.com";
+pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
+/// The `base_url` of every Teams account: the conversations live behind routes
+/// discovered per tenant, not at one address.
+pub const ORIGIN: &str = "https://teams.microsoft.com";
+pub const SESSION_REJECTED: &str = "teams-session-rejected";
+const MARGIN: Duration = Duration::from_secs(300);
+
+/// What a Teams account keeps beside its id, in the same secret record.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TeamsAccount {
+    pub tenant_id: String,
+    pub refresh: Zeroizing<String>,
+}
+
+impl std::fmt::Debug for TeamsAccount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TeamsAccount").field("tenant_id", &self.tenant_id).field("refresh", &"[redacted]").finish()
+    }
+}
+
+pub(crate) fn refusal(code: &str, status: u16) -> RestError {
+    RestError {
+        status,
+        error: Some(code.to_owned()),
+        error_type: (status == 401).then(|| SESSION_REJECTED.to_owned()),
+        ..RestError::incomplete(&format!("Teams: {code}"))
+    }
+}
+
+fn http() -> reqwest::Client {
+    crate::tls::ensure_provider();
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("Teams HTTP client")
+}
+
+async fn form(url: &str, fields: &[(&str, &str)]) -> Result<Value, RestError> {
+    let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).finish();
+    let response = http()
+        .post(url)
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| RestError::network(e.to_string()))?;
+    let status = response.status().as_u16();
+    let body: Value = response.json().await.map_err(|e| RestError::network(e.to_string()))?;
+    if status >= 500 {
+        return Err(RestError { status, ..RestError::network(format!("Microsoft sign-in answered {status}")) });
+    }
+    Ok(body)
+}
+
+fn guid(s: &str) -> bool {
+    s.len() == 36
+        && s.bytes()
+            .enumerate()
+            .all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() })
+}
+
+/// The claims of an id token Microsoft just handed us over TLS: read, not verified.
+fn claims(id_token: &str) -> Option<Value> {
+    use base64::Engine;
+    let payload = id_token.split('.').nth(1)?;
+    serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?).ok()
+}
+
+/// A device code to show: the user approves it at `verification_uri`.
+pub struct DeviceCode {
+    pub user_code: String,
+    pub verification_uri: String,
+    pub expires_in: u64,
+    interval: u64,
+    device_code: Zeroizing<String>,
+}
+
+impl std::fmt::Debug for DeviceCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeviceCode").field("user_code", &self.user_code).finish_non_exhaustive()
+    }
+}
+
+pub async fn device_code() -> Result<DeviceCode, RestError> {
+    let scope = format!("{SPACES}/.default openid profile offline_access");
+    let body =
+        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", &scope)])
+            .await?;
+    let field = |key: &str| body[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let verification_uri =
+        field("verification_uri").filter(|u| u.starts_with("https://")).ok_or_else(|| refusal("device_code", 200))?;
+    Ok(DeviceCode {
+        user_code: field("user_code").ok_or_else(|| refusal("device_code", 200))?,
+        device_code: Zeroizing::new(field("device_code").ok_or_else(|| refusal("device_code", 200))?),
+        verification_uri,
+        expires_in: body["expires_in"].as_u64().unwrap_or(900),
+        interval: body["interval"].as_u64().unwrap_or(5).clamp(1, 60),
+    })
+}
+
+/// Waits until the code is approved, refused or expired; `cancelled` ends it early.
+pub async fn approved(code: &DeviceCode, cancelled: impl Fn() -> bool) -> Result<SessionInfo, RestError> {
+    let deadline = Instant::now() + Duration::from_secs(code.expires_in);
+    let mut interval = code.interval;
+    while Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_secs(interval)).await;
+        if cancelled() {
+            return Err(refusal("cancelled", 0));
+        }
+        let body = form(
+            &format!("{LOGIN}/organizations/oauth2/v2.0/token"),
+            &[
+                ("client_id", CLIENT_ID),
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("device_code", &code.device_code),
+            ],
+        )
+        .await?;
+        match body["error"].as_str() {
+            Some("authorization_pending") => continue,
+            Some("slow_down") => interval += 5,
+            Some("authorization_declined") => return Err(refusal("declined", 0)),
+            Some("expired_token") => return Err(refusal("expired", 0)),
+            Some(other) => return Err(refusal(other, 0)),
+            None => return signed_in(&body).await,
+        }
+    }
+    Err(refusal("expired", 0))
+}
+
+async fn signed_in(body: &Value) -> Result<SessionInfo, RestError> {
+    let refresh = Zeroizing::new(body["refresh_token"].as_str().unwrap_or_default().to_owned());
+    let claims = body["id_token"].as_str().and_then(claims).ok_or_else(|| refusal("id_token", 200))?;
+    let text = |key: &str| claims[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let (tenant_id, object_id) = (text("tid").unwrap_or_default(), text("oid").unwrap_or_default());
+    if refresh.is_empty() || !guid(&tenant_id) || !guid(&object_id) {
+        return Err(refusal("id_token", 200));
+    }
+    let info = SessionInfo {
+        base_url: ORIGIN.to_owned(),
+        user_id: format!("8:orgid:{object_id}"),
+        username: text("name").or_else(|| text("preferred_username")).unwrap_or_else(|| object_id.clone()),
+        auth_token: String::new(),
+        native: None,
+        mattermost: None,
+        slack: None,
+        teams: Some(TeamsAccount { tenant_id, refresh }),
+    };
+    Tokens::new(&info)?.chat().await?;
+    Ok(info)
+}
+
+pub(crate) fn write_secret(account: &TeamsAccount, secret: &mut Value) {
+    secret["teamsTenantId"] = json!(account.tenant_id);
+    secret["teamsRefresh"] = json!(account.refresh.as_str());
+}
+
+/// A saved Teams account, refused unless every field is one Microsoft could have given.
+pub(crate) fn from_secret(value: &Value) -> Option<SessionInfo> {
+    let field = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    let user_id = field("userId")?;
+    let tenant_id = field("teamsTenantId")?;
+    if field("baseUrl")? != ORIGIN || !guid(&tenant_id) || !user_id.strip_prefix("8:orgid:").is_some_and(guid) {
+        return None;
+    }
+    Some(SessionInfo {
+        base_url: ORIGIN.to_owned(),
+        username: field("username").unwrap_or_else(|| user_id.clone()),
+        user_id,
+        auth_token: String::new(),
+        native: None,
+        mattermost: None,
+        slack: None,
+        teams: Some(TeamsAccount { tenant_id, refresh: Zeroizing::new(field("teamsRefresh")?) }),
+    })
+}
+
+type Sink = Box<dyn Fn(&SessionInfo) + Send + Sync>;
+static SINK: OnceLock<Sink> = OnceLock::new();
+
+/// Where a rotated refresh token is saved: the app's keychain, set once at start.
+pub fn set_credential_sink(sink: impl Fn(&SessionInfo) + Send + Sync + 'static) {
+    let _ = SINK.set(Box::new(sink));
+}
+
+/// The routes authz hands a tenant; only `https` Teams and Trouter hosts are kept.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Routes {
+    pub chat: String,
+    pub aggregator: String,
+    pub trouter: String,
+    pub registrar: String,
+    pub ams: String,
+}
+
+fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
+    let url = url::Url::parse(raw).ok()?;
+    let host = url.host_str()?.to_owned();
+    let ok = url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && suffixes.iter().any(|s| host == s[1..] || host.ends_with(s));
+    ok.then(|| raw.trim_end_matches('/').to_owned())
+}
+
+impl Routes {
+    pub fn discover(body: &Value) -> Option<Self> {
+        let gtms = &body["regionGtms"];
+        let teams = [".teams.microsoft.com", ".teams.cloud.microsoft"];
+        let get = |key: &str, hosts: &[&str]| gtms[key].as_str().and_then(|raw| host_ends(raw, hosts));
+        Some(Routes {
+            chat: get("chatServiceAfd", &teams)?,
+            aggregator: get("chatSvcAggAfd", &teams)?,
+            trouter: get("calling_trouterUrl", &[".trouter.teams.microsoft.com"]).unwrap_or_default(),
+            registrar: get("calling_registrarUrl", &teams).unwrap_or_default(),
+            ams: get("ams", &[".asyncgw.teams.microsoft.com", ".teams.microsoft.com"]).unwrap_or_default(),
+        })
+    }
+}
+
+struct Lease {
+    value: Zeroizing<String>,
+    until: Instant,
+}
+
+impl Lease {
+    fn fresh(&self) -> Option<Zeroizing<String>> {
+        (Instant::now() + MARGIN < self.until).then(|| self.value.clone())
+    }
+}
+
+#[derive(Default)]
+struct Held {
+    aggregator: Option<Lease>,
+    skype: Option<Lease>,
+    routes: Option<Routes>,
+}
+
+/// An account's live tokens: refreshed from the refresh token when they near
+/// their end, the rotated refresh token saved through the sink.
+pub struct Tokens {
+    info: Mutex<SessionInfo>,
+    held: tokio::sync::Mutex<Held>,
+}
+
+impl Tokens {
+    pub fn new(info: &SessionInfo) -> Result<Arc<Self>, RestError> {
+        info.teams.as_ref().ok_or_else(|| refusal("not_teams", 0))?;
+        Ok(Arc::new(Tokens { info: Mutex::new(info.clone()), held: tokio::sync::Mutex::default() }))
+    }
+
+    /// Tokens already held, for a test server: they never refresh.
+    pub fn preset(info: &SessionInfo, routes: Routes, skype: &str, aggregator: &str) -> Result<Arc<Self>, RestError> {
+        let tokens = Self::new(info)?;
+        let lease = |value: &str| Lease {
+            value: Zeroizing::new(value.to_owned()),
+            until: Instant::now() + Duration::from_secs(1 << 30),
+        };
+        let held = Held { aggregator: Some(lease(aggregator)), skype: Some(lease(skype)), routes: Some(routes) };
+        *tokens.held.try_lock().expect("a fresh account") = held;
+        Ok(tokens)
+    }
+
+    pub fn info(&self) -> SessionInfo {
+        self.info.lock().unwrap().clone()
+    }
+
+    async fn access(&self, audience: &str) -> Result<Lease, RestError> {
+        let (tenant, refresh) = {
+            let info = self.info.lock().unwrap();
+            let account = info.teams.as_ref().expect("Teams account");
+            (account.tenant_id.clone(), account.refresh.clone())
+        };
+        let scope = format!("{audience}/.default openid profile offline_access");
+        let body = form(
+            &format!("{LOGIN}/{tenant}/oauth2/v2.0/token"),
+            &[
+                ("client_id", CLIENT_ID),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", &refresh),
+                ("scope", &scope),
+            ],
+        )
+        .await?;
+        if let Some(error) = body["error"].as_str() {
+            let status =
+                if matches!(error, "invalid_grant" | "interaction_required" | "invalid_client") { 401 } else { 400 };
+            return Err(refusal(error, status));
+        }
+        let token =
+            body["access_token"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| refusal("access_token", 200))?;
+        if let Some(rotated) = body["refresh_token"].as_str().filter(|t| !t.is_empty() && **t != **refresh) {
+            let saved = {
+                let mut info = self.info.lock().unwrap();
+                info.teams.as_mut().expect("Teams account").refresh = Zeroizing::new(rotated.to_owned());
+                info.clone()
+            };
+            if let Some(sink) = SINK.get() {
+                sink(&saved);
+            }
+        }
+        let seconds = body["expires_in"].as_u64().unwrap_or(3600);
+        Ok(Lease { value: Zeroizing::new(token.to_owned()), until: Instant::now() + Duration::from_secs(seconds) })
+    }
+
+    /// The aggregator's bearer.
+    pub async fn aggregator(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.aggregator.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(AGGREGATOR).await?;
+        let token = lease.value.clone();
+        held.aggregator = Some(lease);
+        Ok(token)
+    }
+
+    /// The Skype token and the tenant's routes, from authz.
+    pub async fn chat(&self) -> Result<(Zeroizing<String>, Routes), RestError> {
+        let mut held = self.held.lock().await;
+        if let (Some(token), Some(routes)) = (held.skype.as_ref().and_then(Lease::fresh), held.routes.clone()) {
+            return Ok((token, routes));
+        }
+        let spaces = self.access(SPACES).await?;
+        let response = http()
+            .post(AUTHZ)
+            .bearer_auth(spaces.value.as_str())
+            .header("content-length", "0")
+            .send()
+            .await
+            .map_err(|e| RestError::network(e.to_string()))?;
+        let status = response.status().as_u16();
+        let body: Value = response.json().await.unwrap_or_default();
+        if status == 401 || status == 403 {
+            return Err(refusal("authz", 401));
+        }
+        let skype = body.pointer("/tokens/skypeToken").and_then(Value::as_str).filter(|t| !t.is_empty());
+        let (Some(skype), Some(routes)) = (skype, Routes::discover(&body)) else {
+            return Err(refusal("authz", status.max(200)));
+        };
+        let seconds = body.pointer("/tokens/expiresIn").and_then(Value::as_u64).unwrap_or(3600);
+        let lease =
+            Lease { value: Zeroizing::new(skype.to_owned()), until: Instant::now() + Duration::from_secs(seconds) };
+        let token = lease.value.clone();
+        held.skype = Some(lease);
+        held.routes = Some(routes.clone());
+        Ok((token, routes))
+    }
+
+    /// Forgets the Skype token after the chat service refused it.
+    pub async fn forget_chat(&self) {
+        self.held.lock().await.skype = None;
+    }
+
+    pub async fn forget_aggregator(&self) {
+        self.held.lock().await.aggregator = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_keep_teams_hosts_only() {
+        let body = json!({"regionGtms": {
+            "chatServiceAfd": "https://teams.microsoft.com/api/chatsvc/fr",
+            "chatSvcAggAfd": "https://teams.microsoft.com/api/csa/emea",
+            "calling_trouterUrl": "https://go-eu.trouter.teams.microsoft.com/v3/c",
+            "calling_registrarUrl": "https://teams.microsoft.com/registrar/prod/V2/registrations",
+            "ams": "https://fr-prod.asyncgw.teams.microsoft.com"
+        }});
+        let routes = Routes::discover(&body).unwrap();
+        assert_eq!(routes.chat, "https://teams.microsoft.com/api/chatsvc/fr");
+        assert_eq!(routes.trouter, "https://go-eu.trouter.teams.microsoft.com/v3/c");
+        for bad in [
+            "http://teams.microsoft.com/api/chatsvc/fr",
+            "https://teams.microsoft.com.evil.example/api",
+            "https://user@teams.microsoft.com/api/chatsvc/fr",
+            "https://evilteams.microsoft.com/api",
+        ] {
+            let mut b = body.clone();
+            b["regionGtms"]["chatServiceAfd"] = json!(bad);
+            assert!(Routes::discover(&b).is_none(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_secret_round_trips_and_refuses_what_microsoft_never_gives() {
+        let account = TeamsAccount {
+            tenant_id: "d3144935-0000-4000-8000-000000000001".into(),
+            refresh: Zeroizing::new("0.A-refresh".into()),
+        };
+        let mut secret = json!({
+            "baseUrl": ORIGIN,
+            "userId": "8:orgid:00000000-0000-4000-8000-0000000000aa",
+            "username": "Ada",
+            "authToken": "",
+        });
+        write_secret(&account, &mut secret);
+        let info = from_secret(&secret).unwrap();
+        assert_eq!(info.teams.as_ref(), Some(&account));
+        assert_eq!(info.username, "Ada");
+        for (key, bad) in [("baseUrl", "https://evil.example"), ("userId", "8:orgid:nope"), ("teamsTenantId", "x")] {
+            let mut s = secret.clone();
+            s[key] = json!(bad);
+            assert!(from_secret(&s).is_none(), "{key}");
+        }
+        assert!(!format!("{account:?}").contains("refresh\": \"0.A"));
+        assert!(!format!("{account:?}").contains("0.A-refresh"));
+    }
+
+    #[test]
+    fn claims_are_read_from_the_id_token() {
+        use base64::Engine;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"tid":"t","oid":"o"}"#);
+        assert_eq!(claims(&format!("h.{payload}.s")).unwrap()["oid"], "o");
+        assert!(claims("garbage").is_none());
+    }
+}

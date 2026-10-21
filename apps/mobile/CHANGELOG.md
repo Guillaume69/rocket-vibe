@@ -7,6 +7,14 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+
+### Removed
+
+- The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.
+
 ## [0.20.0] - 2026-10-17
 
 ### Added

@@ -494,6 +494,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn teams_times_carry_seven_fractional_digits() {
+        let raw = json!({"originalarrivaltime": "2026-10-20T23:55:04.4210000Z"});
+        assert_eq!(instant(&raw, "originalarrivaltime"), Some(1792540504421));
+    }
+
+    #[test]
     fn ids_split_on_the_last_slash() {
         let id = message_id("19:abc@thread.v2", "1792540504421");
         assert_eq!(split_id(&id), Some(("19:abc@thread.v2", "1792540504421")));

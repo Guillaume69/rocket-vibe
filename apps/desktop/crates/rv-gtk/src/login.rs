@@ -153,14 +153,25 @@ fn slack_kind(kind: &gtk::DropDown) -> Option<u32> {
     kind_at(kind, t("login.kind_slack"))
 }
 
+/// Teams' entry, present while the experimental integrations are unlocked.
+fn teams_kind(kind: &gtk::DropDown) -> Option<u32> {
+    kind_at(kind, t("login.kind_teams"))
+}
+
+/// Whether the kind signs in through its provider instead of a password.
+fn provider_kind(kind: rv_core::native::ServerKind) -> bool {
+    matches!(kind, rv_core::native::ServerKind::Slack | rv_core::native::ServerKind::Teams)
+}
+
 /// The kinds behind the unlock, last: WhatsApp (when its helper is
-/// installed) and Slack. Hidden again, a selected one falls back to Automatic.
+/// installed), Slack and Teams. Hidden again, a selected one falls back to Automatic.
 fn show_experimental_kinds(kind: &gtk::DropDown, shown: bool) {
     let mut gated = Vec::new();
     if crate::window::whatsapp_helper().is_some() {
         gated.push(WHATSAPP_KIND);
     }
     gated.push(t("login.kind_slack"));
+    gated.push(t("login.kind_teams"));
     for label in gated {
         match (shown, kind_at(kind, label)) {
             (true, None) => kinds(kind).append(label),
@@ -196,6 +207,7 @@ fn server_kind(kind: &gtk::DropDown) -> rv_core::native::ServerKind {
         3 => ServerKind::Mattermost,
         4 => ServerKind::Kchat,
         selected if Some(selected) == slack_kind(kind) => ServerKind::Slack,
+        selected if Some(selected) == teams_kind(kind) => ServerKind::Teams,
         _ => ServerKind::Auto,
     }
 }
@@ -211,7 +223,8 @@ impl LoginPage {
         assert!(self.experimental.root.is_visible(), "ninth activation must unlock");
         assert!(crate::experimental_preview::enabled(), "unlock must persist on device");
         assert!(slack_kind(&self.kind).is_some(), "the unlock offers the Slack server kind");
-        println!("smoke: Teams and the Slack server kind hidden until the ninth activation; setting persisted");
+        assert!(teams_kind(&self.kind).is_some(), "the unlock offers the Teams server kind");
+        println!("smoke: the Slack and Teams server kinds hidden until the ninth activation; setting persisted");
     }
 
     pub fn new() -> Self {
@@ -517,7 +530,8 @@ impl LoginPage {
                 previous_kind.set(kind.selected());
                 let selected = server_kind(kind);
                 let kchat = selected == rv_core::native::ServerKind::Kchat;
-                let slack = selected == rv_core::native::ServerKind::Slack;
+                let teams = selected == rv_core::native::ServerKind::Teams;
+                let slack = provider_kind(selected);
                 server_group.set_visible(!kchat && !slack);
                 user_group.set_visible(!kchat && !slack);
                 password_group.set_visible(!slack && !kchat);
@@ -529,8 +543,13 @@ impl LoginPage {
                 invitation_help.set_visible(false);
                 kchat_row.set_visible(false);
                 slack_status.set_visible(slack);
+                slack_status.set_use_markup(false);
+                slack_status.set_selectable(false);
+                slack_status.set_label(t(if teams { "teams.deviceHelp" } else { "slack.browserHelp" }));
                 slack_workspace_row.set_visible(false);
-                submit.set_label(t(if slack {
+                submit.set_label(t(if teams {
+                    "teams.signIn"
+                } else if slack {
                     "slack.signIn"
                 } else if kchat {
                     "login.infomaniak"
@@ -800,8 +819,28 @@ impl LoginPage {
     }
 
     pub fn set_slack_status(&self, text: &str) {
+        self.slack_status.set_use_markup(false);
+        self.slack_status.set_selectable(false);
         self.slack_status.set_label(text);
-        self.slack_status.set_visible(self.server_kind() == rv_core::native::ServerKind::Slack);
+        self.slack_status.set_visible(provider_kind(self.server_kind()));
+    }
+
+    /// The device code to enter and where, its link opened by the system.
+    pub fn show_teams_code(&self, url: &str, code: &str) {
+        let link = format!("<a href=\"{0}\">{0}</a>", glib::markup_escape_text(url));
+        let code = format!("<b>{}</b>", glib::markup_escape_text(code));
+        let text = crate::i18n::tf("teams.deviceCode", &[("url", &link), ("code", &code)]);
+        self.slack_status.set_markup(&text);
+        self.slack_status.set_selectable(true);
+        self.slack_status.set_visible(true);
+    }
+
+    /// Waiting on the provider: the instructions stay usable, only Cancel acts.
+    pub fn set_waiting(&self) {
+        self.credentials.set_sensitive(true);
+        self.submit.set_sensitive(false);
+        self.cancel.set_visible(true);
+        self.cancel.set_sensitive(true);
     }
 
     pub fn set_cancel_label(&self, text: &str) {
@@ -824,6 +863,7 @@ impl LoginPage {
         self.kind.set_selected(match kind {
             ServerKind::Auto => 0,
             ServerKind::Slack => slack_kind(&self.kind).unwrap_or(0),
+            ServerKind::Teams => teams_kind(&self.kind).unwrap_or(0),
             ServerKind::RocketChat => 1,
             ServerKind::Vibez => 2,
             ServerKind::Mattermost => 3,
@@ -932,6 +972,7 @@ impl LoginPage {
         self.submit.set_label(match (busy, asking) {
             (true, _) => t("login.signing_in"),
             (false, true) => t("login.confirm"),
+            (false, false) if self.server_kind() == rv_core::native::ServerKind::Teams => t("teams.signIn"),
             (false, false) if self.server_kind() == rv_core::native::ServerKind::Slack => {
                 t(if self.slack_workspace_row.is_visible() { "slack.continue" } else { "slack.signIn" })
             }

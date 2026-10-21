@@ -1,6 +1,7 @@
 //! Unattended end-to-end run, driven by environment variables:
 //!   RV_SMOKE_LOGIN  "server|user|password"
-//!   RV_SMOKE_KIND   `kchat`: server type chosen before filling (server and user may stay empty)
+//!   RV_SMOKE_KIND   `kchat`: server type chosen before filling (server and user may stay empty);
+//!                   `teams` with RV_SMOKE_SLACK_UNLOCK=1: Teams chosen once unlocked, nothing sent
 //!   RV_SMOKE_INFOMANIAK=1  instead of signing in: kChat chosen, Infomaniak's sign-in page opened,
 //!                          then a redirect for another request forged: it must be caught, refused
 //!                          and the window closed
@@ -201,6 +202,10 @@ pub fn install(window: &Rc<AppWindow>) {
             glib::timeout_add_local_once(Duration::from_millis(300), move || {
                 if let Some(window) = weak.upgrade() {
                     window.login.smoke_experimental_unlock();
+                    if std::env::var("RV_SMOKE_KIND").as_deref() == Ok("teams") {
+                        window.login.set_server_kind(rv_core::native::ServerKind::Teams);
+                        println!("smoke: the Teams kind offers its device-code sign-in");
+                    }
                 }
             });
         });

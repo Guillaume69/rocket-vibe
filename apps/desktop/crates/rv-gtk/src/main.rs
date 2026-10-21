@@ -144,6 +144,11 @@ fn main() -> glib::ExitCode {
     let app = adw::Application::builder().application_id(APP_ID).flags(application_flags()).build();
     i18n::init();
     spell::start();
+    // Microsoft rotates a Teams account's refresh token: the newest one goes back to the keyring.
+    rv_core::teams::auth::set_credential_sink(|info| {
+        let info = info.clone();
+        runtime().spawn(async move { secrets::save(&info).await });
+    });
     app.connect_startup(|app| {
         focus::install();
         #[cfg(windows)]

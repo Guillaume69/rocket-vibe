@@ -8,7 +8,7 @@ import { SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
 import { SlackHistory } from './history.ts';
 import { SlackLive } from './live.ts';
-import { SLACK_MESSAGE, SLACK_MESSAGE_DELETED, SLACK_ROOM, SLACK_SUBSCRIPTION } from './translator.ts';
+import { SLACK_MESSAGE, SLACK_MESSAGE_DELETED, SLACK_ROOM, SLACK_SUBSCRIPTION, SlackTranslator } from './translator.ts';
 import { AUTH, COOKIE, TOKEN, fakeSlack, historyOf } from './testing.ts';
 
 const CHANNEL = { id: 'C1', name: 'general', is_channel: true };
@@ -20,7 +20,7 @@ function live(route: Parameters<typeof fakeSlack>[0] = () => undefined) {
   const history = new SlackHistory(client, directory);
   const value = new SlackLive({ client, directory, history, myId: 'U000' });
   value.remember(CHANNEL, { id: 'C1', has_unreads: false, mention_count: 0, latest: '1.000000' });
-  return { value, calls };
+  return { value, calls, translator: new SlackTranslator(directory, 'U000') };
 }
 
 const collections = (events: DdpEvent[]) => events.map((e) => e.collection);
@@ -93,6 +93,48 @@ describe('SlackLive.expand', () => {
     });
     assert.deepEqual(collections(events), [SLACK_MESSAGE]);
     assert.equal((events[0]!.args[0] as { text: string }).text, 'edited');
+  });
+
+  test('message_changed of the previewed message rewrites the preview', async () => {
+    const { value, translator } = live();
+    await value.expand({ type: 'message', channel: 'C1', ts: '2.000000', user: 'U001', text: 'typo' });
+    const events = await value.expand({
+      type: 'message', subtype: 'message_changed', channel: 'C1', ts: '3.000000',
+      message: { type: 'message', ts: '2.000000', user: 'U001', text: 'fixed', edited: { ts: '3.000000' } },
+    });
+    assert.deepEqual(collections(events), [SLACK_MESSAGE, SLACK_ROOM]);
+    assert.equal(translator.toRoom(events[1]!.args[0] as Record<string, unknown>)?.lastMessage, 'fixed');
+  });
+
+  test('deleting the previewed message previews the newest root left, past replies and tombstones, the room keeping its place', async () => {
+    const left = [
+      { type: 'message', ts: '1.500000', user: 'U001', text: 'earlier' },
+      { type: 'message', subtype: 'tombstone', ts: '1.700000', user: 'U001', text: 'This message was deleted.' },
+      { type: 'message', subtype: 'thread_broadcast', ts: '1.800000', thread_ts: '1.500000', user: 'U001', text: 're' },
+    ];
+    const { value, calls, translator } = live((call) => (call.method === 'conversations.history' ? { body: historyOf(left, call.args) } : undefined));
+    await value.expand({ type: 'message', channel: 'C1', ts: '2.000000', user: 'U001', text: 'gone soon' });
+    const older = await value.expand({ type: 'message', subtype: 'message_deleted', channel: 'C1', ts: '3.000000', deleted_ts: '1.400000' });
+    assert.deepEqual(collections(older), [SLACK_MESSAGE_DELETED]);
+    assert.equal(calls.some((c) => c.method === 'conversations.history'), false);
+    const events = await value.expand({ type: 'message', subtype: 'message_deleted', channel: 'C1', ts: '3.000001', deleted_ts: '2.000000' });
+    assert.deepEqual(collections(events), [SLACK_MESSAGE_DELETED, SLACK_ROOM]);
+    const room = translator.toRoom(events[1]!.args[0] as Record<string, unknown>);
+    assert.equal(room?.lastMessage, 'earlier');
+    assert.equal(room?.lastMessageTs, 2000);
+    assert.equal(room?.keepPreview, false);
+  });
+
+  test('the previewed message turned tombstone and nothing left clears the preview', async () => {
+    const { value, translator } = live((call) => (call.method === 'conversations.history' ? { body: historyOf([], call.args) } : undefined));
+    await value.expand({ type: 'message', channel: 'C1', ts: '2.000000', user: 'U001', text: 'parent' });
+    const events = await value.expand({
+      type: 'message', subtype: 'message_changed', channel: 'C1', ts: '3.000000',
+      message: { type: 'message', subtype: 'tombstone', ts: '2.000000', thread_ts: '2.000000', user: 'USLACKBOT', text: 'This message was deleted.' },
+    });
+    const room = translator.toRoom(events.find((e) => e.collection === SLACK_ROOM)!.args[0] as Record<string, unknown>);
+    assert.equal(room?.lastMessage, null);
+    assert.equal(room?.keepPreview, false);
   });
 
   test('message_deleted tombstones the deleted ts', async () => {

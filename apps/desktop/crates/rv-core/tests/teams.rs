@@ -139,7 +139,7 @@ async fn send_edit_react_delete_and_mark_read() {
     })
     .await;
     let (store, sync) = sync(&server);
-    let id = sync.send(ROOM, "hi <there>", "c-1").await.unwrap();
+    let id = sync.send(ROOM, None, "hi <there>", "c-1").await.unwrap();
     assert_eq!(id, "1792540504421");
     let sent: Value = serde_json::from_str(&server.requests()[0].body).unwrap();
     assert_eq!(
@@ -172,4 +172,35 @@ async fn send_edit_react_delete_and_mark_read() {
     let horizon =
         serde_json::from_str::<Value>(&marks[0].body).unwrap()["consumptionhorizon"].as_str().unwrap().to_owned();
     assert!(horizon.starts_with("500;") && horizon.ends_with(";500"), "{horizon}");
+}
+
+#[tokio::test]
+async fn pushed_messages_update_the_room_and_only_others_notify() {
+    let url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let shared = url.clone();
+    let server = FakeHttp::start(move |r| handler(shared.lock().unwrap().clone())(r)).await;
+    *url.lock().unwrap() = server.url.to_string();
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+
+    let link = format!("https://x/v1/users/ME/conversations/{ROOM}");
+    let mut theirs = message(1792540600000, "pushed");
+    theirs["conversationLink"] = json!(link);
+    let notified = sync.apply_event("NewMessage", &theirs).await.expect("a new message from Bob");
+    assert_eq!(notified.text.as_deref(), Some("pushed"));
+    let room = store.rooms().into_iter().find(|r| r.rid == ROOM).unwrap();
+    assert_eq!((room.last_message.as_deref(), room.alert), (Some("pushed"), true));
+    assert!(sync.apply_event("NewMessage", &theirs).await.is_none(), "the same message twice notifies once");
+
+    let mut mine = message(1792540610000, "mine");
+    mine["conversationLink"] = json!(link);
+    mine["from"] = json!(format!("https://x/v1/users/ME/contacts/{ME}"));
+    assert!(sync.apply_event("NewMessage", &mine).await.is_none());
+    assert!(!store.rooms().into_iter().find(|r| r.rid == ROOM).unwrap().alert, "my own message reads the room");
+
+    let mut gone = message(1792540600000, "");
+    gone["conversationLink"] = json!(link);
+    gone["properties"] = json!({"deletetime": "1"});
+    assert!(sync.apply_event("MessageUpdate", &gone).await.is_none());
+    assert!(!store.messages(ROOM, 50).iter().any(|m| m.id == format!("{ROOM}/1792540600000")));
 }

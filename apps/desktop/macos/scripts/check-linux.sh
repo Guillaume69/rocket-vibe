@@ -7,8 +7,11 @@ image=rocket-vibe-swift
 repo=$(cd ../.. && pwd)
 docker build -q -t "$image" macos/docker > /dev/null
 docker volume create rv-swift-cargo > /dev/null
-docker run --rm -v rv-swift-cargo:/cargo "$image" chown "$(id -u):$(id -g)" /cargo
-docker run --rm -u "$(id -u):$(id -g)" -v "$repo:/workspace" -v rv-swift-cargo:/cargo -w /workspace/apps/desktop \
+build_user="$(id -u):$(id -g)"
+# Rootless Docker maps the host user to container root: bind mounts need 0:0.
+if docker info -f '{{range .SecurityOptions}}{{println .}}{{end}}' 2>/dev/null | grep -q rootless; then build_user=0:0; fi
+docker run --rm -v rv-swift-cargo:/cargo "$image" chown "$build_user" /cargo
+docker run --rm -u "$build_user" -v "$repo:/workspace" -v rv-swift-cargo:/cargo -w /workspace/apps/desktop \
   -e CARGO_HOME=/cargo -e CARGO_TARGET_DIR=/workspace/apps/desktop/target/swift-linux -e CC=clang -e CXX=clang++ -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang -e HOME=/tmp --network host \
   -e RV_TEST_SERVER "$image" bash -c '
   set -euo pipefail

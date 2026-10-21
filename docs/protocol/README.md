@@ -2,10 +2,9 @@
 
 ## External provider handoffs
 
-[Microsoft Teams](MICROSOFT_TEAMS.md) has a candidate read foundation and transient
-native browser-import previews. The [developer helper guide](../TEAMS_PREVIEW.md)
-explains pairing; live sign-in qualification, packaged acquisition and persistent
-account integration remain pending.
+[Microsoft Teams](MICROSOFT_TEAMS.md) is an experimental server kind in every app,
+signed in with a Microsoft device code; the page records its probes and remaining
+gaps.
 It records the supplied investigation archive,
 private client request shapes, documented alternatives, integration work and a
 feature-parity delivery ledger for Android, GTK and SwiftUI. It is a developing

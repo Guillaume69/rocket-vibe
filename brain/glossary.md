@@ -275,15 +275,17 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning |
 |---|---|
-| Teams account partition | Global cloud, tenant UUID and supported stable account identity encoded together; service hostname alone cannot distinguish accounts or guests. |
-| Audience token | An opaque access token for one service. The candidate reader uses separate Spaces, aggregator and chat tokens; it does not decode API JWTs. |
-| regionGtms | The Teams authz discovery map. The initial reader accepts chatSvcAggAfd and chatServiceAfd as a validated, replaceable route snapshot. |
-| backwardLink | An opaque older-history link, authorized only after verifying the discovered service and exact conversation path. It is not a general-purpose URL or a reconciliation cursor. |
-| Teams browser bridge | Development Node helper with an owned fresh official-browser profile. It observes normal browser grants and creates encrypted access-token handoffs, without its own OAuth client identity or refresh grants. |
-| Public pairing code | One-use native X25519 public key. Only this key is copied; the private seed stays native and is cleared on import/reset/disposal. |
-| rvteams2 | Versioned encrypted Teams response: ephemeral sender public key, nonce and AES-GCM ciphertext/tag, with a five-minute transfer lifetime. |
+| Device code | Microsoft's sign-in for apps without a browser of their own: the app shows a short code, the person enters it on Microsoft's page and approves there, the app polls until then. How every app signs in to Teams. |
+| Teams refresh token | The one credential a Teams account keeps (beside its tenant id); Microsoft rotates it on each use, so each app rewrites it through its credential sink as soon as it arrives. |
+| Audience token | An in-memory access token for one service: aggregator, Spaces, or the chat service's Skype token. |
+| Skype token | The chat service's credential, from `authsvc/v1.0/authz`, sent as `Authentication: skypetoken=`; Trouter authenticates with it too. |
+| regionGtms | The Teams authz discovery map: the chat service, aggregator, Trouter, registrar, AMS and middle tier routes, checked against Microsoft hosts. |
+| backwardLink | The chat service's link to a conversation's older page, followed only on its own host and path; history pages backward only. |
+| Trouter | Teams' push socket (socket.io 0.9 over WebSocket); after `user.authenticate` and a registrar POST it delivers every conversation's events. |
+| Consumption horizon | A conversation's read marker (`properties?name=consumptionhorizon`), moved to the newest message read, never back. |
+| Emotions | A Teams message's reactions property, keyed by the classic names `like`, `heart`, `laugh`, `surprised`, `sad`, `angry`. |
 
-See [Teams architecture](architecture/teams.md) for the implementation boundary.
+See [Teams architecture](architecture/teams.md).
 
 ## Slack pairing vocabulary
 
@@ -312,14 +314,9 @@ The code had French names until the English rename. These are the only French wo
 
 ## Sources
 
-- scripts/teams-browser-signin.mjs
-- scripts/teams/session.mjs
-- apps/mobile/providers/teams/handoff.ts
-- apps/desktop/crates/rv-core/src/teams_handoff.rs
-
-- apps/mobile/providers/teams/protocol.ts
-- apps/mobile/providers/teams/reader.ts
-- apps/desktop/crates/rv-core/src/teams.rs
+- apps/mobile/providers/teams/auth.ts
+- apps/mobile/providers/teams/trouter.ts
+- apps/desktop/crates/rv-core/src/teams/
 
 - `CLAUDE.md`
 - `ROADMAP.md`

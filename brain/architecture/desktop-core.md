@@ -21,7 +21,7 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 | Module | Responsibility |
 |---|---|
 | `slack` | The Slack backend: account and browser sign-in, Web API client methods, store sync, RTM, translation, emoji and directory; see [Slack session](slack-session.md) |
-| `teams`, `teams_handoff` | Transient private-service reads, expiry and one-use encrypted browser import; see [Teams architecture](teams.md) |
+| `teams` | The Teams server kind: device-code sign-in, aggregator rooms, chat-service history, Trouter live updates, writes; see [Teams architecture](teams.md) |
 | `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls. Each per-server choice, here and in `sync`, `outbox` and `uploads`, is an exhaustive `match` on `SyncEngine::backend()`, `Backend::{RocketChat, Mattermost}`, whose arms call `rocketchat::actions` or `mattermost::actions`: a server forgotten in a new method is a compile error, not a silent call to Rocket.Chat's REST (`tests/session_backends.rs` checks each action's route per backend) |
 | `activity`, `account_mute` | The Activity view's rule over stored rows (`gather`, `merge`, `Supervisor::activity` across accounts; [../features/activity.md](../features/activity.md)), and the rail's per-account mutes in the config dir's `muted-accounts` file shared with SwiftUI ([../features/login-and-servers.md](../features/login-and-servers.md)) |
 | `supervisor` | Every signed-in account kept connected: one `Chat` per account key, the open one and the others in the background, started again with a back-off when a start fails; a background account's events become `AccountNotice`s (`Incoming`, `Call`, `Voice`, `Unread`, `Expired`) while the open account's stay with the UI's listener; notification keys and labels naming a background account. See [login-and-servers](../features/login-and-servers.md#desktop) |
@@ -171,8 +171,7 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 ## Sources
 
 - apps/desktop/crates/rv-core/src/slack/
-- apps/desktop/crates/rv-core/src/teams.rs
-- apps/desktop/crates/rv-core/src/teams_handoff.rs
+- apps/desktop/crates/rv-core/src/teams/
 
 - apps/desktop/crates/rv-core/Cargo.toml
 - apps/desktop/crates/rv-core/src/lib.rs

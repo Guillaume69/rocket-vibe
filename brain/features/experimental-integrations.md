@@ -1,11 +1,8 @@
 # Experimental integrations
 
-Behind a device-local unlock, two providers from the protocol handoffs: Slack, a full
-experimental server kind with saved accounts on Android, GTK and SwiftUI (it began as a
-transient read preview, now gone from every app), and Teams, still a transient read-only
-browser-import preview on the login screen of all three, independent of the persistent
-account, store, outbox and sync lifecycle. Live Teams sign-in remains unqualified and
-requires the separate developer helper.
+Behind a device-local unlock, two providers from the protocol handoffs, each a full
+experimental server kind with saved accounts on Android, GTK and SwiftUI: Slack and
+Teams. Both began as transient read previews, now gone from every app.
 
 ## Slack account
 
@@ -34,19 +31,19 @@ Activate the RocketVibe icon on the login screen nine times, with no gap longer
 than two seconds. Individual button activations count, including accessible
 activations; GTK does not count a multi-click gesture's cumulative click count.
 Before the ninth activation no experimental option appears. The device retains
-the unlock across launches. Hide experimental integrations disconnects the
-preview and removes the setting. This gate controls discoverability, not account
-authorization. The same gate reveals the Teams preview and two server kinds of the
-login page: Slack, and WhatsApp where its engine is installed (Android's module, the
-desktop helper). Hiding them again drops a selected gated kind back to Automatic; saved
+the unlock across launches. Hide experimental integrations (a plain link under the
+hero) removes the setting and cancels a Teams sign-in under way. This gate controls
+discoverability, not account authorization. The same gate reveals three server kinds
+of the login page: Slack, Teams, and WhatsApp where its engine is installed (Android's
+module, the desktop helper). Hiding them again drops a selected gated kind back to Automatic; saved
 accounts stay.
 
 ## Mobile
 
 lib/experimentalUnlock.ts implements the sequence; ui/experimentalProviders.ts
 persists only the enable flag in SecureStore. app/login.tsx attaches it to the
-unicorn button, gates the Slack kind and the WhatsApp entry on it, and mounts
-`TeamsPreview` (ui/teamsPreview.tsx) while unlocked. Slack's sign-in is one button: ui/signInWebView.tsx shows slack.com/signin and only
+unicorn button, gates the Slack and Teams kinds and the WhatsApp entry on it, and shows the hide
+link while unlocked. Slack's sign-in is one button: ui/signInWebView.tsx shows slack.com/signin and only
 Slack's https pages, and stops on the desktop handoff (`/ssb/`) or the web client
 (`isSlackWebDone`), presenting a desktop Chrome of the system web view's own version (`slackUserAgent`, from `WebCookies.userAgent`, since slack.com serves a phone the app's download page and warns an old version off), where a script reads the workspace hosts of `localConfig_v2` (never
 its tokens). The session's HttpOnly `d` cookie is read from the web view's store by the
@@ -69,20 +66,19 @@ response bytes, sanitizes transport/API errors and preserves Retry-After. See
 
 GTK embeds experimental_preview.rs under the login hero: it owns the unlock flag
 (<config>/rocket-vibe-rs/experimental-providers, shared by the desktop interfaces) and
-shows teams_preview.rs. login.rs adds the gated kinds (`show_experimental_kinds`: WhatsApp
-when the helper is installed, Slack) while the panel is visible and removes them when it
-hides; the kinds are found by label, not position. SwiftUI's ExperimentalPreviewView
-shows TeamsPreviewView, and LoginView lists Slack only while unlocked. The desktop Slack
-preview views are removed; rv-core's `Reader` and the FFI's `SlackPreview`/`SlackPairing`
-objects remain unused by the interfaces. Removing a preview never revokes the upstream
-browser session.
+its hide button. login.rs adds the gated kinds (`show_experimental_kinds`: WhatsApp
+when the helper is installed, Slack, Teams) while the panel is visible and removes them
+when it hides; the kinds are found by label, not position. SwiftUI's LoginView shows the
+hide link and lists Slack and Teams only while unlocked. rv-core's Slack `Reader` and
+the FFI's `SlackPreview`/`SlackPairing` objects remain unused by the interfaces.
 
 ## Limits
 
-Slack and Teams use provider-separated encrypted public-key handoffs from separate
-development browser helpers; the desktops sign in to Slack in a window of the app. Installed Android and macOS runtime qualification remains outstanding.
-Slack still lacks a pasted-session fallback, native huddle media, killed-app push and the screens listed above; Teams lacks
-everything past its read preview. See [parity](../parity.md#19-experimental-integrations).
+The desktops sign in to Slack in a window of the app, Android in its sign-in web view;
+Teams signs in everywhere with a Microsoft device code. Installed Android and macOS
+runtime qualification remains outstanding. Slack still lacks a pasted-session fallback,
+native huddle media, killed-app push and the screens listed above; Teams lacks files,
+threads, pins, saves, search, profiles, presence, room screens, typing, calls and push. See [parity](../parity.md#19-experimental-integrations).
 
 ## Validation
 
@@ -156,58 +152,20 @@ masked, non-editable public pairing, wrong-provider response rejection without a
 reader, and a disconnect/reset that clears the response and rotates the key. A
 rendered screenshot confirms the native provider selector and pairing/import controls.
 
-## Teams browser-import preview
+## Teams account
 
-The development helper opens a fresh official Teams browser with an owned temporary
-profile and observes the browser's normal grants, without embedding an OAuth client ID
-or refreshing tokens. Signed ID tokens bind tenant/object identity to the observed
-browser client; API access tokens remain opaque. The three audience tokens are sent in
-an encrypted, five-minute handoff to the native panel's one-use public pairing code.
-No private key, raw token or refresh token enters the clipboard or persistent account
-storage. Normal temporary browser auth cache is removed when the helper shuts down.
+Behind the unlock, Teams is a server kind of the login screen. "Sign in to Teams" asks
+Microsoft for a device code; the app shows it with Microsoft's page (a button on
+Android, a link on GTK and SwiftUI) and waits, Cancel stopping the wait. Once the code
+is approved on Microsoft's page the account is saved like any other: chats and channels
+in the room list with their unread state, history paged back, new messages, edits,
+reactions and deletions live over Trouter, and text, edit, delete, the six classic
+Teams reactions and mark read written back. See [Teams architecture](../architecture/teams.md).
 
-Android ui/teamsPreview.tsx, GTK teams_preview.rs and SwiftUI TeamsPreviewView.swift
-provide the pairing/import controls, conversation list, unsupported-kind markers and
-paged plain-text history. There is no WebView, remote HTML rendering, writing, polling,
-refresh or normal provider factory. Close/hide/switch clears retained state; expiry
-refuses a request before networking. See [usage](../../docs/TEAMS_PREVIEW.md) and
-[architecture](../architecture/teams.md) for security and acquisition boundaries.
-
-A development computer and Node command are required. Packaged one-click sign-in,
-phone-only acquisition, live organizational account acceptance, secure persistent
-accounts, refresh, projection/sync, writes, media, calls and push remain missing.
-No work/school test account was available; synthetic success cannot qualify real Teams.
-
-### Validation of the Teams increment
-
-2026-10-10: TypeScript and touched-file ESLint pass, all 1,662 mobile/helper tests pass.
-The dedicated installed Edge --smoke passes with profile cleanup, without authentication.
-The Android export bundles successfully. GTK and Swift build/render qualification
-is tracked separately from account acceptance.
-
-The final Fedora build.sh gate passes formatting, warnings-denied clippy, all 584
-desktop tests and the workspace binary build. Refreshing the core/async artifacts
-clears the observed native-room test crash without application-code changes. An optional
-RV_BUILD_TARGET_DIR lets the standard gates use an external host artifact cache.
-
-GTK launches under Xvfb with isolated temporary configuration and no network. The
-smoke checks hidden state through eight icon activations, visibility/persistence on
-the ninth, and selection of the Teams panel. A rendered screenshot shows its masked
-public pairing code, encrypted-response entry and native provider selector.
-
-Fresh Teams UniFFI bindings and RocketVibeCore/RocketVibeKit compile in the Swift
-container; changed SwiftUI screens pass the frontend syntax check. The actual
-[macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38071096653)
-passes build, Swift tests, packaging, signing/notarization and launch checks; [web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38071096651)
-also passes. These runs compile the Teams UI but do not qualify manual Teams interaction
-on macOS, installed Android behavior, real account sign-in or private service DTOs.
 ## Sources
 
-- apps/mobile/providers/teams/protocol.ts
-- apps/mobile/providers/teams/reader.ts
-- apps/mobile/providers/teams/protocol.test.ts
-- apps/desktop/crates/rv-core/src/teams.rs
-- docs/protocol/fixtures/teams-read.json
+- apps/mobile/providers/teams/auth.ts
+- apps/desktop/crates/rv-core/src/teams/auth.rs
 
 - apps/mobile/lib/experimentalUnlock.ts
 - apps/mobile/ui/experimentalProviders.ts
@@ -216,7 +174,6 @@ on macOS, installed Android behavior, real account sign-in or private service DT
 - apps/mobile/ui/signInWebView.tsx
 - apps/mobile/providers/slack/webSignIn.ts
 - apps/mobile/modules/web-cookies/
-- apps/mobile/ui/teamsPreview.tsx
 - apps/mobile/providers/slack/auth.ts
 - apps/mobile/providers/slack/emojis.ts
 - apps/mobile/providers/slack/client.ts

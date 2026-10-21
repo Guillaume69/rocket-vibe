@@ -15,6 +15,10 @@ section here.
 
 - The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.
 
+### Fixed
+
+- Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. In an encrypted Rocket.Chat room, deleting the last message falls back on the newest one stored instead of keeping the deleted one as the preview.
+
 ## [0.23.0] - 2026-10-17
 
 ### Added

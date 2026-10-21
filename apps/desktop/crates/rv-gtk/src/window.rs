@@ -32,7 +32,7 @@ struct PendingLogin {
     method: Option<String>,
 }
 enum LoginOutcome {
-    RocketChat(SessionInfo),
+    RocketChat(Box<SessionInfo>),
     Native(Box<rv_core::native::authentication_vault::Prepared>),
 }
 
@@ -872,7 +872,9 @@ impl AppWindow {
                         "invitation_unavailable"
                     })))
                 } else {
-                    session::login_as(&s, kind, &u, &p, two_factor).await.map(LoginOutcome::RocketChat)
+                    session::login_as(&s, kind, &u, &p, two_factor)
+                        .await
+                        .map(|info| LoginOutcome::RocketChat(Box::new(info)))
                 }
             })
             .await;
@@ -896,6 +898,7 @@ impl AppWindow {
                     }
                 },
                 Ok(LoginOutcome::RocketChat(info)) => {
+                    let info = *info;
                     this.login.clear_secrets();
                     let _ = std::fs::write(last_server_file(), &info.base_url);
                     secrets::remember_server(&info.base_url);

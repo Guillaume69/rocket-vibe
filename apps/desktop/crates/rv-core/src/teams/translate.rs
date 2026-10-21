@@ -20,6 +20,14 @@ pub fn split_id(id: &str) -> Option<(&str, &str)> {
         .then_some((conversation, server))
 }
 
+/// The message's link in Teams itself.
+pub fn permalink(rid: &str, msg_id: &str) -> String {
+    let server = split_id(msg_id).map_or(msg_id, |(_, id)| id);
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/message/").expect("Teams link base");
+    url.path_segments_mut().expect("https base").pop_if_empty().extend([rid, server]);
+    url.to_string()
+}
+
 pub fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -491,6 +499,10 @@ mod tests {
         assert_eq!(split_id(&id), Some(("19:abc@thread.v2", "1792540504421")));
         assert_eq!(split_id("19:abc@thread.v2"), None);
         assert_eq!(split_id("19:abc/12x"), None);
+        assert_eq!(
+            permalink("19:abc@thread.v2", &id),
+            "https://teams.microsoft.com/l/message/19:abc@thread.v2/1792540504421"
+        );
     }
 
     #[test]

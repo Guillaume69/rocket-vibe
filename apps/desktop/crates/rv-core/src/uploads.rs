@@ -303,6 +303,7 @@ impl Uploads {
         let mm = match self.sync.backend() {
             Backend::Mattermost(mm) => mm.clone(),
             Backend::Slack(slack) => return self.post_slack(row, &slack.clone()).await,
+            Backend::Teams(_) => return Err(crate::slack::not_supported("upload")),
             Backend::RocketChat => return self.post_rocket_chat(row).await,
         };
         self.post_mattermost(row, &mm).await
@@ -566,7 +567,7 @@ impl Uploads {
         let mattermost = match self.sync.backend() {
             Backend::Mattermost(_) => true,
             Backend::RocketChat => false,
-            Backend::Slack(_) => return Err(crate::slack::not_supported("upload")),
+            Backend::Slack(_) | Backend::Teams(_) => return Err(crate::slack::not_supported("upload")),
         };
         let task = tokio::spawn(async move {
             let (progress_of, progress_row) = (this.clone(), task_row.clone());
@@ -601,7 +602,7 @@ impl Uploads {
             return true;
         }
         let read = match self.sync.backend() {
-            Backend::Mattermost(_) | Backend::Slack(_) => self.sync.catch_up_room(rid).await,
+            Backend::Mattermost(_) | Backend::Slack(_) | Backend::Teams(_) => self.sync.catch_up_room(rid).await,
             Backend::RocketChat => {
                 let Some(kind) = self.store.room_kind(rid) else { return false };
                 self.sync.load_history(rid, &kind, None).await.map(|_| ())

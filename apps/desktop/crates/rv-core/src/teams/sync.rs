@@ -19,6 +19,9 @@ use crate::sync::{HISTORY_PAGE, HistoryPage};
 const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
 const OLDER_PAGES: usize = 20;
 
+/// An aggregator chat or channel, and the team (id, name) a channel belongs to.
+type Entry = (Value, Option<(String, String)>);
+
 pub struct TeamsSync {
     store: Arc<Store>,
     tokens: Arc<Tokens>,
@@ -29,6 +32,8 @@ pub struct TeamsSync {
     older: Mutex<HashMap<String, (String, i64)>>,
     /// The newest message id marked read per room: never marked backwards.
     marked: Mutex<HashMap<String, i64>>,
+    /// Each room's aggregator entry and team, to rebuild its row when a message arrives.
+    entries: Mutex<HashMap<String, Entry>>,
 }
 
 impl TeamsSync {
@@ -43,6 +48,7 @@ impl TeamsSync {
             me: me.to_owned(),
             older: Mutex::default(),
             marked: Mutex::default(),
+            entries: Mutex::default(),
         }
     }
 
@@ -114,23 +120,22 @@ impl TeamsSync {
     /// Every chat and channel with its read state and last message.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
         let snapshot = self.snapshot().await?;
-        let now = chrono::Utc::now().timestamp_millis();
-        let mut rows = Vec::new();
+        let mut entries = HashMap::new();
         for chat in snapshot.get("chats").and_then(Value::as_array).into_iter().flatten() {
-            if let Some(room) = translate::chat_room(&self.me, chat, &self.directory) {
-                let sub = translate::subscription(&room.rid, chat, &self.me, now, None);
-                rows.push((room, sub));
+            if let Some(rid) = str_of(chat, "id") {
+                entries.insert(rid.to_owned(), (chat.clone(), None));
             }
         }
         for team in snapshot.get("teams").and_then(Value::as_array).into_iter().flatten() {
             let (Some(id), Some(name)) = (str_of(team, "id"), str_of(team, "displayName")) else { continue };
             for channel in team.get("channels").and_then(Value::as_array).into_iter().flatten() {
-                if let Some(room) = translate::channel_room(channel, &self.directory) {
-                    let sub = translate::subscription(&room.rid, channel, &self.me, now, Some((id, name)));
-                    rows.push((room, sub));
+                if let Some(rid) = str_of(channel, "id") {
+                    entries.insert(rid.to_owned(), (channel.clone(), Some((id.to_owned(), name.to_owned()))));
                 }
             }
         }
+        let rows: Vec<_> = entries.values().filter_map(|(entry, team)| self.row(entry, team.as_ref())).collect();
+        *self.entries.lock().unwrap() = entries;
         self.store.write(|w| {
             for (room, sub) in &rows {
                 w.upsert_room(room);
@@ -138,6 +143,76 @@ impl TeamsSync {
             }
         });
         Ok(())
+    }
+
+    fn row(
+        &self,
+        entry: &Value,
+        team: Option<&(String, String)>,
+    ) -> Option<(crate::normalize::Room, crate::normalize::Subscription)> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let room = match team {
+            Some(_) => translate::channel_room(entry, &self.directory)?,
+            None => translate::chat_room(&self.me, entry, &self.directory)?,
+        };
+        let team = team.map(|(id, name)| (id.as_str(), name.as_str()));
+        let sub = translate::subscription(&room.rid, entry, &self.me, now, team);
+        Some((room, sub))
+    }
+
+    /// The room's entry updated with a newly arrived message, for its row.
+    fn with_last(&self, rid: &str, resource: &Value, mine: bool) -> Option<Entry> {
+        let mut entries = self.entries.lock().unwrap();
+        let (entry, team) = entries.get_mut(rid)?;
+        entry["lastMessage"] = serde_json::json!({
+            "messageType": resource.get("messagetype"), "content": resource.get("content"),
+            "from": resource.get("from"), "imDisplayName": resource.get("imdisplayname"),
+            "composeTime": resource.get("composetime").or(resource.get("originalarrivaltime")),
+            "id": resource.get("id"),
+        });
+        for key in ["isRead", "isMessageRead", "isLastMessageFromMe"] {
+            entry[key] = Value::Bool(mine);
+        }
+        Some((entry.clone(), team.clone()))
+    }
+
+    /// A pushed chat event into the store; a new message from someone else
+    /// is answered, for a notification.
+    pub async fn apply_event(&self, name: &str, resource: &Value) -> Option<Message> {
+        let rid = translate::conversation_of(resource)?;
+        let known = self.entries.lock().unwrap().contains_key(&rid);
+        match name {
+            "NewMessage" | "MessageUpdate" => {}
+            "ConversationUpdate" | "ThreadUpdate" => {
+                if !known {
+                    let _ = self.catch_up_global().await;
+                }
+                return None;
+            }
+            _ => return None,
+        }
+        if translate::deleted(resource) {
+            if let Some(id) = str_of(resource, "id") {
+                self.store.write(|w| w.delete_message(&translate::message_id(&rid, id)));
+            }
+            return None;
+        }
+        let message = translate::message(&rid, resource, &self.directory)?;
+        let fresh = name == "NewMessage" && !self.store.has_message(&message.id);
+        let mine = message.author_id == self.me;
+        if !known {
+            let _ = self.catch_up_global().await;
+        }
+        let updated = (fresh && message.thread_id.is_none()).then(|| self.with_last(&rid, resource, mine)).flatten();
+        let row = updated.and_then(|(entry, team)| self.row(&entry, team.as_ref()));
+        self.store.write(|w| {
+            w.upsert_message(&message);
+            if let Some((room, sub)) = &row {
+                w.upsert_room(room);
+                w.upsert_subscription(sub);
+            }
+        });
+        (fresh && !mine).then_some(message)
     }
 
     /// Forgets the rooms the list no longer has.

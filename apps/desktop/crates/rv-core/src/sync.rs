@@ -11,6 +11,7 @@ use crate::normalize::{Message, to_epoch, to_message, to_room, to_subscription};
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::slack::sync::SlackSync;
 use crate::store::{Store, Writer};
+use crate::teams::sync::TeamsSync;
 
 pub const STREAM_ROOM_MESSAGES: &str = "stream-room-messages";
 pub const STREAM_NOTIFY_USER: &str = "stream-notify-user";
@@ -53,6 +54,8 @@ pub(crate) enum Backend<'a> {
     Mattermost(&'a Arc<MmSync>),
     /// A Slack account, read-only.
     Slack(&'a Arc<SlackSync>),
+    /// A Teams account.
+    Teams(&'a Arc<TeamsSync>),
 }
 
 pub struct SyncEngine {
@@ -63,16 +66,36 @@ pub struct SyncEngine {
     /// A Mattermost or kChat account: every read goes there instead.
     mattermost: Option<Arc<MmSync>>,
     slack: Option<Arc<SlackSync>>,
+    teams: Option<Arc<TeamsSync>>,
 }
 
 impl SyncEngine {
     pub fn new(store: Arc<Store>, rest: RestClient, me: &str, me_uid: &str) -> Self {
-        SyncEngine { store, rest, me: me.to_owned(), me_uid: me_uid.to_owned(), mattermost: None, slack: None }
+        SyncEngine {
+            store,
+            rest,
+            me: me.to_owned(),
+            me_uid: me_uid.to_owned(),
+            mattermost: None,
+            slack: None,
+            teams: None,
+        }
     }
 
     pub fn for_slack(store: Arc<Store>, rest: RestClient, me: &str, me_uid: &str) -> Self {
         let slack = SlackSync::new(store.clone(), rest.clone(), me_uid, me);
         SyncEngine { slack: Some(Arc::new(slack)), ..Self::new(store, rest, me, me_uid) }
+    }
+
+    pub fn for_teams(
+        store: Arc<Store>,
+        rest: RestClient,
+        tokens: Arc<crate::teams::auth::Tokens>,
+        me: &str,
+        me_uid: &str,
+    ) -> Self {
+        let teams = TeamsSync::new(store.clone(), tokens, me_uid, me);
+        SyncEngine { teams: Some(Arc::new(teams)), ..Self::new(store, rest, me, me_uid) }
     }
 
     pub fn for_mattermost(store: Arc<Store>, rest: RestClient, me: &str, me_uid: &str, flavor: Flavor) -> Self {
@@ -82,6 +105,9 @@ impl SyncEngine {
 
     /// Which server family this engine reads; match on it, exhaustively.
     pub(crate) fn backend(&self) -> Backend<'_> {
+        if let Some(teams) = &self.teams {
+            return Backend::Teams(teams);
+        }
         match (&self.mattermost, &self.slack) {
             (_, Some(slack)) => Backend::Slack(slack),
             (Some(mm), None) => Backend::Mattermost(mm),
@@ -144,7 +170,7 @@ impl SyncEngine {
             Backend::Mattermost(mm) => {
                 return mm.ingest(raw);
             }
-            Backend::Slack(_) => return None,
+            Backend::Slack(_) | Backend::Teams(_) => return None,
             Backend::RocketChat => {}
         }
         self.store.write(|w| ingest_into(w, raw))
@@ -154,7 +180,7 @@ impl SyncEngine {
     /// channel joined): stored at once, ahead of the stream. Rocket.Chat only.
     pub fn ingest_room(&self, raw: &Value) {
         match self.backend() {
-            Backend::Mattermost(_) | Backend::Slack(_) => return,
+            Backend::Mattermost(_) | Backend::Slack(_) | Backend::Teams(_) => return,
             Backend::RocketChat => {}
         }
         if let Some(r) = to_room(raw, &self.me, &self.me_uid) {
@@ -171,6 +197,9 @@ impl SyncEngine {
             }
             Backend::Slack(slack) => {
                 return slack.catch_up_global().await;
+            }
+            Backend::Teams(teams) => {
+                return teams.catch_up_global().await;
             }
             Backend::RocketChat => {}
         }
@@ -236,6 +265,9 @@ impl SyncEngine {
             Backend::Slack(slack) => {
                 return slack.reconcile_rooms().await;
             }
+            Backend::Teams(teams) => {
+                return teams.reconcile_rooms().await;
+            }
             Backend::RocketChat => {}
         }
         let response = self.rest.get("subscriptions.get", CallOptions::default()).await?;
@@ -265,6 +297,9 @@ impl SyncEngine {
             }
             Backend::Slack(slack) => {
                 return slack.catch_up_room(rid).await;
+            }
+            Backend::Teams(teams) => {
+                return teams.catch_up_room(rid).await;
             }
             Backend::RocketChat => {}
         }
@@ -331,6 +366,9 @@ impl SyncEngine {
             Backend::Slack(slack) => {
                 return slack.load_history(rid, latest).await;
             }
+            Backend::Teams(teams) => {
+                return teams.load_history(rid, latest).await;
+            }
             Backend::RocketChat => {}
         }
         let messages = self.history(rid, kind, latest, None).await?;
@@ -364,6 +402,9 @@ impl SyncEngine {
             }
             Backend::Slack(slack) => {
                 return slack.history_range(rid, latest, oldest).await;
+            }
+            Backend::Teams(_) => {
+                return Err(crate::slack::not_supported("history range"));
             }
             Backend::RocketChat => {}
         }
@@ -401,6 +442,9 @@ impl SyncEngine {
             }
             Backend::Slack(slack) => {
                 return slack.fetch_message(id).await;
+            }
+            Backend::Teams(teams) => {
+                return teams.fetch_message(id).await;
             }
             Backend::RocketChat => {}
         }

@@ -115,6 +115,8 @@ pub enum Api {
     RocketChat,
     Mattermost,
     Slack,
+    /// A Teams account: its own client (`teams::sync`) does every call; this one sends none.
+    Teams,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -176,9 +178,17 @@ impl RestClient {
         RestClient { slack_cookie: Some(Arc::new(cookie)), ..Self::with_api(base, Api::Slack) }
     }
 
+    /// A Teams account's placeholder: every generic call is refused before it leaves.
+    pub fn teams(base: Url) -> Self {
+        Self::with_api(base, Api::Teams)
+    }
+
     fn with_api(base: Url, api: Api) -> Self {
-        let redirects =
-            if api == Api::Slack { reqwest::redirect::Policy::none() } else { reqwest::redirect::Policy::default() };
+        let redirects = if matches!(api, Api::Slack | Api::Teams) {
+            reqwest::redirect::Policy::none()
+        } else {
+            reqwest::redirect::Policy::default()
+        };
         let http = reqwest::Client::builder()
             .timeout(TIMEOUT)
             .redirect(redirects)
@@ -225,6 +235,7 @@ impl RestClient {
                     None => request,
                 }
             }
+            Api::Teams => request,
         }
     }
 
@@ -243,6 +254,7 @@ impl RestClient {
         let slack_files = crate::slack::translate::file_host(&url);
         let request = match self.api {
             Api::Slack if !slack_files && !same_origin => self.public.get(url),
+            Api::Teams => self.public.get(url),
             _ => self.http.get(url),
         };
         match self.credentials() {
@@ -296,7 +308,7 @@ impl RestClient {
         texts: Vec<(String, String)>,
         progress: impl Fn(u64, u64) + Send + Sync + 'static,
     ) -> Result<Value, RestError> {
-        if self.api == Api::Slack {
+        if matches!(self.api, Api::Slack | Api::Teams) {
             return Err(crate::slack::not_supported(path));
         }
         const CHUNK: usize = 64 * 1024;
@@ -460,7 +472,7 @@ impl RestClient {
             (true, _) => "/",
             (false, Api::RocketChat) => "/api/v1/",
             (false, Api::Mattermost) => "/api/v4/",
-            (false, Api::Slack) => "/api/",
+            (false, Api::Slack | Api::Teams) => "/api/",
         };
         url.set_path(&format!("{}{prefix}{path}", self.base.path().trim_end_matches('/')));
         if !options.params.is_empty() {
@@ -472,6 +484,9 @@ impl RestClient {
     async fn call(&self, method: reqwest::Method, path: &str, options: CallOptions) -> Result<Value, RestError> {
         if self.api == Api::Slack {
             return self.call_slack(path, &options).await;
+        }
+        if self.api == Api::Teams {
+            return Err(crate::slack::not_supported(path));
         }
         let mut rate_limit_attempt = 0;
         let mut network_attempt = 0;
@@ -539,6 +554,7 @@ impl RestClient {
             Api::RocketChat => interpret(path, status, text),
             Api::Mattermost => interpret_mattermost(path, status, text, self.plain_errors),
             Api::Slack => crate::slack::interpret(path, status, text.as_bytes(), None),
+            Api::Teams => Err(crate::slack::not_supported(path)),
         }
     }
 

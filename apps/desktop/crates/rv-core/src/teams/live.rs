@@ -137,12 +137,17 @@ impl Actor {
         let params = answer.get("connectparams")?.as_object()?.clone();
         let mut query: Vec<(String, String)> =
             params.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect();
+        let con_num = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or_else(|_| "0".to_owned(), |d| d.as_millis().to_string());
         query.extend([
             ("v".into(), "v4".into()),
             ("tc".into(), client_info),
             ("timeout".into(), "40".into()),
             ("auth".into(), "true".into()),
             ("epid".into(), epid.clone()),
+            ("cor_id".into(), endpoint_id()?),
+            ("con_num".into(), format!("{con_num}_1")),
         ]);
         let mut handshake = socketio.join("socket.io/1/").ok()?;
         handshake.query_pairs_mut().extend_pairs(&query);

@@ -1048,8 +1048,25 @@ impl Writer<'_> {
 
     pub fn delete_message(&mut self, id: &str) {
         let Some(rid) = self.rid_of("SELECT rid FROM messages WHERE id = ?1", id) else { return };
+        let raw = self.rid_of("SELECT encrypted_raw FROM messages WHERE id = ?1", id);
         self.conn.execute("DELETE FROM messages WHERE id = ?1", [id]).or_note(&mut self.failed, "delete message");
         self.touch_messages(&rid);
+        if let Some(raw) = raw {
+            let moved = self
+                .conn
+                .execute(
+                    "UPDATE rooms SET last_encrypted = (
+                       SELECT encrypted_raw FROM messages
+                       WHERE rid = ?1 AND encrypted_raw IS NOT NULL AND (thread_id IS NULL OR thread_shown = 1)
+                       ORDER BY ts DESC, id DESC LIMIT 1)
+                     WHERE rid = ?1 AND encrypted = 1 AND last_encrypted = ?2",
+                    [&rid, &raw],
+                )
+                .or_note(&mut self.failed, "encrypted preview");
+            if moved > 0 {
+                self.touch_rooms();
+            }
+        }
     }
 
     /// A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept.

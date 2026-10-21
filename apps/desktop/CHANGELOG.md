@@ -14,6 +14,7 @@ section here.
 ### Fixed
 
 - Mattermost and kChat: a room no longer keeps 1 unread for good after someone joins, leaves, is added or is removed live; opening it clears it again.
+- Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, titled with its members' names, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
 
 ### Removed
 

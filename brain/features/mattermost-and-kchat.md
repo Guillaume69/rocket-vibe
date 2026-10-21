@@ -139,7 +139,14 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   `MmCategories.sidebar`) hides closed conversations and keeps the
   `limit_visible_dms_gms` most recent of the Direct Messages category; a
   conversation opened in the session stays. Conversations are written again at
-  each catch-up, their names moving with people.
+  each catch-up, their names moving with people. A conversation loaded live (a
+  post in an unknown channel, `group_added`, `channel_created`) or moved by a new
+  post ranks them again (`MmLive.relist`), and each one that entered or left the
+  limit has its membership rewritten, so my first post in a new group lists it
+  and the oldest past the limit closes. A `group_added` or `direct_added` with no
+  channel id (kChat, no broadcast envelope) reads `/users/me/channel_members` and
+  loads at most 10 memberships not known yet (`MmLive.discover`; an archived
+  channel is skipped and not asked again).
 - Settings: `Provider.sidebarSettings` (`providers/mattermost/sidebarSettings.ts`)
   reads and writes the name format and the limit; My account shows them
   (`SidebarSettingsCard`, `ui/settingsSections.tsx`).
@@ -311,6 +318,9 @@ there, so the UIs read the same store:
 - People, listing, cards and kMeet as on mobile: `directory::NameFormat`,
   `Directory::ensure_usernames`, `name_of_cut`, `status_emoji`;
   `categories::Sidebar`; `MmSync::load_preferences`, `preferences_changed`;
+  `MmSync::rerank` after `load_channel` and a post in a conversation,
+  `MmSync::discover` for a `group_added` without channel id (`load_channel`
+  also resolves a group's members for its title);
   `translate::cards`, `preview_of`; `actions::start_conference`,
   `answer_conference`, `sidebar_settings`. `Session::person_label` gives GTK and
   rv-ffi (`MessageItem.author_label`) a person's name with their status emoji;

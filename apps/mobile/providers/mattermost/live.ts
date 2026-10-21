@@ -44,7 +44,10 @@ const STATUS_CODES = new Map<string, number>([
 
 const CATEGORY_EVENTS = new Set(['sidebar_category_created', 'sidebar_category_updated', 'sidebar_category_deleted', 'sidebar_category_order_updated']);
 
-const QUIET_EVENTS = new Set(['hello', 'thread_read_changed', 'thread_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
+/** At most this many memberships loaded by one `group_added` without a channel id. */
+const DISCOVER_MAX = 10;
+
+const QUIET_EVENTS =new Set(['hello', 'thread_read_changed', 'thread_updated', 'plugin_statuses_changed', 'config_changed', 'license_changed', 'response']);
 
 export class MmLive {
   private readonly client: MmClient;
@@ -108,21 +111,58 @@ export class MmLive {
     return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: this.lastPosts.get(rid) }] };
   }
 
-  /** Fetches a channel I just learned about, with my membership. */
-  async load(rid: string): Promise<boolean> {
+  /** Fetches a channel I just learned about, with my membership unless given. */
+  async load(rid: string, known?: Doc): Promise<boolean> {
     const [channel, member] = await Promise.all([
       this.client.get<Doc>(`/channels/${rid}`),
-      this.client.get<Doc>(`/channels/${rid}/members/me`),
+      known ?? this.client.get<Doc>(`/channels/${rid}/members/me`),
     ]);
+    if (known !== undefined && typeof channel.delete_at === 'number' && channel.delete_at > 0) return false;
     if (channel.type === 'D') {
       const other = String(channel.name ?? '').split('__').find((id) => id !== this.myId);
       if (other !== undefined) await this.directory.ensure([other]);
     }
     if (channel.type === 'G') await this.directory.ensureUsernames(String(channel.display_name ?? '').split(',').map((n) => n.trim()));
-    if (channel.type === 'G') await this.directory.ensureUsernames(String(channel.display_name ?? '').split(',').map((n) => n.trim()));
     this.remember(channel, member);
     this.touch(rid);
     return true;
+  }
+
+  /**
+   * The conversations ranked again after one was learned or moved: the
+   * membership of each one that entered or left the list's limit.
+   */
+  private relist(except: string | null = null): DdpEvent[] {
+    if (this.categories === null) return [];
+    const moved = this.categories.rankConversations(this.channels.values()).filter((rid) => rid !== except);
+    return compact(moved.map((rid) => this.membershipEvent(rid)));
+  }
+
+  /** Memberships the server lists and I do not know; archived channels are not asked again. */
+  private readonly ignored = new Set<string>();
+
+  /**
+   * kChat passes no broadcast envelope, so a `group_added` or `direct_added`
+   * carries no channel id: my memberships are read again and the new ones loaded.
+   */
+  private async discover(): Promise<DdpEvent[]> {
+    const members = await this.client.pages<Doc>('/users/me/channel_members');
+    const fresh = members
+      .filter((m) => {
+        const rid = str(m.channel_id);
+        return rid !== null && !this.members.has(rid) && !this.ignored.has(rid);
+      })
+      .slice(0, DISCOVER_MAX);
+    if (fresh.length === 0) return [];
+    const out: (DdpEvent | null)[] = [];
+    for (const member of fresh) {
+      const rid = String(member.channel_id);
+      const loaded = await this.load(rid, member).catch(() => null);
+      if (loaded === false) this.ignored.add(rid);
+      if (loaded === true) out.push(this.roomEvent(rid), this.membershipEvent(rid));
+    }
+    const rids = new Set(fresh.map((m) => String(m.channel_id)));
+    return [...compact(out), ...this.relist().filter((e) => !rids.has(e.eventKey))];
   }
 
   async expand(name: string, data: Doc, broadcast: Doc): Promise<DdpEvent[]> {
@@ -190,10 +230,10 @@ export class MmLive {
       case 'group_added':
       case 'user_added': {
         const rid = str(record(data.channel)?.id) ?? channelId;
-        if (rid === null) return [];
+        if (rid === null) return name === 'group_added' || name === 'direct_added' ? this.discover() : [];
         if (name === 'user_added' && str(data.user_id) !== this.myId) return [];
         await this.load(rid);
-        return compact([this.roomEvent(rid), this.membershipEvent(rid)]);
+        return compact([this.roomEvent(rid), this.membershipEvent(rid), ...this.relist(rid)]);
       }
       case 'channel_deleted':
         return channelId === null ? [] : this.removed(channelId);
@@ -247,7 +287,8 @@ export class MmLive {
     // among the recent ones, and history pages back from the oldest row shown.
     const root = isRoot ? null : await this.freshRoot(String(post.root_id));
     const counters: DdpEvent | null = root === null ? null : { collection: MM_THREAD, eventKey: String(root.id), args: [root] };
-    return compact([postEvent(post), counters, isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid)]);
+    const relisted = channel?.type === 'D' || channel?.type === 'G' ? this.relist(rid) : [];
+    return compact([postEvent(post), counters, isRoot ? this.roomEvent(rid, post) : null, this.membershipEvent(rid), ...relisted]);
   }
 
   /** Roots being read again: a reply arriving meanwhile asks for one more read, the newest count winning. */

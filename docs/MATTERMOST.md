@@ -349,6 +349,8 @@ My sidebar (Mattermost 5.32+, kChat alike) is a list of categories per team:
 - Both preferences, and the name format, are offered in the apps' settings and
   written back with `PUT /users/me/preferences`; the `preferences_changed` that
   follows (any client) moves the list.
+- A conversation learned live, or moved by a new post, ranks the list again:
+  one pushed past the limit closes, as on Mattermost.
 
 ## 5. Real time
 
@@ -393,7 +395,12 @@ kChat replaced the WebSocket with the **Pusher protocol**:
    **without the `broadcast` envelope**, nested documents as **objects**, all of
    them on the `presence-teamUser.<id>` channel. A `posted` adds
    `channel_display_name`, `channel_name`, `channel_type`, `sender_name`,
-   `set_online` and `team_id`. Ignore `pusher*` and `client-*` events;
+   `set_online` and `team_id`. An event whose channel id upstream is only in
+   `broadcast.channel_id` has none here: `group_added` (`data` is
+   `{teammate_ids}`, JSON-encoded, probed on 11.11) and `direct_added`
+   (`{creator_id, teammate_id}`, not probed) are followed by reading
+   `/users/me/channel_members` and loading the memberships not known yet (at
+   most 10). Ignore `pusher*` and `client-*` events;
    `badge_updated` is kChat's only sign of a read made elsewhere (4.2).
 6. **Ids are UUIDs** (posts UUIDv7), not Mattermost's 26-character ids; a DM's
    `name` is still `<idA>__<idB>`.
@@ -407,7 +414,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `post_deleted` | `data.post.id`, remove |
 | `reaction_added`, `reaction_removed` | `data.reaction.post_id`: refetch the post (`GET /posts/<id>`) |
 | `channel_viewed`, `multiple_channels_viewed`, `post_unread` | 4.2 |
-| `channel_created`, `channel_updated`, `channel_converted`, `channel_restored`, `direct_added`, `group_added`, `user_added` (mine) | load the channel and my membership, write both |
+| `channel_created`, `channel_updated`, `channel_converted`, `channel_restored`, `direct_added`, `group_added`, `user_added` (mine) | load the channel (`data.channel.id`, else `broadcast.channel_id`) and my membership, write both, rank the conversations again (4.9). `group_added` / `direct_added` with no channel id (kChat, 5.2): read my memberships, load the unknown ones |
 | `channel_deleted`, `user_removed` (me) | drop the room |
 | `channel_member_updated` (mine) | new membership |
 | `typing` | `data.user_id`, room in `broadcast.channel_id`: who types, expires after 15 s |

@@ -39,6 +39,14 @@ describe('MmSidebar', () => {
     assert.equal(s.isListed(channels[1]!, 0), true);
   });
 
+  test('a new ranking names the conversations that entered or left the list', () => {
+    const s = sidebar();
+    s.apply([{ category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: '1' }], true);
+    assert.deepEqual(s.rank([dm('d1', 'u-b', 8), dm('d2', 'u-c', 1)]), ['d2']);
+    assert.deepEqual(s.rank([dm('d1', 'u-b', 8), dm('d2', 'u-c', 9), { id: 'c1', type: 'O' }]), ['d1', 'd2']);
+    assert.deepEqual(s.rank([dm('d1', 'u-b', 8), dm('d2', 'u-c', 9)]), []);
+  });
+
   test('a live change says whether the list moves', () => {
     const s = sidebar();
     s.apply([], true);

@@ -277,3 +277,75 @@ describe('MmLive.ensureAuthors on a failing network', () => {
     assert.equal(directory.nameOf('carol'), 'Carol');
   });
 });
+
+describe('Conversations learned or moved live', () => {
+  function sidebarSetup(route: Parameters<typeof fakeServer>[0], limit: number) {
+    const server = fakeServer(route);
+    const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });
+    const directory = new MmDirectory(client);
+    directory.remember({ id: 'u-me', username: 'me', displayName: null, lastPictureUpdate: null });
+    const categories = new MmCategories(client, 'u-me');
+    categories.sidebar.apply([{ category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: String(limit) }], true);
+    const live = new MmLive(client, directory, 'u-me', categories);
+    const dm = (id: string, other: string, at: number) => {
+      live.remember({ id, type: 'D', name: `u-me__${other}`, last_post_at: at, total_msg_count: 1, total_msg_count_root: 1 }, { channel_id: id, user_id: 'u-me', msg_count: 1, msg_count_root: 1, mention_count: 0 });
+      directory.remember({ id: other, username: other.slice(2), displayName: null, lastPictureUpdate: null });
+    };
+    const translator = new MmTranslator(directory, 'u-me', categories);
+    const open = (events: { collection: string; eventKey: string; args: unknown[] }[], rid: string) => {
+      const event = events.find((e) => e.collection === MM_MEMBERSHIP && e.eventKey === rid);
+      return event === undefined ? undefined : translator.toSubscription(event.args[0] as Record<string, unknown>)?.open;
+    };
+    return { live, server, categories, dm, open };
+  }
+
+  const gm = { id: 'g1', type: 'G', name: 'g1', display_name: 'me, bob, carol', last_post_at: 0, total_msg_count: 0, total_msg_count_root: 0 };
+  const gmMember = { channel_id: 'g1', user_id: 'u-me', msg_count: 0, msg_count_root: 0, mention_count: 0 };
+
+  test('my first post in a group I did not know lists it and closes the one past the limit', async () => {
+    const { live, categories, dm, open } = sidebarSetup((call) => {
+      if (call.path === '/channels/g1') return { body: gm };
+      if (call.path === '/channels/g1/members/me') return { body: gmMember };
+      if (call.path === '/users/usernames') return { body: [] };
+      return undefined;
+    }, 2);
+    dm('d1', 'u-bob', 20);
+    dm('d2', 'u-carol', 10);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('posted', { post: post('p1', { channel_id: 'g1', user_id: 'u-me', create_at: 50 }) }, {});
+    assert.equal(open(events, 'g1'), true);
+    assert.equal(open(events, 'd2'), false);
+    assert.equal(open(events, 'd1'), undefined);
+  });
+
+  test('a new post brings a direct message from past the limit back into the list', async () => {
+    const { live, categories, dm, open } = sidebarSetup(() => undefined, 1);
+    dm('d1', 'u-bob', 20);
+    dm('d2', 'u-carol', 10);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('posted', { post: post('p1', { channel_id: 'd2', user_id: 'u-me', create_at: 50 }) }, {});
+    assert.equal(open(events, 'd2'), true);
+    assert.equal(open(events, 'd1'), false);
+  });
+
+  test('a group_added without a channel id (kChat) reads my memberships and loads the new one', async () => {
+    const { live, server, categories, dm, open } = sidebarSetup((call) => {
+      if (call.path === '/users/me/channel_members') return { body: [{ channel_id: 'd1', user_id: 'u-me' }, gmMember, { channel_id: 'gone', user_id: 'u-me' }] };
+      if (call.path === '/channels/g1') return { body: { ...gm, last_post_at: 30 } };
+      if (call.path === '/channels/gone') return { body: { id: 'gone', type: 'O', delete_at: 5 } };
+      if (call.path === '/users/usernames') return { body: [] };
+      return undefined;
+    }, 5);
+    dm('d1', 'u-bob', 20);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('group_added', { teammate_ids: '["u-me","u-bob","u-carol"]' }, {});
+    assert.deepEqual(events.map((e) => [e.collection, e.eventKey]), [[MM_ROOM, 'g1'], [MM_MEMBERSHIP, 'g1']]);
+    assert.equal(open(events, 'g1'), true);
+    assert.ok(!server.calls.some((c) => c.path.endsWith('/members/me')));
+    assert.ok(!live.channels.has('gone'));
+    const asked = server.calls.length;
+    assert.deepEqual(await live.expand('group_added', {}, {}), []);
+    assert.equal(server.calls.filter((c) => c.path === '/channels/gone').length, 1);
+    assert.ok(server.calls.length > asked);
+  });
+});

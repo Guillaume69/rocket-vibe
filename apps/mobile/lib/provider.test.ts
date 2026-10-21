@@ -14,7 +14,7 @@ describe('normalizeProviderKind', () => {
   });
 
   test('any unknown or non-string value falls back on rocketchat', () => {
-    assert.equal(normalizeProviderKind('teams'), 'rocketchat');
+    assert.equal(normalizeProviderKind('irc'), 'rocketchat');
     assert.equal(normalizeProviderKind(42), 'rocketchat');
     assert.equal(normalizeProviderKind(null), 'rocketchat');
   });

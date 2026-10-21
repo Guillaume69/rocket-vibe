@@ -1,7 +1,12 @@
 package com.rocketvibe.voice
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
@@ -103,6 +108,22 @@ class VoiceModule : Module() {
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("releaseCall") {
       appContext.reactContext?.let { CallService.release(it) }
+      Unit
+    }.runOnQueue(Queues.MAIN)
+    // Android 14 lets the user (or the store) withdraw full-screen intents: a ring is then a mere heads-up.
+    Function("fullScreenRings") {
+      val context = appContext.reactContext ?: return@Function true
+      Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+        context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() != false
+    }
+    AsyncFunction("openFullScreenRingSettings") {
+      val context = appContext.reactContext ?: return@AsyncFunction Unit
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        context.startActivity(
+          Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + context.packageName))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+      }
       Unit
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("missed") {

@@ -20,9 +20,10 @@ import { AppUpdatesCard } from './appUpdates.tsx';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Notifications from 'expo-notifications';
+import { VoiceNative } from '../modules/voice/index.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
 import { whatsappState } from '../providers/whatsapp/index.ts';
-import { ActivityIndicator, StyleSheet, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { readMyProfile } from '../lib/myProfile.ts';
 import { getFcmToken } from '../lib/push.ts';
@@ -495,9 +496,32 @@ function ServerNotifications({ c, client }: { c: Colors; client: RestClient }) {
           <Text style={[styles.error, { color: c.errorText }]}>{t(push.error)}</Text>
         )}
       </View>
+      <FullScreenRingsCard c={c} />
       {native && <DoNotDisturbCard c={c} natives={natives} />}
       {native && <NativeSaveState c={c} natives={natives} error="settings.saveFailed" />}
     </>
+  );
+}
+
+const fullScreenRings = () => Platform.OS !== 'android' || VoiceNative === null || VoiceNative.fullScreenRings();
+
+/** Only while Android withholds the full-screen ring, read again on coming back from its settings. */
+function FullScreenRingsCard({ c }: { c: Colors }) {
+  const t = useT();
+  const [allowed, setAllowed] = useState(fullScreenRings);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', next => { if (next === 'active') setAllowed(fullScreenRings()); });
+    return () => sub.remove();
+  }, []);
+  if (allowed) return null;
+  return (
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <Text style={[styles.settingTitle, { color: c.text }]}>{t('settings.fullScreenRings')}</Text>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.fullScreenRingsHelp')}</Text>
+      <Tappable onPress={() => void VoiceNative?.openFullScreenRingSettings()}>
+        <Text style={[styles.action, { color: c.cyan }]}>{t('settings.fullScreenRingsAllow')}</Text>
+      </Tappable>
+    </View>
   );
 }
 

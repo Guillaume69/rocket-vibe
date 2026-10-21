@@ -55,6 +55,9 @@ type Bridge={
   /** Keeps a call a web page holds (Jitsi, kMeet) alive in the background, behind an ongoing call notification. */
   holdCall(title:string):Promise<void>;
   releaseCall():Promise<void>;
+  /** Android 14 and later can withdraw the full-screen intent: a ring is then only a notification. */
+  fullScreenRings():boolean;
+  openFullScreenRingSettings():Promise<void>;
   addListener(event:'change',listener:(snapshot:VoiceSnapshot)=>void):{remove:()=>void};
   /** The held call's notification hung up. */
   addListener(event:'hangUp',listener:()=>void):{remove:()=>void};

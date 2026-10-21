@@ -47,6 +47,22 @@ impl Live {
     fn changed_since(&self, rid: &str, mark: u64) -> bool {
         self.touched.get(rid).is_some_and(|at| *at > mark)
     }
+
+    /// Whether a root post is the one its room previews: the cached one, else the channel's newest root.
+    fn is_preview(&self, post: &Value) -> bool {
+        let Some(rid) = text(post, "channel_id") else { return false };
+        if text(post, "root_id").is_some() {
+            return false;
+        }
+        if let Some(cached) = self.last_posts.get(rid) {
+            return text(cached, "id").is_some() && text(cached, "id") == text(post, "id");
+        }
+        let newest = self.channels.get(rid).map_or(0, |c| match int(c, "last_root_post_at") {
+            0 => int(c, "last_post_at"),
+            at => at,
+        });
+        newest > 0 && int(post, "create_at") >= newest
+    }
 }
 
 pub struct MmSync {
@@ -671,13 +687,25 @@ impl MmSync {
             "post_edited" => {
                 let post = Value::Object(object(data.get("post")?)?);
                 self.ensure_authors(std::slice::from_ref(&post)).await;
-                self.ingest(&[post]);
+                let preview = {
+                    let mut live = self.live.lock().unwrap();
+                    let preview = live.is_preview(&post);
+                    if preview {
+                        live.last_posts.insert(text(&post, "channel_id")?.to_owned(), post.clone());
+                    }
+                    preview
+                };
+                self.ingest(std::slice::from_ref(&post));
+                if preview {
+                    self.write_room(text(&post, "channel_id")?, true);
+                }
                 None
             }
             "post_deleted" => {
-                let post = object(data.get("post")?)?;
-                let id = post.get("id")?.as_str()?.to_owned();
+                let post = Value::Object(object(data.get("post")?)?);
+                let id = text(&post, "id")?.to_owned();
                 self.store.write(|w| w.delete_message(&id));
+                self.preview_after_delete(&post).await;
                 None
             }
             "reaction_added" | "reaction_removed" => {
@@ -767,6 +795,27 @@ impl MmSync {
             }
             _ => None,
         }
+    }
+
+    /// The room's preview after its post was deleted: the newest root left, or none.
+    async fn preview_after_delete(&self, post: &Value) {
+        let Some(rid) = text(post, "channel_id") else { return };
+        {
+            let mut live = self.live.lock().unwrap();
+            if !live.is_preview(post) {
+                return;
+            }
+            live.last_posts.remove(rid);
+        }
+        let Ok(page) = self.page(rid, None, 1).await else { return };
+        {
+            let mut live = self.live.lock().unwrap();
+            if live.last_posts.contains_key(rid) {
+                return;
+            }
+            live.last_posts.insert(rid.to_owned(), page.into_iter().next().unwrap_or(Value::Null));
+        }
+        self.write_room(rid, true);
     }
 
     async fn posted(&self, data: &Value) -> Option<Message> {

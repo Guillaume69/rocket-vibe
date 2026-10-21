@@ -25,7 +25,10 @@ impl Target {
                     && session.store.room_encrypted(room).is_ok_and(|encrypted| !encrypted)
             }
             Self::Legacy { session, room, .. } => {
-                session.info.mattermost.is_none() && session.info.slack.is_none() && !session.store.room_encrypted(room)
+                session.info.mattermost.is_none()
+                    && session.info.slack.is_none()
+                    && session.info.teams.is_none()
+                    && !session.store.room_encrypted(room)
             }
         }
     }

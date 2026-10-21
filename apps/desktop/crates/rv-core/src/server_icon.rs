@@ -77,7 +77,7 @@ async fn image(url: &str) -> Icon {
 
 /// The account's server icon.
 pub async fn fetch(info: &SessionInfo) -> Icon {
-    if info.mattermost.is_some() || info.slack.is_some() || crate::whatsapp::is_whatsapp(info) {
+    if info.mattermost.is_some() || info.slack.is_some() || info.teams.is_some() || crate::whatsapp::is_whatsapp(info) {
         return Icon::Absent;
     }
     if info.native.is_some() {

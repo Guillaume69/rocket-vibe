@@ -624,6 +624,11 @@ impl Chat {
         self.session.info.slack.is_some()
     }
 
+    /// A Teams account: none of Rocket.Chat's own features either.
+    pub fn is_teams(&self) -> bool {
+        self.session.info.teams.is_some()
+    }
+
     /// The account's conversation list settings (Mattermost and kChat), kept on the server.
     pub async fn sidebar_settings(&self) -> Result<SidebarSettings, RvError> {
         let s = self.session.clone();

@@ -732,8 +732,10 @@ impl Composer {
     pub fn bind(self: &Rc<Self>, session: &Arc<Session>, rid: &str, thread: Option<&str>) {
         self.unbind_native();
         self.show_tools(true);
-        let supported =
-            session.info.mattermost.is_none() && session.info.slack.is_none() && !session.store.room_encrypted(rid);
+        let supported = session.info.mattermost.is_none()
+            && session.info.slack.is_none()
+            && session.info.teams.is_none()
+            && !session.store.room_encrypted(rid);
         self.social.set_visible(supported);
         if supported {
             self.social_target.replace(Some(crate::social::Target::Legacy {

@@ -978,6 +978,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_join_or_leave_post_adds_no_unread() {
+        let (store, sync) = sync();
+        for kind in ["system_add_to_channel", "system_join_channel", "system_leave_team", "system_join_leave"] {
+            let mut joined = post(&format!("j-{kind}"), "u-bob", "");
+            joined["type"] = json!(kind);
+            sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+            let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+            assert_eq!(room.unread, 0, "{kind}");
+        }
+        sync.apply_event("posted", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
+    }
+
+    #[tokio::test]
+    async fn a_read_elsewhere_after_a_join_post_leaves_the_room_read() {
+        let (store, sync) = sync();
+        let mut joined = post("j1", "u-bob", "");
+        joined["type"] = json!("system_add_to_channel");
+        sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_read_elsewhere_realigns_totals_drifted_above_the_server() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count"] = json!(11);
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_membership_viewed_before_the_last_post_keeps_the_room_unread() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 30})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
+    }
+
+    #[tokio::test]
     async fn an_ephemeral_update_is_never_stored() {
         let (store, sync) = sync();
         let mut ephemeral = post("e1", "u-bob", "");

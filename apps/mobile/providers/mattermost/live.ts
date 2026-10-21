@@ -182,7 +182,7 @@ export class MmLive {
       case 'status_change': {
         const uid = str(data.user_id);
         const code = STATUS_CODES.get(str(data.status) ?? '');
-        if (uid === null || code === undefined) return [];
+        if (uid === null || code === undefined || this.directory.user(uid)?.bot === true) return [];
         return [{ collection: STREAM_NOTIFY_LOGGED, eventKey: PRESENCE_EVENT, args: [[uid, this.directory.username(uid) ?? '', code, '']] }];
       }
       case 'posted':

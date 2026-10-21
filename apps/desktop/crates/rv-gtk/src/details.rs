@@ -572,6 +572,7 @@ fn fill_profile(content: &gtk::Box, dialog: &adw::Dialog, session: &Chat, p: &Pr
         content.append(&line);
     }
     if let Some(presence) = match session {
+        _ if !p.shows_presence() => None,
         Chat::Legacy(s) => s.presence(&p.id).or(p.presence),
         Chat::Native(_) | Chat::WhatsApp(_) => p.presence,
     } {

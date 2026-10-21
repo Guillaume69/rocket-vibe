@@ -124,12 +124,26 @@ pub fn badge_follows(window: &impl IsA<gtk::Window>) {
     let _ = window;
 }
 
-/// Lays the real photo over a tile; the gradient stays as its backdrop.
+/// Lays the real photo over a tile and drops the gradient and glyph under it,
+/// so a transparent photo does not show them through.
 pub fn set_photo(tile: &gtk::Widget, texture: &gtk::gdk::Texture) {
     let Some(overlay) = tile.downcast_ref::<gtk::Overlay>() else { return };
+    for class in overlay.css_classes() {
+        if is_gradient_class(&class) {
+            overlay.remove_css_class(&class);
+        }
+    }
+    if let Some(child) = overlay.child() {
+        child.set_opacity(0.0);
+    }
     let picture =
         gtk::Picture::builder().paintable(texture).content_fit(gtk::ContentFit::Cover).can_shrink(true).build();
     overlay.add_overlay(&picture);
+}
+
+fn is_gradient_class(class: &str) -> bool {
+    class == "tile-neutral"
+        || class.strip_prefix("tile-g").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 pub fn initial(name: &str) -> String {
@@ -579,6 +593,16 @@ mod tests {
         assert_ne!(gradient_index("bob"), gradient_index("obb"));
         let long = "a-very-long-display-name-that-overflows-32-bits";
         assert!(gradient_index(long) < AVATAR_GRADIENTS);
+    }
+
+    #[test]
+    fn only_tile_gradients_are_dropped_under_a_photo() {
+        assert!(is_gradient_class("tile-g0"));
+        assert!(is_gradient_class("tile-g6"));
+        assert!(is_gradient_class("tile-neutral"));
+        assert!(!is_gradient_class("tile-glyph"));
+        assert!(!is_gradient_class("tile-g"));
+        assert!(!is_gradient_class("tile-room"));
     }
 
     #[test]

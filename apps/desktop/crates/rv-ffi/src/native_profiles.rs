@@ -173,11 +173,12 @@ impl NativeChat {
         on_tokio(async move {
             let raw = session.profile(&key, by_id).await?;
             let p = session.profile_presentation(&raw);
+            let presence = p.shows_presence().then_some(p.presence).flatten().map(Presence::from);
             Ok(Person {
                 id: p.id,
                 username: p.username,
                 name: p.name,
-                presence: p.presence.map(Presence::from),
+                presence,
                 status_text: p.status_text,
                 roles: p.roles,
                 local_time: None,

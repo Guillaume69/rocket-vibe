@@ -16,6 +16,11 @@ first release: everything before it is under that section.
 - Web client: a private room shows a lock on its coloured tile in the room list and the room header, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their neutral lock.
 - Web client: integration cards show their title, text and field values formatted (emoji, links, bold) instead of raw markdown, as the other apps do.
 
+### Fixed
+
+- Web client: a profile photo with transparent parts no longer shows the coloured tile through it.
+- Web client: a bot's profile no longer shows a presence.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added

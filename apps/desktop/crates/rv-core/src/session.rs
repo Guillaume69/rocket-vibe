@@ -882,6 +882,11 @@ impl Session {
     }
 
     pub fn presence(&self, uid: &str) -> Option<live::Presence> {
+        if let Backend::Mattermost(mm) = self.backend()
+            && mm.directory.is_bot(uid)
+        {
+            return None;
+        }
         self.presence.lock().unwrap().status(uid)
     }
 

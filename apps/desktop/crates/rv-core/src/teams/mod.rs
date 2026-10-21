@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod auth;
 pub mod client;
+pub mod frames;
 pub mod preview;
 pub mod sync;
 pub mod translate;

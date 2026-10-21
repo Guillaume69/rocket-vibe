@@ -3,7 +3,7 @@ import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
-/// A photo over a gradient tile of initials; the tile stays when there is no photo.
+/// A photo, or a gradient tile of initials when there is none.
 struct Avatar: View {
     @Environment(AppModel.self) var app
     let path: String?
@@ -15,18 +15,19 @@ struct Avatar: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: size * 0.42, weight: .bold))
-                    .foregroundStyle(Vibe.ink.opacity(0.85))
-            } else {
-                Text(glyph ?? initial)
-                    .font(.vibeTitle(size * 0.5))
-                    .foregroundStyle(Vibe.ink.opacity(0.85))
-            }
             if let shown {
                 AnimatedImage(image: shown)
+            } else {
+                LinearGradient(colors: Vibe.tile(for: name), startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: size * 0.42, weight: .bold))
+                        .foregroundStyle(Vibe.ink.opacity(0.85))
+                } else {
+                    Text(glyph ?? initial)
+                        .font(.vibeTitle(size * 0.5))
+                        .foregroundStyle(Vibe.ink.opacity(0.85))
+                }
             }
         }
         .frame(width: size, height: size)
@@ -55,7 +56,7 @@ struct Avatar: View {
 
 /// A room's tile, as GTK's `room_tile` draws it: a neutral lock for an
 /// encrypted room without a photo, a lock for a private one, `#` for a
-/// channel, the initial for a direct conversation; its photo over it.
+/// channel, the initial for a direct conversation; its photo instead when set.
 struct RoomTile: View {
     let room: Room
     let size: CGFloat

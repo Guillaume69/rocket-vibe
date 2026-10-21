@@ -175,6 +175,9 @@
 .avatar-image {
   display: block;
 }
+.tile:has(> .avatar-image) {
+  background-image: none;
+}
 .licenses-dialog {
   width: min(900px, 90vw);
 }

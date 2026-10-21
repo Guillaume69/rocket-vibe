@@ -67,6 +67,55 @@ public final class LoginModel {
     /// What the Slack sign-in window handed back, read by the next `submitSlack`.
     @ObservationIgnored private var slackWindow: (reached: String, cookies: [SlackCookie])?
 
+    /// The device code a Teams sign-in shows, and Microsoft's page to enter it on.
+    public private(set) var teamsCode: String?
+    public private(set) var teamsPage: String?
+    @ObservationIgnored private var teamsSignIn: TeamsSignIn?
+
+    public var teamsWaiting: Bool { teamsSignIn != nil }
+
+    public func cancelTeamsSignIn() {
+        teamsSignIn?.cancel()
+        teamsSignIn = nil
+        teamsCode = nil
+        teamsPage = nil
+        if kind == .teams { error = nil }
+    }
+
+    private func submitTeams(client: Client) async -> ChatProvider? {
+        let expected = generation
+        error = nil
+        busy = true
+        defer { if expected == generation { busy = false } }
+        do {
+            let signIn = try await client.teamsSignIn()
+            guard expected == generation, !Task.isCancelled else { signIn.cancel(); return nil }
+            teamsSignIn = signIn
+            teamsCode = signIn.userCode()
+            teamsPage = signIn.verificationUri()
+            busy = false
+            let chat = try await client.teamsApproved(signIn: signIn)
+            guard expected == generation, teamsSignIn === signIn, !Task.isCancelled else { chat.shutdown(); return nil }
+            cancelTeamsSignIn()
+            return .rocketChat(chat)
+        } catch let RvError.Server(status, _, code, _, _, _) {
+            guard expected == generation, teamsSignIn != nil || teamsCode == nil else { return nil }
+            cancelTeamsSignIn()
+            switch code {
+            case "cancelled": break
+            case "expired": error = L("teams.expired")
+            case "declined": error = L("teams.declined")
+            default: error = L("teams.failedCode", ["code": code ?? String(status)])
+            }
+            return nil
+        } catch {
+            guard expected == generation else { return nil }
+            cancelTeamsSignIn()
+            self.error = L("teams.failedCode", ["code": error.localizedDescription])
+            return nil
+        }
+    }
+
     public func useSlackWindow(reached: String, cookies: [SlackCookie]) {
         slackWindow = (reached, cookies)
     }
@@ -208,6 +257,7 @@ public final class LoginModel {
     public func leave() {
         cancelCode()
         cancelSlackSignIn()
+        cancelTeamsSignIn()
         password = ""
         invitation = ""
         registering = false
@@ -392,6 +442,7 @@ public final class LoginModel {
     func submit(client: Client) async -> ChatProvider? {
         guard !busy else { return nil }
         if kind == .slack { return await submitSlack(client: client) }
+        if kind == .teams { return await submitTeams(client: client) }
         let (address, username, secret, challenge, answer) =
             (self.address, user.trimmingCharacters(in: .whitespaces), password, method, code)
         let invite = registering && canRegister ? invitation.trimmingCharacters(in: .whitespacesAndNewlines) : nil

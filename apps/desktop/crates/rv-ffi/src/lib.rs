@@ -30,6 +30,7 @@ pub mod rocket_chat;
 pub mod room_members;
 mod slack;
 pub mod social;
+mod teams;
 pub mod writing;
 
 use std::path::PathBuf;
@@ -152,6 +153,7 @@ impl Client {
     #[uniffi::constructor]
     pub fn new(home: String) -> Arc<Self> {
         let dirs = Arc::new(Dirs::glib(std::path::Path::new(&home)));
+        teams::keep_rotated_tokens(dirs.clone());
         // Sign-outs an earlier run could not tell the server about.
         let pending = dirs.clone();
         runtime().spawn(async move {

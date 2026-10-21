@@ -31,6 +31,7 @@ struct LoginView: View {
         if login.kind == .slack {
             return L(login.slackWorkspaces.isEmpty ? "slack.signIn" : "slack.continue")
         }
+        if login.kind == .teams { return L("teams.signIn") }
         if login.kind == .kchat && login.password.isEmpty { return L("login.infomaniak") }
         return L(login.method == nil
             ? login.recovering && login.canRecover ? "login.reset_password"
@@ -60,7 +61,7 @@ struct LoginView: View {
                         do {
                             try app.client.setExperimentalProviders(enabled: false)
                             experimental = false
-                            if login.kind == .slack { login.kind = .auto }
+                            if login.kind == .slack || login.kind == .teams { login.kind = .auto }
                         }
                         catch { unlockError = L("slack.unlockFailed") }
                     }
@@ -92,7 +93,7 @@ struct LoginView: View {
                         .onSubmit(submit)
                 } else {
                     // kChat: the token names the account, its servers come from the kChat directory.
-                    if login.kind != .kchat && login.kind != .slack {
+                    if login.kind != .kchat && !provider {
                         TextField(L("login.server"), text: $login.server)
                             .focused($focus, equals: .server)
                             .textContentType(.URL)
@@ -106,6 +107,7 @@ struct LoginView: View {
                         Text(L("login.kind_kchat")).tag(ServerChoice.kchat)
                         if experimental {
                             Text(L("login.kind_slack")).tag(ServerChoice.slack)
+                            Text(L("login.kind_teams")).tag(ServerChoice.teams)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -121,7 +123,19 @@ struct LoginView: View {
                             }
                         }
                     }
-                    if let probe = login.probeLine, login.kind != .slack {
+                    if login.kind == .teams {
+                        if let code = login.teamsCode, let page = login.teamsPage, let url = URL(string: page) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Link(page, destination: url)
+                                Text(code).font(.title2.monospaced().bold()).textSelection(.enabled)
+                            }
+                        } else {
+                            Text(L("teams.deviceHelp"))
+                                .font(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let probe = login.probeLine, !provider {
                         Text(probe)
                             .font(.caption)
                             .foregroundStyle(login.probeBad ? .red : .secondary)
@@ -131,18 +145,18 @@ struct LoginView: View {
                             ForEach(login.kchatServers, id: \.url) { Text($0.name).tag($0.url) }
                         }
                     }
-                    if !login.knownServers.isEmpty && login.kind != .kchat && login.kind != .slack {
+                    if !login.knownServers.isEmpty && login.kind != .kchat && !provider {
                         Picker("", selection: $login.server) {
                             ForEach(login.knownServers, id: \.self) { Text($0).tag($0) }
                         }
                         .labelsHidden()
                     }
-                    if login.kind != .kchat && login.kind != .slack {
+                    if login.kind != .kchat && !provider {
                         TextField(L(login.registering || login.recovering ? "login.username" : "login.user"), text: $login.user)
                             .focused($focus, equals: .user)
                             .textContentType(.username)
                     }
-                    if login.kind != .slack && login.kind != .kchat {
+                    if !provider && login.kind != .kchat {
                         SecureField(L(login.recovering ? "login.new_password" : login.tokenLogin ? "login.kchat_token" : "login.password"), text: $login.password)
                             .focused($focus, equals: .password)
                             .textContentType(.password)
@@ -206,6 +220,8 @@ struct LoginView: View {
             HStack {
                 if login.slackBrowserActive {
                     Button(L("actions.cancel")) { login.cancelSlackSignIn() }
+                } else if login.teamsWaiting {
+                    Button(L("actions.cancel")) { login.cancelTeamsSignIn() }
                 } else if login.method != nil {
                     Button(L("actions.cancel")) { login.cancelCode() }
                         .disabled(login.busy)
@@ -216,7 +232,7 @@ struct LoginView: View {
                 Button(submitLabel(for: login), action: submit)
                     .buttonStyle(VibeButtonStyle())
                     .windowShortcut(.defaultAction)
-                    .disabled(login.busy)
+                    .disabled(login.busy || login.teamsWaiting)
             }
         }
         .padding(32)
@@ -229,7 +245,7 @@ struct LoginView: View {
         .onAppear { experimental = app.client.experimentalProviders() }
         .task(id: "\(login.address)|\(login.kind)") {
             try? await Task.sleep(nanoseconds: 600_000_000)
-            if !Task.isCancelled && login.kind != .slack { await login.probe(client: app.client) }
+            if !Task.isCancelled && !provider { await login.probe(client: app.client) }
         }
         .task(id: "\(login.server)|\(login.user)|\(login.recovering)|\(login.canEmailRecover)") {
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -240,6 +256,9 @@ struct LoginView: View {
             }
         }
     }
+
+    /// A kind that signs in through its provider: no address, no password.
+    var provider: Bool { app.login.kind == .slack || app.login.kind == .teams }
 
     func submit() {
         let login = app.login

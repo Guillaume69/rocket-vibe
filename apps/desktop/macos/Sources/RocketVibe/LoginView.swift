@@ -57,14 +57,16 @@ struct LoginView: View {
 
             Form {
                 if experimental {
-                    ExperimentalPreviewView(client: app.client) {
+                    Button(L("slack.hide")) {
                         do {
                             try app.client.setExperimentalProviders(enabled: false)
                             experimental = false
+                            login.cancelTeamsSignIn()
                             if login.kind == .slack || login.kind == .teams { login.kind = .auto }
                         }
                         catch { unlockError = L("slack.unlockFailed") }
                     }
+                    .buttonStyle(.link)
                 }
                 if let unlockError { Text(unlockError).foregroundStyle(.secondary) }
                 if let method = login.method {

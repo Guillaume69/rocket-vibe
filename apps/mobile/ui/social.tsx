@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Image, Pressable, Text, View, StyleSheet } from 'react-native';
+import { Animated, Image, Pressable, Text, View, StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { File, Directory, Paths } from 'expo-file-system';
@@ -14,7 +14,6 @@ import { useVoice } from './voice.tsx';
 import { useColors, FONTS, type Colors } from './theme.ts';
 import { notify } from './toast.tsx';
 import { currentReminderAccount, setReminder } from './reminders.ts';
-import { Icon } from './icon.tsx';
 export function socialValue(value: unknown): SocialCard | null {
   try {
     if (!value || typeof value !== 'object' || !('native_social' in value)) return null;
@@ -23,7 +22,7 @@ export function socialValue(value: unknown): SocialCard | null {
     return null;
   }
 }
-export function SocialButton({ room, thread }: { room: string; thread?: string | null }) {
+export function SocialButton({ room, thread, style, labelStyle }: { room: string; thread?: string | null; style: StyleProp<ViewStyle>; labelStyle: StyleProp<TextStyle> }) {
   const router = useRouter(),
     c = useColors(),
     language = useLanguage();
@@ -34,9 +33,9 @@ export function SocialButton({ room, thread }: { room: string; thread?: string |
         language === 'fr' ? 'Sondage, soirée, stickers et GIF' : 'Polls, game nights, stickers and GIFs'
       }
       onPress={() => router.push({ pathname: '/social', params: { rid: room, ...(thread ? { root: thread } : {}) } })}
-      style={{ padding: 8 }}
+      style={style}
     >
-      <Icon name="face-smile" color={c.dimmed} />
+      <Text allowFontScaling={false} style={[labelStyle, { color: c.dimmed }]}>GIF</Text>
     </Pressable>
   );
 }

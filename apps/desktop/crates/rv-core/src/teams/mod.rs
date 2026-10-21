@@ -1,5 +1,6 @@
 //! Microsoft Teams: the saved account kind (`auth`, `client`, `translate`,
 //! `sync`) and the transient read preview (`preview`).
+pub mod actions;
 pub mod auth;
 pub mod client;
 pub mod preview;

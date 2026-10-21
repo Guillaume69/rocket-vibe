@@ -27,13 +27,40 @@ pub struct TeamsSync {
     me: String,
     /// The backward link past the oldest page read per room, and that page's oldest instant.
     older: Mutex<HashMap<String, (String, i64)>>,
+    /// The newest message id marked read per room: never marked backwards.
+    marked: Mutex<HashMap<String, i64>>,
 }
 
 impl TeamsSync {
     pub fn new(store: Arc<Store>, tokens: Arc<Tokens>, me: &str, me_name: &str) -> Self {
         let directory = Arc::new(Directory::default());
         directory.remember(me, me_name);
-        TeamsSync { store, tokens, http: client::http(), directory, me: me.to_owned(), older: Mutex::default() }
+        TeamsSync {
+            store,
+            tokens,
+            http: client::http(),
+            directory,
+            me: me.to_owned(),
+            older: Mutex::default(),
+            marked: Mutex::default(),
+        }
+    }
+
+    /// The newest stored message's server id, when newer than the last one marked read.
+    pub(crate) fn unmarked_newest(&self, rid: &str) -> Option<i64> {
+        let newest = self
+            .store
+            .messages(rid, HISTORY_PAGE)
+            .iter()
+            .filter_map(|m| split_id(&m.id))
+            .filter_map(|(_, id)| id.parse::<i64>().ok())
+            .max()?;
+        let marked = self.marked.lock().unwrap().get(rid).copied();
+        marked.is_none_or(|before| newest > before).then_some(newest)
+    }
+
+    pub(crate) fn note_marked(&self, rid: &str, id: i64) {
+        self.marked.lock().unwrap().insert(rid.to_owned(), id);
     }
 
     pub fn me(&self) -> &str {

@@ -3267,13 +3267,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/spotlight.rs",
-      "line": 62,
+      "line": 146,
       "kind": "endpoint",
       "surface": "spotlight"
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/spotlight.rs",
-      "line": 77,
+      "line": 178,
       "kind": "endpoint",
       "surface": "rooms.new"
     },

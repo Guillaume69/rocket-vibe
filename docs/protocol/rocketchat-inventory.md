@@ -435,8 +435,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:196](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L196) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs:420](../../apps/desktop/crates/rv-gtk/src/smoke/rocket_chat.rs#L420) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-gtk/src/smoke/room_management.rs:130](../../apps/desktop/crates/rv-gtk/src/smoke/room_management.rs#L130) | endpoint | rooms.favorite_remove |
-| [apps/desktop/crates/rv-gtk/src/spotlight.rs:62](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L62) | endpoint | spotlight |
-| [apps/desktop/crates/rv-gtk/src/spotlight.rs:77](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L77) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/spotlight.rs:146](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L146) | endpoint | spotlight |
+| [apps/desktop/crates/rv-gtk/src/spotlight.rs:178](../../apps/desktop/crates/rv-gtk/src/spotlight.rs#L178) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:20](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L20) | endpoint | e2e.body |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:27](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L27) | endpoint | e2e.password |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:33](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L33) | endpoint | e2e.unlock |

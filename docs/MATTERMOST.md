@@ -169,7 +169,7 @@ Live updates to that state (section 5):
 
 | Event | Effect |
 |---|---|
-| `posted` | `total_msg_count` +1. If root: `total_msg_count_root` +1, `last_root_post_at`, new preview. If mine: membership set to read. Else, if `mentions` holds my id: `mention_count` +1 |
+| `posted` | `total_msg_count` +1, except for a join or leave post (`IsJoinLeaveMessage` types), which only moves `last_post_at` [probed]. If root: `total_msg_count_root` +1, `last_root_post_at`, new preview. If mine: membership set to read. Else, if `mentions` holds my id: `mention_count` +1 |
 | `channel_viewed`, `multiple_channels_viewed` (`data.channel_times` keys) | membership counts = channel totals, `mention_count` 0 |
 | `post_unread` | membership takes `msg_count`, `msg_count_root`, `mention_count`, `last_viewed_at` from the event |
 
@@ -179,7 +179,9 @@ answers the reading device with `multiple_channels_viewed`, not
 `badge_updated` (`{badge}`, no room). On it the apps read
 `GET /users/me/channel_members` again and rewrite the rooms whose `msg_count`,
 `msg_count_root`, `mention_count`, `mention_count_root` or `last_viewed_at`
-moved, so a read made elsewhere clears the counter live.
+moved, so a read made elsewhere clears the counter live. A membership viewed
+after the channel's `last_post_at` carries the true totals: the cached channel
+takes them.
 
 ### 4.3 History
 

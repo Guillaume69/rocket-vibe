@@ -596,6 +596,16 @@ mod tests {
     }
 
     #[test]
+    fn only_tile_gradients_are_dropped_under_a_photo() {
+        assert!(is_gradient_class("tile-g0"));
+        assert!(is_gradient_class("tile-g6"));
+        assert!(is_gradient_class("tile-neutral"));
+        assert!(!is_gradient_class("tile-glyph"));
+        assert!(!is_gradient_class("tile-g"));
+        assert!(!is_gradient_class("tile-room"));
+    }
+
+    #[test]
     fn initial_is_uppercase() {
         assert_eq!(initial("alice"), "A");
         assert_eq!(initial(""), "?");

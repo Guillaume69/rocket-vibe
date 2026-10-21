@@ -21,7 +21,7 @@ function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
     { id: 'ch1', type: 'O', name: 'dev', total_msg_count: 10, total_msg_count_root: 8 },
     { channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0 },
   );
-  return { live, server, translator: new MmTranslator(directory, 'u-me') };
+  return { live, server, directory, translator: new MmTranslator(directory, 'u-me') };
 }
 
 const membership = (events: { collection: string; args: unknown[] }[]) =>
@@ -36,6 +36,14 @@ describe('MmLive.expand', () => {
     const typing = new TypingEngine({ rid: 'ch1', me: 'me', schedule: () => 0, cancel: () => {} });
     for (const event of await live.expand('typing', { user_id: 'u-bob', parent_id: '' }, { channel_id: 'ch1' })) typing.apply(event);
     assert.deepEqual(typing.whoIsTyping(), ['bob']);
+  });
+
+  test("a bot's status change carries no presence", async () => {
+    const { live, directory } = setup();
+    const presence = new PresenceEngine();
+    directory.remember({ id: 'u-bot', username: 'euria', displayName: null, lastPictureUpdate: null, bot: true });
+    for (const event of await live.expand('status_change', { user_id: 'u-bot', status: 'offline' }, {})) presence.apply(event);
+    assert.equal(presence.statusOf('u-bot'), null);
   });
 
   test("someone else's root post: message, room preview, one more unread", async () => {

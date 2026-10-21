@@ -11,6 +11,10 @@ section here.
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
 
+### Fixed
+
+- Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, titled with its members' names, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
+
 ### Removed
 
 - The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.

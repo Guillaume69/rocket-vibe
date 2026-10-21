@@ -14,6 +14,8 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
+- A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
 - Rocket.Chat (Jitsi) and kChat (kMeet) calls go on with the app in the background or the phone locked: the microphone, the camera and the sound no longer cut and the call no longer drops. An ongoing call notification shows the call and hangs up.
 - The message bar's buttons line up, the polls, stickers and GIFs button reads "GIF" instead of a second smiley, and the formatting row no longer touches the bar.
 

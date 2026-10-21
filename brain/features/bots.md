@@ -9,6 +9,7 @@ A bot is an account owned by a person, acting with API keys inside the scopes it
 - **Scopes** are checkboxes with a sentence each (`rooms:read`, `messages:write`, `files:write`, `reactions:write`, `rooms:join`, `users:read`, `dm:write`), and under each an "API" disclosure listing its routes, read from the server (`GET /api/v1/bots/reference`, the gate's own table), so the documentation never drifts from what a key reaches. The page also says what every key may do, that everything else is closed, and the send budgets.
 - **Keys**: a label and an optional expiry in days. Creating one needs a recent sign-in, asked like the devices page asks it. The key is shown **once**, with Copy, a warning, and a ready `curl` example (server URL and key filled in); it is never stored. The list shows label, last four characters, dates and last use (recorded by the gate, at most a minute behind); revoking asks for confirmation. Five keys per bot.
 - **Badge**: after the author's name in message headers, on room members, on profiles ("Bot of @owner"), and in the administrators' user list.
+- **No presence.** A bot account shows no presence: no dot and no "Offline" line on its profile, in every app and on every server kind (a Vibez bot, a Mattermost or kChat `is_bot` account, a Rocket.Chat account with the `bot` role or `type: "bot"`). Mobile `profileOf` sets `presenceless` (`app/profile.tsx`); rv-core `info::Profile::shows_presence` gates GTK's profile (`details.rs`) and the FFI `Person.presence` SwiftUI reads (`people.rs`, `native_profiles.rs`); the web profile card skips it for `user.bot` (`apps/web/src/ui/profile.tsx`). On Mattermost and kChat a known bot also gets no dot in its direct conversation: mobile drops it from `loadPresence` and from `status_change` (`providers/mattermost/index.ts`, `live.ts`), rv-core's `Session::presence` answers None through `mattermost::Directory::is_bot`.
 - **Encrypted rooms**: a bot cannot be invited into one ("Bots can't join an encrypted room"), and a room with a bot member cannot be encrypted ("A bot is a member: this room can't be encrypted"); mobile replaces the encryption actions with that sentence when it sees an active bot among the members.
 
 ## Server
@@ -86,3 +87,11 @@ The server-delivered single-account browser shows the BOT badge on authors, memb
 - apps/desktop/crates/rv-ffi/src/native_bots.rs
 - apps/desktop/macos/Sources/RocketVibeKit/BotsModel.swift
 - apps/desktop/macos/Sources/RocketVibe/BotsSection.swift
+- apps/mobile/app/profile.tsx
+- apps/mobile/providers/mattermost/live.ts
+- apps/desktop/crates/rv-core/src/info.rs
+- apps/desktop/crates/rv-core/src/session.rs
+- apps/desktop/crates/rv-core/src/mattermost/directory.rs
+- apps/desktop/crates/rv-gtk/src/details.rs
+- apps/desktop/crates/rv-ffi/src/people.rs
+- apps/web/src/ui/profile.tsx

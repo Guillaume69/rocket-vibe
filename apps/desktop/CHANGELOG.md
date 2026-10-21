@@ -11,6 +11,11 @@ section here.
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
 
+### Fixed
+
+- A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
+- A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
+
 ### Removed
 
 - The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.

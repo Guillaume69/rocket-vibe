@@ -602,6 +602,10 @@ impl LoginPage {
                         return;
                     };
                     let chosen = server_kind(&kind);
+                    if provider_kind(chosen) {
+                        probe.set_visible(false);
+                        return;
+                    }
                     glib::spawn_future_local(async move {
                         let found = crate::on_tokio(async move { rv_core::server::probe_as(&url, chosen).await }).await;
                         if generation.get() != current {

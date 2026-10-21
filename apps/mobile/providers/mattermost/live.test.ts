@@ -56,6 +56,15 @@ describe('MmLive.expand', () => {
     assert.equal(translator.toSubscription(events[1]!.args[0] as Record<string, unknown>)?.unread, 0);
   });
 
+  test('a join or leave post moves the room but adds no unread, as the server counts it', async () => {
+    const { live, translator } = setup();
+    for (const type of ['system_add_to_channel', 'system_join_channel', 'system_leave_team', 'system_join_leave']) {
+      const events = await live.expand('posted', { post: post(`j-${type}`, { type, create_at: 70 }) }, {});
+      assert.deepEqual(events.map((e) => e.collection), [MM_POST, MM_ROOM, MM_MEMBERSHIP], type);
+      assert.equal(translator.toSubscription(events[2]!.args[0] as Record<string, unknown>)?.unread, 0, type);
+    }
+  });
+
   test('my own post keeps the room read', async () => {
     const { live } = setup();
     const events = await live.expand('posted', { post: post('p3', { user_id: 'u-me' }) }, {});
@@ -151,6 +160,42 @@ describe('kChat reads made elsewhere', () => {
     assert.deepEqual(events.map((e) => [e.collection, e.eventKey]), [[MM_MEMBERSHIP, 'ch1']]);
     assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
     assert.deepEqual(await live.expand('badge_updated', { badge: 0 }, {}), []);
+  });
+
+  test('a read elsewhere after a join post leaves the room read', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 99 }] }
+        : undefined,
+    );
+    await live.expand('posted', { post: post('j1', { type: 'system_add_to_channel', create_at: 50 }) }, {});
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
+  });
+
+  test('a read elsewhere realigns totals the cache had drifted above the server', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 99 }] }
+        : undefined,
+    );
+    live.remember(
+      { id: 'ch1', type: 'O', name: 'dev', total_msg_count: 11, total_msg_count_root: 9, last_post_at: 50 },
+      { channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 40 },
+    );
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
+  });
+
+  test('a membership viewed before the last post keeps the room unread', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 30 }] }
+        : undefined,
+    );
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 1);
   });
 });
 

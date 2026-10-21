@@ -922,6 +922,114 @@ mod tests {
         assert!(next_cursor(&page("a"), &mut seen, "m").is_err());
     }
 
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A Slack API answering every call with `body`; the request lines it saw.
+    async fn answering(body: Value) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}/api/", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = Vec::new();
+                let mut chunk = [0; 2048];
+                loop {
+                    let n = socket.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                    let length = String::from_utf8_lossy(&buf[..end])
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&buf).into_owned());
+                let body = body.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        (api, seen)
+    }
+
+    fn sync_at(api: &str) -> (Arc<Store>, SlackSync) {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let rest = RestClient::slack(api.parse().unwrap(), zeroize::Zeroizing::new("d".to_owned()));
+        let sync = SlackSync::new(store.clone(), rest, "U000", "me");
+        sync.directory.remember(User { id: "U001".into(), username: "bob".into(), ..Default::default() });
+        sync.conversations
+            .lock()
+            .unwrap()
+            .insert("C1".into(), json!({"id": "C1", "name": "general", "is_channel": true}));
+        sync.counts.lock().unwrap().insert("C1".into(), json!({"id": "C1", "latest": "1.000000"}));
+        (store, sync)
+    }
+
+    fn room(store: &Store) -> crate::store::RoomRow {
+        store.rooms().into_iter().find(|r| r.rid == "C1").unwrap()
+    }
+
+    fn said(ts: &str, text: &str) -> Value {
+        json!({"type": "message", "channel": "C1", "ts": ts, "user": "U001", "text": text})
+    }
+
+    #[tokio::test]
+    async fn an_edit_of_the_previewed_message_rewrites_the_preview_and_an_older_one_does_not() {
+        let (store, sync) = sync_at("http://127.0.0.1:9/api/");
+        sync.apply_event("message", &said("2.000000", "typo")).await;
+        let edit = |ts: &str, text: &str| json!({"type": "message", "subtype": "message_changed", "channel": "C1", "ts": "3.000000", "message": said(ts, text)});
+        sync.apply_event("message", &edit("0.500000", "old fixed")).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("typo"));
+        sync.apply_event("message", &edit("2.000000", "fixed")).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("fixed"));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_previewed_message_previews_the_newest_root_left_in_place() {
+        let left = json!({"ok": true, "messages": [
+            {"type": "message", "subtype": "thread_broadcast", "ts": "1.800000", "thread_ts": "1.500000", "user": "U001", "text": "re"},
+            {"type": "message", "subtype": "tombstone", "ts": "1.700000", "user": "U001", "text": "This message was deleted."},
+            {"type": "message", "ts": "1.500000", "user": "U001", "text": "earlier"},
+        ], "has_more": false});
+        let (api, seen) = answering(left).await;
+        let (store, sync) = sync_at(&api);
+        sync.apply_event("message", &said("2.000000", "gone soon")).await;
+        let gone = |ts: &str| json!({"type": "message", "subtype": "message_deleted", "channel": "C1", "ts": "3.000000", "deleted_ts": ts});
+        let history = || seen.lock().unwrap().iter().any(|r| r.contains("conversations.history"));
+        sync.apply_event("message", &gone("1.400000")).await;
+        assert!(!history());
+        sync.apply_event("message", &gone("2.000000")).await;
+        assert!(history());
+        let row = room(&store);
+        assert_eq!((row.last_message.as_deref(), row.last_ts), (Some("earlier"), 2000));
+    }
+
+    #[tokio::test]
+    async fn a_previewed_message_turned_tombstone_with_nothing_left_clears_the_preview() {
+        let (api, _) = answering(json!({"ok": true, "messages": [], "has_more": false})).await;
+        let (store, sync) = sync_at(&api);
+        sync.apply_event("message", &said("2.000000", "parent")).await;
+        let mut tombstone = said("2.000000", "This message was deleted.");
+        tombstone["subtype"] = json!("tombstone");
+        tombstone["thread_ts"] = json!("2.000000");
+        sync.apply_event("message", &json!({"type": "message", "subtype": "message_changed", "channel": "C1", "ts": "3.000000", "message": tombstone})).await;
+        let row = room(&store);
+        assert_eq!((row.last_message, row.last_ts), (None, 2000));
+    }
+
     #[test]
     fn permalinks_carry_the_exact_ts() {
         assert_eq!(

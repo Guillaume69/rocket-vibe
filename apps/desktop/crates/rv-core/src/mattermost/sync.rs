@@ -950,10 +950,44 @@ fn path_segment(id: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A server answering every request with `body`; the request lines it saw.
+    async fn answering(body: Value) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = Vec::new();
+                let mut chunk = [0; 2048];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = socket.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&buf).lines().next().unwrap_or_default().to_owned());
+                let body = body.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        (base, seen)
+    }
 
     fn sync() -> (Arc<Store>, MmSync) {
+        sync_at("http://x")
+    }
+
+    fn sync_at(base: &str) -> (Arc<Store>, MmSync) {
         let store = Arc::new(Store::in_memory().unwrap());
-        let sync = MmSync::new(store.clone(), RestClient::mattermost("http://x".parse().unwrap()), "u-me", "me", false);
+        let sync = MmSync::new(store.clone(), RestClient::mattermost(base.parse().unwrap()), "u-me", "me", false);
         sync.directory.remember(User {
             id: "u-bob".into(),
             username: "bob".into(),
@@ -1019,6 +1053,62 @@ mod tests {
         sync.apply_event("post_edited", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
         let ids: Vec<String> = store.messages("ch1", 10).into_iter().map(|m| m.id).collect();
         assert_eq!(ids, ["p1"]);
+    }
+
+    fn at(id: &str, create_at: i64) -> Value {
+        let mut p = post(id, "u-bob", "");
+        p["create_at"] = json!(create_at);
+        p
+    }
+
+    fn room(store: &Store) -> crate::store::RoomRow {
+        store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_edit_of_the_previewed_post_rewrites_the_preview_and_an_older_one_does_not() {
+        let (store, sync) = sync();
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("posted", &json!({"post": at("p2", 60)}), &json!({})).await;
+        let mut older = at("p1", 50);
+        older["message"] = json!("old fixed");
+        sync.apply_event("post_edited", &json!({"post": older.to_string()}), &json!({})).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("m p2"));
+        let mut newest = at("p2", 60);
+        newest["message"] = json!("new fixed");
+        sync.apply_event("post_edited", &json!({"post": newest.to_string()}), &json!({})).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("new fixed"));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_previewed_post_previews_the_newest_root_left_in_place() {
+        let (base, seen) = answering(json!({"order": ["p1"], "posts": {"p1": at("p1", 50)}})).await;
+        let (store, sync) = sync_at(&base);
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("posted", &json!({"post": at("p2", 60)}), &json!({})).await;
+        let page = || seen.lock().unwrap().iter().find(|l| l.contains("/channels/ch1/posts")).cloned();
+        sync.apply_event("post_deleted", &json!({"post": at("p0", 10).to_string()}), &json!({})).await;
+        assert_eq!(page(), None);
+        sync.apply_event("post_deleted", &json!({"post": at("p2", 60).to_string()}), &json!({})).await;
+        let line = page().unwrap_or_default();
+        assert!(
+            line.contains("/channels/ch1/posts")
+                && line.contains("per_page=1")
+                && line.contains("collapsedThreads=true"),
+            "{line}"
+        );
+        let row = room(&store);
+        assert_eq!((row.last_message.as_deref(), row.last_ts), (Some("m p1"), 60));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_only_post_clears_the_preview() {
+        let (base, _) = answering(json!({"order": [], "posts": {}})).await;
+        let (store, sync) = sync_at(&base);
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("post_deleted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        let row = room(&store);
+        assert_eq!((row.last_message, row.last_ts), (None, 50));
     }
 
     #[test]

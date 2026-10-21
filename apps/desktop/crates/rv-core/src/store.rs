@@ -1703,6 +1703,44 @@ mod tests {
     }
 
     #[test]
+    fn deleting_an_encrypted_rooms_previewed_message_falls_back_on_the_newest_stored() {
+        let store = Store::in_memory().unwrap();
+        let sealed = |id: &str, ts: i64, raw: &str, thread: Option<&str>| Message {
+            ts,
+            system_type: Some("e2e".into()),
+            encrypted_raw: Some(raw.into()),
+            thread_id: thread.map(Into::into),
+            ..message(id, None, 1, "p1")
+        };
+        let last = |store: &Store| -> Option<String> {
+            store.read(|c| c.query_row("SELECT last_encrypted FROM rooms WHERE rid = 'p1'", [], |r| r.get(0))).unwrap()
+        };
+        store.write(|w| {
+            w.upsert_room(&Room {
+                rid: "p1".into(),
+                kind: "p".into(),
+                encrypted: true,
+                last_encrypted: Some("c3".into()),
+                updated_at: 1,
+                ..Default::default()
+            });
+            w.upsert_message(&sealed("m1", 10, "c1", None));
+            w.upsert_message(&sealed("m2", 20, "c2", Some("m1")));
+            w.upsert_message(&sealed("m0", 5, "c0", None));
+            w.upsert_message(&sealed("m3", 30, "c3", None));
+        });
+        store.write(|w| w.delete_message("m0"));
+        assert_eq!(last(&store).as_deref(), Some("c3"));
+        store.write(|w| w.delete_message("m3"));
+        assert_eq!(last(&store).as_deref(), Some("c1"));
+        store.write(|w| {
+            w.delete_message("m2");
+            w.delete_message("m1");
+        });
+        assert_eq!(last(&store), None);
+    }
+
+    #[test]
     fn delete_by_subscription_id_removes_everything() {
         let store = Store::in_memory().unwrap();
         store.write(|w| {

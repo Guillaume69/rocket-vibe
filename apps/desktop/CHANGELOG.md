@@ -10,6 +10,7 @@ section here.
 ### Added
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Group direct messages on Rocket.Chat, Mattermost and kChat accounts: on GTK, tick several people (up to seven) in New message, remove one from its chip, then Start; on macOS, the + menu's New group message does the same.
 
 ### Removed
 

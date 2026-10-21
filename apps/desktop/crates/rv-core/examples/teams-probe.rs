@@ -51,10 +51,11 @@ async fn main() {
         let Ok(mut doc) = serde_json::from_str::<Value>(&text) else { return };
         doc["refresh_token"] = Value::String(account.refresh.as_str().to_owned());
         if let Ok(out) = serde_json::to_string(&doc) {
-            use std::os::unix::fs::OpenOptionsExt;
-            if let Ok(mut f) =
-                std::fs::OpenOptions::new().write(true).truncate(true).create(true).mode(0o600).open(&sink_path)
-            {
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).truncate(true).create(true);
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            if let Ok(mut f) = options.open(&sink_path) {
                 use std::io::Write;
                 let _ = f.write_all(out.as_bytes());
             }

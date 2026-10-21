@@ -82,14 +82,14 @@ describe('SlackLive.expand', () => {
     assert.equal(value.counts.get('C1')?.latest, '1.000000');
   });
 
-  test('message_changed replaces the message only, no preview or unread move', async () => {
+  test('message_changed of an older message replaces it only, no preview or unread move', async () => {
     const { value } = live();
     const events = await value.expand({
       type: 'message',
       subtype: 'message_changed',
       channel: 'C1',
       ts: '3.000000',
-      message: { type: 'message', ts: '2.000000', user: 'U001', text: 'edited', edited: { ts: '3.000000' } },
+      message: { type: 'message', ts: '0.500000', user: 'U001', text: 'edited', edited: { ts: '3.000000' } },
     });
     assert.deepEqual(collections(events), [SLACK_MESSAGE]);
     assert.equal((events[0]!.args[0] as { text: string }).text, 'edited');

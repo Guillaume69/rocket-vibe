@@ -324,7 +324,7 @@ export class SlackTranslator implements Translator {
       dmOtherUsername: otherName,
       lastMessage: lastMessage?.systemType === null ? (lastMessage.text || firstTitle(lastMessage.attachments)) : null,
       lastMessageType: lastMessage?.systemType ?? null,
-      lastMessageTs: lastMessage?.ts ?? latest,
+      lastMessageTs: Math.max(lastMessage?.ts ?? 0, latest ?? 0) || null,
       keepPreview: doc.lastMessage === undefined,
       avatarEtag: null,
       updatedAt: Math.max(updated, latest ?? 0, lastMessage?.ts ?? 0),

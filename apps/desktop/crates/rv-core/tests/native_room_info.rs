@@ -76,6 +76,7 @@ async fn room_information_uses_existing_model_and_rejects_late_cross_scope_paylo
             SessionInfo {
                 mattermost: None,
                 slack: None,
+                teams: None,
                 base_url: server.url.to_string(),
                 user_id: "alice-id".into(),
                 username: "alice".into(),

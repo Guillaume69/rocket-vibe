@@ -47,6 +47,7 @@ fn account(server: &FakeHttp) -> SessionInfo {
     SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: server.url.to_string(),
         user_id: "alice-id".into(),
         username: "alice".into(),

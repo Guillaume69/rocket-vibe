@@ -103,7 +103,9 @@ const MATTERMOST_PASSWORD_REFUSED: &str = "api.user.check_user_password.invalid.
 pub fn is_token_rejected(e: &RestError) -> bool {
     e.two_factor.is_none()
         && e.understood
-        && (e.status == 401 || e.error_type.as_deref() == Some(crate::slack::SESSION_REJECTED))
+        && (e.status == 401
+            || e.error_type.as_deref() == Some(crate::slack::SESSION_REJECTED)
+            || e.error_type.as_deref() == Some(crate::teams::SESSION_REJECTED))
 }
 
 /// Which server's REST dialect the client speaks.

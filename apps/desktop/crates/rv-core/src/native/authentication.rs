@@ -103,6 +103,7 @@ fn record(base: &str, identity: &Identity, session: Session, expected: Option<&s
         info: SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: base.into(),
             user_id: session.user.id,
             username: session.user.username,

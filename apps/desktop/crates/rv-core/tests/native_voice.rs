@@ -48,6 +48,7 @@ async fn session(server: &FakeHttp) -> Arc<NativeSession> {
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.as_str().trim_end_matches('/').into(),
             user_id: fixture()["session"]["user"]["id"].as_str().unwrap().into(),
             username: "alice".into(),

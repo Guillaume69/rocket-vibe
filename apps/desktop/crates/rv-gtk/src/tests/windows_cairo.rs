@@ -146,6 +146,7 @@ fn windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback() {
             native: Some(identity),
             mattermost: None,
             slack: None,
+            teams: None,
         },
         &path,
     )

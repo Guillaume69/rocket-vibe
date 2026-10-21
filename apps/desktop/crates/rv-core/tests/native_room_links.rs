@@ -90,6 +90,7 @@ async fn links_resolve_real_http_messages_and_fence_room_thread_membership_and_e
         let info = rv_core::session::SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: format!("{}/native", server.url.as_str().trim_end_matches('/')),
             user_id: fixture()["session"]["user"]["id"].as_str().unwrap().into(),
             username: "alice".into(),

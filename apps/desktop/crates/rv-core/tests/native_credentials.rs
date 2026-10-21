@@ -19,6 +19,7 @@ async fn account_leases_serialize_writers_and_release_cancelled_waiters() {
     let info = SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: "http://localhost:3400".into(),
         user_id: "fixture-user".into(),
         username: "alice".into(),
@@ -104,6 +105,7 @@ async fn a_lost_renewal_ack_recovers_the_durable_successor_without_a_second_rota
         info: SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.as_str().into(),
             user_id: fixture["session"]["user"]["id"].as_str().unwrap().into(),
             username: "alice".into(),

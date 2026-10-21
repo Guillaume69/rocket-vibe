@@ -46,6 +46,8 @@ pub struct SessionInfo {
     pub mattermost: Option<crate::mattermost::Flavor>,
     /// Set for a Slack account: its team and `d` cookie.
     pub slack: Option<crate::slack::SlackAccount>,
+    /// Set for a Teams account: its tenant and refresh token.
+    pub teams: Option<crate::teams::TeamsAccount>,
 }
 
 impl std::fmt::Debug for SessionInfo {
@@ -58,6 +60,7 @@ impl std::fmt::Debug for SessionInfo {
             .field("native", &self.native)
             .field("mattermost", &self.mattermost)
             .field("slack", &self.slack)
+            .field("teams", &self.teams)
             .finish()
     }
 }
@@ -182,6 +185,7 @@ pub async fn login_as(
     let info = SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: server.to_string().trim_end_matches('/').to_owned(),
         user_id: field("/userId"),
         username: field("/me/username"),

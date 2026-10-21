@@ -250,6 +250,7 @@ async fn native_profile_replay_retains_the_original_form_and_reads_current_priva
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

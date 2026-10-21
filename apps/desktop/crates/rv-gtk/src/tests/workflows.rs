@@ -121,6 +121,7 @@ fn the_editor_and_the_form_card_follow_the_contract() {
             native: Some(identity),
             mattermost: None,
             slack: None,
+            teams: None,
         },
         &path,
     )

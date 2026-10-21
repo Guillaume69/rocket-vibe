@@ -452,6 +452,7 @@ mod tests {
             native: None,
             mattermost: None,
             slack: None,
+            teams: None,
         };
         assert!(applies(&rocket_chat));
         let mattermost = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Mattermost), ..rocket_chat.clone() };

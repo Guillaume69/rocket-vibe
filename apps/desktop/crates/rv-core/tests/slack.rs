@@ -143,6 +143,7 @@ fn info(server: &FakeHttp) -> SessionInfo {
         native: None,
         mattermost: None,
         slack: Some(SlackAccount { team_id: "T000".into(), cookie: Zeroizing::new(COOKIE.into()) }),
+        teams: None,
     }
 }
 

@@ -91,6 +91,7 @@ async fn schedule_replays_its_operation_until_answered_lists_one_room_and_cancel
         SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: server.url.to_string(),
             user_id: "alice-id".into(),
             username: "alice".into(),

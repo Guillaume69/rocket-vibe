@@ -191,6 +191,7 @@ pub async fn login(
     Ok(SessionInfo {
         mattermost: None,
         slack: None,
+        teams: None,
         base_url: base.as_str().trim_end_matches('/').into(),
         user_id: session.user.id,
         username: session.user.username,
@@ -280,9 +281,11 @@ impl SessionInfo {
                     native: None,
                     mattermost: None,
                     slack: None,
+                    teams: None,
                 });
             }
             Some(Value::String(kind)) if kind == "slack" => return crate::slack::account::from_secret(value),
+            Some(Value::String(kind)) if kind == "teams" => return crate::teams::auth::from_secret(value),
             None => (None, None),
             Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
             Some(Value::String(kind)) if kind == "vibez" => (
@@ -305,15 +308,19 @@ impl SessionInfo {
             native,
             mattermost,
             slack: None,
+            teams: None,
         })
     }
-    /// `rocketchat`, `vibez`, `mattermost`, `kchat`, `slack` or `whatsapp`.
+    /// `rocketchat`, `vibez`, `mattermost`, `kchat`, `slack`, `teams` or `whatsapp`.
     pub fn genre(&self) -> &'static str {
         if crate::whatsapp::is_whatsapp(self) {
             return "whatsapp";
         }
         if self.slack.is_some() {
             return "slack";
+        }
+        if self.teams.is_some() {
+            return "teams";
         }
         match (&self.native, self.mattermost) {
             (Some(_), _) => "vibez",
@@ -329,6 +336,9 @@ impl SessionInfo {
         }
         if let Some(account) = &self.slack {
             crate::slack::account::write_secret(account, &mut value);
+        }
+        if let Some(account) = &self.teams {
+            crate::teams::auth::write_secret(account, &mut value);
         }
         value
     }

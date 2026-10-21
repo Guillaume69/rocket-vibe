@@ -343,6 +343,7 @@ mod tests {
         let info = |base: &str| SessionInfo {
             mattermost: None,
             slack: None,
+            teams: None,
             base_url: base.into(),
             user_id: "U1".into(),
             username: "me".into(),

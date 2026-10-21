@@ -90,6 +90,7 @@ async fn native_administration_maps_the_contract_and_sends_operations() {
         native: Some(identity),
         mattermost: None,
         slack: None,
+        teams: None,
     };
     let session = native::NativeSession::start(info, &path).unwrap();
     tokio::time::timeout(Duration::from_secs(5), async {

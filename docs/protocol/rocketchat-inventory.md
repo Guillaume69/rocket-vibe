@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-697 production files scanned; 751 occurrences.
+698 production files scanned; 751 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -444,27 +444,27 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:60](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L60) | endpoint | e2e.wrong |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:61](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L61) | endpoint | e2e.no_keys |
 | [apps/desktop/crates/rv-gtk/src/unlock.rs:62](../../apps/desktop/crates/rv-gtk/src/unlock.rs#L62) | endpoint | e2e.failed |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:301](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L301) | endpoint | rooms.new_message |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:303](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L303) | endpoint | rooms.new_channel |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:311](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L311) | endpoint | rooms.new |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:377](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L377) | endpoint | rooms.new_channel |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:377](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L377) | endpoint | rooms.new_message |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:395](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L395) | endpoint | rooms.section_unread |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:396](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L396) | endpoint | rooms.section_favorites |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:399](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L399) | endpoint | rooms.section_channels |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:400](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L400) | endpoint | rooms.section_direct |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:428](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L428) | resource | /avatar/room/\(id) |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:499](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L499) | endpoint | rooms.favorite_add |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:499](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L499) | endpoint | rooms.favorite_remove |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:503](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L503) | endpoint | rooms.failed |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:507](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L507) | endpoint | rooms.mark_read |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:507](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L507) | endpoint | rooms.mark_unread |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:525](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L525) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:656](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L656) | endpoint | rooms.sign_out |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:676](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L676) | endpoint | rooms.account_menu |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:698](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L698) | endpoint | rooms.online |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:699](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L699) | endpoint | rooms.connecting |
-| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:700](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L700) | endpoint | rooms.offline |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:304](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L304) | endpoint | rooms.new_message |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:309](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L309) | endpoint | rooms.new_channel |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:317](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L317) | endpoint | rooms.new |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:383](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L383) | endpoint | rooms.new_channel |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:383](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L383) | endpoint | rooms.new_message |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:401](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L401) | endpoint | rooms.section_unread |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:402](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L402) | endpoint | rooms.section_favorites |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:405](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L405) | endpoint | rooms.section_channels |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:406](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L406) | endpoint | rooms.section_direct |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:434](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L434) | resource | /avatar/room/\(id) |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:505](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L505) | endpoint | rooms.favorite_add |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:505](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L505) | endpoint | rooms.favorite_remove |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:509](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L509) | endpoint | rooms.failed |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:513](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L513) | endpoint | rooms.mark_read |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:513](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L513) | endpoint | rooms.mark_unread |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:531](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L531) | endpoint | rooms.encrypted |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:662](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L662) | endpoint | rooms.sign_out |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:682](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L682) | endpoint | rooms.account_menu |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:704](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L704) | endpoint | rooms.online |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:705](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L705) | endpoint | rooms.connecting |
+| [apps/desktop/macos/Sources/RocketVibe/ChatView.swift:706](../../apps/desktop/macos/Sources/RocketVibe/ChatView.swift#L706) | endpoint | rooms.offline |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_add |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:13](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L13) | endpoint | rooms.favorite_remove |
 | [apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift:17](../../apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift#L17) | endpoint | rooms.pending |

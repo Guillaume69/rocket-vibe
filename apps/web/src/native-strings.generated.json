@@ -1754,6 +1754,7 @@
   "login.kind_mattermost": ["Mattermost", "Mattermost"],
   "login.kind_kchat": ["kChat", "kChat"],
   "login.kind_slack": ["Slack", "Slack"],
+  "login.kind_teams": ["Teams", "Teams"],
   "login.kchat_token": ["Jeton d'API Infomaniak", "Infomaniak API token"],
   "login.kchat_server": ["Serveur kChat", "kChat server"],
   "login.kchat_token_rejected": [

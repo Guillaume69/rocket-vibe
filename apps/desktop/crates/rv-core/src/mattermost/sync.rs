@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::categories::{self, Placement};
 use super::directory::{Directory, NameFormat, User};
-use super::translate::{Translator, deleted, object};
+use super::translate::{Translator, deleted, join_leave, object};
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
@@ -250,6 +250,10 @@ impl MmSync {
     /// memberships are read again and the rooms whose counts moved rewritten.
     async fn recount(&self) {
         let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        self.recounted(members);
+    }
+
+    fn recounted(&self, members: Vec<Value>) {
         let moved: Vec<String> = {
             let mut live = self.live.lock().unwrap();
             members
@@ -260,6 +264,17 @@ impl MmSync {
                     let keys = ["msg_count", "msg_count_root", "mention_count", "mention_count_root", "last_viewed_at"];
                     if keys.iter().all(|k| known.get(k) == member.get(k)) {
                         return None;
+                    }
+                    if let Some(channel) = live.channels.get_mut(&rid)
+                        && int(&member, "last_viewed_at") >= int(channel, "last_post_at")
+                    {
+                        for (total, count) in
+                            [("total_msg_count", "msg_count"), ("total_msg_count_root", "msg_count_root")]
+                        {
+                            if let Some(n) = member.get(count).filter(|n| n.is_i64()) {
+                                channel[total] = n.clone();
+                            }
+                        }
                     }
                     live.members.insert(rid.clone(), member);
                     live.touch(&rid);
@@ -781,14 +796,15 @@ impl MmSync {
         let mine = text(&post, "user_id") == Some(self.me.as_str());
         let mentioned = mentions(data.get("mentions")).contains(&self.me);
         let at = int(&post, "create_at");
+        let counted = if join_leave(&post) { 0 } else { 1 };
         let fresh = !self.store.has_message(text(&post, "id").unwrap_or_default());
         {
             let mut live = self.live.lock().unwrap();
             if let Some(channel) = live.channels.get_mut(&rid) {
-                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + 1);
+                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + counted);
                 channel["last_post_at"] = json!(at);
                 if root {
-                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + 1);
+                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + counted);
                     channel["last_root_post_at"] = json!(at);
                 }
                 let (total, total_root) = (channel["total_msg_count"].clone(), channel["total_msg_count_root"].clone());

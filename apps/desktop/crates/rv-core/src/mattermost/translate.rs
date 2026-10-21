@@ -76,6 +76,25 @@ pub fn deleted(post: &Value) -> bool {
     num_of(post, "delete_at") > 0
 }
 
+/// Mattermost's `Post.IsJoinLeaveMessage`: the server leaves these posts out of `total_msg_count(_root)`.
+pub fn join_leave(post: &Value) -> bool {
+    matches!(
+        str_of(post, "type"),
+        Some(
+            "system_join_leave"
+                | "system_join_channel"
+                | "system_leave_channel"
+                | "system_join_team"
+                | "system_leave_team"
+                | "system_add_remove"
+                | "system_add_to_channel"
+                | "system_remove_from_channel"
+                | "system_add_to_team"
+                | "system_remove_from_team"
+        )
+    )
+}
+
 /// Unread ROOT posts (replies live in threads, as on screen) and mentions. A
 /// muted channel (`notify_props.mark_unread: "mention"`) counts its mentions only.
 pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {

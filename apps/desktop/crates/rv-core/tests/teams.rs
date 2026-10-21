@@ -126,3 +126,50 @@ async fn the_list_history_and_catch_up() {
     assert!(texts.contains(&Some("new".into())) && texts.contains(&Some("second edited".into())), "{texts:?}");
     assert!(server.requests().iter().any(|r| r.target.contains("startTime=200")));
 }
+
+#[tokio::test]
+async fn send_edit_react_delete_and_mark_read() {
+    let server = FakeHttp::start(|request: &Request| {
+        assert_eq!(header(request, "authentication"), Some("skypetoken=skype-x"));
+        match (request.method.as_str(), request.path().ends_with("/messages")) {
+            ("POST", true) => respond(201, r#"{"OriginalArrivalTime":1792540504421}"#),
+            ("GET", _) => respond(200, &message(500, "fetched").to_string()),
+            _ => respond(200, ""),
+        }
+    })
+    .await;
+    let (store, sync) = sync(&server);
+    let id = sync.send(ROOM, "hi <there>", "c-1").await.unwrap();
+    assert_eq!(id, "1792540504421");
+    let sent: Value = serde_json::from_str(&server.requests()[0].body).unwrap();
+    assert_eq!(
+        (sent["content"].as_str(), sent["clientmessageid"].as_str()),
+        (Some("<p>hi &lt;there&gt;</p>"), Some("c-1"))
+    );
+
+    let msg = format!("{ROOM}/500");
+    sync.react(&msg, ":thumbsup:", true).await.unwrap();
+    sync.react(&msg, "thumbsup", false).await.unwrap();
+    assert!(sync.react(&msg, "fire", true).await.is_err(), "only Teams' own reactions are sent");
+    sync.edit(&msg, "changed").await.unwrap();
+    sync.delete(&msg).await.unwrap();
+    let requests = server.requests();
+    let reacts: Vec<&Request> = requests.iter().filter(|r| r.target.contains("name=emotions")).collect();
+    assert_eq!(reacts.len(), 2);
+    assert_eq!((reacts[0].method.as_str(), reacts[1].method.as_str()), ("PUT", "DELETE"));
+    assert_eq!(serde_json::from_str::<Value>(&reacts[0].body).unwrap()["emotions"]["key"], "like");
+    assert!(
+        requests.iter().any(|r| r.method == "PUT" && r.path().ends_with("/messages/500") && r.body.contains("changed"))
+    );
+    assert!(requests.iter().any(|r| r.method == "DELETE" && r.path().ends_with("/messages/500")));
+
+    assert!(store.messages(ROOM, 50).iter().any(|m| m.id == msg), "the reaction answer was stored");
+    sync.mark_read(ROOM).await.unwrap();
+    sync.mark_read(ROOM).await.unwrap();
+    let marks: Vec<Request> =
+        server.requests().into_iter().filter(|r| r.target.contains("name=consumptionhorizon")).collect();
+    assert_eq!(marks.len(), 1, "an unchanged room is not marked twice");
+    let horizon =
+        serde_json::from_str::<Value>(&marks[0].body).unwrap()["consumptionhorizon"].as_str().unwrap().to_owned();
+    assert!(horizon.starts_with("500;") && horizon.ends_with(";500"), "{horizon}");
+}

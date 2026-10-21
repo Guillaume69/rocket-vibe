@@ -75,11 +75,11 @@ WHERE excluded.updated_at >= messages.updated_at
  * **`last_message` is the exception, deliberately**: its absence is
  * INFORMATION, not a gap. Probed on 8.5, `rooms-changed` and `rooms.get`
  * always carry `lastMessage` as soon as the room has one: rename, topic,
- * announcement, description, read-only, avatar, DMs included. The field only
- * disappears when the room no longer has a visible last message, that is,
- * when the last one was just deleted. The original COALESCE therefore froze
- * an emptied room's preview FOR LIFE: the deleted message stayed displayed
- * there, and no catch-up could dislodge it.
+ * announcement, description, read-only, avatar, DMs included. Deleting the
+ * last message moves it back to the previous visible one; the field only
+ * disappears when the room no longer has any visible message. The original
+ * COALESCE therefore froze an emptied room's preview FOR LIFE: the deleted
+ * message stayed displayed there, and no catch-up could dislodge it.
  *
  * An ENCRYPTED room is the only case where the server has nothing to say
  * about it (it only holds ciphertext): its preview comes from

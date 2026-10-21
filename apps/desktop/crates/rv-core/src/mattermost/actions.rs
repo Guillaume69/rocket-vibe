@@ -185,6 +185,26 @@ pub async fn open_dm(rest: &RestClient, mm: &MmSync, me: &str, username: &str) -
     text(&channel, "id").ok_or_else(|| RestError::incomplete("channels/direct: no channel"))
 }
 
+/// The group channel with these people and me, created if needed: the same
+/// set gives the same channel back. 3 to 8 members, me included.
+pub async fn open_group_dm(
+    rest: &RestClient,
+    mm: &MmSync,
+    me: &str,
+    usernames: &[String],
+) -> Result<String, RestError> {
+    let mut ids = vec![me.to_owned()];
+    for username in usernames {
+        let user = mm.directory.by_name(rest, username).await.ok_or_else(|| RestError::incomplete("no such user"))?;
+        ids.push(user.id);
+    }
+    let channel = rest.post("channels/group", CallOptions::body(json!(ids))).await?;
+    let rid = text(&channel, "id").ok_or_else(|| RestError::incomplete("channels/group: no channel"))?;
+    let shown = json!([{"user_id": me, "category": "group_channel_show", "name": rid, "value": "true"}]);
+    let _ = rest.put("users/me/preferences", CallOptions::body(shown)).await;
+    Ok(rid)
+}
+
 pub async fn join(rest: &RestClient, me: &str, rid: &str) -> Result<(), RestError> {
     rest.post(&format!("channels/{rid}/members"), CallOptions::body(json!({"user_id": me}))).await.map(|_| ())
 }

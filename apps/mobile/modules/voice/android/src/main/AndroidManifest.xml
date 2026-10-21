@@ -13,6 +13,8 @@
   <application>
     <service android:name="com.rocketvibe.voice.VoiceService" android:exported="false"
       android:foregroundServiceType="microphone|camera|mediaPlayback" />
+    <service android:name="com.rocketvibe.voice.CallService" android:exported="false"
+      android:foregroundServiceType="microphone|camera|mediaPlayback" />
     <activity android:name="com.rocketvibe.voice.IncomingCallActivity" android:exported="false"
       android:excludeFromRecents="true" android:launchMode="singleTop" android:showWhenLocked="true"
       android:turnScreenOn="true" android:taskAffinity="" />

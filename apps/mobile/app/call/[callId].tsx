@@ -15,6 +15,7 @@ import { WebView } from 'react-native-webview';
 
 import { callContext, joinConference } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
+import { VoiceNative } from '../../modules/voice/index.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
@@ -168,6 +169,18 @@ function Call({
   }, []);
 
   const finish = useCallback(() => router.back(), [router]);
+
+  // Without a foreground service, Android silences the page's microphone and
+  // freezes the process once the app is behind or the phone locked.
+  useEffect(() => {
+    if (url === null || VoiceNative === null) return;
+    void VoiceNative.holdCall(title);
+    const sub = VoiceNative.addListener('hangUp', finish);
+    return () => {
+      sub.remove();
+      void VoiceNative?.releaseCall();
+    };
+  }, [url, title, finish]);
 
   // Non-null as soon as `url` is: the effect above refuses a URL whose origin
   // cannot be read. The render checks again anyway: it is the lock.

@@ -52,7 +52,12 @@ type Bridge={
   setNoiseSuppression(on:boolean):Promise<void>;
   /** The next screen share's lines (the screen's shorter side) and frames a second. */
   setShareQuality(height:number,fps:number):Promise<void>;
+  /** Keeps a call a web page holds (Jitsi, kMeet) alive in the background, behind an ongoing call notification. */
+  holdCall(title:string):Promise<void>;
+  releaseCall():Promise<void>;
   addListener(event:'change',listener:(snapshot:VoiceSnapshot)=>void):{remove:()=>void};
+  /** The held call's notification hung up. */
+  addListener(event:'hangUp',listener:()=>void):{remove:()=>void};
   /** The microphone's level, 0 to 1, about ten times a second while connected. */
   addListener(event:'level',listener:(event:{level:number})=>void):{remove:()=>void};
 };

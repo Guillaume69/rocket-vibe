@@ -8,4 +8,5 @@
   <string name="voice_incoming">Incoming call…</string>
   <string name="voice_accept">Accept</string>
   <string name="voice_decline">Decline</string>
+  <string name="call_ongoing">Call in progress</string>
 </resources>

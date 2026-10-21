@@ -25,19 +25,22 @@ class ConnectOptions : Record {
 class VoiceModule : Module() {
   private val listener: () -> Unit = { sendEvent("change", VoiceEngine.last) }
   private val levelListener: (Double) -> Unit = { level -> sendEvent("level", mapOf("level" to level)) }
+  private val hangUpListener: () -> Unit = { sendEvent("hangUp", emptyMap<String, Any>()) }
   private var consent: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("Voice")
-    Events("change", "level")
+    Events("change", "level", "hangUp")
     OnCreate {
       VoiceEngine.attach(appContext.reactContext ?: throw IllegalStateException("No React context"))
       VoiceEngine.listen(listener)
       VoiceEngine.listenLevel(levelListener)
+      CallService.listen(hangUpListener)
     }
     OnDestroy {
       VoiceEngine.unlisten(listener)
       VoiceEngine.unlistenLevel(levelListener)
+      CallService.unlisten(hangUpListener)
     }
     Function("snapshot") { VoiceEngine.last }
     AsyncFunction("connect") { o: ConnectOptions ->
@@ -94,6 +97,14 @@ class VoiceModule : Module() {
       Prop("source") { view: VoiceVideoView, source: String -> view.source = source }
       Prop("fit") { view: VoiceVideoView, fit: String -> view.fit = fit }
     }
+    AsyncFunction("holdCall") { title: String ->
+      appContext.reactContext?.let { CallService.hold(it, title) }
+      Unit
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("releaseCall") {
+      appContext.reactContext?.let { CallService.release(it) }
+      Unit
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("missed") {
       appContext.reactContext?.let { VoiceSounds.cue(it, R.raw.cue_missed) }
       Unit

@@ -60,7 +60,6 @@ mod spotlight;
 mod staged;
 mod style;
 mod switcher;
-mod teams_preview;
 mod thread;
 mod threads;
 mod tile_grid;

@@ -89,8 +89,14 @@ fn emotions(raw: &Value) -> Vec<Value> {
 }
 
 /// Teams' classic reaction keys and their shortcodes.
-const KEYS: [(&str, &str); 6] =
-    [("like", "+1"), ("heart", "heart"), ("laugh", "laughing"), ("surprised", "open_mouth"), ("sad", "cry"), ("angry", "angry")];
+const KEYS: [(&str, &str); 6] = [
+    ("like", "+1"),
+    ("heart", "heart"),
+    ("laugh", "laughing"),
+    ("surprised", "open_mouth"),
+    ("sad", "cry"),
+    ("angry", "angry"),
+];
 
 /// The shortcode a reaction key shows as: a classic key, or a `<codepoints>_<name>` key's name.
 pub fn reaction_code(key: &str) -> String {
@@ -228,9 +234,9 @@ pub fn html_to_markdown(html: &str) -> String {
                 }
             }
             ("a", false) => {
-                link = attribute(tag, "href").filter(|h| h.starts_with("https://") || h.starts_with("http://")).map(|h| {
-                    crate::content::decode_entities(h)
-                });
+                link = attribute(tag, "href")
+                    .filter(|h| h.starts_with("https://") || h.starts_with("http://"))
+                    .map(crate::content::decode_entities);
                 link_text_start = out.len();
             }
             ("a", true) => {
@@ -546,7 +552,8 @@ mod tests {
         assert!(reacted(&edited, "like", "8:orgid:aaa") && !reacted(&edited, "heart", "8:orgid:aaa"));
         let gone = raw("1792540521726", json!({"content": "", "properties": {"deletetime": "1792540597454"}}));
         assert!(deleted(&gone) && message("19:c@thread.v2", &gone, &d).is_none());
-        let as_string = raw("5", json!({"properties": {"emotions": "[{\"key\":\"laugh\",\"users\":[{\"mri\":\"m\"}]}]"}}));
+        let as_string =
+            raw("5", json!({"properties": {"emotions": "[{\"key\":\"laugh\",\"users\":[{\"mri\":\"m\"}]}]"}}));
         assert!(message("c", &as_string, &d).unwrap().reactions.unwrap().contains(":laughing:"));
     }
 
@@ -559,8 +566,14 @@ mod tests {
             json!({"conversationLink": "https://t/v1/users/ME/conversations/19:ch@thread.tacv2;messageid=10"}),
         );
         assert_eq!(conversation_of(&reply).as_deref(), Some("19:ch@thread.tacv2"));
-        assert_eq!(conversation_of(&json!({"conversationLink": "https://t/conversations/19%3Ax%40thread.v2"})).as_deref(), Some("19:x@thread.v2"));
-        assert_eq!(message("19:ch@thread.tacv2", &reply, &d).unwrap().thread_id.as_deref(), Some("19:ch@thread.tacv2/10"));
+        assert_eq!(
+            conversation_of(&json!({"conversationLink": "https://t/conversations/19%3Ax%40thread.v2"})).as_deref(),
+            Some("19:x@thread.v2")
+        );
+        assert_eq!(
+            message("19:ch@thread.tacv2", &reply, &d).unwrap().thread_id.as_deref(),
+            Some("19:ch@thread.tacv2/10")
+        );
         let root = raw("10", json!({"conversationLink": "https://t/conversations/19:ch@thread.tacv2;messageid=10"}));
         assert_eq!(message("19:ch@thread.tacv2", &root, &d).unwrap().thread_id, None);
         let added = raw(
@@ -603,7 +616,8 @@ mod tests {
         let mut mine = chat.clone();
         mine["isLastMessageFromMe"] = json!(true);
         assert!(!subscription("r", &mine, me, 5, None).alert);
-        let meeting = json!({"id": "19:m@thread.v2", "chatType": "meeting", "title": "Standup", "isRead": true, "hidden": true});
+        let meeting =
+            json!({"id": "19:m@thread.v2", "chatType": "meeting", "title": "Standup", "isRead": true, "hidden": true});
         let room = chat_room(me, &meeting, &d).unwrap();
         assert_eq!((room.kind.as_str(), room.name.as_deref()), ("p", Some("Standup")));
         assert!(!subscription("r", &meeting, me, 5, None).open);

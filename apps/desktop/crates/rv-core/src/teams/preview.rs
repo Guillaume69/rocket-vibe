@@ -499,7 +499,7 @@ pub fn plain_text(message: &Message) -> String {
 mod tests {
     use super::*;
     fn fixture() -> Value {
-        serde_json::from_str(include_str!("../../../../../docs/protocol/fixtures/teams-read.json")).unwrap()
+        serde_json::from_str(include_str!("../../../../../../docs/protocol/fixtures/teams-read.json")).unwrap()
     }
     fn account() -> Account {
         Account { tenant_id: "00000000-0000-0000-0000-000000000001".into(), account_id: "synthetic-account".into() }

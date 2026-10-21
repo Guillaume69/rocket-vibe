@@ -26,6 +26,8 @@ const MAX_WALK: usize = 20;
 const SINCE_CAP: usize = 1000;
 const CURSOR_SCOPE: &str = "*";
 const CURSOR_STREAM: &str = "mm-last-post";
+/// At most this many memberships loaded by one `group_added` without a channel id.
+const DISCOVER_MAX: usize = 10;
 
 #[derive(Default)]
 struct Live {
@@ -36,6 +38,8 @@ struct Live {
     /// snapshot taken before that is older than what the room shows.
     touched: HashMap<String, u64>,
     clock: u64,
+    /// Memberships the server lists that are not loaded: archived channels, not asked again.
+    ignored: HashSet<String>,
 }
 
 impl Live {
@@ -204,10 +208,56 @@ impl MmSync {
         }
     }
 
-    /// The conversations within the list's limit, from the channels known now.
-    fn rank(&self, channels: &[Value]) {
+    /// The conversations within the list's limit, from the channels known now;
+    /// returns the ones that entered or left it.
+    fn rank(&self, channels: &[Value]) -> Vec<String> {
         let placements = self.placements.lock().unwrap();
-        self.sidebar.lock().unwrap().rank(channels, |rid| categories::placed_elsewhere(placements.get(rid)));
+        self.sidebar.lock().unwrap().rank(channels, |rid| categories::placed_elsewhere(placements.get(rid)))
+    }
+
+    /// Ranks the known conversations again after one was learned or moved;
+    /// returns the ones that entered or left the list.
+    fn rerank(&self) -> Vec<String> {
+        let all: Vec<Value> = self.live.lock().unwrap().channels.values().cloned().collect();
+        self.rank(&all)
+    }
+
+    /// kChat passes no broadcast envelope, so a `group_added` or `direct_added`
+    /// carries no channel id: my memberships are read again and the new ones loaded.
+    async fn discover(&self) {
+        let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        let fresh: Vec<Value> = {
+            let live = self.live.lock().unwrap();
+            members
+                .into_iter()
+                .filter(|m| {
+                    text(m, "channel_id")
+                        .is_some_and(|rid| !live.members.contains_key(rid) && !live.ignored.contains(rid))
+                })
+                .take(DISCOVER_MAX)
+                .collect()
+        };
+        let mut loaded = Vec::new();
+        for member in fresh {
+            let rid = text(&member, "channel_id").unwrap_or_default().to_owned();
+            match self.load_channel(&rid, Some(member)).await {
+                Ok(true) => loaded.push(rid),
+                Ok(false) => {
+                    self.live.lock().unwrap().ignored.insert(rid);
+                }
+                Err(_) => {}
+            }
+        }
+        if loaded.is_empty() {
+            return;
+        }
+        let moved = self.rerank();
+        for rid in &loaded {
+            self.write_room(rid, true);
+        }
+        for rid in moved.iter().filter(|rid| !loaded.contains(rid)) {
+            self.write_room(rid, false);
+        }
     }
 
     /// Preferences set elsewhere (kChat web, another client): a conversation
@@ -595,23 +645,41 @@ impl MmSync {
         Ok(())
     }
 
-    /// A channel I just learnt about, with my membership.
-    async fn load_channel(&self, rid: &str) -> Result<(), RestError> {
+    /// A channel I just learnt about, with my membership unless given; false
+    /// for an archived one whose membership was given.
+    async fn load_channel(&self, rid: &str, known: Option<Value>) -> Result<bool, RestError> {
         let (channel_path, member_path) = (format!("channels/{rid}"), format!("channels/{rid}/members/me"));
-        let (channel, member) = tokio::try_join!(
-            self.rest.get(&channel_path, CallOptions::default()),
-            self.rest.get(&member_path, CallOptions::default()),
-        )?;
-        if text(&channel, "type") == Some("D") {
-            let peers: Vec<String> =
-                text(&channel, "name").unwrap_or_default().split("__").map(str::to_owned).collect();
-            self.directory.ensure(&self.rest, peers).await;
+        let given = known.is_some();
+        let (channel, member) = tokio::try_join!(self.rest.get(&channel_path, CallOptions::default()), async {
+            match known {
+                Some(member) => Ok(member),
+                None => self.rest.get(&member_path, CallOptions::default()).await,
+            }
+        })?;
+        if given && int(&channel, "delete_at") > 0 {
+            return Ok(false);
+        }
+        match text(&channel, "type") {
+            Some("D") => {
+                let peers: Vec<String> =
+                    text(&channel, "name").unwrap_or_default().split("__").map(str::to_owned).collect();
+                self.directory.ensure(&self.rest, peers).await;
+            }
+            Some("G") => {
+                let names: Vec<String> = text(&channel, "display_name")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|n| n.trim().to_owned())
+                    .collect();
+                self.directory.ensure_usernames(&self.rest, names).await;
+            }
+            _ => {}
         }
         let mut live = self.live.lock().unwrap();
         live.channels.insert(rid.to_owned(), channel);
         live.members.insert(rid.to_owned(), member);
         live.touch(rid);
-        Ok(())
+        Ok(true)
     }
 
     /// Writes the room row (with the newest root post known) and its membership.
@@ -715,12 +783,21 @@ impl MmSync {
             "channel_created" | "channel_updated" | "channel_converted" | "channel_restored" | "direct_added"
             | "group_added" | "user_added" => {
                 let rid = data.get("channel").and_then(object).and_then(|c| c.get("id")?.as_str().map(str::to_owned));
-                let rid = rid.or(channel_id)?;
+                let Some(rid) = rid.or(channel_id) else {
+                    if matches!(name, "group_added" | "direct_added") {
+                        self.discover().await;
+                    }
+                    return None;
+                };
                 if name == "user_added" && text(data, "user_id") != Some(self.me.as_str()) {
                     return None;
                 }
-                self.load_channel(&rid).await.ok()?;
+                self.load_channel(&rid, None).await.ok()?;
+                let moved = self.rerank();
                 self.write_room(&rid, true);
+                for other in moved.iter().filter(|other| **other != rid) {
+                    self.write_room(other, false);
+                }
                 None
             }
             "preferences_changed" | "preferences_deleted" => {
@@ -775,15 +852,16 @@ impl MmSync {
         self.ensure_authors(std::slice::from_ref(&post)).await;
         let known = self.live.lock().unwrap().members.contains_key(&rid);
         if !known {
-            let _ = self.load_channel(&rid).await;
+            let _ = self.load_channel(&rid, None).await;
         }
         let root = text(&post, "root_id").is_none();
         let mine = text(&post, "user_id") == Some(self.me.as_str());
         let mentioned = mentions(data.get("mentions")).contains(&self.me);
         let at = int(&post, "create_at");
         let fresh = !self.store.has_message(text(&post, "id").unwrap_or_default());
-        {
+        let conversation = {
             let mut live = self.live.lock().unwrap();
+            let conversation = live.channels.get(&rid).is_some_and(|c| matches!(text(c, "type"), Some("D" | "G")));
             if let Some(channel) = live.channels.get_mut(&rid) {
                 channel["total_msg_count"] = json!(int(channel, "total_msg_count") + 1);
                 channel["last_post_at"] = json!(at);
@@ -807,9 +885,14 @@ impl MmSync {
                 live.last_posts.insert(rid.clone(), post.clone());
             }
             live.touch(&rid);
-        }
+            conversation
+        };
+        let moved = if conversation { self.rerank() } else { Vec::new() };
         self.ingest(std::slice::from_ref(&post));
         self.write_room(&rid, root);
+        for other in moved.iter().filter(|other| **other != rid) {
+            self.write_room(other, false);
+        }
         // A reply moves its root's "N replies", which no event carries
         // (`thread_updated` is quiet): a cached root is read again. One the cache
         // lacks stays out, or it would sit among the recent rows.

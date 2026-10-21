@@ -73,7 +73,10 @@ async fn form(url: &str, fields: &[(&str, &str)]) -> Result<Value, RestError> {
 }
 
 fn guid(s: &str) -> bool {
-    s.len() == 36 && s.bytes().enumerate().all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() })
+    s.len() == 36
+        && s.bytes()
+            .enumerate()
+            .all(|(i, b)| if [8, 13, 18, 23].contains(&i) { b == b'-' } else { b.is_ascii_hexdigit() })
 }
 
 /// The claims of an id token Microsoft just handed us over TLS: read, not verified.
@@ -100,10 +103,12 @@ impl std::fmt::Debug for DeviceCode {
 
 pub async fn device_code() -> Result<DeviceCode, RestError> {
     let scope = format!("{SPACES}/.default openid profile offline_access");
-    let body = form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", &scope)])
-        .await?;
+    let body =
+        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", &scope)])
+            .await?;
     let field = |key: &str| body[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
-    let verification_uri = field("verification_uri").filter(|u| u.starts_with("https://")).ok_or_else(|| refusal("device_code", 200))?;
+    let verification_uri =
+        field("verification_uri").filter(|u| u.starts_with("https://")).ok_or_else(|| refusal("device_code", 200))?;
     Ok(DeviceCode {
         user_code: field("user_code").ok_or_else(|| refusal("device_code", 200))?,
         device_code: Zeroizing::new(field("device_code").ok_or_else(|| refusal("device_code", 200))?),
@@ -266,6 +271,18 @@ impl Tokens {
         Ok(Arc::new(Tokens { info: Mutex::new(info.clone()), held: tokio::sync::Mutex::default() }))
     }
 
+    /// Tokens already held, for a test server: they never refresh.
+    pub fn preset(info: &SessionInfo, routes: Routes, skype: &str, aggregator: &str) -> Result<Arc<Self>, RestError> {
+        let tokens = Self::new(info)?;
+        let lease = |value: &str| Lease {
+            value: Zeroizing::new(value.to_owned()),
+            until: Instant::now() + Duration::from_secs(1 << 30),
+        };
+        let held = Held { aggregator: Some(lease(aggregator)), skype: Some(lease(skype)), routes: Some(routes) };
+        *tokens.held.try_lock().expect("a fresh account") = held;
+        Ok(tokens)
+    }
+
     pub fn info(&self) -> SessionInfo {
         self.info.lock().unwrap().clone()
     }
@@ -279,14 +296,21 @@ impl Tokens {
         let scope = format!("{audience}/.default openid profile offline_access");
         let body = form(
             &format!("{LOGIN}/{tenant}/oauth2/v2.0/token"),
-            &[("client_id", CLIENT_ID), ("grant_type", "refresh_token"), ("refresh_token", &refresh), ("scope", &scope)],
+            &[
+                ("client_id", CLIENT_ID),
+                ("grant_type", "refresh_token"),
+                ("refresh_token", &refresh),
+                ("scope", &scope),
+            ],
         )
         .await?;
         if let Some(error) = body["error"].as_str() {
-            let status = if matches!(error, "invalid_grant" | "interaction_required" | "invalid_client") { 401 } else { 400 };
+            let status =
+                if matches!(error, "invalid_grant" | "interaction_required" | "invalid_client") { 401 } else { 400 };
             return Err(refusal(error, status));
         }
-        let token = body["access_token"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| refusal("access_token", 200))?;
+        let token =
+            body["access_token"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| refusal("access_token", 200))?;
         if let Some(rotated) = body["refresh_token"].as_str().filter(|t| !t.is_empty() && **t != **refresh) {
             let saved = {
                 let mut info = self.info.lock().unwrap();
@@ -337,7 +361,8 @@ impl Tokens {
             return Err(refusal("authz", status.max(200)));
         };
         let seconds = body.pointer("/tokens/expiresIn").and_then(Value::as_u64).unwrap_or(3600);
-        let lease = Lease { value: Zeroizing::new(skype.to_owned()), until: Instant::now() + Duration::from_secs(seconds) };
+        let lease =
+            Lease { value: Zeroizing::new(skype.to_owned()), until: Instant::now() + Duration::from_secs(seconds) };
         let token = lease.value.clone();
         held.skype = Some(lease);
         held.routes = Some(routes.clone());

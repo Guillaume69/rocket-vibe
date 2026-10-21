@@ -3,6 +3,7 @@
 pub mod auth;
 pub mod client;
 pub mod preview;
+pub mod sync;
 pub mod translate;
 
 pub use auth::{SESSION_REJECTED, TeamsAccount};

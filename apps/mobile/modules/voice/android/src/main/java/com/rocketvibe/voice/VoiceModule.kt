@@ -1,7 +1,12 @@
 package com.rocketvibe.voice
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.media.projection.MediaProjectionManager
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
@@ -25,19 +30,22 @@ class ConnectOptions : Record {
 class VoiceModule : Module() {
   private val listener: () -> Unit = { sendEvent("change", VoiceEngine.last) }
   private val levelListener: (Double) -> Unit = { level -> sendEvent("level", mapOf("level" to level)) }
+  private val hangUpListener: () -> Unit = { sendEvent("hangUp", emptyMap<String, Any>()) }
   private var consent: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("Voice")
-    Events("change", "level")
+    Events("change", "level", "hangUp")
     OnCreate {
       VoiceEngine.attach(appContext.reactContext ?: throw IllegalStateException("No React context"))
       VoiceEngine.listen(listener)
       VoiceEngine.listenLevel(levelListener)
+      CallService.listen(hangUpListener)
     }
     OnDestroy {
       VoiceEngine.unlisten(listener)
       VoiceEngine.unlistenLevel(levelListener)
+      CallService.unlisten(hangUpListener)
     }
     Function("snapshot") { VoiceEngine.last }
     AsyncFunction("connect") { o: ConnectOptions ->
@@ -94,6 +102,30 @@ class VoiceModule : Module() {
       Prop("source") { view: VoiceVideoView, source: String -> view.source = source }
       Prop("fit") { view: VoiceVideoView, fit: String -> view.fit = fit }
     }
+    AsyncFunction("holdCall") { title: String ->
+      appContext.reactContext?.let { CallService.hold(it, title) }
+      Unit
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("releaseCall") {
+      appContext.reactContext?.let { CallService.release(it) }
+      Unit
+    }.runOnQueue(Queues.MAIN)
+    // Android 14 lets the user (or the store) withdraw full-screen intents: a ring is then a mere heads-up.
+    Function("fullScreenRings") {
+      val context = appContext.reactContext ?: return@Function true
+      Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+        context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() != false
+    }
+    AsyncFunction("openFullScreenRingSettings") {
+      val context = appContext.reactContext ?: return@AsyncFunction Unit
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        context.startActivity(
+          Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:" + context.packageName))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+      }
+      Unit
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("missed") {
       appContext.reactContext?.let { VoiceSounds.cue(it, R.raw.cue_missed) }
       Unit

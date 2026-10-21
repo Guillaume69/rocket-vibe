@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-697 production files scanned; 745 occurrences.
+697 production files scanned; 747 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -677,9 +677,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/actions.ts:195](../../apps/mobile/providers/rocketchat/actions.ts#L195) | endpoint | subscriptions.unread |
 | [apps/mobile/providers/rocketchat/actions.ts:201](../../apps/mobile/providers/rocketchat/actions.ts#L201) | call:POST | 'im.create' |
 | [apps/mobile/providers/rocketchat/actions.ts:201](../../apps/mobile/providers/rocketchat/actions.ts#L201) | endpoint | im.create |
-| [apps/mobile/providers/rocketchat/actions.ts:224](../../apps/mobile/providers/rocketchat/actions.ts#L224) | call:POST | privateRoom ? 'groups.create' : 'channels.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:225](../../apps/mobile/providers/rocketchat/actions.ts#L225) | endpoint | channels.create |
-| [apps/mobile/providers/rocketchat/actions.ts:225](../../apps/mobile/providers/rocketchat/actions.ts#L225) | endpoint | groups.create |
+| [apps/mobile/providers/rocketchat/actions.ts:220](../../apps/mobile/providers/rocketchat/actions.ts#L220) | call:POST | 'im.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:220](../../apps/mobile/providers/rocketchat/actions.ts#L220) | endpoint | im.create |
+| [apps/mobile/providers/rocketchat/actions.ts:241](../../apps/mobile/providers/rocketchat/actions.ts#L241) | call:POST | privateRoom ? 'groups.create' : 'channels.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:242](../../apps/mobile/providers/rocketchat/actions.ts#L242) | endpoint | channels.create |
+| [apps/mobile/providers/rocketchat/actions.ts:242](../../apps/mobile/providers/rocketchat/actions.ts#L242) | endpoint | groups.create |
 | [apps/mobile/providers/rocketchat/admin.ts:233](../../apps/mobile/providers/rocketchat/admin.ts#L233) | call:GET | 'me' |
 | [apps/mobile/providers/rocketchat/admin.ts:239](../../apps/mobile/providers/rocketchat/admin.ts#L239) | call:GET | 'statistics' |
 | [apps/mobile/providers/rocketchat/admin.ts:240](../../apps/mobile/providers/rocketchat/admin.ts#L240) | call:GET | 'roles.getUsersInRole' |

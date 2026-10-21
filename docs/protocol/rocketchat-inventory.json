@@ -4719,19 +4719,31 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 224,
+      "line": 220,
+      "kind": "call:POST",
+      "surface": "'im.create'"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 220,
+      "kind": "endpoint",
+      "surface": "im.create"
+    },
+    {
+      "file": "apps/mobile/providers/rocketchat/actions.ts",
+      "line": 241,
       "kind": "call:POST",
       "surface": "privateRoom ? 'groups.create' : 'channels.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 225,
+      "line": 242,
       "kind": "endpoint",
       "surface": "channels.create"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 225,
+      "line": 242,
       "kind": "endpoint",
       "surface": "groups.create"
     },

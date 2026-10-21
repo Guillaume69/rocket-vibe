@@ -52,6 +52,24 @@ const SYSTEM_TYPES: Record<string, { type: string; param: (props: Record<string,
   system_displayname_change: { type: 'r', param: (p) => str(p.new_displayname) },
 };
 
+const JOIN_LEAVE_TYPES = new Set([
+  'system_join_leave',
+  'system_join_channel',
+  'system_leave_channel',
+  'system_join_team',
+  'system_leave_team',
+  'system_add_remove',
+  'system_add_to_channel',
+  'system_remove_from_channel',
+  'system_add_to_team',
+  'system_remove_from_team',
+]);
+
+/** Mattermost's `Post.IsJoinLeaveMessage`: the server leaves these posts out of `total_msg_count(_root)`. */
+export function isJoinLeave(post: Record<string, unknown>): boolean {
+  return typeof post.type === 'string' && JOIN_LEAVE_TYPES.has(post.type);
+}
+
 export class MmTranslator implements Translator {
   private readonly directory: MmDirectory;
   private readonly myId: string;

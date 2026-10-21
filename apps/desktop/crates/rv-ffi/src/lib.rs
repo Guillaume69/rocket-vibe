@@ -951,6 +951,17 @@ impl Chat {
         Ok(on_tokio(async move { s.open_dm(&username).await }).await?)
     }
 
+    /// Whether this account opens a direct conversation with several people.
+    pub fn group_dms_supported(&self) -> bool {
+        self.session.group_dms_supported()
+    }
+
+    /// The direct room with these people and me, created if need be: its id.
+    pub async fn open_group_dm(&self, usernames: Vec<String>) -> Result<String, RvError> {
+        let s = self.session.clone();
+        Ok(on_tokio(async move { s.open_group_dm(&usernames).await }).await?)
+    }
+
     pub async fn join_channel(&self, rid: String) -> Result<(), RvError> {
         let s = self.session.clone();
         Ok(on_tokio(async move { s.join_channel(&rid).await }).await?)
@@ -1044,6 +1055,12 @@ fn action(a: rv_core::actions::Action) -> MessageAction {
 }
 
 /// French when true, English otherwise; the app decides from the system's languages.
+/// Others besides me a group DM holds at most.
+#[uniffi::export]
+pub fn group_dm_max() -> u32 {
+    rv_core::session::GROUP_DM_MAX as u32
+}
+
 #[uniffi::export]
 pub fn set_french(french: bool) {
     rv_core::i18n::set(if french { rv_core::i18n::Lang::Fr } else { rv_core::i18n::Lang::En });

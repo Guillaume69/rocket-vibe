@@ -30,7 +30,6 @@ pub mod rocket_chat;
 pub mod room_members;
 mod slack;
 pub mod social;
-mod teams;
 pub mod writing;
 
 use std::path::PathBuf;

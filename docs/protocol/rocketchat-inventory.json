@@ -2607,31 +2607,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 146,
+      "line": 150,
       "kind": "call:POST",
       "surface": "method"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 160,
+      "line": 164,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 162,
+      "line": 166,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 593,
+      "line": 669,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 604,
+      "line": 680,
       "kind": "endpoint",
       "surface": "chat.delete"
     },

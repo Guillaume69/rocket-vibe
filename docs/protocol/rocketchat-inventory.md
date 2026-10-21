@@ -325,11 +325,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:138](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L138) | call:POST | "bots.info" |
 | [apps/desktop/crates/rv-core/src/slack/live.rs:137](../../apps/desktop/crates/rv-core/src/slack/live.rs#L137) | call:POST | "rtm.connect" |
 | [apps/desktop/crates/rv-core/src/slack/mod.rs:302](../../apps/desktop/crates/rv-core/src/slack/mod.rs#L302) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:146](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L146) | call:POST | method |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:160](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L160) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:162](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L162) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:593](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L593) | endpoint | chat.update |
-| [apps/desktop/crates/rv-core/src/slack/sync.rs:604](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L604) | endpoint | chat.delete |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:150](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L150) | call:POST | method |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:164](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L164) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:166](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L166) | endpoint | users.conversations |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:669](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L669) | endpoint | chat.update |
+| [apps/desktop/crates/rv-core/src/slack/sync.rs:680](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L680) | endpoint | chat.delete |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |

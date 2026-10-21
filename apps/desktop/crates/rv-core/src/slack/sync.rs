@@ -19,6 +19,7 @@ use crate::sync::{HISTORY_PAGE, HistoryPage};
 
 const PREVIEWS: usize = 40;
 const PREVIEW_CONCURRENCY: usize = 4;
+const PREVIEW_LOOKBACK: usize = 10;
 const ROSTER_PAGE: &str = "200";
 const MAX_PAGES: usize = 50;
 const ROOM_CATCH_UP_PAGES: usize = 4;
@@ -67,6 +68,8 @@ pub struct SlackSync {
     saved: Mutex<HashSet<String>>,
     /// Rooms a live message came from before the list knew them: listed again once each.
     unlisted: Mutex<HashSet<String>>,
+    /// The `ts` of the message each room previews, when known.
+    previews: Mutex<HashMap<String, String>>,
 }
 
 impl SlackSync {
@@ -84,6 +87,7 @@ impl SlackSync {
             marked: Mutex::default(),
             saved: Mutex::default(),
             unlisted: Mutex::default(),
+            previews: Mutex::default(),
         }
     }
 
@@ -215,6 +219,10 @@ impl SlackSync {
             .map(|(rid, _)| rid)
             .collect();
         let previews = self.previews(&stale).await;
+        self.previews
+            .lock()
+            .unwrap()
+            .extend(previews.iter().filter_map(|(rid, m)| Some((rid.clone(), split_id(&m.id)?.1.to_owned()))));
         let rooms: Vec<_> = {
             let names = self.names.lock().unwrap();
             let t = Translator { directory: &self.directory, channels: &names };
@@ -525,15 +533,25 @@ impl SlackSync {
         let channel = text(frame, "channel")?;
         match text(frame, "subtype") {
             Some("message_deleted") => {
-                let id = translate::message_id(channel, text(frame, "deleted_ts")?);
+                let ts = text(frame, "deleted_ts")?;
+                let id = translate::message_id(channel, ts);
                 self.store.write(|w| w.delete_message(&id));
+                self.preview_after_delete(channel, ts).await;
                 None
             }
             Some("message_changed") => {
                 let nested = frame.get("message")?;
+                let preview = self.is_preview(channel, nested);
+                if preview && text(nested, "subtype") == Some("tombstone") {
+                    self.preview_after_delete(channel, text(nested, "ts")?).await;
+                    return None;
+                }
                 self.resolve(std::slice::from_ref(nested)).await;
                 let message = self.translate(channel, nested)?;
                 self.store.write(|w| w.upsert_message(&message));
+                if preview {
+                    self.write_preview(channel, Some(&message));
+                }
                 None
             }
             _ => {
@@ -547,6 +565,9 @@ impl SlackSync {
                 let ts = text(frame, "ts")?;
                 let reply = text(frame, "thread_ts").is_some_and(|t| t != ts);
                 let mine = text(frame, "user") == Some(self.me.as_str());
+                if !reply {
+                    self.previews.lock().unwrap().insert(channel.to_owned(), ts.to_owned());
+                }
                 let room = {
                     let conversations = self.conversations.lock().unwrap();
                     let names = self.names.lock().unwrap();
@@ -579,6 +600,61 @@ impl SlackSync {
                 (fresh && !mine && (!in_thread || mention)).then_some(message)
             }
         }
+    }
+
+    /// Whether a message is its room's preview: the one known, else a root at least as new as the room's latest.
+    fn is_preview(&self, rid: &str, message: &Value) -> bool {
+        let Some(ts) = text(message, "ts") else { return false };
+        if text(message, "thread_ts").is_some_and(|t| t != ts) {
+            return false;
+        }
+        if let Some(known) = self.previews.lock().unwrap().get(rid) {
+            return known == ts;
+        }
+        self.counts
+            .lock()
+            .unwrap()
+            .get(rid)
+            .and_then(|c| text(c, "latest"))
+            .is_some_and(|latest| super::compare_timestamp(ts, latest).is_ge())
+    }
+
+    /// The room's preview after its message went: the newest root message left, or none.
+    async fn preview_after_delete(&self, rid: &str, ts: &str) {
+        if !self.is_preview(rid, &serde_json::json!({ "ts": ts })) {
+            return;
+        }
+        self.previews.lock().unwrap().remove(rid);
+        let Ok((page, _)) = self.history(rid, vec![("limit", PREVIEW_LOOKBACK.to_string())]).await else { return };
+        if self.previews.lock().unwrap().contains_key(rid) {
+            return;
+        }
+        let next = page
+            .iter()
+            .filter(|m| text(m, "ts").is_some_and(|t| t != ts) && !translate::skipped(m))
+            .filter(|m| text(m, "thread_ts").is_none_or(|t| Some(t) == text(m, "ts")))
+            .find_map(|m| self.translate(rid, m));
+        self.write_preview(rid, next.as_ref());
+    }
+
+    /// Writes the room row with `last` as its preview, `None` clearing it; the room keeps its place.
+    fn write_preview(&self, rid: &str, last: Option<&Message>) {
+        let latest = self.counts.lock().unwrap().get(rid).and_then(|c| text(c, "latest")).and_then(ts_ms);
+        let room = {
+            let conversations = self.conversations.lock().unwrap();
+            let names = self.names.lock().unwrap();
+            let t = Translator { directory: &self.directory, channels: &names };
+            conversations.get(rid).and_then(|c| t.room(&self.me, c, latest, last))
+        };
+        let Some(mut room) = room else { return };
+        room.keep_preview = false;
+        let mut previews = self.previews.lock().unwrap();
+        match last.and_then(|m| split_id(&m.id)) {
+            Some((_, ts)) => previews.insert(rid.to_owned(), ts.to_owned()),
+            None => previews.remove(rid),
+        };
+        drop(previews);
+        self.store.write(|w| w.upsert_room(&room));
     }
 
     /// Rewrites my message; the stored row follows Slack's answer.

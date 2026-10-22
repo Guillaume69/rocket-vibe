@@ -23,6 +23,9 @@ pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
 const PRESENCE_SCOPE: &str = "https://presence.teams.microsoft.com";
 /// Message search runs on the Substrate query API with a bearer for its scope.
 const SUBSTRATE: &str = "https://substrate.office.com";
+/// Microsoft Graph, for what the chat service does not reach: file download
+/// (SharePoint/OneDrive drive items), room-settings edits, pins.
+const GRAPH: &str = "https://graph.microsoft.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
@@ -292,6 +295,81 @@ fn thread_properties_shape(body: &Value) -> Value {
         "has_topic": has("topic"),
         "has_spaceThreadTopic": has("spaceThreadTopic"),
     })
+}
+
+/// The granted delegated scopes from an access token's `scp` claim (scope
+/// names only, not secrets), to tell which Graph calls the token can make.
+fn jwt_scopes(token: &str) -> String {
+    use base64::Engine;
+    let Some(payload) = token.split('.').nth(1) else { return String::new() };
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else { return String::new() };
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("scp").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// GET /me, capturing my object id (needed to pick my own messages for the pin
+/// probe) and reporting status, key names and whether a job title is present.
+/// The id is my own and is not printed.
+async fn describe_me(r: Result<reqwest::Response, reqwest::Error>) -> (String, Value) {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let oid = body.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            (
+                oid,
+                json!({
+                    "status": status,
+                    "top_level_keys": keys,
+                    "has_job_title": body.get("jobTitle").is_some_and(|v| !v.is_null()),
+                }),
+            )
+        }
+        Err(e) => (String::new(), json!({ "error": e.to_string() })),
+    }
+}
+
+/// Verify the Graph file transport end to end. The token carries
+/// `Files.ReadWrite.All`/`Sites.ReadWrite.All` but not `Chat.*`. Upload a tiny
+/// probe file to the user's own OneDrive, download it directly and through
+/// `/shares/u!{base64}` (the path a Teams message's SharePoint url needs), then
+/// delete it. Self-cleaning; statuses and byte presence only, no content.
+async fn probe_graph_features(token: &str, _me_oid: &str) -> Value {
+    let gurl = |path: &str| format!("https://graph.microsoft.com/v1.0{path}");
+    let mut out = serde_json::Map::new();
+
+    let (up_status, item) = match http()
+        .put(gurl("/me/drive/root:/rv-vibe-probe.txt:/content"))
+        .bearer_auth(token)
+        .header("content-type", "text/plain")
+        .body("rv probe")
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            (s, r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+        Err(e) => (0, json!({ "error": e.to_string() })),
+    };
+    out.insert("upload_status".into(), json!(up_status));
+    if let Some(id) = item.get("id").and_then(Value::as_str) {
+        let direct = http().get(gurl(&format!("/me/drive/items/{id}/content"))).bearer_auth(token).send().await;
+        out.insert("download_direct".into(), describe_download(direct).await);
+        if let Some(web) = item.get("webUrl").and_then(Value::as_str) {
+            use base64::Engine;
+            let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(web.as_bytes());
+            let shared =
+                http().get(gurl(&format!("/shares/u!{enc}/driveItem/content"))).bearer_auth(token).send().await;
+            out.insert("download_shares".into(), describe_download(shared).await);
+        }
+        let del = http().delete(gurl(&format!("/me/drive/items/{id}"))).bearer_auth(token).send().await;
+        out.insert("cleanup_delete_status".into(), json!(del.map(|r| r.status().as_u16()).unwrap_or(0)));
+    }
+    Value::Object(out)
 }
 
 /// A conversation sub-resource url under the chat service, ids kept opaque.
@@ -576,6 +654,7 @@ struct Held {
     aggregator: Option<Lease>,
     presence: Option<Lease>,
     substrate: Option<Lease>,
+    graph: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -604,6 +683,7 @@ impl Tokens {
             aggregator: Some(lease(aggregator)),
             presence: None,
             substrate: None,
+            graph: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -695,6 +775,20 @@ impl Tokens {
         Ok(token)
     }
 
+    /// The Microsoft Graph bearer, for file download, room-settings edits and
+    /// pins. Minted from the same refresh token: the Teams first-party client is
+    /// broadly pre-consented, so no extra sign-in is needed when it is granted.
+    pub async fn graph(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.graph.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(GRAPH).await?;
+        let token = lease.value.clone();
+        held.graph = Some(lease);
+        Ok(token)
+    }
+
     /// The Skype token and the tenant's routes, from authz.
     pub async fn chat(&self) -> Result<(Zeroizing<String>, Routes), RestError> {
         let mut held = self.held.lock().await;
@@ -752,6 +846,29 @@ impl Tokens {
         };
         let bearer = self.aggregator().await.map(|b| b.as_str().to_owned()).unwrap_or_default();
         let mut out = serde_json::Map::new();
+
+        // Keystone: can the refresh token mint a Microsoft Graph token, and does
+        // Graph accept it? A safe read (GET /v1.0/me), status and key presence
+        // only (no profile values). If this works, files/pins/room-settings are
+        // reachable through Graph without a new sign-in.
+        match self.graph().await {
+            Ok(token) => {
+                out.insert("graph_scopes".into(), json!(jwt_scopes(token.as_str())));
+                let r = http().get("https://graph.microsoft.com/v1.0/me").bearer_auth(token.as_str()).send().await;
+                let (me_oid, me_report) = describe_me(r).await;
+                out.insert("graph_me".into(), me_report);
+                let chats = http()
+                    .get("https://graph.microsoft.com/v1.0/me/chats?$top=1")
+                    .bearer_auth(token.as_str())
+                    .send()
+                    .await;
+                out.insert("graph_chats_status".into(), describe_keys(chats).await);
+                out.insert("graph_features".into(), probe_graph_features(token.as_str(), &me_oid).await);
+            }
+            Err(e) => {
+                out.insert("graph_me".into(), json!({ "token_error": format!("{e:?}") }));
+            }
+        }
 
         if !routes.presence.is_empty() {
             let url = format!("{}/v1/presence/getpresence/", routes.presence);

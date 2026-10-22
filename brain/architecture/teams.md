@@ -72,7 +72,7 @@ delete a `DELETE`, a reaction a `PUT` / `DELETE` of `properties?name=emotions`.
 ## Done so far
 
 Chats and channels, unread state, history, live messages/edits/reactions/deletions,
-and send, edit, delete, react, mark read and the typing indicator (a `Control/Typing`
+and send, edit, delete, react, mark read, the typing indicator and channel thread replies (a `Control/Typing`
 chat-service message, the one feature past the core that reuses the already-probed
 `/messages` endpoint). Android hides every refused action through `TEAMS_CAPABILITIES`;
 GTK and SwiftUI hide the refused message actions, search, the pinned/saved panels and
@@ -99,10 +99,9 @@ way the chat-service calls and Slack's socket were qualified.
   needs an upload session. Both need OneDrive auth beyond the chat token.
 - **Search**: Microsoft Search (substrate) `POST /search/query`; host not in the
   capture.
-- **Channel threads (list/read)**: replies already post to `rid;messageid=<root>`
-  (`threadTarget`, probed), but reading a thread needs the reply-to-root link in the
-  channel message shape, unverified; enabling the capability without the read path would
-  show an empty thread view.
+- **Channel thread list**: a thread opened from a message works (replies post to
+  `rid;messageid=<root>` and are fetched from that thread-scoped conversation), but
+  there is no list of a channel's threads: Teams has no `getThreadsList` equivalent.
 - **Pins / saves**: conversation and user properties on the chat service
   (`properties?name=...`); the exact keys were not probed.
 - **Direct message creation**: starting a 1:1 needs the deterministic conversation id

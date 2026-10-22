@@ -1924,7 +1924,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 965,
+      "line": 963,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },

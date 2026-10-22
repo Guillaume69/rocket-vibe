@@ -279,6 +279,21 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
     }
 }
 
+/// The threads document's `properties` object by STRUCTURE: its key names and
+/// whether the likely room-info fields are present. No values (topic and
+/// description are room metadata, but the probe only needs their presence).
+fn thread_properties_shape(body: &Value) -> Value {
+    let props = body.get("properties");
+    let keys: Vec<String> = props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let has = |name: &str| props.and_then(|p| p.get(name)).is_some_and(|v| !v.is_null());
+    json!({
+        "property_keys": keys,
+        "has_description": has("description"),
+        "has_topic": has("topic"),
+        "has_spaceThreadTopic": has("spaceThreadTopic"),
+    })
+}
+
 /// A conversation sub-resource url under the chat service, ids kept opaque.
 fn conversation_sub_url(chat: &str, id: &str, tail: &[&str], query: &str) -> Option<url::Url> {
     let mut u = url::Url::parse(&format!("{chat}/v1/users/ME/conversations")).ok()?;
@@ -885,6 +900,7 @@ impl Tokens {
             // report the first with members, so an empty 1:1 does not hide it.
             let mut roster = None;
             let mut fallback = None;
+            let mut thread_props = Value::Null;
             for id in ids.iter().take(10) {
                 let Some(url) = thread_url(id, None) else { continue };
                 let (status, body) = match http()
@@ -901,12 +917,17 @@ impl Tokens {
                 };
                 let report = member_report(status, None, &body);
                 if report.get("member_count").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                    thread_props = thread_properties_shape(&body);
                     roster = Some(report);
                     break;
+                }
+                if fallback.is_none() {
+                    thread_props = thread_properties_shape(&body);
                 }
                 fallback.get_or_insert(report);
             }
             out.insert("thread_roster".into(), roster.or(fallback).unwrap_or(Value::Null));
+            out.insert("thread_properties".into(), thread_props);
             // Attachment shape: scan recent messages of a few conversations for
             // the first one carrying a file, reported by messagetype and field
             // names only (no filenames, urls or message text).

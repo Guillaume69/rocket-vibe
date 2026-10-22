@@ -279,34 +279,25 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
     }
 }
 
-/// A conversation's members sub-resource described WITHOUT identities: status,
-/// headers, the member count and the member-row key names and top-level keys.
-async fn describe_members(r: Result<reqwest::Response, reqwest::Error>) -> Value {
-    match r {
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
-            let www_authenticate = header("www-authenticate");
-            let body: Value = resp.json().await.unwrap_or(Value::Null);
-            let members = body.as_array().or_else(|| body.get("members").and_then(Value::as_array));
-            let member_keys: Vec<String> = members
-                .and_then(|a| a.first())
-                .and_then(Value::as_object)
-                .map(|o| o.keys().cloned().collect())
-                .unwrap_or_default();
-            let top_level_keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-            json!({
-                "status": status,
-                "www_authenticate": www_authenticate,
-                "member_count": members.map(|a| a.len()),
-                "member_keys": member_keys,
-                "top_level_keys": top_level_keys,
-                "error_code": body.get("errorCode"),
-                "message": body.get("message"),
-            })
-        }
-        Err(e) => json!({ "error": e.to_string() }),
-    }
+/// A members body described WITHOUT identities: the member count and the
+/// member-row key names and top-level keys, plus any error envelope.
+fn member_report(status: u16, www_authenticate: Option<String>, body: &Value) -> Value {
+    let members = body.as_array().or_else(|| body.get("members").and_then(Value::as_array));
+    let member_keys: Vec<String> = members
+        .and_then(|a| a.first())
+        .and_then(Value::as_object)
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
+    let top_level_keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    json!({
+        "status": status,
+        "www_authenticate": www_authenticate,
+        "member_count": members.map(|a| a.len()),
+        "member_keys": member_keys,
+        "top_level_keys": top_level_keys,
+        "error_code": body.get("errorCode"),
+        "message": body.get("message"),
+    })
 }
 
 /// A Substrate search result described by STRUCTURE only: status, the result
@@ -690,22 +681,23 @@ impl Tokens {
         // reported, never message content.
         if !routes.chat.is_empty() {
             let list =
-                format!("{}/v1/users/ME/conversations?view=msnp24Equivalent&pageSize=1&startTime=1", routes.chat);
-            let first =
+                format!("{}/v1/users/ME/conversations?view=msnp24Equivalent&pageSize=30&startTime=1", routes.chat);
+            let ids: Vec<String> =
                 match http().get(&list).header("authentication", format!("skypetoken={}", skype.as_str())).send().await
                 {
-                    Ok(resp) if resp.status().is_success() => resp.json::<Value>().await.ok().and_then(|b| {
-                        b.get("conversations")
-                            .and_then(Value::as_array)
-                            .and_then(|a| a.first())
-                            .and_then(|c| c.get("id"))
-                            .and_then(Value::as_str)
-                            .map(str::to_owned)
-                    }),
-                    _ => None,
+                    Ok(resp) if resp.status().is_success() => resp
+                        .json::<Value>()
+                        .await
+                        .ok()
+                        .and_then(|b| b.get("conversations").and_then(Value::as_array).cloned())
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                        .collect(),
+                    _ => Vec::new(),
                 };
-            let conv_url = |id: &str, tail: Option<&str>| -> Option<url::Url> {
-                let mut url = url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok()?;
+            let thread_url = |id: &str, tail: Option<&str>| -> Option<url::Url> {
+                let mut url = url::Url::parse(&format!("{}/v1/threads", routes.chat)).ok()?;
                 {
                     let mut seg = url.path_segments_mut().ok()?;
                     seg.push(id);
@@ -713,34 +705,50 @@ impl Tokens {
                         seg.push(tail);
                     }
                 }
-                url.set_query(Some("view=msnp24Equivalent"));
+                url.set_query(Some("view=msnp24Equivalent&threadProperties=1"));
                 Some(url)
             };
-            match &first {
-                Some(id) => {
-                    if let Some(url) = conv_url(id, None) {
-                        let r = http()
-                            .get(url)
-                            .header("authentication", format!("skypetoken={}", skype.as_str()))
-                            .send()
-                            .await;
-                        out.insert("conversation".into(), describe_conversation(r).await);
-                    }
-                    // Where the member count likely comes from (threadProperties
-                    // has none): the conversation's members sub-resource.
-                    if let Some(url) = conv_url(id, Some("members")) {
-                        let r = http()
-                            .get(url)
-                            .header("authentication", format!("skypetoken={}", skype.as_str()))
-                            .send()
-                            .await;
-                        out.insert("conversation_members".into(), describe_members(r).await);
-                    }
+            if let Some(id) = ids.first() {
+                let conv =
+                    url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok().and_then(|mut u| {
+                        u.path_segments_mut().ok()?.push(id);
+                        u.set_query(Some("view=msnp24Equivalent"));
+                        Some(u)
+                    });
+                if let Some(url) = conv {
+                    let r =
+                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
+                    out.insert("conversation".into(), describe_conversation(r).await);
                 }
-                None => {
-                    out.insert("conversation".into(), json!({ "note": "no conversation id listed" }));
-                }
+            } else {
+                out.insert("conversation".into(), json!({ "note": "no conversation id listed" }));
             }
+            // The roster lives on the threads service: scan up to 10 threads and
+            // report the first with members, so an empty 1:1 does not hide it.
+            let mut roster = None;
+            let mut fallback = None;
+            for id in ids.iter().take(10) {
+                let Some(url) = thread_url(id, None) else { continue };
+                let (status, body) = match http()
+                    .get(url)
+                    .header("authentication", format!("skypetoken={}", skype.as_str()))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        (status, resp.json::<Value>().await.unwrap_or(Value::Null))
+                    }
+                    Err(_) => continue,
+                };
+                let report = member_report(status, None, &body);
+                if report.get("member_count").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                    roster = Some(report);
+                    break;
+                }
+                fallback.get_or_insert(report);
+            }
+            out.insert("thread_roster".into(), roster.or(fallback).unwrap_or(Value::Null));
         }
         Value::Object(out)
     }

@@ -2518,7 +2518,8 @@ impl Session {
     pub fn members_available(&self, rid: &str) -> bool {
         match self.backend() {
             Backend::RocketChat => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
-            Backend::Mattermost(_) | Backend::Slack(_) | Backend::Teams(_) => false,
+            Backend::Teams(_) => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2539,6 +2540,9 @@ impl Session {
     /// A page of the room's members, owners and moderators first, `filter`
     /// searched by the server; read each time, never stored.
     pub async fn room_members(&self, rid: &str, filter: &str, offset: u32) -> Result<members::MemberPage, RestError> {
+        if let Backend::Teams(teams) = self.backend() {
+            return teams.members(rid).await;
+        }
         self.member_room(rid)?;
         rocketchat::actions::members(&self.rest, rid, filter, offset).await
     }
@@ -2547,7 +2551,8 @@ impl Session {
     /// (`set-moderator`, `set-owner`, `remove-user`); nothing when that
     /// could not be asked.
     pub async fn member_rights(&self, rid: &str) -> members::MemberRights {
-        if !self.members_available(rid) {
+        // Teams exposes the roster read-only: no add, remove or role change.
+        if !self.members_available(rid) || matches!(self.backend(), Backend::Teams(_)) {
             return members::MemberRights::default();
         }
         self.permissions(rid).await.map(|g| members::MemberRights::from_granted(&g)).unwrap_or_default()
@@ -2556,6 +2561,7 @@ impl Session {
     /// Whether my roles grant `edit-room`: the room's texts and read-only flag.
     pub async fn can_edit_room(&self, rid: &str) -> bool {
         self.members_available(rid)
+            && !matches!(self.backend(), Backend::Teams(_))
             && self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == members::EDIT_ROOM))
     }
 

@@ -417,6 +417,15 @@ impl TeamsSync {
         Ok(search_hits(&answer.body, rid, &self.directory))
     }
 
+    /// The room's roster, from the threads service (`GET /v1/threads/<rid>`);
+    /// each member is `{id: <mri>, role}`. Read-only: Teams gives no add, remove
+    /// or role-change route here, so no rights travel with it.
+    pub async fn members(&self, rid: &str) -> Result<crate::members::MemberPage, RestError> {
+        let url = self.chat_url(&["threads", rid], "view=msnp24Equivalent&threadProperties=1").await?;
+        let body = self.chat(Method::GET, url, None).await?.body;
+        Ok(roster_page(&body, &self.directory))
+    }
+
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
         let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
         if let Some(root) = self.fetch_message(root_id).await? {
@@ -616,6 +625,32 @@ fn conversation_topic(body: &Value) -> Option<String> {
     body.get("threadProperties").and_then(|p| str_of(p, "topic")).filter(|t| !t.is_empty()).map(str::to_owned)
 }
 
+/// A threads-service roster as a member page: each row is `{id: <mri>, role}`,
+/// the name resolved from the directory when known.
+fn roster_page(body: &Value, directory: &Directory) -> crate::members::MemberPage {
+    let members: Vec<crate::members::Member> = body
+        .get("members")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|m| {
+            let mri = str_of(m, "id")?.to_owned();
+            let name = directory.name(&mri);
+            Some(crate::members::Member {
+                id: mri.clone(),
+                username: name.clone().unwrap_or(mri),
+                name,
+                presence: None,
+                avatar_etag: None,
+                roles: str_of(m, "role").map(|r| vec![r.to_owned()]).unwrap_or_default(),
+            })
+        })
+        .collect();
+    let total = members.len() as u32;
+    crate::members::MemberPage { members, total }
+}
+
 /// Substrate search hits for one room as messages. Keeps only hits whose
 /// conversation is `rid`; the id is synthetic (the Exchange item id, prefixed
 /// so it never collides with a real `rid/<number>` message), the author id is
@@ -748,5 +783,22 @@ mod tests {
         assert_eq!(hit.id, "19:room@thread.tacv2/search:AAItem1");
         assert!(hit.ts > 0);
         assert!(search_hits(&serde_json::json!({}), "19:room@thread.tacv2", &dir).is_empty());
+    }
+
+    #[test]
+    fn roster_page_maps_members_and_resolves_names() {
+        let dir = Directory::default();
+        dir.remember("8:orgid:aaaa", "Ada Lovelace");
+        let body = serde_json::json!({ "members": [
+            { "id": "8:orgid:aaaa", "role": "Admin" },
+            { "id": "8:orgid:bbbb", "role": "User" },
+        ] });
+        let page = roster_page(&body, &dir);
+        assert_eq!(page.total, 2);
+        assert_eq!(page.members[0].id, "8:orgid:aaaa");
+        assert_eq!(page.members[0].username, "Ada Lovelace");
+        assert_eq!(page.members[0].roles, vec!["Admin".to_owned()]);
+        assert_eq!(page.members[1].username, "8:orgid:bbbb");
+        assert_eq!(roster_page(&serde_json::json!({}), &dir).total, 0);
     }
 }

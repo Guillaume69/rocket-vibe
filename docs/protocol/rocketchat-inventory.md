@@ -313,8 +313,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:2371](../../apps/desktop/crates/rv-core/src/session.rs#L2371) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/session.rs:2382](../../apps/desktop/crates/rv-core/src/session.rs#L2382) | call:GET | "chat.getThreadMessages", options).await?; |
 | [apps/desktop/crates/rv-core/src/session.rs:2382](../../apps/desktop/crates/rv-core/src/session.rs#L2382) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2711](../../apps/desktop/crates/rv-core/src/session.rs#L2711) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2711](../../apps/desktop/crates/rv-core/src/session.rs#L2711) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:2717](../../apps/desktop/crates/rv-core/src/session.rs#L2717) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2717](../../apps/desktop/crates/rv-core/src/session.rs#L2717) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:14](../../apps/desktop/crates/rv-core/src/slack/api.rs#L14) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:18](../../apps/desktop/crates/rv-core/src/slack/api.rs#L18) | endpoint | users.info |

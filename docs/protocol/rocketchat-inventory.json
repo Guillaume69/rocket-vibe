@@ -2538,13 +2538,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2711,
+      "line": 2717,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2711,
+      "line": 2717,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },

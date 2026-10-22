@@ -11,7 +11,7 @@
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { PRESENCE_EVENT, STREAM_NOTIFY_LOGGED, type PresenceStatus } from '../../lib/presence.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
-import { SlackError, exactTimestamp, isTimestamp } from './client.ts';
+import { SlackError, compareTimestamp, exactTimestamp, isTimestamp } from './client.ts';
 import type { SlackClient } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 import type { SlackHistory } from './history.ts';
@@ -33,6 +33,8 @@ const PRESENCE_STATUS = new Map<string, PresenceStatus>([
 const MARKED = new Set(['channel_marked', 'group_marked', 'im_marked', 'mpim_marked']);
 const JOINED = new Set(['im_created', 'channel_joined', 'group_joined', 'mpim_open', 'mpim_joined']);
 const GONE = new Set(['channel_not_found', 'not_in_channel', 'missing_scope']);
+const SKIPPED_PREVIEW = new Set(['tombstone', 'message_deleted', 'message_changed', 'message_replied']);
+const PREVIEW_LOOKBACK = 10;
 const QUIET = new Set(['hello', 'pong', 'reconnect_url', 'pref_change', 'dnd_updated', 'dnd_updated_user', 'accounts_changed']);
 
 export class SlackLive {
@@ -49,6 +51,8 @@ export class SlackLive {
   readonly presence = new Map<string, PresenceStatus>();
   /** The `ts` each room is marked read at, by me here or elsewhere: the actions never mark behind it. */
   readonly marks = new Map<string, string>();
+  /** The `ts` of the message each room previews, when known: an edit or a deletion of it moves the preview. */
+  readonly previews = new Map<string, string>();
 
   constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; myId: string; roomNames?: Map<string, string> }) {
     this.client = options.client;
@@ -69,6 +73,7 @@ export class SlackLive {
   forget(rid: string): void {
     this.channels.delete(rid);
     this.counts.delete(rid);
+    this.previews.delete(rid);
   }
 
   /** Whose presence to follow: me and the people of my direct conversations. */
@@ -160,7 +165,8 @@ export class SlackLive {
     const subtype = str(frame.subtype);
     if (subtype === 'message_deleted') {
       const deletedTs = frame.deleted_ts;
-      return isTimestamp(deletedTs) ? [{ collection: SLACK_MESSAGE_DELETED, eventKey: channel, args: [{ channel, ts: deletedTs }] }] : [];
+      if (!isTimestamp(deletedTs)) return [];
+      return [{ collection: SLACK_MESSAGE_DELETED, eventKey: channel, args: [{ channel, ts: deletedTs }] }, ...(await this.previewAfterDelete(channel, deletedTs))];
     }
     // `message_replied` and the other hidden frames describe a message, never a new one.
     if (subtype !== 'message_changed' && (frame.hidden === true || subtype === 'message_replied')) return [];
@@ -176,8 +182,12 @@ export class SlackLive {
       events.push(...(found ?? []));
     }
     events.push({ collection: SLACK_MESSAGE, eventKey: channel, args: [message] });
-    // An edit keeps the preview and unread as they were; only a fresh message moves them.
-    if (subtype === 'message_changed') return events;
+    // An edit keeps the unread as it was, and the preview unless it is the one edited.
+    if (subtype === 'message_changed') {
+      if (!this.isPreview(channel, message)) return events;
+      if (str(message.subtype) === 'tombstone') return [...events, ...(await this.previewAfterDelete(channel, exactTimestamp(message.ts)))];
+      return [...events, ...compact([this.preview(channel, message)])];
+    }
     // A reply only in its thread is no unread of the room, as Slack counts it.
     if (isTimestamp(message.thread_ts) && message.thread_ts !== message.ts && subtype !== 'thread_broadcast') {
       const mention = this.mentioned(channel, message);
@@ -222,8 +232,41 @@ export class SlackLive {
     const counts = { ...(this.counts.get(channel) ?? { id: channel }), latest: ts };
     this.counts.set(channel, counts);
     // A reply never becomes the room's preview; a root does.
-    const reply = isTimestamp(message.thread_ts) && message.thread_ts !== message.ts;
-    return { collection: SLACK_ROOM, eventKey: channel, args: [{ channel: doc, counts, ...(reply ? {} : { lastMessage: message }) }] };
+    if (isReply(message)) return { collection: SLACK_ROOM, eventKey: channel, args: [{ channel: doc, counts }] };
+    return this.preview(channel, message);
+  }
+
+  /** The room row with `message` as its preview, `null` for none. */
+  private preview(channel: string, message: Doc | null): DdpEvent | null {
+    const doc = this.channels.get(channel);
+    if (doc === undefined) return null;
+    if (message === null) this.previews.delete(channel);
+    else this.previews.set(channel, String(message.ts));
+    return { collection: SLACK_ROOM, eventKey: channel, args: [{ channel: doc, counts: this.counts.get(channel) ?? { id: channel }, lastMessage: message }] };
+  }
+
+  /** Whether a message is the room's preview: the one known, else a root at least as new as the room's latest. */
+  private isPreview(channel: string, message: Doc): boolean {
+    if (!isTimestamp(message.ts) || isReply(message)) return false;
+    const known = this.previews.get(channel);
+    if (known !== undefined) return known === message.ts;
+    const latest = this.counts.get(channel)?.latest;
+    return isTimestamp(latest) && compareTimestamp(message.ts, latest) >= 0;
+  }
+
+  /** The room's preview after its message went: the newest root message left, or none. */
+  private async previewAfterDelete(channel: string, ts: string): Promise<DdpEvent[]> {
+    if (!this.isPreview(channel, { ts })) return [];
+    this.previews.delete(channel);
+    let next: Doc | null;
+    try {
+      const { messages } = await this.history.history(channel, { limit: PREVIEW_LOOKBACK });
+      next = messages.find((m) => m.ts !== ts && !isReply(m) && m.hidden !== true && !SKIPPED_PREVIEW.has(str(m.subtype) ?? '')) ?? null;
+    } catch {
+      return [];
+    }
+    if (this.previews.has(channel)) return [];
+    return compact([this.preview(channel, next)]);
   }
 
   /** My read state after a message I did not send; my own message leaves it. */
@@ -275,6 +318,14 @@ export class SlackLive {
       throw e;
     }
   }
+}
+
+function isReply(message: Doc): boolean {
+  return isTimestamp(message.thread_ts) && message.thread_ts !== message.ts;
+}
+
+function compact(events: (DdpEvent | null)[]): DdpEvent[] {
+  return events.filter((e): e is DdpEvent => e !== null);
 }
 
 function mentionsMe(message: Doc, myId: string): boolean {

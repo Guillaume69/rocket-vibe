@@ -82,6 +82,13 @@ pub struct Profile {
     pub bot_owner: Option<String>,
 }
 
+impl Profile {
+    /// Bots have no presence: Vibez and Mattermost bot accounts, Rocket.Chat's `bot` role.
+    pub fn shows_presence(&self) -> bool {
+        !self.bot && !self.roles.iter().any(|role| role == "bot")
+    }
+}
+
 /// `users.info`'s `user`.
 pub fn profile(user: &Value) -> Option<Profile> {
     Some(Profile {
@@ -163,6 +170,16 @@ mod tests {
         assert_eq!(p.presence, Some(Presence::Away));
         assert_eq!(p.roles, ["user", "admin"]);
         assert_eq!(p.utc_offset, Some(5.5));
+        assert!(p.shows_presence());
+    }
+
+    #[test]
+    fn bots_show_no_presence() {
+        let rocket_bot =
+            profile(&json!({"_id":"u2","username":"rocket.cat","status":"online","roles":["bot"]})).unwrap();
+        assert!(!rocket_bot.shows_presence());
+        let mattermost_bot = Profile { bot: true, ..rocket_bot.clone() };
+        assert!(!Profile { roles: vec![], ..mattermost_bot }.shows_presence());
     }
 
     #[test]

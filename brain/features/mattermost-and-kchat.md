@@ -124,7 +124,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   post would insert an old root the cache lacks, and the room pages back from
   its oldest row.
 - kChat reads made elsewhere: `badge_updated` makes `MmLive.recount` read my
-  memberships again and emit the rooms whose counts moved.
+  memberships again and emit the rooms whose counts moved. A membership viewed
+  after the channel's `last_post_at` also sets the cached channel totals to its
+  own counts (`settle`), so totals that drifted above the server's clear.
 - People: `MmDirectory` names users under the account's name format (my
   `display_settings/name_format`, else `TeammateNameDisplay`, read by
   `MmCatchUp.nameFormat` and followed live by `MmLive.preferences`), resolves
@@ -137,7 +139,14 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   `MmCategories.sidebar`) hides closed conversations and keeps the
   `limit_visible_dms_gms` most recent of the Direct Messages category; a
   conversation opened in the session stays. Conversations are written again at
-  each catch-up, their names moving with people.
+  each catch-up, their names moving with people. A conversation loaded live (a
+  post in an unknown channel, `group_added`, `channel_created`) or moved by a new
+  post ranks them again (`MmLive.relist`), and each one that entered or left the
+  limit has its membership rewritten, so my first post in a new group lists it
+  and the oldest past the limit closes. A `group_added` or `direct_added` with no
+  channel id (kChat, no broadcast envelope) reads `/users/me/channel_members` and
+  loads at most 10 memberships not known yet (`MmLive.discover`; an archived
+  channel is skipped and not asked again).
 - Settings: `Provider.sidebarSettings` (`providers/mattermost/sidebarSettings.ts`)
   reads and writes the name format and the limit; My account shows them
   (`SidebarSettingsCard`, `ui/settingsSections.tsx`).
@@ -154,6 +163,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 - The global catch-up skips rooms a live event changed during its requests
   (`MmLive.mark`, `changedSince`), and a room written without its last post
   keeps its stored preview (`LocalRoom.keepPreview`, `UPSERT_ROOM`).
+- `post_edited` / `post_deleted` of the previewed root post rewrite the room row
+  (`MmLive.isPreview`, `previewAfterDelete`): an edit or a delete moves none of
+  the channel's times, so no catch-up would (see [room-list](room-list.md)).
 - The outbox confirms a refused send only with a post created since the row
   was queued (`OutboxRow.createdAt`).
 - kMeet: only `https://kmeet.infomaniak.com` (`isKmeetUrl`), in the post and in
@@ -168,7 +180,10 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   message, the room's preview and the membership with its counters. Mattermost
   sends no membership on a new post: unread root posts and mentions are derived
   from the channel totals and the cached membership, reset on
-  `multiple_channels_viewed`.
+  `multiple_channels_viewed`. A join or leave post (`isJoinLeave`, Mattermost's
+  `IsJoinLeaveMessage` types) moves `last_post_at` without adding to the totals,
+  as the server does not count it, and neither does a post whose channel was
+  read for it (`load`): the channel and membership read already hold it.
 
 ### Translation and loading
 
@@ -302,10 +317,15 @@ there, so the UIs read the same store:
   room rings (`MmSync::call_signal`, `decline_conference`, [calls](calls.md#ringing)). GTK draws an ended call
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
-- `badge_updated`: `MmSync::recount`, as on mobile.
+- `badge_updated`: `MmSync::recount` (`recounted` realigns the totals), as on
+  mobile; join and leave posts add nothing to the totals (`translate::join_leave`),
+  nor a post whose channel `load_channel` just read.
 - People, listing, cards and kMeet as on mobile: `directory::NameFormat`,
   `Directory::ensure_usernames`, `name_of_cut`, `status_emoji`;
   `categories::Sidebar`; `MmSync::load_preferences`, `preferences_changed`;
+  `MmSync::rerank` after `load_channel` and a post in a conversation,
+  `MmSync::discover` for a `group_added` without channel id (`load_channel`
+  also resolves a group's members for its title);
   `translate::cards`, `preview_of`; `actions::start_conference`,
   `answer_conference`, `sidebar_settings`. `Session::person_label` gives GTK and
   rv-ffi (`MessageItem.author_label`) a person's name with their status emoji;
@@ -315,6 +335,8 @@ there, so the UIs read the same store:
 - Lists: `mattermost::pages`; `MmSync::channels` reads `/users/me/channels`
   once. The catch-up skips rooms live events stamped during it (`Live::touch`,
   `changed_since`); `Room.keep_preview` keeps a stored preview.
+- `post_edited` / `post_deleted` of the previewed root post rewrite the room row
+  (`Live::is_preview`, `MmSync::preview_after_delete`).
 - `rest::interpret_mattermost` does not count Mattermost's wrong-password 401 as
   understood, so it never signs out; `delay_after_429` reads Mattermost's reset
   as seconds. The outbox's `mine_on_server` needs a post created since the row

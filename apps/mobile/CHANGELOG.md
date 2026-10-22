@@ -7,13 +7,23 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-22
+
 ### Added
 
 - Settings > Notifications warns when Android does not let the app show an incoming call over the lock screen (Android 14 and later can withdraw it), and its Allow opens the system setting.
 - Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting, marking read, the typing indicator and channel thread replies.
+- Group direct messages on Rocket.Chat, Mattermost and kChat accounts: in New conversation, tick several people (up to seven), remove one by tapping their chip, then Start.
 
 ### Fixed
 
+- Mattermost and kChat: the first message of a conversation the app did not know yet (a group conversation someone else just started) counts once in the unread badge, not twice.
+- Mattermost and kChat: a room no longer keeps 1 unread for good after someone joins, leaves, is added or is removed live; opening it clears it again.
+- Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
+- A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
+- A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
+- Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. A Vibez room's preview no longer shows a thread reply.
+- New conversation finds people on Mattermost and kChat accounts, where every search failed.
 - Rocket.Chat (Jitsi) and kChat (kMeet) calls go on with the app in the background or the phone locked: the microphone, the camera and the sound no longer cut and the call no longer drops. An ongoing call notification shows the call and hangs up.
 - The message bar's buttons line up, the polls, stickers and GIFs button reads "GIF" instead of a second smiley, and the formatting row no longer touches the bar.
 
@@ -855,7 +865,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.21.0...HEAD
+[0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...mobile-v0.21.0
 [0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
 [0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1

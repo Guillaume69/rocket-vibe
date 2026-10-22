@@ -228,3 +228,57 @@ async fn mattermost_has_no_rocket_chat_emoji_refresh() {
     assert!(b.session.refresh_custom_emojis().await.is_err());
     b.close();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_dms_reach_each_backend_route() {
+    let people = vec!["bob".to_owned(), "carol".to_owned()];
+    let b = bench(None).await;
+    let s = b.session.clone();
+    assert!(s.group_dms_supported());
+    b.expect("open group dm", "POST", "/api/v1/im.create", s.open_group_dm(&people)).await;
+    let sent = b.server.requests().into_iter().find(|r| r.path() == "/api/v1/im.create").unwrap();
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&sent.body).unwrap(), json!({"usernames": "bob,carol"}));
+    let calls = b.during(s.open_group_dm(&people[..1])).await;
+    assert!(calls.is_empty(), "one person is not a group: {calls:?}");
+    b.close();
+
+    for flavor in [Flavor::Mattermost, Flavor::Kchat] {
+        let server = FakeHttp::start(|request: &Request| match request.path() {
+            "/api/v4/users/username/bob" => respond(200, r#"{"id":"u-bob","username":"bob"}"#),
+            "/api/v4/users/username/carol" => respond(200, r#"{"id":"u-carol","username":"carol"}"#),
+            "/api/v4/channels/group" => {
+                respond(201, r#"{"id":"g1","type":"G","name":"hash","display_name":"bob, carol, me"}"#)
+            }
+            _ => server(request),
+        })
+        .await;
+        let dir = tempfile::tempdir().unwrap();
+        let info = SessionInfo {
+            base_url: server.url.to_string(),
+            user_id: "u-me".into(),
+            username: "me".into(),
+            auth_token: "tok".into(),
+            native: None,
+            mattermost: Some(flavor),
+            slack: None,
+            teams: None,
+        };
+        let s = Session::start(info, &dir.path().join("account.sqlite")).unwrap();
+        assert!(s.group_dms_supported());
+        assert_eq!(s.open_group_dm(&people).await.unwrap(), "g1");
+        let requests = server.requests();
+        let body = |path: &str| {
+            let r =
+                requests.iter().find(|r| r.method != "GET" && r.path() == path).unwrap_or_else(|| panic!("no {path}"));
+            serde_json::from_str::<serde_json::Value>(&r.body).unwrap()
+        };
+        assert_eq!(body("/api/v4/channels/group"), json!(["u-me", "u-bob", "u-carol"]));
+        assert_eq!(
+            body("/api/v4/users/me/preferences"),
+            json!([{"user_id": "u-me", "category": "group_channel_show", "name": "g1", "value": "true"}])
+        );
+        assert!(requests.iter().all(|r| !r.path().starts_with("/api/v1/")));
+        s.shutdown();
+        s.store.close();
+    }
+}

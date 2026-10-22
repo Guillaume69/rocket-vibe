@@ -18,6 +18,16 @@ Three searches, debounced: finding people and channels to start a conversation (
 - SwiftUI: the sidebar's search field (`.searchable` in `ChatView.swift`) replaces the room sections with spotlight results while it holds text; a pick goes through `AppModel.go(to:)`.
 - Web Vibez: New message opens the same 420 by 480 spotlight, with a focused search entry, people before public channels, and a Create room button leading to the separate grouped conversation form. Empty text reads no directory; a 300 ms pause reads `/api/v1/users` and capability-gated `/api/v1/rooms/public?q=`, retaining at most 20 matching people. Sequence, account and dialog fences discard delayed answers. Picking a person opens or creates the real DM; picking an unjoined channel joins it. Creation and join receipts are personalized before navigation, with membership lifetime checks. Narrow windows use the native bottom-sheet arrangement. The sidebar Create a channel route opens the grouped form directly.
 
+Mobile Mattermost and kChat accounts have no `spotlight`: the screen asks `Provider.searchPeople` instead (`MmActions.searchPeople`, `POST /users/search {term, limit: 20}`, me and deactivated accounts left out), as for WhatsApp; their channels are not offered there. The desktop's `mattermost::actions::spotlight` reads people and channels.
+
+### Group direct messages
+
+Several people can be started together on Rocket.Chat, Mattermost and kChat accounts (not Vibez, whose server has no group DMs, nor Slack, Teams or WhatsApp). One picked person opens the ordinary DM; two to seven (`GROUP_DM_MAX`: Mattermost's fixed 8 members and Rocket.Chat's default `DirectMesssage_maxUsers`, me included) open the group DM, the same set giving the same room back. Rocket.Chat: `im.create {usernames: "a,b"}`, which silently drops an unknown username. Mattermost/kChat: ids resolved (`/users/username/<u>` when the search gave none), `POST /channels/group [me, ...ids]`, then `group_channel_show` set `true` and the channel revealed in the sidebar. Server facts in `CLAUDE.md` and `docs/MATTERMOST.md` 6.3.
+
+- Mobile: where `ProviderActions.openOrCreateGroupDm` exists, each person row of `app/search.tsx` carries a checkbox; once someone is picked, a tap on a row picks too. The picked show as chips above the list (a tap removes one) with Start; an eighth is refused with a line. `ActionsRC.openOrCreateGroupDm`, `MmActions.openOrCreateGroupDm`; the room is ingested and opened like a DM.
+- GTK: `spotlight::open_chat` takes a `group` callback when `Session::group_dms_supported`: a check button at the end of each person row, the chips and Start in a bar above the results, a row activation toggling once someone is picked. `ChatPage::go_to_group` runs `Session::open_group_dm`, catches up, then opens the room. Strings `group_dm.*` (not shipped to the web catalog).
+- SwiftUI: the + menu's New group message opens `NewGroupSheet` (`NewGroup.swift`, a `modalOverlay` sheet closing on its backdrop): the spotlight's people only, a tap toggling them, chips, Start through `AppModel.startGroup` (`ChatSession.openGroupDm` in rv-ffi, `groupDmMax()`).
+
 This is the only place the apps call `spotlight`; `@` mention completion deliberately uses local recent authors instead ([composer](composer.md#mentions-and-emoji)).
 
 ## Messages in a room (`chat.search`)
@@ -73,6 +83,10 @@ All apps: spotlight for new conversations, `chat.search` in a room, jumping from
 - apps/desktop/crates/rv-core/src/rooms.rs
 - apps/desktop/crates/rv-core/src/info.rs
 - apps/desktop/crates/rv-gtk/src/spotlight.rs
+- apps/desktop/crates/rv-core/src/mattermost/actions.rs
+- apps/desktop/crates/rv-core/src/rocketchat/actions.rs
+- apps/desktop/macos/Sources/RocketVibe/NewGroup.swift
+- apps/mobile/providers/mattermost/actions.ts
 - apps/desktop/crates/rv-gtk/src/details.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/macos/Sources/RocketVibe/ChatView.swift

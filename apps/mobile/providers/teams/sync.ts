@@ -14,13 +14,15 @@ import type { SyncEngine } from '../../lib/sync.ts';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, messageId, splitId, str, toMessage, toSubscription,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, messageId, rootOf, splitId, str, toMessage, toSubscription,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
 export const TEAMS_HISTORY_PAGE = 50;
 const VIEW = 'view=msnp24Equivalent%7CsupportsMessageProperties';
 const OLDER_PAGES = 20;
+const PREVIEW_LOOKBACK = 20;
+const PREVIEWED = new Set(['Text', 'RichText/Html', 'RichText']);
 /** The collection live Trouter events arrive under; `eventKey` is the resource type. */
 export const TEAMS_EVENTS = 'teams';
 
@@ -42,6 +44,25 @@ export class TeamsRooms {
       },
       isRead: mine, isMessageRead: mine, isLastMessageFromMe: mine,
     };
+    this.entries.set(rid, { entry, team: known.team });
+    return { ...entry, __team: known.team };
+  }
+
+  /** Whether a message is the one the room's entry previews. */
+  isPreview(rid: string, resource: Doc): boolean {
+    const shown = int((this.entries.get(rid)?.entry as Doc | undefined)?.lastMessage, 'id');
+    return shown !== null && shown === int(resource, 'id');
+  }
+
+  /** The room's entry previewing `resource` instead (an empty text for none), at the time it showed. */
+  withPreview(rid: string, resource: Doc | null): Doc | null {
+    const known = this.entries.get(rid);
+    if (!known) return null;
+    const composeTime = ((known.entry.lastMessage ?? {}) as Doc).composeTime ?? null;
+    const lastMessage = resource
+      ? { messageType: resource.messagetype, content: resource.content, from: resource.from, imDisplayName: resource.imdisplayname, composeTime, id: resource.id }
+      : { messageType: 'Text', content: '', composeTime };
+    const entry: Doc = { ...known.entry, lastMessage };
     this.entries.set(rid, { entry, team: known.team });
     return { ...entry, __team: known.team };
   }
@@ -221,6 +242,19 @@ export class TeamsSync {
     const scoped = `${target.rid};messageid=${target.server}`;
     const { messages } = await this.page(await this.client.conversation(scoped, ['messages'], `${VIEW}&pageSize=${TEAMS_HISTORY_PAGE}`), target.rid);
     await this.ingest(engine, target.rid, messages);
+  }
+
+  /** The newest message the room itself shows, for its preview once the previewed one is deleted. */
+  async newestShown(rid: string): Promise<Doc | null | undefined> {
+    try {
+      const { messages } = await this.page(await this.client.conversation(rid, ['messages'], `${VIEW}&pageSize=${PREVIEW_LOOKBACK}`), rid);
+      return messages.find((m) => {
+        const id = str(m, 'id');
+        return id !== null && !deleted(m) && PREVIEWED.has(str(m, 'messagetype') ?? '') && rootOf(m, id) === null;
+      }) ?? null;
+    } catch {
+      return undefined;
+    }
   }
 
   /** The service's copy of one message, tagged with its room, not stored. */

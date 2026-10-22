@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use super::categories::{self, Placement};
 use super::directory::{Directory, NameFormat, User};
-use super::translate::{Translator, deleted, object};
+use super::translate::{Translator, deleted, join_leave, object};
 use crate::normalize::Message;
 use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, Writer};
@@ -26,6 +26,8 @@ const MAX_WALK: usize = 20;
 const SINCE_CAP: usize = 1000;
 const CURSOR_SCOPE: &str = "*";
 const CURSOR_STREAM: &str = "mm-last-post";
+/// At most this many memberships loaded by one `group_added` without a channel id.
+const DISCOVER_MAX: usize = 10;
 
 #[derive(Default)]
 struct Live {
@@ -36,6 +38,8 @@ struct Live {
     /// snapshot taken before that is older than what the room shows.
     touched: HashMap<String, u64>,
     clock: u64,
+    /// Memberships the server lists that are not loaded: archived channels, not asked again.
+    ignored: HashSet<String>,
 }
 
 impl Live {
@@ -46,6 +50,22 @@ impl Live {
 
     fn changed_since(&self, rid: &str, mark: u64) -> bool {
         self.touched.get(rid).is_some_and(|at| *at > mark)
+    }
+
+    /// Whether a root post is the one its room previews: the cached one, else the channel's newest root.
+    fn is_preview(&self, post: &Value) -> bool {
+        let Some(rid) = text(post, "channel_id") else { return false };
+        if text(post, "root_id").is_some() {
+            return false;
+        }
+        if let Some(cached) = self.last_posts.get(rid) {
+            return text(cached, "id").is_some() && text(cached, "id") == text(post, "id");
+        }
+        let newest = self.channels.get(rid).map_or(0, |c| match int(c, "last_root_post_at") {
+            0 => int(c, "last_post_at"),
+            at => at,
+        });
+        newest > 0 && int(post, "create_at") >= newest
     }
 }
 
@@ -204,10 +224,56 @@ impl MmSync {
         }
     }
 
-    /// The conversations within the list's limit, from the channels known now.
-    fn rank(&self, channels: &[Value]) {
+    /// The conversations within the list's limit, from the channels known now;
+    /// returns the ones that entered or left it.
+    fn rank(&self, channels: &[Value]) -> Vec<String> {
         let placements = self.placements.lock().unwrap();
-        self.sidebar.lock().unwrap().rank(channels, |rid| categories::placed_elsewhere(placements.get(rid)));
+        self.sidebar.lock().unwrap().rank(channels, |rid| categories::placed_elsewhere(placements.get(rid)))
+    }
+
+    /// Ranks the known conversations again after one was learned or moved;
+    /// returns the ones that entered or left the list.
+    fn rerank(&self) -> Vec<String> {
+        let all: Vec<Value> = self.live.lock().unwrap().channels.values().cloned().collect();
+        self.rank(&all)
+    }
+
+    /// kChat passes no broadcast envelope, so a `group_added` or `direct_added`
+    /// carries no channel id: my memberships are read again and the new ones loaded.
+    async fn discover(&self) {
+        let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        let fresh: Vec<Value> = {
+            let live = self.live.lock().unwrap();
+            members
+                .into_iter()
+                .filter(|m| {
+                    text(m, "channel_id")
+                        .is_some_and(|rid| !live.members.contains_key(rid) && !live.ignored.contains(rid))
+                })
+                .take(DISCOVER_MAX)
+                .collect()
+        };
+        let mut loaded = Vec::new();
+        for member in fresh {
+            let rid = text(&member, "channel_id").unwrap_or_default().to_owned();
+            match self.load_channel(&rid, Some(member)).await {
+                Ok(true) => loaded.push(rid),
+                Ok(false) => {
+                    self.live.lock().unwrap().ignored.insert(rid);
+                }
+                Err(_) => {}
+            }
+        }
+        if loaded.is_empty() {
+            return;
+        }
+        let moved = self.rerank();
+        for rid in &loaded {
+            self.write_room(rid, true);
+        }
+        for rid in moved.iter().filter(|rid| !loaded.contains(rid)) {
+            self.write_room(rid, false);
+        }
     }
 
     /// Preferences set elsewhere (kChat web, another client): a conversation
@@ -250,6 +316,10 @@ impl MmSync {
     /// memberships are read again and the rooms whose counts moved rewritten.
     async fn recount(&self) {
         let Ok(members) = self.pages("users/me/channel_members").await else { return };
+        self.recounted(members);
+    }
+
+    fn recounted(&self, members: Vec<Value>) {
         let moved: Vec<String> = {
             let mut live = self.live.lock().unwrap();
             members
@@ -260,6 +330,17 @@ impl MmSync {
                     let keys = ["msg_count", "msg_count_root", "mention_count", "mention_count_root", "last_viewed_at"];
                     if keys.iter().all(|k| known.get(k) == member.get(k)) {
                         return None;
+                    }
+                    if let Some(channel) = live.channels.get_mut(&rid)
+                        && int(&member, "last_viewed_at") >= int(channel, "last_post_at")
+                    {
+                        for (total, count) in
+                            [("total_msg_count", "msg_count"), ("total_msg_count_root", "msg_count_root")]
+                        {
+                            if let Some(n) = member.get(count).filter(|n| n.is_i64()) {
+                                channel[total] = n.clone();
+                            }
+                        }
                     }
                     live.members.insert(rid.clone(), member);
                     live.touch(&rid);
@@ -595,23 +676,41 @@ impl MmSync {
         Ok(())
     }
 
-    /// A channel I just learnt about, with my membership.
-    async fn load_channel(&self, rid: &str) -> Result<(), RestError> {
+    /// A channel I just learnt about, with my membership unless given; false
+    /// for an archived one whose membership was given.
+    async fn load_channel(&self, rid: &str, known: Option<Value>) -> Result<bool, RestError> {
         let (channel_path, member_path) = (format!("channels/{rid}"), format!("channels/{rid}/members/me"));
-        let (channel, member) = tokio::try_join!(
-            self.rest.get(&channel_path, CallOptions::default()),
-            self.rest.get(&member_path, CallOptions::default()),
-        )?;
-        if text(&channel, "type") == Some("D") {
-            let peers: Vec<String> =
-                text(&channel, "name").unwrap_or_default().split("__").map(str::to_owned).collect();
-            self.directory.ensure(&self.rest, peers).await;
+        let given = known.is_some();
+        let (channel, member) = tokio::try_join!(self.rest.get(&channel_path, CallOptions::default()), async {
+            match known {
+                Some(member) => Ok(member),
+                None => self.rest.get(&member_path, CallOptions::default()).await,
+            }
+        })?;
+        if given && int(&channel, "delete_at") > 0 {
+            return Ok(false);
+        }
+        match text(&channel, "type") {
+            Some("D") => {
+                let peers: Vec<String> =
+                    text(&channel, "name").unwrap_or_default().split("__").map(str::to_owned).collect();
+                self.directory.ensure(&self.rest, peers).await;
+            }
+            Some("G") => {
+                let names: Vec<String> = text(&channel, "display_name")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|n| n.trim().to_owned())
+                    .collect();
+                self.directory.ensure_usernames(&self.rest, names).await;
+            }
+            _ => {}
         }
         let mut live = self.live.lock().unwrap();
         live.channels.insert(rid.to_owned(), channel);
         live.members.insert(rid.to_owned(), member);
         live.touch(rid);
-        Ok(())
+        Ok(true)
     }
 
     /// Writes the room row (with the newest root post known) and its membership.
@@ -671,13 +770,25 @@ impl MmSync {
             "post_edited" => {
                 let post = Value::Object(object(data.get("post")?)?);
                 self.ensure_authors(std::slice::from_ref(&post)).await;
-                self.ingest(&[post]);
+                let preview = {
+                    let mut live = self.live.lock().unwrap();
+                    let preview = live.is_preview(&post);
+                    if preview {
+                        live.last_posts.insert(text(&post, "channel_id")?.to_owned(), post.clone());
+                    }
+                    preview
+                };
+                self.ingest(std::slice::from_ref(&post));
+                if preview {
+                    self.write_room(text(&post, "channel_id")?, true);
+                }
                 None
             }
             "post_deleted" => {
-                let post = object(data.get("post")?)?;
-                let id = post.get("id")?.as_str()?.to_owned();
+                let post = Value::Object(object(data.get("post")?)?);
+                let id = text(&post, "id")?.to_owned();
                 self.store.write(|w| w.delete_message(&id));
+                self.preview_after_delete(&post).await;
                 None
             }
             "reaction_added" | "reaction_removed" => {
@@ -715,12 +826,21 @@ impl MmSync {
             "channel_created" | "channel_updated" | "channel_converted" | "channel_restored" | "direct_added"
             | "group_added" | "user_added" => {
                 let rid = data.get("channel").and_then(object).and_then(|c| c.get("id")?.as_str().map(str::to_owned));
-                let rid = rid.or(channel_id)?;
+                let Some(rid) = rid.or(channel_id) else {
+                    if matches!(name, "group_added" | "direct_added") {
+                        self.discover().await;
+                    }
+                    return None;
+                };
                 if name == "user_added" && text(data, "user_id") != Some(self.me.as_str()) {
                     return None;
                 }
-                self.load_channel(&rid).await.ok()?;
+                self.load_channel(&rid, None).await.ok()?;
+                let moved = self.rerank();
                 self.write_room(&rid, true);
+                for other in moved.iter().filter(|other| **other != rid) {
+                    self.write_room(other, false);
+                }
                 None
             }
             "preferences_changed" | "preferences_deleted" => {
@@ -769,26 +889,47 @@ impl MmSync {
         }
     }
 
+    /// The room's preview after its post was deleted: the newest root left, or none.
+    async fn preview_after_delete(&self, post: &Value) {
+        let Some(rid) = text(post, "channel_id") else { return };
+        {
+            let mut live = self.live.lock().unwrap();
+            if !live.is_preview(post) {
+                return;
+            }
+            live.last_posts.remove(rid);
+        }
+        let Ok(page) = self.page(rid, None, 1).await else { return };
+        {
+            let mut live = self.live.lock().unwrap();
+            if live.last_posts.contains_key(rid) {
+                return;
+            }
+            live.last_posts.insert(rid.to_owned(), page.into_iter().next().unwrap_or(Value::Null));
+        }
+        self.write_room(rid, true);
+    }
+
     async fn posted(&self, data: &Value) -> Option<Message> {
         let post = Value::Object(object(data.get("post")?)?);
         let rid = text(&post, "channel_id")?.to_owned();
         self.ensure_authors(std::slice::from_ref(&post)).await;
         let known = self.live.lock().unwrap().members.contains_key(&rid);
-        if !known {
-            let _ = self.load_channel(&rid).await;
-        }
+        let read = !known && self.load_channel(&rid, None).await.unwrap_or(false);
         let root = text(&post, "root_id").is_none();
         let mine = text(&post, "user_id") == Some(self.me.as_str());
         let mentioned = mentions(data.get("mentions")).contains(&self.me);
         let at = int(&post, "create_at");
+        let counted = if read || join_leave(&post) { 0 } else { 1 };
         let fresh = !self.store.has_message(text(&post, "id").unwrap_or_default());
-        {
+        let conversation = {
             let mut live = self.live.lock().unwrap();
+            let conversation = live.channels.get(&rid).is_some_and(|c| matches!(text(c, "type"), Some("D" | "G")));
             if let Some(channel) = live.channels.get_mut(&rid) {
-                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + 1);
+                channel["total_msg_count"] = json!(int(channel, "total_msg_count") + counted);
                 channel["last_post_at"] = json!(at);
                 if root {
-                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + 1);
+                    channel["total_msg_count_root"] = json!(int(channel, "total_msg_count_root") + counted);
                     channel["last_root_post_at"] = json!(at);
                 }
                 let (total, total_root) = (channel["total_msg_count"].clone(), channel["total_msg_count_root"].clone());
@@ -798,7 +939,7 @@ impl MmSync {
                         member["msg_count_root"] = total_root;
                         member["mention_count"] = json!(0);
                         member["last_viewed_at"] = json!(at);
-                    } else if mentioned {
+                    } else if mentioned && !read {
                         member["mention_count"] = json!(int(member, "mention_count") + 1);
                     }
                 }
@@ -807,9 +948,14 @@ impl MmSync {
                 live.last_posts.insert(rid.clone(), post.clone());
             }
             live.touch(&rid);
-        }
+            conversation
+        };
+        let moved = if conversation { self.rerank() } else { Vec::new() };
         self.ingest(std::slice::from_ref(&post));
         self.write_room(&rid, root);
+        for other in moved.iter().filter(|other| **other != rid) {
+            self.write_room(other, false);
+        }
         // A reply moves its root's "N replies", which no event carries
         // (`thread_updated` is quiet): a cached root is read again. One the cache
         // lacks stays out, or it would sit among the recent rows.
@@ -901,10 +1047,44 @@ fn path_segment(id: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A server answering every request with `body`; the request lines it saw.
+    async fn answering(body: Value) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = Vec::new();
+                let mut chunk = [0; 2048];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let n = socket.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&buf).lines().next().unwrap_or_default().to_owned());
+                let body = body.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        (base, seen)
+    }
 
     fn sync() -> (Arc<Store>, MmSync) {
+        sync_at("http://x")
+    }
+
+    fn sync_at(base: &str) -> (Arc<Store>, MmSync) {
         let store = Arc::new(Store::in_memory().unwrap());
-        let sync = MmSync::new(store.clone(), RestClient::mattermost("http://x".parse().unwrap()), "u-me", "me", false);
+        let sync = MmSync::new(store.clone(), RestClient::mattermost(base.parse().unwrap()), "u-me", "me", false);
         sync.directory.remember(User {
             id: "u-bob".into(),
             username: "bob".into(),
@@ -962,6 +1142,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_join_or_leave_post_adds_no_unread() {
+        let (store, sync) = sync();
+        for kind in ["system_add_to_channel", "system_join_channel", "system_leave_team", "system_join_leave"] {
+            let mut joined = post(&format!("j-{kind}"), "u-bob", "");
+            joined["type"] = json!(kind);
+            sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+            let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+            assert_eq!(room.unread, 0, "{kind}");
+        }
+        sync.apply_event("posted", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
+    }
+
+    #[tokio::test]
+    async fn a_read_elsewhere_after_a_join_post_leaves_the_room_read() {
+        let (store, sync) = sync();
+        let mut joined = post("j1", "u-bob", "");
+        joined["type"] = json!("system_add_to_channel");
+        sync.apply_event("posted", &json!({"post": joined.to_string()}), &json!({})).await;
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_read_elsewhere_realigns_totals_drifted_above_the_server() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count"] = json!(11);
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 99})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 0);
+    }
+
+    #[test]
+    fn a_membership_viewed_before_the_last_post_keeps_the_room_unread() {
+        let (store, sync) = sync();
+        {
+            let mut live = sync.live.lock().unwrap();
+            let channel = live.channels.get_mut("ch1").unwrap();
+            channel["total_msg_count_root"] = json!(9);
+            channel["last_post_at"] = json!(50);
+        }
+        sync.write_room("ch1", true);
+        sync.recounted(vec![json!({"channel_id": "ch1", "msg_count": 10, "msg_count_root": 8, "mention_count": 0, "last_viewed_at": 30})]);
+        let room = store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap();
+        assert_eq!(room.unread, 1);
+    }
+
+    #[tokio::test]
     async fn an_ephemeral_update_is_never_stored() {
         let (store, sync) = sync();
         let mut ephemeral = post("e1", "u-bob", "");
@@ -970,6 +1207,62 @@ mod tests {
         sync.apply_event("post_edited", &json!({"post": post("p1", "u-bob", "").to_string()}), &json!({})).await;
         let ids: Vec<String> = store.messages("ch1", 10).into_iter().map(|m| m.id).collect();
         assert_eq!(ids, ["p1"]);
+    }
+
+    fn at(id: &str, create_at: i64) -> Value {
+        let mut p = post(id, "u-bob", "");
+        p["create_at"] = json!(create_at);
+        p
+    }
+
+    fn room(store: &Store) -> crate::store::RoomRow {
+        store.rooms().into_iter().find(|r| r.rid == "ch1").unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_edit_of_the_previewed_post_rewrites_the_preview_and_an_older_one_does_not() {
+        let (store, sync) = sync();
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("posted", &json!({"post": at("p2", 60)}), &json!({})).await;
+        let mut older = at("p1", 50);
+        older["message"] = json!("old fixed");
+        sync.apply_event("post_edited", &json!({"post": older.to_string()}), &json!({})).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("m p2"));
+        let mut newest = at("p2", 60);
+        newest["message"] = json!("new fixed");
+        sync.apply_event("post_edited", &json!({"post": newest.to_string()}), &json!({})).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("new fixed"));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_previewed_post_previews_the_newest_root_left_in_place() {
+        let (base, seen) = answering(json!({"order": ["p1"], "posts": {"p1": at("p1", 50)}})).await;
+        let (store, sync) = sync_at(&base);
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("posted", &json!({"post": at("p2", 60)}), &json!({})).await;
+        let page = || seen.lock().unwrap().iter().find(|l| l.contains("/channels/ch1/posts")).cloned();
+        sync.apply_event("post_deleted", &json!({"post": at("p0", 10).to_string()}), &json!({})).await;
+        assert_eq!(page(), None);
+        sync.apply_event("post_deleted", &json!({"post": at("p2", 60).to_string()}), &json!({})).await;
+        let line = page().unwrap_or_default();
+        assert!(
+            line.contains("/channels/ch1/posts")
+                && line.contains("per_page=1")
+                && line.contains("collapsedThreads=true"),
+            "{line}"
+        );
+        let row = room(&store);
+        assert_eq!((row.last_message.as_deref(), row.last_ts), (Some("m p1"), 60));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_only_post_clears_the_preview() {
+        let (base, _) = answering(json!({"order": [], "posts": {}})).await;
+        let (store, sync) = sync_at(&base);
+        sync.apply_event("posted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        sync.apply_event("post_deleted", &json!({"post": at("p1", 50)}), &json!({})).await;
+        let row = room(&store);
+        assert_eq!((row.last_message, row.last_ts), (None, 50));
     }
 
     #[test]
@@ -990,5 +1283,170 @@ mod tests {
         }
         assert_eq!(path_segment("abc_DEF-123"), Some("abc_DEF-123"));
         assert_eq!(path_segment("%2e%2e"), None);
+    }
+
+    type Asked = Arc<Mutex<Vec<String>>>;
+
+    /// Answers each request by its path (query left out), 404 when `route` has nothing.
+    async fn routed(route: fn(&str) -> Option<Value>) -> (RestClient, Asked) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rest = RestClient::mattermost(format!("http://{}", listener.local_addr().unwrap()).parse().unwrap());
+        let asked: Asked = Arc::default();
+        let log = asked.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let log = log.clone();
+                tokio::spawn(async move {
+                    let mut buf = Vec::new();
+                    let mut chunk = [0; 2048];
+                    let head = loop {
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        if n == 0 {
+                            return;
+                        }
+                        buf.extend_from_slice(&chunk[..n]);
+                        if let Some(at) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break at + 4;
+                        }
+                    };
+                    let head_text = String::from_utf8_lossy(&buf[..head]).into_owned();
+                    let length: usize = head_text
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())
+                        })
+                        .unwrap_or(0);
+                    while buf.len() < head + length {
+                        let n = socket.read(&mut chunk).await.unwrap();
+                        buf.extend_from_slice(&chunk[..n]);
+                    }
+                    let target = head_text.split_whitespace().nth(1).unwrap_or_default();
+                    let path = target.split('?').next().unwrap_or_default();
+                    let path = path.strip_prefix("/api/v4").unwrap_or(path).trim_start_matches('/').to_owned();
+                    let answer = route(&path);
+                    log.lock().unwrap().push(path);
+                    let (status, body) = match answer {
+                        Some(body) => (200, body.to_string()),
+                        None => (404, json!({"id": "api.context.404.app_error", "message": "Not found"}).to_string()),
+                    };
+                    let reply = format!(
+                        "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                });
+            }
+        });
+        (rest, asked)
+    }
+
+    /// Direct messages `d1` (newest) and `d2`, ranked with `limit` listed.
+    fn conversations(rest: RestClient, limit: usize) -> (Arc<Store>, MmSync) {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let sync = MmSync::new(store.clone(), rest, "u-me", "me", true);
+        sync.sidebar.lock().unwrap().apply(
+            &json!([{"category": "sidebar_settings", "name": "limit_visible_dms_gms", "value": limit.to_string()}]),
+            true,
+        );
+        for (rid, other, at) in [("d1", "u-bob", 20), ("d2", "u-carol", 10)] {
+            let mut live = sync.live.lock().unwrap();
+            live.channels.insert(
+                rid.into(),
+                json!({"id": rid, "type": "D", "name": format!("u-me__{other}"), "last_post_at": at, "total_msg_count": 1, "total_msg_count_root": 1}),
+            );
+            live.members.insert(
+                rid.into(),
+                json!({"channel_id": rid, "msg_count": 1, "msg_count_root": 1, "mention_count": 0}),
+            );
+        }
+        for (id, username) in [("u-bob", "bob"), ("u-carol", "carol")] {
+            sync.directory.remember(User { id: id.into(), username: username.into(), ..Default::default() });
+        }
+        sync.rerank();
+        for rid in ["d1", "d2"] {
+            sync.write_room(rid, true);
+        }
+        (store, sync)
+    }
+
+    fn listed(store: &Store) -> Vec<String> {
+        let mut rids: Vec<String> = store.rooms().into_iter().map(|r| r.rid).collect();
+        rids.sort();
+        rids
+    }
+
+    fn group_route(path: &str) -> Option<Value> {
+        match path {
+            "channels/g1" => Some(
+                json!({"id": "g1", "type": "G", "name": "g1", "display_name": "me, bob, dan", "total_msg_count": 0, "total_msg_count_root": 0}),
+            ),
+            "channels/g1/members/me" | "users/me/channel_members" => {
+                let member = json!({"channel_id": "g1", "user_id": "u-me", "msg_count": 0, "msg_count_root": 0, "mention_count": 0});
+                Some(if path == "channels/g1/members/me" { member } else { json!([{"channel_id": "d1"}, member]) })
+            }
+            "users/usernames" => Some(json!([{"id": "u-dan", "username": "dan"}])),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn my_first_post_in_an_unknown_group_lists_it_and_closes_the_one_past_the_limit() {
+        let (rest, asked) = routed(group_route).await;
+        let (store, sync) = conversations(rest, 2);
+        assert_eq!(listed(&store), ["d1", "d2"]);
+        let mut post = post("p1", "u-me", "");
+        post["channel_id"] = json!("g1");
+        sync.apply_event("posted", &json!({"post": post}), &json!({})).await;
+        assert_eq!(listed(&store), ["d1", "g1"]);
+        assert!(asked.lock().unwrap().iter().any(|p| p == "users/usernames"));
+        assert_eq!(sync.directory.username("u-dan").as_deref(), Some("dan"));
+    }
+
+    #[tokio::test]
+    async fn a_new_post_brings_a_direct_message_from_past_the_limit_back() {
+        let (rest, _) = routed(|_| None).await;
+        let (store, sync) = conversations(rest, 1);
+        assert_eq!(listed(&store), ["d1"]);
+        let mut post = post("p1", "u-me", "");
+        post["channel_id"] = json!("d2");
+        sync.apply_event("posted", &json!({"post": post}), &json!({})).await;
+        assert_eq!(listed(&store), ["d2"]);
+    }
+
+    #[tokio::test]
+    async fn a_group_added_without_a_channel_id_loads_the_new_membership() {
+        let (rest, asked) = routed(group_route).await;
+        let (store, sync) = conversations(rest, 5);
+        sync.apply_event("group_added", &json!({"teammate_ids": "[\"u-me\",\"u-bob\",\"u-dan\"]"}), &Value::Null).await;
+        assert_eq!(listed(&store), ["d1", "d2", "g1"]);
+        let asked = asked.lock().unwrap();
+        assert!(asked.iter().any(|p| p == "users/me/channel_members"));
+        assert!(!asked.iter().any(|p| p == "channels/g1/members/me" || p == "channels/d1"));
+    }
+
+    fn counted_route(path: &str) -> Option<Value> {
+        match path {
+            "channels/g2" => Some(
+                json!({"id": "g2", "type": "G", "name": "g2", "display_name": "me, bob, dan", "total_msg_count": 1, "total_msg_count_root": 1}),
+            ),
+            "channels/g2/members/me" => Some(
+                json!({"channel_id": "g2", "user_id": "u-me", "msg_count": 0, "msg_count_root": 0, "mention_count": 1}),
+            ),
+            "users/usernames" => Some(json!([{"id": "u-dan", "username": "dan"}])),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_post_in_an_unknown_channel_counts_once() {
+        let (rest, _) = routed(counted_route).await;
+        let (store, sync) = conversations(rest, 5);
+        let mut post = post("p1", "u-bob", "");
+        post["channel_id"] = json!("g2");
+        sync.apply_event("posted", &json!({"post": post, "mentions": "[\"u-me\"]"}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "g2").unwrap();
+        assert_eq!((room.unread, room.mentions), (1, 1));
     }
 }

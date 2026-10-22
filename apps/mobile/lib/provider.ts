@@ -266,12 +266,24 @@ export interface ProviderActions {
    */
   openOrCreateDm(username: string,uid?:string): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
   /**
+   * Opens (or creates) the group DM with these people and me, the same set
+   * giving back the same room. `GROUP_DM_MAX` others at most; Mattermost also
+   * refuses fewer than two. Same return as `openOrCreateDm`. Rocket.Chat and
+   * Mattermost/kChat only.
+   */
+  openOrCreateGroupDm?(people: GroupDmPerson[]): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
+  /**
    * Creates a channel, or a private group when `privateRoom`, owned by me and
    * with me as its only member. Same return as `openOrCreateDm`. Rocket.Chat
    * only: the Vibez server creates through `provider.native.chat.createRoom`.
    */
   createChannel?(name: string, privateRoom: boolean): Promise<{ rid: string; rawRoom: Record<string, unknown> }>;
 }
+
+/** Someone picked for a group DM: the username, and the id when the search gave it. */
+export type GroupDmPerson = { username: string; uid?: string };
+/** Others in a group DM besides me: Mattermost's fixed 8 members, Rocket.Chat's default `DirectMesssage_maxUsers`. */
+export const GROUP_DM_MAX = 7;
 
 /** A room member as `ProviderActions.listMembers` reads it; `roles` in the room (`owner`, `moderator`, `leader`). */
 export type RoomMember = { id: string; username: string; name: string | null; status: string | null; avatarEtag: string | null; roles: string[] };
@@ -438,7 +450,8 @@ export interface Provider {
   /**
    * People and groups to start a conversation with, by name or number, when
    * the protocol answers that itself (WhatsApp: the phone's contacts and
-   * groups, or a number WhatsApp confirms). `id` opens with `openOrCreateDm(id, id)`.
+   * groups, or a number WhatsApp confirms; Mattermost and kChat: `/users/search`).
+   * `id` opens with `openOrCreateDm(name, id)`.
    */
   searchPeople?(query: string): Promise<{ id: string; name: string; detail: string }[]>;
   /** Says I am typing in a room (`active`) or stopped, where the protocol carries it outside the native runner (WhatsApp). */

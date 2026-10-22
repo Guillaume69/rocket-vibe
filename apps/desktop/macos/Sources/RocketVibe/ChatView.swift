@@ -234,6 +234,8 @@ struct RoomListView: View {
     @State var found: [Found] = []
     @State var searching = false
     @State var creating = false
+    /// Several people picked for a group DM (`NewGroupSheet`).
+    @State var grouping = false
     /// Search across rooms, on the device.
     @State var searchingMessages = false
     /// Every account's mentions, thread replies and reactions (`ActivitySheet`).
@@ -272,9 +274,10 @@ struct RoomListView: View {
         .task(id: query) { await search() }
         // Another account (Cmd + digit under a sheet): this one's sheets go.
         .task(id: app.account?.key) {
-            query = ""; found = []; creating = false; searchingMessages = false; showingActivity = false
+            query = ""; found = []; creating = false; grouping = false; searchingMessages = false; showingActivity = false
         }
         .modalOverlay(isPresented: $creating) { NewRoomSheet() }
+        .modalOverlay(isPresented: $grouping, style: .sheet(width: 420, height: 520)) { NewGroupSheet() }
         .modalOverlay(isPresented: $searchingMessages, style: .sheet(width: 520, height: 640)) { LocalSearchSheet() }
         .modalOverlay(isPresented: $showingActivity, style: .sheet(width: 520, height: 640)) { ActivitySheet() }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -299,6 +302,9 @@ struct RoomListView: View {
                     }
                     Menu {
                         Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
+                        if app.groupDmsSupported {
+                            Button { grouping = true } label: { Label(L("group_dm.new"), systemImage: "person.2") }
+                        }
                         if app.createsChannels {
                             Button { creating = true } label: { Label(L("rooms.new_channel"), systemImage: "number") }
                         }

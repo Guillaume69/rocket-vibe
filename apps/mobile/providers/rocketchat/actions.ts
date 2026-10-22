@@ -7,7 +7,7 @@
 
 import { mentionsE2E } from '../../lib/e2e/mentions.ts';
 import type { OutboxEncryptor } from '../../lib/outbox.ts';
-import type { MemberPage, ProviderActions, RoomInformation, RoomMember, RoomSettingsChange, ThreadPage } from '../../lib/provider.ts';
+import type { GroupDmPerson, MemberPage, ProviderActions, RoomInformation, RoomMember, RoomSettingsChange, ThreadPage } from '../../lib/provider.ts';
 import { toMessage, type LocalMessage, type RoomNotificationLevel } from '../../lib/normalize.ts';
 import type { RestClient } from '../../lib/rest.ts';
 
@@ -205,6 +205,23 @@ export class ActionsRC implements ProviderActions {
     const rid = rawRoom?._id;
     // A 200 without a room is abnormal (proxy, truncated response): a
     // DIAGNOSTIC message, not a screen sentence; the caller phrases it if it wants.
+    if (rawRoom === undefined || typeof rid !== 'string') {
+      throw new Error('im.create: response without a room');
+    }
+    return { rid, rawRoom };
+  }
+
+  /**
+   * `im.create {usernames}` takes them comma-separated, me added: the same
+   * set in any order gives the same room back, and an unknown username is
+   * silently dropped.
+   */
+  async openOrCreateGroupDm(people: GroupDmPerson[]): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    const response = await this.client.post<{ room?: Record<string, unknown> }>('im.create', {
+      body: { usernames: people.map((person) => person.username).join(',') },
+    });
+    const rawRoom = response.room;
+    const rid = rawRoom?._id;
     if (rawRoom === undefined || typeof rid !== 'string') {
       throw new Error('im.create: response without a room');
     }

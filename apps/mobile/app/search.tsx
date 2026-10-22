@@ -3,13 +3,14 @@ import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 
-import type { ProviderActions, Provider } from '../lib/provider.ts';
+import { GROUP_DM_MAX, type ProviderActions, type Provider } from '../lib/provider.ts';
 import type { SyncEngine } from '../lib/sync.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { KeyboardAvoidingContainer } from '../ui/keyboard.tsx';
@@ -19,13 +20,15 @@ import { useSession } from '../ui/session.tsx';
 import { useSync } from '../ui/sync.tsx';
 import { type Colors, LIST_PRESS_DELAY, FONTS, useColors } from '../ui/theme.ts';
 import { Tappable } from '../ui/tappable.tsx';
+import { Icon } from '../ui/icon.tsx';
 
 /**
  * Start a conversation (5.4): without this screen, the app only lists what
  * exists. `GET spotlight?query=` searches users AND public channels; a user
  * leads to a DM via `actions.openOrCreateDm`, a channel to `channels.join`. In
  * both cases, the room returned by the server is ingested immediately: the
- * navigation does not wait for the stream.
+ * navigation does not wait for the stream. Where the provider opens group DMs,
+ * people can be picked into a strip of chips and started together.
  */
 
 type User = { _id: string; username?: string; name?: string };
@@ -33,6 +36,8 @@ type User = { _id: string; username?: string; name?: string };
 type PublicRoom = { _id: string; name?: string; fname?: string; t?: string };
 /** Someone found by the account's own search (`Provider.searchPeople`, WhatsApp): a name and what tells them apart. */
 type Person = { id: string; name: string; detail: string };
+/** Someone picked for a group DM, keyed by row. */
+type Picked = { key: string; username: string; uid?: string; label: string };
 type SpotlightResponse = { users?: User[]; rooms?: PublicRoom[]; people?: Person[] };
 
 /** Stable (module-level): a value recreated on every render would rerun the effect. */
@@ -79,7 +84,9 @@ function Search({
   const t = useT();
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  const [picked, setPicked] = useState<Picked[]>([]);
   const inFlight = useRef(false);
+  const groups = actions.openOrCreateGroupDm !== undefined;
 
   const searchSpotlight = useCallback(
     async (clean: string): Promise<SpotlightResponse> => {
@@ -147,6 +154,40 @@ function Search({
     [actions, openRoom, setMessage, t],
   );
 
+  const togglePicked = useCallback(
+    (person: Picked) => {
+      setMessage(null);
+      if (picked.some((p) => p.key === person.key)) {
+        setPicked(picked.filter((p) => p.key !== person.key));
+      } else if (picked.length >= GROUP_DM_MAX) {
+        setMessage(t('search.groupFull', { max: GROUP_DM_MAX }));
+      } else {
+        setPicked([...picked, person]);
+      }
+    },
+    [picked, setMessage, t],
+  );
+
+  const startPicked = useCallback(async () => {
+    if (inFlight.current || picked.length === 0) return;
+    inFlight.current = true;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const people = picked.map(({ username, uid }) => ({ username, uid }));
+      const { rid, rawRoom } =
+        people.length === 1 || actions.openOrCreateGroupDm === undefined
+          ? await actions.openOrCreateDm(people[0].username, people[0].uid)
+          : await actions.openOrCreateGroupDm(people);
+      await openRoom(Object.keys(rawRoom).length > 0 ? rawRoom : undefined, rid);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : t('search.conversationFailed'));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, [actions, openRoom, picked, setMessage, t]);
+
   const joinChannel = useCallback(
     async (room: PublicRoom) => {
       if (inFlight.current) return;
@@ -181,6 +222,34 @@ function Search({
     ...(results.users ?? []).map((user) => ({ type: 'user', user }) as Row),
     ...(results.rooms ?? []).map((room) => ({ type: 'channel', room }) as Row),
   ];
+  const pickable = (item: Row): Picked | null =>
+    !groups ? null
+    : item.type === 'person' ? { key: `p-${item.person.id}`, username: item.person.name, uid: item.person.id, label: item.person.name }
+    : item.type === 'user' && item.user.username !== undefined
+      ? { key: `u-${item.user._id}`, username: item.user.username, uid: item.user._id, label: item.user.username }
+      : null;
+  const pickBox = (person: Picked | null) => {
+    if (person === null) return null;
+    const on = picked.some((p) => p.key === person.key);
+    return (
+      <Tappable
+        onPress={() => togglePicked(person)}
+        disabled={busy}
+        hitSlop={8}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: on }}
+        accessibilityLabel={t('search.addToGroup', { name: person.label })}
+        style={styles.pickBox}
+      >
+        <Icon name={on ? 'checkbox-checked' : 'checkbox'} size={22} color={on ? c.accent : c.dimmed} />
+      </Tappable>
+    );
+  };
+  const choose = (item: Row, alone: () => void) => {
+    const person = pickable(item);
+    if (person !== null && picked.length > 0) togglePicked(person);
+    else alone();
+  };
 
   return (
     <KeyboardAvoidingContainer>
@@ -197,6 +266,33 @@ function Search({
           style={[styles.field, { color: c.text, borderColor: c.border }]}
         />
       </View>
+      {picked.length > 0 && (
+        <View style={styles.pickedBar}>
+          <ScrollView horizontal style={styles.grow} showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} keyboardShouldPersistTaps="handled">
+            {picked.map((person) => (
+              <Tappable
+                key={person.key}
+                onPress={() => togglePicked(person)}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={t('search.removeFromGroup', { name: person.label })}
+                style={[styles.chip, { backgroundColor: c.surfaceActive }]}
+              >
+                <Text style={[styles.chipText, { color: c.text }]}>{person.label}</Text>
+                <Icon name="window-close" size={14} color={c.dimmed} />
+              </Tappable>
+            ))}
+          </ScrollView>
+          <Tappable
+            onPress={() => void startPicked()}
+            disabled={busy}
+            accessibilityRole="button"
+            style={[styles.start, { backgroundColor: c.accent, opacity: busy ? 0.5 : 1 }]}
+          >
+            <Text style={[styles.startText, { color: c.onAccent }]}>{t('search.startGroup')}</Text>
+          </Tappable>
+        </View>
+      )}
       {message !== null && (
         <Text style={[styles.errorMessage, { color: c.errorText }]}>{message}</Text>
       )}
@@ -207,36 +303,38 @@ function Search({
           item.type === 'person' ? (
             <View style={styles.rowWrapper}>
               <Tappable
-                onPress={() => void startWith(item.person)}
+                onPress={() => choose(item, () => void startWith(item.person))}
                 disabled={busy}
                 android_ripple={{ color: c.ripple }}
                 unstable_pressDelay={LIST_PRESS_DELAY}
                 style={styles.row}
               >
-                <View>
+                <View style={styles.grow}>
                   <Text style={[styles.name, { color: c.text }]}>{item.person.name}</Text>
                   {item.person.detail !== item.person.name && (
                     <Text style={[styles.detail, { color: c.dimmed }]}>{item.person.detail}</Text>
                   )}
                 </View>
+                {pickBox(pickable(item))}
               </Tappable>
             </View>
           ) : item.type === 'user' ? (
             <View style={styles.rowWrapper}>
               <Tappable
-                onPress={() => void startDm(item.user)}
+                onPress={() => choose(item, () => void startDm(item.user))}
                 disabled={busy}
                 android_ripple={{ color: c.ripple }}
                 unstable_pressDelay={LIST_PRESS_DELAY}
                 style={styles.row}
               >
                 <Text style={[styles.prefix, { color: c.dimmed }]}>@</Text>
-                <View>
+                <View style={styles.grow}>
                   <Text style={[styles.name, { color: c.text }]}>{item.user.username}</Text>
                   {item.user.name !== undefined && (
                     <Text style={[styles.detail, { color: c.dimmed }]}>{item.user.name}</Text>
                   )}
                 </View>
+                {pickBox(pickable(item))}
               </Tappable>
             </View>
           ) : (
@@ -287,6 +385,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  grow: { flex: 1 },
+  pickBox: { padding: 4 },
+  pickedBar: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+  chips: { gap: 6, alignItems: 'center' },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6 },
+  chipText: { fontFamily: FONTS.body, fontSize: 14 },
+  start: { borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  startText: { fontFamily: FONTS.bodySemi, fontSize: 14 },
   prefix: { fontFamily: FONTS.bodySemi, fontSize: 20, width: 24, textAlign: 'center' },
   name: { fontFamily: FONTS.body, fontSize: 16 },
   detail: { fontFamily: FONTS.body, fontSize: 13 },

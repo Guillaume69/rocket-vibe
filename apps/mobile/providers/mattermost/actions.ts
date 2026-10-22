@@ -6,7 +6,7 @@
 
 import { cardActionRoute } from '../../lib/integrationCards.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { CardActionAnswer, ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
+import type { CardActionAnswer, GroupDmPerson, ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
 import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
@@ -149,6 +149,33 @@ export class MmActions implements ProviderActions {
     await this.directory.ensure([otherId]);
     await this.live.load(rid).catch(() => this.live.remember(channel));
     return { rid, rawRoom: { channel: this.live.channels.get(rid) ?? channel } };
+  }
+
+  /** Me added by the server when absent; the same set gives the same channel back. */
+  async openOrCreateGroupDm(people: GroupDmPerson[]): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    const ids = await Promise.all(people.map(async (person) => person.uid ?? (await this.directory.byName(person.username)).id));
+    const channel = await this.client.post<Doc>('/channels/group', { body: [this.myId, ...ids] });
+    const rid = typeof channel.id === 'string' ? channel.id : null;
+    if (rid === null) throw new Error('Group channel answer without an id.');
+    const shown = [{ user_id: this.myId, category: 'group_channel_show', name: rid, value: 'true' }];
+    await this.client.put('/users/me/preferences', { body: shown }).catch(() => {});
+    this.categories?.sidebar.apply(shown);
+    this.categories?.sidebar.reveal(rid);
+    await this.directory.ensure(ids);
+    await this.live.load(rid).catch(() => this.live.remember(channel));
+    return { rid, rawRoom: { channel: this.live.channels.get(rid) ?? channel } };
+  }
+
+  /** People by username or name for a new conversation, me and deactivated accounts left out. */
+  async searchPeople(query: string): Promise<{ id: string; name: string; detail: string }[]> {
+    const found = await this.client.post<unknown>('/users/search', { body: { term: query.trim().replace(/^@+/, ''), limit: 20 } });
+    return (Array.isArray(found) ? (found as Doc[]) : []).flatMap((doc) => {
+      const id = text(doc.id);
+      const username = text(doc.username);
+      if (id === null || username === null || id === this.myId || Number(doc.delete_at ?? 0) > 0) return [];
+      const full = [text(doc.first_name), text(doc.last_name)].filter((part) => part !== null).join(' ');
+      return [{ id, name: username, detail: full !== '' ? full : (text(doc.nickname) ?? username) }];
+    });
   }
 
   private async messages(list: unknown): Promise<LocalMessage[]> {

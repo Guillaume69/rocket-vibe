@@ -11,10 +11,17 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-22
+
 ### Changed
 
 - Web client: a private room shows a lock on its coloured tile in the room list and the room header, so it no longer looks like a public channel, which keeps `#`. Encrypted rooms keep their neutral lock.
 - Web client: integration cards show their title, text and field values formatted (emoji, links, bold) instead of raw markdown, as the other apps do.
+
+### Fixed
+
+- Web client: a profile photo with transparent parts no longer shows the coloured tile through it.
+- Web client: a bot's profile no longer shows a presence.
 
 ## [0.8.0] - 2026-10-14
 
@@ -237,7 +244,8 @@ first release: everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.9.0...HEAD
+[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...vibez-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...vibez-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...vibez-v0.7.0
 [0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.4.0...server-v0.5.0

@@ -77,6 +77,7 @@ export function createMattermostProvider(
   const live = new MmLive(client, directory, session.userId, categories);
   const translator = new MmTranslator(directory, session.userId, categories, undefined, live.flagged);
   const history = new MmHistory(client, live);
+  live.history = history;
   const catchUp = new MmCatchUp({ client, directory, live, history, categories, myId: session.userId, deletedRoute: kchat });
   const actions = new MmActions({ client, directory, live, translator, myId: session.userId, categories });
   const expand = (name: string, data: Record<string, unknown>, broadcast: Record<string, unknown>) =>
@@ -107,8 +108,9 @@ export function createMattermostProvider(
       await live.ensureAuthors(posts);
       return posts.map((p) => translator.toMessage(p)).filter((m): m is LocalMessage => m !== null);
     },
+    searchPeople: (query) => actions.searchPeople(query),
     async loadPresence() {
-      const ids = directory.knownIds();
+      const ids = directory.knownIds().filter((id) => directory.user(id)?.bot !== true);
       if (ids.length === 0) return [];
       const list = await client.post<unknown>('/users/status/ids', { body: ids });
       return (Array.isArray(list) ? list : []).flatMap((raw) => {
@@ -143,7 +145,7 @@ export function createMattermostProvider(
       directory.remember(user);
       const named = directory.user(user.id) ?? user;
       const roles = String(raw.roles ?? '').split(/\s+/).includes('system_admin') ? ['admin'] : [];
-      return { _id: user.id, username: user.username, name: named.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null };
+      return { _id: user.id, username: user.username, name: named.displayName, roles, bio: typeof raw.position === 'string' && raw.position !== '' ? raw.position : null, bot: user.bot === true };
     },
     initialSubscriptions: () => [],
     roomSubscriptions: (rid: string) => [[MM_ROOM, rid]],

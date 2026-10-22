@@ -31,6 +31,9 @@ use crate::sync::{HistoryPage, MY_MESSAGES, STREAM_NOTIFY_ROOM, STREAM_NOTIFY_US
 use crate::uploads::{self, Uploads};
 
 const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
+/// Others besides me in a group DM: Mattermost's fixed 8 members, Rocket.Chat's
+/// default `DirectMesssage_maxUsers`.
+pub const GROUP_DM_MAX: usize = 7;
 /// Slack expires a typing frame on its own: one every few seconds keeps it up.
 const TYPING_EVERY: Duration = Duration::from_secs(3);
 
@@ -915,6 +918,11 @@ impl Session {
     }
 
     pub fn presence(&self, uid: &str) -> Option<live::Presence> {
+        if let Backend::Mattermost(mm) = self.backend()
+            && mm.directory.is_bot(uid)
+        {
+            return None;
+        }
         self.presence.lock().unwrap().status(uid)
     }
 
@@ -1397,6 +1405,34 @@ impl Session {
             }
             Backend::Slack(_) | Backend::Teams(_) => return Err(crate::slack::not_supported("direct message")),
             Backend::RocketChat => rocketchat::actions::open_dm(&self.rest, username).await?,
+        };
+        self.sync.catch_up_global().await?;
+        Ok(rid)
+    }
+
+    /// Rocket.Chat, Mattermost and kChat open a direct conversation with
+    /// several people.
+    pub fn group_dms_supported(&self) -> bool {
+        match self.backend() {
+            Backend::RocketChat | Backend::Mattermost(_) => true,
+            Backend::Slack(_) | Backend::Teams(_) => false,
+        }
+    }
+
+    /// The direct conversation with these people and me, created if needed:
+    /// its rid. Two to `GROUP_DM_MAX` others.
+    pub async fn open_group_dm(&self, usernames: &[String]) -> Result<String, RestError> {
+        if usernames.len() < 2 || usernames.len() > GROUP_DM_MAX {
+            return Err(RestError::incomplete("group dm: 2 to 7 people"));
+        }
+        let rid = match self.backend() {
+            Backend::Mattermost(mm) => {
+                let rid = mattermost::actions::open_group_dm(&self.rest, mm, &self.info.user_id, usernames).await?;
+                mm.reveal(&rid);
+                rid
+            }
+            Backend::Slack(_) | Backend::Teams(_) => return Err(crate::slack::not_supported("group direct message")),
+            Backend::RocketChat => rocketchat::actions::open_group_dm(&self.rest, usernames).await?,
         };
         self.sync.catch_up_global().await?;
         Ok(rid)

@@ -161,6 +161,10 @@ impl Directory {
         self.by_id.lock().unwrap().get(id).cloned()
     }
 
+    pub fn is_bot(&self, id: &str) -> bool {
+        self.by_id.lock().unwrap().get(id).is_some_and(|u| u.bot)
+    }
+
     pub fn username(&self, id: &str) -> Option<String> {
         self.by_id.lock().unwrap().get(id).map(|u| u.username.clone())
     }
@@ -330,5 +334,15 @@ mod tests {
         d.ensure_mentioned(&rest, ["carol".to_owned()]).await;
         d.ensure_usernames(&rest, ["carol".to_owned()]).await;
         assert_eq!(task.await.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_bot_is_known_by_its_flag() {
+        let d = Directory::default();
+        d.remember(User::from_json(&serde_json::json!({"id":"b1","username":"euria","is_bot":true})).unwrap());
+        d.remember(User::from_json(&serde_json::json!({"id":"u1","username":"bob"})).unwrap());
+        assert!(d.is_bot("b1"));
+        assert!(!d.is_bot("u1"));
+        assert!(!d.is_bot("unknown"));
     }
 }

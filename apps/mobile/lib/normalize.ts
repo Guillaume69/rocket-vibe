@@ -351,10 +351,11 @@ export function toRoom(
     // preview is set locally after decryption (`UPDATE_ENCRYPTED_PREVIEW`),
     // hence the `null` here, which the UPSERT knows not to take as a clear.
     //
-    // Elsewhere `null` DOES mean "no last message any more": when a room's last
-    // message is deleted, the Room document loses its `lastMessage` entirely
-    // (probed on 8.5, stream AND `rooms.get`). It is the only way to learn that
-    // a room was emptied.
+    // Elsewhere `null` DOES mean "no last message any more": deleting a room's
+    // last message moves `lastMessage` back to the previous visible one, and the
+    // Room document loses it entirely only when none remains (probed on 8.5,
+    // stream AND `rooms.get`). It is the only way to learn that a room was
+    // emptied.
     lastMessage: encrypted ? null : lastMessagePreview(last),
     // Null for an encrypted room, like the preview: there the local database
     // picks the last message (`UPDATE_ENCRYPTED_PREVIEW`) and skips system

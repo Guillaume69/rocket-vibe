@@ -264,6 +264,15 @@ describe('ActionsRC', () => {
     assert.deepEqual(result, { rid: 'dm1', rawRoom: room });
   });
 
+  test('openOrCreateGroupDm sends the usernames comma-separated to im.create', async () => {
+    const room = { _id: 'g1', t: 'd', usernames: ['bob', 'carol', 'me'] };
+    const { client, calls } = fakeClient({ room });
+    const result = await new ActionsRC(client).openOrCreateGroupDm([{ username: 'bob', uid: 'b1' }, { username: 'carol' }]);
+    assert.deepEqual(calls, [{ path: 'im.create', body: { usernames: 'bob,carol' } }]);
+    assert.deepEqual(result, { rid: 'g1', rawRoom: room });
+    await assert.rejects(new ActionsRC(fakeClient({}).client).openOrCreateGroupDm([{ username: 'bob' }]), /without a room/);
+  });
+
   test('openOrCreateDm rejects a 200 without a usable room', async () => {
     // Response without `room`, then `room` without `_id`: the two abnormal shapes.
     await assert.rejects(new ActionsRC(fakeClient({}).client).openOrCreateDm('lea'));

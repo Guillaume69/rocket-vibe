@@ -169,7 +169,7 @@ Live updates to that state (section 5):
 
 | Event | Effect |
 |---|---|
-| `posted` | `total_msg_count` +1. If root: `total_msg_count_root` +1, `last_root_post_at`, new preview. If mine: membership set to read. Else, if `mentions` holds my id: `mention_count` +1 |
+| `posted` | `total_msg_count` +1, except for a join or leave post (`IsJoinLeaveMessage` types), which only moves `last_post_at` [probed]. If root: `total_msg_count_root` +1, `last_root_post_at`, new preview. If mine: membership set to read. Else, if `mentions` holds my id: `mention_count` +1 |
 | `channel_viewed`, `multiple_channels_viewed` (`data.channel_times` keys) | membership counts = channel totals, `mention_count` 0 |
 | `post_unread` | membership takes `msg_count`, `msg_count_root`, `mention_count`, `last_viewed_at` from the event |
 
@@ -179,7 +179,9 @@ answers the reading device with `multiple_channels_viewed`, not
 `badge_updated` (`{badge}`, no room). On it the apps read
 `GET /users/me/channel_members` again and rewrite the rooms whose `msg_count`,
 `msg_count_root`, `mention_count`, `mention_count_root` or `last_viewed_at`
-moved, so a read made elsewhere clears the counter live.
+moved, so a read made elsewhere clears the counter live. A membership viewed
+after the channel's `last_post_at` carries the true totals: the cached channel
+takes them.
 
 ### 4.3 History
 
@@ -347,6 +349,8 @@ My sidebar (Mattermost 5.32+, kChat alike) is a list of categories per team:
 - Both preferences, and the name format, are offered in the apps' settings and
   written back with `PUT /users/me/preferences`; the `preferences_changed` that
   follows (any client) moves the list.
+- A conversation learned live, or moved by a new post, ranks the list again:
+  one pushed past the limit closes, as on Mattermost.
 
 ## 5. Real time
 
@@ -391,7 +395,12 @@ kChat replaced the WebSocket with the **Pusher protocol**:
    **without the `broadcast` envelope**, nested documents as **objects**, all of
    them on the `presence-teamUser.<id>` channel. A `posted` adds
    `channel_display_name`, `channel_name`, `channel_type`, `sender_name`,
-   `set_online` and `team_id`. Ignore `pusher*` and `client-*` events;
+   `set_online` and `team_id`. An event whose channel id upstream is only in
+   `broadcast.channel_id` has none here: `group_added` (`data` is
+   `{teammate_ids}`, JSON-encoded, probed on 11.11) and `direct_added`
+   (`{creator_id, teammate_id}`, not probed) are followed by reading
+   `/users/me/channel_members` and loading the memberships not known yet (at
+   most 10). Ignore `pusher*` and `client-*` events;
    `badge_updated` is kChat's only sign of a read made elsewhere (4.2).
 6. **Ids are UUIDs** (posts UUIDv7), not Mattermost's 26-character ids; a DM's
    `name` is still `<idA>__<idB>`.
@@ -405,7 +414,7 @@ kChat replaced the WebSocket with the **Pusher protocol**:
 | `post_deleted` | `data.post.id`, remove |
 | `reaction_added`, `reaction_removed` | `data.reaction.post_id`: refetch the post (`GET /posts/<id>`) |
 | `channel_viewed`, `multiple_channels_viewed`, `post_unread` | 4.2 |
-| `channel_created`, `channel_updated`, `channel_converted`, `channel_restored`, `direct_added`, `group_added`, `user_added` (mine) | load the channel and my membership, write both |
+| `channel_created`, `channel_updated`, `channel_converted`, `channel_restored`, `direct_added`, `group_added`, `user_added` (mine) | load the channel (`data.channel.id`, else `broadcast.channel_id`) and my membership, write both, rank the conversations again (4.9). `group_added` / `direct_added` with no channel id (kChat, 5.2): read my memberships, load the unknown ones |
 | `channel_deleted`, `user_removed` (me) | drop the room |
 | `channel_member_updated` (mine) | new membership |
 | `typing` | `data.user_id`, room in `broadcast.channel_id`: who types, expires after 15 s |
@@ -481,6 +490,7 @@ refuses an oversize file with 413.
 | Pin / unpin | `POST /posts/<id>/pin` / `/unpin`; list `GET /channels/<id>/pinned` |
 | Favourite a room | `PUT /users/me/preferences [{user_id, category: "favorite_channel", name: channelId, value: "true" \| "false"}]` (4.8) |
 | Open a DM | `POST /channels/direct [myId, otherId]` (idempotent) |
+| Open a group DM [probed] | `POST /channels/group [myId, ...otherIds]` answers 201 and the `G` channel; the same set in any order gives the same channel back, and I am added when left out. 3 to 8 distinct members, me included: fewer, or a repeated id, answers 400 `api.channel.create_group.bad_size.app_error`, checked before the ids (9 with unknown ids is still `bad_size`); an unknown id answers 400 `api.channel.create_group.bad_user.app_error`; a bot can be a member. The apps then write `group_channel_show` for the channel to `true` (4.9). Probed on 11.11, 2026-10-22; not on kChat |
 | Join a channel | `POST /channels/<id>/members {user_id}` |
 | Card button or menu | `POST /posts/<post>/actions/<action> {cookie?, selected_option?}`: `cookie` the one an ephemeral post's action carries, `selected_option` a menu's chosen value (a user or channel id for `data_source` `users` / `channels`, as Mattermost's webapp sends); answers `{ephemeral_text?, goto_location?, update?}` |
 | Card menu choices | `users`: `POST /users/search {term, limit: 20}` (label `username`, value `id`); `channels`: `POST /teams/<team>/channels/search {term}`, the team the room's `team_id`, else my first (label `display_name`, value `id`) |

@@ -137,16 +137,25 @@ impl Sidebar {
 
     /// The conversations within the limit, most recent first; `elsewhere` names
     /// the ones in Favourites or a category of my own, outside the limit.
-    pub fn rank<'a>(&mut self, channels: impl IntoIterator<Item = &'a Value>, elsewhere: impl Fn(&str) -> bool) {
-        let mut open: Vec<&Value> = channels
-            .into_iter()
-            .filter(|c| conversation(c) && !self.closed(c))
-            .filter(|c| !elsewhere(c.get("id").and_then(Value::as_str).unwrap_or_default()))
-            .collect();
+    /// Returns the conversations that entered or left the list.
+    pub fn rank<'a>(
+        &mut self,
+        channels: impl IntoIterator<Item = &'a Value>,
+        elsewhere: impl Fn(&str) -> bool,
+    ) -> Vec<String> {
+        let id = |c: &Value| c.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let conversations: Vec<&Value> = channels.into_iter().filter(|c| conversation(c)).collect();
+        let mut open: Vec<&Value> =
+            conversations.iter().copied().filter(|c| !self.closed(c) && !elsewhere(&id(c))).collect();
         open.sort_by_key(|c| std::cmp::Reverse(c.get("last_post_at").and_then(Value::as_i64).unwrap_or(0)));
-        let recent =
-            open.iter().take(self.limit).filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned));
-        self.listed = Some(recent.chain(self.revealed.iter().cloned()).collect());
+        let listed: std::collections::HashSet<String> =
+            open.iter().take(self.limit).map(|c| id(c)).chain(self.revealed.iter().cloned()).collect();
+        let before = self.listed.replace(listed.clone());
+        conversations
+            .into_iter()
+            .map(id)
+            .filter(|rid| before.as_ref().is_none_or(|b| b.contains(rid)) != listed.contains(rid))
+            .collect()
     }
 
     /// A conversation I just opened: listed whatever its age, as Mattermost does.

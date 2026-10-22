@@ -42,8 +42,8 @@ export class MmCategories {
     return placement !== undefined && (placement.favorite || placement.groupId !== null);
   }
 
-  rankConversations(channels: Iterable<Record<string, unknown>>): void {
-    this.sidebar.rank(channels, (rid) => this.placedElsewhere(rid));
+  rankConversations(channels: Iterable<Record<string, unknown>>): string[] {
+    return this.sidebar.rank(channels, (rid) => this.placedElsewhere(rid));
   }
 
   async load(): Promise<void> {

@@ -59,6 +59,8 @@ type Profile = {
   /** A bot account (Vibez, RFC 0003), and its owner's username when known. */
   bot: boolean;
   botOwner: string | null;
+  /** A bot account of any server (Rocket.Chat's `bot` role or type included): no presence row. */
+  presenceless: boolean;
 };
 
 function asString(v: unknown): string | null {
@@ -71,6 +73,8 @@ function profileOf(raw: Record<string, unknown> | undefined): Profile | null {
   const username = asString(raw.username);
   if (uid === null || username === null) return null;
   const status = asString(raw.status);
+  const roles = Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === 'string') : [];
+  const bot = raw.bot === true;
   return {
     uid,
     username,
@@ -78,10 +82,11 @@ function profileOf(raw: Record<string, unknown> | undefined): Profile | null {
     status:
       status === 'online' || status === 'away' || status === 'busy' ? status : 'offline',
     utcOffset: typeof raw.utcOffset === 'number' ? raw.utcOffset : null,
-    roles: Array.isArray(raw.roles) ? raw.roles.filter((r): r is string => typeof r === 'string') : [],
+    roles,
     bio: asString(raw.bio) ?? asString(raw.statusText),
     avatarEtag: asString(raw.avatarETag),
-    bot: raw.bot === true,
+    bot,
+    presenceless: bot || roles.includes('bot') || raw.type === 'bot',
     botOwner: asString(raw.botOwner),
   };
 }
@@ -336,7 +341,7 @@ export default function ProfileScreen() {
               {t('bots.ownedBy', { owner: profile.botOwner })}
             </Text>
           )}
-          <View style={styles.presence}>
+          {profile?.presenceless !== true && <View style={styles.presence}>
             <View
               style={[
                 styles.badge,
@@ -346,7 +351,7 @@ export default function ProfileScreen() {
             <Text style={[styles.presenceSentence, { color: c.dimmed }]}>
               {displayedStatus !== null ? t(PRESENCE_KEYS[displayedStatus]) : '…'}
             </Text>
-          </View>
+          </View>}
         </View>
       </View>
 

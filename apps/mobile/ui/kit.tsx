@@ -44,6 +44,7 @@ import { useAuthorizedUri } from './authorizedImage.ts';
 const START = { x: 0, y: 0 } as const;
 const END = { x: 1, y: 0 } as const;
 const DIAG_END = { x: 1, y: 1 } as const;
+const TRANSPARENT_GRADIENT: Gradient = ['transparent', 'transparent'];
 
 /** Primary action button: gradient background, Baloo 2 text. */
 export function PrimaryButton({
@@ -149,21 +150,24 @@ export function AvatarTile({
   // render" pattern (React docs), not an effect.
   const source=useAuthorizedUri(useNativeAvatar(uri));
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [photoLoaded, setPhotoLoaded] = useState(false);
   const [trackedUri, setTrackedUri] = useState(source);
   if (source !== trackedUri) {
     setTrackedUri(source);
     setPhotoFailed(false);
+    setPhotoLoaded(false);
   }
   const photo = typeof source === 'string' && source !== '' && !photoFailed ? source : null;
+  const shown = photo !== null && photoLoaded;
 
   return (
     <LinearGradient
-      colors={gradient}
+      colors={shown ? TRANSPARENT_GRADIENT : gradient}
       start={START}
       end={DIAG_END}
       style={[{ width: size, height: size, borderRadius: radius }, styles.center, style]}
     >
-      {child ?? (
+      {!shown && (child ?? (
         <Text
           style={{
             fontFamily: FONTS.titleStrong,
@@ -174,10 +178,11 @@ export function AvatarTile({
         >
           {(initial ?? '?').toUpperCase()}
         </Text>
-      )}
+      ))}
       {photo !== null && (
         <Image
           source={{ uri: photo }}
+          onLoad={() => setPhotoLoaded(true)}
           onError={() => setPhotoFailed(true)}
           resizeMode="cover"
           style={[StyleSheet.absoluteFill, { borderRadius: radius }]}

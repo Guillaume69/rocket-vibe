@@ -86,6 +86,12 @@ export class SlackCatchUp {
     await this.directory.ensure([this.myId, ...people.slice(0, NAMED_FIRST)]);
     const previews = await this.previews(recent.slice(0, PREVIEWS).map((c) => String(c.id)));
     if (isDiscarded()) return;
+    if (this.live !== null) {
+      for (const [rid, message] of previews) {
+        if (message !== null && isTimestamp(message.ts)) this.live.previews.set(rid, message.ts);
+        else this.live.previews.delete(rid);
+      }
+    }
 
     const rooms: SlackRoomDoc[] = channels.map((channel) => {
       const rid = String(channel.id);

@@ -6,9 +6,10 @@ import { TypingEngine } from '../../lib/typing.ts';
 import { MmCategories } from './categories.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
+import { MmHistory } from './history.ts';
 import { MmLive } from './live.ts';
-import { fakeServer, post } from './testing.ts';
-import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
+import { fakeServer, post, postList } from './testing.ts';
+import { MM_MEMBERSHIP, MM_POST, MM_POST_DELETED, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
 
 function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   const server = fakeServer(route);
@@ -17,11 +18,12 @@ function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   directory.remember({ id: 'u-me', username: 'me', displayName: null, lastPictureUpdate: null });
   directory.remember({ id: 'u-bob', username: 'bob', displayName: null, lastPictureUpdate: null });
   const live = new MmLive(client, directory, 'u-me');
+  live.history = new MmHistory(client, live);
   live.remember(
     { id: 'ch1', type: 'O', name: 'dev', total_msg_count: 10, total_msg_count_root: 8 },
     { channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0 },
   );
-  return { live, server, translator: new MmTranslator(directory, 'u-me') };
+  return { live, server, directory, translator: new MmTranslator(directory, 'u-me') };
 }
 
 const membership = (events: { collection: string; args: unknown[] }[]) =>
@@ -36,6 +38,14 @@ describe('MmLive.expand', () => {
     const typing = new TypingEngine({ rid: 'ch1', me: 'me', schedule: () => 0, cancel: () => {} });
     for (const event of await live.expand('typing', { user_id: 'u-bob', parent_id: '' }, { channel_id: 'ch1' })) typing.apply(event);
     assert.deepEqual(typing.whoIsTyping(), ['bob']);
+  });
+
+  test("a bot's status change carries no presence", async () => {
+    const { live, directory } = setup();
+    const presence = new PresenceEngine();
+    directory.remember({ id: 'u-bot', username: 'euria', displayName: null, lastPictureUpdate: null, bot: true });
+    for (const event of await live.expand('status_change', { user_id: 'u-bot', status: 'offline' }, {})) presence.apply(event);
+    assert.equal(presence.statusOf('u-bot'), null);
   });
 
   test("someone else's root post: message, room preview, one more unread", async () => {
@@ -54,6 +64,15 @@ describe('MmLive.expand', () => {
     const events = await live.expand('posted', { post: post('p2', { root_id: 'p1' }) }, {});
     assert.deepEqual(events.map((e) => e.collection), [MM_POST, MM_MEMBERSHIP]);
     assert.equal(translator.toSubscription(events[1]!.args[0] as Record<string, unknown>)?.unread, 0);
+  });
+
+  test('a join or leave post moves the room but adds no unread, as the server counts it', async () => {
+    const { live, translator } = setup();
+    for (const type of ['system_add_to_channel', 'system_join_channel', 'system_leave_team', 'system_join_leave']) {
+      const events = await live.expand('posted', { post: post(`j-${type}`, { type, create_at: 70 }) }, {});
+      assert.deepEqual(events.map((e) => e.collection), [MM_POST, MM_ROOM, MM_MEMBERSHIP], type);
+      assert.equal(translator.toSubscription(events[2]!.args[0] as Record<string, unknown>)?.unread, 0, type);
+    }
   });
 
   test('my own post keeps the room read', async () => {
@@ -108,11 +127,80 @@ describe('MmLive.expand', () => {
     assert.equal(events.length, 3);
   });
 
+  test('a post in an unknown channel counts once, the channel read already holding it', async () => {
+    const { live, translator } = setup((call) => {
+      if (call.path === '/channels/new') return { body: { id: 'new', type: 'O', total_msg_count: 1, total_msg_count_root: 1 } };
+      if (call.path === '/channels/new/members/me') return { body: { channel_id: 'new', msg_count: 0, msg_count_root: 0, mention_count: 1 } };
+      return undefined;
+    });
+    const events = await live.expand('posted', { post: post('p4', { channel_id: 'new', user_id: 'u-bob' }), mentions: '["u-me"]' }, {});
+    const sub = translator.toSubscription(membership(events) as unknown as Record<string, unknown>);
+    assert.equal(sub?.unread, 1);
+    assert.equal(sub?.mentions, 1);
+  });
+
   test('being removed from a room deletes it; someone else leaving does not', async () => {
     const { live } = setup();
     assert.deepEqual(await live.expand('user_removed', { user_id: 'u-bob' }, { channel_id: 'ch1' }), []);
     const events = await live.expand('user_removed', { user_id: 'u-me' }, { channel_id: 'ch1' });
     assert.equal(events[0]?.collection, MM_ROOM_DELETED);
+  });
+});
+
+describe('room preview after an edit or a delete', () => {
+  const roomOf = (events: { collection: string; args: unknown[] }[], translator: MmTranslator) => {
+    const event = events.find((e) => e.collection === MM_ROOM);
+    return event === undefined ? undefined : translator.toRoom(event.args[0] as Record<string, unknown>);
+  };
+
+  test('an edit of the previewed post rewrites the preview, an edit of an older one does not', async () => {
+    const { live, translator } = setup();
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    await live.expand('posted', { post: post('p2', { create_at: 60 }) }, {});
+    const older = await live.expand('post_edited', { post: JSON.stringify(post('p1', { create_at: 50, message: 'old fixed' })) }, {});
+    assert.deepEqual(older.map((e) => e.collection), [MM_POST]);
+    const newest = await live.expand('post_edited', { post: JSON.stringify(post('p2', { create_at: 60, message: 'new fixed' })) }, {});
+    assert.deepEqual(newest.map((e) => e.collection), [MM_POST, MM_ROOM]);
+    assert.equal(roomOf(newest, translator)?.lastMessage, 'new fixed');
+  });
+
+  test('without a cached preview, an edit of the newest root post is taken as the preview', async () => {
+    const { live, translator } = setup();
+    live.remember({ id: 'ch1', type: 'O', name: 'dev', last_root_post_at: 70, last_post_at: 90 });
+    const events = await live.expand('post_edited', { post: post('p7', { create_at: 70, message: 'fixed' }) }, {});
+    assert.equal(roomOf(events, translator)?.lastMessage, 'fixed');
+    const reply = await live.expand('post_edited', { post: post('p8', { create_at: 90, root_id: 'p7' }) }, {});
+    assert.deepEqual(reply.map((e) => e.collection), [MM_POST]);
+  });
+
+  test('deleting the previewed post previews the newest root left, the room keeping its place', async () => {
+    const { live, server, translator } = setup((call) =>
+      call.path === '/channels/ch1/posts' ? { body: postList([post('p1', { create_at: 50 })]) } : undefined,
+    );
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    await live.expand('posted', { post: post('p2', { create_at: 60 }) }, {});
+    const events = await live.expand('post_deleted', { post: JSON.stringify(post('p2', { create_at: 60 })) }, {});
+    assert.deepEqual(events.map((e) => e.collection), [MM_POST_DELETED, MM_ROOM]);
+    const page = server.calls.find((c) => c.path === '/channels/ch1/posts');
+    assert.equal(page?.query.get('per_page'), '1');
+    assert.equal(page?.query.get('collapsedThreads'), 'true');
+    const room = roomOf(events, translator);
+    assert.equal(room?.lastMessage, 'message p1');
+    assert.equal(room?.lastMessageTs, 60);
+    assert.equal(room?.keepPreview, false);
+  });
+
+  test('deleting the only post clears the preview; deleting an older one asks for nothing', async () => {
+    const { live, server, translator } = setup((call) => (call.path === '/channels/ch1/posts' ? { body: postList([]) } : undefined));
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    const older = await live.expand('post_deleted', { post: post('p0', { create_at: 10 }) }, {});
+    assert.deepEqual(older.map((e) => e.collection), [MM_POST_DELETED]);
+    assert.equal(server.calls.some((c) => c.path === '/channels/ch1/posts'), false);
+    const events = await live.expand('post_deleted', { post: post('p1', { create_at: 50 }) }, {});
+    const room = roomOf(events, translator);
+    assert.equal(room?.lastMessage, null);
+    assert.equal(room?.keepPreview, false);
+    assert.equal(room?.lastMessageTs, 50);
   });
 });
 
@@ -151,6 +239,42 @@ describe('kChat reads made elsewhere', () => {
     assert.deepEqual(events.map((e) => [e.collection, e.eventKey]), [[MM_MEMBERSHIP, 'ch1']]);
     assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
     assert.deepEqual(await live.expand('badge_updated', { badge: 0 }, {}), []);
+  });
+
+  test('a read elsewhere after a join post leaves the room read', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 99 }] }
+        : undefined,
+    );
+    await live.expand('posted', { post: post('j1', { type: 'system_add_to_channel', create_at: 50 }) }, {});
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
+  });
+
+  test('a read elsewhere realigns totals the cache had drifted above the server', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 99 }] }
+        : undefined,
+    );
+    live.remember(
+      { id: 'ch1', type: 'O', name: 'dev', total_msg_count: 11, total_msg_count_root: 9, last_post_at: 50 },
+      { channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 40 },
+    );
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 0);
+  });
+
+  test('a membership viewed before the last post keeps the room unread', async () => {
+    const { live, translator } = setup((call) =>
+      call.path === '/users/me/channel_members'
+        ? { body: [{ channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0, last_viewed_at: 30 }] }
+        : undefined,
+    );
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    const events = await live.expand('badge_updated', { badge: 0 }, {});
+    assert.equal(translator.toSubscription(events[0]!.args[0] as Record<string, unknown>)?.unread, 1);
   });
 });
 
@@ -230,5 +354,77 @@ describe('MmLive.ensureAuthors on a failing network', () => {
     assert.ok(asked() > offlineCalls);
     const { directory } = live as unknown as { directory: MmDirectory };
     assert.equal(directory.nameOf('carol'), 'Carol');
+  });
+});
+
+describe('Conversations learned or moved live', () => {
+  function sidebarSetup(route: Parameters<typeof fakeServer>[0], limit: number) {
+    const server = fakeServer(route);
+    const client = new MmClient(server.base, 'tok', { fetch: server.fetcher });
+    const directory = new MmDirectory(client);
+    directory.remember({ id: 'u-me', username: 'me', displayName: null, lastPictureUpdate: null });
+    const categories = new MmCategories(client, 'u-me');
+    categories.sidebar.apply([{ category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: String(limit) }], true);
+    const live = new MmLive(client, directory, 'u-me', categories);
+    const dm = (id: string, other: string, at: number) => {
+      live.remember({ id, type: 'D', name: `u-me__${other}`, last_post_at: at, total_msg_count: 1, total_msg_count_root: 1 }, { channel_id: id, user_id: 'u-me', msg_count: 1, msg_count_root: 1, mention_count: 0 });
+      directory.remember({ id: other, username: other.slice(2), displayName: null, lastPictureUpdate: null });
+    };
+    const translator = new MmTranslator(directory, 'u-me', categories);
+    const open = (events: { collection: string; eventKey: string; args: unknown[] }[], rid: string) => {
+      const event = events.find((e) => e.collection === MM_MEMBERSHIP && e.eventKey === rid);
+      return event === undefined ? undefined : translator.toSubscription(event.args[0] as Record<string, unknown>)?.open;
+    };
+    return { live, server, categories, dm, open };
+  }
+
+  const gm = { id: 'g1', type: 'G', name: 'g1', display_name: 'me, bob, carol', last_post_at: 0, total_msg_count: 0, total_msg_count_root: 0 };
+  const gmMember = { channel_id: 'g1', user_id: 'u-me', msg_count: 0, msg_count_root: 0, mention_count: 0 };
+
+  test('my first post in a group I did not know lists it and closes the one past the limit', async () => {
+    const { live, categories, dm, open } = sidebarSetup((call) => {
+      if (call.path === '/channels/g1') return { body: gm };
+      if (call.path === '/channels/g1/members/me') return { body: gmMember };
+      if (call.path === '/users/usernames') return { body: [] };
+      return undefined;
+    }, 2);
+    dm('d1', 'u-bob', 20);
+    dm('d2', 'u-carol', 10);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('posted', { post: post('p1', { channel_id: 'g1', user_id: 'u-me', create_at: 50 }) }, {});
+    assert.equal(open(events, 'g1'), true);
+    assert.equal(open(events, 'd2'), false);
+    assert.equal(open(events, 'd1'), undefined);
+  });
+
+  test('a new post brings a direct message from past the limit back into the list', async () => {
+    const { live, categories, dm, open } = sidebarSetup(() => undefined, 1);
+    dm('d1', 'u-bob', 20);
+    dm('d2', 'u-carol', 10);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('posted', { post: post('p1', { channel_id: 'd2', user_id: 'u-me', create_at: 50 }) }, {});
+    assert.equal(open(events, 'd2'), true);
+    assert.equal(open(events, 'd1'), false);
+  });
+
+  test('a group_added without a channel id (kChat) reads my memberships and loads the new one', async () => {
+    const { live, server, categories, dm, open } = sidebarSetup((call) => {
+      if (call.path === '/users/me/channel_members') return { body: [{ channel_id: 'd1', user_id: 'u-me' }, gmMember, { channel_id: 'gone', user_id: 'u-me' }] };
+      if (call.path === '/channels/g1') return { body: { ...gm, last_post_at: 30 } };
+      if (call.path === '/channels/gone') return { body: { id: 'gone', type: 'O', delete_at: 5 } };
+      if (call.path === '/users/usernames') return { body: [] };
+      return undefined;
+    }, 5);
+    dm('d1', 'u-bob', 20);
+    categories.rankConversations(live.channels.values());
+    const events = await live.expand('group_added', { teammate_ids: '["u-me","u-bob","u-carol"]' }, {});
+    assert.deepEqual(events.map((e) => [e.collection, e.eventKey]), [[MM_ROOM, 'g1'], [MM_MEMBERSHIP, 'g1']]);
+    assert.equal(open(events, 'g1'), true);
+    assert.ok(!server.calls.some((c) => c.path.endsWith('/members/me')));
+    assert.ok(!live.channels.has('gone'));
+    const asked = server.calls.length;
+    assert.deepEqual(await live.expand('group_added', {}, {}), []);
+    assert.equal(server.calls.filter((c) => c.path === '/channels/gone').length, 1);
+    assert.ok(server.calls.length > asked);
   });
 });

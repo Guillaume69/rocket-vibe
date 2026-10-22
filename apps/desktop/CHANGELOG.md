@@ -7,9 +7,21 @@ section here.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-22
+
 ### Added
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting, marking read, the typing indicator and channel thread replies.
+- Group direct messages on Rocket.Chat, Mattermost and kChat accounts: on GTK, tick several people (up to seven) in New message, remove one from its chip, then Start; on macOS, the + menu's New group message does the same.
+
+### Fixed
+
+- Mattermost and kChat: the first message of a conversation the app did not know yet (a group conversation someone else just started) counts once in the unread badge, not twice.
+- Mattermost and kChat: a room no longer keeps 1 unread for good after someone joins, leaves, is added or is removed live; opening it clears it again.
+- Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, titled with its members' names, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
+- A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
+- A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
+- Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. In an encrypted Rocket.Chat room, deleting the last message falls back on the newest one stored instead of keeping the deleted one as the preview.
 
 ### Removed
 
@@ -1323,7 +1335,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...HEAD
+[0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0
 [0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
 [0.21.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1

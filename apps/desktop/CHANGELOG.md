@@ -11,7 +11,7 @@ section here.
 - Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
 
 ### Added
-- Microsoft Teams (experimental): a room information panel showing the conversation's name, kind and topic, and a profile card on tapping an author or a direct conversation. The room topic and presence (who is online, away or busy) are read from the live service; the profile card's extra fields are not yet working against the live account (a 2026-10-22 probe showed that call refused) and fall back to the name already known.
+- Microsoft Teams (experimental): a room information panel showing the conversation's name, kind and topic, and a profile card on tapping an author or a direct conversation showing their name, work email and whether the account is a bot. The room topic, the profile card and presence (who is online, away or busy) are all read from the live service.
 
 ## [0.24.0] - 2026-10-22
 

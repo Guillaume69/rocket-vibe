@@ -2820,7 +2820,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
-      "line": 580,
+      "line": 637,
       "kind": "url",
       "surface": "/api/v2/query"
     },

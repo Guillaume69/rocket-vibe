@@ -307,6 +307,63 @@ async fn describe_members(r: Result<reqwest::Response, reqwest::Error>) -> Value
     }
 }
 
+/// A Substrate search result described by STRUCTURE only: status, the result
+/// total and count, and the field names of the first result and its Source.
+/// No message content, so a matching term can be used to learn the hit shape.
+async fn describe_search_hits(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    let keys = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default()
+    };
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let result_set = body
+                .get("EntitySets")
+                .and_then(Value::as_array)
+                .and_then(|s| s.first())
+                .and_then(|e| e.get("ResultSets"))
+                .and_then(Value::as_array)
+                .and_then(|r| r.first());
+            let results = result_set.and_then(|rs| rs.get("Results")).and_then(Value::as_array);
+            let first = results.and_then(|r| r.first());
+            let source = first.and_then(|f| f.get("Source"));
+            let kind = |v: Option<&Value>| -> &'static str {
+                match v {
+                    Some(Value::String(s)) if s.starts_with("19:") => "string(19:)",
+                    Some(Value::String(_)) => "string",
+                    Some(Value::Object(_)) => "object",
+                    Some(Value::Array(_)) => "array",
+                    Some(Value::Number(_)) => "number",
+                    Some(Value::Bool(_)) => "bool",
+                    Some(Value::Null) | None => "absent",
+                }
+            };
+            let field = |name: &str| kind(source.and_then(|s| s.get(name)));
+            json!({
+                "status": status,
+                "total": result_set.and_then(|rs| rs.get("Total")),
+                "result_count": results.map(|r| r.len()),
+                "result_keys": keys(first),
+                "source_keys": keys(source),
+                "source_types": {
+                    "ClientThreadId": field("ClientThreadId"),
+                    "ClientConversationId": field("ClientConversationId"),
+                    "ConversationId": field("ConversationId"),
+                    "From": field("From"),
+                    "Sender": field("Sender"),
+                    "Preview": field("Preview"),
+                    "Subject": field("Subject"),
+                    "DateTimeSent": field("DateTimeSent"),
+                },
+                "from_keys": keys(source.and_then(|s| s.get("From"))),
+                "from_email_keys": keys(source.and_then(|s| s.get("From")).and_then(|f| f.get("EmailAddress"))),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
     let host = url.host_str()?.to_owned();
@@ -593,6 +650,23 @@ impl Tokens {
             });
             let r = http().post(url).bearer_auth(lease.value.as_str()).json(&body).send().await;
             out.insert("search_substrate".into(), describe(r).await);
+            // A matching term, to learn the hit shape. Reports only field names
+            // and counts of the results, never the message content.
+            let mut cvid = [0u8; 16];
+            getrandom::fill(&mut cvid).ok();
+            let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+            let hit = json!({
+                "Cvid": cvid,
+                "Scenario": { "Name": "teamsmessages" },
+                "EntityRequests": [{
+                    "EntityType": "Message",
+                    "ContentSources": ["Teams"],
+                    "Query": { "QueryString": "http" },
+                    "Size": 3,
+                }],
+            });
+            let r = http().post(url).bearer_auth(lease.value.as_str()).json(&hit).send().await;
+            out.insert("search_hit_shape".into(), describe_search_hits(r).await);
         }
         // Room-info shape: list the user's conversations (chat skypetoken, as
         // history does), take the first id and GET that conversation. Only its

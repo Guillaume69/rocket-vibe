@@ -574,12 +574,19 @@ impl Tokens {
             out.insert("search".into(), describe(r).await);
         }
         // Variant: the asyncgw /msgsearch path 404s. Try the Substrate search
-        // API with its own host and audience.
+        // API with its own host and audience. The 400 on the first body wanted
+        // the Teams content source, a correlation id and a scenario.
         if let Ok(lease) = self.access("https://substrate.office.com").await {
             let url = "https://substrate.office.com/search/api/v2/query";
+            let mut cvid = [0u8; 16];
+            getrandom::fill(&mut cvid).ok();
+            let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
             let body = json!({
+                "Cvid": cvid,
+                "Scenario": { "Name": "teamsmessages" },
                 "EntityRequests": [{
                     "EntityType": "Message",
+                    "ContentSources": ["Teams"],
                     "Query": { "QueryString": "rvprobe-zzqx-unlikely" },
                     "Size": 5,
                 }],

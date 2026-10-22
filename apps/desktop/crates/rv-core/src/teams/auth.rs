@@ -279,6 +279,30 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
     }
 }
 
+/// A file download described by TRANSPORT only: status, content-type,
+/// content-length and the auth-challenge header, plus whether any body bytes
+/// came back. Never the url or the bytes themselves.
+async fn describe_download(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let content_length = header("content-length");
+            let bytes = resp.bytes().await.map(|b| b.len()).unwrap_or(0);
+            json!({
+                "status": status,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "content_length": content_length,
+                "body_bytes_nonzero": bytes > 0,
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 /// A members body described WITHOUT identities: the member count and the
 /// member-row key names and top-level keys, plus any error envelope.
 fn member_report(status: u16, www_authenticate: Option<String>, body: &Value) -> Value {
@@ -360,8 +384,10 @@ async fn describe_search_hits(r: Result<reqwest::Response, reqwest::Error>) -> V
 /// The first message in a page that carries a file, by shape only: its
 /// messagetype, properties key names, whether `files` is a JSON string, the
 /// file-entry key names and whether the content holds a `<URIObject>`. No
-/// filenames, urls or message text.
-fn file_message_shape(body: &Value) -> Option<Value> {
+/// filenames, urls or message text. The second tuple field is the download
+/// candidate url (the `<a href>` or the `uri` attribute), kept out of the
+/// reported value so the probe can test its auth without exposing it.
+fn file_message_shape(body: &Value) -> Option<(Value, Option<String>)> {
     let files_value = |props: Option<&Value>| -> Option<Value> {
         props.and_then(|p| p.get("files")).map(|f| match f {
             Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(Value::Null),
@@ -370,6 +396,11 @@ fn file_message_shape(body: &Value) -> Option<Value> {
     };
     for m in body.get("messages").and_then(Value::as_array)? {
         let kind = m.get("messagetype").and_then(Value::as_str).unwrap_or("");
+        // A call recording is a meeting artifact on AMS with its own auth, not a
+        // shared file: skip it so the scan finds an ordinary attachment instead.
+        if kind.contains("CallRecording") {
+            continue;
+        }
         let props = m.get("properties");
         let files = files_value(props);
         let entries = files.as_ref().and_then(Value::as_array);
@@ -387,7 +418,7 @@ fn file_message_shape(body: &Value) -> Option<Value> {
             // URIObject structure: the opening tag's attribute names and the
             // child element names, so the parser is known without the values.
             let (attrs, children) = uriobject_structure(content);
-            return Some(json!({
+            let report = json!({
                 "messagetype": kind,
                 "properties_keys": prop_keys,
                 "files_is_string": props.and_then(|p| p.get("files")).is_some_and(Value::is_string),
@@ -396,10 +427,28 @@ fn file_message_shape(body: &Value) -> Option<Value> {
                 "content_has_uriobject": content_uriobject,
                 "uriobject_attrs": attrs,
                 "uriobject_children": children,
-            }));
+            });
+            return Some((report, uriobject_download_url(content)));
         }
     }
     None
+}
+
+/// The download url inside a `<URIObject>`: the first `<a href="…">` (the file
+/// link), else the object's own `uri="…"` attribute. Used only to probe the
+/// download auth; never put into reported output.
+fn uriobject_download_url(content: &str) -> Option<String> {
+    let start = content.find("<URIObject")?;
+    let rest = &content[start..];
+    let body_end = rest.find("</URIObject>").unwrap_or(rest.len());
+    let object = &rest[..body_end];
+    let attr = |src: &str, name: &str| -> Option<String> {
+        let at = src.find(&format!("{name}=\""))?;
+        let after = &src[at + name.len() + 2..];
+        let end = after.find('"')?;
+        Some(after[..end].to_owned())
+    };
+    attr(object, "href").or_else(|| attr(&object[..object.find('>').unwrap_or(object.len())], "uri"))
 }
 
 /// The `<URIObject>`'s opening-tag attribute names and its child element names,
@@ -826,7 +875,7 @@ impl Tokens {
             // the first one carrying a file, reported by messagetype and field
             // names only (no filenames, urls or message text).
             let mut files = None;
-            for id in ids.iter().take(8) {
+            for id in ids.iter().take(12) {
                 let msgs =
                     url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok().and_then(|mut u| {
                         {
@@ -834,7 +883,7 @@ impl Tokens {
                             seg.push(id);
                             seg.push("messages");
                         }
-                        u.set_query(Some("view=msnp24Equivalent&pageSize=20"));
+                        u.set_query(Some("view=msnp24Equivalent&pageSize=50"));
                         Some(u)
                     });
                 let Some(url) = msgs else { continue };
@@ -852,7 +901,25 @@ impl Tokens {
                     break;
                 }
             }
-            out.insert("file_shape".into(), files.unwrap_or(json!({ "note": "no file message found" })));
+            match files {
+                Some((mut report, download)) => {
+                    // Probe the file download with the Skype token: does the AMS
+                    // host accept it? Report only status, content-type and
+                    // whether a body came back. Never the url or any bytes.
+                    if let (Some(url), Value::Object(map)) = (download, &mut report) {
+                        let answer = http()
+                            .get(&url)
+                            .header("authentication", format!("skypetoken={}", skype.as_str()))
+                            .send()
+                            .await;
+                        map.insert("download".into(), describe_download(answer).await);
+                    }
+                    out.insert("file_shape".into(), report);
+                }
+                None => {
+                    out.insert("file_shape".into(), json!({ "note": "no file message found" }));
+                }
+            }
         }
         Value::Object(out)
     }

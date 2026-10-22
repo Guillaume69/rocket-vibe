@@ -2820,9 +2820,9 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
-      "line": 717,
+      "line": 745,
       "kind": "url",
-      "surface": "/api/v2/query"
+      "surface": "/api/mt"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",

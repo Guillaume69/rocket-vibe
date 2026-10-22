@@ -69,13 +69,50 @@ or a replay looks for it before sending again, and a window full of other messag
 marks the row uncertain rather than sending twice. Edit is a `PUT` of the message,
 delete a `DELETE`, a reaction a `PUT` / `DELETE` of `properties?name=emotions`.
 
-## Not yet
+## Done so far
 
-Files (AMS), channel threads, pins, saves, search, profiles and presence, room info and
-members, typing, calls and push are refused by the provider: Android hides them through
-its capabilities; GTK and SwiftUI can still offer some of them and get a "not
-supported" error (see [parity](../parity.md#19-experimental-integrations)). Nothing has
-run against more than one tenant; installed Android and macOS runs are outstanding.
+Chats and channels, unread state, history, live messages/edits/reactions/deletions,
+and send, edit, delete, react, mark read and the typing indicator (a `Control/Typing`
+chat-service message, the one feature past the core that reuses the already-probed
+`/messages` endpoint). Android hides every refused action through `TEAMS_CAPABILITIES`;
+GTK and SwiftUI hide the refused message actions, search, the pinned/saved panels and
+starting a direct conversation (`Session::provider_actions`, `search_available`,
+`marked_available`, `direct_messages_available`).
+
+## Remaining parity, and what each needs
+
+Each remaining feature below needs a Teams **service** this provider does not yet talk
+to. The device-code token broker already discovers most of their hosts in the authz
+`regionGtms` map (`auth.rs` / `auth.ts` `discover`), but the request and response
+shapes have NOT been probed on a live tenant, so none is implemented. The RE capture in
+`~/Downloads/tmp/teams-re/out/` names the routes (minified) but not the resolved hosts
+or bodies. Verification for every one is a live probe on a self-owned test tenant, the
+way the chat-service calls and Slack's socket were qualified.
+
+- **Presence**: the Unified Presence Service. `getPresence` (POST, a list of MRIs),
+  `forceAvailability` (PUT), `subscribePresence` (POST). Host behind the authz
+  `regionGtms` presence key; not resolved in the capture. Feeds `SessionEvent::Presence`
+  / the mobile presence store.
+- **Files**: Teams attachments are SharePoint/OneDrive drive items
+  (`/_api/v2.x/drives/{drive}/items/{item}`, seen in the RE capture), not plain AMS
+  objects: receiving needs the drive host and item metadata in the message, sending
+  needs an upload session. Both need OneDrive auth beyond the chat token.
+- **Search**: Microsoft Search (substrate) `POST /search/query`; host not in the
+  capture.
+- **Channel threads (list/read)**: replies already post to `rid;messageid=<root>`
+  (`threadTarget`, probed), but reading a thread needs the reply-to-root link in the
+  channel message shape, unverified; enabling the capability without the read path would
+  show an empty thread view.
+- **Pins / saves**: conversation and user properties on the chat service
+  (`properties?name=...`); the exact keys were not probed.
+- **Direct message creation**: starting a 1:1 needs the deterministic conversation id
+  or a create-thread call on the chat service, unverified.
+- **Calls**: the Teams calling service (`calling_trouterUrl`, the calling bundle in the
+  capture); a large, separate surface.
+- **Push**: the Teams registrar push channel; separate from the Trouter live socket.
+
+Nothing has run against more than one tenant; installed Android and macOS runs are
+outstanding. See [parity](../parity.md#19-experimental-integrations).
 
 ## Mobile
 

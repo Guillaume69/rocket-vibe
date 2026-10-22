@@ -9,7 +9,7 @@ section here.
 
 ### Added
 
-- Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting, marking read and the typing indicator.
 
 ### Removed
 

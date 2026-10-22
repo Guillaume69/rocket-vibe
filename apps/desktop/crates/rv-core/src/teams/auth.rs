@@ -221,8 +221,54 @@ async fn describe(r: Result<reqwest::Response, reqwest::Error>) -> Value {
     match r {
         Ok(resp) => {
             let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            // The failing calls answered empty or non-JSON; these headers name the
+            // auth a 401 wants (WWW-Authenticate) and Teams' own error detail.
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let diagnostics = header("x-ms-diagnostics");
+            let text = resp.text().await.unwrap_or_default();
+            let body = match serde_json::from_str::<Value>(&text) {
+                Ok(json) => json,
+                Err(_) if text.is_empty() => Value::Null,
+                Err(_) => Value::String(text.chars().take(2000).collect()),
+            };
+            json!({
+                "status": status,
+                "body": body,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "x_ms_diagnostics": diagnostics,
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// A conversation GET described WITHOUT its message content: status, headers,
+/// the `threadProperties` key names, and the topic and member count only.
+async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let diagnostics = header("x-ms-diagnostics");
             let body: Value = resp.json().await.unwrap_or(Value::Null);
-            json!({ "status": status, "body": body })
+            let props = body.get("threadProperties");
+            let keys: Vec<String> =
+                props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            json!({
+                "status": status,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "x_ms_diagnostics": diagnostics,
+                "type": body.get("type"),
+                "thread_property_keys": keys,
+                "topic": props.and_then(|p| p.get("topic")),
+                "membercount": props.and_then(|p| p.get("membercount")),
+            })
         }
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -448,6 +494,42 @@ impl Tokens {
                 .send()
                 .await;
             out.insert("search".into(), describe(r).await);
+        }
+        // Room-info shape: list the user's conversations (chat skypetoken, as
+        // history does), take the first id and GET that conversation. Only its
+        // status, headers, threadProperties keys, topic and membercount are
+        // reported, never message content.
+        if !routes.chat.is_empty() {
+            let list =
+                format!("{}/v1/users/ME/conversations?view=msnp24Equivalent&pageSize=1&startTime=1", routes.chat);
+            let first =
+                match http().get(&list).header("authentication", format!("skypetoken={}", skype.as_str())).send().await
+                {
+                    Ok(resp) if resp.status().is_success() => resp.json::<Value>().await.ok().and_then(|b| {
+                        b.get("conversations")
+                            .and_then(Value::as_array)
+                            .and_then(|a| a.first())
+                            .and_then(|c| c.get("id"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                    }),
+                    _ => None,
+                };
+            match first.and_then(|id| {
+                let mut url = url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok()?;
+                url.path_segments_mut().ok()?.push(&id);
+                url.set_query(Some("view=msnp24Equivalent"));
+                Some(url)
+            }) {
+                Some(url) => {
+                    let r =
+                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
+                    out.insert("conversation".into(), describe_conversation(r).await);
+                }
+                None => {
+                    out.insert("conversation".into(), json!({ "note": "no conversation id listed" }));
+                }
+            }
         }
         Value::Object(out)
     }

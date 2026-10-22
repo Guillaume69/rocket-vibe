@@ -57,6 +57,27 @@ fn save(path: &Path, info: &SessionInfo) {
 
 #[tokio::main]
 async fn main() {
+    // Re-auth mode: request the broader Graph scopes (Chat.ReadWrite,
+    // ChannelSettings.ReadWrite.All) to check whether the tenant consents to
+    // them, WITHOUT touching the stored working token (ephemeral, no sink, no
+    // save). The probe's graph_features then shows the pins/room-settings
+    // statuses with the broader token.
+    if std::env::var_os("TEAMS_PROBE_REAUTH").is_some_and(|v| !v.is_empty()) {
+        let scope = "offline_access openid profile \
+            https://graph.microsoft.com/Chat.ReadWrite \
+            https://graph.microsoft.com/ChannelSettings.ReadWrite.All \
+            https://graph.microsoft.com/Files.ReadWrite.All";
+        let code = auth::device_code_scope(scope).await.expect("device code");
+        eprintln!("\n==> REAUTH (broader scopes): open {} and enter code: {}\n", code.verification_uri, code.user_code);
+        let info = auth::approved(&code, || false).await.expect("approved");
+        let me = info.user_id.clone();
+        let tokens = Tokens::new(&info).expect("tokens");
+        let shapes = tokens.probe_shapes(&me).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // Rotation: persist the refreshed token back to the store as it rotates.
     if let Some(path) = store() {
         auth::set_credential_sink(move |info| save(&path, info));

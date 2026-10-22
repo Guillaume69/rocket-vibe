@@ -110,9 +110,15 @@ impl std::fmt::Debug for DeviceCode {
 }
 
 pub async fn device_code() -> Result<DeviceCode, RestError> {
-    let scope = format!("{SPACES}/.default openid profile offline_access");
+    device_code_scope(&format!("{SPACES}/.default openid profile offline_access")).await
+}
+
+/// A device code for an explicit scope string. The normal sign-in uses the
+/// default (`device_code`); a probe can request broader Graph scopes here to
+/// check whether a tenant will consent to them, without changing sign-in.
+pub async fn device_code_scope(scope: &str) -> Result<DeviceCode, RestError> {
     let body =
-        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", &scope)])
+        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", scope)])
             .await?;
     let field = |key: &str| body[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
     let verification_uri =
@@ -386,6 +392,74 @@ async fn probe_graph_features(token: &str, _me_oid: &str) -> Value {
         }
         let del = http().delete(gurl(&format!("/me/drive/items/{id}"))).bearer_auth(token).send().await;
         out.insert("cleanup_delete_status".into(), json!(del.map(|r| r.status().as_u16()).unwrap_or(0)));
+    }
+
+    // Chat + channel writes, reachable only with Chat.ReadWrite /
+    // ChannelSettings.ReadWrite.All. 403/401 means the token lacks the scope.
+    // Room-settings: PATCH a group chat's topic to its CURRENT value (no-op).
+    // Pins: list, then pin and immediately unpin one message (reversible).
+    let chats: Value = match http().get(gurl("/me/chats?$top=50")).bearer_auth(token).send().await {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            let body = r.json::<Value>().await.unwrap_or(Value::Null);
+            out.insert("chats_status".into(), json!(s));
+            body
+        }
+        Err(e) => {
+            out.insert("chats_status".into(), json!({ "error": e.to_string() }));
+            Value::Null
+        }
+    };
+    let group = chats
+        .get("value")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|c| c.get("chatType").and_then(Value::as_str) == Some("group"));
+    if let Some(chat) = group {
+        let id = chat.get("id").and_then(Value::as_str).unwrap_or_default();
+        let topic = chat.get("topic").and_then(Value::as_str).unwrap_or("");
+        let patch = http()
+            .patch(gurl(&format!("/chats/{id}")))
+            .bearer_auth(token)
+            .json(&json!({ "topic": topic }))
+            .send()
+            .await;
+        out.insert("room_settings_patch_status".into(), json!(patch.map(|r| r.status().as_u16()).unwrap_or(0)));
+        let listed = http().get(gurl(&format!("/chats/{id}/pinnedMessages"))).bearer_auth(token).send().await;
+        out.insert("pins_list_status".into(), json!(listed.map(|r| r.status().as_u16()).unwrap_or(0)));
+        let msgs: Value =
+            match http().get(gurl(&format!("/chats/{id}/messages?$top=5"))).bearer_auth(token).send().await {
+                Ok(r) => r.json().await.unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            };
+        if let Some(mid) = msgs
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(|m| m.get("id"))
+            .and_then(Value::as_str)
+        {
+            let bind = json!({ "message@odata.bind": gurl(&format!("/chats/{id}/messages/{mid}")) });
+            let (pin_status, pin_body) = match http()
+                .post(gurl(&format!("/chats/{id}/pinnedMessages")))
+                .bearer_auth(token)
+                .json(&bind)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let s = r.status().as_u16();
+                    (s, r.json::<Value>().await.unwrap_or(Value::Null))
+                }
+                Err(e) => (0, json!({ "error": e.to_string() })),
+            };
+            out.insert("pins_post_status".into(), json!(pin_status));
+            let pinned = pin_body.get("id").and_then(Value::as_str).unwrap_or(mid);
+            let unpin =
+                http().delete(gurl(&format!("/chats/{id}/pinnedMessages/{pinned}"))).bearer_auth(token).send().await;
+            out.insert("pins_delete_status".into(), json!(unpin.map(|r| r.status().as_u16()).unwrap_or(0)));
+        }
     }
     Value::Object(out)
 }

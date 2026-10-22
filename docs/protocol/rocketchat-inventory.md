@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-700 production files scanned; 752 occurrences.
+700 production files scanned; 753 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -360,7 +360,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:20](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L20) | url | /api/authsvc/v1.0/authz |
-| [apps/desktop/crates/rv-core/src/teams/auth.rs:637](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L637) | url | /api/v2/query |
+| [apps/desktop/crates/rv-core/src/teams/auth.rs:653](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L653) | url | /api/v2/query |
+| [apps/desktop/crates/rv-core/src/teams/sync.rs:401](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L401) | url | /api/v2/query |
 | [apps/desktop/crates/rv-core/src/uploads.rs:94](../../apps/desktop/crates/rv-core/src/uploads.rs#L94) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:396](../../apps/desktop/crates/rv-core/src/uploads.rs#L396) | call:POST | "posts" |
 | [apps/desktop/crates/rv-core/src/uploads.rs:553](../../apps/desktop/crates/rv-core/src/uploads.rs#L553) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |

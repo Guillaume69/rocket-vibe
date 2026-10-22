@@ -390,6 +390,33 @@ impl TeamsSync {
         self.chat(Method::GET, url, None).await.ok().map(|a| a.body)
     }
 
+    /// Messages in one room matching `text`, through the Substrate search API.
+    /// Substrate indexes Teams messages from Exchange, so a hit carries the
+    /// conversation id, author display name, preview and time but no
+    /// chat-service message id: the results open the room, they do not jump to
+    /// the exact message, and the id is synthetic.
+    pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<Message>, RestError> {
+        let token = self.tokens.substrate().await?;
+        let header = format!("Bearer {}", token.as_str());
+        let url = url::Url::parse("https://substrate.office.com/search/api/v2/query")
+            .map_err(|_| crate::teams::auth::refusal("substrate_url", 0))?;
+        let mut cvid = [0u8; 16];
+        getrandom::fill(&mut cvid).ok();
+        let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+        let body = serde_json::json!({
+            "Cvid": cvid,
+            "Scenario": { "Name": "teamsmessages" },
+            "EntityRequests": [{
+                "EntityType": "Message",
+                "ContentSources": ["Teams"],
+                "Query": { "QueryString": text },
+                "Size": 50,
+            }],
+        });
+        let answer = client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await?;
+        Ok(search_hits(&answer.body, rid, &self.directory))
+    }
+
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
         let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
         if let Some(root) = self.fetch_message(root_id).await? {
@@ -589,6 +616,55 @@ fn conversation_topic(body: &Value) -> Option<String> {
     body.get("threadProperties").and_then(|p| str_of(p, "topic")).filter(|t| !t.is_empty()).map(str::to_owned)
 }
 
+/// Substrate search hits for one room as messages. Keeps only hits whose
+/// conversation is `rid`; the id is synthetic (the Exchange item id, prefixed
+/// so it never collides with a real `rid/<number>` message), the author id is
+/// resolved from the display name when the directory knows it.
+fn search_hits(body: &Value, rid: &str, directory: &Directory) -> Vec<Message> {
+    let results = body
+        .get("EntitySets")
+        .and_then(Value::as_array)
+        .and_then(|s| s.first())
+        .and_then(|e| e.get("ResultSets"))
+        .and_then(Value::as_array)
+        .and_then(|r| r.first())
+        .and_then(|rs| rs.get("Results"))
+        .and_then(Value::as_array);
+    let Some(results) = results else { return Vec::new() };
+    results
+        .iter()
+        .filter_map(|hit| {
+            let source = hit.get("Source")?;
+            let here =
+                str_of(source, "ClientConversationId") == Some(rid) || str_of(source, "ClientThreadId") == Some(rid);
+            if !here {
+                return None;
+            }
+            let ts = chrono::DateTime::parse_from_rfc3339(str_of(source, "DateTimeSent")?).ok()?.timestamp_millis();
+            let name = source
+                .get("From")
+                .and_then(|from| from.get("EmailAddress"))
+                .and_then(|email| str_of(email, "Name"))
+                .map(str::to_owned);
+            let author_id = name.as_deref().and_then(|n| directory.mri_for(n)).unwrap_or_default();
+            let item = str_of(source, "ImmutableId")
+                .or_else(|| str_of(source, "ItemId"))
+                .or_else(|| str_of(source, "Id"))
+                .unwrap_or("hit");
+            Some(Message {
+                id: format!("{rid}/search:{item}"),
+                rid: rid.to_owned(),
+                text: str_of(source, "Preview").map(str::to_owned),
+                ts,
+                author_id,
+                author_name: name,
+                updated_at: ts,
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,5 +714,39 @@ mod tests {
         assert_eq!(conversation_topic(&with_topic).as_deref(), Some("Launch"));
         assert_eq!(conversation_topic(&serde_json::json!({ "threadProperties": { "topic": "" } })), None);
         assert_eq!(conversation_topic(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn search_hits_keep_the_room_and_map_the_source() {
+        let dir = Directory::default();
+        dir.remember("8:orgid:aaaa", "Ada Lovelace");
+        let body = serde_json::json!({
+            "EntitySets": [{ "ResultSets": [{ "Results": [
+                { "Source": {
+                    "ClientConversationId": "19:room@thread.tacv2",
+                    "ClientThreadId": "19:room@thread.tacv2",
+                    "Preview": "found this",
+                    "DateTimeSent": "2026-10-22T08:01:52Z",
+                    "ImmutableId": "AAItem1",
+                    "From": { "EmailAddress": { "Name": "Ada Lovelace" } },
+                } },
+                { "Source": {
+                    "ClientConversationId": "19:other@thread.tacv2",
+                    "Preview": "not this room",
+                    "DateTimeSent": "2026-10-22T09:00:00Z",
+                    "From": { "EmailAddress": { "Name": "Someone Else" } },
+                } },
+            ] }] }],
+        });
+        let hits = search_hits(&body, "19:room@thread.tacv2", &dir);
+        assert_eq!(hits.len(), 1);
+        let hit = &hits[0];
+        assert_eq!(hit.rid, "19:room@thread.tacv2");
+        assert_eq!(hit.text.as_deref(), Some("found this"));
+        assert_eq!(hit.author_name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(hit.author_id, "8:orgid:aaaa");
+        assert_eq!(hit.id, "19:room@thread.tacv2/search:AAItem1");
+        assert!(hit.ts > 0);
+        assert!(search_hits(&serde_json::json!({}), "19:room@thread.tacv2", &dir).is_empty());
     }
 }

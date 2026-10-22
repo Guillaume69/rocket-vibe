@@ -18,9 +18,11 @@ pub const LOGIN: &str = "https://login.microsoftonline.com";
 pub const SPACES: &str = "https://api.spaces.skype.com";
 pub const AGGREGATOR: &str = "https://chatsvcagg.teams.microsoft.com";
 pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
-/// Probe-only: the presence 401 named `login.microsoftonline.com`, so the
-/// Unified Presence Service wants an AAD bearer; the host is the likely scope.
+/// The presence 401 named `login.microsoftonline.com`, so the Unified Presence
+/// Service wants an AAD bearer for its own scope, not the skypetoken.
 const PRESENCE_SCOPE: &str = "https://presence.teams.microsoft.com";
+/// Message search runs on the Substrate query API with a bearer for its scope.
+const SUBSTRATE: &str = "https://substrate.office.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
@@ -409,6 +411,7 @@ impl Lease {
 struct Held {
     aggregator: Option<Lease>,
     presence: Option<Lease>,
+    substrate: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -436,6 +439,7 @@ impl Tokens {
         let held = Held {
             aggregator: Some(lease(aggregator)),
             presence: None,
+            substrate: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -512,6 +516,18 @@ impl Tokens {
         let lease = self.access(PRESENCE_SCOPE).await?;
         let token = lease.value.clone();
         held.presence = Some(lease);
+        Ok(token)
+    }
+
+    /// The Substrate bearer, for message search.
+    pub async fn substrate(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.substrate.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(SUBSTRATE).await?;
+        let token = lease.value.clone();
+        held.substrate = Some(lease);
         Ok(token)
     }
 
@@ -633,7 +649,7 @@ impl Tokens {
         // Variant: the asyncgw /msgsearch path 404s. Try the Substrate search
         // API with its own host and audience. The 400 on the first body wanted
         // the Teams content source, a correlation id and a scenario.
-        if let Ok(lease) = self.access("https://substrate.office.com").await {
+        if let Ok(lease) = self.access(SUBSTRATE).await {
             let url = "https://substrate.office.com/search/api/v2/query";
             let mut cvid = [0u8; 16];
             getrandom::fill(&mut cvid).ok();

@@ -1039,7 +1039,7 @@ impl Session {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::search(&self.rest, mm, rid, text).await,
             Backend::Slack(slack) => slack.search(rid, text).await,
-            Backend::Teams(_) => Err(crate::slack::not_supported("search")),
+            Backend::Teams(teams) => teams.search(rid, text).await,
             Backend::RocketChat => rocketchat::actions::search(&self.rest, rid, text).await,
         }
     }
@@ -1835,7 +1835,7 @@ impl Session {
     /// own rules: Teams has no quotes, channel threads, pins or saves yet.
     /// Whether the room header offers message search: not Teams yet.
     pub fn search_available(&self) -> bool {
-        !matches!(self.backend(), Backend::Teams(_))
+        true
     }
 
     /// Whether a room's pinned and saved panels are offered: not Teams yet.

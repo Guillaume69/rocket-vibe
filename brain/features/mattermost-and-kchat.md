@@ -182,7 +182,8 @@ Mobile session exit removes media bearers, username mappings and session-owned p
   from the channel totals and the cached membership, reset on
   `multiple_channels_viewed`. A join or leave post (`isJoinLeave`, Mattermost's
   `IsJoinLeaveMessage` types) moves `last_post_at` without adding to the totals,
-  as the server does not count it.
+  as the server does not count it, and neither does a post whose channel was
+  read for it (`load`): the channel and membership read already hold it.
 
 ### Translation and loading
 
@@ -317,7 +318,8 @@ there, so the UIs read the same store:
   with `cards::voice_call` (no button), SwiftUI with `VoiceCallCard` (no voice
   model, so no button).
 - `badge_updated`: `MmSync::recount` (`recounted` realigns the totals), as on
-  mobile; join and leave posts add nothing to the totals (`translate::join_leave`).
+  mobile; join and leave posts add nothing to the totals (`translate::join_leave`),
+  nor a post whose channel `load_channel` just read.
 - People, listing, cards and kMeet as on mobile: `directory::NameFormat`,
   `Directory::ensure_usernames`, `name_of_cut`, `status_emoji`;
   `categories::Sidebar`; `MmSync::load_preferences`, `preferences_changed`;

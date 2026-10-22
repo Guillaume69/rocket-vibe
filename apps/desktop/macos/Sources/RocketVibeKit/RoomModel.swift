@@ -242,8 +242,8 @@ public final class RoomModel {
     }
     /// A thread's model: whether I follow it, from the stored root, kept by `reload`.
     public private(set) var followingThread = false
-    public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
-    public var supportsSearch:Bool { active && (privateMode ? privateReady : (chat != nil || provider.native?.supportedFeatures().contains("search") == true)) }
+    public var supportsMarks: Bool { (chat != nil && chat?.isTeams() != true) || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
+    public var supportsSearch:Bool { active && (privateMode ? privateReady : ((chat != nil && chat?.isTeams() != true) || provider.native?.supportedFeatures().contains("search") == true)) }
     public let searchContext=UUID().uuidString
     public var searchVersion:String { guard active else {return "closed"};return searchContext+":"+(provider.native.map{(try? $0.searchVersion()) ?? "offline"} ?? "rc") }
     public func search(text:String) async throws -> [SearchHit] {

@@ -1233,6 +1233,7 @@ impl Chat {
             starred: row.starred_by(&s.info.user_id),
             now: chrono::Utc::now().timestamp_millis(),
             outbox: row.outbox_status.as_deref(),
+            provider: s.provider_actions(),
         };
         let possible = rv_core::actions::possible_actions(&ctx);
         Some((row, possible))

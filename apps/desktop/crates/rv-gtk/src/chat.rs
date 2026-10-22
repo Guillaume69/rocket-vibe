@@ -1686,12 +1686,15 @@ impl ChatPage {
             previous.set_available(false);
         }
         self.wa_error.replace(None);
-        self.new_conversation.set_visible(true);
-        self.search_button.set_visible(true);
-        self.marked_button.set_visible(true);
-        self.search_button.set_sensitive(true);
-        self.marked_button.set_sensitive(true);
-        self.local_search_button.set_visible(session.is_some());
+        let dms = session.as_ref().is_none_or(|s| s.direct_messages_available());
+        let search = session.as_ref().is_none_or(|s| s.search_available());
+        let marked = session.as_ref().is_none_or(|s| s.marked_available());
+        self.new_conversation.set_visible(dms);
+        self.search_button.set_visible(search);
+        self.marked_button.set_visible(marked);
+        self.search_button.set_sensitive(search);
+        self.marked_button.set_sensitive(marked);
+        self.local_search_button.set_visible(session.is_some() && search);
         self.set_loading(false);
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));

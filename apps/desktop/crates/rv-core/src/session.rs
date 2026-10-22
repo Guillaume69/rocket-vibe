@@ -1752,6 +1752,34 @@ impl Session {
 
     /// Whether a message can be forwarded to another room: Rocket.Chat only
     /// (its server builds the quote of a permalink), not Mattermost and kChat.
+    /// The message actions the current provider supports, over the server's
+    /// own rules: Teams has no quotes, channel threads, pins or saves yet.
+    /// Whether the room header offers message search: not Teams yet.
+    pub fn search_available(&self) -> bool {
+        !matches!(self.backend(), Backend::Teams(_))
+    }
+
+    /// Whether a room's pinned and saved panels are offered: not Teams yet.
+    pub fn marked_available(&self) -> bool {
+        !matches!(self.backend(), Backend::Teams(_))
+    }
+
+    /// Whether starting a direct conversation is offered: not Teams yet.
+    pub fn direct_messages_available(&self) -> bool {
+        !matches!(self.backend(), Backend::Teams(_))
+    }
+
+    pub fn provider_actions(&self) -> crate::actions::ProviderActions {
+        match self.backend() {
+            Backend::Teams(_) => {
+                crate::actions::ProviderActions { quotes: false, threads: false, pins: false, stars: false }
+            }
+            Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => {
+                crate::actions::ProviderActions::default()
+            }
+        }
+    }
+
     pub fn forwarding_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,

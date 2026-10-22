@@ -15,6 +15,7 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts'
 import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
+import type { MmHistory } from './history.ts';
 import { nameFormatOf, toMmUser } from './directory.ts';
 import {
   MM_AVATAR,
@@ -59,6 +60,7 @@ export class MmLive {
   readonly lastPosts = new Map<string, Doc>();
   /** The posts I flagged; the translator reads it, so a re-read post keeps its star. */
   readonly flagged = new Set<string>();
+  history: Pick<MmHistory, 'page'> | null = null;
   private clock = 0;
   private readonly mentionsAsked = new Set<string>();
   private readonly touched = new Map<string, number>();
@@ -103,12 +105,39 @@ export class MmLive {
     return { collection: MM_MEMBERSHIP, eventKey: rid, args: [{ channel, member }] };
   }
 
-  /** The room row, with the newest root post known for its preview (never a blank one by omission). */
+  /** The room row, with the newest root post known for its preview (never a blank one by omission, `null` clears it). */
   roomEvent(rid: string, lastPost?: Doc | null): DdpEvent | null {
     const channel = this.channels.get(rid);
     if (channel === undefined) return null;
-    if (lastPost) this.lastPosts.set(rid, lastPost);
-    return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: this.lastPosts.get(rid) }] };
+    if (lastPost === null) this.lastPosts.delete(rid);
+    else if (lastPost) this.lastPosts.set(rid, lastPost);
+    return { collection: MM_ROOM, eventKey: rid, args: [{ channel, lastPost: lastPost === null ? null : this.lastPosts.get(rid) }] };
+  }
+
+  /** Whether a root post is the one the room previews: the cached one, else the channel's newest root. */
+  private isPreview(post: Doc): boolean {
+    const rid = str(post.channel_id);
+    if (rid === null || str(post.root_id) !== null) return false;
+    const cached = this.lastPosts.get(rid);
+    if (cached !== undefined) return cached.id === post.id;
+    const channel = this.channels.get(rid);
+    const newest = num(channel?.last_root_post_at) || num(channel?.last_post_at);
+    return newest > 0 && num(post.create_at) >= newest;
+  }
+
+  /** The room's preview after its post was deleted: the newest root left, or none. */
+  private async previewAfterDelete(post: Doc): Promise<DdpEvent[]> {
+    const rid = str(post.channel_id);
+    if (rid === null || this.history === null || !this.isPreview(post)) return [];
+    this.lastPosts.delete(rid);
+    let next: Doc | null;
+    try {
+      next = (await this.history.page(rid, null, 1))[0] ?? null;
+    } catch {
+      return [];
+    }
+    if (this.lastPosts.has(rid)) return [];
+    return compact([this.roomEvent(rid, next)]);
   }
 
   /** Fetches a channel I just learned about, with my membership unless given. */
@@ -191,11 +220,12 @@ export class MmLive {
         const post = record(data.post);
         if (post === null) return [];
         await this.directory.ensure([String(post.user_id ?? '')]);
-        return [postEvent(post)];
+        return compact([postEvent(post), this.isPreview(post) ? this.roomEvent(String(post.channel_id), post) : null]);
       }
       case 'post_deleted': {
         const post = record(data.post);
-        return post === null ? [] : [{ collection: MM_POST_DELETED, eventKey: String(post.channel_id ?? ''), args: [post] }];
+        if (post === null) return [];
+        return [{ collection: MM_POST_DELETED, eventKey: String(post.channel_id ?? ''), args: [post] }, ...(await this.previewAfterDelete(post))];
       }
       case 'reaction_added':
       case 'reaction_removed': {

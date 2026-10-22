@@ -6,9 +6,10 @@ import { TypingEngine } from '../../lib/typing.ts';
 import { MmCategories } from './categories.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
+import { MmHistory } from './history.ts';
 import { MmLive } from './live.ts';
-import { fakeServer, post } from './testing.ts';
-import { MM_MEMBERSHIP, MM_POST, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
+import { fakeServer, post, postList } from './testing.ts';
+import { MM_MEMBERSHIP, MM_POST, MM_POST_DELETED, MM_ROOM, MM_ROOM_DELETED, MM_STARRED, MM_THREAD, MmTranslator } from './translator.ts';
 
 function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   const server = fakeServer(route);
@@ -17,6 +18,7 @@ function setup(route: Parameters<typeof fakeServer>[0] = () => undefined) {
   directory.remember({ id: 'u-me', username: 'me', displayName: null, lastPictureUpdate: null });
   directory.remember({ id: 'u-bob', username: 'bob', displayName: null, lastPictureUpdate: null });
   const live = new MmLive(client, directory, 'u-me');
+  live.history = new MmHistory(client, live);
   live.remember(
     { id: 'ch1', type: 'O', name: 'dev', total_msg_count: 10, total_msg_count_root: 8 },
     { channel_id: 'ch1', user_id: 'u-me', msg_count: 10, msg_count_root: 8, mention_count: 0 },
@@ -130,6 +132,63 @@ describe('MmLive.expand', () => {
     assert.deepEqual(await live.expand('user_removed', { user_id: 'u-bob' }, { channel_id: 'ch1' }), []);
     const events = await live.expand('user_removed', { user_id: 'u-me' }, { channel_id: 'ch1' });
     assert.equal(events[0]?.collection, MM_ROOM_DELETED);
+  });
+});
+
+describe('room preview after an edit or a delete', () => {
+  const roomOf = (events: { collection: string; args: unknown[] }[], translator: MmTranslator) => {
+    const event = events.find((e) => e.collection === MM_ROOM);
+    return event === undefined ? undefined : translator.toRoom(event.args[0] as Record<string, unknown>);
+  };
+
+  test('an edit of the previewed post rewrites the preview, an edit of an older one does not', async () => {
+    const { live, translator } = setup();
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    await live.expand('posted', { post: post('p2', { create_at: 60 }) }, {});
+    const older = await live.expand('post_edited', { post: JSON.stringify(post('p1', { create_at: 50, message: 'old fixed' })) }, {});
+    assert.deepEqual(older.map((e) => e.collection), [MM_POST]);
+    const newest = await live.expand('post_edited', { post: JSON.stringify(post('p2', { create_at: 60, message: 'new fixed' })) }, {});
+    assert.deepEqual(newest.map((e) => e.collection), [MM_POST, MM_ROOM]);
+    assert.equal(roomOf(newest, translator)?.lastMessage, 'new fixed');
+  });
+
+  test('without a cached preview, an edit of the newest root post is taken as the preview', async () => {
+    const { live, translator } = setup();
+    live.remember({ id: 'ch1', type: 'O', name: 'dev', last_root_post_at: 70, last_post_at: 90 });
+    const events = await live.expand('post_edited', { post: post('p7', { create_at: 70, message: 'fixed' }) }, {});
+    assert.equal(roomOf(events, translator)?.lastMessage, 'fixed');
+    const reply = await live.expand('post_edited', { post: post('p8', { create_at: 90, root_id: 'p7' }) }, {});
+    assert.deepEqual(reply.map((e) => e.collection), [MM_POST]);
+  });
+
+  test('deleting the previewed post previews the newest root left, the room keeping its place', async () => {
+    const { live, server, translator } = setup((call) =>
+      call.path === '/channels/ch1/posts' ? { body: postList([post('p1', { create_at: 50 })]) } : undefined,
+    );
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    await live.expand('posted', { post: post('p2', { create_at: 60 }) }, {});
+    const events = await live.expand('post_deleted', { post: JSON.stringify(post('p2', { create_at: 60 })) }, {});
+    assert.deepEqual(events.map((e) => e.collection), [MM_POST_DELETED, MM_ROOM]);
+    const page = server.calls.find((c) => c.path === '/channels/ch1/posts');
+    assert.equal(page?.query.get('per_page'), '1');
+    assert.equal(page?.query.get('collapsedThreads'), 'true');
+    const room = roomOf(events, translator);
+    assert.equal(room?.lastMessage, 'message p1');
+    assert.equal(room?.lastMessageTs, 60);
+    assert.equal(room?.keepPreview, false);
+  });
+
+  test('deleting the only post clears the preview; deleting an older one asks for nothing', async () => {
+    const { live, server, translator } = setup((call) => (call.path === '/channels/ch1/posts' ? { body: postList([]) } : undefined));
+    await live.expand('posted', { post: post('p1', { create_at: 50 }) }, {});
+    const older = await live.expand('post_deleted', { post: post('p0', { create_at: 10 }) }, {});
+    assert.deepEqual(older.map((e) => e.collection), [MM_POST_DELETED]);
+    assert.equal(server.calls.some((c) => c.path === '/channels/ch1/posts'), false);
+    const events = await live.expand('post_deleted', { post: post('p1', { create_at: 50 }) }, {});
+    const room = roomOf(events, translator);
+    assert.equal(room?.lastMessage, null);
+    assert.equal(room?.keepPreview, false);
+    assert.equal(room?.lastMessageTs, 50);
   });
 });
 

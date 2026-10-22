@@ -15,7 +15,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, conversationOf, mriOf, str } from './translate.ts';
+import { TeamsDirectory, conversationOf, deleted, mriOf, rootOf, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -73,14 +73,19 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     const rid = conversationOf(resource);
     if (!rid) return [];
     const events: DdpEvent[] = [{ collection: TEAMS_EVENTS, eventKey: name, args: [{ ...resource, __rid: rid }] }];
-    if (name === 'NewMessage') {
+    const id = str(resource, 'id');
+    if (name === 'NewMessage' && !rooms.isPreview(rid, resource)) {
       await ingestOne({ ...resource, __rid: rid });
       const mine = mriOf(str(resource, 'from') ?? '') === session.userId;
-      const entry = rooms.withLast(rid, resource, mine);
+      const entry = id !== null && rootOf(resource, id) !== null ? null : rooms.withLast(rid, resource, mine);
       if (entry) {
         events.push({ collection: TEAMS_EVENTS, eventKey: 'room', args: [entry] });
         events.push({ collection: TEAMS_EVENTS, eventKey: 'subscription', args: [entry] });
       }
+    } else if (rooms.isPreview(rid, resource)) {
+      const next = deleted(resource) ? await sync.newestShown(rid) : resource;
+      const entry = next === undefined ? null : rooms.withPreview(rid, next);
+      if (entry) events.push({ collection: TEAMS_EVENTS, eventKey: 'room', args: [entry] });
     }
     return events;
   };

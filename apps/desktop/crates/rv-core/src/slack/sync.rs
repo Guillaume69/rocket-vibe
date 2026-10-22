@@ -19,6 +19,7 @@ use crate::sync::{HISTORY_PAGE, HistoryPage};
 
 const PREVIEWS: usize = 40;
 const PREVIEW_CONCURRENCY: usize = 4;
+const PREVIEW_LOOKBACK: usize = 10;
 const ROSTER_PAGE: &str = "200";
 const MAX_PAGES: usize = 50;
 const ROOM_CATCH_UP_PAGES: usize = 4;
@@ -67,6 +68,8 @@ pub struct SlackSync {
     saved: Mutex<HashSet<String>>,
     /// Rooms a live message came from before the list knew them: listed again once each.
     unlisted: Mutex<HashSet<String>>,
+    /// The `ts` of the message each room previews, when known.
+    previews: Mutex<HashMap<String, String>>,
 }
 
 impl SlackSync {
@@ -84,6 +87,7 @@ impl SlackSync {
             marked: Mutex::default(),
             saved: Mutex::default(),
             unlisted: Mutex::default(),
+            previews: Mutex::default(),
         }
     }
 
@@ -215,6 +219,10 @@ impl SlackSync {
             .map(|(rid, _)| rid)
             .collect();
         let previews = self.previews(&stale).await;
+        self.previews
+            .lock()
+            .unwrap()
+            .extend(previews.iter().filter_map(|(rid, m)| Some((rid.clone(), split_id(&m.id)?.1.to_owned()))));
         let rooms: Vec<_> = {
             let names = self.names.lock().unwrap();
             let t = Translator { directory: &self.directory, channels: &names };
@@ -525,15 +533,25 @@ impl SlackSync {
         let channel = text(frame, "channel")?;
         match text(frame, "subtype") {
             Some("message_deleted") => {
-                let id = translate::message_id(channel, text(frame, "deleted_ts")?);
+                let ts = text(frame, "deleted_ts")?;
+                let id = translate::message_id(channel, ts);
                 self.store.write(|w| w.delete_message(&id));
+                self.preview_after_delete(channel, ts).await;
                 None
             }
             Some("message_changed") => {
                 let nested = frame.get("message")?;
+                let preview = self.is_preview(channel, nested);
+                if preview && text(nested, "subtype") == Some("tombstone") {
+                    self.preview_after_delete(channel, text(nested, "ts")?).await;
+                    return None;
+                }
                 self.resolve(std::slice::from_ref(nested)).await;
                 let message = self.translate(channel, nested)?;
                 self.store.write(|w| w.upsert_message(&message));
+                if preview {
+                    self.write_preview(channel, Some(&message));
+                }
                 None
             }
             _ => {
@@ -547,6 +565,9 @@ impl SlackSync {
                 let ts = text(frame, "ts")?;
                 let reply = text(frame, "thread_ts").is_some_and(|t| t != ts);
                 let mine = text(frame, "user") == Some(self.me.as_str());
+                if !reply {
+                    self.previews.lock().unwrap().insert(channel.to_owned(), ts.to_owned());
+                }
                 let room = {
                     let conversations = self.conversations.lock().unwrap();
                     let names = self.names.lock().unwrap();
@@ -579,6 +600,61 @@ impl SlackSync {
                 (fresh && !mine && (!in_thread || mention)).then_some(message)
             }
         }
+    }
+
+    /// Whether a message is its room's preview: the one known, else a root at least as new as the room's latest.
+    fn is_preview(&self, rid: &str, message: &Value) -> bool {
+        let Some(ts) = text(message, "ts") else { return false };
+        if text(message, "thread_ts").is_some_and(|t| t != ts) {
+            return false;
+        }
+        if let Some(known) = self.previews.lock().unwrap().get(rid) {
+            return known == ts;
+        }
+        self.counts
+            .lock()
+            .unwrap()
+            .get(rid)
+            .and_then(|c| text(c, "latest"))
+            .is_some_and(|latest| super::compare_timestamp(ts, latest).is_ge())
+    }
+
+    /// The room's preview after its message went: the newest root message left, or none.
+    async fn preview_after_delete(&self, rid: &str, ts: &str) {
+        if !self.is_preview(rid, &serde_json::json!({ "ts": ts })) {
+            return;
+        }
+        self.previews.lock().unwrap().remove(rid);
+        let Ok((page, _)) = self.history(rid, vec![("limit", PREVIEW_LOOKBACK.to_string())]).await else { return };
+        if self.previews.lock().unwrap().contains_key(rid) {
+            return;
+        }
+        let next = page
+            .iter()
+            .filter(|m| text(m, "ts").is_some_and(|t| t != ts) && !translate::skipped(m))
+            .filter(|m| text(m, "thread_ts").is_none_or(|t| Some(t) == text(m, "ts")))
+            .find_map(|m| self.translate(rid, m));
+        self.write_preview(rid, next.as_ref());
+    }
+
+    /// Writes the room row with `last` as its preview, `None` clearing it; the room keeps its place.
+    fn write_preview(&self, rid: &str, last: Option<&Message>) {
+        let latest = self.counts.lock().unwrap().get(rid).and_then(|c| text(c, "latest")).and_then(ts_ms);
+        let room = {
+            let conversations = self.conversations.lock().unwrap();
+            let names = self.names.lock().unwrap();
+            let t = Translator { directory: &self.directory, channels: &names };
+            conversations.get(rid).and_then(|c| t.room(&self.me, c, latest, last))
+        };
+        let Some(mut room) = room else { return };
+        room.keep_preview = false;
+        let mut previews = self.previews.lock().unwrap();
+        match last.and_then(|m| split_id(&m.id)) {
+            Some((_, ts)) => previews.insert(rid.to_owned(), ts.to_owned()),
+            None => previews.remove(rid),
+        };
+        drop(previews);
+        self.store.write(|w| w.upsert_room(&room));
     }
 
     /// Rewrites my message; the stored row follows Slack's answer.
@@ -844,6 +920,114 @@ mod tests {
         assert_eq!(next_cursor(&page(""), &mut seen, "m").unwrap(), None);
         assert_eq!(next_cursor(&json!({}), &mut seen, "m").unwrap(), None);
         assert!(next_cursor(&page("a"), &mut seen, "m").is_err());
+    }
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A Slack API answering every call with `body`; the request lines it saw.
+    async fn answering(body: Value) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let api = format!("http://{}/api/", listener.local_addr().unwrap());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = Vec::new();
+                let mut chunk = [0; 2048];
+                loop {
+                    let n = socket.read(&mut chunk).await.unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    buf.extend_from_slice(&chunk[..n]);
+                    let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                    let length = String::from_utf8_lossy(&buf[..end])
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse().unwrap_or(0))
+                        })
+                        .unwrap_or(0);
+                    if buf.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+                log.lock().unwrap().push(String::from_utf8_lossy(&buf).into_owned());
+                let body = body.to_string();
+                let reply = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(reply.as_bytes()).await;
+            }
+        });
+        (api, seen)
+    }
+
+    fn sync_at(api: &str) -> (Arc<Store>, SlackSync) {
+        let store = Arc::new(Store::in_memory().unwrap());
+        let rest = RestClient::slack(api.parse().unwrap(), zeroize::Zeroizing::new("d".to_owned()));
+        let sync = SlackSync::new(store.clone(), rest, "U000", "me");
+        sync.directory.remember(User { id: "U001".into(), username: "bob".into(), ..Default::default() });
+        sync.conversations
+            .lock()
+            .unwrap()
+            .insert("C1".into(), json!({"id": "C1", "name": "general", "is_channel": true}));
+        sync.counts.lock().unwrap().insert("C1".into(), json!({"id": "C1", "latest": "1.000000"}));
+        (store, sync)
+    }
+
+    fn room(store: &Store) -> crate::store::RoomRow {
+        store.rooms().into_iter().find(|r| r.rid == "C1").unwrap()
+    }
+
+    fn said(ts: &str, text: &str) -> Value {
+        json!({"type": "message", "channel": "C1", "ts": ts, "user": "U001", "text": text})
+    }
+
+    #[tokio::test]
+    async fn an_edit_of_the_previewed_message_rewrites_the_preview_and_an_older_one_does_not() {
+        let (store, sync) = sync_at("http://127.0.0.1:9/api/");
+        sync.apply_event("message", &said("2.000000", "typo")).await;
+        let edit = |ts: &str, text: &str| json!({"type": "message", "subtype": "message_changed", "channel": "C1", "ts": "3.000000", "message": said(ts, text)});
+        sync.apply_event("message", &edit("0.500000", "old fixed")).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("typo"));
+        sync.apply_event("message", &edit("2.000000", "fixed")).await;
+        assert_eq!(room(&store).last_message.as_deref(), Some("fixed"));
+    }
+
+    #[tokio::test]
+    async fn deleting_the_previewed_message_previews_the_newest_root_left_in_place() {
+        let left = json!({"ok": true, "messages": [
+            {"type": "message", "subtype": "thread_broadcast", "ts": "1.800000", "thread_ts": "1.500000", "user": "U001", "text": "re"},
+            {"type": "message", "subtype": "tombstone", "ts": "1.700000", "user": "U001", "text": "This message was deleted."},
+            {"type": "message", "ts": "1.500000", "user": "U001", "text": "earlier"},
+        ], "has_more": false});
+        let (api, seen) = answering(left).await;
+        let (store, sync) = sync_at(&api);
+        sync.apply_event("message", &said("2.000000", "gone soon")).await;
+        let gone = |ts: &str| json!({"type": "message", "subtype": "message_deleted", "channel": "C1", "ts": "3.000000", "deleted_ts": ts});
+        let history = || seen.lock().unwrap().iter().any(|r| r.contains("conversations.history"));
+        sync.apply_event("message", &gone("1.400000")).await;
+        assert!(!history());
+        sync.apply_event("message", &gone("2.000000")).await;
+        assert!(history());
+        let row = room(&store);
+        assert_eq!((row.last_message.as_deref(), row.last_ts), (Some("earlier"), 2000));
+    }
+
+    #[tokio::test]
+    async fn a_previewed_message_turned_tombstone_with_nothing_left_clears_the_preview() {
+        let (api, _) = answering(json!({"ok": true, "messages": [], "has_more": false})).await;
+        let (store, sync) = sync_at(&api);
+        sync.apply_event("message", &said("2.000000", "parent")).await;
+        let mut tombstone = said("2.000000", "This message was deleted.");
+        tombstone["subtype"] = json!("tombstone");
+        tombstone["thread_ts"] = json!("2.000000");
+        sync.apply_event("message", &json!({"type": "message", "subtype": "message_changed", "channel": "C1", "ts": "3.000000", "message": tombstone})).await;
+        let row = room(&store);
+        assert_eq!((row.last_message, row.last_ts), (None, 2000));
     }
 
     #[test]

@@ -263,7 +263,7 @@ impl Translator<'_> {
             last_message_type: last.as_ref().and_then(|m| m.system_type.clone()),
             last_message_author: last.as_ref().and_then(|m| m.alias.clone().or_else(|| m.author_name.clone())),
             last_encrypted: None,
-            last_message_ts: last.as_ref().map(|m| m.ts).or(last_post_at),
+            last_message_ts: last.as_ref().map(|m| m.ts).max(positive(channel, "last_root_post_at")).or(last_post_at),
             avatar_etag: None,
             updated_at: num_of(channel, "update_at").max(last_post_at.unwrap_or(0)),
             keep_preview: last_post.is_none(),

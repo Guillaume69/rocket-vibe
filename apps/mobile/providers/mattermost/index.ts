@@ -77,6 +77,7 @@ export function createMattermostProvider(
   const live = new MmLive(client, directory, session.userId, categories);
   const translator = new MmTranslator(directory, session.userId, categories, undefined, live.flagged);
   const history = new MmHistory(client, live);
+  live.history = history;
   const catchUp = new MmCatchUp({ client, directory, live, history, categories, myId: session.userId, deletedRoute: kchat });
   const actions = new MmActions({ client, directory, live, translator, myId: session.userId, categories });
   const expand = (name: string, data: Record<string, unknown>, broadcast: Record<string, unknown>) =>

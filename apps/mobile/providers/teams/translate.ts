@@ -58,7 +58,7 @@ export function conversationOf(resource: unknown): string | null {
   }
 }
 
-function rootOf(resource: unknown, id: string): string | null {
+export function rootOf(resource: unknown, id: string): string | null {
   const root = str(resource, 'conversationLink')?.split(';messageid=')[1];
   return root && root !== id && /^\d+$/.test(root) ? root : null;
 }

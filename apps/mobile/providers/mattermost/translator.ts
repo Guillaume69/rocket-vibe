@@ -212,7 +212,7 @@ export class MmTranslator implements Translator {
       dmOtherUsername: otherUser?.username ?? null,
       lastMessage: lastMessage?.systemType === null ? (lastMessage.text || previewOf(lastMessage.attachments)) : null,
       lastMessageType: lastMessage?.systemType ?? null,
-      lastMessageTs: lastMessage?.ts ?? lastPostAt,
+      lastMessageTs: Math.max(lastMessage?.ts ?? 0, positive(channel.last_root_post_at) ?? 0) || lastPostAt,
       keepPreview: doc.lastPost === undefined,
       avatarEtag: null,
       updatedAt: Math.max(positive(channel.update_at) ?? 0, lastPostAt ?? 0),

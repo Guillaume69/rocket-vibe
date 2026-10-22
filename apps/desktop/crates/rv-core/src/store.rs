@@ -1048,8 +1048,25 @@ impl Writer<'_> {
 
     pub fn delete_message(&mut self, id: &str) {
         let Some(rid) = self.rid_of("SELECT rid FROM messages WHERE id = ?1", id) else { return };
+        let raw = self.rid_of("SELECT encrypted_raw FROM messages WHERE id = ?1", id);
         self.conn.execute("DELETE FROM messages WHERE id = ?1", [id]).or_note(&mut self.failed, "delete message");
         self.touch_messages(&rid);
+        if let Some(raw) = raw {
+            let moved = self
+                .conn
+                .execute(
+                    "UPDATE rooms SET last_encrypted = (
+                       SELECT encrypted_raw FROM messages
+                       WHERE rid = ?1 AND encrypted_raw IS NOT NULL AND (thread_id IS NULL OR thread_shown = 1)
+                       ORDER BY ts DESC, id DESC LIMIT 1)
+                     WHERE rid = ?1 AND encrypted = 1 AND last_encrypted = ?2",
+                    [&rid, &raw],
+                )
+                .or_note(&mut self.failed, "encrypted preview");
+            if moved > 0 {
+                self.touch_rooms();
+            }
+        }
     }
 
     /// A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept.
@@ -1683,6 +1700,44 @@ mod tests {
             .unwrap();
         assert_eq!((name.as_str(), etag.as_str(), ts), ("bob", "e1", 5));
         assert_eq!(last, None);
+    }
+
+    #[test]
+    fn deleting_an_encrypted_rooms_previewed_message_falls_back_on_the_newest_stored() {
+        let store = Store::in_memory().unwrap();
+        let sealed = |id: &str, ts: i64, raw: &str, thread: Option<&str>| Message {
+            ts,
+            system_type: Some("e2e".into()),
+            encrypted_raw: Some(raw.into()),
+            thread_id: thread.map(Into::into),
+            ..message(id, None, 1, "p1")
+        };
+        let last = |store: &Store| -> Option<String> {
+            store.read(|c| c.query_row("SELECT last_encrypted FROM rooms WHERE rid = 'p1'", [], |r| r.get(0))).unwrap()
+        };
+        store.write(|w| {
+            w.upsert_room(&Room {
+                rid: "p1".into(),
+                kind: "p".into(),
+                encrypted: true,
+                last_encrypted: Some("c3".into()),
+                updated_at: 1,
+                ..Default::default()
+            });
+            w.upsert_message(&sealed("m1", 10, "c1", None));
+            w.upsert_message(&sealed("m2", 20, "c2", Some("m1")));
+            w.upsert_message(&sealed("m0", 5, "c0", None));
+            w.upsert_message(&sealed("m3", 30, "c3", None));
+        });
+        store.write(|w| w.delete_message("m0"));
+        assert_eq!(last(&store).as_deref(), Some("c3"));
+        store.write(|w| w.delete_message("m3"));
+        assert_eq!(last(&store).as_deref(), Some("c1"));
+        store.write(|w| {
+            w.delete_message("m2");
+            w.delete_message("m1");
+        });
+        assert_eq!(last(&store), None);
     }
 
     #[test]

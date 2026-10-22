@@ -636,7 +636,7 @@ impl Translator<'_> {
             (name.clone(), name, None)
         };
         let updated = conversation.get("updated").and_then(Value::as_i64).unwrap_or(0);
-        let last_ts = last.map(|m| m.ts).or(latest);
+        let last_ts = last.map(|m| m.ts).max(latest);
         Some(Room {
             rid: rid.to_owned(),
             kind: kind.to_owned(),

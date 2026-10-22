@@ -25,7 +25,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   editing: true,
   deletion: true,
   files: false,
-  threads: false,
+  threads: true,
   reactions: true,
   marks: false,
   profile: false,

@@ -182,3 +182,21 @@ test('typing posts a Control/Typing to the conversation, and a clear when it sto
 test('the Teams provider advertises typing', () => {
   assert.equal(TEAMS_CAPABILITIES.typing, true);
 });
+
+test('a thread reply is sent to the root message target', async () => {
+  const rowId = 'fedcba9876543210fedcba98';
+  const marker = clientMessageId(rowId);
+  const root = `${RID}/900`;
+  const { calls, client } = fake((call) => call.method === 'POST'
+    ? { status: 201, body: {} }
+    : { body: { messages: [message('950', { clientmessageid: marker, from: `${CHAT}/v1/users/ME/contacts/${ME}` })] } });
+  const { store } = outboxStore();
+  const outbox = new TeamsOutbox({ store, client, directory: new TeamsDirectory(), me: { id: ME, username: 'Me' }, generateId: () => rowId, ingest: async () => {} });
+  await outbox.send(RID, 'in the thread', root);
+  const post = calls.find((c) => c.method === 'POST')!;
+  assert.ok(decodeURIComponent(post.url).includes(`${RID};messageid=900/messages`), post.url);
+});
+
+test('the Teams provider advertises threads', () => {
+  assert.equal(TEAMS_CAPABILITIES.threads, true);
+});

@@ -17,7 +17,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, deleted, mriOf, profileFields, conversationTopic, rootOf, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, mriOf, profileFields, rootOf, searchHits, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -49,7 +49,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   e2ee: false,
   customEmojis: false,
   videoCall: false,
-  search: false,
+  search: true,
   threadTemplate: 'tmid',
 };
 
@@ -161,6 +161,10 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
       const rows = await client.profiles([mri]).catch(() => [] as Doc[]);
       const row = rows.find((r) => (str(r, 'mri') ?? '').toLowerCase() === mri.toLowerCase()) ?? rows[0];
       return profileFields(mri, row, directory);
+    },
+    searchMessages: async (rid: string, text: string): Promise<LocalMessage[]> => {
+      const body = await client.search(text).catch(() => ({}) as Doc);
+      return searchHits(body, rid, directory);
     },
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],

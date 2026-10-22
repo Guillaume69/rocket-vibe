@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, conversationTopic, reacted, reactionCode,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, conversationTopic, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -144,4 +144,21 @@ test('a conversation document yields its topic from threadProperties', () => {
   assert.equal(conversationTopic({ threadProperties: { topic: 'Launch', rosterVersion: '9' } }), 'Launch');
   assert.equal(conversationTopic({ threadProperties: { topic: '' } }), null);
   assert.equal(conversationTopic({}), null);
+});
+
+test('search hits keep the room and map the Substrate source', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:aaaa', 'Ada Lovelace');
+  const body = { EntitySets: [{ ResultSets: [{ Results: [
+    { Source: { ClientConversationId: '19:room@thread.tacv2', ClientThreadId: '19:room@thread.tacv2', Preview: 'found this', DateTimeSent: '2026-10-22T08:01:52Z', ImmutableId: 'AAItem1', From: { EmailAddress: { Name: 'Ada Lovelace' } } } },
+    { Source: { ClientConversationId: '19:other@thread.tacv2', Preview: 'nope', DateTimeSent: '2026-10-22T09:00:00Z', From: { EmailAddress: { Name: 'Someone Else' } } } },
+  ] }] }] };
+  const hits = searchHits(body, '19:room@thread.tacv2', d);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].text, 'found this');
+  assert.equal(hits[0].authorName, 'Ada Lovelace');
+  assert.equal(hits[0].authorId, '8:orgid:aaaa');
+  assert.equal(hits[0].id, '19:room@thread.tacv2/search:AAItem1');
+  assert.ok(hits[0].ts > 0);
+  assert.deepEqual(searchHits({}, '19:room@thread.tacv2', d), []);
 });

@@ -120,6 +120,18 @@ export class TeamsDirectory {
     return this.names.get(mri) ?? mri;
   }
 
+  /** The MRI known under this display name, only when exactly one carries it:
+   *  a search hit names its author but gives no MRI. */
+  mriFor(name: string): string | null {
+    let found: string | null = null;
+    for (const [mri, who] of this.names) {
+      if (who !== name) continue;
+      if (found !== null) return null;
+      found = mri;
+    }
+    return found;
+  }
+
   learn(raw: unknown): void {
     const from = str(raw, 'from'), name = str(raw, 'imdisplayname');
     if (from && name) this.remember(mriOf(from), name);
@@ -346,6 +358,55 @@ export function conversationTopic(doc: unknown): string | null {
   const props = (doc as { threadProperties?: unknown } | null | undefined)?.threadProperties;
   const value = str(props, 'topic');
   return value && value.trim() !== '' ? value : null;
+}
+
+/** Substrate search hits for one room as messages. Keeps only hits whose
+ *  conversation is `rid`. Substrate indexes Teams messages from Exchange, so a
+ *  hit has no chat-service message id (the id is synthetic, prefixed so it never
+ *  collides with a real one) and names the author without an MRI (resolved from
+ *  the directory when known). */
+export function searchHits(body: unknown, rid: string, directory: TeamsDirectory): LocalMessage[] {
+  const sets = (body as { EntitySets?: unknown } | null | undefined)?.EntitySets;
+  const first = Array.isArray(sets) ? (sets[0] as { ResultSets?: unknown } | undefined) : undefined;
+  const resultSets = Array.isArray(first?.ResultSets) ? (first.ResultSets[0] as { Results?: unknown } | undefined) : undefined;
+  const results = resultSets?.Results;
+  if (!Array.isArray(results)) return [];
+  const out: LocalMessage[] = [];
+  for (const hit of results) {
+    const source = (hit as { Source?: unknown } | null | undefined)?.Source;
+    if (!source) continue;
+    if (str(source, 'ClientConversationId') !== rid && str(source, 'ClientThreadId') !== rid) continue;
+    const sent = str(source, 'DateTimeSent');
+    const ts = sent ? Date.parse(sent) : NaN;
+    if (!Number.isFinite(ts)) continue;
+    const email = (source as { From?: { EmailAddress?: unknown } }).From?.EmailAddress;
+    const name = str(email, 'Name');
+    const item = str(source, 'ImmutableId') ?? str(source, 'ItemId') ?? str(source, 'Id') ?? 'hit';
+    out.push({
+      id: `${rid}/search:${item}`,
+      rid,
+      text: str(source, 'Preview'),
+      ts,
+      authorId: (name && directory.mriFor(name)) || '',
+      authorName: name,
+      systemType: null,
+      threadId: null,
+      threadCount: 0,
+      threadLast: null,
+      threadShown: false,
+      editedAt: null,
+      md: null,
+      attachments: null,
+      reactions: null,
+      urls: null,
+      callId: null,
+      encryptedRaw: null,
+      pinned: false,
+      starred: null,
+      updatedAt: ts,
+    });
+  }
+  return out;
 }
 
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {

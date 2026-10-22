@@ -12,6 +12,7 @@ export const TEAMS_CLIENT_ID = '1fec8e78-bce4-4aaf-ab1b-5451cc387264';
 const LOGIN = 'https://login.microsoftonline.com';
 const SPACES = 'https://api.spaces.skype.com';
 const PRESENCE = 'https://presence.teams.microsoft.com';
+const SUBSTRATE = 'https://substrate.office.com';
 const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
@@ -185,6 +186,7 @@ export class TeamsTokens {
   private skypeLease: Lease | null = null;
   private spacesLease: Lease | null = null;
   private presenceLease: Lease | null = null;
+  private substrateLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
 
@@ -256,6 +258,14 @@ export class TeamsTokens {
     if (held) return held;
     this.presenceLease = await this.access(PRESENCE);
     return this.presenceLease.value;
+  }
+
+  /** The Substrate bearer, for message search. */
+  async substrate(): Promise<string> {
+    const held = fresh(this.substrateLease);
+    if (held) return held;
+    this.substrateLease = await this.access(SUBSTRATE);
+    return this.substrateLease.value;
   }
 
   /** The Skype token and the tenant's routes, from authz. */

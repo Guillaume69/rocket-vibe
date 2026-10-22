@@ -126,6 +126,19 @@ export class TeamsClient {
     return (await this.chat('GET', url)).body;
   }
 
+  /** Message search through the Substrate query API, with its own bearer. */
+  async search(text: string): Promise<Doc> {
+    const bearer = await this.tokens.substrate();
+    const cvid = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const body = {
+      Cvid: cvid,
+      Scenario: { Name: 'teamsmessages' },
+      EntityRequests: [{ EntityType: 'Message', ContentSources: ['Teams'], Query: { QueryString: text }, Size: 50 }],
+    };
+    const answer = await this.send('https://substrate.office.com/search/api/v2/query', ['authorization', `Bearer ${bearer}`], 'POST', body);
+    return answer.body;
+  }
+
   /** The aggregator's list of chats and teams. */
   async snapshot(): Promise<Doc> {
     const { routes } = await this.tokens.chat();

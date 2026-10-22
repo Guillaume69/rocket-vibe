@@ -282,6 +282,14 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
                 "thread_property_keys": keys,
                 "topic": props.and_then(|p| p.get("topic")),
                 "membercount": props.and_then(|p| p.get("membercount")),
+                // Where do pins live? Report the doc's top-level and properties
+                // key names (no values) to locate a pinned-messages field.
+                "top_level_keys": body.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                "properties_keys": body
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default(),
             })
         }
         Err(e) => json!({ "error": e.to_string() }),
@@ -462,6 +470,48 @@ async fn probe_graph_features(token: &str, _me_oid: &str) -> Value {
         }
     }
     Value::Object(out)
+}
+
+/// Recursively find object keys containing "pin" (case-insensitive), reporting
+/// each one's JSON-pointer path and value SHAPE (type, or an object's sub-key
+/// names, or an array's length) - never scalar values. Capped. Used to learn
+/// the pinned-messages write structure from an already-pinned example.
+fn pin_fields(v: &Value) -> Vec<Value> {
+    fn shape(v: &Value) -> Value {
+        match v {
+            Value::Object(o) => json!({ "type": "object", "keys": o.keys().cloned().collect::<Vec<_>>() }),
+            Value::Array(a) => json!({ "type": "array", "len": a.len() }),
+            Value::String(_) => json!("string"),
+            Value::Number(_) => json!("number"),
+            Value::Bool(_) => json!("bool"),
+            Value::Null => json!("null"),
+        }
+    }
+    fn walk(v: &Value, path: &str, out: &mut Vec<Value>) {
+        if out.len() >= 20 {
+            return;
+        }
+        match v {
+            Value::Object(map) => {
+                for (k, val) in map {
+                    let p = format!("{path}/{k}");
+                    if k.to_ascii_lowercase().contains("pin") {
+                        out.push(json!({ "path": p, "shape": shape(val) }));
+                    }
+                    walk(val, &p, out);
+                }
+            }
+            Value::Array(a) => {
+                for (i, val) in a.iter().enumerate() {
+                    walk(val, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(v, "", &mut out);
+    out
 }
 
 /// A conversation sub-resource url under the chat service, ids kept opaque.
@@ -1186,19 +1236,50 @@ impl Tokens {
                     out.insert("file_shape".into(), json!({ "note": "no file message found" }));
                 }
             }
-            // Pins/saves: does the chat service expose a pinned-messages read on
-            // a conversation? Probe the two likely shapes on the first id, status
-            // and top-level key names only (never message content).
+            // Pins: the `pinnedmessages` property is write-only (GET 405), so its
+            // shape cannot be read directly. Scan conversations for one that
+            // ALREADY has a pin: the conversation doc or a message then carries a
+            // pin field, revealing the structure to write. Read-only; reports the
+            // field path and value shape (pin metadata is ids/times, not text).
+            let skype_header = format!("skypetoken={}", skype.as_str());
+            let mut pin_report = json!({ "note": "no existing pin found in scanned conversations" });
+            'pins: for id in ids.iter().take(20) {
+                if let Some(u) = conversation_sub_url(&routes.chat, id, &[], "view=msnp24Equivalent")
+                    && let Ok(r) = http().get(u).header("authentication", &skype_header).send().await
+                    && r.status().is_success()
+                {
+                    let doc = r.json::<Value>().await.unwrap_or(Value::Null);
+                    let found = pin_fields(&doc);
+                    if !found.is_empty() {
+                        pin_report = json!({ "where": "conversation_doc", "fields": found });
+                        break 'pins;
+                    }
+                }
+                if let Some(u) =
+                    conversation_sub_url(&routes.chat, id, &["messages"], "view=msnp24Equivalent&pageSize=30")
+                    && let Ok(r) = http().get(u).header("authentication", &skype_header).send().await
+                    && r.status().is_success()
+                {
+                    let body = r.json::<Value>().await.unwrap_or(Value::Null);
+                    for m in body.get("messages").and_then(Value::as_array).into_iter().flatten() {
+                        let found = pin_fields(m);
+                        if !found.is_empty() {
+                            pin_report = json!({ "where": "message", "fields": found });
+                            break 'pins;
+                        }
+                    }
+                }
+            }
+            out.insert("pin_discovery".into(), pin_report);
+            // Confirm the write-only pin route on the first id (GET 404/405).
             if let Some(id) = ids.first() {
-                let probe = |tail: &[&str], query: &str| conversation_sub_url(&routes.chat, id, tail, query);
                 let mut pins = serde_json::Map::new();
-                for (label, url) in [
-                    ("pinnedmessages", probe(&["pinnedmessages"], "")),
-                    ("properties_pinned", probe(&["properties"], "name=pinnedmessages")),
+                for (label, tail, query) in [
+                    ("pinnedmessages", vec!["pinnedmessages"], ""),
+                    ("properties_pinned", vec!["properties"], "name=pinnedmessages"),
                 ] {
-                    let Some(url) = url else { continue };
-                    let answer =
-                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
+                    let Some(url) = conversation_sub_url(&routes.chat, id, &tail, query) else { continue };
+                    let answer = http().get(url).header("authentication", &skype_header).send().await;
                     pins.insert(label.into(), describe_keys(answer).await);
                 }
                 out.insert("pins".into(), Value::Object(pins));

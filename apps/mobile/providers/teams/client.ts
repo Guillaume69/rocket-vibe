@@ -84,24 +84,26 @@ export class TeamsClient {
     }
   }
 
-  /** Presence for a batch of people (UPS getpresence), skype-token auth. */
+  /** Presence for a batch of people (UPS getpresence), AAD-bearer auth. */
   async getPresence(mris: string[]): Promise<Doc[]> {
-    const { routes, skype } = await this.tokens.chat();
+    const { routes } = await this.tokens.chat();
     if (!routes.presence || mris.length === 0) return [];
+    const bearer = await this.tokens.presence();
     const url = `${routes.presence}/v1/presence/getpresence/`;
-    const answer = await this.send(url, ['authentication', `skypetoken=${skype}`], 'POST', mris.map((mri) => ({ mri })));
+    const answer = await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', mris.map((mri) => ({ mri })));
     const body = answer.body as unknown;
     if (Array.isArray(body)) return body as Doc[];
     const responses = (body as Doc).responses;
     return Array.isArray(responses) ? (responses as Doc[]) : [];
   }
 
-  /** Sets my availability (UPS forceavailability). */
+  /** Sets my availability (UPS forceavailability), with the presence bearer. */
   async setPresence(availability: string): Promise<void> {
-    const { routes, skype } = await this.tokens.chat();
+    const { routes } = await this.tokens.chat();
     if (!routes.presence) return;
+    const bearer = await this.tokens.presence();
     const url = `${routes.presence}/v1/me/forceavailability/`;
-    await this.send(url, ['authentication', `skypetoken=${skype}`], 'PUT', { availability });
+    await this.send(url, ['authorization', `Bearer ${bearer}`], 'PUT', { availability });
   }
 
   /** Short profiles (name, title, avatar etag) by MRI, via the middle tier with

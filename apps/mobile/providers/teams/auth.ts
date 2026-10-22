@@ -11,6 +11,7 @@ import type { Session } from '../../lib/auth.ts';
 export const TEAMS_CLIENT_ID = '1fec8e78-bce4-4aaf-ab1b-5451cc387264';
 const LOGIN = 'https://login.microsoftonline.com';
 const SPACES = 'https://api.spaces.skype.com';
+const PRESENCE = 'https://presence.teams.microsoft.com';
 const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
@@ -183,6 +184,7 @@ export class TeamsTokens {
   private aggregatorLease: Lease | null = null;
   private skypeLease: Lease | null = null;
   private spacesLease: Lease | null = null;
+  private presenceLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
 
@@ -245,6 +247,15 @@ export class TeamsTokens {
     if (held) return held;
     this.spacesLease = await this.access(SPACES);
     return this.spacesLease.value;
+  }
+
+  /** The presence bearer: the Unified Presence Service wants an AAD token for
+   *  its own scope, not the skypetoken (probed live 2026-10-22). */
+  async presence(): Promise<string> {
+    const held = fresh(this.presenceLease);
+    if (held) return held;
+    this.presenceLease = await this.access(PRESENCE);
+    return this.presenceLease.value;
   }
 
   /** The Skype token and the tenant's routes, from authz. */

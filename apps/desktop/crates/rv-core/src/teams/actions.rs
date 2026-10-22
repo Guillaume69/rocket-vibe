@@ -8,6 +8,30 @@ use super::sync::TeamsSync;
 use super::translate::{self, split_id};
 use crate::rest::RestError;
 
+/// The room, typist MRI, optional display name and active flag of a
+/// Control/Typing push; None for any other resource.
+struct TypingFields {
+    rid: String,
+    from_mri: String,
+    display: Option<String>,
+    active: bool,
+}
+
+fn typing_fields(name: &str, resource: &Value) -> Option<TypingFields> {
+    if name != "NewMessage" {
+        return None;
+    }
+    let active = match resource.get("messagetype").and_then(Value::as_str)? {
+        "Control/Typing" => true,
+        "Control/ClearTyping" => false,
+        _ => return None,
+    };
+    let rid = translate::conversation_of(resource)?;
+    let from_mri = translate::mri_of(resource.get("from").and_then(Value::as_str).unwrap_or_default()).to_owned();
+    let display = resource.get("imdisplayname").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    Some(TypingFields { rid, from_mri, display, active })
+}
+
 /// Markdown typed in the composer as the HTML Teams stores: text escaped, lines kept.
 pub fn to_html(text: &str) -> String {
     let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
@@ -36,6 +60,30 @@ impl TeamsSync {
         let id = translate::int_of(&answer.body, "OriginalArrivalTime")
             .ok_or_else(|| refusal("send_answer", answer.status))?;
         Ok(id.to_string())
+    }
+
+    /// Tells the conversation I am typing, or stopped; best effort.
+    pub async fn set_typing(&self, rid: &str, active: bool) -> Result<(), RestError> {
+        let body = json!({
+            "content": "",
+            "messagetype": if active { "Control/Typing" } else { "Control/ClearTyping" },
+            "contenttype": "Application/Message",
+            "imdisplayname": self.directory.shown(self.me()),
+        });
+        let url = self.conversation_url(rid, &["messages"], "").await?;
+        self.chat(Method::POST, url, Some(&body)).await?;
+        Ok(())
+    }
+
+    /// A Control/Typing push, as (room, typist display name, active); None for
+    /// my own typing or any other resource.
+    pub fn typing_event(&self, name: &str, resource: &Value) -> Option<(String, String, bool)> {
+        let field = typing_fields(name, resource)?;
+        if field.from_mri == self.me() {
+            return None;
+        }
+        let shown = field.display.unwrap_or_else(|| self.directory.shown(&field.from_mri));
+        Some((field.rid, shown, field.active))
     }
 
     pub async fn edit(&self, msg_id: &str, text: &str) -> Result<(), RestError> {
@@ -137,6 +185,30 @@ mod tests {
         assert_eq!(id, client_message_id("65f0a1b2c3d4e5f6a7b8c9d0"));
         assert_eq!(thread_target("19:c@thread.tacv2", Some("19:c@thread.tacv2/10")), "19:c@thread.tacv2;messageid=10");
         assert_eq!(thread_target("19:c@thread.v2", None), "19:c@thread.v2");
+    }
+
+    #[test]
+    fn a_control_typing_push_is_detected_with_its_room_and_typist() {
+        let resource = json!({
+            "messagetype": "Control/Typing",
+            "from": "https://x/v1/users/ME/contacts/8:orgid:ada",
+            "imdisplayname": "Ada",
+            "conversationLink": "https://x/v1/users/ME/conversations/19:c@thread.v2"
+        });
+        let f = typing_fields("NewMessage", &resource).expect("typing");
+        assert_eq!(f.rid, "19:c@thread.v2");
+        assert_eq!(f.from_mri, "8:orgid:ada");
+        assert_eq!(f.display.as_deref(), Some("Ada"));
+        assert!(f.active);
+        let mut clear = resource.clone();
+        clear["messagetype"] = json!("Control/ClearTyping");
+        assert!(!typing_fields("NewMessage", &clear).unwrap().active);
+        // An ordinary message is not typing.
+        let mut msg = resource.clone();
+        msg["messagetype"] = json!("RichText/Html");
+        assert!(typing_fields("NewMessage", &msg).is_none());
+        // Only NewMessage carries typing.
+        assert!(typing_fields("MessageUpdate", &resource).is_none());
     }
 
     #[test]

@@ -582,11 +582,25 @@ impl Session {
                 LiveEvent::Event { name, data, broadcast } => match s.backend() {
                     Backend::Slack(_) => s.apply_slack(&name, &data).await,
                     Backend::Teams(teams) => {
-                        let teams = teams.clone();
-                        if let Some(m) = teams.apply_event(&name, &data).await
-                            && let Some(incoming) = s.incoming_message(&m)
-                        {
-                            let _ = s.events.send(SessionEvent::Incoming(Box::new(incoming)));
+                        if let Some((rid, who, on)) = teams.typing_event(&name, &data) {
+                            s.typing.lock().unwrap().apply(&rid, &who, on, Instant::now());
+                            let _ = s.events.send(SessionEvent::Typing(rid.clone()));
+                            if on {
+                                let weak = Arc::downgrade(&s);
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(live::TYPING_EXPIRY + Duration::from_millis(100)).await;
+                                    if let Some(s) = weak.upgrade() {
+                                        let _ = s.events.send(SessionEvent::Typing(rid));
+                                    }
+                                });
+                            }
+                        } else {
+                            let teams = teams.clone();
+                            if let Some(m) = teams.apply_event(&name, &data).await
+                                && let Some(incoming) = s.incoming_message(&m)
+                            {
+                                let _ = s.events.send(SessionEvent::Incoming(Box::new(incoming)));
+                            }
                         }
                     }
                     _ => s.apply_mattermost(&name, &data, &broadcast).await,
@@ -753,7 +767,26 @@ impl Session {
 
     /// Says I am typing in `rid`, where the account's protocol carries it
     /// (Slack's RTM, at most every few seconds); a no-op elsewhere.
-    pub fn set_typing(&self, rid: &str, active: bool) {
+    pub fn set_typing(self: &Arc<Self>, rid: &str, active: bool) {
+        if let Backend::Teams(teams) = self.backend() {
+            {
+                let mut sent = self.typing_sent.lock().unwrap();
+                if !active {
+                    sent.remove(rid);
+                } else {
+                    let now = Instant::now();
+                    if sent.get(rid).is_some_and(|at| now.duration_since(*at) < TYPING_EVERY) {
+                        return;
+                    }
+                    sent.insert(rid.to_owned(), now);
+                }
+            }
+            let (teams, rid) = (teams.clone(), rid.to_owned());
+            tokio::spawn(async move {
+                let _ = teams.set_typing(&rid, active).await;
+            });
+            return;
+        }
         let Transport::Slack(live) = &self.transport else { return };
         let mut sent = self.typing_sent.lock().unwrap();
         if !active {

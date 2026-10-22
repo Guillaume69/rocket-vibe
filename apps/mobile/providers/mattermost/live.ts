@@ -289,13 +289,13 @@ export class MmLive {
     const rid = str(post.channel_id);
     if (rid === null) return [];
     await this.ensureAuthors([post]);
-    if (!this.channels.has(rid) || !this.members.has(rid)) await this.load(rid).catch(() => false);
+    const read = !this.channels.has(rid) || !this.members.has(rid) ? await this.load(rid).catch(() => false) : false;
     const channel = this.channels.get(rid);
     const member = this.members.get(rid);
     const isRoot = str(post.root_id) === null;
     const createdAt = typeof post.create_at === 'number' ? post.create_at : Date.now();
     if (channel !== undefined) {
-      const counted = isJoinLeave(post) ? 0 : 1;
+      const counted = read || isJoinLeave(post) ? 0 : 1;
       const next: Doc = { ...channel, total_msg_count: num(channel.total_msg_count) + counted, last_post_at: createdAt };
       if (isRoot) {
         next.total_msg_count_root = num(channel.total_msg_count_root) + counted;
@@ -308,7 +308,7 @@ export class MmLive {
         const mentions = mentioned(data.mentions, this.myId);
         this.members.set(rid, mine
           ? { ...member, msg_count: next.total_msg_count, msg_count_root: next.total_msg_count_root, mention_count: 0, last_viewed_at: createdAt }
-          : { ...member, mention_count: num(member.mention_count) + (mentions ? 1 : 0) });
+          : { ...member, mention_count: num(member.mention_count) + (mentions && !read ? 1 : 0) });
       }
     }
     // A reply moves its root's "N replies", which no event carries

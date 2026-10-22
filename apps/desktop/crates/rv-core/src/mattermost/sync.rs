@@ -915,14 +915,12 @@ impl MmSync {
         let rid = text(&post, "channel_id")?.to_owned();
         self.ensure_authors(std::slice::from_ref(&post)).await;
         let known = self.live.lock().unwrap().members.contains_key(&rid);
-        if !known {
-            let _ = self.load_channel(&rid, None).await;
-        }
+        let read = !known && self.load_channel(&rid, None).await.unwrap_or(false);
         let root = text(&post, "root_id").is_none();
         let mine = text(&post, "user_id") == Some(self.me.as_str());
         let mentioned = mentions(data.get("mentions")).contains(&self.me);
         let at = int(&post, "create_at");
-        let counted = if join_leave(&post) { 0 } else { 1 };
+        let counted = if read || join_leave(&post) { 0 } else { 1 };
         let fresh = !self.store.has_message(text(&post, "id").unwrap_or_default());
         let conversation = {
             let mut live = self.live.lock().unwrap();
@@ -941,7 +939,7 @@ impl MmSync {
                         member["msg_count_root"] = total_root;
                         member["mention_count"] = json!(0);
                         member["last_viewed_at"] = json!(at);
-                    } else if mentioned {
+                    } else if mentioned && !read {
                         member["mention_count"] = json!(int(member, "mention_count") + 1);
                     }
                 }
@@ -1426,5 +1424,29 @@ mod tests {
         let asked = asked.lock().unwrap();
         assert!(asked.iter().any(|p| p == "users/me/channel_members"));
         assert!(!asked.iter().any(|p| p == "channels/g1/members/me" || p == "channels/d1"));
+    }
+
+    fn counted_route(path: &str) -> Option<Value> {
+        match path {
+            "channels/g2" => Some(
+                json!({"id": "g2", "type": "G", "name": "g2", "display_name": "me, bob, dan", "total_msg_count": 1, "total_msg_count_root": 1}),
+            ),
+            "channels/g2/members/me" => Some(
+                json!({"channel_id": "g2", "user_id": "u-me", "msg_count": 0, "msg_count_root": 0, "mention_count": 1}),
+            ),
+            "users/usernames" => Some(json!([{"id": "u-dan", "username": "dan"}])),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_post_in_an_unknown_channel_counts_once() {
+        let (rest, _) = routed(counted_route).await;
+        let (store, sync) = conversations(rest, 5);
+        let mut post = post("p1", "u-bob", "");
+        post["channel_id"] = json!("g2");
+        sync.apply_event("posted", &json!({"post": post, "mentions": "[\"u-me\"]"}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "g2").unwrap();
+        assert_eq!((room.unread, room.mentions), (1, 1));
     }
 }

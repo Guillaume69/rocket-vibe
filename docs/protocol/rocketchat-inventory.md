@@ -211,7 +211,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:687](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L687) | call:GET | &member_path |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:753](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L753) | call:POST | &format!("posts/{…}/actions/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:797](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L797) | call:GET | &format!("posts/{…}") |
-| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:965](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L965) | call:GET | &format!("posts/{…}") |
+| [apps/desktop/crates/rv-core/src/mattermost/sync.rs:963](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L963) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/translate.rs:11](../../apps/desktop/crates/rv-core/src/mattermost/translate.rs#L11) | url | /api/v4/files |
 | [apps/desktop/crates/rv-core/src/media.rs:42](../../apps/desktop/crates/rv-core/src/media.rs#L42) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:43](../../apps/desktop/crates/rv-core/src/media.rs#L43) | resource | /avatar/uid/{…} |

@@ -15,6 +15,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Mattermost and kChat: the first message of a conversation the app did not know yet (a group conversation someone else just started) counts once in the unread badge, not twice.
 - Mattermost and kChat: a room no longer keeps 1 unread for good after someone joins, leaves, is added or is removed live; opening it clears it again.
 - Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
 - A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.

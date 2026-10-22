@@ -11,6 +11,7 @@ section here.
 - Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
 
 ### Added
+- Microsoft Teams (experimental): search a room's messages (through Microsoft Search); matches show their text, author and time and open the room. Teams' search index has no per-message id, so it cannot jump to the exact message.
 - Microsoft Teams (experimental): a room information panel showing the conversation's name, kind and topic, and a profile card on tapping an author or a direct conversation showing their name, work email and whether the account is a bot. The room topic, the profile card and presence (who is online, away or busy) are all read from the live service.
 
 ## [0.24.0] - 2026-10-22

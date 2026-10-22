@@ -200,3 +200,19 @@ test('a thread reply is sent to the root message target', async () => {
 test('the Teams provider advertises threads', () => {
   assert.equal(TEAMS_CAPABILITIES.threads, true);
 });
+
+test('loading a thread fetches the root and the thread-scoped conversation', async () => {
+  const root = `${RID}/900`;
+  const seen: string[] = [];
+  const { calls, client } = fake((call) => {
+    seen.push(decodeURIComponent(call.url));
+    return { body: { messages: [message('901'), message('902')] } };
+  });
+  const ingested: Doc[] = [];
+  const engine = { ingestMessages: async (docs: Doc[]) => { ingested.push(...docs); }, syncStore: { deleteMessage: async () => {} } } as unknown as SyncEngine;
+  const sync = new TeamsSync(client, new TeamsRooms());
+  await sync.loadThread(engine, root);
+  assert.ok(seen.some((u) => u.includes(`${RID}/messages/900`)), 'root fetched');
+  assert.ok(seen.some((u) => u.includes(`${RID};messageid=900/messages`)), seen.join('\n'));
+  assert.ok(ingested.length >= 2);
+});

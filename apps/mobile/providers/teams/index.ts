@@ -133,7 +133,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     historyRange: () => sync.range(),
     fetchMessage: (id) => sync.fetch(id),
     historyPage: TEAMS_HISTORY_PAGE,
-    loadThread: async () => {},
+    loadThread: async (engine, threadId, isDiscarded) => { if (!isDiscarded()) await sync.loadThread(engine, threadId); },
     createOutbox: (store, ingest) => {
       ingestLive = async (raw) => { await ingestOne(raw); await ingest(raw); };
       return new TeamsOutbox({ store, client, directory, me: { id: session.userId, username: session.username }, generateId, ingest: ingestLive });

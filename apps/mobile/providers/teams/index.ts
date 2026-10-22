@@ -7,6 +7,7 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import type { Session } from '../../lib/auth.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
 import type { Capabilities, Listener, Provider, ProviderError } from '../../lib/provider.ts';
@@ -41,7 +42,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   reports: false,
   scheduledMessages: false,
   sending: true,
-  typing: false,
+  typing: true,
   presence: false,
   push: false,
   e2ee: false,
@@ -72,6 +73,14 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
   const expand = async (name: string, resource: Doc): Promise<DdpEvent[]> => {
     const rid = conversationOf(resource);
     if (!rid) return [];
+    // A typing control message is not a message: it feeds the typing indicator.
+    const control = str(resource, 'messagetype') ?? '';
+    if (control === 'Control/Typing' || control === 'Control/ClearTyping') {
+      if (mriOf(str(resource, 'from') ?? '') === session.userId) return [];
+      const who = str(resource, 'imdisplayname') ?? directory.shown(mriOf(str(resource, 'from') ?? ''));
+      const active = control === 'Control/Typing';
+      return who ? [{ collection: STREAM_NOTIFY_ROOM_TYPING, eventKey: `${rid}/user-activity`, args: [who, active ? [TYPING_ACTIVITY] : []] }] : [];
+    }
     const events: DdpEvent[] = [{ collection: TEAMS_EVENTS, eventKey: name, args: [{ ...resource, __rid: rid }] }];
     if (name === 'NewMessage') {
       await ingestOne({ ...resource, __rid: rid });
@@ -94,6 +103,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     describeError: describeTeamsError,
     capabilities: TEAMS_CAPABILITIES,
     listener,
+    setTyping: (rid, active) => { void typingAction(client, directory, session, rid, active); },
     translator,
     actions: {
       roomInfo: refuse('room_info'),
@@ -133,6 +143,19 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     catchUpRoom: (engine, rid, isDiscarded) => sync.catchUpRoom(engine, rid, isDiscarded),
     reconcile: (engine, isDiscarded) => sync.reconcile(engine, isDiscarded),
   };
+}
+
+/** Tells the conversation I am typing, or stopped; a lost signal is harmless. */
+export async function typingAction(client: TeamsClient, directory: TeamsDirectory, session: Session, rid: string, active: boolean): Promise<void> {
+  try {
+    const url = await client.conversation(rid, ['messages']);
+    await client.chat('POST', url, {
+      content: '', messagetype: active ? 'Control/Typing' : 'Control/ClearTyping',
+      contenttype: 'Application/Message', imdisplayname: directory.shown(session.userId),
+    });
+  } catch {
+    /* typing is best-effort */
+  }
 }
 
 export function describeTeamsError(error: unknown, authenticated: boolean): ProviderError {

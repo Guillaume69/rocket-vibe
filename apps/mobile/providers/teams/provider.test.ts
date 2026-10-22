@@ -11,6 +11,7 @@ import { TeamsMessageActions, TeamsOutbox, clientMessageId } from './outbox.ts';
 import { TeamsRooms, TeamsSync } from './sync.ts';
 import { TeamsDirectory } from './translate.ts';
 import { chatEvent, parseFrame } from './trouter.ts';
+import { TEAMS_CAPABILITIES, typingAction } from './index.ts';
 
 type Doc = Record<string, unknown>;
 type Call = { method: string; url: string; body: Doc | null; headers: Record<string, string> };
@@ -162,4 +163,22 @@ test('a Trouter message frame carries a chat event', () => {
   assert.equal(event?.name, 'NewMessage');
   assert.equal(event?.resource.id, '6000');
   assert.equal(parseFrame('3:::not json').kind, 'other');
+});
+
+test('typing posts a Control/Typing to the conversation, and a clear when it stops', async () => {
+  const { calls, client } = fake(() => ({ status: 201, body: {} }));
+  const dir = new TeamsDirectory();
+  dir.remember(ME, 'Me');
+  await typingAction(client, dir, SESSION, RID, true);
+  await typingAction(client, dir, SESSION, RID, false);
+  const posts = calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 2);
+  assert.ok(posts[0].url.endsWith('/messages'), posts[0].url);
+  assert.equal(posts[0].body?.messagetype, 'Control/Typing');
+  assert.equal(posts[0].body?.content, '');
+  assert.equal(posts[1].body?.messagetype, 'Control/ClearTyping');
+});
+
+test('the Teams provider advertises typing', () => {
+  assert.equal(TEAMS_CAPABILITIES.typing, true);
 });

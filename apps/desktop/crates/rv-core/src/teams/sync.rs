@@ -369,6 +369,7 @@ impl TeamsSync {
         let (name, kind) =
             self.store.room_name(rid).ok_or_else(|| crate::rest::RestError::incomplete("room info: unknown room"))?;
         let topic = self.conversation(rid).await.as_ref().and_then(conversation_topic);
+        let members = self.members(rid).await.ok().map(|p| i64::from(p.total));
         Ok(crate::info::RoomInfo {
             id: rid.to_owned(),
             name,
@@ -376,7 +377,7 @@ impl TeamsSync {
             topic,
             announcement: None,
             description: None,
-            members: None,
+            members,
             read_only: false,
             encrypted: false,
             archived: false,

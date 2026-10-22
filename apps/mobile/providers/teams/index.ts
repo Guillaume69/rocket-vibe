@@ -120,6 +120,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
             : chatRoom(session.userId, cached.entry, directory)
           : null;
         const doc = await client.roomDocument(rid).catch(() => ({}) as Doc);
+        const roster = await client.roster(rid).catch(() => null);
         return {
           id: rid,
           name: room?.displayName ?? room?.name ?? '',
@@ -127,7 +128,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
           description: null,
           topic: conversationTopic(doc),
           announcement: null,
-          members: null,
+          members: roster ? rosterPage(roster, directory, '').total : null,
           readOnly: false,
         };
       },

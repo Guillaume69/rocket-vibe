@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-22
+
 ### Added
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
@@ -1333,7 +1335,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...HEAD
+[0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0
 [0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
 [0.21.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1

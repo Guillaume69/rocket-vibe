@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-22
+
 ### Added
 
 - Settings > Notifications warns when Android does not let the app show an incoming call over the lock screen (Android 14 and later can withdraw it), and its Allow opens the system setting.
@@ -863,7 +865,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.21.0...HEAD
+[0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...mobile-v0.21.0
 [0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0
 [0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
 [0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1

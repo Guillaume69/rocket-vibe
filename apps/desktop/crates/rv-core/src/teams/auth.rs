@@ -357,6 +357,79 @@ async fn describe_search_hits(r: Result<reqwest::Response, reqwest::Error>) -> V
     }
 }
 
+/// The first message in a page that carries a file, by shape only: its
+/// messagetype, properties key names, whether `files` is a JSON string, the
+/// file-entry key names and whether the content holds a `<URIObject>`. No
+/// filenames, urls or message text.
+fn file_message_shape(body: &Value) -> Option<Value> {
+    let files_value = |props: Option<&Value>| -> Option<Value> {
+        props.and_then(|p| p.get("files")).map(|f| match f {
+            Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(Value::Null),
+            other => other.clone(),
+        })
+    };
+    for m in body.get("messages").and_then(Value::as_array)? {
+        let kind = m.get("messagetype").and_then(Value::as_str).unwrap_or("");
+        let props = m.get("properties");
+        let files = files_value(props);
+        let entries = files.as_ref().and_then(Value::as_array);
+        let has_files = entries.is_some_and(|a| !a.is_empty());
+        let content = m.get("content").and_then(Value::as_str).unwrap_or("");
+        let content_uriobject = content.contains("<URIObject");
+        if kind.contains("File") || kind.contains("Media") || has_files || content_uriobject {
+            let prop_keys: Vec<String> =
+                props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            let file_keys: Vec<String> = entries
+                .and_then(|a| a.first())
+                .and_then(Value::as_object)
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            // URIObject structure: the opening tag's attribute names and the
+            // child element names, so the parser is known without the values.
+            let (attrs, children) = uriobject_structure(content);
+            return Some(json!({
+                "messagetype": kind,
+                "properties_keys": prop_keys,
+                "files_is_string": props.and_then(|p| p.get("files")).is_some_and(Value::is_string),
+                "file_count": entries.map(|a| a.len()),
+                "file_keys": file_keys,
+                "content_has_uriobject": content_uriobject,
+                "uriobject_attrs": attrs,
+                "uriobject_children": children,
+            }));
+        }
+    }
+    None
+}
+
+/// The `<URIObject>`'s opening-tag attribute names and its child element names,
+/// NO attribute or element values (those hold the file name and url).
+fn uriobject_structure(content: &str) -> (Vec<String>, Vec<String>) {
+    let Some(start) = content.find("<URIObject") else { return (Vec::new(), Vec::new()) };
+    let rest = &content[start + "<URIObject".len()..];
+    let open_end = rest.find('>').unwrap_or(rest.len());
+    let attrs: Vec<String> = rest[..open_end]
+        .split_whitespace()
+        .filter_map(|tok| tok.split('=').next())
+        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .map(str::to_owned)
+        .collect();
+    let body_end = rest.find("</URIObject>").unwrap_or(rest.len());
+    let mut children = Vec::new();
+    let mut scan = &rest[open_end.min(body_end)..body_end];
+    while let Some(lt) = scan.find('<') {
+        scan = &scan[lt + 1..];
+        if scan.starts_with('/') {
+            continue;
+        }
+        let name: String = scan.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+        if !name.is_empty() && !children.contains(&name) {
+            children.push(name);
+        }
+    }
+    (attrs, children)
+}
+
 fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
     let host = url.host_str()?.to_owned();
@@ -749,6 +822,37 @@ impl Tokens {
                 fallback.get_or_insert(report);
             }
             out.insert("thread_roster".into(), roster.or(fallback).unwrap_or(Value::Null));
+            // Attachment shape: scan recent messages of a few conversations for
+            // the first one carrying a file, reported by messagetype and field
+            // names only (no filenames, urls or message text).
+            let mut files = None;
+            for id in ids.iter().take(8) {
+                let msgs =
+                    url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok().and_then(|mut u| {
+                        {
+                            let mut seg = u.path_segments_mut().ok()?;
+                            seg.push(id);
+                            seg.push("messages");
+                        }
+                        u.set_query(Some("view=msnp24Equivalent&pageSize=20"));
+                        Some(u)
+                    });
+                let Some(url) = msgs else { continue };
+                let body = match http()
+                    .get(url)
+                    .header("authentication", format!("skypetoken={}", skype.as_str()))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => resp.json::<Value>().await.unwrap_or(Value::Null),
+                    _ => continue,
+                };
+                if let Some(report) = file_message_shape(&body) {
+                    files = Some(report);
+                    break;
+                }
+            }
+            out.insert("file_shape".into(), files.unwrap_or(json!({ "note": "no file message found" })));
         }
         Value::Object(out)
     }

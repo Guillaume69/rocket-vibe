@@ -8,6 +8,7 @@
 
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
+import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
 import type { Capabilities, Listener, Provider, ProviderError } from '../../lib/provider.ts';
@@ -43,7 +44,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   scheduledMessages: false,
   sending: true,
   typing: true,
-  presence: false,
+  presence: true,
   push: false,
   e2ee: false,
   customEmojis: false,
@@ -127,6 +128,14 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
       names: () => directory.displayNames(),
       statuses: () => new Map(),
       subscribe: (fn) => directory.onChange(fn),
+    },
+    loadPresence: () => readPresence(client, [...directory.displayNames().keys()]),
+    ownActivity: {
+      read: async () => {
+        const [me] = await client.getPresence([session.userId]);
+        return availabilityStatus(me ? str(me.presence as Doc, 'availability') : null);
+      },
+      set: async (status) => { await client.setPresence(statusAvailability(status)); return status; },
     },
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],

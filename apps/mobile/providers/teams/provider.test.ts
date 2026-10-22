@@ -21,7 +21,7 @@ const RID = '19:c@thread.v2';
 const CHAT = 'https://emea.ng.msg.teams.microsoft.com';
 const ROUTES: TeamsRoutes = {
   chat: CHAT, aggregator: 'https://teams.microsoft.com/api/csa/emea', trouter: 'https://go.trouter.teams.microsoft.com',
-  registrar: 'https://teams.microsoft.com/registrar/prod', ams: 'https://eu-api.asm.skype.com', middleTier: 'https://teams.microsoft.com/api/mt/emea',
+  registrar: 'https://teams.microsoft.com/registrar/prod', ams: 'https://eu-api.asm.skype.com', middleTier: 'https://teams.microsoft.com/api/mt/emea', presence: 'https://presence.teams.microsoft.com', search: 'https://fr-prod.asyncgw.teams.microsoft.com/msgsearch',
 };
 const SESSION: Session = {
   baseUrl: 'https://teams.microsoft.com', authToken: 'fixture', userId: ME, username: 'Me', kind: 'teams', siteUrl: null,

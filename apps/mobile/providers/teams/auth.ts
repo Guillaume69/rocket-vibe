@@ -143,7 +143,7 @@ export function setTeamsCredentialSink(fn: (session: Session) => void): void {
 }
 
 /** The routes authz hands a tenant; only `https` Teams and Trouter hosts are kept. */
-export type TeamsRoutes = { chat: string; aggregator: string; trouter: string; registrar: string; ams: string; middleTier: string };
+export type TeamsRoutes = { chat: string; aggregator: string; trouter: string; registrar: string; ams: string; middleTier: string; presence: string; search: string };
 
 function onHosts(raw: unknown, suffixes: readonly string[]): string | null {
   if (typeof raw !== 'string') return null;
@@ -168,6 +168,8 @@ export function discoverRoutes(body: Record<string, unknown>): TeamsRoutes | nul
     registrar: onHosts(gtms.calling_registrarUrl, TEAMS_HOSTS) ?? '',
     ams: onHosts(gtms.ams, ['.asyncgw.teams.microsoft.com', '.teams.microsoft.com']) ?? '',
     middleTier: onHosts(gtms.middleTier, TEAMS_HOSTS) ?? '',
+    presence: onHosts(gtms.unifiedPresence, TEAMS_HOSTS) ?? '',
+    search: onHosts(gtms.search, ['.asyncgw.teams.microsoft.com', '.teams.microsoft.com']) ?? '',
   };
 }
 

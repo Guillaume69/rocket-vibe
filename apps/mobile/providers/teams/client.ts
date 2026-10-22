@@ -84,6 +84,26 @@ export class TeamsClient {
     }
   }
 
+  /** Presence for a batch of people (UPS getpresence), skype-token auth. */
+  async getPresence(mris: string[]): Promise<Doc[]> {
+    const { routes, skype } = await this.tokens.chat();
+    if (!routes.presence || mris.length === 0) return [];
+    const url = `${routes.presence}/v1/presence/getpresence/`;
+    const answer = await this.send(url, ['authentication', `skypetoken=${skype}`], 'POST', mris.map((mri) => ({ mri })));
+    const body = answer.body as unknown;
+    if (Array.isArray(body)) return body as Doc[];
+    const responses = (body as Doc).responses;
+    return Array.isArray(responses) ? (responses as Doc[]) : [];
+  }
+
+  /** Sets my availability (UPS forceavailability). */
+  async setPresence(availability: string): Promise<void> {
+    const { routes, skype } = await this.tokens.chat();
+    if (!routes.presence) return;
+    const url = `${routes.presence}/v1/me/forceavailability/`;
+    await this.send(url, ['authentication', `skypetoken=${skype}`], 'PUT', { availability });
+  }
+
   /** The aggregator's list of chats and teams. */
   async snapshot(): Promise<Doc> {
     const { routes } = await this.tokens.chat();

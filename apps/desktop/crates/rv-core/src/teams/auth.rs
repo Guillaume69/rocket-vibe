@@ -369,6 +369,21 @@ impl Tokens {
         Ok((token, routes))
     }
 
+    /// Read-only: the authz `regionGtms` service map (service URLs only, no
+    /// tokens). For host discovery when extending the provider.
+    pub async fn region_gtms(&self) -> Result<Value, RestError> {
+        let spaces = self.access(SPACES).await?;
+        let response = http()
+            .post(AUTHZ)
+            .bearer_auth(spaces.value.as_str())
+            .header("content-length", "0")
+            .send()
+            .await
+            .map_err(|e| RestError::network(e.to_string()))?;
+        let body: Value = response.json().await.unwrap_or_default();
+        Ok(body.get("regionGtms").cloned().unwrap_or(Value::Null))
+    }
+
     /// Forgets the Skype token after the chat service refused it.
     pub async fn forget_chat(&self) {
         self.held.lock().await.skype = None;

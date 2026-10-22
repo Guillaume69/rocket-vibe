@@ -92,7 +92,7 @@ test tenant.
 
 | Feature | Host | Request/response shape | Blocker |
 |---|---|---|---|
-| Profiles / avatars | middleTier (discovered) | `POST beta/users/fetchShortProfile`, body = array of MRIs; response `value[].mri/displayName/avatarUrl/avatarETag` (captured) | Avatars need authenticated image loading (Skype token on the image request), unverified; names mostly already arrive on messages, so the gain is avatars |
+| Profiles (name, title, bot) | middleTier (discovered) | `POST beta/users/fetchShortProfile`, body = array of MRIs; response `value[]` with `mri/displayName/userPrincipalName/jobTitle` (`profiles`/`profile` in `teams/sync.rs`, `profileFields` in `providers/teams`) | Implemented, not re-probed live: a refused or empty call falls back to the name already learned from messages. Avatars still owed: they need an authenticated image load (Skype token on the image request), unverified |
 | Room favorites (toggle) | aggregator (have) | `POST/DELETE teams/users/me/pinnedChannels`, body NOT captured | Read side works (`isFavorite` on the aggregator entry); the write body is unknown |
 | Message pins / saves | none for a message pin (only channel pinning) | not captured | No chat-service message-pin endpoint in the capture |
 | Direct message creation | chat service (have) | how a new 1:1 is addressed, not captured | Unknown create/address call |

@@ -7,6 +7,9 @@ section here.
 
 ## [Unreleased]
 
+### Added
+- Microsoft Teams: tapping a message author or a direct conversation opens their profile card with their name, job title and whether the account is a bot (from the middle tier's short profile).
+
 ## [0.24.0] - 2026-10-22
 
 ### Added

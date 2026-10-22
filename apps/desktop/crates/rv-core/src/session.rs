@@ -1003,7 +1003,7 @@ impl Session {
             Backend::Slack(slack) => {
                 slack.room_info(rid).ok_or_else(|| RestError::incomplete("room info: unknown room"))
             }
-            Backend::Teams(_) => Err(crate::slack::not_supported("room info")),
+            Backend::Teams(teams) => teams.room_info(rid).await,
             Backend::RocketChat => rocketchat::actions::room_info(&self.rest, rid).await,
         }
     }

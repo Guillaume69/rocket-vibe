@@ -356,6 +356,37 @@ impl TeamsSync {
         Ok(profile_fields(&mri, row, &self.directory))
     }
 
+    /// Room information: name and kind from the store, enriched best effort with
+    /// the chat service's topic, description and member count. A refused or empty
+    /// conversation call still returns the name and kind.
+    pub async fn room_info(&self, rid: &str) -> Result<crate::info::RoomInfo, RestError> {
+        let (name, kind) =
+            self.store.room_name(rid).ok_or_else(|| crate::rest::RestError::incomplete("room info: unknown room"))?;
+        let (topic, description, members) = match self.conversation(rid).await {
+            Some(body) => conversation_info(&body),
+            None => (None, None, None),
+        };
+        Ok(crate::info::RoomInfo {
+            id: rid.to_owned(),
+            name,
+            kind,
+            topic,
+            announcement: None,
+            description,
+            members,
+            read_only: false,
+            encrypted: false,
+            archived: false,
+            default: false,
+        })
+    }
+
+    /// The chat service's conversation document, best effort.
+    async fn conversation(&self, rid: &str) -> Option<Value> {
+        let url = self.conversation_url(rid, &[], "view=msnp24Equivalent").await.ok()?;
+        self.chat(Method::GET, url, None).await.ok().map(|a| a.body)
+    }
+
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
         let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
         if let Some(root) = self.fetch_message(root_id).await? {
@@ -550,6 +581,24 @@ fn profile_fields(mri: &str, row: Option<&Value>, directory: &Directory) -> crat
     }
 }
 
+/// Topic, description and member count from a chat-service conversation. Skype
+/// thread properties carry their numbers as strings, so a count is read either
+/// way; the members array is a fallback when no count is stated.
+fn conversation_info(body: &Value) -> (Option<String>, Option<String>, Option<i64>) {
+    let props = body.get("threadProperties");
+    let text = |key: &str| props.and_then(|p| str_of(p, key)).filter(|t| !t.is_empty()).map(str::to_owned);
+    let count = props
+        .and_then(|p| p.get("membercount"))
+        .and_then(number_like)
+        .or_else(|| body.get("members").and_then(Value::as_array).map(|a| a.len() as i64));
+    (text("topic"), text("description"), count)
+}
+
+/// A JSON number or a numeric string as an integer.
+fn number_like(value: &Value) -> Option<i64> {
+    value.as_i64().or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +640,17 @@ mod tests {
         dir.remember("8:two", "Alice");
         assert!(dir.mri_for("Alice").is_none());
         assert!(dir.mri_for("Nobody").is_none());
+    }
+
+    #[test]
+    fn conversation_info_reads_topic_and_a_count_whether_string_or_number() {
+        let strung =
+            serde_json::json!({ "threadProperties": { "topic": "Launch", "description": "Go", "membercount": "7" } });
+        assert_eq!(conversation_info(&strung), (Some("Launch".into()), Some("Go".into()), Some(7)));
+        let numbered = serde_json::json!({ "threadProperties": { "membercount": 3 }, "members": [{}, {}] });
+        assert_eq!(conversation_info(&numbered), (None, None, Some(3)));
+        let from_array = serde_json::json!({ "members": [{}, {}, {}] });
+        assert_eq!(conversation_info(&from_array), (None, None, Some(3)));
+        assert_eq!(conversation_info(&serde_json::json!({})), (None, None, None));
     }
 }

@@ -336,7 +336,9 @@ export function fileAttachments(raw: unknown): string | null {
 export function toMessage(conversation: string, raw: unknown, directory: TeamsDirectory): LocalMessage | null {
   const id = str(raw, 'id') ?? (int(raw, 'id') !== null ? String(int(raw, 'id')) : null);
   const kind = str(raw, 'messagetype') ?? '';
-  const shown = kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/');
+  const attachments = fileAttachments(raw);
+  const shown =
+    kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/') || attachments !== null;
   if (!id || !shown || deleted(raw)) return null;
   directory.learn(raw);
   const activity = system(raw, directory);
@@ -360,7 +362,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     threadShown: false,
     editedAt: edited && edited > 0 ? edited : null,
     md: null,
-    attachments: null,
+    attachments,
     reactions: reactions(raw, directory),
     urls: null,
     callId: null,

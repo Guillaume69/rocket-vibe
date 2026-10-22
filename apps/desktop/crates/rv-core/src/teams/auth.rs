@@ -365,6 +365,24 @@ async fn probe_graph_features(token: &str, _me_oid: &str) -> Value {
             let shared =
                 http().get(gurl(&format!("/shares/u!{enc}/driveItem/content"))).bearer_auth(token).send().await;
             out.insert("download_shares".into(), describe_download(shared).await);
+            // The JS-friendly path: driveItem metadata carries a pre-signed
+            // @microsoft.graph.downloadUrl, so mobile needs no redirect
+            // handling. Confirm it is present and downloads without auth.
+            let meta: Value =
+                match http().get(gurl(&format!("/shares/u!{enc}/driveItem"))).bearer_auth(token).send().await {
+                    Ok(r) => r.json().await.unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                };
+            let dl_url = meta.get("@microsoft.graph.downloadUrl").and_then(Value::as_str);
+            out.insert(
+                "driveitem_keys".into(),
+                json!(meta.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()),
+            );
+            out.insert("download_url_present".into(), json!(dl_url.is_some()));
+            if let Some(u) = dl_url {
+                let plain = http().get(u).send().await;
+                out.insert("download_url_fetch".into(), describe_download(plain).await);
+            }
         }
         let del = http().delete(gurl(&format!("/me/drive/items/{id}"))).bearer_auth(token).send().await;
         out.insert("cleanup_delete_status".into(), json!(del.map(|r| r.status().as_u16()).unwrap_or(0)));

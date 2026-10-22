@@ -7,6 +7,7 @@
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
+import { setDownloadResolver } from '../../lib/downloadResolver.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
@@ -17,7 +18,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -62,6 +63,9 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
   const client = new TeamsClient(tokens, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
   const directory = new TeamsDirectory();
   directory.remember(session.userId, session.username);
+  // Teams file downloads resolve a SharePoint share to its pre-signed Graph
+  // url just before the transfer; registered for the message row to reach.
+  setDownloadResolver(session.baseUrl.replace(/\/+$/, ''), (url) => (isGraphShare(url) ? client.downloadUrl(url).catch(() => url) : Promise.resolve(url)));
   const rooms = new TeamsRooms();
   const sync = new TeamsSync(client, rooms);
   const translator = new TeamsTranslator(directory, session.userId);

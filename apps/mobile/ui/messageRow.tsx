@@ -53,6 +53,7 @@ import {integrationCard} from '../lib/integrationCards.ts';
 import {SocialMessage,socialValue} from './social.tsx';
 import {IntegrationCard} from './integrationCard.tsx';
 import { offerDownloadOrShare } from './attachmentActions.ts';
+import { downloadResolverFor } from '../lib/downloadResolver.ts';
 import { TransferBar } from './transferBar.tsx';
 import { decryptedFile } from './attachment.ts';
 import {subscribeNativeFile} from '../lib/nativeFiles.ts';
@@ -1074,7 +1075,7 @@ function FileAttachment({
   // "file"). The name's extension is what guides the system.
   const pick = () =>
     offerDownloadOrShare(
-      { key: path, url: protectedFileUrl(client, path), title, type: null, size, encryption },
+      { key: path, url: protectedFileUrl(client, path), title, type: null, size, encryption, resolve: downloadResolverFor(client.baseUrl) },
       t,
     );
 

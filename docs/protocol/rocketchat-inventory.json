@@ -477,6 +477,7 @@
     "apps/mobile/lib/deletedUser.ts",
     "apps/mobile/lib/discussions.ts",
     "apps/mobile/lib/displayNames.ts",
+    "apps/mobile/lib/downloadResolver.ts",
     "apps/mobile/lib/e2e/crypto.ts",
     "apps/mobile/lib/e2e/engine.ts",
     "apps/mobile/lib/e2e/mentions.ts",
@@ -2820,7 +2821,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
-      "line": 934,
+      "line": 952,
       "kind": "url",
       "surface": "/api/v2/query"
     },

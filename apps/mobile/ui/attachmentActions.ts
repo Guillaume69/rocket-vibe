@@ -23,12 +23,21 @@ export type AttachmentToTransfer = {
   /** Size announced by the message, in bytes. */
   size: number | null;
   encryption?: FileEncryption | null;
+  /** Turn the url into a directly fetchable one just before the download
+   *  (Teams: a SharePoint share to its pre-signed Graph url). */
+  resolve?: (url: string) => Promise<string>;
 };
+
+async function resolved(attachment: AttachmentToTransfer): Promise<AttachmentToTransfer> {
+  if (!attachment.resolve) return attachment;
+  const url = await attachment.resolve(attachment.url);
+  return { ...attachment, url };
+}
 
 export function saveInBackground(attachment: AttachmentToTransfer, t: TranslateFn): void {
   void transfer(attachment.key, async (onProgress) => {
     try {
-      const place = await saveProtectedAttachment({ ...attachment, onProgress });
+      const place = await saveProtectedAttachment({ ...(await resolved(attachment)), onProgress });
       if (place !== 'share') {
         toast(t(place === 'gallery' ? 'saved.gallery' : 'saved.downloads'));
       }
@@ -41,7 +50,7 @@ export function saveInBackground(attachment: AttachmentToTransfer, t: TranslateF
 export function shareInBackground(attachment: AttachmentToTransfer, t: TranslateFn): void {
   void transfer(attachment.key, async (onProgress) => {
     try {
-      await openProtectedAttachment({ ...attachment, onProgress });
+      await openProtectedAttachment({ ...(await resolved(attachment)), onProgress });
     } catch {
       toast(t('messageRow.fileOpenFailed'));
     }

@@ -15,6 +15,21 @@ export function serviceUrl(base: string, segments: readonly string[], query = ''
   return `${base.replace(/\/+$/, '')}/${path}${query ? `?${query}` : ''}`;
 }
 
+const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** base64url of a string's UTF-8 bytes, no padding (the Graph `/shares` `u!`
+ *  encoding, matching the Rust side's URL_SAFE_NO_PAD). */
+export function base64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i]! << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const chars = Math.ceil((Math.min(3, bytes.length - i) * 8) / 6);
+    for (let j = 0; j < chars; j++) out += BASE64URL[(n >> (18 - 6 * j)) & 63];
+  }
+  return out;
+}
+
 export type Answer = { status: number; body: Doc };
 
 export type TeamsClientOptions = { fetch?: typeof fetch; onRejected?: () => void };
@@ -131,6 +146,22 @@ export class TeamsClient {
     const { routes } = await this.tokens.chat();
     const url = serviceUrl(`${routes.chat}/v1`, ['threads', rid], 'view=msnp24Equivalent&threadProperties=1');
     return (await this.chat('GET', url)).body;
+  }
+
+  /** Resolve a Teams shared file's SharePoint/OneDrive url to a directly
+   *  fetchable, pre-signed url through Graph: `GET /shares/u!{base64url}/
+   *  driveItem` carries `@microsoft.graph.downloadUrl`, which needs no auth.
+   *  Returns the input url when the driveItem has no download url. */
+  async downloadUrl(url: string): Promise<string> {
+    const bearer = await this.tokens.graph();
+    const enc = base64Url(url);
+    const answer = await this.send(
+      `https://graph.microsoft.com/v1.0/shares/u!${enc}/driveItem`,
+      ['authorization', `Bearer ${bearer}`],
+      'GET',
+    );
+    const resolved = (answer.body as Doc)['@microsoft.graph.downloadUrl'];
+    return typeof resolved === 'string' && resolved !== '' ? resolved : url;
   }
 
   /** Message search through the Substrate query API, with its own bearer. */

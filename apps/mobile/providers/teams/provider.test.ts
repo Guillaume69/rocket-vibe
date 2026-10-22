@@ -34,7 +34,7 @@ function fake(route: (call: Call) => { status?: number; body?: unknown } | 'thro
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const call: Call = {
       method: init?.method ?? 'GET', url: String(input),
-      body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Doc) : null,
+      body: typeof init?.body === 'string' && init.body.startsWith('{') ? (JSON.parse(init.body) as Doc) : null,
       headers: (init?.headers ?? {}) as Record<string, string>,
     };
     calls.push(call);
@@ -215,4 +215,23 @@ test('loading a thread fetches the root and the thread-scoped conversation', asy
   assert.ok(seen.some((u) => u.includes(`${RID}/messages/900`)), 'root fetched');
   assert.ok(seen.some((u) => u.includes(`${RID};messageid=900/messages`)), seen.join('\n'));
   assert.ok(ingested.length >= 2);
+});
+
+test('downloadUrl resolves a SharePoint share to the pre-signed Graph download url', async () => {
+  const shareUrl = 'https://contoso.sharepoint.com/sites/x/report.pdf';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'graph-fixture', expires_in: 3600 } };
+    if (call.url.includes('/shares/u!') && call.url.endsWith('/driveItem')) {
+      return { body: { '@microsoft.graph.downloadUrl': 'https://presigned.example/download' } };
+    }
+    return { status: 404, body: {} };
+  });
+  assert.equal(await client.downloadUrl(shareUrl), 'https://presigned.example/download');
+  const driveItem = calls.find((c) => c.url.includes('/shares/u!'));
+  assert.ok(driveItem, 'the /shares/driveItem endpoint was called');
+  assert.match(String((driveItem!.headers as Record<string, string>).authorization ?? ''), /^Bearer /);
+  // An unresolvable driveItem leaves the url unchanged.
+  const { client: c2 } = fake((call) =>
+    call.url.includes('/oauth2/v2.0/token') ? { body: { access_token: 'g', expires_in: 3600 } } : { body: {} });
+  assert.equal(await c2.downloadUrl(shareUrl), shareUrl);
 });

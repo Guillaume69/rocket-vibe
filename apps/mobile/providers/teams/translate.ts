@@ -321,6 +321,24 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
   };
 }
 
+/** A short profile row (middle tier `fetchShortProfile`) as the profile card's
+ *  fields. A missing row still yields the name we already learned from messages,
+ *  so the card shows a name rather than an MRI even when the profile call fails. */
+export function profileFields(mri: string, row: unknown, directory: TeamsDirectory): Record<string, unknown> {
+  const name = str(row, 'displayName') ?? directory.name(mri);
+  if (name) directory.remember(mri, name);
+  const upn = str(row, 'userPrincipalName') ?? str(row, 'email');
+  const title = str(row, 'jobTitle');
+  return {
+    _id: mri,
+    username: upn ?? mri,
+    name: name ?? mri,
+    roles: [],
+    bio: title && title !== '' ? title : null,
+    bot: mri.startsWith('28:'),
+  };
+}
+
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {
   const kind = str(last, 'messageType') ?? '';
   if (kind !== 'Text' && kind !== 'RichText/Html' && kind !== 'RichText') return null;

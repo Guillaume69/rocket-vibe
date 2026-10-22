@@ -17,7 +17,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, conversationOf, deleted, mriOf, rootOf, str } from './translate.ts';
+import { TeamsDirectory, conversationOf, deleted, mriOf, profileFields, rootOf, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -29,7 +29,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   threads: true,
   reactions: true,
   marks: false,
-  profile: false,
+  profile: true,
   roomInfo: false,
   roomSettings: false,
   roomRoleList: false,
@@ -136,6 +136,13 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
         return availabilityStatus(me ? str(me.presence as Doc, 'availability') : null);
       },
       set: async (status) => { await client.setPresence(statusAvailability(status)); return status; },
+    },
+    async readProfile(target) {
+      const mri = target.uid ?? '';
+      if (!mri) return undefined;
+      const rows = await client.profiles([mri]).catch(() => [] as Doc[]);
+      const row = rows.find((r) => (str(r, 'mri') ?? '').toLowerCase() === mri.toLowerCase()) ?? rows[0];
+      return profileFields(mri, row, directory);
     },
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],

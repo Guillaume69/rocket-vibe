@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, reacted, reactionCode,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -124,4 +124,18 @@ test('routes keep Teams hosts only; a stored account must look like one Microsof
   const payload = btoa(JSON.stringify({ tid: 't', oid: 'o' })).replace(/=+$/, '');
   assert.equal(idClaims(`h.${payload}.s`)!.oid, 'o');
   assert.equal(idClaims('garbage'), null);
+});
+
+test('a short profile row becomes the card fields; a missing row keeps the learned name', () => {
+  const d = new TeamsDirectory();
+  const mri = '8:orgid:aaaa-bbbb';
+  d.remember(mri, 'Known Name');
+  const full = profileFields(mri, { mri, displayName: 'Ada Lovelace', userPrincipalName: 'ada@contoso.com', jobTitle: 'Engineer' }, d);
+  assert.deepEqual(full, { _id: mri, username: 'ada@contoso.com', name: 'Ada Lovelace', roles: [], bio: 'Engineer', bot: false });
+  const degraded = profileFields(mri, undefined, d);
+  assert.equal(degraded.name, 'Ada Lovelace');
+  assert.equal(degraded.username, mri);
+  assert.equal(degraded.bio, null);
+  const bot = profileFields('28:orgid:app', { displayName: 'Helper' }, d);
+  assert.equal(bot.bot, true);
 });

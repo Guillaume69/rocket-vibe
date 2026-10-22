@@ -104,6 +104,20 @@ export class TeamsClient {
     await this.send(url, ['authentication', `skypetoken=${skype}`], 'PUT', { availability });
   }
 
+  /** Short profiles (name, title, avatar etag) by MRI, via the middle tier with
+   *  the Spaces bearer. Best effort: returns [] when the route or token is absent. */
+  async profiles(mris: string[]): Promise<Doc[]> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.middleTier || mris.length === 0) return [];
+    const bearer = await this.tokens.spaces();
+    const url = `${routes.middleTier}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true`;
+    const answer = await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', mris);
+    const body = answer.body as unknown;
+    if (Array.isArray(body)) return body as Doc[];
+    const value = (body as Doc).value;
+    return Array.isArray(value) ? (value as Doc[]) : [];
+  }
+
   /** The aggregator's list of chats and teams. */
   async snapshot(): Promise<Doc> {
     const { routes } = await this.tokens.chat();

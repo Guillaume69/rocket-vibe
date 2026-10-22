@@ -6,6 +6,7 @@
  */
 
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
+import type { MemberPage, RoomMember } from '../../lib/provider.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -407,6 +408,27 @@ export function searchHits(body: unknown, rid: string, directory: TeamsDirectory
     });
   }
   return out;
+}
+
+/** A threads-service roster as a member page: each row is `{id: <mri>, role}`,
+ *  the name resolved from the directory, optionally filtered by display name.
+ *  Read-only: Teams gives no add/remove/role-change route here. */
+export function rosterPage(body: unknown, directory: TeamsDirectory, filter: string): MemberPage {
+  const rows = (body as { members?: unknown } | null | undefined)?.members;
+  const needle = filter.trim().toLowerCase();
+  const members: RoomMember[] = [];
+  if (Array.isArray(rows)) {
+    for (const m of rows) {
+      const mri = str(m, 'id');
+      if (!mri) continue;
+      const name = directory.name(mri);
+      const username = directory.shown(mri);
+      if (needle && !username.toLowerCase().includes(needle) && !(name ?? '').toLowerCase().includes(needle)) continue;
+      const role = str(m, 'role');
+      members.push({ id: mri, username, name, status: null, avatarEtag: null, roles: role ? [role] : [] });
+    }
+  }
+  return { members, total: members.length };
 }
 
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {

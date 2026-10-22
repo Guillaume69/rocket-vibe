@@ -11,13 +11,13 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts'
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { Capabilities, Listener, Provider, ProviderError, RoomInformation } from '../../lib/provider.ts';
+import type { Capabilities, Listener, MemberPage, Provider, ProviderError, RoomInformation } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, mriOf, profileFields, rootOf, searchHits, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -32,7 +32,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   profile: true,
   roomInfo: true,
   roomSettings: false,
-  roomRoleList: false,
+  roomRoleList: true,
   leaveRoom: false,
   roomFavorites: false,
   roomReads: false,
@@ -131,6 +131,8 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
           readOnly: false,
         };
       },
+      listMembers: async (rid: string, filter: string): Promise<MemberPage> =>
+        rosterPage(await client.roster(rid).catch(() => ({}) as Doc), directory, filter),
       react: (rid, mid, emoji, put) => actionsFor(ingestLive).react(rid, mid, emoji, put),
       edit: (rid, mid, text) => actionsFor(ingestLive).edit(rid, mid, text),
       delete: (rid, mid) => actionsFor(ingestLive).delete(rid, mid),

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, conversationTopic, searchHits, reacted, reactionCode,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -161,4 +161,17 @@ test('search hits keep the room and map the Substrate source', () => {
   assert.equal(hits[0].id, '19:room@thread.tacv2/search:AAItem1');
   assert.ok(hits[0].ts > 0);
   assert.deepEqual(searchHits({}, '19:room@thread.tacv2', d), []);
+});
+
+test('a roster maps members, resolves names and filters by display name', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:aaaa', 'Ada Lovelace');
+  const body = { members: [{ id: '8:orgid:aaaa', role: 'Admin' }, { id: '8:orgid:bbbb', role: 'User' }] };
+  const page = rosterPage(body, d, '');
+  assert.equal(page.total, 2);
+  assert.equal(page.members[0].username, 'Ada Lovelace');
+  assert.deepEqual(page.members[0].roles, ['Admin']);
+  assert.equal(page.members[1].username, '8:orgid:bbbb');
+  assert.equal(rosterPage(body, d, 'ada').total, 1);
+  assert.deepEqual(rosterPage({}, d, '').members, []);
 });

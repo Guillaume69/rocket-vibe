@@ -126,6 +126,13 @@ export class TeamsClient {
     return (await this.chat('GET', url)).body;
   }
 
+  /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */
+  async roster(rid: string): Promise<Doc> {
+    const { routes } = await this.tokens.chat();
+    const url = serviceUrl(`${routes.chat}/v1`, ['threads', rid], 'view=msnp24Equivalent&threadProperties=1');
+    return (await this.chat('GET', url)).body;
+  }
+
   /** Message search through the Substrate query API, with its own bearer. */
   async search(text: string): Promise<Doc> {
     const bearer = await this.tokens.substrate();

@@ -17,7 +17,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, deleted, mriOf, profileFields, roomDetailsOf, rootOf, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, deleted, mriOf, profileFields, conversationTopic, rootOf, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -120,15 +120,14 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
             : chatRoom(session.userId, cached.entry, directory)
           : null;
         const doc = await client.roomDocument(rid).catch(() => ({}) as Doc);
-        const { topic, description, members } = roomDetailsOf(doc);
         return {
           id: rid,
           name: room?.displayName ?? room?.name ?? '',
           type: room?.type ?? 'c',
-          description,
-          topic,
+          description: null,
+          topic: conversationTopic(doc),
           announcement: null,
-          members,
+          members: null,
           readOnly: false,
         };
       },

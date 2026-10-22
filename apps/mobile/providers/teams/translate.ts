@@ -339,29 +339,13 @@ export function profileFields(mri: string, row: unknown, directory: TeamsDirecto
   };
 }
 
-/** Topic, description and member count from a chat-service conversation. Skype
- *  thread properties carry their numbers as strings; the members array is a
- *  fallback when no count is stated. Absent fields stay null, so a differing
- *  response just omits the enrichment. */
-export function roomDetailsOf(doc: unknown): { topic: string | null; description: string | null; members: number | null } {
+/** The `threadProperties.topic` of a chat-service conversation, when set. The
+ *  live shape (probed 2026-10-22) carries a real topic but no description or
+ *  member count there, so those are left for the members list. */
+export function conversationTopic(doc: unknown): string | null {
   const props = (doc as { threadProperties?: unknown } | null | undefined)?.threadProperties;
-  const text = (key: string): string | null => {
-    const value = str(props, key);
-    return value && value.trim() !== '' ? value : null;
-  };
-  const stated = numberLike((props as { membercount?: unknown } | null | undefined)?.membercount);
-  const list = (doc as { members?: unknown } | null | undefined)?.members;
-  const members = stated ?? (Array.isArray(list) ? list.length : null);
-  return { topic: text('topic'), description: text('description'), members };
-}
-
-function numberLike(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const n = Number(value.trim());
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
+  const value = str(props, 'topic');
+  return value && value.trim() !== '' ? value : null;
 }
 
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {

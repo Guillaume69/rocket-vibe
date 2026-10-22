@@ -8,7 +8,7 @@ release, and its notes are that version's section here.
 ## [Unreleased]
 
 ### Added
-- Microsoft Teams: tapping a message author or a direct conversation opens their profile card with their name, job title and whether the account is a bot (from the middle tier's short profile).
+- Microsoft Teams (experimental): a room information panel, and a profile card on tapping an author or a direct conversation. These reads are not yet verified against the live Teams service (a 2026-10-22 probe showed the profile and presence calls being refused), so for now the card shows the name already known and the panel the room's name and kind; the topic, member count, job title and presence fill in once the service's auth and id format are confirmed.
 
 ## [0.21.0] - 2026-10-22
 

@@ -75,7 +75,7 @@ for the Android app too and are fixed there as well.
 - [x] Videos in a format the system cannot decode (H.264 on a Linux without its codec) now say so, and the README names the decoder packages
 - [ ] Mattermost room catch-up past 1000 changes in one room misses the rest (`since=` is capped), as on mobile (`apps/mobile/WORKSTREAMS.md`)
 - [ ] A Mattermost send whose answer was lost is replayed without checking delivery first
-- [ ] A post arriving before its channel is known counts twice in the unread badge (`MmSync::posted` adds one to a total `load_channel` already includes)
+- [x] A post arriving before its channel is known counts twice in the unread badge (`MmSync::posted` adds one to a total `load_channel` already includes): the post that made the channel be read adds nothing, nor its mention, on mobile too (2026-10-22)
 - [ ] Another Mattermost user's new photo shows only after a restart (`user_updated` is not handled, no `last_picture_update` in the directory)
 - [ ] Live Mattermost thread reply counts, muted channels and room search: same debts as mobile
 - [x] Activity view (2026-10-13 review; fixed the same day: `Item.author_label`, `local_search::message_entry`, `new_channel::group` with a `Create` the caller gives): entries name people by username, not through `Session::person_label` as the local search does (real names, `UI_Use_Real_Name`); `activity_view.rs`'s entry repeats `local_search.rs`'s hit builder, and `new_channel.rs` repeats the Vibez create-room dialog of `chat_native.rs` (one dialog taking a create function would serve both, with `native_conversation`'s navigation check)

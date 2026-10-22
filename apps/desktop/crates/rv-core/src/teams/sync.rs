@@ -418,6 +418,38 @@ impl TeamsSync {
         Ok(search_hits(&answer.body, rid, &self.directory))
     }
 
+    /// Download a Teams shared file: its SharePoint/OneDrive url resolved
+    /// through Graph `GET /shares/u!{base64url}/driveItem/content`, which
+    /// answers 302 to a pre-signed url we follow WITHOUT the bearer. Streams to
+    /// `dest`, reporting bytes. The chat token cannot reach this; the Graph
+    /// token can (verified live 2026-10-22).
+    pub async fn download_file(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        progress: impl Fn(u64) + Send,
+    ) -> Result<(), RestError> {
+        use base64::Engine;
+        let token = self.tokens.graph().await?;
+        let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url.as_bytes());
+        let share = format!("https://graph.microsoft.com/v1.0/shares/u!{enc}/driveItem/content");
+        let net = |e: reqwest::Error| RestError::network(format!("teams file: {e}"));
+        let first = self.http.get(&share).bearer_auth(token.as_str()).send().await.map_err(net)?;
+        let status = first.status().as_u16();
+        let response = if (300..400).contains(&status) {
+            let location = first
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| RestError::network("teams file: redirect without a location".to_owned()))?
+                .to_owned();
+            self.http.get(&location).send().await.map_err(net)?
+        } else {
+            first
+        };
+        stream_response(response, dest, progress).await
+    }
+
     /// The room's roster, from the threads service (`GET /v1/threads/<rid>`);
     /// each member is `{id: <mri>, role}`. Read-only: Teams gives no add, remove
     /// or role-change route here, so no rights travel with it.
@@ -622,6 +654,33 @@ fn profile_fields(mri: &str, row: Option<&Value>, directory: &Directory) -> crat
 }
 
 /// The `threadProperties.topic` of a chat-service conversation, when set.
+/// Stream an HTTP response body to `dest`, reporting bytes received. Mirrors
+/// `rest::download_protected`'s chunk loop for the Graph file path.
+async fn stream_response(
+    mut response: reqwest::Response,
+    dest: &std::path::Path,
+    progress: impl Fn(u64) + Send,
+) -> Result<(), RestError> {
+    use tokio::io::AsyncWriteExt as _;
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(RestError {
+            status,
+            message: format!("teams file: HTTP {status}"),
+            ..RestError::network(String::new())
+        });
+    }
+    let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+    let mut file = tokio::fs::File::create(dest).await.map_err(written)?;
+    let mut received = 0u64;
+    while let Some(chunk) = response.chunk().await.map_err(|e| RestError::network(format!("teams file: {e}")))? {
+        file.write_all(&chunk).await.map_err(written)?;
+        received += chunk.len() as u64;
+        progress(received);
+    }
+    file.flush().await.map_err(written)
+}
+
 fn conversation_topic(body: &Value) -> Option<String> {
     body.get("threadProperties").and_then(|p| str_of(p, "topic")).filter(|t| !t.is_empty()).map(str::to_owned)
 }

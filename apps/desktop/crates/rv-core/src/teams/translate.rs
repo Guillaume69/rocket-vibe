@@ -334,10 +334,59 @@ fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<St
 }
 
 /// One chat service message, or None for a kind the app does not show.
+/// A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
+/// Teams shared files live there; AMS media (call recordings) does not and is
+/// left out, so it is never offered as a download that would fail.
+pub(crate) fn is_graph_share(url: &str) -> bool {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|h| h.ends_with(".sharepoint.com") || h.ends_with(".sharepoint-df.com") || h == "1drv.ms")
+}
+
+/// File attachments from the chat-service `properties.files` (a JSON string):
+/// each `{title, fileInfo.fileUrl}`. Only files on a SharePoint/OneDrive host
+/// are kept (downloaded through Graph `/shares`), as the renderer's RC shape
+/// `{title, title_link, type: "file", size}`. None when the message has no
+/// such file.
+pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
+    let files = raw.get("properties")?.get("files")?;
+    let parsed = match files {
+        Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
+        other => other.clone(),
+    };
+    let mut out = Vec::new();
+    for f in parsed.as_array()? {
+        let Some(url) =
+            f.pointer("/fileInfo/fileUrl").and_then(Value::as_str).or_else(|| f.get("fileUrl").and_then(Value::as_str))
+        else {
+            continue;
+        };
+        if !is_graph_share(url) {
+            continue;
+        }
+        let name = f
+            .get("title")
+            .or_else(|| f.get("filename"))
+            .or_else(|| f.get("fileName"))
+            .and_then(Value::as_str)
+            .unwrap_or("file");
+        let mut a = json!({ "title": name, "title_link": url, "type": "file" });
+        if let Some(size) = f.pointer("/fileInfo/fileSize").and_then(Value::as_i64).or_else(|| int_of(f, "size")) {
+            a["size"] = json!(size);
+        }
+        out.push(a);
+    }
+    (!out.is_empty()).then(|| Value::Array(out).to_string())
+}
+
 pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option<Message> {
     let id = str_of(raw, "id").map(str::to_owned).or_else(|| int_of(raw, "id").map(|n| n.to_string()))?;
     let kind = str_of(raw, "messagetype").unwrap_or_default();
-    let shown = matches!(kind, "Text" | "RichText/Html" | "RichText") || kind.starts_with("ThreadActivity/");
+    let attachments = file_attachments(raw);
+    let shown = matches!(kind, "Text" | "RichText/Html" | "RichText")
+        || kind.starts_with("ThreadActivity/")
+        || attachments.is_some();
     if !shown || deleted(raw) {
         return None;
     }
@@ -365,7 +414,7 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         system_type: system.map(|(t, _)| t.to_owned()),
         thread_id,
         edited_at,
-        attachments: None,
+        attachments,
         reactions: reactions(raw, directory),
         updated_at: edited_at.unwrap_or(at).max(int_of(raw, "version").unwrap_or(0)),
         ..Default::default()
@@ -508,6 +557,52 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graph_shares_are_sharepoint_or_onedrive_hosts() {
+        assert!(is_graph_share("https://contoso.sharepoint.com/sites/x/Shared%20Documents/a.pdf"));
+        assert!(is_graph_share("https://contoso-my.sharepoint.com/personal/u/Documents/a.pdf"));
+        assert!(is_graph_share("https://1drv.ms/x/s!abc"));
+        // AMS call-recording media is not a driveItem: left out.
+        assert!(!is_graph_share("https://as-api.asyncgw.teams.microsoft.com/v1/objects/0-weu-x/views/original"));
+        assert!(!is_graph_share("not a url"));
+    }
+
+    #[test]
+    fn file_attachments_keep_sharepoint_files_in_the_rc_shape() {
+        let raw = json!({
+            "messagetype": "RichText/Media_GenericFile",
+            "properties": { "files": serde_json::to_string(&json!([
+                { "title": "report.pdf", "fileInfo": { "fileUrl": "https://contoso.sharepoint.com/sites/x/report.pdf", "fileSize": 1234 } },
+                { "title": "clip.mp4", "fileInfo": { "fileUrl": "https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original" } }
+            ])).unwrap() }
+        });
+        let json = file_attachments(&raw).expect("one sharepoint file");
+        let parsed: Value = serde_json::from_str(&json).unwrap();
+        let files = parsed.as_array().unwrap();
+        assert_eq!(files.len(), 1, "the AMS media url is left out");
+        assert_eq!(files[0]["title"], json!("report.pdf"));
+        assert_eq!(files[0]["title_link"], json!("https://contoso.sharepoint.com/sites/x/report.pdf"));
+        assert_eq!(files[0]["type"], json!("file"));
+        assert_eq!(files[0]["size"], json!(1234));
+    }
+
+    #[test]
+    fn a_file_only_message_is_shown_through_its_attachment() {
+        let directory = Directory::default();
+        let raw = json!({
+            "id": "1792540504421",
+            "messagetype": "RichText/Media_GenericFile",
+            "from": "8:orgid:aaa",
+            "originalarrivaltime": "2026-10-20T23:55:04.4210000Z",
+            "content": "",
+            "properties": { "files": serde_json::to_string(&json!([
+                { "title": "report.pdf", "fileInfo": { "fileUrl": "https://contoso.sharepoint.com/sites/x/report.pdf" } }
+            ])).unwrap() }
+        });
+        let m = message("19:abc@thread.v2", &raw, &directory).expect("file message is shown");
+        assert!(m.attachments.is_some());
+    }
 
     #[test]
     fn teams_times_carry_seven_fractional_digits() {

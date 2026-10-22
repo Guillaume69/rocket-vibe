@@ -307,14 +307,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1815](../../apps/desktop/crates/rv-core/src/session.rs#L1815) | call:POST | "commands.run" |
 | [apps/desktop/crates/rv-core/src/session.rs:2035](../../apps/desktop/crates/rv-core/src/session.rs#L2035) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/session.rs:2035](../../apps/desktop/crates/rv-core/src/session.rs#L2035) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2282](../../apps/desktop/crates/rv-core/src/session.rs#L2282) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/session.rs:2282](../../apps/desktop/crates/rv-core/src/session.rs#L2282) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/session.rs:2371](../../apps/desktop/crates/rv-core/src/session.rs#L2371) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:2371](../../apps/desktop/crates/rv-core/src/session.rs#L2371) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2382](../../apps/desktop/crates/rv-core/src/session.rs#L2382) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:2382](../../apps/desktop/crates/rv-core/src/session.rs#L2382) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2717](../../apps/desktop/crates/rv-core/src/session.rs#L2717) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2717](../../apps/desktop/crates/rv-core/src/session.rs#L2717) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:2289](../../apps/desktop/crates/rv-core/src/session.rs#L2289) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/session.rs:2289](../../apps/desktop/crates/rv-core/src/session.rs#L2289) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/session.rs:2378](../../apps/desktop/crates/rv-core/src/session.rs#L2378) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:2378](../../apps/desktop/crates/rv-core/src/session.rs#L2378) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2389](../../apps/desktop/crates/rv-core/src/session.rs#L2389) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:2389](../../apps/desktop/crates/rv-core/src/session.rs#L2389) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:2724](../../apps/desktop/crates/rv-core/src/session.rs#L2724) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2724](../../apps/desktop/crates/rv-core/src/session.rs#L2724) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:14](../../apps/desktop/crates/rv-core/src/slack/api.rs#L14) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/api.rs:18](../../apps/desktop/crates/rv-core/src/slack/api.rs#L18) | endpoint | users.info |

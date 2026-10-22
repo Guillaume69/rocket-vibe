@@ -295,6 +295,43 @@ export function reacted(raw: unknown, key: string, me: string): boolean {
   return emotions(raw).some((e) => str(e, 'key') === key && Array.isArray(e.users) && e.users.some((u) => str(u, 'mri') === me));
 }
 
+/** A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
+ *  Teams shared files live there; AMS media (call recordings) does not, so it
+ *  is never offered as a download that would fail. */
+export function isGraphShare(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host.endsWith('.sharepoint.com') || host.endsWith('.sharepoint-df.com') || host === '1drv.ms';
+  } catch {
+    return false;
+  }
+}
+
+/** File attachments from the chat service `properties.files` (a JSON string):
+ *  each `{title, fileInfo.fileUrl}`. Only SharePoint/OneDrive files are kept
+ *  (downloaded through Graph `/shares`), as the renderer's RC shape. */
+export function fileAttachments(raw: unknown): string | null {
+  const props = (raw as Doc).properties as Doc | undefined;
+  const files = props?.files;
+  let parsed: unknown = files;
+  if (typeof files === 'string') {
+    try { parsed = JSON.parse(files); } catch { return null; }
+  }
+  if (!Array.isArray(parsed)) return null;
+  const out: Doc[] = [];
+  for (const f of parsed as Doc[]) {
+    const info = f?.fileInfo as Doc | undefined;
+    const url = str(info, 'fileUrl') ?? str(f, 'fileUrl');
+    if (!url || !isGraphShare(url)) continue;
+    const name = str(f, 'title') ?? str(f, 'filename') ?? str(f, 'fileName') ?? 'file';
+    const a: Doc = { title: name, title_link: url, type: 'file' };
+    const size = int(info, 'fileSize') ?? int(f, 'size');
+    if (size !== null) a.size = size;
+    out.push(a);
+  }
+  return out.length ? JSON.stringify(out) : null;
+}
+
 /** One chat service message, or null for a kind the app does not show. */
 export function toMessage(conversation: string, raw: unknown, directory: TeamsDirectory): LocalMessage | null {
   const id = str(raw, 'id') ?? (int(raw, 'id') !== null ? String(int(raw, 'id')) : null);

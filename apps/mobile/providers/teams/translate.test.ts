@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -174,4 +174,29 @@ test('a roster maps members, resolves names and filters by display name', () => 
   assert.equal(page.members[1].username, '8:orgid:bbbb');
   assert.equal(rosterPage(body, d, 'ada').total, 1);
   assert.deepEqual(rosterPage({}, d, '').members, []);
+});
+
+test('isGraphShare recognises SharePoint and OneDrive hosts only', () => {
+  assert.ok(isGraphShare('https://contoso.sharepoint.com/sites/x/a.pdf'));
+  assert.ok(isGraphShare('https://contoso-my.sharepoint.com/personal/u/a.pdf'));
+  assert.ok(isGraphShare('https://1drv.ms/x/s!abc'));
+  assert.ok(!isGraphShare('https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original'));
+  assert.ok(!isGraphShare('nonsense'));
+});
+
+test('fileAttachments keeps SharePoint files in the RC shape, drops AMS media', () => {
+  const raw = {
+    messagetype: 'RichText/Media_GenericFile',
+    properties: { files: JSON.stringify([
+      { title: 'report.pdf', fileInfo: { fileUrl: 'https://contoso.sharepoint.com/sites/x/report.pdf', fileSize: 1234 } },
+      { title: 'clip.mp4', fileInfo: { fileUrl: 'https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original' } },
+    ]) },
+  };
+  const files = JSON.parse(fileAttachments(raw) ?? '[]') as Record<string, unknown>[];
+  assert.equal(files.length, 1);
+  assert.equal(files[0].title, 'report.pdf');
+  assert.equal(files[0].title_link, 'https://contoso.sharepoint.com/sites/x/report.pdf');
+  assert.equal(files[0].type, 'file');
+  assert.equal(files[0].size, 1234);
+  assert.equal(fileAttachments({ properties: {} }), null);
 });

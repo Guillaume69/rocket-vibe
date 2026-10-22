@@ -14,6 +14,7 @@ const SPACES = 'https://api.spaces.skype.com';
 const PRESENCE = 'https://presence.teams.microsoft.com';
 const SUBSTRATE = 'https://substrate.office.com';
 const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
+const GRAPH = 'https://graph.microsoft.com';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
 export const TEAMS_ORIGIN = 'https://teams.microsoft.com';
@@ -187,6 +188,7 @@ export class TeamsTokens {
   private spacesLease: Lease | null = null;
   private presenceLease: Lease | null = null;
   private substrateLease: Lease | null = null;
+  private graphLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
 
@@ -266,6 +268,16 @@ export class TeamsTokens {
     if (held) return held;
     this.substrateLease = await this.access(SUBSTRATE);
     return this.substrateLease.value;
+  }
+
+  /** The Microsoft Graph bearer, for file download (SharePoint/OneDrive drive
+   *  items). Minted from the same refresh token through the Teams first-party
+   *  client's pre-consent; carries Files.ReadWrite.All but not Chat.*. */
+  async graph(): Promise<string> {
+    const held = fresh(this.graphLease);
+    if (held) return held;
+    this.graphLease = await this.access(GRAPH);
+    return this.graphLease.value;
   }
 
   /** The Skype token and the tenant's routes, from authz. */

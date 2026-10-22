@@ -2181,8 +2181,15 @@ impl Session {
     ) -> Result<(), RestError> {
         let partial = dest.with_extension("part");
         let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+        let teams_share =
+            matches!(self.backend(), Backend::Teams(_)) && crate::teams::translate::is_graph_share(path_or_url);
         let result = async {
-            self.rest.download_protected(path_or_url, &partial, progress).await?;
+            if teams_share {
+                let Backend::Teams(teams) = self.backend() else { unreachable!() };
+                teams.download_file(path_or_url, &partial, progress).await?;
+            } else {
+                self.rest.download_protected(path_or_url, &partial, progress).await?;
+            }
             if self.media.encrypted(path_or_url) {
                 let bytes = self.media.open(path_or_url, std::fs::read(&partial).map_err(written)?)?;
                 std::fs::write(&partial, bytes).map_err(written)?;

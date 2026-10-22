@@ -279,6 +279,42 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
     }
 }
 
+/// A conversation sub-resource url under the chat service, ids kept opaque.
+fn conversation_sub_url(chat: &str, id: &str, tail: &[&str], query: &str) -> Option<url::Url> {
+    let mut u = url::Url::parse(&format!("{chat}/v1/users/ME/conversations")).ok()?;
+    {
+        let mut seg = u.path_segments_mut().ok()?;
+        seg.push(id);
+        for t in tail {
+            seg.push(t);
+        }
+    }
+    if !query.is_empty() {
+        u.set_query(Some(query));
+    }
+    Some(u)
+}
+
+/// A response described by STRUCTURE only: status, the auth-challenge header
+/// and the top-level key names (or array length). Never any value.
+async fn describe_keys(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let www = resp.headers().get("www-authenticate").and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            json!({
+                "status": status,
+                "www_authenticate": www,
+                "top_level_keys": keys,
+                "array_len": body.as_array().map(|a| a.len()),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 /// A file download described by TRANSPORT only: status, content-type,
 /// content-length and the auth-challenge header, plus whether any body bytes
 /// came back. Never the url or the bytes themselves.
@@ -919,6 +955,23 @@ impl Tokens {
                 None => {
                     out.insert("file_shape".into(), json!({ "note": "no file message found" }));
                 }
+            }
+            // Pins/saves: does the chat service expose a pinned-messages read on
+            // a conversation? Probe the two likely shapes on the first id, status
+            // and top-level key names only (never message content).
+            if let Some(id) = ids.first() {
+                let probe = |tail: &[&str], query: &str| conversation_sub_url(&routes.chat, id, tail, query);
+                let mut pins = serde_json::Map::new();
+                for (label, url) in [
+                    ("pinnedmessages", probe(&["pinnedmessages"], "")),
+                    ("properties_pinned", probe(&["properties"], "name=pinnedmessages")),
+                ] {
+                    let Some(url) = url else { continue };
+                    let answer =
+                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
+                    pins.insert(label.into(), describe_keys(answer).await);
+                }
+                out.insert("pins".into(), Value::Object(pins));
             }
         }
         Value::Object(out)

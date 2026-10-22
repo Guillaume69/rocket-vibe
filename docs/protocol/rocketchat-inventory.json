@@ -2819,6 +2819,12 @@
       "surface": "/api/authsvc/v1.0/authz"
     },
     {
+      "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
+      "line": 579,
+      "kind": "url",
+      "surface": "/api/v2/query"
+    },
+    {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
       "line": 94,
       "kind": "resource",

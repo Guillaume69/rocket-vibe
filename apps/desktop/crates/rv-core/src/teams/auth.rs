@@ -18,6 +18,9 @@ pub const LOGIN: &str = "https://login.microsoftonline.com";
 pub const SPACES: &str = "https://api.spaces.skype.com";
 pub const AGGREGATOR: &str = "https://chatsvcagg.teams.microsoft.com";
 pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
+/// Probe-only: the presence 401 named `login.microsoftonline.com`, so the
+/// Unified Presence Service wants an AAD bearer; the host is the likely scope.
+const PRESENCE_SCOPE: &str = "https://presence.teams.microsoft.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
@@ -274,6 +277,36 @@ async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> 
     }
 }
 
+/// A conversation's members sub-resource described WITHOUT identities: status,
+/// headers, the member count and the member-row key names and top-level keys.
+async fn describe_members(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let www_authenticate = header("www-authenticate");
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let members = body.as_array().or_else(|| body.get("members").and_then(Value::as_array));
+            let member_keys: Vec<String> = members
+                .and_then(|a| a.first())
+                .and_then(Value::as_object)
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            let top_level_keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            json!({
+                "status": status,
+                "www_authenticate": www_authenticate,
+                "member_count": members.map(|a| a.len()),
+                "member_keys": member_keys,
+                "top_level_keys": top_level_keys,
+                "error_code": body.get("errorCode"),
+                "message": body.get("message"),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
 fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
     let url = url::Url::parse(raw).ok()?;
     let host = url.host_str()?.to_owned();
@@ -318,6 +351,7 @@ impl Lease {
 #[derive(Default)]
 struct Held {
     aggregator: Option<Lease>,
+    presence: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -342,7 +376,12 @@ impl Tokens {
             value: Zeroizing::new(value.to_owned()),
             until: Instant::now() + Duration::from_secs(1 << 30),
         };
-        let held = Held { aggregator: Some(lease(aggregator)), skype: Some(lease(skype)), routes: Some(routes) };
+        let held = Held {
+            aggregator: Some(lease(aggregator)),
+            presence: None,
+            skype: Some(lease(skype)),
+            routes: Some(routes),
+        };
         *tokens.held.try_lock().expect("a fresh account") = held;
         Ok(tokens)
     }
@@ -404,6 +443,19 @@ impl Tokens {
     /// The Spaces bearer, for the middle tier's profiles.
     pub async fn spaces(&self) -> Result<Zeroizing<String>, RestError> {
         Ok(self.access(SPACES).await?.value)
+    }
+
+    /// The presence bearer: the Unified Presence Service refuses the skypetoken
+    /// and wants an AAD token for its own scope (probed live 2026-10-22).
+    pub async fn presence(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.presence.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(PRESENCE_SCOPE).await?;
+        let token = lease.value.clone();
+        held.presence = Some(lease);
+        Ok(token)
     }
 
     /// The Skype token and the tenant's routes, from authz.
@@ -474,6 +526,18 @@ impl Tokens {
                 .send()
                 .await;
             out.insert("presence".into(), describe(r).await);
+            // Variant: the 401 wants an AAD bearer, not the skypetoken. Try a
+            // token for the presence scope from the refresh token.
+            match self.access(PRESENCE_SCOPE).await {
+                Ok(lease) => {
+                    let r =
+                        http().post(&url).bearer_auth(lease.value.as_str()).json(&json!([{ "mri": me }])).send().await;
+                    out.insert("presence_bearer".into(), describe(r).await);
+                }
+                Err(e) => {
+                    out.insert("presence_bearer".into(), json!({ "token_error": format!("{e:?}") }));
+                }
+            }
         }
         if !routes.middle_tier.is_empty() && !bearer.is_empty() {
             let url = format!(
@@ -483,6 +547,20 @@ impl Tokens {
             out.insert("profile_url".into(), json!(url));
             let r = http().post(&url).bearer_auth(&bearer).json(&json!([me])).send().await;
             out.insert("profile".into(), describe(r).await);
+            // Variant: the 204 accepted the call but matched no one. `me` is an
+            // `8:orgid:<oid>` MRI; try the raw oid in case the middle tier keys
+            // on the bare object id instead.
+            let oid = me.strip_prefix("8:orgid:").unwrap_or(me);
+            if oid != me {
+                let r = http().post(&url).bearer_auth(&bearer).json(&json!([oid])).send().await;
+                out.insert("profile_oid".into(), describe(r).await);
+            }
+            // Variant: the aggregator bearer above matched no one; the real code
+            // uses the Spaces bearer (the Teams web client's /api/mt token).
+            if let Ok(spaces) = self.spaces().await {
+                let r = http().post(&url).bearer_auth(spaces.as_str()).json(&json!([me])).send().await;
+                out.insert("profile_spaces".into(), describe(r).await);
+            }
         }
         if !routes.search.is_empty() {
             let url = format!("{}/v2/search", routes.search);
@@ -494,6 +572,20 @@ impl Tokens {
                 .send()
                 .await;
             out.insert("search".into(), describe(r).await);
+        }
+        // Variant: the asyncgw /msgsearch path 404s. Try the Substrate search
+        // API with its own host and audience.
+        if let Ok(lease) = self.access("https://substrate.office.com").await {
+            let url = "https://substrate.office.com/search/api/v2/query";
+            let body = json!({
+                "EntityRequests": [{
+                    "EntityType": "Message",
+                    "Query": { "QueryString": "rvprobe-zzqx-unlikely" },
+                    "Size": 5,
+                }],
+            });
+            let r = http().post(url).bearer_auth(lease.value.as_str()).json(&body).send().await;
+            out.insert("search_substrate".into(), describe(r).await);
         }
         // Room-info shape: list the user's conversations (chat skypetoken, as
         // history does), take the first id and GET that conversation. Only its
@@ -515,16 +607,38 @@ impl Tokens {
                     }),
                     _ => None,
                 };
-            match first.and_then(|id| {
+            let conv_url = |id: &str, tail: Option<&str>| -> Option<url::Url> {
                 let mut url = url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok()?;
-                url.path_segments_mut().ok()?.push(&id);
+                {
+                    let mut seg = url.path_segments_mut().ok()?;
+                    seg.push(id);
+                    if let Some(tail) = tail {
+                        seg.push(tail);
+                    }
+                }
                 url.set_query(Some("view=msnp24Equivalent"));
                 Some(url)
-            }) {
-                Some(url) => {
-                    let r =
-                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
-                    out.insert("conversation".into(), describe_conversation(r).await);
+            };
+            match &first {
+                Some(id) => {
+                    if let Some(url) = conv_url(id, None) {
+                        let r = http()
+                            .get(url)
+                            .header("authentication", format!("skypetoken={}", skype.as_str()))
+                            .send()
+                            .await;
+                        out.insert("conversation".into(), describe_conversation(r).await);
+                    }
+                    // Where the member count likely comes from (threadProperties
+                    // has none): the conversation's members sub-resource.
+                    if let Some(url) = conv_url(id, Some("members")) {
+                        let r = http()
+                            .get(url)
+                            .header("authentication", format!("skypetoken={}", skype.as_str()))
+                            .send()
+                            .await;
+                        out.insert("conversation_members".into(), describe_members(r).await);
+                    }
                 }
                 None => {
                     out.insert("conversation".into(), json!({ "note": "no conversation id listed" }));

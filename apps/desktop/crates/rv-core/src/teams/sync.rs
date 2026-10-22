@@ -297,14 +297,16 @@ impl TeamsSync {
         let Ok(url) = url::Url::parse(&format!("{}/v1/presence/getpresence/", routes.presence)) else {
             return Vec::new();
         };
+        let Ok(token) = self.tokens.presence().await else { return Vec::new() };
+        let header = format!("Bearer {}", token.as_str());
         let body = Value::Array(mris.iter().map(|m| serde_json::json!({ "mri": m })).collect());
-        match self.chat(Method::POST, url, Some(&body)).await {
+        match client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await {
             Ok(answer) => presence_rows(&answer.body),
             Err(_) => Vec::new(),
         }
     }
 
-    /// Sets my availability (UPS forceavailability).
+    /// Sets my availability (UPS forceavailability), with the presence bearer.
     pub async fn set_presence(&self, availability: &str) -> Result<(), RestError> {
         let (_, routes) = self.tokens.chat().await?;
         if routes.presence.is_empty() {
@@ -312,7 +314,10 @@ impl TeamsSync {
         }
         let url = url::Url::parse(&format!("{}/v1/me/forceavailability/", routes.presence))
             .map_err(|_| crate::teams::auth::refusal("presence_url", 0))?;
-        self.chat(Method::PUT, url, Some(&serde_json::json!({ "availability": availability }))).await?;
+        let token = self.tokens.presence().await?;
+        let header = format!("Bearer {}", token.as_str());
+        let body = serde_json::json!({ "availability": availability });
+        client::call(&self.http, Method::PUT, url, ("authorization", &header), Some(&body)).await?;
         Ok(())
     }
 
@@ -356,24 +361,22 @@ impl TeamsSync {
         Ok(profile_fields(&mri, row, &self.directory))
     }
 
-    /// Room information: name and kind from the store, enriched best effort with
-    /// the chat service's topic, description and member count. A refused or empty
-    /// conversation call still returns the name and kind.
+    /// Room information: name and kind from the store, enriched with the chat
+    /// service's topic. The live conversation shape (probed 2026-10-22) carries a
+    /// real `threadProperties.topic` but no description or member count; those are
+    /// left for the members list. A refused call still returns the name and kind.
     pub async fn room_info(&self, rid: &str) -> Result<crate::info::RoomInfo, RestError> {
         let (name, kind) =
             self.store.room_name(rid).ok_or_else(|| crate::rest::RestError::incomplete("room info: unknown room"))?;
-        let (topic, description, members) = match self.conversation(rid).await {
-            Some(body) => conversation_info(&body),
-            None => (None, None, None),
-        };
+        let topic = self.conversation(rid).await.as_ref().and_then(conversation_topic);
         Ok(crate::info::RoomInfo {
             id: rid.to_owned(),
             name,
             kind,
             topic,
             announcement: None,
-            description,
-            members,
+            description: None,
+            members: None,
             read_only: false,
             encrypted: false,
             archived: false,
@@ -581,22 +584,9 @@ fn profile_fields(mri: &str, row: Option<&Value>, directory: &Directory) -> crat
     }
 }
 
-/// Topic, description and member count from a chat-service conversation. Skype
-/// thread properties carry their numbers as strings, so a count is read either
-/// way; the members array is a fallback when no count is stated.
-fn conversation_info(body: &Value) -> (Option<String>, Option<String>, Option<i64>) {
-    let props = body.get("threadProperties");
-    let text = |key: &str| props.and_then(|p| str_of(p, key)).filter(|t| !t.is_empty()).map(str::to_owned);
-    let count = props
-        .and_then(|p| p.get("membercount"))
-        .and_then(number_like)
-        .or_else(|| body.get("members").and_then(Value::as_array).map(|a| a.len() as i64));
-    (text("topic"), text("description"), count)
-}
-
-/// A JSON number or a numeric string as an integer.
-fn number_like(value: &Value) -> Option<i64> {
-    value.as_i64().or_else(|| value.as_str().and_then(|s| s.trim().parse().ok()))
+/// The `threadProperties.topic` of a chat-service conversation, when set.
+fn conversation_topic(body: &Value) -> Option<String> {
+    body.get("threadProperties").and_then(|p| str_of(p, "topic")).filter(|t| !t.is_empty()).map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -643,14 +633,10 @@ mod tests {
     }
 
     #[test]
-    fn conversation_info_reads_topic_and_a_count_whether_string_or_number() {
-        let strung =
-            serde_json::json!({ "threadProperties": { "topic": "Launch", "description": "Go", "membercount": "7" } });
-        assert_eq!(conversation_info(&strung), (Some("Launch".into()), Some("Go".into()), Some(7)));
-        let numbered = serde_json::json!({ "threadProperties": { "membercount": 3 }, "members": [{}, {}] });
-        assert_eq!(conversation_info(&numbered), (None, None, Some(3)));
-        let from_array = serde_json::json!({ "members": [{}, {}, {}] });
-        assert_eq!(conversation_info(&from_array), (None, None, Some(3)));
-        assert_eq!(conversation_info(&serde_json::json!({})), (None, None, None));
+    fn conversation_topic_reads_thread_properties() {
+        let with_topic = serde_json::json!({ "threadProperties": { "topic": "Launch", "rosterVersion": "9" } });
+        assert_eq!(conversation_topic(&with_topic).as_deref(), Some("Launch"));
+        assert_eq!(conversation_topic(&serde_json::json!({ "threadProperties": { "topic": "" } })), None);
+        assert_eq!(conversation_topic(&serde_json::json!({})), None);
     }
 }

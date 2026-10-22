@@ -174,9 +174,45 @@ pub fn echoes(raw: &Value, client_id: &str) -> bool {
     translate::str_of(raw, "clientmessageid") == Some(client_id)
 }
 
+/// Teams availability onto the app's presence.
+pub fn availability_presence(availability: &str) -> crate::live::Presence {
+    use crate::live::Presence;
+    match availability {
+        "Available" | "AvailableIdle" => Presence::Online,
+        "Away" | "BeRightBack" => Presence::Away,
+        "Busy" | "BusyIdle" | "DoNotDisturb" | "InAMeeting" | "InACall" | "Presenting" | "Focusing" => Presence::Busy,
+        _ => Presence::Offline,
+    }
+}
+
+/// The Teams availability to set for one of the app's presences.
+pub fn presence_availability(p: crate::live::Presence) -> &'static str {
+    use crate::live::Presence;
+    match p {
+        Presence::Online => "Available",
+        Presence::Away => "Away",
+        Presence::Busy => "DoNotDisturb",
+        Presence::Offline => "Offline",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn availability_maps_onto_presence() {
+        use crate::live::Presence;
+        assert_eq!(availability_presence("Available"), Presence::Online);
+        assert_eq!(availability_presence("Away"), Presence::Away);
+        assert_eq!(availability_presence("BeRightBack"), Presence::Away);
+        assert_eq!(availability_presence("DoNotDisturb"), Presence::Busy);
+        assert_eq!(availability_presence("InAMeeting"), Presence::Busy);
+        assert_eq!(availability_presence("Offline"), Presence::Offline);
+        assert_eq!(availability_presence("PresenceUnknown"), Presence::Offline);
+        assert_eq!(presence_availability(Presence::Online), "Available");
+        assert_eq!(presence_availability(Presence::Busy), "DoNotDisturb");
+    }
 
     #[test]
     fn client_ids_are_stable_digits() {

@@ -937,7 +937,14 @@ impl Session {
                 let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
                 (list, true)
             }
-            Backend::Slack(_) | Backend::Teams(_) => {
+            Backend::Teams(teams) => {
+                let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                ids.push(self.info.user_id.clone());
+                ids.sort();
+                ids.dedup();
+                (teams.get_presence(&ids).await, true)
+            }
+            Backend::Slack(_) => {
                 let Transport::Slack(live) = &self.transport else { return };
                 let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
                 ids.push(self.info.user_id.clone());
@@ -1284,7 +1291,10 @@ impl Session {
         let confirmed = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::set_activity(&self.rest, &self.info.user_id, chosen).await?,
             Backend::Slack(_) => set_slack_presence(&self.rest, chosen).await?,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("presence")),
+            Backend::Teams(teams) => {
+                teams.set_presence(crate::teams::actions::presence_availability(chosen)).await?;
+                chosen
+            }
             Backend::RocketChat => {
                 let before = self.me().await?;
                 if self.closed.load(Ordering::Acquire) {

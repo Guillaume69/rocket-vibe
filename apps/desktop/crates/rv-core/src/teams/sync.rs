@@ -285,6 +285,37 @@ impl TeamsSync {
     /// A channel thread's root and its replies, from the thread-scoped
     /// conversation (`<rid>;messageid=<root>`), stored as they come. The
     /// replies carry their own thread link, so they land under the root.
+    /// Presence for a batch of people (UPS getpresence), best effort.
+    pub async fn get_presence(&self, mris: &[String]) -> Vec<(String, crate::live::Presence)> {
+        if mris.is_empty() {
+            return Vec::new();
+        }
+        let Ok((_, routes)) = self.tokens.chat().await else { return Vec::new() };
+        if routes.presence.is_empty() {
+            return Vec::new();
+        }
+        let Ok(url) = url::Url::parse(&format!("{}/v1/presence/getpresence/", routes.presence)) else {
+            return Vec::new();
+        };
+        let body = Value::Array(mris.iter().map(|m| serde_json::json!({ "mri": m })).collect());
+        match self.chat(Method::POST, url, Some(&body)).await {
+            Ok(answer) => presence_rows(&answer.body),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Sets my availability (UPS forceavailability).
+    pub async fn set_presence(&self, availability: &str) -> Result<(), RestError> {
+        let (_, routes) = self.tokens.chat().await?;
+        if routes.presence.is_empty() {
+            return Ok(());
+        }
+        let url = url::Url::parse(&format!("{}/v1/me/forceavailability/", routes.presence))
+            .map_err(|_| crate::teams::auth::refusal("presence_url", 0))?;
+        self.chat(Method::PUT, url, Some(&serde_json::json!({ "availability": availability }))).await?;
+        Ok(())
+    }
+
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
         let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
         if let Some(root) = self.fetch_message(root_id).await? {
@@ -425,4 +456,21 @@ impl TeamsSync {
     pub fn ingest_one(&self, rid: &str, raw: &Value) -> Option<Message> {
         self.ingest(rid, std::slice::from_ref(raw)).into_iter().next()
     }
+}
+
+/// (mri, presence) rows from a getpresence response (array or {responses:[]}).
+fn presence_rows(body: &Value) -> Vec<(String, crate::live::Presence)> {
+    let rows = body
+        .as_array()
+        .cloned()
+        .or_else(|| body.get("responses").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| {
+            let mri = r.get("mri").and_then(Value::as_str)?.to_owned();
+            let availability =
+                r.get("presence").and_then(|p| p.get("availability")).and_then(Value::as_str).unwrap_or("Offline");
+            Some((mri, crate::teams::actions::availability_presence(availability)))
+        })
+        .collect()
 }

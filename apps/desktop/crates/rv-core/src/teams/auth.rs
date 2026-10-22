@@ -211,6 +211,21 @@ pub struct Routes {
     pub trouter: String,
     pub registrar: String,
     pub ams: String,
+    pub middle_tier: String,
+    pub presence: String,
+    pub search: String,
+}
+
+/// Status and raw body of a probe response, or the transport error.
+async fn describe(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            json!({ "status": status, "body": body })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
 }
 
 fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
@@ -236,6 +251,9 @@ impl Routes {
             trouter: get("calling_trouterUrl", &[".trouter.teams.microsoft.com"]).unwrap_or_default(),
             registrar: get("calling_registrarUrl", &teams).unwrap_or_default(),
             ams: get("ams", &[".asyncgw.teams.microsoft.com", ".teams.microsoft.com"]).unwrap_or_default(),
+            middle_tier: get("middleTier", &teams).unwrap_or_default(),
+            presence: get("unifiedPresence", &teams).unwrap_or_default(),
+            search: get("search", &[".asyncgw.teams.microsoft.com", ".teams.microsoft.com"]).unwrap_or_default(),
         })
     }
 }
@@ -382,6 +400,51 @@ impl Tokens {
             .map_err(|e| RestError::network(e.to_string()))?;
         let body: Value = response.json().await.unwrap_or_default();
         Ok(body.get("regionGtms").cloned().unwrap_or(Value::Null))
+    }
+
+    /// Read-only shape probe for presence, profiles and search. Returns each
+    /// endpoint's URL, status and raw body (own data only; search uses an
+    /// unlikely term), so request/response shapes can be confirmed before use.
+    pub async fn probe_shapes(&self, me: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let bearer = self.aggregator().await.map(|b| b.as_str().to_owned()).unwrap_or_default();
+        let mut out = serde_json::Map::new();
+
+        if !routes.presence.is_empty() {
+            let url = format!("{}/v1/presence/getpresence/", routes.presence);
+            out.insert("presence_url".into(), json!(url));
+            let r = http()
+                .post(&url)
+                .header("authentication", format!("skypetoken={}", skype.as_str()))
+                .json(&json!([{ "mri": me }]))
+                .send()
+                .await;
+            out.insert("presence".into(), describe(r).await);
+        }
+        if !routes.middle_tier.is_empty() && !bearer.is_empty() {
+            let url = format!(
+                "{}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true",
+                routes.middle_tier
+            );
+            out.insert("profile_url".into(), json!(url));
+            let r = http().post(&url).bearer_auth(&bearer).json(&json!([me])).send().await;
+            out.insert("profile".into(), describe(r).await);
+        }
+        if !routes.search.is_empty() {
+            let url = format!("{}/v2/search", routes.search);
+            out.insert("search_url".into(), json!(url));
+            let r = http()
+                .post(&url)
+                .header("authentication", format!("skypetoken={}", skype.as_str()))
+                .json(&json!({ "query": "rvprobe-zzqx-unlikely", "resultType": "messages", "top": 5 }))
+                .send()
+                .await;
+            out.insert("search".into(), describe(r).await);
+        }
+        Value::Object(out)
     }
 
     /// Forgets the Skype token after the chat service refused it.

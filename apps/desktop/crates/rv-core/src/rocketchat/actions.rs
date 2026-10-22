@@ -95,6 +95,19 @@ pub async fn open_dm(rest: &RestClient, username: &str) -> Result<String, RestEr
         .ok_or_else(|| RestError::incomplete("im.create: no room"))
 }
 
+/// The group DM with these people and me, created if needed: its rid.
+/// `im.create` takes the usernames comma-separated and gives the same room
+/// back for the same set.
+pub async fn open_group_dm(rest: &RestClient, usernames: &[String]) -> Result<String, RestError> {
+    let response = rest.post("im.create", CallOptions::body(json!({"usernames": usernames.join(",")}))).await?;
+    response
+        .pointer("/room/_id")
+        .or_else(|| response.pointer("/room/rid"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| RestError::incomplete("im.create: no room"))
+}
+
 /// Creates a channel, or a private group when `private`, owned by me and with
 /// me as its only member (`channels.create` answers `{channel}`,
 /// `groups.create` `{group}`). The name goes as given: the server owns its

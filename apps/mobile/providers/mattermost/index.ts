@@ -108,6 +108,7 @@ export function createMattermostProvider(
       await live.ensureAuthors(posts);
       return posts.map((p) => translator.toMessage(p)).filter((m): m is LocalMessage => m !== null);
     },
+    searchPeople: (query) => actions.searchPeople(query),
     async loadPresence() {
       const ids = directory.knownIds().filter((id) => directory.user(id)?.bot !== true);
       if (ids.length === 0) return [];

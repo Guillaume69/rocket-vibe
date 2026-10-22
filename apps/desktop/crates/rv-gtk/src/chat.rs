@@ -2383,7 +2383,7 @@ impl ChatPage {
 
     fn new_conversation(self: &Rc<Self>) {
         let Some(chat) = self.chat() else { return };
-        let (w1, w2, w3) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
+        let (w1, w2, w3, w4) = (Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self), Rc::downgrade(self));
         // The servers that create channels do it from here too.
         let create: Option<Rc<dyn Fn()>> = self.creates_channels().then(|| {
             Rc::new(move || {
@@ -2402,7 +2402,38 @@ impl ChatPage {
                 }
             },
             create,
+            self.session().filter(|s| s.group_dms_supported()).map(|_| {
+                Rc::new(move |usernames: Vec<String>| {
+                    if let Some(this) = w4.upgrade() {
+                        this.go_to_group(usernames);
+                    }
+                }) as Rc<dyn Fn(Vec<String>)>
+            }),
         );
+    }
+
+    /// Opens the direct conversation with the people picked together: the
+    /// DM for one, the group DM for more.
+    fn go_to_group(self: &Rc<Self>, mut usernames: Vec<String>) {
+        if usernames.len() == 1 {
+            let username = usernames.remove(0);
+            self.go_to(rv_core::rooms::Found::User { id: String::new(), username, name: None });
+            return;
+        }
+        self.user_navigation();
+        let Some(session) = self.session() else { return };
+        let weak = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let rid = on_tokio(async move { session.open_group_dm(&usernames).await }).await;
+            let Some(this) = weak.upgrade() else { return };
+            match rid {
+                Ok(rid) => {
+                    this.reload_rooms();
+                    this.open_room(&rid);
+                }
+                Err(_) => this.toast(t("spotlight.open_failed").to_owned()),
+            }
+        });
     }
 
     /// Whether this account creates channels from the app: a Vibez

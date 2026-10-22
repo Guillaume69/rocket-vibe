@@ -490,6 +490,7 @@ refuses an oversize file with 413.
 | Pin / unpin | `POST /posts/<id>/pin` / `/unpin`; list `GET /channels/<id>/pinned` |
 | Favourite a room | `PUT /users/me/preferences [{user_id, category: "favorite_channel", name: channelId, value: "true" \| "false"}]` (4.8) |
 | Open a DM | `POST /channels/direct [myId, otherId]` (idempotent) |
+| Open a group DM [probed] | `POST /channels/group [myId, ...otherIds]` answers 201 and the `G` channel; the same set in any order gives the same channel back, and I am added when left out. 3 to 8 distinct members, me included: fewer, or a repeated id, answers 400 `api.channel.create_group.bad_size.app_error`, checked before the ids (9 with unknown ids is still `bad_size`); an unknown id answers 400 `api.channel.create_group.bad_user.app_error`; a bot can be a member. The apps then write `group_channel_show` for the channel to `true` (4.9). Probed on 11.11, 2026-10-22; not on kChat |
 | Join a channel | `POST /channels/<id>/members {user_id}` |
 | Card button or menu | `POST /posts/<post>/actions/<action> {cookie?, selected_option?}`: `cookie` the one an ephemeral post's action carries, `selected_option` a menu's chosen value (a user or channel id for `data_source` `users` / `channels`, as Mattermost's webapp sends); answers `{ephemeral_text?, goto_location?, update?}` |
 | Card menu choices | `users`: `POST /users/search {term, limit: 20}` (label `username`, value `id`); `channels`: `POST /teams/<team>/channels/search {term}`, the team the room's `team_id`, else my first (label `display_name`, value `id`) |

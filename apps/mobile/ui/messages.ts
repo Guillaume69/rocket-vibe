@@ -1412,6 +1412,10 @@ const fr = {
   'search.conversationFailed': 'Conversation impossible.',
   'search.joinFailed': 'Impossible de rejoindre.',
   'search.noResults': 'Aucun résultat.',
+  'search.addToGroup': 'Ajouter {name} au groupe',
+  'search.removeFromGroup': 'Retirer {name}',
+  'search.startGroup': 'Démarrer',
+  'search.groupFull': '{max} personnes au plus, vous en plus.',
 
   // ── Search in the room
   'messageSearch.title': 'Rechercher dans le salon',
@@ -3120,6 +3124,10 @@ const en: Record<TranslationKey, string> = {
   'search.conversationFailed': "Couldn't start the conversation.",
   'search.joinFailed': "Couldn't join.",
   'search.noResults': 'No results.',
+  'search.addToGroup': 'Add {name} to the group',
+  'search.removeFromGroup': 'Remove {name}',
+  'search.startGroup': 'Start',
+  'search.groupFull': 'At most {max} people besides you.',
 
   'messageSearch.title': 'Search the channel',
   'messageSearch.placeholder': 'Search messages…',

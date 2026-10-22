@@ -11,6 +11,7 @@ release, and its notes are that version's section here.
 
 - Settings > Notifications warns when Android does not let the app show an incoming call over the lock screen (Android 14 and later can withdraw it), and its Allow opens the system setting.
 - Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Group direct messages on Rocket.Chat, Mattermost and kChat accounts: in New conversation, tick several people (up to seven), remove one by tapping their chip, then Start.
 
 ### Fixed
 
@@ -19,6 +20,7 @@ release, and its notes are that version's section here.
 - A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
 - A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
 - Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. A Vibez room's preview no longer shows a thread reply.
+- New conversation finds people on Mattermost and kChat accounts, where every search failed.
 - Rocket.Chat (Jitsi) and kChat (kMeet) calls go on with the app in the background or the phone locked: the microphone, the camera and the sound no longer cut and the call no longer drops. An ongoing call notification shows the call and hangs up.
 - The message bar's buttons line up, the polls, stickers and GIFs button reads "GIF" instead of a second smiley, and the formatting row no longer touches the bar.
 

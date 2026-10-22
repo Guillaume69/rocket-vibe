@@ -1140,6 +1140,29 @@ public final class AppModel {
         }
     }
 
+    /// Whether this account opens a direct conversation with several people
+    /// (Rocket.Chat, Mattermost, kChat).
+    public var groupDmsSupported: Bool { chat?.groupDmsSupported() == true }
+
+    /// Opens the direct conversation with the people picked together, the DM
+    /// for one, then the room. Nil once done, else what to tell.
+    public func startGroup(usernames: [String]) async -> String? {
+        if usernames.count == 1, let username = usernames.first {
+            await go(to: .user(id: "", username: username, name: nil))
+            return nil
+        }
+        guard let chat, chat.groupDmsSupported() else { return L("spotlight.open_failed") }
+        let (account, selected) = (sessionId, UUID())
+        selectionId = selected
+        do {
+            let rid = try await chat.openGroupDm(usernames: usernames)
+            if await waitListed(rid, account: account, selected: selected) { open(rid) }
+            return nil
+        } catch {
+            return L("spotlight.open_failed")
+        }
+    }
+
     /// A discussion card's Open: its room, joined first when it belongs to a
     /// public channel; one of a private group is for its members.
     public func openDiscussion(_ drid: String) async {

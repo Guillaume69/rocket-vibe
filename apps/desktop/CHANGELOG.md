@@ -10,6 +10,7 @@ section here.
 ### Added
 
 - Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Group direct messages on Rocket.Chat, Mattermost and kChat accounts: on GTK, tick several people (up to seven) in New message, remove one from its chip, then Start; on macOS, the + menu's New group message does the same.
 
 ### Fixed
 
@@ -17,14 +18,11 @@ section here.
 - Mattermost and kChat: a direct or group conversation created elsewhere now shows in the list when its first message is your own, titled with its members' names, a conversation from past the list's limit comes back with a new message (the oldest one leaving), and on kChat a group conversation you are added to shows without waiting for a message.
 - A profile photo with transparent parts (a kChat bot's logo) no longer shows the coloured tile and its initial through it.
 - A bot account (kChat, Mattermost, Vibez, or a Rocket.Chat account with the bot role) no longer reads "Offline" on its profile: bots show no presence, and a kChat or Mattermost bot's direct conversation no longer carries a presence dot.
+- Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. In an encrypted Rocket.Chat room, deleting the last message falls back on the newest one stored instead of keeping the deleted one as the preview.
 
 ### Removed
 
 - The experimental Teams browser-import read preview and its developer browser helper, replaced by the Teams server kind.
-
-### Fixed
-
-- Mattermost, kChat, Slack and Teams: the room list's preview follows an edit of the last message, and a deleted last message gives way to the one before it (or to nothing) instead of staying in the list. The room keeps its place. In an encrypted Rocket.Chat room, deleting the last message falls back on the newest one stored instead of keeping the deleted one as the preview.
 
 ## [0.23.0] - 2026-10-17
 

@@ -127,6 +127,18 @@ describe('MmLive.expand', () => {
     assert.equal(events.length, 3);
   });
 
+  test('a post in an unknown channel counts once, the channel read already holding it', async () => {
+    const { live, translator } = setup((call) => {
+      if (call.path === '/channels/new') return { body: { id: 'new', type: 'O', total_msg_count: 1, total_msg_count_root: 1 } };
+      if (call.path === '/channels/new/members/me') return { body: { channel_id: 'new', msg_count: 0, msg_count_root: 0, mention_count: 1 } };
+      return undefined;
+    });
+    const events = await live.expand('posted', { post: post('p4', { channel_id: 'new', user_id: 'u-bob' }), mentions: '["u-me"]' }, {});
+    const sub = translator.toSubscription(membership(events) as unknown as Record<string, unknown>);
+    assert.equal(sub?.unread, 1);
+    assert.equal(sub?.mentions, 1);
+  });
+
   test('being removed from a room deletes it; someone else leaving does not', async () => {
     const { live } = setup();
     assert.deepEqual(await live.expand('user_removed', { user_id: 'u-bob' }, { channel_id: 'ch1' }), []);

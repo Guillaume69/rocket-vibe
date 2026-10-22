@@ -1026,7 +1026,7 @@ impl Session {
             Backend::Slack(slack) => {
                 return slack.profile(key, by_id).await.ok_or_else(|| RestError::incomplete("profile: unknown person"));
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("profile")),
+            Backend::Teams(teams) => return teams.profile(key, by_id).await,
             Backend::RocketChat => rocketchat::actions::profile(&self.rest, key, by_id).await?,
         };
         if let Some(etag) = &profile.avatar_etag {

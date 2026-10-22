@@ -316,6 +316,46 @@ impl TeamsSync {
         Ok(())
     }
 
+    /// Short profiles (name, title) by MRI, via the middle tier with the Spaces
+    /// bearer. Best effort: [] when the route or token is absent.
+    async fn profiles(&self, mris: &[String]) -> Vec<Value> {
+        if mris.is_empty() {
+            return Vec::new();
+        }
+        let Ok((_, routes)) = self.tokens.chat().await else { return Vec::new() };
+        if routes.middle_tier.is_empty() {
+            return Vec::new();
+        }
+        let Ok(bearer) = self.tokens.spaces().await else { return Vec::new() };
+        let target = format!(
+            "{}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true",
+            routes.middle_tier
+        );
+        let Ok(url) = url::Url::parse(&target) else { return Vec::new() };
+        let body = Value::Array(mris.iter().map(|m| Value::String(m.clone())).collect());
+        let header = format!("Bearer {}", bearer.as_str());
+        match client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await {
+            Ok(answer) => profile_rows(answer.body),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// The profile card for an MRI. A refused or empty call degrades to the name
+    /// already learned from messages, so the card shows a name, not an MRI.
+    pub async fn profile(&self, key: &str, _by_id: bool) -> Result<crate::info::Profile, RestError> {
+        let mri = if key.contains(':') {
+            key.to_owned()
+        } else {
+            self.directory.mri_for(key).unwrap_or_else(|| key.to_owned())
+        };
+        let rows = self.profiles(std::slice::from_ref(&mri)).await;
+        let row = rows
+            .iter()
+            .find(|r| str_of(r, "mri").is_some_and(|m| m.eq_ignore_ascii_case(&mri)))
+            .or_else(|| rows.first());
+        Ok(profile_fields(&mri, row, &self.directory))
+    }
+
     pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
         let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
         if let Some(root) = self.fetch_message(root_id).await? {
@@ -473,4 +513,83 @@ fn presence_rows(body: &Value) -> Vec<(String, crate::live::Presence)> {
             Some((mri, crate::teams::actions::availability_presence(availability)))
         })
         .collect()
+}
+
+/// The `value[]` rows of a `fetchShortProfile` body, whether the body is the
+/// array itself or wraps it under `value`.
+fn profile_rows(body: Value) -> Vec<Value> {
+    if let Value::Array(rows) = body {
+        return rows;
+    }
+    body.get("value").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+/// A short profile row as the card's fields, degrading to the directory name.
+fn profile_fields(mri: &str, row: Option<&Value>, directory: &Directory) -> crate::info::Profile {
+    let name = row.and_then(|r| str_of(r, "displayName")).map(str::to_owned).or_else(|| directory.name(mri));
+    if let Some(name) = &name {
+        directory.remember(mri, name);
+    }
+    let username = row
+        .and_then(|r| str_of(r, "userPrincipalName").or_else(|| str_of(r, "email")))
+        .map(str::to_owned)
+        .unwrap_or_else(|| mri.to_owned());
+    let bio = row.and_then(|r| str_of(r, "jobTitle")).filter(|t| !t.is_empty()).map(str::to_owned);
+    crate::info::Profile {
+        id: mri.to_owned(),
+        username,
+        name,
+        presence: None,
+        status_text: None,
+        roles: Vec::new(),
+        utc_offset: None,
+        bio,
+        avatar_etag: None,
+        bot: mri.starts_with("28:"),
+        bot_owner: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_rows_read_an_array_or_a_value_wrapper() {
+        let bare = serde_json::json!([{ "mri": "8:a" }]);
+        assert_eq!(profile_rows(bare).len(), 1);
+        let wrapped = serde_json::json!({ "value": [{ "mri": "8:a" }, { "mri": "8:b" }] });
+        assert_eq!(profile_rows(wrapped).len(), 2);
+        assert!(profile_rows(serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_short_profile_becomes_the_card_and_degrades_to_the_learned_name() {
+        let dir = Directory::default();
+        let mri = "8:orgid:aaaa";
+        dir.remember(mri, "Known Name");
+        let row = serde_json::json!({ "mri": mri, "displayName": "Ada Lovelace", "userPrincipalName": "ada@contoso.com", "jobTitle": "Engineer" });
+        let full = profile_fields(mri, Some(&row), &dir);
+        assert_eq!(full.id, mri);
+        assert_eq!(full.username, "ada@contoso.com");
+        assert_eq!(full.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(full.bio.as_deref(), Some("Engineer"));
+        assert!(!full.bot);
+        let degraded = profile_fields(mri, None, &dir);
+        assert_eq!(degraded.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(degraded.username, mri);
+        assert!(degraded.bio.is_none());
+        let bot = profile_fields("28:orgid:app", Some(&serde_json::json!({ "displayName": "Helper" })), &dir);
+        assert!(bot.bot);
+    }
+
+    #[test]
+    fn a_display_name_resolves_to_its_mri_only_when_unambiguous() {
+        let dir = Directory::default();
+        dir.remember("8:one", "Alice");
+        assert_eq!(dir.mri_for("Alice").as_deref(), Some("8:one"));
+        dir.remember("8:two", "Alice");
+        assert!(dir.mri_for("Alice").is_none());
+        assert!(dir.mri_for("Nobody").is_none());
+    }
 }

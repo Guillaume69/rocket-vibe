@@ -147,6 +147,22 @@ impl Directory {
         self.names.lock().unwrap().get(mri).cloned()
     }
 
+    /// The MRI known under this display name, only when exactly one person
+    /// carries it: the desktop opens a card by the shown name, not the MRI.
+    pub fn mri_for(&self, name: &str) -> Option<String> {
+        let names = self.names.lock().unwrap();
+        let mut found = None;
+        for (mri, who) in names.iter() {
+            if who == name {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(mri.clone());
+            }
+        }
+        found
+    }
+
     pub fn known(&self, mri: &str) -> bool {
         self.names.lock().unwrap().contains_key(mri)
     }

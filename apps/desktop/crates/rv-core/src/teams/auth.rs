@@ -355,6 +355,11 @@ impl Tokens {
         Ok(token)
     }
 
+    /// The Spaces bearer, for the middle tier's profiles.
+    pub async fn spaces(&self) -> Result<Zeroizing<String>, RestError> {
+        Ok(self.access(SPACES).await?.value)
+    }
+
     /// The Skype token and the tenant's routes, from authz.
     pub async fn chat(&self) -> Result<(Zeroizing<String>, Routes), RestError> {
         let mut held = self.held.lock().await;

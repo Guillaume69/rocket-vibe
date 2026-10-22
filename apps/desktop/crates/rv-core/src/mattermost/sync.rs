@@ -1426,4 +1426,27 @@ mod tests {
         assert!(!asked.iter().any(|p| p == "channels/g1/members/me" || p == "channels/d1"));
     }
 
+    fn counted_route(path: &str) -> Option<Value> {
+        match path {
+            "channels/g2" => Some(
+                json!({"id": "g2", "type": "G", "name": "g2", "display_name": "me, bob, dan", "total_msg_count": 1, "total_msg_count_root": 1}),
+            ),
+            "channels/g2/members/me" => Some(
+                json!({"channel_id": "g2", "user_id": "u-me", "msg_count": 0, "msg_count_root": 0, "mention_count": 1}),
+            ),
+            "users/usernames" => Some(json!([{"id": "u-dan", "username": "dan"}])),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_post_in_an_unknown_channel_counts_once() {
+        let (rest, _) = routed(counted_route).await;
+        let (store, sync) = conversations(rest, 5);
+        let mut post = post("p1", "u-bob", "");
+        post["channel_id"] = json!("g2");
+        sync.apply_event("posted", &json!({"post": post, "mentions": "[\"u-me\"]"}), &json!({})).await;
+        let room = store.rooms().into_iter().find(|r| r.rid == "g2").unwrap();
+        assert_eq!((room.unread, room.mentions), (1, 1));
+    }
 }

@@ -1805,7 +1805,7 @@ impl Session {
     pub fn provider_actions(&self) -> crate::actions::ProviderActions {
         match self.backend() {
             Backend::Teams(_) => {
-                crate::actions::ProviderActions { quotes: false, threads: false, pins: false, stars: false }
+                crate::actions::ProviderActions { quotes: false, threads: true, pins: false, stars: false }
             }
             Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => {
                 crate::actions::ProviderActions::default()
@@ -2317,7 +2317,7 @@ impl Session {
                 return mm.load_thread(root_id).await;
             }
             Backend::Slack(slack) => return slack.load_thread(root_id).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("thread")),
+            Backend::Teams(teams) => return teams.load_thread(root_id).await,
             Backend::RocketChat => {}
         }
         const PAGE: usize = 100;

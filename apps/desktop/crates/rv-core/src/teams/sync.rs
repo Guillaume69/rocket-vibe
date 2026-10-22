@@ -232,6 +232,22 @@ impl TeamsSync {
         Ok(())
     }
 
+    /// A channel thread's root and its replies, from the thread-scoped
+    /// conversation (`<rid>;messageid=<root>`), stored as they come. The
+    /// replies carry their own thread link, so they land under the root.
+    pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
+        let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
+        if let Some(root) = self.fetch_message(root_id).await? {
+            self.store.write(|w| w.upsert_message(&root));
+        }
+        let target = format!("{rid};messageid={server}");
+        let query = format!("view={VIEW}&pageSize={HISTORY_PAGE}");
+        let url = self.conversation_url(&target, &["messages"], &query).await?;
+        let (rows, _older) = self.page(url).await?;
+        self.ingest(rid, &rows);
+        Ok(())
+    }
+
     fn ingest(&self, rid: &str, raw: &[Value]) -> Vec<Message> {
         let mut gone = Vec::new();
         let rows: Vec<Message> = raw

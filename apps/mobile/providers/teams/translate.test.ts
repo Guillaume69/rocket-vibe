@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, reacted, reactionCode,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, profileFields, roomDetailsOf, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -138,4 +138,14 @@ test('a short profile row becomes the card fields; a missing row keeps the learn
   assert.equal(degraded.bio, null);
   const bot = profileFields('28:orgid:app', { displayName: 'Helper' }, d);
   assert.equal(bot.bot, true);
+});
+
+test('a conversation document yields topic, description and a count whether string or number', () => {
+  const strung = roomDetailsOf({ threadProperties: { topic: 'Launch', description: 'Go', membercount: '7' } });
+  assert.deepEqual(strung, { topic: 'Launch', description: 'Go', members: 7 });
+  const numbered = roomDetailsOf({ threadProperties: { membercount: 3 }, members: [{}, {}] });
+  assert.deepEqual(numbered, { topic: null, description: null, members: 3 });
+  const fromArray = roomDetailsOf({ members: [{}, {}, {}] });
+  assert.equal(fromArray.members, 3);
+  assert.deepEqual(roomDetailsOf({}), { topic: null, description: null, members: null });
 });

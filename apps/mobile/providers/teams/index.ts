@@ -11,13 +11,13 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts'
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { Capabilities, Listener, Provider, ProviderError } from '../../lib/provider.ts';
+import type { Capabilities, Listener, Provider, ProviderError, RoomInformation } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, conversationOf, deleted, mriOf, profileFields, rootOf, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, deleted, mriOf, profileFields, roomDetailsOf, rootOf, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -30,7 +30,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   reactions: true,
   marks: false,
   profile: true,
-  roomInfo: false,
+  roomInfo: true,
   roomSettings: false,
   roomRoleList: false,
   leaveRoom: false,
@@ -112,7 +112,26 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     setTyping: (rid, active) => { void typingAction(client, directory, session, rid, active); },
     translator,
     actions: {
-      roomInfo: refuse('room_info'),
+      async roomInfo(rid: string): Promise<RoomInformation> {
+        const cached = rooms.entries.get(rid);
+        const room = cached
+          ? cached.team
+            ? channelRoom(cached.entry, directory)
+            : chatRoom(session.userId, cached.entry, directory)
+          : null;
+        const doc = await client.roomDocument(rid).catch(() => ({}) as Doc);
+        const { topic, description, members } = roomDetailsOf(doc);
+        return {
+          id: rid,
+          name: room?.displayName ?? room?.name ?? '',
+          type: room?.type ?? 'c',
+          description,
+          topic,
+          announcement: null,
+          members,
+          readOnly: false,
+        };
+      },
       react: (rid, mid, emoji, put) => actionsFor(ingestLive).react(rid, mid, emoji, put),
       edit: (rid, mid, text) => actionsFor(ingestLive).edit(rid, mid, text),
       delete: (rid, mid) => actionsFor(ingestLive).delete(rid, mid),

@@ -118,6 +118,12 @@ export class TeamsClient {
     return Array.isArray(value) ? (value as Doc[]) : [];
   }
 
+  /** The chat service's conversation document (topic, members), best effort. */
+  async roomDocument(rid: string): Promise<Doc> {
+    const url = await this.conversation(rid, [], 'view=msnp24Equivalent');
+    return (await this.chat('GET', url)).body;
+  }
+
   /** The aggregator's list of chats and teams. */
   async snapshot(): Promise<Doc> {
     const { routes } = await this.tokens.chat();

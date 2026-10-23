@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-24
+
 ### Fixed
 
 - WhatsApp on GTK: Ctrl+C copies text selected in a message again after sending a message (the composer, disabled while it sends, left the window with no focus and the copy shortcut never reached the timeline).
@@ -1351,7 +1353,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.25.0...HEAD
+[0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...desktop-v0.25.0
 [0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0
 [0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0

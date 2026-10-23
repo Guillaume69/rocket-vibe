@@ -11,6 +11,7 @@ section here.
 - Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
 
 ### Added
+- Rename a channel from its information: on Rocket.Chat with the right to edit the room (its address changes with it), the display name on Mattermost and kChat, and the name on Slack and Microsoft Teams (experimental). An empty name is refused.
 - Microsoft Teams (experimental): calls. A call started in a conversation shows as a call card with Join, and once over as the call's length; Join on a channel call opens the call itself, and the call button (or Join on a chat call) the conversation, in Teams' web app in a call window (on Linux an app window of a Chromium browser), after a Microsoft sign-in. The app does not carry a Teams call's audio or video itself.
 - Microsoft Teams (experimental): send a file to a channel. It is stored in the channel's SharePoint folder, like the Teams app does, and shows as a downloadable file; no inline image preview yet, and a chat cannot receive files this way.
 - Microsoft Teams (experimental): pin and unpin a channel message, see which messages are pinned, and list a room's pinned messages (among its latest 200) in the pinned panel, which shows no saved tab on Teams.

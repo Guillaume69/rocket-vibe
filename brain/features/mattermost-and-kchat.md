@@ -250,7 +250,7 @@ things the open-source clients did not say: `pending_post_id` must be
 `id` (`MmClient` `plainErrors`, `RestClient::kchat`). The browser sign-in was
 then run on the same account, 2FA included. A kChat
 account has no push for a third-party app (Infomaniak's proxy routes to its own
-app id). Room settings are not mapped. Who types is received, not sent, as on Rocket.Chat.
+app id). A channel's display name is renamed from its information (`PUT /channels/<id>/patch {display_name}`); its other settings are not mapped. Who types is received, not sent, as on Rocket.Chat.
 
 ## Desktop
 

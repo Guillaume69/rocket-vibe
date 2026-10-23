@@ -78,7 +78,7 @@ The desktops sign in to Slack in a window of the app, Android in its sign-in web
 Teams signs in everywhere with a Microsoft device code. Installed Android and macOS
 runtime qualification remains outstanding. Slack still lacks a pasted-session fallback,
 native huddle media, killed-app push and the screens listed above. Teams lacks
-saves, room-settings editing, chat (non-channel) file upload, native call media (a channel
+saves, room settings beyond a channel's name, chat (non-channel) file upload, native call media (a channel
 call's Join opens the call in Teams itself, anything else the conversation), a thread list and
 push; its pinned list covers a room's latest 200 messages and its search cannot jump to the
 exact message. See [Teams](../architecture/teams.md) and

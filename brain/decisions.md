@@ -462,3 +462,7 @@ installed. See [Teams](architecture/teams.md).
 - apps/desktop/crates/rv-core/src/slack/browser_login.rs (`open_signed_in`)
 - apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
 - apps/mobile/providers/slack/saved.ts
+
+## Channels are renamed from their information, address included (2026-10-23)
+
+Renaming was left out of the room settings editor on purpose, because on Rocket.Chat a new name moves the room's address and every link to it. User decision, 2026-10-23: rename wherever the server allows it. The editor now shows a Name field from what each server lets me change (`EditableSettings`): Rocket.Chat with `edit-room` (`roomName`, address included, the server checking it like a new channel's name), Mattermost and kChat a channel's display name (the address stays), Slack a channel's name, Teams a channel's name through its templates service. The apps trim it and refuse an empty one, since Rocket.Chat ignores it silently and Mattermost stores it. See [room info](features/room-info-and-profiles.md) and [Teams](architecture/teams.md).

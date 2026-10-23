@@ -21,26 +21,14 @@ rustdoc-args = ["--cfg", "docsrs"]
 [workspace]
 members = [
     ".",
-    "examples/voip-cli",
     "http_clients/ureq-client",
-    "plugins/metrics",
-    "plugins/wam",
-    "plugins/wam-catalog",
     "storages/sqlite-storage",
-    "tests/bench-integration",
     "tests/e2e",
-    "tools/whatspec-codegen",
-    "tools/oracle-cli",
-    "tools/oracle-core",
-    "tools/xtask",
-    "tools/oracle-task",
-    "tools/xtask-support",
     "transports/tokio-transport",
     "wacore",
     "wacore/appstate",
     "wacore/binary",
     "wacore/derive",
-    "wacore/libsignal",
     "wacore/noise",
     "waproto",
 ]
@@ -53,7 +41,6 @@ default-members = [
     "wacore/appstate",
     "wacore/binary",
     "wacore/derive",
-    "wacore/libsignal",
     "wacore/noise",
     "waproto",
 ]
@@ -88,10 +75,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(docsrs)"] }
 unused_qualifications = "warn"
 
 [workspace.dependencies]
-oracle-core = { path = "tools/oracle-core" }
-unwasm-core = { git = "https://github.com/oxidezap/unwasm.git", rev = "8f798470e9f8c22a9ef40780eee302894fe7bdce" }
-wa-store = { git = "https://github.com/oxidezap/whatspec.git", rev = "10a66fdaab616c9ef6b3f5e6b197bdddfabc142a" }
-xtask-support = { path = "tools/xtask-support" }
 aes = "0.9.2"
 aes-gcm = { version = "0.11.0", default-features = false, features = ["aes", "alloc"] }
 anyhow = { version = "1.0", default-features = false }
@@ -161,7 +144,7 @@ wacore = { path = "./wacore", default-features = false, version = "0.7.0" }
 wacore-appstate = { path = "./wacore/appstate", default-features = false, version = "0.7.0" }
 wacore-binary = { path = "./wacore/binary", default-features = false, version = "0.7.0" }
 wacore-derive = { path = "./wacore/derive", version = "0.7.0" }
-wacore-libsignal = { path = "./wacore/libsignal", version = "0.7.0" }
+rv-signal = { path = "../rv-signal" }
 wacore-noise = { path = "./wacore/noise", version = "0.7.0" }
 waproto = { path = "./waproto", version = "0.7.0" }
 yoke = { version = "0.8", features = ["derive"] }
@@ -371,62 +354,6 @@ wacore-noise = { path = "./wacore/noise", features = ["test-util"] }
 workspace = true
 
 # Explicit host policy; does not change the library's automatic presence default.
-[[example]]
-name = "manual_presence"
-test = true
-required-features = ["sqlite-storage", "tokio-runtime", "tokio-transport", "ureq-client", "signal"]
-
-# The demo client. Needs only the package default features, so a plain
-# `cargo build --example demo` works without `required-features`.
-[[example]]
-name = "demo"
-test = true
-
-# The mock-capable benchmark client. `test = true` makes its `#[cfg(test)]`
-# config tests a nextest target, so the default CI run executes them instead of
-# only compiling the example. `required-features` names what the example
-# actually needs to link (runtime, transport, HTTP client — all in `default`),
-# so `--no-default-features` builds still skip it. `danger-skip-tls-verify`
-# stays an opt-in Cargo feature for talking to the mock's own-root TLS chain,
-# never a build requirement.
-[[example]]
-name = "benchmark"
-test = true
-required-features = ["tokio-runtime", "tokio-transport", "ureq-client"]
-
-[[example]]
-name = "observability"
-required-features = ["tracing"]
-
-[[example]]
-name = "metrics"
-required-features = ["metrics"]
-
-# Manual retained-heap diagnostic, kept out of CodSpeed's benchmark discovery.
-# Build with --profile bench to match the client_receive compiler settings.
-[[example]]
-name = "receive_footprint"
-test = false
-required-features = ["bench-harness"]
-
-# Client-level group-send sweep. `required-features` keeps the fixture out of
-# an ordinary `cargo bench`/`cargo build --all-targets`, which would otherwise
-# fail to find `whatsapp_rust::bench_support`.
-[[bench]]
-name = "client_group_send"
-harness = false
-required-features = ["bench-harness"]
-
-[[bench]]
-name = "client_receive"
-harness = false
-required-features = ["bench-harness"]
-
-[[bench]]
-name = "connected_idle"
-harness = false
-required-features = ["bench-harness", "sqlite-storage"]
-
 [[test]]
 name = "connected_idle_lifecycle"
 required-features = ["bench-harness"]
@@ -435,61 +362,6 @@ required-features = ["bench-harness"]
 # Keep its dispatcher fixture out of ordinary production example builds.
 [[test]]
 name = "event_delivery_public"
-required-features = ["bench-harness"]
-
-[[example]]
-name = "connected_idle"
-test = true
-required-features = ["bench-harness", "sqlite-storage"]
-
-[[bench]]
-name = "client_dm_send"
-harness = false
-required-features = ["bench-harness"]
-
-[[bench]]
-name = "appstate_prefetch"
-harness = false
-required-features = ["bench-harness"]
-
-[[bench]]
-name = "client_group_scale"
-harness = false
-required-features = ["bench-harness"]
-
-# The inbound counterpart: the non-message stanzas (`<receipt>`, `<presence>`,
-# `<notification>`, `<ack>`) the read loop handles without a decrypt. Its
-# regression signal is bytes per stanza, not wall time; the target's own header
-# says why.
-[[bench]]
-name = "inbound_stanza"
-harness = false
-required-features = ["bench-harness"]
-
-# These benchmarks use internal cache types. Select bench-harness explicitly,
-# as the CodSpeed client shard does; a self dev-dependency also enables that
-# fixture in ordinary examples and changes the shipping demo's feature graph.
-[[bench]]
-name = "jid_keyed_cache"
-harness = false
-required-features = ["bench-harness"]
-
-# USync normalization + spec build: pure `wacore`/`wacore-binary` calls, no
-# runtime or `bench-harness`; this remains available in plain `cargo bench`.
-[[bench]]
-name = "client_usync"
-harness = false
-
-# Warm `LidPnCache` hit/miss through the benchmark-only cache facade.
-[[bench]]
-name = "client_identity_cache"
-harness = false
-required-features = ["bench-harness"]
-
-# Internal `Cache` write/evict/sweep terms around the read path.
-[[bench]]
-name = "client_cache_maint"
-harness = false
 required-features = ["bench-harness"]
 
 [profile.release]

@@ -1,0 +1,31 @@
+[package]
+name = "wacore-appstate"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+license = "MIT"
+description = "WhatsApp's app-state (syncd) collections: keys, integrity hash, record codec, patch processing"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+aes = { workspace = true }
+anyhow = { workspace = true }
+buffa = { workspace = true }
+cbc = { workspace = true, features = ["block-padding"] }
+hex = { workspace = true }
+hkdf = { workspace = true }
+hmac = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+serde-big-array = { workspace = true }
+serde_json = { workspace = true, features = ["alloc"] }
+sha2 = { workspace = true }
+subtle = "2.6"
+thiserror = { workspace = true }
+wacore-binary = { workspace = true, default-features = false }
+waproto = { workspace = true }
+
+[lints]
+workspace = true

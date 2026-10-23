@@ -19,7 +19,7 @@ ignored = ["getrandom"]
 [features]
 debug-snapshots = []
 # Typed interop with the decoded libsignal SessionRecord v1 model.
-legacy-session-interop = ["wacore-libsignal/legacy-session-interop"]
+legacy-session-interop = []
 # Shared cryptographic fixtures and InMemoryBackend fault-injection/call-count
 # hooks for tests. Off by default so normal builds carry no test scaffolding
 # or per-call bookkeeping.
@@ -98,7 +98,7 @@ wacore-appstate = { workspace = true }
 wacore-binary = { workspace = true, features = ["serde"] }
 zeroize = { workspace = true }
 wacore-derive = { workspace = true }
-wacore-libsignal = { workspace = true }
+rv-signal = { workspace = true }
 wacore-noise = { workspace = true }
 waproto = { workspace = true }
 zerocopy = { workspace = true, optional = true }

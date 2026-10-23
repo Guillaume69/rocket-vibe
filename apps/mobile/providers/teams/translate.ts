@@ -373,7 +373,7 @@ function callMessage(conversation: string, raw: unknown, id: string, directory: 
     attachments: null,
     reactions: null,
     urls: null,
-    callId: ended ? null : conversation,
+    callId: ended ? null : messageId(conversation, id),
     encryptedRaw: null,
     pinned: false,
     starred: null,
@@ -385,6 +385,18 @@ function callMessage(conversation: string, raw: unknown, id: string, directory: 
 export function channelLink(channel: string, name: string, group: string, tenant: string): string {
   const query = new URLSearchParams({ groupId: group, tenantId: tenant });
   return `https://teams.microsoft.com/l/channel/${encodeURIComponent(channel)}/${encodeURIComponent(name)}?${query}`;
+}
+
+/** A channel call's join page in Teams: the thread, the call's start message
+ *  and its organizer, the starter. Mirrors `meetup_link` in the desktop core. */
+export function meetupLink(thread: string, message: string, tenant: string, organizer: string): string {
+  const context = new URLSearchParams({ context: JSON.stringify({ Tid: tenant, Oid: organizer }) });
+  return `https://teams.microsoft.com/l/meetup-join/${thread.replaceAll(':', '%3a').replaceAll('@', '%40')}/${message}?${context}`;
+}
+
+/** The AAD object id of an `8:orgid:` MRI. */
+export function objectId(mri: string): string | null {
+  return mri.startsWith('8:orgid:') && mri.length > 8 ? mri.slice(8) : null;
 }
 
 /** A chat's page in Teams, where its running call shows a Join. */

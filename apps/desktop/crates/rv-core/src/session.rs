@@ -2337,7 +2337,7 @@ impl Session {
                 return mattermost::actions::answer_conference(&self.rest, call_id).await;
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(teams) => return teams.call_url(call_id, self.teams_tenant()).await,
+            Backend::Teams(teams) => return teams.join_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
@@ -2357,7 +2357,7 @@ impl Session {
                     .map(|url| crate::call::meeting_link(&url));
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(teams) => return teams.call_url(call_id, self.teams_tenant()).await,
+            Backend::Teams(teams) => return teams.join_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {

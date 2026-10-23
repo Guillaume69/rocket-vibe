@@ -252,6 +252,29 @@ test('a call opens the conversation in Teams: a channel through its Graph group,
   assert.equal(TEAMS_CAPABILITIES.videoCall, true);
 });
 
+test('a channel call card joins the call itself, its starter as organizer', async () => {
+  const channel = '19:ch@thread.tacv2';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/conversations/') && call.url.includes('/messages/1792769688903')) {
+      return { body: { id: '1792769688903', messagetype: 'Event/Call', from: 'https://x/v1/users/ME/contacts/8:orgid:oid-1' } };
+    }
+    return { status: 404, body: {} };
+  });
+  const rooms = new TeamsRooms();
+  rooms.entries.set(channel, { entry: { id: channel, displayName: 'General', groupId: 'group-1' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
+  const teams = teamsCalls(client, rooms, 'tenant-1');
+  assert.equal(
+    await teams.join(`${channel}/1792769688903`, {}, () => true),
+    'https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22tenant-1%22%2C%22Oid%22%3A%22oid-1%22%7D',
+  );
+  const before = calls.length;
+  assert.equal(
+    await teams.start(channel, null, () => true),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/General?groupId=group-1&tenantId=tenant-1',
+  );
+  assert.equal(calls.length, before, 'the entry carries the group id');
+});
+
 test('the Teams provider advertises pins without the saved panel', () => {
   assert.equal(TEAMS_CAPABILITIES.pins, true);
   assert.equal(TEAMS_CAPABILITIES.marks, false);

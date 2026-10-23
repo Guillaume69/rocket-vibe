@@ -346,8 +346,8 @@ struct CallCard {
 
 /// A Teams call (`Event/Call`) as the call message kChat's and Slack's calls
 /// also become. Its start (`callStarted`) is a running call whose call id is
-/// its conversation: Join opens the conversation in Teams' web app
-/// (`channel_link` / `chat_link`), where the running call is joined. Its end
+/// its own message id: Join opens it in Teams' web app, a channel's straight
+/// in the call (`meetup_link`), a chat's on the conversation. Its end
 /// is a separate event, in a channel a reply on the start, carrying each
 /// participant's `<duration>`: it is drawn in the start's place (the start's
 /// id and time, a Teams message id being its arrival time), and being newer it
@@ -363,7 +363,7 @@ fn call_card(conversation: &str, raw: &Value, id: &str) -> Option<CallCard> {
             ts: None,
             kind: "videoconf",
             seconds: String::new(),
-            call_id: Some(conversation.to_owned()),
+            call_id: Some(message_id(conversation, id)),
         });
     }
     let longest = content
@@ -416,6 +416,23 @@ pub fn channel_link(channel: &str, name: &str, group: &str, tenant: &str) -> Str
     url.path_segments_mut().expect("https base").pop_if_empty().extend([channel, name]);
     url.query_pairs_mut().append_pair("groupId", group).append_pair("tenantId", tenant);
     url.to_string()
+}
+
+/// A channel call's join page in Teams' web app: the thread, the call's start
+/// message and its organizer, the starter (read from the web app's own call
+/// metadata, 2026-10-23).
+pub fn meetup_link(thread: &str, message: &str, tenant: &str, organizer: &str) -> String {
+    let thread = thread.replace(':', "%3a").replace('@', "%40");
+    let mut url = url::Url::parse(&format!("https://teams.microsoft.com/l/meetup-join/{thread}/{message}"))
+        .expect("Teams link base");
+    let context = format!("{{\"Tid\":{},\"Oid\":{}}}", Value::from(tenant), Value::from(organizer));
+    url.query_pairs_mut().append_pair("context", &context);
+    url.to_string()
+}
+
+/// The AAD object id of an `8:orgid:` MRI.
+pub fn object_id(mri: &str) -> Option<&str> {
+    mri.strip_prefix("8:orgid:").filter(|oid| !oid.is_empty())
 }
 
 /// A chat's page in Teams' web app, where its running call shows a Join.
@@ -864,7 +881,7 @@ mod tests {
         let running = message(channel, &start, &d).unwrap();
         assert_eq!(running.id, format!("{channel}/1792713340033"));
         assert_eq!(running.system_type.as_deref(), Some("videoconf"));
-        assert_eq!(running.call_id.as_deref(), Some(channel));
+        assert_eq!(running.call_id.as_deref(), Some(running.id.as_str()));
         assert_eq!(running.thread_id, None);
         let end = raw(
             "1792713355826",
@@ -894,6 +911,12 @@ mod tests {
             chat_link("19:a_b@unq.gbl.spaces", "t-1"),
             "https://teams.microsoft.com/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1"
         );
+        assert_eq!(
+            meetup_link("19:ch@thread.tacv2", "1792769688903", "t-1", "o-1"),
+            "https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D"
+        );
+        assert_eq!(object_id("8:orgid:o-1"), Some("o-1"));
+        assert_eq!(object_id("8:live:bob"), None);
         for ok in [
             link.as_str(),
             "https://teams.cloud.microsoft/v2/",

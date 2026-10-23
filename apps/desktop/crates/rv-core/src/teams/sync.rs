@@ -523,6 +523,15 @@ impl TeamsSync {
     /// The Graph group id of the team a channel belongs to, by scanning my
     /// joined teams for the one whose channels include it. A chat has none.
     async fn parent_team(&self, channel: &str) -> Result<String, RestError> {
+        let known = self
+            .entries
+            .lock()
+            .unwrap()
+            .get(channel)
+            .and_then(|(entry, team)| team.as_ref().and_then(|_| str_of(entry, "groupId")).map(str::to_owned));
+        if let Some(group) = known {
+            return Ok(group);
+        }
         let teams = self.graph_json("https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id").await?;
         for team in teams.get("value").and_then(Value::as_array).into_iter().flatten() {
             let Some(gid) = team.get("id").and_then(Value::as_str) else { continue };
@@ -553,6 +562,22 @@ impl TeamsSync {
                 Ok(translate::channel_link(rid, &name, &group, tenant))
             }
             None => Ok(translate::chat_link(rid, tenant)),
+        }
+    }
+
+    /// Where a call card's Join goes: a channel call's own join page, built from
+    /// its start message's author as organizer; otherwise the conversation's page.
+    pub async fn join_url(&self, call_id: &str, tenant: &str) -> Result<String, RestError> {
+        let Some((rid, server)) = translate::split_id(call_id) else { return self.call_url(call_id, tenant).await };
+        if self.team_of(rid).is_none() {
+            return self.call_url(rid, tenant).await;
+        }
+        let url = self.conversation_url(rid, &["messages", server], &format!("view={VIEW}")).await?;
+        let start = self.chat(Method::GET, url, None).await?.body;
+        let organizer = str_of(&start, "from").map(translate::mri_of).and_then(translate::object_id).map(str::to_owned);
+        match organizer {
+            Some(oid) => Ok(translate::meetup_link(rid, server, tenant, &oid)),
+            None => self.call_url(rid, tenant).await,
         }
     }
 

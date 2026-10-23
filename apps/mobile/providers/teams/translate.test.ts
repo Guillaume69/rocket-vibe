@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, channelLink, chatLink, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
+  TeamsDirectory, channelLink, chatLink, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -46,7 +46,7 @@ test('a call starts as a join card and its end replaces it', () => {
     messagetype: 'Event/Call', conversationLink: link,
     content: '<partlist alt =""></partlist><callEventType>callStarted</callEventType><callId>c1</callId>',
   }), d)!;
-  assert.deepEqual([running.id, running.systemType, running.callId, running.threadId], [`${channel}/1792713340033`, 'videoconf', channel, null]);
+  assert.deepEqual([running.id, running.systemType, running.callId, running.threadId], [`${channel}/1792713340033`, 'videoconf', `${channel}/1792713340033`, null]);
   const over = toMessage(channel, raw('1792713355826', {
     messagetype: 'Event/Call', conversationLink: link,
     content: '<ended/><partlist count="2"><part><duration>76</duration></part><part><duration>40</duration></part></partlist><callEventType>callEnded</callEventType>',
@@ -64,6 +64,11 @@ test('call links open the conversation in Teams', () => {
     'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/G%C3%A9n%C3%A9ral?groupId=g-1&tenantId=t-1',
   );
   assert.equal(chatLink('19:a_b@unq.gbl.spaces', 't-1'), 'https://teams.microsoft.com/l/chat/19%3Aa_b%40unq.gbl.spaces/conversations?tenantId=t-1');
+  assert.equal(
+    meetupLink('19:ch@thread.tacv2', '1792769688903', 't-1', 'o-1'),
+    'https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D',
+  );
+  assert.deepEqual([objectId('8:orgid:o-1'), objectId('8:live:bob')], ['o-1', null]);
 });
 
 test('messages, edits, reactions and deletions', () => {

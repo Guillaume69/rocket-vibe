@@ -1,0 +1,1217 @@
+//! Small accessors, config setters, node waiters and sync-error helpers.
+
+use super::*;
+use crate::client::interceptor::{InterceptorHandle, Registration, StanzaInterceptor};
+use crate::features::PresencePolicy;
+
+/// Identity for span/error tagging. Named fields, not a tuple — LID/PN transposition would
+/// otherwise be a silent, unchecked bug at call sites.
+#[cfg(feature = "tracing")]
+#[derive(Debug, Clone, Default)]
+pub struct IdentityTags {
+    pub lid: Option<String>,
+    pub pn: Option<String>,
+}
+
+impl Client {
+    /// Whether a finished connection will be retried by [`Self::run`].
+    pub fn auto_reconnect_enabled(&self) -> bool {
+        self.enable_auto_reconnect.load(Ordering::Acquire)
+    }
+
+    /// Change the reconnect preference without closing the current connection.
+    ///
+    /// Disabling wakes an outstanding reconnect backoff promptly. The first
+    /// attempt is still allowed, even when disabled before `run`. This does not
+    /// shut down or resume a paused session. Re-enabling cannot clear a terminal
+    /// shutdown or protocol verdict; construct a new Client for a new session.
+    pub fn set_auto_reconnect(&self, enabled: bool) {
+        if self.enable_auto_reconnect.swap(enabled, Ordering::AcqRel) != enabled {
+            self.notify_session_state();
+        }
+    }
+
+    pub(crate) fn stop_auto_reconnect_permanently(&self) {
+        self.enable_auto_reconnect.stop_permanently();
+        self.notify_session_state();
+    }
+
+    /// Reuse the injected HTTP service, for example with an independent
+    /// [`crate::download::MediaDownloader`]. Cloning this Arc retains the original
+    /// host allocation, not the Client; it cannot replace the client's service.
+    pub fn http_client(&self) -> &Arc<dyn crate::http::HttpClient> {
+        &self.http_client
+    }
+
+    /// Whether a custom handler was installed for this payload type at build time.
+    /// Handlers are immutable after construction; configure them through
+    /// [`ClientBuilder::with_enc_handler`] or [`ClientBuilder::with_enc_handler_arc`].
+    pub fn has_enc_handler(&self, payload_type: &str) -> bool {
+        self.custom_enc_handlers
+            .as_ref()
+            .is_some_and(|handlers| handlers.contains_key(payload_type))
+    }
+
+    pub(crate) fn initialized_group_cache(&self) -> Option<&Arc<GroupCache>> {
+        self.group_cache.get()
+    }
+
+    pub(crate) fn get_group_cache(&self) -> &Arc<GroupCache> {
+        self.group_cache.get_or_init(|| {
+            debug!("Initializing Group Cache for the first time.");
+            Arc::new(
+                self.cache_config
+                    .group_cache
+                    .build_typed_ttl(self.cache_config.group_cache_store.clone(), "group"),
+            )
+        })
+    }
+
+    /// Subscribe an external event handler with an explicit event filter.
+    pub fn subscribe(
+        &self,
+        interest: wacore::types::events::EventInterest,
+        handler: Arc<dyn wacore::types::events::EventHandler>,
+    ) -> wacore::types::events::Subscription {
+        self.core.event_bus.subscribe(interest, handler)
+    }
+
+    /// Subscribe using the handler's current registration-time interest hint.
+    pub fn subscribe_handler(
+        &self,
+        handler: Arc<dyn wacore::types::events::EventHandler>,
+    ) -> wacore::types::events::Subscription {
+        self.core.event_bus.subscribe_handler(handler)
+    }
+
+    /// Acquire raw decoded stanza forwarding for one consumer.
+    ///
+    /// `Event::RawNode` remains enabled until every acquired lease is dropped.
+    pub fn acquire_raw_node_forwarding(self: &Arc<Self>) -> RawNodeLease {
+        let incremented = self
+            .raw_node_forwarding
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_add(1)
+            })
+            .is_ok();
+        assert!(incremented, "raw-node forwarding lease counter overflow");
+        RawNodeLease {
+            client: Arc::downgrade(self),
+        }
+    }
+
+    pub(crate) fn raw_node_forwarding_enabled(&self) -> bool {
+        self.raw_node_forwarding.load(Ordering::Relaxed) != 0
+    }
+
+    /// Acquire decrypted-payload forwarding for one consumer.
+    ///
+    /// [`Event::DecryptedPayload`] stays enabled until every acquired lease is
+    /// dropped. While none is held nothing is emitted and nothing is cloned:
+    /// the path costs one relaxed atomic load.
+    ///
+    /// [`Event::DecryptedPayload`]: wacore::types::events::Event::DecryptedPayload
+    pub fn acquire_decrypted_payload_forwarding(self: &Arc<Self>) -> DecryptedPayloadLease {
+        let incremented = self
+            .decrypted_payload_forwarding
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_add(1)
+            })
+            .is_ok();
+        assert!(
+            incremented,
+            "decrypted-payload forwarding lease counter overflow"
+        );
+        DecryptedPayloadLease {
+            client: Arc::downgrade(self),
+        }
+    }
+
+    pub(crate) fn decrypted_payload_forwarding_enabled(&self) -> bool {
+        self.decrypted_payload_forwarding.load(Ordering::Relaxed) != 0
+    }
+
+    /// Acquire per-`<enc>` decrypt-failure forwarding for one consumer.
+    ///
+    /// [`Event::EncDecryptFailed`] stays enabled until every acquired lease is
+    /// dropped. While none is held nothing is emitted and nothing is built: each
+    /// failure branch costs one relaxed atomic load.
+    ///
+    /// Separate from
+    /// [`acquire_decrypted_payload_forwarding`](Self::acquire_decrypted_payload_forwarding)
+    /// on purpose — a consumer that wants both halves of a stanza's decryption
+    /// holds both leases, and one that wants only failures does not make the
+    /// success path clone plaintext.
+    ///
+    /// [`Event::EncDecryptFailed`]: wacore::types::events::Event::EncDecryptFailed
+    pub fn acquire_enc_decrypt_failed_forwarding(self: &Arc<Self>) -> EncDecryptFailedLease {
+        let incremented = self
+            .enc_decrypt_failed_forwarding
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_add(1)
+            })
+            .is_ok();
+        assert!(
+            incremented,
+            "enc-decrypt-failure forwarding lease counter overflow"
+        );
+        EncDecryptFailedLease {
+            client: Arc::downgrade(self),
+        }
+    }
+
+    pub(crate) fn enc_decrypt_failed_forwarding_enabled(&self) -> bool {
+        self.enc_decrypt_failed_forwarding.load(Ordering::Relaxed) != 0
+    }
+
+    /// Acquire sent-frame forwarding for one consumer.
+    ///
+    /// [`Event::SentFrame`] stays enabled until every acquired lease is dropped.
+    /// While none is held nothing is emitted and nothing is cloned: the send
+    /// path costs one relaxed atomic load.
+    ///
+    /// This is the outbound counterpart of
+    /// [`acquire_raw_node_forwarding`](Self::acquire_raw_node_forwarding), and
+    /// unlike [`wait_for_sent_node`](Self::wait_for_sent_node) it is neither
+    /// filtered nor one-shot and covers every send path, including the ones that
+    /// never build a `Node`.
+    ///
+    /// [`Event::SentFrame`]: wacore::types::events::Event::SentFrame
+    pub fn acquire_sent_frame_forwarding(self: &Arc<Self>) -> SentFrameLease {
+        self.sent_frame_tap.acquire();
+        SentFrameLease {
+            client: Arc::downgrade(self),
+        }
+    }
+
+    /// Only tests ask this: the send path reads the gate through the tap the
+    /// noise sender already holds, not through the client.
+    #[cfg(test)]
+    pub(crate) fn sent_frame_forwarding_enabled(&self) -> bool {
+        self.sent_frame_tap.enabled()
+    }
+
+    /// Register an interceptor that sees each decoded stanza before the
+    /// built-in pipeline, and may take it.
+    ///
+    /// Interceptors run in registration order; the first to return
+    /// [`Interception::Handled`] wins and the rest are skipped.
+    ///
+    /// See [`crate::client::interceptor`] for what this is for and what it
+    /// costs.
+    ///
+    /// [`Interception::Handled`]: crate::client::interceptor::Interception::Handled
+    pub fn add_stanza_interceptor(
+        self: &Arc<Self>,
+        interceptor: Arc<dyn StanzaInterceptor>,
+    ) -> InterceptorHandle {
+        let id = self.next_interceptor_id.fetch_add(1, Ordering::Relaxed);
+        self.update_stanza_interceptors(|registered| {
+            registered.push(Registration { id, interceptor });
+        });
+        InterceptorHandle {
+            client: Arc::downgrade(self),
+            id,
+        }
+    }
+
+    pub(crate) fn remove_stanza_interceptor(&self, id: u64) {
+        self.update_stanza_interceptors(|registered| {
+            registered.retain(|entry| entry.id != id);
+        });
+    }
+
+    /// Whether any interceptor is registered.
+    ///
+    /// One relaxed load, so the read loop pays nothing while none are. Relaxed
+    /// is enough because the lock behind it does the synchronising: a reader
+    /// racing a registration either sees the count in time or does not, and a
+    /// stanza that arrived before the registration finished was never that
+    /// interceptor's to see.
+    pub(crate) fn has_stanza_interceptors(&self) -> bool {
+        self.stanza_interceptor_count.load(Ordering::Relaxed) != 0
+    }
+
+    /// The current interceptors.
+    ///
+    /// A refcount bump, not a copy — and the snapshot is released before any
+    /// interceptor runs, so one that registers another cannot deadlock.
+    pub(crate) fn stanza_interceptors(&self) -> Arc<Vec<Registration>> {
+        Arc::clone(
+            &self
+                .stanza_interceptors
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+
+    /// Copy-on-write, as the event bus does it: a reader keeps whatever
+    /// snapshot it took, so registering never blocks the read loop for longer
+    /// than the swap.
+    fn update_stanza_interceptors(&self, edit: impl FnOnce(&mut Vec<Registration>)) {
+        let mut guard = self
+            .stanza_interceptors
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut next = guard.as_ref().clone();
+        edit(&mut next);
+        // Stored while the write lock is held, so a reader never sees a count
+        // promising more than the snapshot holds.
+        self.stanza_interceptor_count
+            .store(next.len(), Ordering::Relaxed);
+        *guard = Arc::new(next);
+    }
+
+    /// Enable or disable skipping of history sync notifications at runtime.
+    ///
+    /// When enabled, the client will acknowledge incoming history sync
+    /// notifications but will not download or process the data.
+    pub fn set_skip_history_sync(&self, enabled: bool) {
+        self.skip_history_sync.store(enabled, Ordering::Relaxed);
+    }
+
+    /// Whether the A/B props catalog is fetched on connect; see
+    /// [`ClientBuilder::with_ab_props_fetch`](crate::ClientBuilder::with_ab_props_fetch).
+    pub fn set_ab_props_fetch(&self, enabled: bool) {
+        self.ab_props_fetch.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn ab_props_fetch_enabled(&self) -> bool {
+        self.ab_props_fetch.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` if history sync notifications are currently being skipped.
+    pub fn skip_history_sync_enabled(&self) -> bool {
+        self.skip_history_sync.load(Ordering::Relaxed)
+    }
+
+    /// Choose who announces the account's own `available` presence. Defaults
+    /// to [`PresencePolicy::Automatic`]. Applies from the next lifecycle
+    /// announcement on; changing it sends or retracts nothing by itself.
+    pub fn set_presence_policy(&self, policy: PresencePolicy) {
+        self.automatic_presence
+            .store(policy == PresencePolicy::Automatic, Ordering::Relaxed);
+    }
+
+    /// Returns the configured [`PresencePolicy`].
+    pub fn presence_policy(&self) -> PresencePolicy {
+        if self.automatic_presence.load(Ordering::Relaxed) {
+            PresencePolicy::Automatic
+        } else {
+            PresencePolicy::Manual
+        }
+    }
+
+    /// Set how many one-time pre-keys are generated per upload batch.
+    ///
+    /// Defaults to WA Web's UPLOAD_KEYS_COUNT (812). Call before connecting; it
+    /// takes effect on the next pre-key upload. The value is clamped to the
+    /// protocol-safe range at upload time, so out-of-range values are coerced
+    /// (and logged) rather than rejected here.
+    pub fn set_wanted_pre_key_count(&self, count: usize) {
+        self.wanted_pre_key_count.store(count, Ordering::Relaxed);
+    }
+
+    /// Returns the configured pre-key upload batch size (the raw value, before
+    /// the upload-time clamp).
+    pub fn wanted_pre_key_count(&self) -> usize {
+        self.wanted_pre_key_count.load(Ordering::Relaxed)
+    }
+
+    /// Retune the per-chat outbound resend rate limiter live (no reconnect).
+    ///
+    /// Outbound resends to a chat are bounded by a token bucket: `burst` is the
+    /// instantaneous allowance and `refill_per_min` the sustained ceiling per
+    /// chat. This caps the aggregate resend rate that WhatsApp's anti-abuse
+    /// penalizes during a PN to LID migration fan-out, while throttled devices
+    /// still recover via the fresh-SKDM mark. A `burst` of 0 disables the limiter.
+    ///
+    /// Takes effect on each chat's next retry; a lowered `burst` clamps a live
+    /// bucket on its next access.
+    pub fn set_resend_rate_limit(&self, burst: u32, refill_per_min: u32) {
+        self.resend_rate_limiter.set_rate(burst, refill_per_min);
+    }
+
+    /// Cumulative wire I/O and activity counters for this client session.
+    ///
+    /// Always available, no feature gate: recording costs one relaxed atomic
+    /// add per wire frame. Byte counts are post-noise wire bytes (frame
+    /// headers and AEAD tags included; handshake and TLS/WebSocket overhead
+    /// excluded), so two clients in one process can be compared directly.
+    pub fn stats(&self) -> StatsSnapshot {
+        let mut snapshot = self.stats.snapshot();
+        snapshot.reconnect_errors = self.auto_reconnect_errors.load(Ordering::Relaxed);
+        snapshot.resends_throttled = self.resend_rate_limiter.throttled_total();
+        snapshot.messages_suppressed_duplicate =
+            self.duplicate_dispatch_suppressed.load(Ordering::Relaxed);
+        snapshot
+    }
+
+    /// Entry counts plus estimated retained heap bytes for the client's
+    /// internal collections. See [`MemoryReport`] for the semantics of the
+    /// byte figures.
+    ///
+    /// On-demand only: walks the in-process caches under their locks when
+    /// called, costs nothing otherwise. Counts include entries that have
+    /// expired but not yet been swept; the sweep runs with the keepalive's
+    /// periodic maintenance ([`Self::run_cache_maintenance`]), so between
+    /// sweeps a count can exceed what a fresh lookup would find.
+    pub async fn memory_report(&self) -> MemoryReport {
+        use wacore::stats::{CollectionStats, HeapSize};
+
+        let (signal_sessions, signal_identities, signal_sender_keys) =
+            self.signal_cache.memory_stats().await;
+        let lid_pn = self.lid_pn_cache.memory_stats().await;
+        let pending_retries_count = self
+            .pending_retries
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len();
+        let media_reuploads = self
+            .media_reuploads
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len();
+        let pending_lid_refreshes_count = self
+            .pending_lid_refreshes
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len();
+        let history_payload_ids = self
+            .history_payload_ids
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len() as u64;
+
+        // `get()`, not `get_group_cache()`: a report must not be what builds the
+        // cache, so an un-warmed client still reports zero entries.
+        let group_cache = match self.group_cache.get() {
+            // Arc<T>'s HeapSize already includes size_of::<GroupRoutingInfo>().
+            Some(cache) => {
+                cache
+                    .memory_stats(|k, v| k.heap_bytes() + v.heap_bytes())
+                    .await
+            }
+            None => CollectionStats::default(),
+        };
+
+        let recent_messages = self
+            .recent_messages
+            .memory_stats(|k, v| k.chat.heap_bytes() + k.id.heap_bytes() + v.heap_bytes())
+            .await;
+
+        let group_devices_memo = self
+            .group_devices_memo
+            .memory_stats(|k, v| k.heap_bytes() + v.heap_bytes())
+            .await;
+        let dm_devices_memo = self
+            .dm_devices_memo
+            .memory_stats(|k, v| k.heap_bytes() + v.heap_bytes())
+            .await;
+        let group_distribution_locks = self.group_distribution_locks.capacity_stats().await;
+        // One awaited walk: a lane's queue length is a channel counter, so this
+        // reads each lane once and allocates nothing.
+        let (inbound_chat_budgets, inbound_chat_charged_bytes, inbound_ack_charged_bytes) = self
+            .inbound_queues
+            .get()
+            .map(|q| q.memory_stats())
+            .unwrap_or_default();
+        let (chat_lanes, chat_lane_backlog) = self
+            .chat_lanes
+            .fold_entries((0u64, 0u64), |(lanes, backlog), _, lane| {
+                (
+                    lanes + 1,
+                    backlog.saturating_add(u64::try_from(lane.queue_tx.len()).unwrap_or(u64::MAX)),
+                )
+            })
+            .await;
+
+        // Each count read into a local so no two guards are ever held at once.
+        let response_waiters = self.response_waiters_guard().len();
+        let presence_subscriptions = self
+            .presence_subscriptions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len();
+        let app_state_key_requests = self.app_state_key_requests.lock().await.len();
+        let app_state_syncing = self.app_state_syncing.len();
+        // `get()`, not the builder: a report must not be what constructs the
+        // processor, so an un-synced client still reports zero.
+        let (app_state_key_cache, app_state_recovery_requests) =
+            match self.app_state_processor.get() {
+                Some(processor) => (
+                    processor.cached_key_count().await,
+                    processor.outstanding_recovery_requests().await,
+                ),
+                None => (0, 0),
+            };
+        // `get()` for the same reason: a client that never received a
+        // recovery reply has nothing queued and builds nothing here.
+        let (
+            app_state_unrequested_recoveries_queued,
+            app_state_unrequested_recoveries_queued_bytes,
+        ) = self
+            .snapshot_recovery
+            .get()
+            .map_or((0, 0), |state| state.queued_unrequested());
+        let offline_receipt_buffer = {
+            let buffer = self
+                .offline_receipt_buffer
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            // The `Arc`s are the drain's only remaining hold on these
+            // `MessageInfo`s by the time they are buffered, so each is charged
+            // in full: its allocation, its struct, and what it points at.
+            let bytes = buffer.capacity() * size_of::<Arc<crate::types::message::MessageInfo>>()
+                + buffer
+                    .iter()
+                    .map(|info| size_of::<crate::types::message::MessageInfo>() + info.heap_bytes())
+                    .sum::<usize>();
+            CollectionStats::new(buffer.len() as u64, bytes as u64)
+        };
+        let (commit_batch_entries, commit_batch_bytes) = self.inbound_commit_batch.pending_stats();
+        let inbound_commit_batch =
+            CollectionStats::new(commit_batch_entries as u64, commit_batch_bytes as u64);
+        let msg_secret_buffer = self.msg_secret_buffer.pending_len();
+        let pending_device_sync = self.pending_device_sync.len();
+        let pending_group_device_resync = self.pending_group_device_resync.len();
+        let pending_group_message_repairs =
+            self.pending_group_device_resync.retained_message_count();
+        let chatstate_handlers = self.chatstate_handler_count.load(Ordering::Acquire);
+        let history_sync_activity = self.history_sync_activity.snapshot();
+        let history_sync_tasks = CollectionStats::new(
+            history_sync_activity.tasks as u64,
+            history_sync_activity.payload_bytes as u64,
+        );
+        let device = self.persistence_manager.get_device_snapshot();
+        let status_privacy =
+            device
+                .status_privacy
+                .as_ref()
+                .map_or_else(CollectionStats::default, |action| {
+                    let entries = action
+                        .user_jid
+                        .len()
+                        .saturating_add(action.custom_lists.len())
+                        .saturating_add(
+                            action
+                                .custom_lists
+                                .iter()
+                                .map(|list| list.user_jid.len())
+                                .sum(),
+                        );
+                    CollectionStats::new(
+                        u64::try_from(entries).unwrap_or(u64::MAX),
+                        // Charge the retained Arc allocation even for a mode-only action.
+                        u64::try_from(
+                            size_of::<waproto::whatsapp::sync_action_value::StatusPrivacyAction>()
+                                .saturating_add(2 * size_of::<usize>())
+                                .saturating_add(action.heap_bytes()),
+                        )
+                        .unwrap_or(u64::MAX),
+                    )
+                });
+        let subsystems = subsystem::memory(&self.subsystems);
+        #[cfg(feature = "plugins")]
+        let plugin_stats = self.plugin_stats();
+        #[cfg(feature = "plugins")]
+        let (
+            plugins,
+            plugin_install_tasks,
+            plugin_connection_tasks,
+            plugin_connection_generations,
+            plugin_core_event_subscriptions,
+            plugin_stanza_interceptors,
+        ) = plugin_stats
+            .as_ref()
+            .map(|host| {
+                host.plugins.iter().fold(
+                    (
+                        u64::try_from(host.plugins.len()).unwrap_or(u64::MAX),
+                        0u64,
+                        0u64,
+                        0u64,
+                        0u64,
+                        0u64,
+                    ),
+                    |(plugins, install, connection, generations, subscriptions, interceptors),
+                     plugin| {
+                        (
+                            plugins,
+                            install.saturating_add(plugin.install_tasks),
+                            connection.saturating_add(plugin.connection_tasks),
+                            generations.saturating_add(plugin.connection_generations),
+                            subscriptions.saturating_add(plugin.core_event_subscriptions),
+                            interceptors.saturating_add(plugin.stanza_interceptors),
+                        )
+                    },
+                )
+            })
+            .unwrap_or_default();
+        #[cfg(feature = "plugins")]
+        let plugin_event_router = plugin_stats
+            .as_ref()
+            .and_then(|host| host.event_router)
+            .unwrap_or_default();
+
+        MemoryReport {
+            group_cache,
+            device_registry_cache: self.device_registry_cache.memory_stats().await,
+            lid_pn_lid_entries: lid_pn.lid,
+            lid_pn_pn_entries: lid_pn.pn,
+            lid_pn_contact_hash_entries: lid_pn.contact_hash,
+            lid_pn_persisted_entries: lid_pn.persisted,
+            recent_messages,
+            sender_key_device_cache: self.sender_key_device_cache.memory_stats().await,
+            group_devices_memo,
+            dm_devices_memo,
+            message_retry_counts: self.message_retry_counts.entry_count_async().await,
+            undecryptable_dispatched: self.undecryptable_dispatched.entry_count_async().await,
+            dispatched_messages: self.dispatched_messages.entry_count(),
+            dispatched_message_contents: self.dispatched_messages.memory_stats(
+                // The identity is a 64-bit digest stored in the slot itself,
+                // so only the claim's payloads retain anything beside it.
+                |_key: &crate::message::DispatchKey, claim: &crate::message::DispatchClaim| {
+                    use wacore::stats::HeapSize;
+                    claim.heap_bytes()
+                },
+            ),
+            pdo_pending_requests: self.pdo_pending_requests.entry_count_async().await,
+            pdo_requested: self.pdo_requested.entry_count_async().await,
+            history_sync_tasks,
+            history_sync_tasks_peak: history_sync_activity.tasks_peak as u64,
+            history_sync_payload_bytes_peak: history_sync_activity.payload_bytes_peak as u64,
+            inbound_commit_batch,
+            offline_receipt_buffer,
+            msg_secret_buffer,
+            pending_device_sync,
+            pending_group_device_resync,
+            pending_group_message_repairs,
+            session_locks: self.session_locks.entry_count_async().await,
+            ensure_inflight: self.ensure_inflight.len() as u64,
+            group_metadata_inflight: self.group_metadata_inflight.len() as u64,
+            chat_lanes,
+            inbound_chat_budgets,
+            inbound_chat_charged_bytes,
+            inbound_ack_charged_bytes,
+            pending_call_offers: self.pending_call_offers.len() as u64,
+            chat_lane_backlog,
+            group_distribution_locks: group_distribution_locks.entries,
+            group_distribution_lock_evictions: group_distribution_locks.evictions,
+            group_distribution_lock_eviction_blocks: group_distribution_locks.eviction_blocks,
+            resend_rate_limiter_chats: self.resend_rate_limiter.entry_count_async().await,
+            session_recreate_history: self.session_recreate_history.entry_count_async().await,
+            skdm_warm_memo: self.skdm_warm_memo.entry_count_async().await,
+            transport_ack_queue: self
+                .inbound_queues
+                .get()
+                .and_then(|q| q.ack_queue.get())
+                .map_or(0, |tx| tx.len()),
+            delivery_receipt_queue: self.delivery_receipt_queue.get().map_or(0, |tx| tx.len()),
+            response_waiters,
+            node_waiters: self.node_waiter_count.load(Ordering::Relaxed),
+            sent_node_waiters: self.sent_node_waiter_count.load(Ordering::Relaxed),
+            media_reuploads,
+            pending_retries: pending_retries_count,
+            pending_lid_refreshes: pending_lid_refreshes_count,
+            history_payload_ids,
+            presence_subscriptions,
+            app_state_key_requests,
+            app_state_key_cache,
+            app_state_recovery_requests,
+            app_state_unrequested_recoveries_queued,
+            app_state_unrequested_recoveries_queued_bytes,
+            app_state_syncing,
+            status_privacy,
+            signal_sessions,
+            signal_identities,
+            signal_sender_keys,
+            subsystems,
+            #[cfg(feature = "plugins")]
+            plugins,
+            #[cfg(feature = "plugins")]
+            plugin_install_tasks,
+            #[cfg(feature = "plugins")]
+            plugin_connection_tasks,
+            #[cfg(feature = "plugins")]
+            plugin_connection_generations,
+            #[cfg(feature = "plugins")]
+            plugin_core_event_subscriptions,
+            #[cfg(feature = "plugins")]
+            plugin_stanza_interceptors,
+            #[cfg(feature = "plugins")]
+            plugin_event_endpoints: plugin_event_router.active_endpoints,
+            #[cfg(feature = "plugins")]
+            plugin_event_endpoint_capacity: plugin_event_router.endpoint_capacity,
+            #[cfg(feature = "plugins")]
+            plugin_event_queue: CollectionStats::new(
+                plugin_event_router.queued_events,
+                plugin_event_router.queued_payload_bytes,
+            ),
+            chatstate_handlers,
+            custom_enc_handlers: self.custom_enc_handlers.as_ref().map_or(0, |m| m.len()),
+            stanza_interceptors: self.stanza_interceptors().len(),
+            core_event_handlers: self.core.event_bus.memory_stats(),
+        }
+    }
+
+    /// Unified per-session resource estimate: the client's own collections
+    /// ([`Client::memory_report`]) **plus** the components that live outside the
+    /// `Client` and dominate real per-session RAM — the storage backend's page
+    /// cache, the transport's buffers + TLS/noise state, the HTTP client's pool
+    /// — and, when a [`AllocMeter`](wacore::stats::AllocMeter) is installed
+    /// (`with_alloc_meter`), an allocation-churn snapshot.
+    ///
+    /// On-demand only, no hot-path cost. Each out-of-client figure is best
+    /// effort: a component reports only what it can introspect, so
+    /// [`ResourceReport::total_estimated_bytes`] is a **lower bound** (see its
+    /// docs for which parts are exact vs. estimated). No PII — sizes and counts
+    /// only. `Send`, so multi-session consumers can await it off a worker.
+    pub async fn resource_report(&self) -> ResourceReport {
+        let client = self.memory_report().await;
+        let storage = self.persistence_manager.backend().resource_report().await;
+        let transport = {
+            let guard = self.transport.lock().await;
+            guard.as_ref().and_then(|t| t.resource_report())
+        };
+        let http = self.http_client.resource_report();
+        let alloc = self.alloc_meter.get().map(|m| m.snapshot());
+        ResourceReport {
+            client,
+            storage,
+            transport,
+            http,
+            alloc,
+        }
+    }
+
+    /// Observe when the crate releases this session's storage ownership.
+    ///
+    /// Shutdown/run completion is not this boundary: detached owners and the
+    /// saver's final flush may still hold the backend. The returned handle owns
+    /// neither this client nor its store. Drop all client/manager handles before
+    /// awaiting it; shutdown itself deliberately does not wait for host owners.
+    /// See [`crate::StoreRelease`] for external-handle and runtime limitations.
+    ///
+    /// ```no_run
+    /// use whatsapp_rust::bot::BotHandle;
+    ///
+    /// async fn stop(handle: BotHandle) {
+    ///     // The temporary client Arc is not retained by the observer.
+    ///     let released = handle.client().store_release();
+    ///     let report = handle.shutdown().await;
+    ///     released.wait().await;
+    ///     // Inspect report for durability; release alone does not imply success
+    ///     // or that independently held database handles have closed.
+    ///     let _ = report;
+    /// }
+    /// ```
+    pub fn store_release(&self) -> crate::StoreRelease {
+        self.persistence_manager.store_release()
+    }
+
+    /// Get access to the PersistenceManager for this client.
+    /// This is useful for multi-account scenarios to get the device ID.
+    pub fn persistence_manager(&self) -> Arc<PersistenceManager> {
+        self.persistence_manager.clone()
+    }
+
+    // The owned returns below are the only clones left: the snapshot read
+    // itself is an Arc refcount bump (no lock against writers). Callers that
+    // only need a borrow can hold `persistence_manager().get_device_snapshot()`
+    // and read fields directly.
+    /// This device's push name (the display name peers see).
+    pub fn push_name(&self) -> String {
+        self.persistence_manager
+            .get_device_snapshot()
+            .push_name
+            .clone()
+    }
+
+    /// This device's phone-number JID, or `None` before pairing completes.
+    pub fn pn(&self) -> Option<Jid> {
+        self.persistence_manager.get_device_snapshot().pn.clone()
+    }
+
+    /// This device's LID JID, or `None` before pairing completes.
+    pub fn lid(&self) -> Option<Jid> {
+        self.persistence_manager.get_device_snapshot().lid.clone()
+    }
+
+    /// Snapshot-consistent identity for span/error tagging (redacted PN, raw LID). Named
+    /// fields, not a tuple — LID/PN transposition would otherwise be a silent, unchecked bug.
+    #[cfg(feature = "tracing")]
+    pub fn identity_tags(&self) -> IdentityTags {
+        let snapshot = self.persistence_manager.get_device_snapshot();
+        IdentityTags {
+            lid: snapshot.lid.as_ref().map(|j| j.to_string()),
+            pn: snapshot.pn.as_ref().map(|j| j.observe().to_string()),
+        }
+    }
+
+    #[cfg(feature = "tracing")]
+    pub(crate) fn log_engine_maintenance_error(
+        identity: Option<IdentityTags>,
+        e: &crate::store::error::StoreError,
+    ) {
+        // A detached task may run under a different subscriber than its caller.
+        // Keep the legacy logger when tracing is disabled at emission time.
+        let mut traced = false;
+        tracing::warn!(
+            target: "Client/Keepalive",
+            lid = {
+                traced = true;
+                identity.as_ref().and_then(|tags| tags.lid.as_deref())
+            },
+            pn = identity.as_ref().and_then(|tags| tags.pn.as_deref()),
+            "Storage maintenance error: {e}"
+        );
+        if !traced {
+            log::warn!(target: "Client/Keepalive", "Storage maintenance error: {e}");
+        }
+    }
+
+    /// An instrumented method's span may be filtered out while its caller's
+    /// span is enabled. Check the defining module too: a host can reuse the
+    /// documented operation name and target without owning our callsite.
+    #[cfg(feature = "tracing")]
+    pub(crate) fn record_identity_on_current_span(&self, operation: &str, target: &str) {
+        let span = tracing::Span::current();
+        if span.metadata().is_some_and(|metadata| {
+            metadata.name() == operation
+                && metadata.target() == target
+                && metadata.module_path() == Some(target)
+        }) {
+            self.record_identity_on_span(&span);
+        }
+    }
+
+    /// Shared so every identity-tagged span leaves a field absent (not `""`) when unknown —
+    /// duplicating this per call site would drift out of sync. Skips the snapshot read when
+    /// the span is disabled.
+    ///
+    /// Records the JIDs borrowed from the held snapshot rather than through
+    /// [`Self::identity_tags`]: the tags struct renders both into owned `String`s,
+    /// and every send crosses several identity-tagged spans, so the formatting is
+    /// left to the subscriber that may not even want the field.
+    #[cfg(feature = "tracing")]
+    pub(crate) fn record_identity_on_span(&self, span: &tracing::Span) {
+        if span.is_disabled() {
+            return;
+        }
+        let snapshot = self.persistence_manager.get_device_snapshot();
+        if let Some(lid) = snapshot.lid.as_ref() {
+            span.record("lid", tracing::field::display(lid));
+        }
+        if let Some(pn) = snapshot.pn.as_ref() {
+            span.record("pn", tracing::field::display(pn.observe()));
+        }
+    }
+
+    pub(crate) fn require_pn(&self) -> Result<Jid> {
+        self.pn().ok_or(ClientError::NotLoggedIn.into())
+    }
+
+    /// Resolve our own JID for a group, respecting its addressing mode.
+    ///
+    /// Returns LID for LID-addressing groups, PN otherwise.
+    /// Matches WhatsApp Web's `getMeUserLidOrJidForChat`.
+    pub(crate) async fn get_own_jid_for_group(
+        &self,
+        group_jid: &Jid,
+    ) -> Result<Jid, anyhow::Error> {
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        let own_pn = device_snapshot
+            .pn
+            .clone()
+            .ok_or_else(|| anyhow::Error::from(ClientError::NotLoggedIn))?;
+
+        let addressing_mode = self
+            .groups()
+            .routing_info(group_jid)
+            .await
+            .map(|info| info.addressing_mode)
+            .unwrap_or(crate::types::message::AddressingMode::Pn);
+
+        Ok(match addressing_mode {
+            crate::types::message::AddressingMode::Lid => {
+                device_snapshot.lid.clone().unwrap_or(own_pn)
+            }
+            crate::types::message::AddressingMode::Pn => own_pn,
+        })
+    }
+
+    pub(crate) async fn update_push_name_and_notify(self: &Arc<Self>, new_name: String) {
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        let old_name = device_snapshot.push_name.clone();
+
+        if old_name == new_name {
+            return;
+        }
+
+        log::debug!("Updating push name");
+        self.persistence_manager
+            .process_command(DeviceCommand::SetPushName(new_name.clone()))
+            .await;
+
+        self.core.event_bus.dispatch(Event::SelfPushNameUpdated(
+            crate::types::events::SelfPushNameUpdated::builder()
+                .from_server(true)
+                .old_name(old_name)
+                .new_name(new_name.clone())
+                .build(),
+        ));
+
+        let client_clone = self.clone();
+        self.runtime
+            .spawn(Box::pin(async move {
+                match client_clone.send_automatic_available().await {
+                    Ok(true) => log::debug!("Sent presence after push name update."),
+                    Ok(false) => {}
+                    Err(e) => {
+                        log::warn!("Failed to send presence after push name update: {:?}", e);
+                    }
+                }
+            }))
+            .detach();
+    }
+
+    /// Register a waiter for an incoming node matching the given filter.
+    ///
+    /// Returns an owned future that resolves when a matching node arrives.
+    /// The waiter starts buffering immediately, so register it **before**
+    /// performing the action that triggers the expected node.
+    ///
+    /// When multiple waiters match the same node, each matching waiter
+    /// receives a clone of the node (broadcast within a single resolve pass).
+    ///
+    /// # Example
+    /// ```ignore
+    /// let waiter = client.wait_for_node(
+    ///     NodeFilter::tag("notification").attr("type", "w:gp2"),
+    /// );
+    /// client.groups().add_participants(&group_jid, &[jid_c]).await?;
+    /// let node = waiter.await.expect("notification arrived");
+    /// ```
+    pub fn wait_for_node(&self, filter: NodeFilter) -> NodeWaiter<wacore_binary::OwnedNodeRef> {
+        register_node_waiter(&self.node_waiters, &self.node_waiter_count, filter)
+    }
+
+    /// Register a waiter for an outgoing node before it is encrypted and sent.
+    ///
+    /// This is intended for tests and diagnostics that need to inspect the raw
+    /// stanza built by the client, such as asserting whether `<tctoken>` or
+    /// `<cstoken>` was attached.
+    pub fn wait_for_sent_node(&self, filter: NodeFilter) -> NodeWaiter<Node> {
+        register_node_waiter(
+            &self.sent_node_waiters,
+            &self.sent_node_waiter_count,
+            filter,
+        )
+    }
+
+    /// Poison-recovering lock of the `response_waiters` map. Centralizes the
+    /// `unwrap_or_else(into_inner)` so no call site reaches for a bare
+    /// `.lock().unwrap()` that would panic if a holder ever panicked. The critical
+    /// section is a trivial map op, never held across an `.await`.
+    #[inline]
+    pub(crate) fn response_waiters_guard(&self) -> std::sync::MutexGuard<'_, ResponseWaiterMap> {
+        self.response_waiters
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Check pending node waiters against an incoming node.
+    /// Only called when `node_waiter_count > 0`.
+    pub(crate) fn resolve_node_waiters(&self, node: &Arc<wacore_binary::OwnedNodeRef>) {
+        resolve_waiters(
+            &self.node_waiters,
+            &self.node_waiter_count,
+            node,
+            node.get(),
+        );
+    }
+
+    pub(crate) fn resolve_sent_node_waiters(&self, node: &Arc<Node>) {
+        resolve_waiters(
+            &self.sent_node_waiters,
+            &self.sent_node_waiter_count,
+            node,
+            &node.as_node_ref(),
+        );
+    }
+
+    pub(crate) fn clear_sent_node_waiters(&self) {
+        let mut waiters = self
+            .sent_node_waiters
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let removed = std::mem::take(&mut *waiters);
+        self.sent_node_waiter_count
+            .fetch_sub(removed.len(), Ordering::Release);
+        drop(waiters);
+        drop(removed);
+    }
+
+    fn should_downgrade_sync_error(&self, err: &anyhow::Error) -> bool {
+        if self.is_shutting_down() {
+            return true;
+        }
+
+        matches!(
+            err.downcast_ref::<crate::request::IqError>(),
+            Some(
+                crate::request::IqError::NotConnected
+                    | crate::request::IqError::InternalChannelClosed
+            )
+        )
+    }
+
+    /// Log a sync error, downgrading to debug level during shutdown/disconnect.
+    pub(crate) fn log_sync_error(&self, context: &str, err: &anyhow::Error) {
+        if self.should_downgrade_sync_error(err) {
+            debug!("Skipping {context} during shutdown: {err}");
+        } else {
+            warn!("Failed {context}: {err}");
+        }
+    }
+
+    /// Create and configure the stanza router with all the handlers.
+    pub(crate) fn create_stanza_router() -> crate::handlers::router::StanzaRouter {
+        use crate::handlers::{
+            basic::{AckHandler, FailureHandler, StreamErrorHandler, SuccessHandler},
+            chatstate::ChatstateHandler,
+            ib::IbHandler,
+            iq::IqHandler,
+            message::MessageHandler,
+            notification::NotificationHandler,
+            receipt::ReceiptHandler,
+            router::StanzaRouter,
+        };
+
+        let mut router = StanzaRouter::new();
+
+        // Register all handlers
+        router.register(Arc::new(MessageHandler));
+        router.register(Arc::new(ReceiptHandler));
+        router.register(Arc::new(IqHandler));
+        router.register(Arc::new(SuccessHandler));
+        router.register(Arc::new(FailureHandler));
+        router.register(Arc::new(StreamErrorHandler));
+        router.register(Arc::new(IbHandler));
+        router.register(Arc::new(NotificationHandler));
+        router.register(Arc::new(AckHandler));
+        router.register(Arc::new(ChatstateHandler));
+
+        router.register(Arc::new(crate::handlers::call::CallHandler));
+
+        // Register unimplemented handlers
+        router.register(Arc::new(crate::handlers::presence::PresenceHandler));
+
+        router
+    }
+}
+
+#[cfg(test)]
+mod raw_node_tests {
+    #[tokio::test]
+    async fn raw_node_forwarding_stays_enabled_until_the_last_lease_drops() {
+        let client = crate::test_utils::create_test_client().await;
+        assert!(!client.raw_node_forwarding_enabled());
+
+        let first = client.acquire_raw_node_forwarding();
+        let second = client.acquire_raw_node_forwarding();
+        assert!(client.raw_node_forwarding_enabled());
+
+        drop(first);
+        assert!(client.raw_node_forwarding_enabled());
+        drop(second);
+        assert!(!client.raw_node_forwarding_enabled());
+    }
+}
+
+#[cfg(test)]
+mod send_checks {
+    fn assert_send<T: Send>(_: &T) {}
+
+    /// Compile-time guard that `memory_report()` stays `Send`: a `!Send` value held
+    /// across an `.await` (e.g. a raw-pointer dedup set) would silently break
+    /// `tokio::spawn` / axum callers. Built for its type only, never polled.
+    #[allow(dead_code)]
+    fn memory_report_future_is_send(c: &super::Client) {
+        assert_send(&c.memory_report());
+    }
+
+    /// Same guard for `resource_report()` — it awaits the backend's async report
+    /// and locks the transport, so a `!Send` future here would break the same
+    /// multi-threaded consumers (per #964).
+    #[allow(dead_code)]
+    fn resource_report_future_is_send(c: &super::Client) {
+        assert_send(&c.resource_report());
+    }
+}
+
+#[cfg(all(test, feature = "tracing"))]
+mod identity_span_tests {
+    use std::sync::Mutex;
+    use wacore::store::commands::DeviceCommand;
+
+    /// Captures what a subscriber would render for the `lid`/`pn` span fields,
+    /// so the recorded values can be asserted without a real fmt layer.
+    #[derive(Default)]
+    struct Captured(Mutex<Vec<(String, String)>>);
+
+    impl tracing::field::Visit for &Captured {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .lock()
+                .expect("capture mutex")
+                .push((field.name().to_string(), format!("{value:?}")));
+        }
+    }
+
+    /// `None` visits nothing, for the allocation guard below.
+    struct CapturingSubscriber(Option<std::sync::Arc<Captured>>);
+
+    impl tracing::Subscriber for CapturingSubscriber {
+        fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::Id {
+            tracing::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::Id, values: &tracing::span::Record<'_>) {
+            if let Some(captured) = self.0.as_ref() {
+                values.record(&mut &**captured);
+            }
+        }
+        fn record_follows_from(&self, _: &tracing::Id, _: &tracing::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {}
+        fn enter(&self, _: &tracing::Id) {}
+        fn exit(&self, _: &tracing::Id) {}
+    }
+
+    fn recorded(captured: &Captured, field: &str) -> Option<String> {
+        captured
+            .0
+            .lock()
+            .expect("capture mutex")
+            .iter()
+            .find(|(name, _)| name == field)
+            .map(|(_, value)| value.clone())
+    }
+
+    #[tokio::test]
+    async fn identity_fields_render_lid_raw_and_pn_redacted() {
+        let client = crate::test_utils::create_test_client().await;
+        let pn: wacore_binary::Jid = "551199990000.0:1@s.whatsapp.net".parse().expect("pn");
+        let lid: wacore_binary::Jid = "199990000000000.0:1@lid".parse().expect("lid");
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(pn.clone())))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(lid.clone())))
+            .await;
+
+        let captured = std::sync::Arc::new(Captured::default());
+        let subscriber = CapturingSubscriber(Some(std::sync::Arc::clone(&captured)));
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::debug_span!(
+                "test.identity",
+                lid = tracing::field::Empty,
+                pn = tracing::field::Empty
+            );
+            client.record_identity_on_span(&span);
+        });
+
+        // The recorded values must still match what rendering the JIDs eagerly
+        // produced: LID in full, PN through the redacting wrapper.
+        assert_eq!(
+            recorded(&captured, "lid").as_deref(),
+            Some(lid.to_string().as_str()),
+            "lid field must render the LID in full"
+        );
+        assert_eq!(
+            recorded(&captured, "pn").as_deref(),
+            Some(pn.observe().to_string().as_str()),
+            "pn field must render through the redacting wrapper, not raw"
+        );
+        // `tracing-pii` exists to render the number raw, so this is the one
+        // claim it invalidates; same split as `observe_redacts_phone_but_not_lid_or_group`.
+        #[cfg(not(feature = "tracing-pii"))]
+        assert!(
+            !recorded(&captured, "pn")
+                .expect("pn recorded")
+                .contains("551199990000"),
+            "the raw phone number must never reach the span field"
+        );
+    }
+
+    /// Failure shape: an unpaired device leaves both fields absent rather than
+    /// recording an empty string, which is the contract the shared helper exists
+    /// to keep.
+    #[tokio::test]
+    async fn identity_fields_stay_absent_before_pairing() {
+        let client = crate::test_utils::create_test_client().await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(None))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(None))
+            .await;
+
+        let captured = std::sync::Arc::new(Captured::default());
+        let subscriber = CapturingSubscriber(Some(std::sync::Arc::clone(&captured)));
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::debug_span!(
+                "test.identity",
+                lid = tracing::field::Empty,
+                pn = tracing::field::Empty
+            );
+            client.record_identity_on_span(&span);
+        });
+
+        assert_eq!(recorded(&captured, "lid"), None);
+        assert_eq!(recorded(&captured, "pn"), None);
+    }
+
+    /// Locks the reason this helper stopped going through `identity_tags`: on a
+    /// paired client it rendered two owned `String`s per identity-tagged span,
+    /// and a send crosses several of them.
+    #[tokio::test]
+    async fn recording_identity_does_not_heap_allocate() {
+        let client = crate::test_utils::create_test_client().await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(
+                "551199990000.0:1@s.whatsapp.net".parse().expect("pn"),
+            )))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(
+                "199990000000000.0:1@lid".parse().expect("lid"),
+            )))
+            .await;
+
+        // A subscriber that enables the span but does not visit the fields: what
+        // this locks is that the crate itself renders nothing, leaving the cost
+        // to whichever layer actually wants the value.
+        let min_delta = tracing::subscriber::with_default(CapturingSubscriber(None), || {
+            let span = tracing::debug_span!(
+                "test.identity",
+                lid = tracing::field::Empty,
+                pn = tracing::field::Empty
+            );
+            crate::test_alloc::min_allocs(0, || client.record_identity_on_span(&span))
+        });
+        assert_eq!(
+            min_delta, 0,
+            "recording identity on a span must not allocate on the crate side"
+        );
+    }
+}

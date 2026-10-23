@@ -1,0 +1,822 @@
+//! VoIP media-plane hot paths: the per-packet work a live 1:1 call pays every 60 ms each way on
+//! audio, and ~1200 times a second on video.
+//! Two layers are benched so a regression can be localized: the raw primitives (MLow encode/decode,
+//! E2E-SRTP protect/unprotect, the AES-CTR payload cipher, SFrame, H.264 packetize/depacketize) and
+//! the full engine inputs that compose them (`on_mic`, `on_rtp`). `divan::AllocProfiler` is wired as
+//! the global allocator so each row reports allocation count + bytes alongside wall time -- the codec
+//! dominates CPU, but the crypto/framing seam is where the avoidable per-packet allocations live.
+
+use bytes::Bytes;
+use divan::{Bencher, black_box};
+use wacore::voip::{
+    CallConfig, CallDirection, CallEngine, Input, MediaPipeline, MediaPipelineParams, MlowDecoder,
+    MlowEncoder, Output, VideoPipeline, VideoPipelineParams,
+};
+// Internal crypto/framing primitives the bench drives directly. They are intentionally off the
+// `voip` facade and `#[doc(hidden)]` (not part of the consumer API); the bench reaches them via
+// their source-module paths.
+use wacore::voip::e2e_srtp::{crypt_payload, derive_e2e_keys};
+use wacore::voip::engine::SequentialTxIds;
+use wacore::voip::h264::{H264Depacketizer, PacketizedAu, packetize_au};
+use wacore::voip::sframe::SframeSession;
+
+/// Allocation profiler: makes every bench row also report allocs/frees and bytes, which is the
+/// whole point of the seam-level rows (the per-packet `Vec` count is the optimizable signal).
+#[global_allocator]
+static ALLOC: divan::AllocProfiler = divan::AllocProfiler::system();
+
+fn main() {
+    // Build the codec-stage harness BEFORE divan starts. Divan's calibration run times whatever the
+    // bench function does before its closure, and `Stages::new` runs three real encodes: left inside,
+    // it sized `entropy_encode`'s sample loop to a single iteration and put one 3.6 ms /
+    // 2000-allocation outlier on a row whose real cost is 1.9 us and zero allocations.
+    #[cfg(feature = "bench-internals")]
+    codec_stages::warm();
+    divan::main();
+}
+
+const SELF_LID: &str = "111111111111111:0@lid";
+const PEER_LID: &str = "222222222222222:0@lid";
+const SSRC: u32 = 0x5741_0001;
+/// The MLow frame size: 60ms @ 16kHz. The encoder accepts nothing else.
+const SAMPLES: usize = 960;
+/// Distinct frames cycled through the codec benches. A *single repeated* frame hits a cheaper,
+/// lower-allocation code path (fewer pulses/survivors) and under-reports the real per-frame cost, so
+/// the codec benches stream several frames instead.
+const STREAM: usize = 8;
+
+fn call_key() -> Vec<u8> {
+    (0u8..32).collect()
+}
+
+/// A 60ms voiced tone (the encoder's LTP path, the realistic steady-state case). `phase` shifts it so
+/// a primed encoder sees a fresh frame rather than a repeat.
+fn tone_f32(phase: usize) -> Vec<f32> {
+    (0..SAMPLES)
+        .map(|i| 0.3 * (((i + phase) as f32) * 0.07).sin())
+        .collect()
+}
+
+/// A 60ms i16 mic frame (what `Input::MicFrame` carries), non-silent so the engine doesn't take the
+/// silence-skip shortcut.
+fn tone_i16() -> Vec<i16> {
+    (0..SAMPLES)
+        .map(|i| (8000.0 * (i as f32 * 0.1).sin()) as i16)
+        .collect()
+}
+
+/// An encoder past its first frame, so timed encodes measure the steady-state (inter-frame state
+/// warmed) path rather than the colder first-frame one.
+fn primed_encoder() -> MlowEncoder {
+    let mut enc = MlowEncoder::new();
+    let _ = enc.encode(&tone_f32(0));
+    enc
+}
+
+/// One realistic encoded MLow frame, for the crypto/framing benches that need a payload.
+fn encoded_frame() -> Vec<u8> {
+    primed_encoder().encode(&tone_f32(SAMPLES)).unwrap()
+}
+
+/// The local send/recv pipeline (self=ours, peer=theirs).
+fn pipeline() -> MediaPipeline {
+    MediaPipeline::new(&MediaPipelineParams {
+        call_key: &call_key(),
+        self_lid: SELF_LID,
+        peer_lid: PEER_LID,
+        ssrc: SSRC,
+        samples_per_packet: SAMPLES as u32,
+        warp_mi_tag_len: 4,
+    })
+    .unwrap()
+}
+
+/// The mirror peer's send pipeline: its self LID is our peer LID, so what it protects, our
+/// `unprotect_audio` recovers (it encrypts under the key our recv side reads).
+fn peer_pipeline() -> MediaPipeline {
+    MediaPipeline::new(&MediaPipelineParams {
+        call_key: &call_key(),
+        self_lid: PEER_LID,
+        peer_lid: SELF_LID,
+        ssrc: SSRC,
+        samples_per_packet: SAMPLES as u32,
+        warp_mi_tag_len: 4,
+    })
+    .unwrap()
+}
+
+fn config_for(self_lid: &str, peer_lid: &str, ssrc: u32, direction: CallDirection) -> CallConfig {
+    CallConfig {
+        call_id: "BENCH".into(),
+        direction,
+        self_lid: self_lid.into(),
+        peer_lid: peer_lid.into(),
+        call_key: call_key(),
+        ssrc,
+        audio: wacore::voip::AudioConfig::MLOW_PCM,
+        relay_token: vec![0xAB; 16],
+        auth_token: vec![0xCD; 8],
+        relay_ip: "203.0.113.7".into(),
+        relay_port: 3478,
+        integrity_key: b"relay-key".to_vec(),
+        warp_mi_tag_len: 4,
+        enable_media: true,
+        enable_video: false,
+        enable_sframe: false,
+    }
+}
+
+fn config() -> CallConfig {
+    config_for(SELF_LID, PEER_LID, SSRC, CallDirection::Incoming)
+}
+
+/// A started engine with the initial allocate already drained, so a benched input measures only the
+/// steady-state per-packet work.
+fn started_engine() -> CallEngine {
+    started_engine_from(config())
+}
+
+fn started_engine_from(cfg: CallConfig) -> CallEngine {
+    let mut eng = CallEngine::new(cfg, Box::new(SequentialTxIds::new())).unwrap();
+    eng.start(0, 0);
+    drain(&mut eng);
+    eng
+}
+
+/// Drain every queued intent up to the terminal Timeout (what the shell does after each input),
+/// observing each so the work that produced it isn't optimized away.
+fn drain(eng: &mut CallEngine) {
+    loop {
+        match eng.poll_output() {
+            Output::Timeout(_) => break,
+            other => {
+                black_box(other);
+            }
+        }
+    }
+}
+
+// --- Codec: the CPU-dominant primitives ---
+
+/// MLow encode over a varied stream -- the outbound CPU floor (runs ~16.7x/s while the mic is open).
+#[divan::bench]
+fn mlow_encode(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let frames: Vec<Vec<f32>> = (0..STREAM).map(|i| tone_f32(i * SAMPLES)).collect();
+            (primed_encoder(), frames, 0usize)
+        })
+        .bench_refs(|(enc, frames, i)| {
+            let f = &frames[*i % frames.len()];
+            *i += 1;
+            black_box(enc.encode(black_box(f.as_slice())).unwrap())
+        });
+}
+
+/// The engine path keeps the encoded output allocation for the lifetime of the call.
+#[divan::bench]
+fn mlow_encode_reused_output(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let frames: Vec<Vec<f32>> = (0..STREAM).map(|i| tone_f32(i * SAMPLES)).collect();
+            (primed_encoder(), frames, 0usize, Vec::with_capacity(2048))
+        })
+        .bench_refs(|(enc, frames, i, output)| {
+            let f = &frames[*i % frames.len()];
+            *i += 1;
+            enc.encode_into(black_box(f.as_slice()), output).unwrap();
+            black_box(output.len())
+        });
+}
+
+/// Quantized tone input establishes a separate baseline rather than a direct comparison to the f32 row.
+#[divan::bench]
+fn mlow_encode_i16_reused_output(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let frames: Vec<Vec<i16>> = (0..STREAM)
+                .map(|i| {
+                    tone_f32(i * SAMPLES)
+                        .iter()
+                        .map(|s| (s * 32768.0) as i16)
+                        .collect()
+                })
+                .collect();
+            (primed_encoder(), frames, 0usize, Vec::with_capacity(2048))
+        })
+        .bench_refs(|(enc, frames, i, output)| {
+            let f = &frames[*i % frames.len()];
+            *i += 1;
+            if let Err(error) = enc.encode_i16_into(black_box(f.as_slice()), output) {
+                panic!("valid i16 benchmark frame failed to encode: {error}");
+            }
+            black_box(output.len())
+        });
+}
+
+/// MLow decode over a varied stream -- the inbound CPU floor (runs once per received audio packet).
+#[divan::bench]
+fn mlow_decode(bencher: Bencher) {
+    let packets: Vec<Vec<u8>> = {
+        let mut enc = primed_encoder();
+        (0..STREAM)
+            .map(|i| enc.encode(&tone_f32(i * SAMPLES)).unwrap())
+            .collect()
+    };
+    bencher
+        .with_inputs(|| {
+            let mut dec = MlowDecoder::new();
+            let _ = dec.decode(&packets[0]); // prime past the first-frame path
+            (dec, packets.clone(), 0usize)
+        })
+        .bench_refs(|(dec, pkts, i)| {
+            let p = &pkts[*i % pkts.len()];
+            *i += 1;
+            black_box(dec.decode(black_box(p.as_slice())))
+        });
+}
+
+// --- Codec stages: which part of the encoder a change actually moved ---
+//
+// `mlow_encode` is one row, so a codec-internal change moves it without saying WHICH stage moved.
+// These rows call the same production functions the analyzer calls, one stage per row, via the
+// `stage_bench` harness (`wacore::voip::mlow::stage_bench`). The harness builds its tables, twiddles
+// and pooled buffers in `Stages::new` and primes the cross-frame state with real frames, so a timed
+// body is per-frame work only -- what a call pays every 60 ms, never what the stream resolves once.
+//
+// Each row's doc gives its per-frame multiplicity, which is what makes the rows sum: reading them
+// against `mlow_encode` needs `stage_time * calls_per_frame`, not `stage_time` alone. Decode has no
+// row here on purpose -- it runs none of these stages (notably, zero FFTs).
+#[cfg(feature = "bench-internals")]
+mod codec_stages {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use wacore::voip::mlow::stage_bench::Stages;
+
+    /// One harness for every row, built once by [`warm`] before divan starts. Divan runs rows
+    /// sequentially, so the lock is uncontended; its ~20 ns is inside every row's timed body, which
+    /// matters only for `entropy_encode` (~1% of its 1.9 us) and is why the harness is shared rather
+    /// than rebuilt.
+    ///
+    /// Sharing is also the faithful shape: the stateful stages (perc history, CELP ACB/ZIR, pitch
+    /// predictor) advance exactly as they do in a live call, and each row runs enough iterations to
+    /// settle into its own steady state, so no row depends on which ran before it.
+    static STAGES: OnceLock<Mutex<Stages>> = OnceLock::new();
+
+    /// Construct the harness outside any timed region. Called from `main` before `divan::main`.
+    pub fn warm() {
+        STAGES.get_or_init(|| Mutex::new(Stages::new()));
+    }
+
+    fn run(bencher: Bencher, mut stage: impl FnMut(&mut Stages) -> f64) {
+        let cell = STAGES.get().expect("warm() ran in main");
+        bencher.bench_local(move || black_box(stage(&mut cell.lock().expect("bench harness"))));
+    }
+
+    /// Whole analysis half of an encode (1x/frame): VAD, high-pass, and the per-internal-frame LPC /
+    /// perc / pitch / LSF / CELP chain. With `entropy_encode` this is the codec work -- `mlow_encode`
+    /// additionally sanitizes its 960 input samples and allocates a fresh output buffer, which the
+    /// `mlow_encode` vs `mlow_encode_reused_output` pair isolates.
+    #[divan::bench]
+    fn analyze_frame(bencher: Bencher) {
+        run(bencher, |s| s.analyze_frame() as f64);
+    }
+
+    /// Range coder writing the analyzed parameters to the wire (1x/frame). The other half of
+    /// `mlow_encode`, and the half that does NOT dominate.
+    #[divan::bench]
+    fn entropy_encode(bencher: Bencher) {
+        run(bencher, |s| s.entropy_encode() as f64);
+    }
+
+    /// LPC front-end for one internal frame (3x/frame): window, forward FFT, power spectrum, DCT
+    /// autocorrelation, Levinson, bandwidth expansion, A->NLSF.
+    #[divan::bench]
+    fn lpc_front_end(bencher: Bencher) {
+        run(bencher, |s| s.lpc_front_end() as f64);
+    }
+
+    /// The bare forward real FFT at the LPC size (N=512, pure radix-2), 3x/frame. Isolated from
+    /// `lpc_front_end` so an FFT-local change is attributable without the DCT/Levinson around it.
+    #[divan::bench]
+    fn fft512_forward(bencher: Bencher) {
+        run(bencher, |s| s.fft512_forward() as f64);
+    }
+
+    /// Forward + inverse real FFT at the perceptual-model size (N=576 = 2^6 * 3^2, mixed radix 2/3),
+    /// 6x/frame -- 12 of the frame's 15 FFTs, and the only path that reaches the radix-3 levels and
+    /// the O(n^2) prime base case.
+    #[divan::bench]
+    fn fft576_roundtrip(bencher: Bencher) {
+        run(bencher, |s| s.fft576_roundtrip() as f64);
+    }
+
+    /// Perceptual model for one internal frame (3x/frame): two `smpl_perc_model` calls, i.e. two
+    /// `fft576_roundtrip`s plus the windowing and the masking smooth around them.
+    #[divan::bench]
+    fn perc_model_frame(bencher: Bencher) {
+        run(bencher, |s| s.perc_corrs_frame() as f64);
+    }
+
+    /// Multi-stage pitch estimator for one internal frame (3x/frame).
+    #[divan::bench]
+    fn pitch_search(bencher: Bencher) {
+        run(bencher, |s| s.pitch_search() as f64);
+    }
+
+    /// LSF vector quantizer plus the envelope reconstruction and NLSF->A after it (3x/frame). The
+    /// row that covers `get_maxi_k` and `smpl_nlsf2a`.
+    #[divan::bench]
+    fn lsf_quantize(bencher: Bencher) {
+        run(bencher, |s| s.lsf_quantize() as f64);
+    }
+
+    /// CELP excitation encoder for one internal frame (3x/frame): perceptual weighting plus four
+    /// `encode_subframe` calls, so `encode_subframe` itself runs 12x/frame. The fixed-codebook pulse
+    /// search inside it is the single largest stage of the encoder.
+    #[divan::bench]
+    fn celp_subframes_frame(bencher: Bencher) {
+        run(bencher, |s| s.celp_subframes_frame() as f64);
+    }
+}
+
+// --- Crypto + framing: the seam where avoidable per-packet allocations live ---
+
+/// `protect_audio`: RTP header + AES-CTR encrypt + WARP MI tag. The outbound framing path; its alloc
+/// count is the headline number for the seam-level optimization work. One allocation is the floor
+/// here -- the returned packet itself.
+#[divan::bench]
+fn audio_protect_packet(bencher: Bencher) {
+    let frame = encoded_frame();
+    bencher
+        .with_inputs(|| (pipeline(), frame.clone()))
+        .bench_refs(|(pipe, f)| black_box(pipe.protect_audio(black_box(f.as_slice()))));
+}
+
+/// `unprotect_audio`: strip tag, parse header, AES-CTR decrypt. The inbound framing path. Its floor
+/// is likewise one allocation: the plaintext handed back to the decoder.
+#[divan::bench]
+fn audio_unprotect_packet(bencher: Bencher) {
+    let frame = encoded_frame();
+    bencher
+        .with_inputs(|| {
+            let packet = peer_pipeline().protect_audio(&frame);
+            (pipeline(), packet)
+        })
+        .bench_refs(|(rx, packet)| black_box(rx.unprotect_audio(black_box(packet.as_slice()))));
+}
+
+/// The bare AES-128-CTR payload cipher under `protect`/`unprotect`. Isolated so its allocation
+/// (`payload.to_vec()`) is attributable separately from the header/tag framing around it.
+#[divan::bench]
+fn crypt_payload_one(bencher: Bencher) {
+    let keys = derive_e2e_keys(&call_key(), SELF_LID).unwrap();
+    let frame = encoded_frame();
+    bencher
+        .with_inputs(|| frame.clone())
+        .bench_refs(|f| black_box(crypt_payload(black_box(&keys), SSRC, 1, 0, f.as_slice())));
+}
+
+// --- Video: the H.264 packetize + protect path, ~1200 packets/s at 30 fps ---
+
+const VIDEO_SSRC: u32 = 0x5741_0101;
+/// 90 kHz video clock at 30 fps.
+const VIDEO_TS_STRIDE: u32 = 3000;
+
+/// One NAL of `len` bytes with a non-zero header byte and a body that can never contain a
+/// start code (consecutive bytes always differ, so `00 00 01` cannot appear).
+fn video_nal(kind: u8, len: usize) -> Vec<u8> {
+    let mut n = vec![0x60 | kind];
+    n.extend((0..len.saturating_sub(1)).map(|i| (i % 251) as u8));
+    n
+}
+
+fn video_au(nals: &[Vec<u8>]) -> Vec<u8> {
+    let mut au = Vec::new();
+    for n in nals {
+        au.extend_from_slice(&[0, 0, 0, 1]);
+        au.extend_from_slice(n);
+    }
+    au
+}
+
+/// A keyframe-shaped access unit: AUD + SPS + PPS + a 32 KB IDR slice, which fragments into
+/// ~41 FU-A payloads. This is the frame that sets the video send path's per-frame bill.
+fn video_au_1080p() -> Vec<u8> {
+    video_au(&[
+        video_nal(9, 2),
+        video_nal(7, 24),
+        video_nal(8, 10),
+        video_nal(5, 32 * 1024),
+    ])
+}
+
+/// A delta frame small enough for a single-NAL payload -- the common case between keyframes.
+fn video_au_single_nal() -> Vec<u8> {
+    video_au(&[video_nal(9, 2), video_nal(1, 600)])
+}
+
+fn video_pipeline_for(self_lid: &str, peer_lid: &str) -> VideoPipeline {
+    VideoPipeline::new(&VideoPipelineParams {
+        call_key: &call_key(),
+        self_lid,
+        peer_lid,
+        ssrc: VIDEO_SSRC,
+        ts_stride: VIDEO_TS_STRIDE,
+        warp_mi_tag_len: 4,
+    })
+    .unwrap()
+}
+
+/// RFC 6184 packetization of a keyframe, reusing the output buffer the way the send path does.
+/// The signal is the allocation count: a reused `PacketizedAu` should hold at zero.
+#[divan::bench]
+fn h264_packetize_au_1080p(bencher: Bencher) {
+    let au = video_au_1080p();
+    bencher
+        .with_inputs(|| {
+            // Primed outside the timed body so the row measures steady-state reuse rather
+            // than the first frame's buffer growth.
+            let mut out = PacketizedAu::default();
+            packetize_au(&au, &mut out);
+            out
+        })
+        .bench_refs(|out| {
+            packetize_au(black_box(&au), out);
+            black_box(out.len())
+        });
+}
+
+/// The delta-frame packetize: one single-NAL payload, no fragmentation.
+#[divan::bench]
+fn h264_packetize_au_single_nal(bencher: Bencher) {
+    let au = video_au_single_nal();
+    bencher
+        .with_inputs(|| {
+            let mut out = PacketizedAu::default();
+            packetize_au(&au, &mut out);
+            out
+        })
+        .bench_refs(|out| {
+            packetize_au(black_box(&au), out);
+            black_box(out.len())
+        });
+}
+
+/// Reassembly of one keyframe's whole FU-A run: every fragment of the AU pushed in wire order,
+/// the last carrying the marker. The inbound video counterpart of `h264_packetize_au_1080p`.
+#[divan::bench]
+fn h264_depacketize_fua_stream(bencher: Bencher) {
+    let payloads: Vec<Vec<u8>> = {
+        let mut out = PacketizedAu::default();
+        packetize_au(&video_au_1080p(), &mut out);
+        out.iter().map(<[u8]>::to_vec).collect()
+    };
+    bencher
+        .with_inputs(|| {
+            // One keyframe reassembled outside the timed body, then `reset()` (which clears the
+            // buffers but keeps their capacity), so the row measures a steady-state frame the way
+            // the packetize rows above do. A depacketizer straight from `default()` grew its FU
+            // buffer 0 -> 32 KB inside the timed body, and whether glibc could extend that chunk in
+            // place or had to move it decided a third of the row: the same code measured 233 us and
+            // 336 us on two runners whose only difference was the CPU and the libc build.
+            let mut d = H264Depacketizer::default();
+            let last = payloads.len() - 1;
+            for (i, p) in payloads.iter().enumerate() {
+                d.push(i as u16, 90_000, p.as_slice(), i == last);
+            }
+            d.reset();
+            d
+        })
+        .bench_refs(|d| {
+            let last = payloads.len() - 1;
+            for (i, p) in payloads.iter().enumerate() {
+                black_box(d.push(i as u16, 90_000, black_box(p.as_slice()), i == last));
+            }
+        });
+}
+
+/// `protect_video` over a whole keyframe: packetize, then per fragment an RTP header, an AES-CTR
+/// encrypt and a WARP MI tag. One frame is ~43 packets, so this row is ~43x a single audio
+/// `protect`, and its allocation floor is one `Vec` per packet plus the outer one -- the
+/// packetizer's fragment buffer is reused across frames and should add nothing.
+#[divan::bench]
+fn video_protect_frame(bencher: Bencher) {
+    let au = video_au_1080p();
+    bencher
+        .with_inputs(|| {
+            // One frame sent outside the timed body, so the row measures a steady-state
+            // frame rather than the call's first one (which grows the fragment buffer).
+            let mut pipe = video_pipeline_for(SELF_LID, PEER_LID);
+            pipe.protect_video(&au);
+            pipe
+        })
+        .bench_refs(|pipe| black_box(pipe.protect_video(black_box(au.as_slice()))));
+}
+
+/// `unprotect_video` for one received FU-A packet: MI tag, header parse, AES-CTR decrypt, and the
+/// depacketizer push. The keyframe's first FU-A fragment, so it opens a partial NAL and no AU
+/// completes -- the row is the per-packet inbound cost, not a frame's reassembly.
+#[divan::bench]
+fn video_unprotect_packet(bencher: Bencher) {
+    let packet = {
+        let mut peer = video_pipeline_for(PEER_LID, SELF_LID);
+        // Payload order is SPS, PPS, then the IDR's FU-A run: index 2 is its start fragment.
+        peer.protect_video(&video_au_1080p()).swap_remove(2)
+    };
+    bencher
+        .with_inputs(|| (video_pipeline_for(SELF_LID, PEER_LID), packet.clone()))
+        .bench_refs(|(rx, pkt)| black_box(rx.unprotect_video(black_box(pkt.as_slice()))));
+}
+
+/// SFrame recv decrypt (the live SFrame direction: inbound GCM-unwrap with a plaintext fallback).
+#[divan::bench]
+fn sframe_decrypt(bencher: Bencher) {
+    let frame = {
+        let mut peer = SframeSession::new(&call_key(), PEER_LID, SELF_LID).unwrap();
+        peer.encrypt(&encoded_frame())
+    };
+    let rx = SframeSession::new(&call_key(), SELF_LID, PEER_LID).unwrap();
+    bencher
+        .with_inputs(|| frame.clone())
+        .bench_refs(|f| black_box(rx.decrypt(black_box(f.as_slice()))));
+}
+
+// --- Full engine inputs: the seam-level cost the shell actually drives ---
+
+/// `handle_input(MicFrame)` + drain: the whole outbound packet path (silence check, i16->f32,
+/// MLow encode, SRTP protect, enqueue). One Transmit per non-silent frame.
+#[divan::bench]
+fn engine_outbound_frame(bencher: Bencher) {
+    let tone = tone_i16();
+    bencher.with_inputs(started_engine).bench_refs(|eng| {
+        eng.handle_input(1, Input::MicFrame(black_box(&tone)));
+        drain(eng);
+    });
+}
+
+/// `handle_input(RelayPacket)` + drain: the whole inbound packet path (classify, SRTP unprotect,
+/// SFrame fallthrough, MLow decode, jitter feed).
+#[divan::bench]
+fn engine_inbound_packet(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let packet = peer_pipeline().protect_audio(&encoded_frame());
+            (started_engine(), packet)
+        })
+        .bench_refs(|(eng, packet)| {
+            eng.handle_input(1, Input::RelayPacket(black_box(packet)));
+            drain(eng);
+        });
+}
+
+// --- End-to-end: two peers talking through a relay seam ---
+
+const SSRC_B: u32 = 0x5741_0002;
+
+/// Which peer a packet came from; the relay delivers it to the other one.
+#[derive(Clone, Copy)]
+enum Origin {
+    A,
+    B,
+}
+
+/// The relay hop both peers' media crosses. A trait so the simulation routes every packet through one
+/// explicit seam -- like the real `RelayTransport` -- instead of handing engine A's output straight to
+/// engine B, and so a lossy/jittery relay model could drop in here without touching the call loop.
+trait SimRelay {
+    fn carry(&mut self, from: Origin, pkt: Bytes);
+    /// Take everything queued for A and for B, respectively.
+    fn deliver(&mut self) -> (Vec<Bytes>, Vec<Bytes>);
+}
+
+/// Lossless, in-order, zero-latency relay: the floor-cost seam (no jitter/loss), so the bench isolates
+/// the codec + crypto work of a call rather than buffer dynamics.
+#[derive(Default)]
+struct LosslessRelay {
+    to_a: Vec<Bytes>,
+    to_b: Vec<Bytes>,
+}
+
+impl SimRelay for LosslessRelay {
+    fn carry(&mut self, from: Origin, pkt: Bytes) {
+        match from {
+            Origin::A => self.to_b.push(pkt),
+            Origin::B => self.to_a.push(pkt),
+        }
+    }
+    fn deliver(&mut self) -> (Vec<Bytes>, Vec<Bytes>) {
+        (
+            std::mem::take(&mut self.to_a),
+            std::mem::take(&mut self.to_b),
+        )
+    }
+}
+
+/// Drain one engine, routing its `Transmit`s into the relay and observing every other intent
+/// (`Playout`/`Event`) so the work that produced them isn't optimized away.
+fn pump(eng: &mut CallEngine, origin: Origin, relay: &mut dyn SimRelay) {
+    loop {
+        match eng.poll_output() {
+            Output::Timeout(_) => break,
+            Output::Transmit(b) => relay.carry(origin, b),
+            other => {
+                black_box(other);
+            }
+        }
+    }
+}
+
+/// One second of a live 1:1 call: 50 x 20ms ticks. Each peer captures a 60ms mic frame every third
+/// tick (the MLow frame cadence) and runs a playout tick every tick; their `Transmit`s cross the relay
+/// and arrive as `RelayPacket`s on the other side, which decrypt + decode + feed the jitter buffer.
+/// This is the realistic full-duplex flow -- encode, protect, relay, unprotect, decode, play, both
+/// ways -- so the profile shows what actually dominates a call (spoiler: the two encoders).
+fn simulate_call_second(a: &mut CallEngine, b: &mut CallEngine, relay: &mut dyn SimRelay) {
+    let mic_a = tone_i16();
+    let mic_b: Vec<i16> = (0..SAMPLES)
+        .map(|i| (6000.0 * (i as f32 * 0.13).cos()) as i16)
+        .collect();
+    for tick in 0..50u64 {
+        let now = tick * 20;
+        if tick.is_multiple_of(3) {
+            a.handle_input(now, Input::MicFrame(black_box(&mic_a)));
+            b.handle_input(now, Input::MicFrame(black_box(&mic_b)));
+        }
+        a.handle_input(now, Input::Timeout);
+        b.handle_input(now, Input::Timeout);
+        pump(a, Origin::A, relay);
+        pump(b, Origin::B, relay);
+        let (to_a, to_b) = relay.deliver();
+        for pkt in to_a {
+            a.handle_input(now, Input::RelayPacket(black_box(&pkt)));
+        }
+        for pkt in to_b {
+            b.handle_input(now, Input::RelayPacket(black_box(&pkt)));
+        }
+        // Inbound packets feed the jitter buffer (no Transmit), but still drain Playout/Events.
+        pump(a, Origin::A, relay);
+        pump(b, Origin::B, relay);
+    }
+}
+
+/// The headline real-life bench: two peers in a 1-second full-duplex call over the relay seam. The
+/// aggregate time/allocs here are the per-call-second cost; comparing it against `mlow_encode` x ~34
+/// (two peers x ~16.7 frames/s) shows the encoder is essentially the entire bill.
+#[divan::bench]
+fn call_second_two_peers(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            let a = started_engine_from(config_for(
+                SELF_LID,
+                PEER_LID,
+                SSRC,
+                CallDirection::Outgoing,
+            ));
+            let b = started_engine_from(config_for(
+                PEER_LID,
+                SELF_LID,
+                SSRC_B,
+                CallDirection::Incoming,
+            ));
+            (a, b, LosslessRelay::default())
+        })
+        .bench_refs(|(a, b, relay)| simulate_call_second(a, b, relay));
+}
+
+// ---- Packet framing: the RTP/STUN/RTCP header parse+encode the media plane runs per packet,
+// separate from the codec/crypto rows above. AllocProfiler makes the per-packet Vec churn on the
+// encode path visible; the parse rows are alloc-free stack decodes whose signal is instruction
+// count under the CodSpeed runner.
+mod framing {
+    use super::*;
+    use wacore::voip::rtcp::{RtcpSenderStats, build_sender_report, parse_rtcp_sender_ssrc};
+    use wacore::voip::rtp::{RtpHeader, encode_rtp_header, parse_rtp_header};
+    use wacore::voip::stun::parse_stun_attributes;
+
+    fn sample_rtp_header() -> RtpHeader {
+        RtpHeader {
+            marker: false,
+            payload_type: 120,
+            sequence_number: 0x1234,
+            timestamp: 0x0009_6000,
+            ssrc: 0xDEAD_BEEF,
+            extension_word: Some(0x3001_0000),
+            video_extension: None,
+        }
+    }
+
+    // A STUN allocate-success carrying the attributes a relay handshake actually returns: a 16-byte
+    // relay-token, a 20-byte message-integrity, and a 4-byte lifetime. Header (20) + three TLVs.
+    fn sample_stun_packet() -> Vec<u8> {
+        let mut p = Vec::new();
+        p.extend_from_slice(&[0x01, 0x02]); // allocate-success type
+        p.extend_from_slice(&[0x00, 0x00]); // body length patched below
+        p.extend_from_slice(&0x2112_A442u32.to_be_bytes()); // magic cookie
+        p.extend_from_slice(&[0xAB; 12]); // transaction id
+        let mut push_attr = |ty: u16, val: &[u8]| {
+            p.extend_from_slice(&ty.to_be_bytes());
+            p.extend_from_slice(&(val.len() as u16).to_be_bytes());
+            p.extend_from_slice(val);
+            while p.len() % 4 != 0 {
+                p.push(0);
+            }
+        };
+        push_attr(0x4000, &[0x11; 16]);
+        push_attr(0x0008, &[0x22; 20]);
+        push_attr(0x000D, &[0x00, 0x00, 0x02, 0x58]);
+        // Odd-length (username-shaped) so the pad4 alignment skip is exercised,
+        // matching a real relay response rather than only 4-aligned values.
+        push_attr(0x0006, b"whatsapp-relay-user");
+        let body = (p.len() - 20) as u16;
+        p[2..4].copy_from_slice(&body.to_be_bytes());
+        p
+    }
+
+    /// How many packets one sample of the alloc-free parse rows decodes.
+    ///
+    /// `parse_rtcp_sender_ssrc` is a length check and a four-byte load, and
+    /// `parse_rtp_header` is not much more: 6.6 ns and 10 ns here, against a
+    /// per-sample harness cost the CodSpeed runner measures at hundreds of
+    /// nanoseconds. A single packet per sample makes those rows report the
+    /// harness, and an unrelated change to code layout then moves them by tens
+    /// of percent -- `parse_rtcp` swung 23% on a PR that touched no VoIP code.
+    /// A fixed batch puts the decode back above that floor: 512 packets is
+    /// ~320 ns of RTCP parsing and ~2.4 us of RTP parsing here, against ~0.6 ns
+    /// and ~4.7 ns for one. Both working sets (14 KiB and 8 KiB) stay L1
+    /// resident, so the rows remain parse benchmarks rather than cache ones.
+    /// The encode and STUN rows keep one packet per sample: they allocate, and
+    /// the allocation count per sample is their signal.
+    const PARSE_BATCH: usize = 512;
+
+    #[divan::bench]
+    fn parse_rtp(bencher: Bencher) {
+        // Built once, outside the measured closure: encoding a header costs
+        // more than parsing one, and per-iteration input generation is the
+        // other half of what buried this row's signal.
+        let packets: Vec<Vec<u8>> = (0..PARSE_BATCH)
+            .map(|i| {
+                let mut header = sample_rtp_header();
+                // Distinct sequence numbers so no load folds across the batch.
+                header.sequence_number = header.sequence_number.wrapping_add(i as u16);
+                encode_rtp_header(&header)
+            })
+            .collect();
+        bencher.bench(|| {
+            let mut acc = 0u32;
+            for packet in black_box(&packets) {
+                // The sequence number is the field that varies across the
+                // batch, so it is the one the result has to depend on.
+                acc ^= parse_rtp_header(packet)
+                    .map_or(0, |header| header.ssrc ^ u32::from(header.sequence_number));
+            }
+            black_box(acc)
+        });
+    }
+
+    #[divan::bench]
+    fn encode_rtp(bencher: Bencher) {
+        bencher
+            .with_inputs(sample_rtp_header)
+            .bench_refs(|h| black_box(encode_rtp_header(black_box(h))));
+    }
+
+    #[divan::bench]
+    fn parse_stun(bencher: Bencher) {
+        bencher.with_inputs(sample_stun_packet).bench_refs(|pkt| {
+            // Consume inside the closure: attributes borrow `pkt`, so they
+            // cannot be returned. Sum the value lengths to keep the parse live.
+            black_box(
+                parse_stun_attributes(black_box(pkt))
+                    .iter()
+                    .map(|a| a.value.len())
+                    .sum::<usize>(),
+            )
+        });
+    }
+
+    #[divan::bench]
+    fn parse_rtcp(bencher: Bencher) {
+        // See `PARSE_BATCH`: built once, distinct SSRCs, one batch per sample.
+        let reports: Vec<[u8; 28]> = (0..PARSE_BATCH)
+            .map(|i| {
+                build_sender_report(
+                    0xDEAD_BEEF ^ i as u32,
+                    &RtcpSenderStats {
+                        packets_sent: 1000,
+                        octets_sent: 40_000,
+                        rtp_timestamp: 0x0009_6000,
+                    },
+                    1_700_000_000_000,
+                )
+            })
+            .collect();
+        bencher.bench(|| {
+            let mut acc = 0u32;
+            for report in black_box(&reports) {
+                acc ^= parse_rtcp_sender_ssrc(report).unwrap_or(0);
+            }
+            black_box(acc)
+        });
+    }
+}

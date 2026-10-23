@@ -1,0 +1,519 @@
+use chrono::{DateTime, Utc};
+use serde::Serialize;
+use wacore_binary::Jid;
+
+#[cfg(feature = "voip-control")]
+use super::group_call::GroupCallDevice;
+use super::group_call::{GroupCallEncRekey, GroupCallUpdate, ScreenShare, WaitingRoom};
+
+/// The encrypted callKey + parsed relay carried by an `<offer>`, captured so the media facade can
+/// decrypt the callKey and connect the relay without re-walking the raw stanza. Binary/media-only,
+/// so it is kept off the `serde` shape (downstream JS consumers see only the signaling fields).
+/// Behind the `voip-control` feature: it carries the parsed `RelayData`, which now lives in the
+/// neutral contract (`crate::voip_control::relay_parse`), so a control-only build can carry it.
+#[cfg(feature = "voip-control")]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct MediaOffer {
+    /// The `<enc>` blocks carrying the Signal-encrypted callKey. A single-device offer has one entry
+    /// addressed to us directly (`to: None`, a bare `<enc>` child); a multi-device offer carries one
+    /// per `<destination><to jid>`, and [`enc_for`](Self::enc_for) selects the one for this device.
+    pub encs: Vec<OfferRecipientEnc>,
+    /// The parsed `<relay>` block (endpoints + crypto material), when the offer carried one.
+    pub relay: Option<crate::voip_control::relay_parse::RelayData>,
+    /// Rollout metadata echoed by official callees in the video accept.
+    pub peer_abtest_bucket: Option<String>,
+    pub peer_abtest_bucket_id_list: Option<String>,
+    /// The offerer's active device capability. The raw capability stays private inside
+    /// [`GroupCallDevice`], but the runtime can retain it to promote this 1:1 call to ad-hoc group
+    /// media later.
+    pub peer_device: Option<GroupCallDevice>,
+}
+
+#[cfg(feature = "voip-control")]
+impl MediaOffer {
+    /// The callKey `<enc>` to decrypt for our own device: the entry whose `<to jid>` equals
+    /// `own_jid`, else the single unaddressed entry (a bare `<enc>` child targeting us directly).
+    /// `None` when the offer carried no enc we can use (a multi-device offer that doesn't list us).
+    pub fn enc_for(&self, own_jid: Option<&Jid>) -> Option<&OfferEnc> {
+        if let Some(own) = own_jid
+            && let Some(matched) = self.encs.iter().find(|e| e.to.as_ref() == Some(own))
+        {
+            return Some(&matched.enc);
+        }
+        match self.encs.as_slice() {
+            [only] if only.to.is_none() => Some(&only.enc),
+            _ => None,
+        }
+    }
+}
+
+/// One per-recipient `<enc>` from an `<offer>`: the Signal ciphertext plus the `<to jid>` it was
+/// addressed to (`None` for a bare `<enc>` child on a single-device offer).
+#[cfg(feature = "voip-control")]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct OfferRecipientEnc {
+    pub to: Option<Jid>,
+    pub enc: OfferEnc,
+}
+
+/// The `<enc>` child of an `<offer>` addressed to this device: the Signal ciphertext of the
+/// callKey message plus the wire `type`/`v` needed to decrypt and unpad it.
+#[cfg(feature = "voip-control")]
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct OfferEnc {
+    /// Signal message type wire string (`pkmsg` or `msg`).
+    pub enc_type: String,
+    /// `v` attr (padding version); defaults to 2 when absent.
+    pub version: u8,
+    pub ciphertext: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CallAudioCodec {
+    pub enc: String,
+    pub rate: u32,
+}
+
+/// In-call `<video state=N>` handshake states (audio→video upgrade, video→audio downgrade).
+/// Values verified against WA Web captures relayed by the mock server; unknown future states land
+/// in `Unknown` so a new server value degrades to an observable no-op instead of a parse failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, crate::WireEnum)]
+#[wire(kind = "int")]
+pub enum VideoState {
+    #[wire = 0]
+    Disabled,
+    #[wire = 1]
+    Enabled,
+    #[wire = 2]
+    Paused,
+    #[wire = 3]
+    UpgradeRequest,
+    #[wire = 4]
+    UpgradeAccept,
+    #[wire = 5]
+    UpgradeReject,
+    #[wire = 6]
+    Stopped,
+    #[wire = 7]
+    UpgradeRejectByTimeout,
+    #[wire = 8]
+    UpgradeCancel,
+    #[wire = 9]
+    UpgradeCancelByTimeout,
+    #[wire = 10]
+    UnknownPeer,
+    #[wire = 11]
+    UpgradeRequestV2,
+    #[wire = 20]
+    Error,
+    #[wire_fallback]
+    Unknown(i32),
+}
+
+impl VideoState {
+    /// Matches WA Web's call-mode predicate: a call remains video while either direction is active.
+    pub const fn is_inactive_for_call_mode(self) -> bool {
+        matches!(
+            self,
+            Self::Disabled
+                | Self::UpgradeReject
+                | Self::Stopped
+                | Self::UpgradeRejectByTimeout
+                | Self::UpgradeCancel
+                | Self::UpgradeCancelByTimeout
+                | Self::Error
+        )
+    }
+
+    pub const fn is_upgrade_request(self) -> bool {
+        matches!(self, Self::UpgradeRequest | Self::UpgradeRequestV2)
+    }
+}
+
+/// Fields kept per-variant (not a shared `BasicCallMeta`) so the `serde` shape
+/// mirrors the stanza 1:1 for downstream JS consumers.
+///
+/// Use [`Self::wire_tag`] for the action's exact wire string (for example,
+/// `"offer_notice"` or `"relaylatency"`), replacing the removed `action_kind`
+/// alias. The serialized `type` discriminator uses that same string.
+#[derive(Debug, Clone, crate::WireEnum)]
+#[wire(tag = "type")]
+// Forward-compat: WA can add call sub-types, so an external exhaustive match must keep a wildcard.
+#[non_exhaustive]
+pub enum CallAction {
+    #[wire = "offer"]
+    Offer {
+        call_id: String,
+        call_creator: Jid,
+        caller_pn: Option<Jid>,
+        caller_country_code: Option<String>,
+        device_class: Option<String>,
+        joinable: bool,
+        is_video: bool,
+        audio: Vec<CallAudioCodec>,
+        /// Set on group calls. Primary group signal per `WAWebVoipGatingUtils`.
+        group_jid: Option<Jid>,
+    },
+    /// Group-call notification fan-out to members. No offer-receipt expected;
+    /// the generic call ack is enough (router handles it via `should_ack`).
+    #[wire = "offer_notice"]
+    OfferNotice {
+        call_id: String,
+        call_creator: Jid,
+        /// `media == "video"` per `WAWebHandleVoipOfferNotice`.
+        is_video: bool,
+        /// `type == "group"` per `WAWebHandleVoipOfferNotice`.
+        is_group: bool,
+    },
+    #[wire = "preaccept"]
+    PreAccept {
+        call_id: String,
+        call_creator: Jid,
+        audio: Vec<CallAudioCodec>,
+    },
+    #[wire = "accept"]
+    Accept {
+        call_id: String,
+        call_creator: Jid,
+        audio: Vec<CallAudioCodec>,
+    },
+    #[wire = "reject"]
+    Reject {
+        call_id: String,
+        call_creator: Jid,
+        /// Why the device rejected. `busy` means THAT DEVICE cannot take the call (already in one,
+        /// or a companion that does not do voice); `enc` means THAT DEVICE could not decrypt the
+        /// offer. Neither is the callee declining, and the peer's other devices keep ringing.
+        /// Absent means an explicit decline by the user.
+        reason: Option<String>,
+    },
+    #[wire = "terminate"]
+    Terminate {
+        call_id: String,
+        call_creator: Jid,
+        /// Why the peer ended the call. WA Web maps this to the call-log outcome:
+        /// `accepted_elsewhere`/`rejected_elsewhere` mean another of the callee's devices
+        /// answered/declined (NOT a missed call); `timeout`/`group_call_ended`/absent mean missed.
+        reason: Option<String>,
+        duration: Option<u32>,
+        audio_duration: Option<u32>,
+    },
+    /// ICE/relay candidate exchange. `transport_message_type`: 1 relay candidate,
+    /// 3 peer ICE (callee replies 9), 9 keepalive/reply.
+    #[wire = "transport"]
+    Transport {
+        call_id: String,
+        call_creator: Jid,
+        p2p_cand_round: Option<String>,
+        transport_message_type: Option<String>,
+    },
+    /// Per-relay RTT probe from the peer; the client replies with a relaylatency ack.
+    #[wire = "relaylatency"]
+    RelayLatency { call_id: String, call_creator: Jid },
+    /// In-call `<video state=N>` signaling: the audio→video upgrade / video→audio downgrade
+    /// handshake.
+    #[wire = "video"]
+    VideoState {
+        call_id: String,
+        call_creator: Jid,
+        state: VideoState,
+        /// `device_orientation` attr (0..3, ×90° rotation of the sender's camera).
+        orientation: Option<u8>,
+        /// `dec` attr: the codecs the sender can decode (`"H264"` on an upgrade request,
+        /// `"H264,AV1"` on an accept).
+        dec: Option<String>,
+    },
+    /// Transaction-ordered authoritative membership and relay snapshot.
+    #[wire = "group_update"]
+    GroupUpdate { update: Box<GroupCallUpdate> },
+    /// Signal-encrypted keygen-v2 epoch for a group call.
+    #[wire = "enc_rekey"]
+    EncRekey { rekey: Box<GroupCallEncRekey> },
+    /// Authoritative admission state for a reusable call-link call.
+    #[wire = "waiting_room_update"]
+    WaitingRoomUpdate { room: Box<WaitingRoom> },
+    /// Persistent raise/lower-hand state for one participant.
+    #[wire = "user_action"]
+    RaiseHand {
+        call_id: String,
+        call_creator: Jid,
+        raised: bool,
+    },
+    /// Screen-share state for one participant.
+    #[wire = "screen_share"]
+    ScreenShare {
+        call_id: String,
+        call_creator: Jid,
+        screen_share: ScreenShare,
+    },
+}
+
+impl CallAction {
+    pub fn call_id(&self) -> &str {
+        match self {
+            Self::Offer { call_id, .. }
+            | Self::OfferNotice { call_id, .. }
+            | Self::PreAccept { call_id, .. }
+            | Self::Accept { call_id, .. }
+            | Self::Reject { call_id, .. }
+            | Self::Terminate { call_id, .. }
+            | Self::Transport { call_id, .. }
+            | Self::RelayLatency { call_id, .. }
+            | Self::VideoState { call_id, .. }
+            | Self::RaiseHand { call_id, .. }
+            | Self::ScreenShare { call_id, .. } => call_id,
+            Self::GroupUpdate { update } => &update.call_id,
+            Self::EncRekey { rekey } => &rekey.call_id,
+            Self::WaitingRoomUpdate { room } => &room.call_id,
+        }
+    }
+
+    pub fn call_creator(&self) -> &Jid {
+        match self {
+            Self::Offer { call_creator, .. }
+            | Self::OfferNotice { call_creator, .. }
+            | Self::PreAccept { call_creator, .. }
+            | Self::Accept { call_creator, .. }
+            | Self::Reject { call_creator, .. }
+            | Self::Terminate { call_creator, .. }
+            | Self::Transport { call_creator, .. }
+            | Self::RelayLatency { call_creator, .. }
+            | Self::VideoState { call_creator, .. }
+            | Self::RaiseHand { call_creator, .. }
+            | Self::ScreenShare { call_creator, .. } => call_creator,
+            Self::GroupUpdate { update } => &update.call_creator,
+            Self::EncRekey { rekey } => &rekey.call_creator,
+            Self::WaitingRoomUpdate { room } => &room.call_creator,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, bon::Builder)]
+#[non_exhaustive]
+pub struct IncomingCall {
+    pub from: Jid,
+    /// Stanza id; distinct from `CallAction::call_id`.
+    pub stanza_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notify: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Companion-routing metadata copied from the outer `<call>` wrapper.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub participant: Option<Jid>,
+    /// Companion recipient metadata copied from the outer `<call>` wrapper.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<Jid>,
+    /// Server timestamp, absent on mid-call `enc_rekey` stanzas that omit `t`.
+    /// Key rotation is ordered by its transaction id and does not need a date.
+    #[serde(
+        with = "chrono::serde::ts_seconds_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timestamp: Option<DateTime<Utc>>,
+    pub offline: bool,
+    pub action: CallAction,
+    /// The offer's `username` attribute, used to enforce calling phone-number
+    /// privacy before learning a LID/PN mapping. Kept on this extensible payload
+    /// rather than adding a field to the public `CallAction::Offer` variant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller_username: Option<String>,
+    /// The rotation the sending device announced on this stanza's `<video>`
+    /// child, in `0..=3`. Only an `<offer>` and an `<accept>` carry one; `None`
+    /// everywhere else, and for a stanza whose value was out of range.
+    ///
+    /// A video-from-start peer announces its camera rotation exactly once, in
+    /// that stanza, and sends no `<video>` of its own until the camera actually
+    /// turns -- so dropping this leaves every frame of a call from a sideways
+    /// camera stamped upright.
+    ///
+    /// On the payload rather than inside [`CallAction::Offer`] / [`Accept`]:
+    /// those variants are plain struct variants, so a new field there breaks
+    /// every consumer that destructures them without a `..` rest. This struct is
+    /// `#[non_exhaustive]` with a `bon` builder, which is exactly the shape the
+    /// `Event` stability policy reserves for a payload that has to grow.
+    ///
+    /// [`Accept`]: CallAction::Accept
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_orientation: Option<u8>,
+    /// Group snapshot embedded in an initial offer or active-call invitation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<Box<GroupCallUpdate>>,
+    /// Registry generation assigned before the offer is dispatched. This is internal routing
+    /// metadata, not part of the serialized event payload.
+    #[serde(skip)]
+    #[builder(skip)]
+    pub(crate) ringing_generation: Option<u64>,
+    /// Media material from an `<offer>` (the encrypted callKey + parsed relay), captured by the
+    /// parser so the `voip` media facade can drive the call. `None` for non-offer actions or an
+    /// offer with no `<enc>` for us. Boxed so the large `RelayData` doesn't bloat every `Event`
+    /// (the no-media common case stays one pointer).
+    ///
+    /// Reached through [`Self::media`] rather than as a public field. The gate does not go away:
+    /// the accessor is gated too. What changes is where it lands. A field that comes and goes with
+    /// a feature changes how the type is built and matched; a method that does cannot, so code
+    /// that constructs or destructures an `IncomingCall` compiles the same either way. That is the
+    /// construction boundary described in `agent_docs/architecture.md`. Unconditional is not the
+    /// alternative -- the type carries a parsed `RelayData`, so making it always present would
+    /// link the relay parser into every build.
+    #[cfg(feature = "voip-control")]
+    #[serde(skip)]
+    #[builder(skip)]
+    pub(crate) media: Option<Box<MediaOffer>>,
+}
+
+/// A call that must NOT ring: surfaced instead of [`IncomingCall`] so a consumer cannot auto-accept
+/// it. Currently this is an offer the server replayed from the offline queue on reconnect (the
+/// `<call>` carried the `offline` attribute) -- the call is long dead (no relay, not connectable).
+/// Mirrors WA Web's `cancel_call` + `missed_call` path for `offerReceivedWhileOffline`.
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct MissedCall {
+    pub from: Jid,
+    /// The call id (from the `<offer>` action); distinct from the `<call>` stanza id.
+    pub call_id: String,
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub timestamp: DateTime<Utc>,
+    pub reason: MissedReason,
+}
+
+impl MissedCall {
+    /// Construct a missed-call event. `#[non_exhaustive]` blocks the struct literal cross-crate, so
+    /// this is how the high-level crate builds one.
+    pub fn new(from: Jid, call_id: String, timestamp: DateTime<Utc>, reason: MissedReason) -> Self {
+        Self {
+            from,
+            call_id,
+            timestamp,
+            reason,
+        }
+    }
+}
+
+/// Why a call surfaced as missed rather than ringing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum MissedReason {
+    /// The offer was replayed from the offline queue on reconnect (server-set `offline` attribute).
+    Offline,
+    /// A `<terminate>` arrived for an incoming call we never answered (the peer gave up). Mirrors WA
+    /// Web's "missed" call-log outcome for an unanswered call.
+    Remote,
+}
+
+/// An incoming call we were ringing for was resolved on ANOTHER of our devices (multi-device): the
+/// caller dismissed this device with a `<terminate reason="accepted_elsewhere"|"rejected_elsewhere">`.
+/// Distinct from [`MissedCall`] (a genuinely unanswered call) so a consumer can render "answered on
+/// another device" instead of a missed call. Mirrors WA Web's AcceptedElsewhere / Rejected outcomes.
+#[derive(Debug, Clone, Serialize)]
+#[non_exhaustive]
+pub struct CallEndedElsewhere {
+    pub from: Jid,
+    /// The call id (from the `<offer>` action); distinct from the `<call>` stanza id.
+    pub call_id: String,
+    #[serde(with = "chrono::serde::ts_seconds")]
+    pub timestamp: DateTime<Utc>,
+    pub outcome: ElsewhereOutcome,
+}
+
+impl CallEndedElsewhere {
+    /// `#[non_exhaustive]` blocks the struct literal cross-crate, so the high-level crate builds one
+    /// here.
+    pub fn new(
+        from: Jid,
+        call_id: String,
+        timestamp: DateTime<Utc>,
+        outcome: ElsewhereOutcome,
+    ) -> Self {
+        Self {
+            from,
+            call_id,
+            timestamp,
+            outcome,
+        }
+    }
+}
+
+/// Which terminal outcome another of our devices reached for a call we were ringing for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ElsewhereOutcome {
+    /// Another of our devices answered the call (`reason="accepted_elsewhere"`).
+    Accepted,
+    /// Another of our devices declined the call (`reason="rejected_elsewhere"`).
+    Rejected,
+}
+
+impl IncomingCall {
+    /// Attach the exact ringing generation to a dispatched offer.
+    #[doc(hidden)]
+    pub fn set_ringing_generation(&mut self, generation: u64) {
+        self.ringing_generation = Some(generation);
+    }
+
+    /// Return the exact ringing generation attached before dispatch, when available.
+    #[doc(hidden)]
+    pub fn ringing_generation(&self) -> Option<u64> {
+        self.ringing_generation
+    }
+
+    /// Attach the media material the parser captured from an `<offer>`. Not
+    /// `pub`: the parser below is the only caller, unlike the sibling setters
+    /// this crate exposes for `whatsapp-rust` to call.
+    #[cfg(feature = "voip-control")]
+    pub(crate) fn with_media(mut self, media: Option<Box<MediaOffer>>) -> Self {
+        self.media = media;
+        self
+    }
+
+    /// The offer's media material, when this is an `<offer>` that carried an `<enc>` for us.
+    #[cfg(feature = "voip-control")]
+    pub fn media(&self) -> Option<&MediaOffer> {
+        self.media.as_deref()
+    }
+
+    /// Attach an `<offer>` media block carrying just the offerer's device capability.
+    ///
+    /// The media block is parser output, not something a consumer composes, so it is
+    /// `#[non_exhaustive]` and its field is `pub(crate)`. A dependent crate's tests still need a
+    /// call that carries a capability, and [`Self::new_for_test`] alone cannot build one.
+    #[cfg(any(test, feature = "test-util"))]
+    #[cfg(feature = "voip-control")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn with_peer_device_for_test(self, peer_device: Option<GroupCallDevice>) -> Self {
+        self.with_media(Some(Box::new(MediaOffer {
+            encs: Vec::new(),
+            relay: None,
+            peer_abtest_bucket: None,
+            peer_abtest_bucket_id_list: None,
+            peer_device,
+        })))
+    }
+
+    /// Minimal constructor for dependent-crate tests using the `test-util` feature.
+    /// Optional/media fields default to absent; use the builder for ordinary construction.
+    #[cfg(any(test, feature = "test-util"))]
+    #[doc(hidden)]
+    pub fn new_for_test(
+        from: Jid,
+        stanza_id: String,
+        timestamp: DateTime<Utc>,
+        action: CallAction,
+    ) -> Self {
+        Self::builder()
+            .from(from)
+            .stanza_id(stanza_id)
+            .timestamp(timestamp)
+            .offline(false)
+            .action(action)
+            .build()
+    }
+}

@@ -1,0 +1,410 @@
+use crate::error::{NoiseError, Result};
+use hkdf::Hkdf;
+use sha2::{Digest, Sha256};
+use wacore_libsignal::crypto::{
+    GcmInPlaceBuffer, TransportAead, aes_256_gcm_decrypt, aes_256_gcm_encrypt, transport_aead,
+};
+
+/// Buffer kinds accepted by [`NoiseCipher::decrypt_in_place_with_counter`].
+/// Both `Vec<u8>` and `bytes::BytesMut` satisfy this via [`GcmInPlaceBuffer`].
+pub trait NoiseBuffer: GcmInPlaceBuffer {}
+impl<T: GcmInPlaceBuffer + ?Sized> NoiseBuffer for T {}
+
+/// Generates an IV (nonce) for AES-GCM from a counter value.
+/// The counter is placed in the last 4 bytes of a 12-byte IV.
+#[inline]
+pub fn generate_iv(counter: u32) -> [u8; 12] {
+    let mut iv = [0u8; 12];
+    iv[8..].copy_from_slice(&counter.to_be_bytes());
+    iv
+}
+
+const TAG_LEN: usize = 16;
+
+/// A cipher wrapper that encapsulates AES-256-GCM encryption/decryption
+/// with counter-based IV generation.
+pub struct NoiseCipher {
+    /// Connection-lifetime AEAD from the provider hook: the transport key is
+    /// fixed, so the default RustCrypto path precomputes the AES key schedule
+    /// and the GHASH subkey once instead of on every frame; custom providers
+    /// keep observing transport crypto through the trait default.
+    aead: Box<dyn TransportAead>,
+}
+
+impl NoiseCipher {
+    /// Creates a new cipher from a 32-byte key.
+    pub fn new(key: &[u8; 32]) -> Result<Self> {
+        Ok(Self {
+            aead: transport_aead(key).map_err(NoiseError::Encrypt)?,
+        })
+    }
+
+    /// Encrypts plaintext using the specified counter for IV generation.
+    /// Returns the ciphertext with appended authentication tag (16 bytes).
+    pub fn encrypt_with_counter(&self, counter: u32, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let iv = generate_iv(counter);
+        let mut out = Vec::with_capacity(plaintext.len() + TAG_LEN);
+        out.extend_from_slice(plaintext);
+        self.aead
+            .encrypt_in_place(&iv, b"", &mut out)
+            .map_err(NoiseError::Encrypt)?;
+        Ok(out)
+    }
+
+    /// Encrypts plaintext in-place within the provided buffer: on entry `buffer`
+    /// holds the plaintext; on return it holds ciphertext + 16-byte tag.
+    /// Preserves the buffer's allocated capacity across calls.
+    /// Accepts any `NoiseBuffer` (`Vec<u8>` or `bytes::BytesMut`).
+    pub fn encrypt_in_place_with_counter<B: NoiseBuffer>(
+        &self,
+        counter: u32,
+        buffer: &mut B,
+    ) -> Result<()> {
+        let iv = generate_iv(counter);
+        self.aead
+            .encrypt_in_place(&iv, b"", buffer)
+            .map_err(NoiseError::Encrypt)
+    }
+
+    /// Decrypts ciphertext (with 16-byte tag appended) in-place within the
+    /// provided buffer. On return, `buffer` holds the plaintext (tag removed).
+    /// Accepts any `NoiseBuffer` (`Vec<u8>` or `bytes::BytesMut`).
+    /// Zero allocations with the default [`wacore_libsignal::crypto::RustCryptoProvider`].
+    pub fn decrypt_in_place_with_counter<B: NoiseBuffer>(
+        &self,
+        counter: u32,
+        buffer: &mut B,
+    ) -> Result<()> {
+        let iv = generate_iv(counter);
+        self.aead
+            .decrypt_in_place(&iv, b"", buffer)
+            .map_err(NoiseError::Decrypt)
+    }
+}
+
+fn sha256_digest(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
+}
+
+/// The final keys extracted from a completed Noise handshake.
+pub struct NoiseKeys {
+    pub write: NoiseCipher,
+    pub read: NoiseCipher,
+}
+
+/// A generic Noise Protocol XX state machine.
+pub struct NoiseState {
+    hash: [u8; 32],
+    salt: [u8; 32],
+    key: [u8; 32],
+    counter: u32,
+}
+
+impl NoiseState {
+    /// Returns the current hash state.
+    pub fn hash(&self) -> &[u8; 32] {
+        &self.hash
+    }
+
+    /// Returns the current salt/chaining key.
+    pub fn salt(&self) -> &[u8; 32] {
+        &self.salt
+    }
+
+    /// Creates a new Noise state with the given pattern and prologue.
+    ///
+    /// Per Noise spec § 5.2: when `protocol_name` is ≤ HASHLEN bytes, append
+    /// zero bytes to make HASHLEN; otherwise hash with SHA256.
+    pub fn new(pattern: impl AsRef<[u8]>, prologue: &[u8]) -> Result<Self> {
+        Self::new_inner(pattern.as_ref(), prologue)
+    }
+
+    // The generic shell above is instantiated once per argument type at the
+    // call sites; the body lives here so it is compiled once.
+    fn new_inner(pattern: &[u8], prologue: &[u8]) -> Result<Self> {
+        let h: [u8; 32] = if pattern.len() <= 32 {
+            let mut h = [0u8; 32];
+            h[..pattern.len()].copy_from_slice(pattern);
+            h
+        } else {
+            sha256_digest(pattern)
+        };
+
+        let mut state = Self {
+            hash: h,
+            salt: h,
+            key: h,
+            counter: 0,
+        };
+
+        state.authenticate(prologue);
+        Ok(state)
+    }
+
+    /// Mixes data into the hash state (MixHash operation).
+    pub fn authenticate(&mut self, data: &[u8]) {
+        let mut hasher = Sha256::new();
+        hasher.update(self.hash);
+        hasher.update(data);
+        self.hash = hasher.finalize().into();
+    }
+
+    fn post_increment_counter(&mut self) -> Result<u32> {
+        let count = self.counter;
+        self.counter = self
+            .counter
+            .checked_add(1)
+            .ok_or(NoiseError::CounterExhausted)?;
+        Ok(count)
+    }
+
+    /// Encrypts plaintext, updates the hash state with the ciphertext.
+    pub fn encrypt(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
+        let iv = generate_iv(self.post_increment_counter()?);
+        let mut out = Vec::with_capacity(plaintext.len() + TAG_LEN);
+        aes_256_gcm_encrypt(&self.key, &iv, &self.hash, plaintext, &mut out)
+            .map_err(NoiseError::Encrypt)?;
+        self.authenticate(&out);
+        Ok(out)
+    }
+
+    /// Zero-allocation-ish encryption that appends the ciphertext to `out`.
+    pub fn encrypt_into(&mut self, plaintext: &[u8], out: &mut Vec<u8>) -> Result<()> {
+        let iv = generate_iv(self.post_increment_counter()?);
+        let aad = self.hash;
+        let start = out.len();
+        aes_256_gcm_encrypt(&self.key, &iv, &aad, plaintext, out).map_err(NoiseError::Encrypt)?;
+        self.authenticate(&out[start..]);
+        Ok(())
+    }
+
+    /// Decrypts ciphertext, updates the hash state.
+    pub fn decrypt(&mut self, ciphertext: &[u8]) -> Result<Vec<u8>> {
+        let aad = self.hash;
+        let iv = generate_iv(self.post_increment_counter()?);
+        let mut out = Vec::with_capacity(ciphertext.len().saturating_sub(TAG_LEN));
+        aes_256_gcm_decrypt(&self.key, &iv, &aad, ciphertext, &mut out)
+            .map_err(NoiseError::Decrypt)?;
+        self.authenticate(ciphertext);
+        Ok(out)
+    }
+
+    /// Zero-allocation decryption that appends the plaintext to the provided buffer.
+    pub fn decrypt_into(&mut self, ciphertext: &[u8], out: &mut Vec<u8>) -> Result<()> {
+        if ciphertext.len() < TAG_LEN {
+            return Err(NoiseError::CiphertextTooShort);
+        }
+        let aad = self.hash;
+        let iv = generate_iv(self.post_increment_counter()?);
+        aes_256_gcm_decrypt(&self.key, &iv, &aad, ciphertext, out).map_err(NoiseError::Decrypt)?;
+        self.authenticate(ciphertext);
+        Ok(())
+    }
+
+    /// Mixes key material into the cipher state (MixKey operation).
+    pub fn mix_key(&mut self, input_key_material: &[u8]) -> Result<()> {
+        self.counter = 0;
+        let (new_salt, new_key) = self.extract_and_expand(Some(input_key_material))?;
+        self.salt = new_salt;
+        self.key = new_key;
+        Ok(())
+    }
+
+    fn extract_and_expand(&self, ikm: Option<&[u8]>) -> Result<([u8; 32], [u8; 32])> {
+        let hk = Hkdf::<Sha256>::new(Some(&self.salt), ikm.unwrap_or(&[]));
+        let mut okm = [0u8; 64];
+        hk.expand(&[], &mut okm)
+            .map_err(|_| NoiseError::HkdfExpandFailed)?;
+
+        let mut write = [0u8; 32];
+        let mut read = [0u8; 32];
+
+        write.copy_from_slice(&okm[..32]);
+        read.copy_from_slice(&okm[32..]);
+
+        Ok((write, read))
+    }
+
+    /// Extracts the final write and read keys from the Noise state.
+    pub fn split(self) -> Result<NoiseKeys> {
+        let (write_bytes, read_bytes) = self.extract_and_expand(None)?;
+        let write = NoiseCipher::new(&write_bytes)?;
+        let read = NoiseCipher::new(&read_bytes)?;
+
+        Ok(NoiseKeys { write, read })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_iv() {
+        let iv = generate_iv(0);
+        assert_eq!(iv, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+        let iv = generate_iv(1);
+        assert_eq!(iv, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+
+        let iv = generate_iv(0x01020304);
+        assert_eq!(iv, [0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x02, 0x03, 0x04]);
+    }
+
+    #[test]
+    fn test_noise_state_initialization() {
+        let prologue = b"test prologue";
+        let noise = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        assert_ne!(noise.hash(), noise.salt());
+    }
+
+    #[test]
+    fn test_protocol_name_short_is_zero_padded() {
+        // Spec § 5.2: name <= HASHLEN bytes is zero-padded, NOT hashed.
+        // The 28-byte unpadded form must produce the same h0 as the 32-byte
+        // pre-padded form, after applying the same prologue.
+        let prologue = b"test";
+        let unpadded = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256", prologue)
+            .expect("unpadded init should succeed");
+        let padded = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("padded init should succeed");
+        assert_eq!(unpadded.hash(), padded.hash());
+        assert_eq!(unpadded.salt(), padded.salt());
+    }
+
+    #[test]
+    fn test_protocol_name_long_is_hashed() {
+        // 36-byte XXfallback name exceeds HASHLEN, so h0 = SHA256(name).
+        // We isolate the name-handling branch by constructing two states with
+        // identical prologues: one that hashes (>32 byte name) and one with a
+        // hand-computed 32-byte equivalent. They must converge.
+        let prologue = b"prologue-bytes";
+        let long_name: &[u8] = b"Noise_XXfallback_25519_AESGCM_SHA256";
+        let state_long =
+            NoiseState::new(long_name, prologue).expect("long-name init should succeed");
+
+        // Build the same handshake state with the pre-hashed name (32 bytes).
+        let prehashed = sha256_digest(long_name);
+        let state_short =
+            NoiseState::new(prehashed, prologue).expect("short-name init should succeed");
+
+        assert_eq!(state_long.hash(), state_short.hash());
+        assert_eq!(state_long.salt(), state_short.salt());
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let prologue = b"test";
+        let mut noise = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        let plaintext = b"hello world";
+        let ciphertext = noise.encrypt(plaintext).expect("encrypt should succeed");
+
+        let mut noise2 = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        let decrypted = noise2.decrypt(&ciphertext).expect("decrypt should succeed");
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_mix_key() {
+        let prologue = b"test";
+        let mut noise = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        let old_salt = *noise.salt();
+        let shared_secret = [0x42u8; 32];
+
+        noise
+            .mix_key(&shared_secret)
+            .expect("mix_key should succeed");
+
+        assert_ne!(noise.salt(), &old_salt);
+        assert_eq!(noise.counter, 0);
+    }
+
+    #[test]
+    fn test_encrypt_into_decrypt_into_roundtrip() {
+        let prologue = b"test";
+        let mut noise1 = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        let plaintext = b"hello world from encrypt_into";
+        let mut ciphertext_buf = Vec::new();
+
+        noise1
+            .encrypt_into(plaintext, &mut ciphertext_buf)
+            .expect("encrypt_into should succeed");
+
+        assert_eq!(ciphertext_buf.len(), plaintext.len() + 16);
+
+        let mut noise2 = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        let mut plaintext_buf = Vec::new();
+        noise2
+            .decrypt_into(&ciphertext_buf, &mut plaintext_buf)
+            .expect("decrypt_into should succeed");
+
+        assert_eq!(plaintext_buf, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_into_matches_encrypt() {
+        let prologue = b"test";
+        let plaintext = b"test message";
+
+        let mut noise1 = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+        let ciphertext1 = noise1.encrypt(plaintext).expect("encrypt should succeed");
+
+        let mut noise2 = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+        let mut ciphertext2 = Vec::new();
+        noise2
+            .encrypt_into(plaintext, &mut ciphertext2)
+            .expect("encrypt_into should succeed");
+
+        assert_eq!(ciphertext1, ciphertext2);
+        assert_eq!(noise1.hash(), noise2.hash());
+    }
+
+    #[test]
+    fn test_noise_cipher_in_place_roundtrip() {
+        let key = [0x42u8; 32];
+        let cipher = NoiseCipher::new(&key).expect("cipher creation should succeed");
+
+        let plaintext = b"test in-place encryption";
+        let mut buffer = plaintext.to_vec();
+
+        cipher
+            .encrypt_in_place_with_counter(0, &mut buffer)
+            .expect("encrypt should succeed");
+
+        assert_eq!(buffer.len(), plaintext.len() + 16);
+
+        cipher
+            .decrypt_in_place_with_counter(0, &mut buffer)
+            .expect("decrypt should succeed");
+
+        assert_eq!(buffer, plaintext);
+    }
+
+    #[test]
+    fn test_counter_exhaustion() {
+        let prologue = b"test";
+        let mut noise = NoiseState::new(b"Noise_XX_25519_AESGCM_SHA256\0\0\0\0", prologue)
+            .expect("initialization should succeed");
+
+        noise.counter = u32::MAX;
+
+        let result = noise.encrypt(b"test");
+        assert!(matches!(result, Err(NoiseError::CounterExhausted)));
+    }
+}

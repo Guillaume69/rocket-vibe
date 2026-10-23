@@ -1,0 +1,1572 @@
+//! Per-session resource accounting: wire I/O counters, retained-memory
+//! estimation and a runtime-agnostic task instrumentation hook.
+//!
+//! Everything here is dependency-free and portable (wasm32/ESP32): counters
+//! use `portable_atomic`, CPU metering reads the pluggable
+//! [`crate::time::Instant`] clock, and nothing knows which executor or
+//! allocator the host application uses.
+//!
+//! Cost model:
+//! - [`SessionStats`] is always on: one relaxed `fetch_add` per wire frame,
+//!   on a path that already does AEAD crypto plus a transport write.
+//! - Clock reads: zero per frame sent while the dead-socket anchor is armed,
+//!   one on the send that arms it, one per received transport event, plus one
+//!   more when that event carries several frames. All of them monotonic: every
+//!   stamp on this path anchors an elapsed-time deadline, and a wall clock
+//!   answers that question with whatever the system clock was last set to. A
+//!   new timestamp field here
+//!   buys a read on the client's hottest path and needs a reader to justify it:
+//!   one direct message arrives as roughly four transport events (the message,
+//!   its ack, the receipt, the receipt's ack), so per-event is per-message x4.
+//! - [`HeapSize`] / memory reports only run when called; unused report code
+//!   is dropped by fat LTO.
+//! - [`TaskInstrument`] is resolved once at client build: unset leaves the
+//!   runtime untouched. Only an installed instrument pays the per-poll hook.
+
+use core::future::Future;
+use core::pin::Pin;
+use core::task::{Context, Poll};
+use std::sync::Arc;
+use std::time::Duration;
+
+use portable_atomic::{AtomicU64, Ordering};
+
+use crate::sync_marker::MaybeSendSync;
+use crate::time::{AtomicInstant, Instant};
+
+// ── Wire/session counters ────────────────────────────────────────────────────
+
+/// Why one attempt to obtain key material for a device failed.
+///
+/// Usually that device is then dropped and the send continues to the rest,
+/// which is the intended behavior (WA Web catches the same failure and carries
+/// on) and is why a participant stuck on "Waiting for this message" was only
+/// ever visible in a log line.
+///
+/// **Counted per attempt, not per delivered stanza.** A failure that aborts the
+/// send outright — a batch-wide `406`, a `Required` distribution that cannot
+/// reach all its targets — is counted too, and a later retry that fails the
+/// same way counts again. The question these answer is how often keying fails,
+/// which a counter that skipped the abort paths would answer worst exactly when
+/// keying is failing most.
+///
+/// The variants are disjoint: a device the server named is recorded as
+/// [`Rejected`](Self::Rejected) and never also as [`NoBundle`](Self::NoBundle).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnkeyableDevice {
+    /// The prekey fetch came back without a bundle for it and without naming
+    /// it, so nothing says whether the device is gone or the server was
+    /// merely unhelpful this round.
+    NoBundle,
+    /// A bundle did come back, but building the Signal session from it failed.
+    SessionSetup,
+    /// The local session store could not answer whether a session exists, which
+    /// abandons the whole fan-out before any device is keyed. Shares
+    /// [`SessionSetup`](Self::SessionSetup)'s snapshot counter — both are the
+    /// session phase failing to produce a session — and keeps its own label,
+    /// because this one is a local storage fault and points nowhere near the
+    /// peer.
+    SessionLookup,
+    /// The server refused this device by name, with the `<error code>` it
+    /// attached. `406` means unregistered and is the only code acted on.
+    Rejected(u16),
+    /// The server refused the whole prekey batch this device was in (always a
+    /// `406`; the fetch is one IQ). Kept apart from [`Rejected`](Self::Rejected)
+    /// because that one is a fact about the device and this one is an
+    /// attribution: the refusal names nobody, so a registered device can sit in
+    /// a batch that is counted this way.
+    BatchRefused,
+    /// The prekey fetch produced no answer at all — a timeout, a transport
+    /// failure, or a server error that is not a refusal of these devices (429,
+    /// 5xx). Separate from [`BatchRefused`](Self::BatchRefused) because that one
+    /// says something about the devices and this one says the server never got
+    /// around to saying anything.
+    FetchFailed,
+    /// The encrypt fan-out itself could not produce ciphertext for the device:
+    /// a stored session that exists and cannot be used, or a fan-out task that
+    /// died with its whole chunk. A device that reached the fan-out with no
+    /// session is *not* counted here — [`SessionSetup`](Self::SessionSetup) or
+    /// one of the fetch reasons already owns it.
+    Encrypt,
+}
+
+impl UnkeyableDevice {
+    /// Categorical label for the `metrics` facade.
+    ///
+    /// A closed set of `&'static str`: the server's code is bucketed by class
+    /// rather than formatted, so an unfamiliar code stays countable without
+    /// minting a label (or an allocation) per value. `406` keeps its own label
+    /// because it is the one code with a defined meaning here.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NoBundle => "no_bundle",
+            Self::SessionSetup => "session_setup",
+            Self::SessionLookup => "session_lookup",
+            Self::Rejected(code) if code == crate::send::UNREGISTERED_DEVICE_CODE => "rejected_406",
+            Self::Rejected(400..=499) => "rejected_4xx",
+            Self::Rejected(500..=599) => "rejected_5xx",
+            Self::Rejected(_) => "rejected_other",
+            Self::BatchRefused => "refused_batch",
+            Self::FetchFailed => "fetch_failed",
+            Self::Encrypt => "encrypt",
+        }
+    }
+}
+
+/// Cumulative per-session counters, updated at the client's wire chokepoints.
+///
+/// All counters are monotonic over the lifetime of the owning client (they
+/// survive reconnects); only the activity timestamps are reset on connection
+/// teardown. Reads are relaxed: values are statistics, not synchronization.
+#[derive(Debug, Default)]
+pub struct SessionStats {
+    bytes_sent: AtomicU64,
+    bytes_received: AtomicU64,
+    frames_sent: AtomicU64,
+    frames_received: AtomicU64,
+    messages_sent: AtomicU64,
+    messages_received: AtomicU64,
+    /// Inbound events dropped because a consumer's bounded delivery mailbox was
+    /// full (bounded callback adapters). Counts per adapter, not unique protocol
+    /// facts. ChannelEventHandler keeps its own counters. This is observer loss,
+    /// not a durability-hook failure and does not imply server redelivery.
+    events_dropped: AtomicU64,
+    /// Attempts to obtain key material for one device that failed, split by
+    /// [`UnkeyableDevice`].
+    devices_unkeyed_no_bundle: AtomicU64,
+    devices_unkeyed_session_setup: AtomicU64,
+    devices_unkeyed_rejected: AtomicU64,
+    devices_unkeyed_fetch_failed: AtomicU64,
+    devices_unkeyed_encrypt: AtomicU64,
+    reconnects: AtomicU64,
+    /// When the last WebSocket data arrived.
+    /// WA Web: `parseAndHandleStanza` → `deadSocketTimer.cancel()`.
+    ///
+    /// Monotonic, because both readers measure elapsed time from it: the
+    /// idle-ping gate (15 s) and the dead-socket check (20 s). A wall clock
+    /// answers "how long since" with whatever the system clock was last set to,
+    /// which is how twelve hours of suspend read as a dead socket (issue #1376).
+    /// [`StatsSnapshot::last_data_received_ms`] still reports a wall-clock
+    /// instant, derived from this one at snapshot time.
+    ///
+    /// Kept exact rather than sampled: a refresh trigger would have to be the
+    /// keepalive tick, which is coarser (15-30 s) than the gate it feeds.
+    last_data_received: AtomicInstant,
+    /// Dead-socket watchdog anchor (WA Web `deadSocketTimer.onOrBefore`): the first
+    /// send since the last receive, so continued traffic can't push the deadline out.
+    /// Treated as stale (and re-armed) once `<= last_data_received`, so a send that
+    /// raced past a receive-reset can't leave a pre-receive value stuck here.
+    ///
+    /// The only send-side timestamp: a `last_data_sent` companion cost a
+    /// clock read per frame written and had no reader, since the watchdog
+    /// anchors on the first unanswered send and never on the most recent one.
+    first_send_since_recv: AtomicInstant,
+}
+
+/// Point-in-time copy of [`SessionStats`], plus client-level counters the
+/// client fills in ([`Self::reconnect_errors`], [`Self::resends_throttled`],
+/// [`Self::messages_suppressed_duplicate`]).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StatsSnapshot {
+    /// Post-noise wire bytes written to the transport (includes frame headers
+    /// and AEAD tags; excludes the handshake and TLS/WebSocket overhead).
+    pub bytes_sent: u64,
+    /// Wire bytes received from the transport (same framing semantics).
+    pub bytes_received: u64,
+    pub frames_sent: u64,
+    pub frames_received: u64,
+    /// Outgoing message send attempts (DM/group/status).
+    pub messages_sent: u64,
+    /// Incoming messages successfully decrypted and dispatched.
+    pub messages_received: u64,
+    /// Inbound events shed because a consumer's bounded delivery mailbox was
+    /// full. A non-zero, growing value flags a consumer that can't keep up.
+    pub events_dropped: u64,
+    /// Keying attempts that asked the server about a device and got no bundle
+    /// for it, with no per-device reason given.
+    pub devices_unkeyed_no_bundle: u64,
+    /// Keying attempts the session phase could not give a session to: the local
+    /// store would not answer, or a bundle arrived and building from it failed.
+    /// The `metrics` facade separates the two.
+    pub devices_unkeyed_session_setup: u64,
+    /// Keying attempts the server refused, whether it named the device or
+    /// refused the whole batch. `stats()` carries the total; the split by code,
+    /// and between named and batch-wide, is on the `metrics` facade, which has
+    /// labels.
+    pub devices_unkeyed_rejected: u64,
+    /// Keying attempts whose prekey fetch never produced an answer: a timeout,
+    /// a transport failure, or a server error that refuses nothing in
+    /// particular. This is the one that moves during an outage.
+    pub devices_unkeyed_fetch_failed: u64,
+    /// Keying attempts that had a session and still produced no ciphertext.
+    /// Alone among these, this one is not about the server: a non-zero
+    /// value points at stored session state, which is what session repair
+    /// operates on.
+    pub devices_unkeyed_encrypt: u64,
+    /// Reconnect attempts started by the auto-reconnect loop.
+    pub reconnects: u64,
+    /// Consecutive reconnect failures (resets on success).
+    pub reconnect_errors: u32,
+    /// Outbound resends dropped by the per-chat rate limiter. Surfaces storm
+    /// chats.
+    pub resends_throttled: u64,
+    /// Decrypted messages not dispatched because the same message had already
+    /// reached consumers: a sender resending one id as fresh ciphertext. This
+    /// is the number to check first when a consumer reports a missing message.
+    pub messages_suppressed_duplicate: u64,
+    /// Wall-clock milliseconds since the Unix epoch when data last arrived on
+    /// the current connection, or 0 before the first receive. Derived at
+    /// snapshot time from a monotonic anchor, so it reads in the frame the
+    /// caller's own clock is in even after the system clock has been adjusted.
+    pub last_data_received_ms: u64,
+}
+
+impl StatsSnapshot {
+    /// Every keying attempt this client lost, whatever the reason. A rising
+    /// value is participants going quiet; the individual fields say why. See
+    /// [`UnkeyableDevice`] for what one count is and is not.
+    pub fn devices_unkeyed_total(&self) -> u64 {
+        self.devices_unkeyed_no_bundle
+            + self.devices_unkeyed_session_setup
+            + self.devices_unkeyed_rejected
+            + self.devices_unkeyed_fetch_failed
+            + self.devices_unkeyed_encrypt
+    }
+}
+
+impl SessionStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn now() -> Instant {
+        Instant::now()
+    }
+
+    /// One encrypted frame written to the transport.
+    #[inline]
+    pub fn record_frame_sent(&self, wire_bytes: usize) {
+        self.bytes_sent
+            .fetch_add(wire_bytes as u64, Ordering::Relaxed);
+        self.frames_sent.fetch_add(1, Ordering::Relaxed);
+        self.arm_dead_socket_deadline();
+    }
+
+    /// Arm the dead-socket deadline for a write that is starting, before it
+    /// completes.
+    ///
+    /// WA Web arms at the send call, not when the bytes leave. Arming only
+    /// after a completed write misses the write that never completes: a socket
+    /// that stays established but no longer drains (after a suspend, or a
+    /// network change) takes a few frames into its buffer and then blocks the
+    /// next write for good, and a deadline that waits for it is never armed.
+    /// Idempotent with the arm in [`Self::record_frame_sent`].
+    #[inline]
+    pub fn arm_dead_socket_deadline(&self) {
+        // Arm the dead-socket deadline on the FIRST send after a receive (WA Web
+        // `onOrBefore` keeps the earliest deadline; later sends must not push it out).
+        // Re-arm when the anchor is unset OR stale, i.e. a receive landed after it was
+        // armed: guarding only on `== 0` would let a send whose arm raced past a
+        // receive-reset leave a pre-receive timestamp stuck there forever, silently
+        // disabling detection.
+        let last_recv = self.last_data_received.load();
+        let is_stale = |anchor: Option<Instant>| match (anchor, last_recv) {
+            (None, _) => true,
+            (Some(anchor), Some(last_recv)) => anchor <= last_recv,
+            (Some(_), None) => false,
+        };
+        if is_stale(self.first_send_since_recv.load()) {
+            // The plain load above gates the clock read; the arm itself re-checks
+            // under a CAS, so once an anchor is set a later send cannot overwrite
+            // it. Two senders that both see it unarmed still resolve by whichever
+            // CAS lands first, which the serial sender task makes unreachable.
+            self.first_send_since_recv.store_if(Self::now(), is_stale);
+        }
+    }
+
+    /// One transport data event carrying `frames` decodable frames.
+    ///
+    /// Refreshes the receive timestamp only for multi-frame batches: the
+    /// arrival stamp ([`Self::mark_recv_activity`]) is still fresh in the
+    /// single-frame steady state, and the completion re-stamp exists to keep
+    /// the dead-socket watchdog quiet while a long batch (offline sync)
+    /// drains — not to pay a second clock read per frame.
+    #[inline]
+    pub fn record_recv_batch(&self, wire_bytes: usize, frames: u32) {
+        self.bytes_received
+            .fetch_add(wire_bytes as u64, Ordering::Relaxed);
+        self.frames_received
+            .fetch_add(frames as u64, Ordering::Relaxed);
+        if frames > 1 {
+            self.last_data_received.store(Self::now());
+            // A receive cancels the dead-socket deadline; the next send re-arms it.
+            self.first_send_since_recv.clear();
+        }
+    }
+
+    /// Stamp receive activity at data arrival, without counting traffic
+    /// (WA Web: deadSocketTimer reset). Batch completion is re-stamped by
+    /// [`Self::record_recv_batch`].
+    #[inline]
+    pub fn mark_recv_activity(&self) {
+        self.last_data_received.store(Self::now());
+        // A receive cancels the dead-socket deadline; the next send re-arms it.
+        self.first_send_since_recv.clear();
+    }
+
+    #[inline]
+    pub fn record_message_sent(&self) {
+        self.messages_sent.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn record_message_received(&self) {
+        self.messages_received.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn record_reconnect(&self) {
+        self.reconnects.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// One inbound event shed by a full bounded-delivery mailbox.
+    #[inline]
+    pub fn record_event_dropped(&self) {
+        self.events_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn events_dropped(&self) -> u64 {
+        self.events_dropped.load(Ordering::Relaxed)
+    }
+
+    /// One failed attempt to obtain key material for a device.
+    #[inline]
+    pub fn record_unkeyable_device(&self, reason: UnkeyableDevice) {
+        self.record_unkeyable_devices(reason, 1);
+    }
+
+    /// `count` devices left without key material for the same reason, which is
+    /// what a batch-wide refusal produces.
+    ///
+    /// The metrics emission rides here rather than at the call sites so the
+    /// per-client total and the labelled process-global counter can never
+    /// disagree about what happened.
+    #[inline]
+    pub fn record_unkeyable_devices(&self, reason: UnkeyableDevice, count: u64) {
+        // Callers that pass a tally rather than a known-nonzero event get the
+        // "nothing went wrong" case for free, without an atomic or a metrics
+        // lookup.
+        if count == 0 {
+            return;
+        }
+        let counter = match reason {
+            UnkeyableDevice::NoBundle => &self.devices_unkeyed_no_bundle,
+            UnkeyableDevice::SessionSetup | UnkeyableDevice::SessionLookup => {
+                &self.devices_unkeyed_session_setup
+            }
+            UnkeyableDevice::Rejected(_) | UnkeyableDevice::BatchRefused => {
+                &self.devices_unkeyed_rejected
+            }
+            UnkeyableDevice::FetchFailed => &self.devices_unkeyed_fetch_failed,
+            UnkeyableDevice::Encrypt => &self.devices_unkeyed_encrypt,
+        };
+        counter.fetch_add(count, Ordering::Relaxed);
+        crate::telemetry::unkeyable_device(reason.label(), count);
+    }
+
+    /// Zero the activity timestamps on connection teardown so the dead-socket
+    /// watchdog never reads a previous connection's values. Traffic counters
+    /// are cumulative and survive.
+    pub fn reset_connection_activity(&self) {
+        self.last_data_received.clear();
+        self.first_send_since_recv.clear();
+    }
+
+    /// The dead-socket watchdog anchor: the first send since the last receive
+    /// (`None` when unarmed). Evaluate
+    /// [`is_dead_socket`](crate::protocol::keepalive::is_dead_socket) against this, not the last
+    /// send, so continued outgoing traffic can't hide a half-open socket.
+    #[inline]
+    pub fn first_send_since_recv(&self) -> Option<Instant> {
+        self.first_send_since_recv.load()
+    }
+
+    /// When data last arrived, on the monotonic clock. `None` before the first
+    /// receive of the current connection.
+    #[inline]
+    pub fn last_data_received(&self) -> Option<Instant> {
+        self.last_data_received.load()
+    }
+
+    /// Copy the session-level counters. Client-level fields
+    /// (`reconnect_errors`, `resends_throttled`,
+    /// `messages_suppressed_duplicate`) are left zero for the owner to fill.
+    pub fn snapshot(&self) -> StatsSnapshot {
+        StatsSnapshot {
+            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
+            bytes_received: self.bytes_received.load(Ordering::Relaxed),
+            frames_sent: self.frames_sent.load(Ordering::Relaxed),
+            frames_received: self.frames_received.load(Ordering::Relaxed),
+            messages_sent: self.messages_sent.load(Ordering::Relaxed),
+            messages_received: self.messages_received.load(Ordering::Relaxed),
+            events_dropped: self.events_dropped.load(Ordering::Relaxed),
+            devices_unkeyed_no_bundle: self.devices_unkeyed_no_bundle.load(Ordering::Relaxed),
+            devices_unkeyed_session_setup: self
+                .devices_unkeyed_session_setup
+                .load(Ordering::Relaxed),
+            devices_unkeyed_rejected: self.devices_unkeyed_rejected.load(Ordering::Relaxed),
+            devices_unkeyed_fetch_failed: self.devices_unkeyed_fetch_failed.load(Ordering::Relaxed),
+            devices_unkeyed_encrypt: self.devices_unkeyed_encrypt.load(Ordering::Relaxed),
+            reconnects: self.reconnects.load(Ordering::Relaxed),
+            reconnect_errors: 0,
+            resends_throttled: 0,
+            messages_suppressed_duplicate: 0,
+            // Derived, not stamped: the field is kept monotonically so a clock
+            // adjustment cannot move the watchdog's deadline, and reporting it
+            // in the wall-clock frame the caller reads it in costs nothing on
+            // the wire path, only here.
+            last_data_received_ms: self
+                .last_data_received
+                .load()
+                .map(|at| {
+                    let now = crate::time::now_millis().max(0) as u64;
+                    now.saturating_sub(at.elapsed().as_millis() as u64)
+                })
+                .unwrap_or(0),
+        }
+    }
+}
+
+// ── Retained-memory estimation ───────────────────────────────────────────────
+
+/// Estimated heap bytes owned by a value, excluding `size_of::<Self>()` and
+/// allocator overhead.
+///
+/// Implementations are honest approximations (string/collection payload sums,
+/// walked structure sizes for Signal records, [`hash_table_bytes`] for
+/// hash-backed collections): good for per-session attribution and growth
+/// tracking, not for byte-exact accounting. What they must not do is
+/// understate a structure that grows — a report that is quietest when memory
+/// is climbing is worse than none.
+pub trait HeapSize {
+    fn heap_bytes(&self) -> usize;
+}
+
+impl<T: HeapSize> HeapSize for Arc<T> {
+    /// Counted where the owning collection holds it; sharing is intra-client
+    /// in practice, so attributing the full size to each holder's client is
+    /// the useful semantics.
+    fn heap_bytes(&self) -> usize {
+        size_of::<T>() + T::heap_bytes(self)
+    }
+}
+
+/// Bytes a hash table of `capacity` usable entries actually allocates, for
+/// entries of `entry_size` bytes.
+///
+/// `HashMap::capacity()` is how many entries fit before the next resize, not
+/// how many buckets exist: hashbrown rounds the bucket count up to a power of
+/// two and keeps one eighth of it free, so a map holding 1024 entries owns
+/// 2048 buckets. Multiplying `capacity()` by the entry size — what these
+/// reports did before — therefore under-counts by an eighth at best and by
+/// nearly half right after a resize. Each bucket also carries one control
+/// byte.
+///
+/// This inverts hashbrown's own `capacity_to_buckets`, so it is exact for a
+/// table that has only ever been inserted into. After removals it is a lower
+/// bound: hashbrown leaves a tombstone where a bucket's group has no empty
+/// slot, and a tombstone consumes a growth slot without shrinking the bucket
+/// array, so `capacity()` can read below the canonical capacity of the buckets
+/// really held. A floor is the right direction for these reports and is what
+/// the previous `capacity() * size_of::<(K, V)>()` failed at, by up to a half,
+/// on every table.
+///
+/// The fixed `Group::WIDTH` tail on the control array (16 bytes on x86-64) is
+/// not counted either: it does not scale with the map, and counting it would
+/// attribute a constant to whichever collection happened to be empty.
+pub fn hash_table_bytes(capacity: usize, entry_size: usize) -> usize {
+    if capacity == 0 {
+        // An unused map allocates nothing at all.
+        return 0;
+    }
+    let buckets = if capacity < 8 {
+        if capacity < 4 { 4 } else { 8 }
+    } else {
+        // hashbrown's own `capacity_to_buckets`, floor division included.
+        (capacity.saturating_mul(8) / 7)
+            .checked_next_power_of_two()
+            .unwrap_or(capacity)
+    };
+    buckets.saturating_mul(entry_size.saturating_add(1))
+}
+
+impl HeapSize for Vec<u8> {
+    fn heap_bytes(&self) -> usize {
+        self.capacity()
+    }
+}
+
+impl HeapSize for String {
+    fn heap_bytes(&self) -> usize {
+        self.capacity()
+    }
+}
+
+impl HeapSize for str {
+    fn heap_bytes(&self) -> usize {
+        self.len()
+    }
+}
+
+impl HeapSize for wacore_binary::CompactString {
+    fn heap_bytes(&self) -> usize {
+        if self.is_heap_allocated() {
+            self.len()
+        } else {
+            0
+        }
+    }
+}
+
+impl HeapSize for wacore_binary::Jid {
+    fn heap_bytes(&self) -> usize {
+        self.user.heap_bytes()
+    }
+}
+
+impl HeapSize for waproto::whatsapp::sync_action_value::status_privacy_action::CustomList {
+    fn heap_bytes(&self) -> usize {
+        self.list_id.as_ref().map_or(0, HeapSize::heap_bytes)
+            + self.name.as_ref().map_or(0, HeapSize::heap_bytes)
+            + self.emoji.as_ref().map_or(0, HeapSize::heap_bytes)
+            + self.user_jid.capacity() * size_of::<String>()
+            + self
+                .user_jid
+                .iter()
+                .map(HeapSize::heap_bytes)
+                .sum::<usize>()
+    }
+}
+
+impl HeapSize for waproto::whatsapp::sync_action_value::StatusPrivacyAction {
+    fn heap_bytes(&self) -> usize {
+        self.user_jid.capacity() * size_of::<String>()
+            + self
+                .user_jid
+                .iter()
+                .map(HeapSize::heap_bytes)
+                .sum::<usize>()
+            + self.custom_lists.capacity()
+                * size_of::<
+                    waproto::whatsapp::sync_action_value::status_privacy_action::CustomList,
+                >()
+            + self
+                .custom_lists
+                .iter()
+                .map(HeapSize::heap_bytes)
+                .sum::<usize>()
+            + self.modes.capacity()
+                * size_of::<buffa::EnumValue<
+                    waproto::whatsapp::sync_action_value::status_privacy_action::StatusDistributionMode,
+                >>()
+    }
+}
+
+/// Entry count plus estimated retained bytes for one internal collection.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CollectionStats {
+    pub entries: u64,
+    /// Estimated retained heap bytes. `0` for store-backed caches whose
+    /// entries live outside this process.
+    pub bytes: u64,
+}
+
+impl CollectionStats {
+    pub fn new(entries: u64, bytes: u64) -> Self {
+        Self { entries, bytes }
+    }
+}
+
+// ── Out-of-client resource reports ───────────────────────────────────────────
+//
+// `MemoryReport` (in the client crate) accounts only for the client's own
+// in-process collections. The dominant per-session RAM lives *outside* the
+// client — the storage backend's page cache, the transport buffers, the HTTP
+// pool. These small structs let each of those components report what it can
+// introspect, so a consumer can compose a realistic per-session estimate.
+//
+// Every field is `Option`: a component fills only what it knows. All-`None`
+// means "not reported" — distinct from a positive `Some(0)` ("holds none",
+// e.g. a remote/store-backed backend whose data isn't process memory, matching
+// `CollectionStats { bytes: 0 }`). The structs are plain (not `#[non_exhaustive]`)
+// because they are built in the backend/transport/HTTP crates, which need
+// struct-literal construction; add future fields with a `..Default::default()`
+// tail to stay non-breaking.
+
+/// Process-local resource footprint a storage backend attributes to one
+/// session. Returned by `store::traits::DeviceStore::resource_report`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StorageResourceReport {
+    /// Estimated process-local bytes the backend holds for this session (e.g. a
+    /// SQLite page cache). `Some(0)` for backends whose data lives outside this
+    /// process (Redis, other network stores).
+    pub memory_bytes: Option<u64>,
+    /// Pages/entries currently backing the store, when known (SQLite: database
+    /// page count). A size indicator, not part of the memory total.
+    pub pages: Option<u64>,
+    /// How many of [`Self::pages`] are on the store's free list, when known
+    /// (SQLite: `freelist_count`). Deleted rows hand their pages here, not back
+    /// to the filesystem, so this is the part of the file the retention sweeps
+    /// have already emptied and only a `VACUUM` would return.
+    pub free_pages: Option<u64>,
+    /// Bytes the write-ahead log occupies on disk, when known. Not part of the
+    /// memory total: it is file size, and it is the figure that shows whether a
+    /// single huge transaction has left the log permanently large.
+    pub wal_bytes: Option<u64>,
+    /// Bytes read from the backing store this session, if the backend counts it.
+    pub io_read_bytes: Option<u64>,
+    /// Bytes written to the backing store this session, if the backend counts it.
+    pub io_write_bytes: Option<u64>,
+}
+
+impl StorageResourceReport {
+    /// Retained process memory this backend reports (0 when unknown). Excludes
+    /// the cumulative I/O counters, which are throughput, not residency.
+    pub fn total_bytes(&self) -> u64 {
+        self.memory_bytes.unwrap_or(0)
+    }
+}
+
+/// Per-session footprint of a [`crate::net::Transport`]: read/write framing
+/// buffers plus a best-effort TLS/noise session-state estimate.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransportResourceReport {
+    pub read_buffer_bytes: Option<u64>,
+    pub write_buffer_bytes: Option<u64>,
+    /// Best-effort estimate of TLS/noise session state (record buffers, key
+    /// schedule). Transports that can't introspect their TLS stack leave it
+    /// `None`.
+    pub tls_state_bytes: Option<u64>,
+}
+
+impl TransportResourceReport {
+    /// Sum of the present byte fields (saturating — `total_bytes` is public, so
+    /// a caller-built report with large values must not wrap).
+    pub fn total_bytes(&self) -> u64 {
+        self.read_buffer_bytes
+            .unwrap_or(0)
+            .saturating_add(self.write_buffer_bytes.unwrap_or(0))
+            .saturating_add(self.tls_state_bytes.unwrap_or(0))
+    }
+}
+
+/// Per-session footprint of a [`crate::net::HttpClient`]: idle connection-pool
+/// buffers plus any in-flight download/media buffering the impl can see.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HttpResourceReport {
+    /// Idle connections the pool may retain (a cap/estimate, not a live count
+    /// when the client can't introspect the pool).
+    pub pool_connections: Option<u64>,
+    /// Bytes held by the pool's per-connection read/write buffers.
+    pub pool_buffer_bytes: Option<u64>,
+    /// Bytes buffered for in-flight requests/responses right now, when known.
+    pub inflight_bytes: Option<u64>,
+}
+
+impl HttpResourceReport {
+    /// Sum of the present byte fields (excludes the connection count). Saturating
+    /// — `total_bytes` is public, so a caller-built report must not wrap.
+    pub fn total_bytes(&self) -> u64 {
+        self.pool_buffer_bytes
+            .unwrap_or(0)
+            .saturating_add(self.inflight_bytes.unwrap_or(0))
+    }
+}
+
+// ── Task instrumentation ─────────────────────────────────────────────────────
+
+/// Runtime-agnostic hook called around every poll of the client's internal
+/// tasks (and around its blocking work).
+///
+/// The library never installs one by itself; the application opts in at build
+/// time. Implementations plug in whatever the platform offers: the built-in
+/// [`CpuMeter`], an allocator-attribution guard on native, `heap_caps`
+/// sampling on ESP32, etc. Calls are balanced: every `on_poll_start` is
+/// followed by `on_poll_end` on the same thread.
+pub trait TaskInstrument: MaybeSendSync {
+    fn on_poll_start(&self);
+    fn on_poll_end(&self);
+}
+
+/// Future wrapper invoking a [`TaskInstrument`] around each poll.
+///
+/// Generic over the wrapped future, and polls it through [`Pin::new`], so the
+/// wrapper allocates nothing of its own. `F: Unpin` is what keeps that safe
+/// without a projection: pass an already-boxed future (what [`Runtime::spawn`]
+/// hands over) or stack-pin a local one with [`core::pin::pin!`]. Both are
+/// `Unpin`, so neither needs a heap allocation for the meter's sake.
+pub struct MeteredFuture<F> {
+    inner: F,
+    instrument: Arc<dyn TaskInstrument>,
+}
+
+impl<F> MeteredFuture<F> {
+    pub fn new(inner: F, instrument: Arc<dyn TaskInstrument>) -> Self {
+        Self { inner, instrument }
+    }
+}
+
+/// Calls `on_poll_end` on drop, so a panicking poll (or blocking closure)
+/// still closes the instrument scope — implementors that scope allocator
+/// attribution would otherwise leak it across the unwind.
+struct PollGuard<'a>(&'a dyn TaskInstrument);
+impl Drop for PollGuard<'_> {
+    fn drop(&mut self) {
+        self.0.on_poll_end();
+    }
+}
+
+impl<F: Future + Unpin> Future for MeteredFuture<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        this.instrument.on_poll_start();
+        let _guard = PollGuard(&*this.instrument);
+        Pin::new(&mut this.inner).poll(cx)
+    }
+}
+
+/// Built-in [`TaskInstrument`]: accumulates poll count and busy time (a
+/// direct CPU proxy) via the pluggable monotonic clock.
+///
+/// On wasm32/embedded this works as soon as the application registers a
+/// monotonic provider (see [`crate::time`]).
+#[derive(Debug, Default)]
+pub struct CpuMeter {
+    busy_nanos: AtomicU64,
+    polls: AtomicU64,
+}
+
+/// Point-in-time copy of a [`CpuMeter`].
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CpuSnapshot {
+    /// Total time spent inside `poll` (and blocking closures) of the
+    /// instrumented tasks.
+    pub busy: Duration,
+    pub polls: u64,
+}
+
+impl CpuMeter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn snapshot(&self) -> CpuSnapshot {
+        CpuSnapshot {
+            busy: Duration::from_nanos(self.busy_nanos.load(Ordering::Relaxed)),
+            polls: self.polls.load(Ordering::Relaxed),
+        }
+    }
+}
+
+std::thread_local! {
+    /// Start times of the metered polls active on this thread, innermost
+    /// last. A stack, not a single slot: metered scopes can nest (an executor
+    /// may poll a freshly spawned task inline from within an already-metered
+    /// poll, and several meters can share one thread), and each scope must
+    /// keep its own start. Poll scopes strictly nest, so LIFO holds; a nested
+    /// scope's time is also part of its enclosing scope's elapsed.
+    static POLL_START: core::cell::RefCell<Vec<Instant>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+impl TaskInstrument for CpuMeter {
+    fn on_poll_start(&self) {
+        POLL_START.with(|s| s.borrow_mut().push(Instant::now()));
+    }
+
+    fn on_poll_end(&self) {
+        if let Some(start) = POLL_START.with(|s| s.borrow_mut().pop()) {
+            self.busy_nanos
+                .fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+            self.polls.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+// ── Allocator attribution ────────────────────────────────────────────────────
+
+std::thread_local! {
+    /// Meters active on this thread, innermost last. `on_poll_start` pushes,
+    /// `on_poll_end` pops; the host's global allocator charges the innermost.
+    /// A stack (not a slot) for the same reason as `POLL_START`: metered poll
+    /// scopes nest and several meters can share a thread.
+    ///
+    /// Holds an owned `Arc<AllocMeterInner>`, not a raw pointer: `on_poll_start`
+    /// is a safe public method, so a caller could move or drop a stack-local
+    /// meter before `on_poll_end` — the strong ref here keeps the counters alive
+    /// for the whole scope, so `on_alloc` (driven by the allocator on every
+    /// allocation) can never dereference freed memory.
+    static ACTIVE_ALLOC_METER: core::cell::RefCell<Vec<Arc<AllocMeterInner>>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// Shared counters behind an [`AllocMeter`]. Held by `Arc` so a scope on the
+/// active-meter stack owns the lifetime independently of the `AllocMeter` handle.
+#[derive(Debug, Default)]
+struct AllocMeterInner {
+    allocated: AtomicU64,
+    freed: AtomicU64,
+    allocations: AtomicU64,
+}
+
+/// Built-in [`TaskInstrument`] that attributes heap bytes **allocated and
+/// freed** to one client, the churn/transient counterpart to the point-in-time
+/// retained figures in `Client::memory_report`. It captures task futures,
+/// decode arenas and media buffers — anything the client's instrumented tasks
+/// allocate — that no named collection holds.
+///
+/// The library never sees the allocator. The host installs a `#[global_allocator]`
+/// that calls [`AllocMeter::on_alloc`] / [`AllocMeter::on_dealloc`] on every
+/// (de)allocation; this meter — installed via `with_task_instrument` (or the
+/// `with_alloc_meter` convenience) — marks, per thread, *which* client's task is
+/// being polled, so those calls charge the right meter. `examples/alloc_tracking.rs`
+/// shows the ~20 lines of glue.
+///
+/// # Attribution boundary (honest limits)
+/// Only allocations made *inside an instrumented poll or blocking closure* are
+/// counted: every task spawned through the `Runtime` trait, plus the main run
+/// loop (metered since the client meters its own future). Work spawned raw on
+/// the executor — some voip/media paths — and the caller's own
+/// `send_message`-side code are **not** counted. Deallocations are charged to
+/// whichever meter is active when the free happens, not the one that allocated
+/// the block, so `freed` (and `net`) drift when a buffer outlives the poll that
+/// made it; the cumulative `allocated` total is the reliable signal.
+///
+/// Agnostic: the hook is the same wasm/ESP32-safe [`TaskInstrument`] surface as
+/// [`CpuMeter`]. Expect a measurable overhead while a counting allocator is
+/// installed (~10-20% for this design); it is a diagnostics tool, not an
+/// always-on meter.
+#[derive(Debug, Default, Clone)]
+pub struct AllocMeter {
+    inner: Arc<AllocMeterInner>,
+}
+
+/// Point-in-time copy of an [`AllocMeter`]. Counters are cumulative over the
+/// meter's lifetime.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AllocSnapshot {
+    /// Total bytes allocated while this meter was the active one.
+    pub allocated_bytes: u64,
+    /// Total bytes freed while this meter was active (see the drift caveat on
+    /// [`AllocMeter`]).
+    pub freed_bytes: u64,
+    /// Number of allocations charged.
+    pub allocations: u64,
+}
+
+impl AllocSnapshot {
+    /// Net bytes still attributed (`allocated - freed`), saturating at 0. A
+    /// lower bound on live churn: blocks freed under a different active meter
+    /// aren't subtracted here.
+    pub fn net_bytes(&self) -> u64 {
+        self.allocated_bytes.saturating_sub(self.freed_bytes)
+    }
+}
+
+impl AllocMeter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Charge `bytes` of allocation to the meter currently active on this
+    /// thread, if any. Call from a global allocator's `alloc`. Allocation-free
+    /// (only a thread-local read + relaxed atomics), so it is safe to call from
+    /// inside the allocator without recursing.
+    #[inline]
+    pub fn on_alloc(bytes: usize) {
+        Self::with_active(|inner| {
+            inner.allocated.fetch_add(bytes as u64, Ordering::Relaxed);
+            inner.allocations.fetch_add(1, Ordering::Relaxed);
+        });
+    }
+
+    /// Charge `bytes` of deallocation to the meter currently active on this
+    /// thread, if any. Call from a global allocator's `dealloc`.
+    #[inline]
+    pub fn on_dealloc(bytes: usize) {
+        Self::with_active(|inner| {
+            inner.freed.fetch_add(bytes as u64, Ordering::Relaxed);
+        });
+    }
+
+    #[inline]
+    fn with_active(f: impl FnOnce(&AllocMeterInner)) {
+        // `try_with` guards TLS-destroyed-on-exit; `try_borrow` guards the
+        // reentrancy where `on_poll_start`'s own `push` reallocates the stack
+        // and lands back here — in that window the borrow fails and we skip
+        // (charging that tiny bookkeeping allocation to no one).
+        let _ = ACTIVE_ALLOC_METER.try_with(|cell| {
+            if let Ok(stack) = cell.try_borrow()
+                && let Some(inner) = stack.last()
+            {
+                f(inner);
+            }
+        });
+    }
+
+    pub fn snapshot(&self) -> AllocSnapshot {
+        AllocSnapshot {
+            allocated_bytes: self.inner.allocated.load(Ordering::Relaxed),
+            freed_bytes: self.inner.freed.load(Ordering::Relaxed),
+            allocations: self.inner.allocations.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl TaskInstrument for AllocMeter {
+    fn on_poll_start(&self) {
+        // `borrow_mut` while pushing: a reentrant `on_alloc` from the push's own
+        // reallocation sees the active borrow and skips (see `with_active`).
+        let _ = ACTIVE_ALLOC_METER.try_with(|cell| cell.borrow_mut().push(self.inner.clone()));
+    }
+
+    fn on_poll_end(&self) {
+        // Pop under the borrow, then drop the popped Arc AFTER the borrow is
+        // released: if it was the last strong ref, its deallocation reenters the
+        // allocator (→ `on_dealloc`), which must not find the stack still borrowed.
+        let popped = ACTIVE_ALLOC_METER
+            .try_with(|cell| cell.borrow_mut().pop())
+            .ok()
+            .flatten();
+        drop(popped);
+    }
+}
+
+// ── Runtime decorator ────────────────────────────────────────────────────────
+
+use crate::runtime::{AbortHandle, Runtime};
+
+/// [`Runtime`] decorator that instruments every spawned future (and blocking
+/// closure) with a [`TaskInstrument`]. Wraps any runtime — Tokio, wasm,
+/// embedded — since it only intercepts the trait surface.
+pub struct InstrumentedRuntime {
+    inner: Arc<dyn Runtime>,
+    instrument: Arc<dyn TaskInstrument>,
+}
+
+impl InstrumentedRuntime {
+    pub fn new(inner: Arc<dyn Runtime>, instrument: Arc<dyn TaskInstrument>) -> Self {
+        Self { inner, instrument }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait::async_trait]
+impl Runtime for InstrumentedRuntime {
+    // The re-box is structural: `spawn` takes and returns an erased future, so
+    // wrapping it changes the type and needs a new allocation. It is the meter's
+    // only per-spawn allocation.
+    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) -> AbortHandle {
+        self.inner.spawn(Box::pin(MeteredFuture::new(
+            future,
+            self.instrument.clone(),
+        )))
+    }
+
+    /// Forwarded so the decorator stays transparent: the default body routes
+    /// through [`Runtime::spawn`], which makes the inner runtime build an
+    /// `AbortHandle` (a boxed `dyn FnOnce`) the caller drops on the next line.
+    fn spawn_detached(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+        self.inner.spawn_detached(Box::pin(MeteredFuture::new(
+            future,
+            self.instrument.clone(),
+        )));
+    }
+
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        self.inner.sleep(duration)
+    }
+
+    fn spawn_blocking(
+        &self,
+        f: Box<dyn FnOnce() + Send + 'static>,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let instrument = self.instrument.clone();
+        self.inner.spawn_blocking(Box::new(move || {
+            instrument.on_poll_start();
+            let _guard = PollGuard(&*instrument);
+            f();
+        }))
+    }
+
+    fn yield_now(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> {
+        self.inner.yield_now()
+    }
+
+    fn yield_frequency(&self) -> u32 {
+        self.inner.yield_frequency()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait::async_trait(?Send)]
+impl Runtime for InstrumentedRuntime {
+    fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + 'static>>) -> AbortHandle {
+        self.inner.spawn(Box::pin(MeteredFuture::new(
+            future,
+            self.instrument.clone(),
+        )))
+    }
+
+    /// See the native variant: skips the `AbortHandle` the default body builds.
+    fn spawn_detached(&self, future: Pin<Box<dyn Future<Output = ()> + 'static>>) {
+        self.inner.spawn_detached(Box::pin(MeteredFuture::new(
+            future,
+            self.instrument.clone(),
+        )));
+    }
+
+    fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()>>> {
+        self.inner.sleep(duration)
+    }
+
+    fn spawn_blocking(&self, f: Box<dyn FnOnce() + 'static>) -> Pin<Box<dyn Future<Output = ()>>> {
+        let instrument = self.instrument.clone();
+        self.inner.spawn_blocking(Box::new(move || {
+            instrument.on_poll_start();
+            let _guard = PollGuard(&*instrument);
+            f();
+        }))
+    }
+
+    fn yield_now(&self) -> Option<Pin<Box<dyn Future<Output = ()>>>> {
+        self.inner.yield_now()
+    }
+
+    fn yield_frequency(&self) -> u32 {
+        self.inner.yield_frequency()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_reflects_recorded_traffic() {
+        let stats = SessionStats::new();
+        stats.record_frame_sent(100);
+        stats.record_frame_sent(50);
+        assert!(stats.first_send_since_recv().is_some());
+        stats.record_recv_batch(300, 2);
+        stats.record_message_sent();
+        stats.record_message_received();
+        stats.record_reconnect();
+        stats.record_event_dropped();
+        stats.record_event_dropped();
+
+        let snap = stats.snapshot();
+        assert_eq!(snap.bytes_sent, 150);
+        assert_eq!(snap.frames_sent, 2);
+        assert_eq!(snap.bytes_received, 300);
+        assert_eq!(snap.frames_received, 2);
+        assert_eq!(snap.messages_sent, 1);
+        assert_eq!(snap.messages_received, 1);
+        assert_eq!(snap.reconnects, 1);
+        assert_eq!(snap.events_dropped, 2);
+        assert!(snap.last_data_received_ms > 0);
+    }
+
+    #[test]
+    fn unkeyable_devices_land_in_the_snapshot_split_by_reason() {
+        let stats = SessionStats::new();
+        stats.record_unkeyable_device(UnkeyableDevice::NoBundle);
+        stats.record_unkeyable_device(UnkeyableDevice::SessionSetup);
+        stats.record_unkeyable_devices(UnkeyableDevice::Rejected(406), 4);
+        stats.record_unkeyable_device(UnkeyableDevice::Rejected(503));
+        stats.record_unkeyable_devices(UnkeyableDevice::BatchRefused, 2);
+        stats.record_unkeyable_devices(UnkeyableDevice::FetchFailed, 3);
+        stats.record_unkeyable_device(UnkeyableDevice::Encrypt);
+        stats.record_unkeyable_devices(UnkeyableDevice::Encrypt, 0);
+
+        let snap = stats.snapshot();
+        assert_eq!(snap.devices_unkeyed_no_bundle, 1);
+        assert_eq!(snap.devices_unkeyed_session_setup, 1);
+        assert_eq!(
+            snap.devices_unkeyed_fetch_failed, 3,
+            "an outage is its own field: it refuses nothing and answers nothing"
+        );
+        assert_eq!(
+            snap.devices_unkeyed_rejected, 7,
+            "a batch refusal is a refusal: it shares the snapshot total and \
+             only the metrics label separates it"
+        );
+        assert_eq!(
+            snap.devices_unkeyed_encrypt, 1,
+            "a zero-count tally must not move a counter"
+        );
+        assert_eq!(snap.devices_unkeyed_total(), 13);
+
+        assert_eq!(SessionStats::new().snapshot().devices_unkeyed_total(), 0);
+    }
+
+    /// The metrics label is a closed set: a server code we have never seen must
+    /// bucket rather than mint a label of its own.
+    #[test]
+    fn a_rejection_label_is_bucketed_by_class() {
+        assert_eq!(UnkeyableDevice::NoBundle.label(), "no_bundle");
+        assert_eq!(UnkeyableDevice::SessionSetup.label(), "session_setup");
+        assert_eq!(UnkeyableDevice::Rejected(406).label(), "rejected_406");
+        for code in [400, 401, 403, 404, 409, 429] {
+            assert_eq!(UnkeyableDevice::Rejected(code).label(), "rejected_4xx");
+        }
+        for code in [500, 503, 599] {
+            assert_eq!(UnkeyableDevice::Rejected(code).label(), "rejected_5xx");
+        }
+        for code in [0, 302, 600, u16::MAX] {
+            assert_eq!(UnkeyableDevice::Rejected(code).label(), "rejected_other");
+        }
+        // A batch refusal names nobody, so it must never share a label with a
+        // rejection the server attached to a specific device.
+        assert_eq!(UnkeyableDevice::BatchRefused.label(), "refused_batch");
+        assert_ne!(
+            UnkeyableDevice::BatchRefused.label(),
+            UnkeyableDevice::Rejected(406).label()
+        );
+        assert_eq!(UnkeyableDevice::FetchFailed.label(), "fetch_failed");
+        assert_eq!(UnkeyableDevice::Encrypt.label(), "encrypt");
+    }
+
+    #[test]
+    fn dead_socket_anchor_holds_across_continued_sends() {
+        use crate::protocol::keepalive::is_dead_socket_at;
+
+        let stats = SessionStats::new();
+        assert_eq!(stats.first_send_since_recv(), None, "unarmed initially");
+
+        stats.record_frame_sent(10);
+        let armed = stats.first_send_since_recv();
+        assert!(
+            armed.is_some(),
+            "the first send arms the dead-socket anchor"
+        );
+
+        // Continued outgoing traffic must NOT push the anchor out (WA Web onOrBefore
+        // keeps the earliest deadline) — this is what let a half-open socket hide.
+        // The CAS gate holds the anchor put across further sends; a sleep makes an
+        // "unconditional store" regression observable without the assert depending
+        // on the clock actually ticking (it stays == armed either way).
+        std::thread::sleep(Duration::from_millis(2));
+        stats.record_frame_sent(10);
+        stats.record_frame_sent(10);
+        assert_eq!(
+            stats.first_send_since_recv(),
+            armed,
+            "later sends keep the earliest anchor"
+        );
+
+        // A dead socket is detected once DEAD_SOCKET_TIME passes the anchor, even
+        // though sends kept happening (anchor far in the past, no receive since).
+        // Built from the clock's origin rather than `now`, because a process
+        // that has just started has no 21 seconds behind it to subtract.
+        let anchor = Instant::ZERO + Duration::from_secs(1_000);
+        assert!(
+            is_dead_socket_at(
+                Some(anchor),
+                Some(anchor - Duration::from_secs(5)),
+                anchor + Duration::from_secs(21)
+            ),
+            "20s past the anchor with no receive => dead"
+        );
+
+        // A receive cancels the anchor; the next send re-arms it.
+        stats.mark_recv_activity();
+        assert_eq!(
+            stats.first_send_since_recv(),
+            None,
+            "a receive cancels the anchor"
+        );
+        stats.record_frame_sent(10);
+        assert!(
+            stats.first_send_since_recv().is_some(),
+            "the next send after a receive re-arms the anchor"
+        );
+    }
+
+    /// A send whose arm raced past a concurrent receive-reset can leave the anchor
+    /// at a PRE-receive timestamp. The next send must re-arm it (stale: anchor <=
+    /// last_received) rather than treat it as live and stick there forever, which
+    /// would silently disable dead-socket detection for the rest of the connection.
+    #[test]
+    fn stale_pre_receive_anchor_self_heals_on_next_send() {
+        use crate::protocol::keepalive::is_dead_socket;
+        let stats = SessionStats::new();
+        let base = SessionStats::now();
+        // Reconstruct the race outcome directly: a receive at `base`, and an anchor
+        // left behind at a pre-receive instant (the lost-reset send's stale `now`).
+        stats.last_data_received.store(base);
+        stats
+            .first_send_since_recv
+            .store(base - Duration::from_secs(1));
+
+        stats.record_frame_sent(10);
+
+        let rearmed = stats
+            .first_send_since_recv()
+            .expect("a send always leaves an anchor");
+        assert!(
+            rearmed >= base,
+            "a stale pre-receive anchor must re-arm to a post-receive send"
+        );
+        assert!(
+            !is_dead_socket(Some(rearmed), Some(base)),
+            "the re-armed anchor is after the receive, so the socket is not dead"
+        );
+    }
+
+    #[test]
+    fn reset_connection_activity_keeps_traffic() {
+        let stats = SessionStats::new();
+        stats.record_frame_sent(10);
+        stats.record_recv_batch(20, 1);
+        stats.reset_connection_activity();
+
+        let snap = stats.snapshot();
+        assert_eq!(stats.first_send_since_recv(), None);
+        assert_eq!(snap.last_data_received_ms, 0);
+        assert_eq!(snap.bytes_sent, 10);
+        assert_eq!(snap.bytes_received, 20);
+    }
+
+    #[test]
+    fn cpu_meter_counts_polls_and_busy_time() {
+        let meter = Arc::new(CpuMeter::new());
+        let instrument: Arc<dyn TaskInstrument> = meter.clone();
+
+        let mut fut = MeteredFuture::new(Box::pin(async {}), instrument);
+        let waker = std::task::Waker::noop();
+        let mut cx = Context::from_waker(waker);
+        assert!(Pin::new(&mut fut).poll(&mut cx).is_ready());
+
+        let snap = meter.snapshot();
+        assert_eq!(snap.polls, 1);
+    }
+
+    /// Resolves `Pending` once, then `Ready(v)`. Enough polls to observe both a
+    /// mid-flight cancellation and a completed run.
+    struct PendingOnce<T> {
+        value: Option<T>,
+        polled: bool,
+    }
+
+    impl<T> PendingOnce<T> {
+        fn new(value: T) -> Self {
+            Self {
+                value: Some(value),
+                polled: false,
+            }
+        }
+    }
+
+    impl<T: Unpin> Future for PendingOnce<T> {
+        type Output = T;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            let this = self.get_mut();
+            if !this.polled {
+                this.polled = true;
+                cx.waker().wake_by_ref();
+                return Poll::Pending;
+            }
+            Poll::Ready(this.value.take().expect("polled after completion"))
+        }
+    }
+
+    fn poll_once<F: Future + Unpin>(fut: &mut F) -> Poll<F::Output> {
+        let waker = std::task::Waker::noop();
+        Pin::new(fut).poll(&mut Context::from_waker(waker))
+    }
+
+    /// Inner runtime that records which spawn entry point the decorator used and
+    /// drives the future inline, so a test can tell forwarding apart from the
+    /// trait's `spawn`-based default body.
+    #[derive(Default)]
+    struct RecordingRuntime {
+        spawns: AtomicU64,
+        detached_spawns: AtomicU64,
+    }
+
+    impl RecordingRuntime {
+        fn drive(mut future: Pin<Box<dyn Future<Output = ()> + Send>>) {
+            for _ in 0..8 {
+                if poll_once(&mut future).is_ready() {
+                    return;
+                }
+            }
+            panic!("spawned test future never settled");
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for RecordingRuntime {
+        fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) -> AbortHandle {
+            self.spawns.fetch_add(1, Ordering::Relaxed);
+            Self::drive(future);
+            AbortHandle::noop()
+        }
+
+        fn spawn_detached(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) {
+            self.detached_spawns.fetch_add(1, Ordering::Relaxed);
+            Self::drive(future);
+        }
+
+        fn sleep(&self, _duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            Box::pin(async {})
+        }
+
+        fn spawn_blocking(
+            &self,
+            f: Box<dyn FnOnce() + Send + 'static>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            f();
+            Box::pin(async {})
+        }
+
+        fn yield_now(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> {
+            None
+        }
+    }
+
+    /// The decorator forwards `spawn_detached` to the inner runtime's own
+    /// detached path. Falling back to the trait default would reach `spawn`,
+    /// making the inner runtime build an `AbortHandle` nobody keeps.
+    #[test]
+    fn the_decorator_forwards_detached_spawns() {
+        let inner = Arc::new(RecordingRuntime::default());
+        let meter = Arc::new(CpuMeter::new());
+        let runtime = InstrumentedRuntime::new(
+            inner.clone() as Arc<dyn Runtime>,
+            meter.clone() as Arc<dyn TaskInstrument>,
+        );
+
+        runtime.spawn_detached(Box::pin(PendingOnce::new(())));
+
+        assert_eq!(inner.detached_spawns.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            inner.spawns.load(Ordering::Relaxed),
+            0,
+            "a detached spawn must not reach the handle-building path"
+        );
+        assert_eq!(
+            meter.snapshot().polls,
+            2,
+            "the forwarded future is still metered on every poll"
+        );
+    }
+
+    /// The undetached path keeps its handle: forwarding must not have leaked
+    /// into `spawn`.
+    #[test]
+    fn the_decorator_keeps_undetached_spawns_on_the_handle_path() {
+        let inner = Arc::new(RecordingRuntime::default());
+        let meter = Arc::new(CpuMeter::new());
+        let runtime = InstrumentedRuntime::new(
+            inner.clone() as Arc<dyn Runtime>,
+            meter.clone() as Arc<dyn TaskInstrument>,
+        );
+
+        runtime.spawn(Box::pin(PendingOnce::new(()))).detach();
+
+        assert_eq!(inner.spawns.load(Ordering::Relaxed), 1);
+        assert_eq!(inner.detached_spawns.load(Ordering::Relaxed), 0);
+        assert_eq!(meter.snapshot().polls, 2);
+    }
+
+    /// A stack-pinned future is `Unpin` through `Pin<&mut F>`, so the meter
+    /// wraps a non-`Unpin` async block with no box. Same accounting as boxing it.
+    #[test]
+    fn stack_pinned_future_is_metered_like_a_boxed_one() {
+        let boxed = Arc::new(CpuMeter::new());
+        let mut fut =
+            MeteredFuture::new(Box::pin(async {}), boxed.clone() as Arc<dyn TaskInstrument>);
+        assert!(poll_once(&mut fut).is_ready());
+
+        let stacked = Arc::new(CpuMeter::new());
+        let inner = core::pin::pin!(async {});
+        let mut fut = MeteredFuture::new(inner, stacked.clone() as Arc<dyn TaskInstrument>);
+        assert!(poll_once(&mut fut).is_ready());
+
+        assert_eq!(stacked.snapshot().polls, boxed.snapshot().polls);
+    }
+
+    /// A metered future whose output is an `Err` is accounted exactly like a
+    /// successful one: the meter counts polls, not outcomes.
+    #[test]
+    fn a_failing_future_is_metered_like_a_succeeding_one() {
+        let failing = Arc::new(CpuMeter::new());
+        let err = core::pin::pin!(PendingOnce::new(Err::<(), &str>("boom")));
+        let mut fut = MeteredFuture::new(err, failing.clone() as Arc<dyn TaskInstrument>);
+        assert!(poll_once(&mut fut).is_pending());
+        assert_eq!(poll_once(&mut fut), Poll::Ready(Err("boom")));
+
+        let succeeding = Arc::new(CpuMeter::new());
+        let ok = core::pin::pin!(PendingOnce::new(Ok::<(), &str>(())));
+        let mut fut = MeteredFuture::new(ok, succeeding.clone() as Arc<dyn TaskInstrument>);
+        assert!(poll_once(&mut fut).is_pending());
+        assert_eq!(poll_once(&mut fut), Poll::Ready(Ok(())));
+
+        assert_eq!(failing.snapshot().polls, 2);
+        assert_eq!(succeeding.snapshot().polls, failing.snapshot().polls);
+    }
+
+    /// Cancellation: a metered future dropped between polls keeps the polls it
+    /// did and leaves no scope open. An unbalanced `on_poll_start` would pin the
+    /// meter active forever, charging every later allocation on this thread to it.
+    #[test]
+    fn cancelling_a_metered_future_leaves_no_open_scope() {
+        let meter = AllocMeter::new();
+        let instrument: Arc<dyn TaskInstrument> = Arc::new(meter.clone());
+
+        {
+            let pending = core::pin::pin!(PendingOnce::new(()));
+            let mut fut = MeteredFuture::new(pending, Arc::clone(&instrument));
+            assert!(poll_once(&mut fut).is_pending());
+            // Charged to nobody unless the `Pending` poll left its scope open.
+            AllocMeter::on_alloc(64);
+        }
+        // Same probe after the mid-flight drop.
+        AllocMeter::on_alloc(64);
+
+        assert_eq!(meter.snapshot().allocated_bytes, 0);
+        assert_eq!(meter.snapshot().allocations, 0);
+
+        // The stack is empty, so a fresh scope still charges correctly.
+        meter.on_poll_start();
+        AllocMeter::on_alloc(16);
+        meter.on_poll_end();
+        assert_eq!(meter.snapshot().allocated_bytes, 16);
+    }
+
+    /// Nesting: a metered future polled from inside another metered poll charges
+    /// each scope once, innermost first, and both meters see their own polls.
+    #[test]
+    fn nested_metered_futures_charge_each_scope_once() {
+        let outer_meter = AllocMeter::new();
+        let inner_meter = AllocMeter::new();
+        let inner_instrument: Arc<dyn TaskInstrument> = Arc::new(inner_meter.clone());
+
+        let body = core::pin::pin!(async {
+            AllocMeter::on_alloc(100); // -> outer
+            let nested = core::pin::pin!(async { AllocMeter::on_alloc(30) });
+            let mut inner = MeteredFuture::new(nested, Arc::clone(&inner_instrument));
+            assert!(poll_once(&mut inner).is_ready()); // -> inner (innermost)
+            AllocMeter::on_alloc(7); // -> outer again
+        });
+        let mut outer = MeteredFuture::new(
+            body,
+            Arc::new(outer_meter.clone()) as Arc<dyn TaskInstrument>,
+        );
+        assert!(poll_once(&mut outer).is_ready());
+
+        assert_eq!(outer_meter.snapshot().allocated_bytes, 107);
+        assert_eq!(outer_meter.snapshot().allocations, 2);
+        assert_eq!(inner_meter.snapshot().allocated_bytes, 30);
+        assert_eq!(inner_meter.snapshot().allocations, 1);
+    }
+
+    #[test]
+    fn alloc_meter_charges_only_the_active_scope() {
+        let meter = AllocMeter::new();
+
+        // Outside any poll scope: charged to no one.
+        AllocMeter::on_alloc(9999);
+
+        meter.on_poll_start();
+        AllocMeter::on_alloc(1000);
+        AllocMeter::on_alloc(500);
+        AllocMeter::on_dealloc(200);
+        meter.on_poll_end();
+
+        // After the scope closes: charged to no one again.
+        AllocMeter::on_alloc(7777);
+        AllocMeter::on_dealloc(7777);
+
+        let snap = meter.snapshot();
+        assert_eq!(snap.allocated_bytes, 1500);
+        assert_eq!(snap.freed_bytes, 200);
+        assert_eq!(snap.allocations, 2);
+        assert_eq!(snap.net_bytes(), 1300);
+    }
+
+    #[test]
+    fn alloc_meter_attributes_nested_scopes_to_the_innermost() {
+        let outer = AllocMeter::new();
+        let inner = AllocMeter::new();
+
+        outer.on_poll_start();
+        AllocMeter::on_alloc(100); // -> outer
+        inner.on_poll_start();
+        AllocMeter::on_alloc(30); // -> inner (innermost)
+        inner.on_poll_end();
+        AllocMeter::on_alloc(70); // -> outer again
+        outer.on_poll_end();
+
+        assert_eq!(outer.snapshot().allocated_bytes, 170);
+        assert_eq!(inner.snapshot().allocated_bytes, 30);
+    }
+
+    #[test]
+    fn alloc_meter_survives_realloc_reentrancy_during_poll_start() {
+        // Force the thread-local stack to grow inside `on_poll_start` while its
+        // own `borrow_mut` is held: a reentrant `on_alloc` must skip, not panic.
+        let meters: Vec<AllocMeter> = (0..64).map(|_| AllocMeter::new()).collect();
+        for m in &meters {
+            m.on_poll_start();
+            AllocMeter::on_alloc(1);
+        }
+        for m in meters.iter().rev() {
+            m.on_poll_end();
+        }
+        // Innermost meter got its own charge; no panic reaching here is the test.
+        assert_eq!(meters.last().unwrap().snapshot().allocations, 1);
+    }
+
+    #[test]
+    fn alloc_meter_scope_outlives_a_dropped_handle() {
+        // Regression for the raw-pointer soundness hole: the active-meter scope
+        // owns an `Arc` to the counters, so a charge after the caller's handle is
+        // dropped touches valid memory (with the old `*const AllocMeter` this was
+        // a dangling-pointer deref).
+        let keep = AllocMeter::new();
+        let temp = keep.clone(); // shares the same counters
+        temp.on_poll_start();
+        drop(temp); // handle gone; the scope's Arc keeps the counters alive
+        AllocMeter::on_alloc(128);
+        keep.on_poll_end(); // LIFO pop; any handle pops the top scope
+        assert_eq!(keep.snapshot().allocated_bytes, 128);
+    }
+
+    #[test]
+    fn resource_report_total_bytes_saturate() {
+        let t = TransportResourceReport {
+            read_buffer_bytes: Some(u64::MAX),
+            write_buffer_bytes: Some(10),
+            tls_state_bytes: Some(10),
+        };
+        assert_eq!(t.total_bytes(), u64::MAX, "transport total must not wrap");
+
+        let h = HttpResourceReport {
+            pool_connections: Some(3),
+            pool_buffer_bytes: Some(u64::MAX),
+            inflight_bytes: Some(1),
+        };
+        assert_eq!(h.total_bytes(), u64::MAX, "http total must not wrap");
+    }
+}

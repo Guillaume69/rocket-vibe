@@ -1,0 +1,1070 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use bytes::Bytes;
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Default WhatsApp Web websocket endpoint.
+pub const WHATSAPP_WEB_WS_URL: &str = "wss://web.whatsapp.com/ws/chat";
+
+/// Alternate-port WhatsApp Web websocket endpoint.
+///
+/// WA Web dials this concurrently with [`WHATSAPP_WEB_WS_URL`] (its
+/// `openWebSocketsConcurrently` races `wss://web.whatsapp.com/ws/chat` against
+/// `wss://web.whatsapp.com:5222/ws/chat` and keeps the first `onopen`). A
+/// network that blocks 443 but not 5222, or vice versa, connects through the
+/// survivor, where a single-URL dial fails outright.
+pub const WHATSAPP_WEB_WS_URL_FALLBACK: &str = "wss://web.whatsapp.com:5222/ws/chat";
+
+/// Default chat endpoints, primary first. The number of endpoints may grow.
+///
+/// ```
+/// use wacore::net::WHATSAPP_WEB_WS_URLS;
+/// let endpoints: &[&str] = WHATSAPP_WEB_WS_URLS;
+/// for endpoint in endpoints {
+///     assert!(endpoint.starts_with("wss://"));
+/// }
+/// ```
+pub const WHATSAPP_WEB_WS_URLS: &[&str] = &[WHATSAPP_WEB_WS_URL, WHATSAPP_WEB_WS_URL_FALLBACK];
+
+/// Appends an `ED` edge-routing query parameter to a chat URL.
+///
+/// Encodes the raw routing bytes, not the binary pre-intro header. This helper
+/// retains its padded base64url output contract. Captured WA Web instead calls
+/// `encodeB64UrlSafe` without the padding flag and emits unpadded base64url.
+/// Callers must apply this helper to each dial URL; it does not configure dials.
+///
+/// Returns `url` unchanged when routing is absent, empty, or longer than
+/// [`wacore_noise::MAX_EDGE_ROUTING_LEN`], including any existing `ED` parameters.
+/// The binary [`wacore_noise::build_handshake_header`] also omits absent or
+/// oversized routing, but emits a zero-length pre-intro for `Some(&[])`.
+///
+/// This is an append-only string helper, not a URL or request validator. It adds
+/// `?ED=` or `&ED=` before the first `#fragment`, preserving existing query text
+/// and fragments without normalization or percent-decoding. Existing `ED`
+/// parameters are neither replaced nor deduplicated. Request parsing, duplicate
+/// rejection, and HTTP size limits belong to the caller.
+pub fn with_edge_routing_param(url: &str, edge_routing_info: Option<&[u8]>) -> String {
+    let Some(info) = edge_routing_info else {
+        return url.to_string();
+    };
+    if info.is_empty() || info.len() > wacore_noise::MAX_EDGE_ROUTING_LEN {
+        return url.to_string();
+    }
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::URL_SAFE.encode(info);
+    // The query goes before any `#fragment`: fragment bytes never reach the
+    // server, so an `ED` appended after `#` would lose the routing hint.
+    let (base, fragment) = match url.split_once('#') {
+        Some((base, fragment)) => (base, Some(fragment)),
+        None => (url, None),
+    };
+    let sep = if base.contains('?') { '&' } else { '?' };
+    match fragment {
+        Some(fragment) => format!("{base}{sep}ED={encoded}#{fragment}"),
+        None => format!("{base}{sep}ED={encoded}"),
+    }
+}
+
+/// `Origin` sent to every WhatsApp Web endpoint — the chat socket and the media
+/// hosts alike.
+///
+/// Constant rather than derived from [`ClientProfile`], because the origin
+/// describes the endpoint and not the client: [`WHATSAPP_WEB_WS_URL`] is the web
+/// companion endpoint whatever platform the `ClientPayload` claims, and the
+/// native apps do not speak to it at all. Omitting it for a non-web profile
+/// would make the connection more anomalous, not less. whatsmeow and Baileys
+/// both send this value unconditionally.
+///
+/// [`ClientProfile`]: crate::client_profile::ClientProfile
+pub const WHATSAPP_WEB_ORIGIN: &str = "https://web.whatsapp.com";
+
+/// Why the transport connection ended. Lets a benign server-initiated stream
+/// recycle (a clean Close frame) be told apart from an abrupt EOF or a real
+/// read error when diagnosing reconnect behavior.
+///
+/// Serialize: carried by `events::Disconnected`, whose payload consumers forward
+/// as JSON (webhooks, dashboards) — snake_case so the wire shape doesn't leak
+/// Rust variant naming.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DisconnectReason {
+    /// The peer sent a WebSocket Close frame. `code` is the RFC 6455 close
+    /// code (1000 = normal closure); `reason` is the optional UTF-8 text.
+    ServerClose { code: Option<u16>, reason: String },
+    /// The stream ended (EOF) without a Close frame.
+    StreamEnded,
+    /// A transport-level read/IO error ended the connection.
+    ReadError(String),
+    /// The reason was not reported by this transport (e.g. local shutdown).
+    Unknown,
+}
+
+impl std::fmt::Display for DisconnectReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ServerClose { code, reason } => match (code, reason.is_empty()) {
+                (Some(c), false) => write!(f, "server close frame (code {c}: {reason})"),
+                (Some(c), true) => write!(f, "server close frame (code {c})"),
+                (None, false) => write!(f, "server close frame ({reason})"),
+                (None, true) => write!(f, "server close frame (no code)"),
+            },
+            Self::StreamEnded => write!(f, "stream ended (EOF)"),
+            Self::ReadError(e) => write!(f, "read error: {e}"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+impl DisconnectReason {
+    /// Whether this is a benign, server-initiated stream recycle (the normal
+    /// WhatsApp reconnect path) rather than a transport-level error.
+    ///
+    /// Used only to pick a log level: a clean shutdown is logged quietly (the
+    /// reconnect is routine), while everything else stays loud so a genuine
+    /// transport failure is never hidden behind reconnect noise. Deliberately
+    /// conservative — anything ambiguous returns `false` (stays loud): a read/IO
+    /// error, an abnormal close code, or an unreported reason.
+    pub fn is_clean_shutdown(&self) -> bool {
+        match self {
+            // EOF with no Close frame is how the WA server recycles a connection.
+            Self::StreamEnded => true,
+            // A Close frame with a normal / going-away / no code is graceful; any
+            // other code (protocol/server error, restart, etc.) stays loud.
+            Self::ServerClose { code, .. } => matches!(code, None | Some(1000) | Some(1001)),
+            // A transport read/IO error is a real failure — never quiet.
+            Self::ReadError(_) => false,
+            // Unknown reason: stay loud, don't assume it was benign.
+            Self::Unknown => false,
+        }
+    }
+}
+
+/// An event produced by the transport layer.
+///
+/// This intentionally closed contract carries connection establishment, bytes,
+/// and termination. Transport-specific termination details belong in the
+/// extensible [`DisconnectReason`], not additional event variants.
+#[derive(Debug, Clone)]
+pub enum TransportEvent {
+    /// The transport has successfully connected.
+    Connected,
+    /// Raw data has been received from the server.
+    DataReceived(Bytes),
+    /// The connection was lost, with the reason if the transport reported one.
+    Disconnected(DisconnectReason),
+}
+
+/// Represents an active network connection.
+/// The transport is a dumb pipe for bytes with no knowledge of WhatsApp framing.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait Transport: crate::sync_marker::MaybeSendSync {
+    /// Sends raw data to the server.
+    async fn send(&self, data: Bytes) -> Result<(), anyhow::Error>;
+
+    /// Closes the connection.
+    async fn disconnect(&self);
+
+    /// Best-effort per-session footprint of this transport: read/write framing
+    /// buffers plus a TLS/noise session-state estimate. `None` by default;
+    /// concrete transports (e.g. the Tokio WebSocket transport) fill in what
+    /// they can. Not blanket-impl'd, so a defaulted method here is cleanly
+    /// overridable — no `Backend`-style wrinkle.
+    fn resource_report(&self) -> Option<crate::stats::TransportResourceReport> {
+        None
+    }
+}
+
+/// A factory responsible for creating new transport instances.
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait TransportFactory: crate::sync_marker::MaybeSendSync {
+    /// Creates a new transport and returns it, along with a stream of events.
+    ///
+    /// Dropping the returned future must abort the dial without leaking an
+    /// open transport: [`RacingTransportFactory`] drops a still-dialling loser
+    /// (aborting it) and closes an already-open one in background, so a
+    /// half-open dial must leave no socket behind when dropped.
+    async fn create_transport(
+        &self,
+    ) -> Result<(Arc<dyn Transport>, async_channel::Receiver<TransportEvent>), anyhow::Error>;
+}
+
+/// Dials two endpoints concurrently and keeps the first success, mirroring WA
+/// Web's `openWebSocketsConcurrently`: the winner is returned, a loser that
+/// already opened is closed cleanly via [`Transport::disconnect`], a loser
+/// still dialling is aborted by dropping it, and an individual failure is
+/// suppressed while the other dial is still in flight. Only when both fail
+/// does this return an error (the one that completed last, as WA Web rejects
+/// with the failure that completes the set).
+///
+/// The winner never waits for the loser: [`Transport::disconnect`] carries no
+/// completion bound (a valid transport may stall it forever), so an
+/// already-open loser is closed on `runtime` via [`Runtime::spawn_detached`]
+/// while the winner is returned immediately. The background close is bounded,
+/// so a stalled loser is dropped and its socket released instead of lingering
+/// detached. Its event channel is dropped with it, so the loser's close never
+/// surfaces as a `DisconnectReason`.
+///
+/// No handshake runs here, so at most one socket ever reaches Noise: this
+/// returns a single transport and the caller handshakes exactly it. The race
+/// itself uses only `futures` combinators, so this stays portable
+/// (wasm32/ESP32); dropping the race future aborts both dials with no socket
+/// to close.
+///
+/// Inner factories keep their own contracts: TLS session resumption stays
+/// inside each factory's connector, `Origin` stays each factory's, and custom
+/// strategies built on `from_websocket` compose by wrapping the factories.
+///
+/// [`Runtime::spawn_detached`]: crate::runtime::Runtime::spawn_detached
+pub struct RacingTransportFactory {
+    primary: Arc<dyn TransportFactory>,
+    secondary: Arc<dyn TransportFactory>,
+    runtime: Arc<dyn crate::runtime::Runtime>,
+}
+
+impl RacingTransportFactory {
+    /// Races `primary` against `secondary`; the first success wins regardless
+    /// of order, so pass the preferred endpoint first only as a tiebreak hint.
+    /// For chat parity this is one factory per [`WHATSAPP_WEB_WS_URLS`] entry.
+    pub fn new(
+        primary: Arc<dyn TransportFactory>,
+        secondary: Arc<dyn TransportFactory>,
+        runtime: Arc<dyn crate::runtime::Runtime>,
+    ) -> Self {
+        Self {
+            primary,
+            secondary,
+            runtime,
+        }
+    }
+}
+
+type TransportDial =
+    Result<(Arc<dyn Transport>, async_channel::Receiver<TransportEvent>), anyhow::Error>;
+
+/// Bound for the loser's background close.
+///
+/// A stalled close must still release its socket eventually, or repeated races
+/// would accumulate detached tasks retaining dead transports. Well under the
+/// 20s transport timeout, so the cleanup never overlaps the client's own
+/// connect accounting.
+const LOSER_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Settles a dial that lost the race: an already-open loser is closed in
+/// background and its late failure suppressed; a still-pending loser is left
+/// for the caller to drop, which aborts the dial per [`TransportFactory`]'s
+/// contract. Never awaits the loser, so a stalled close cannot delay a usable
+/// winner; the background close itself is bounded, so a stalled loser is
+/// dropped and its socket released instead of lingering detached forever.
+fn settle_loser<F>(
+    winner: TransportDial,
+    loser: F,
+    runtime: &Arc<dyn crate::runtime::Runtime>,
+) -> TransportDial
+where
+    F: Future<Output = TransportDial>,
+{
+    use futures::future::FutureExt as _;
+
+    if winner.is_ok()
+        && let Some(Ok((loser_transport, _))) = loser.now_or_never()
+    {
+        let spawner = Arc::clone(runtime);
+        let timer = Arc::clone(runtime);
+        spawner.spawn_detached(Box::pin(async move {
+            let _ =
+                crate::runtime::timeout(&*timer, LOSER_CLOSE_TIMEOUT, loser_transport.disconnect())
+                    .await;
+        }));
+    }
+    winner
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl TransportFactory for RacingTransportFactory {
+    async fn create_transport(&self) -> TransportDial {
+        use futures::future::{Either, select};
+        use futures::pin_mut;
+
+        let primary_fut = self.primary.create_transport();
+        let secondary_fut = self.secondary.create_transport();
+        pin_mut!(primary_fut, secondary_fut);
+
+        match select(primary_fut, secondary_fut).await {
+            Either::Left((first, second_fut)) => {
+                if first.is_ok() {
+                    settle_loser(first, second_fut, &self.runtime)
+                } else {
+                    second_fut.await
+                }
+            }
+            Either::Right((second, first_fut)) => {
+                if second.is_ok() {
+                    settle_loser(second, first_fut, &self.runtime)
+                } else {
+                    first_fut.await
+                }
+            }
+        }
+    }
+}
+
+/// An HTTP request. Construct with [`HttpRequest::get`] or [`HttpRequest::post`]
+/// and set the public fields or use the `with_*` methods as needed.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct HttpRequest {
+    pub url: String,
+    pub method: String, // "GET" or "POST"
+    pub headers: HashMap<String, String>,
+    pub body: Option<Bytes>,
+}
+
+impl HttpRequest {
+    pub fn get(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            method: "GET".to_string(),
+            headers: HashMap::new(),
+            body: None,
+        }
+    }
+
+    pub fn post(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            method: "POST".to_string(),
+            headers: HashMap::new(),
+            body: None,
+        }
+    }
+
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_body(mut self, body: impl Into<Bytes>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+}
+
+/// A buffered HTTP response. Hosts construct this with [`HttpResponse::new`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct HttpResponse {
+    pub status_code: u16,
+    pub body: Vec<u8>,
+}
+
+impl HttpResponse {
+    /// Return the status and body of a completed exchange, including 4xx/5xx.
+    pub fn new(status_code: u16, body: Vec<u8>) -> Self {
+        Self { status_code, body }
+    }
+
+    pub fn body_string(&self) -> Result<String> {
+        Ok(String::from_utf8(self.body.clone())?)
+    }
+}
+
+/// An HTTP response with a streaming body reader instead of a buffered `Vec<u8>`.
+/// Used for large downloads where buffering the entire response would be wasteful.
+#[non_exhaustive]
+pub struct StreamingHttpResponse {
+    pub status_code: u16,
+    pub body: Box<dyn std::io::Read + Send>,
+}
+
+/// An adapter-owned lease held through a streaming request's blocking I/O.
+/// Acquisition happens before a blocking worker is occupied; dropping this
+/// value releases the adapter's resource reservation.
+pub type StreamingRequestPermit = Box<dyn crate::sync_marker::MaybeSend>;
+
+impl StreamingHttpResponse {
+    /// Return a response's status and body reader, including for 4xx/5xx.
+    /// Errors encountered while reading the body remain reader errors.
+    pub fn new(status_code: u16, body: Box<dyn std::io::Read + Send>) -> Self {
+        Self { status_code, body }
+    }
+}
+
+/// A streaming request body: a reader whose total length is known up front, so
+/// the client can send an exact `Content-Length` (WhatsApp's CDN rejects chunked
+/// transfer-encoding on upload).
+pub type UploadBody = Box<dyn std::io::Read + Send>;
+
+/// Trait for executing HTTP requests in a runtime-agnostic way.
+///
+/// A received HTTP response returns `Ok` with its status, including 4xx/5xx.
+/// Implementations must not turn an HTTP status into an opaque error. The SDK
+/// decides whether to retry according to the operation being performed.
+/// DNS, connect, TLS and request timeout failures return `Err`.
+///
+/// Successful buffered responses must contain the complete body; body read
+/// failures or exceeded body limits return `Err`. For non-success responses,
+/// hosts may bound the diagnostic body and keep partial bytes after a read
+/// failure, preserving the status in `Ok`. Callers must not assume an error
+/// body is complete. The bundled ureq host uses this bounded, best-effort
+/// behavior. For streaming responses, body read failures come from the reader.
+///
+/// Streaming is a synchronous `Read + Send` extension requiring a blocking
+/// context. It does not guarantee asynchronous browser Fetch chunk streaming
+/// or a byte limit for buffered responses; those are host responsibilities.
+///
+/// Some HTTP libraries treat non-success statuses as errors by default; hosts
+/// must disable that behavior, for example with ureq's `http_status_as_error`.
+///
+/// ```
+/// use wacore::net::{HttpResponse, StreamingHttpResponse};
+/// let response = HttpResponse::new(503, b"retry later".to_vec());
+/// assert_eq!(response.status_code, 503);
+/// assert_eq!(response.body, b"retry later");
+/// let mut response = StreamingHttpResponse::new(
+///     404, Box::new(std::io::Cursor::new(b"not found")),
+/// );
+/// let mut body = String::new();
+/// response.body.read_to_string(&mut body).unwrap();
+/// assert_eq!(response.status_code, 404);
+/// assert_eq!(body, "not found");
+/// ```
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait HttpClient: crate::sync_marker::MaybeSendSync {
+    /// Executes a given HTTP request and returns the response, non-2xx included.
+    async fn execute(&self, request: HttpRequest) -> Result<HttpResponse>;
+
+    /// Whether this client supports synchronous streaming downloads.
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+
+    /// Optional asynchronous resource admission before streaming I/O.
+    /// The default returns no future and allocates nothing. Download callers
+    /// await this before entering a blocking worker, then keep the permit until
+    /// the response body and connection are released, including cancellation.
+    fn streaming_admission(
+        &self,
+    ) -> Option<crate::runtime::BoxFuture<'_, Result<StreamingRequestPermit>>> {
+        None
+    }
+
+    /// Synchronous streaming variant — returns a reader over the response body.
+    /// Must be called from a blocking context.
+    fn execute_streaming(&self, _request: HttpRequest) -> Result<StreamingHttpResponse> {
+        Err(anyhow::anyhow!(
+            "Streaming not supported by this HTTP client"
+        ))
+    }
+
+    /// Whether this client can stream a request body from a reader (upload).
+    fn supports_upload_streaming(&self) -> bool {
+        false
+    }
+
+    /// Synchronous streaming upload: send `body` (exactly `content_length` bytes)
+    /// as the request body. Implementations MUST set an explicit `Content-Length`
+    /// rather than chunked transfer-encoding. Any body set on `request` is
+    /// ignored. Must be called from a blocking context.
+    fn execute_upload(
+        &self,
+        _request: HttpRequest,
+        _body: UploadBody,
+        _content_length: u64,
+    ) -> Result<HttpResponse> {
+        Err(anyhow::anyhow!(
+            "Upload streaming not supported by this HTTP client"
+        ))
+    }
+
+    /// Best-effort per-session footprint of this client: idle connection-pool
+    /// buffers plus any in-flight download/media buffering the impl can see.
+    /// `None` by default; `ureq`/`reqwest`-backed clients report what their
+    /// (limited) introspection allows. Media downloads are a real transient-RAM
+    /// source, so a coarse estimate is still worth reporting.
+    fn resource_report(&self) -> Option<crate::stats::HttpResourceReport> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DisconnectReason;
+
+    // Happy paths: benign server-initiated recycles must classify as clean so
+    // their reconnect is logged quietly.
+    #[test]
+    fn clean_shutdowns_are_classified_clean() {
+        assert!(DisconnectReason::StreamEnded.is_clean_shutdown());
+        assert!(
+            DisconnectReason::ServerClose {
+                code: Some(1000),
+                reason: String::new()
+            }
+            .is_clean_shutdown()
+        );
+        assert!(
+            DisconnectReason::ServerClose {
+                code: Some(1001),
+                reason: "going away".to_string()
+            }
+            .is_clean_shutdown()
+        );
+        assert!(
+            DisconnectReason::ServerClose {
+                code: None,
+                reason: String::new()
+            }
+            .is_clean_shutdown()
+        );
+    }
+
+    // Bad paths: a real transport error, an abnormal close code, or an unreported
+    // reason must NOT be classified clean — they have to stay loud so genuine
+    // failures are never hidden behind reconnect noise.
+    #[test]
+    fn real_errors_are_never_classified_clean() {
+        assert!(!DisconnectReason::ReadError("connection reset".to_string()).is_clean_shutdown());
+        assert!(!DisconnectReason::Unknown.is_clean_shutdown());
+        for code in [1002u16, 1006, 1011, 1012, 1013, 3000, 4000] {
+            assert!(
+                !DisconnectReason::ServerClose {
+                    code: Some(code),
+                    reason: String::new()
+                }
+                .is_clean_shutdown(),
+                "close code {code} must not be treated as a clean shutdown"
+            );
+        }
+    }
+}
+
+/// Race and `?ED=` tests. The race itself uses only `futures` combinators plus
+/// a `Runtime` for the loser's background close, so it stays portable; the
+/// tests below use Tokio timers purely as controllable latency/failure scripts
+/// for the mock dials.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod racing_tests {
+    use super::*;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    struct TestRuntime;
+
+    #[async_trait::async_trait]
+    impl crate::runtime::Runtime for TestRuntime {
+        fn spawn(
+            &self,
+            future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>,
+        ) -> crate::runtime::AbortHandle {
+            let handle = tokio::spawn(future);
+            crate::runtime::AbortHandle::new(move || handle.abort())
+        }
+
+        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            Box::pin(tokio::time::sleep(duration))
+        }
+
+        fn spawn_blocking(
+            &self,
+            f: Box<dyn FnOnce() + Send + 'static>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            Box::pin(async move {
+                let _ = tokio::task::spawn_blocking(f).await;
+            })
+        }
+
+        fn yield_now(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> {
+            None
+        }
+    }
+
+    fn test_runtime() -> Arc<dyn crate::runtime::Runtime> {
+        Arc::new(TestRuntime)
+    }
+
+    struct DialCounters {
+        started: AtomicUsize,
+        live: AtomicUsize,
+        opened: AtomicUsize,
+        disconnects: AtomicUsize,
+        transports_live: AtomicUsize,
+    }
+
+    impl DialCounters {
+        fn zero() -> Self {
+            Self {
+                started: AtomicUsize::new(0),
+                live: AtomicUsize::new(0),
+                opened: AtomicUsize::new(0),
+                disconnects: AtomicUsize::new(0),
+                transports_live: AtomicUsize::new(0),
+            }
+        }
+
+        fn get(&self, f: impl Fn(&DialCounters) -> &AtomicUsize) -> usize {
+            f(self).load(Ordering::Acquire)
+        }
+    }
+
+    struct LiveGuard(Arc<DialCounters>);
+
+    impl Drop for LiveGuard {
+        fn drop(&mut self) {
+            self.0.live.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    struct MockDialTransport {
+        counters: Arc<DialCounters>,
+        stall_disconnect: bool,
+    }
+
+    impl Drop for MockDialTransport {
+        fn drop(&mut self) {
+            self.counters.transports_live.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transport for MockDialTransport {
+        async fn send(&self, _data: Bytes) -> Result<(), anyhow::Error> {
+            Ok(())
+        }
+
+        async fn disconnect(&self) {
+            // Mirrors `StallingMockTransport`: a valid transport may never
+            // finish closing, which is exactly what must not block the winner.
+            if self.stall_disconnect {
+                std::future::pending::<()>().await;
+            }
+            self.counters.disconnects.fetch_add(1, Ordering::AcqRel);
+        }
+    }
+
+    /// A factory whose dial sleeps, then succeeds or fails on script. `None`
+    /// delay answers immediately, which is what makes the simultaneous-open
+    /// path deterministic.
+    #[derive(Clone)]
+    struct ScriptedDialFactory {
+        delay: Option<Duration>,
+        fail_with: Option<&'static str>,
+        stall_disconnect: bool,
+        counters: Arc<DialCounters>,
+    }
+
+    #[async_trait::async_trait]
+    impl TransportFactory for ScriptedDialFactory {
+        async fn create_transport(
+            &self,
+        ) -> Result<(Arc<dyn Transport>, async_channel::Receiver<TransportEvent>), anyhow::Error>
+        {
+            self.counters.started.fetch_add(1, Ordering::AcqRel);
+            self.counters.live.fetch_add(1, Ordering::AcqRel);
+            let _live = LiveGuard(self.counters.clone());
+            if let Some(delay) = self.delay {
+                tokio::time::sleep(delay).await;
+            }
+            if let Some(msg) = self.fail_with {
+                return Err(anyhow::anyhow!("{msg}"));
+            }
+            self.counters.opened.fetch_add(1, Ordering::AcqRel);
+            self.counters.transports_live.fetch_add(1, Ordering::AcqRel);
+            let (_tx, rx) = async_channel::bounded(1);
+            Ok((
+                Arc::new(MockDialTransport {
+                    counters: self.counters.clone(),
+                    stall_disconnect: self.stall_disconnect,
+                }),
+                rx,
+            ))
+        }
+    }
+
+    fn scripted_full(
+        delay_ms: Option<u64>,
+        fail_with: Option<&'static str>,
+        stall_disconnect: bool,
+    ) -> (ScriptedDialFactory, Arc<DialCounters>) {
+        let counters = Arc::new(DialCounters::zero());
+        (
+            ScriptedDialFactory {
+                delay: delay_ms.map(Duration::from_millis),
+                fail_with,
+                stall_disconnect,
+                counters: counters.clone(),
+            },
+            counters,
+        )
+    }
+
+    fn scripted(
+        delay_ms: Option<u64>,
+        fail_with: Option<&'static str>,
+    ) -> (ScriptedDialFactory, Arc<DialCounters>) {
+        scripted_full(delay_ms, fail_with, false)
+    }
+
+    fn race(
+        primary: ScriptedDialFactory,
+        secondary: ScriptedDialFactory,
+    ) -> RacingTransportFactory {
+        RacingTransportFactory::new(Arc::new(primary), Arc::new(secondary), test_runtime())
+    }
+
+    /// Background loser closes resolve promptly, but not synchronously: wait
+    /// up to the bound for `disconnects` to reach `want`.
+    async fn await_disconnects(
+        primary_c: &Arc<DialCounters>,
+        secondary_c: &Arc<DialCounters>,
+        want: usize,
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while primary_c.get(|c| &c.disconnects) + secondary_c.get(|c| &c.disconnects) < want {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the background loser close runs to completion");
+    }
+
+    #[tokio::test]
+    async fn fastest_success_wins_and_loser_dial_is_aborted() {
+        let (primary, primary_c) = scripted(Some(100), None);
+        let (secondary, secondary_c) = scripted(Some(5), None);
+
+        let (_transport, _rx) = race(primary, secondary)
+            .create_transport()
+            .await
+            .expect("the fast dial succeeds");
+
+        assert_eq!(secondary_c.get(|c| &c.opened), 1);
+        assert_eq!(
+            primary_c.get(|c| &c.opened),
+            0,
+            "the slow dial never opened"
+        );
+        assert_eq!(
+            primary_c.get(|c| &c.disconnects),
+            0,
+            "a dial that never opened has no socket to close"
+        );
+        assert_eq!(secondary_c.get(|c| &c.disconnects), 0);
+        assert_eq!(primary_c.get(|c| &c.live), 0);
+        assert_eq!(secondary_c.get(|c| &c.live), 0);
+    }
+
+    #[tokio::test]
+    async fn simultaneous_success_closes_loser_cleanly() {
+        let (primary, primary_c) = scripted(None, None);
+        let (secondary, secondary_c) = scripted(None, None);
+
+        let (_transport, _rx) = race(primary, secondary)
+            .create_transport()
+            .await
+            .expect("one of the instant dials wins");
+
+        assert_eq!(
+            primary_c.get(|c| &c.opened) + secondary_c.get(|c| &c.opened),
+            2,
+            "both dials opened before either could be aborted"
+        );
+        // The loser close runs detached: the winner is already returned, so
+        // wait for the background close instead of asserting synchronously.
+        await_disconnects(&primary_c, &secondary_c, 1).await;
+        let (p_disc, s_disc) = (
+            primary_c.get(|c| &c.disconnects),
+            secondary_c.get(|c| &c.disconnects),
+        );
+        assert!(
+            (p_disc, s_disc) == (0, 1) || (p_disc, s_disc) == (1, 0),
+            "exactly the loser is closed, the winner is untouched (got {p_disc}/{s_disc})"
+        );
+    }
+
+    #[tokio::test]
+    async fn stalled_loser_close_does_not_block_winner() {
+        // Both dials open instantly and both stall forever on close: whoever
+        // loses, the winner must still be delivered promptly and stay usable.
+        let (primary, _) = scripted_full(None, None, true);
+        let (secondary, _) = scripted_full(None, None, true);
+
+        let (transport, _rx) = tokio::time::timeout(
+            Duration::from_secs(5),
+            race(primary, secondary).create_transport(),
+        )
+        .await
+        .expect("the winner resolves despite the stalled loser close")
+        .expect("one of the instant dials wins");
+
+        transport
+            .send(Bytes::from_static(b"ping"))
+            .await
+            .expect("the delivered winner is usable");
+    }
+
+    #[tokio::test]
+    async fn stalled_loser_close_is_bounded_and_releases_its_socket() {
+        // Both dials open instantly and both stall forever on close. The
+        // loser's background close must give up and drop the transport
+        // instead of retaining it detached forever: only the delivered
+        // winner stays alive.
+        let (primary, primary_c) = scripted_full(None, None, true);
+        let (secondary, secondary_c) = scripted_full(None, None, true);
+
+        let (_transport, _rx) = race(primary, secondary)
+            .create_transport()
+            .await
+            .expect("one of the instant dials wins");
+        assert_eq!(
+            primary_c.get(|c| &c.transports_live) + secondary_c.get(|c| &c.transports_live),
+            2,
+            "both dials opened before either could be aborted"
+        );
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while primary_c.get(|c| &c.transports_live) + secondary_c.get(|c| &c.transports_live)
+                > 1
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the stalled loser is dropped after the close bound");
+
+        // Neither close ever completed: the loser's was aborted by the bound,
+        // the winner's was never asked for.
+        assert_eq!(primary_c.get(|c| &c.disconnects), 0);
+        assert_eq!(secondary_c.get(|c| &c.disconnects), 0);
+    }
+
+    #[tokio::test]
+    async fn first_failure_waits_for_second_success() {
+        let (primary, _) = scripted(None, Some("primary refused"));
+        let (secondary, secondary_c) = scripted(Some(10), None);
+
+        race(primary, secondary)
+            .create_transport()
+            .await
+            .expect("the surviving dial wins despite the refusal");
+
+        assert_eq!(secondary_c.get(|c| &c.opened), 1);
+    }
+
+    #[tokio::test]
+    async fn double_failure_returns_the_last_error() {
+        struct GatedFailure {
+            started: async_channel::Sender<()>,
+            release: async_channel::Receiver<&'static str>,
+        }
+        #[async_trait::async_trait]
+        impl TransportFactory for GatedFailure {
+            async fn create_transport(&self) -> TransportDial {
+                self.started.send(()).await.unwrap();
+                Err(anyhow::anyhow!(self.release.recv().await.unwrap()))
+            }
+        }
+        // Observe the first failure before releasing the second. Wall-clock
+        // sleeps can expire together if this task is descheduled under load,
+        // reversing what the old fixture assumed was completion order.
+        for last_primary in [true, false] {
+            let (started, observed) = async_channel::unbounded();
+            let (primary, primary_rx) = async_channel::bounded(1);
+            let (secondary, secondary_rx) = async_channel::bounded(1);
+            let racing = RacingTransportFactory::new(
+                Arc::new(GatedFailure {
+                    started: started.clone(),
+                    release: primary_rx,
+                }),
+                Arc::new(GatedFailure {
+                    started,
+                    release: secondary_rx,
+                }),
+                test_runtime(),
+            );
+            let mut dial = Box::pin(racing.create_transport());
+            assert!(futures::poll!(&mut dial).is_pending());
+            assert_eq!(observed.len(), 2, "both dials must have started");
+            let (first, last, expected) = if last_primary {
+                (&secondary, &primary, "boom-primary")
+            } else {
+                (&primary, &secondary, "boom-secondary")
+            };
+            first.send("first failure").await.unwrap();
+            assert!(
+                futures::poll!(&mut dial).is_pending(),
+                "one failure must wait for the surviving dial"
+            );
+            last.send(expected).await.unwrap();
+            let error = dial.await.err().expect("both dials fail");
+            assert_eq!(error.to_string(), expected, "the last failure wins");
+        }
+    }
+
+    #[tokio::test]
+    async fn cancelled_race_leaks_no_socket() {
+        use futures::FutureExt as _;
+
+        let (primary, primary_c) = scripted(Some(100), None);
+        let (secondary, secondary_c) = scripted(Some(100), None);
+        let racing = race(primary, secondary);
+
+        assert!(
+            racing.create_transport().now_or_never().is_none(),
+            "both dials are still in flight after one poll"
+        );
+        assert_eq!(primary_c.get(|c| &c.started), 1);
+        assert_eq!(secondary_c.get(|c| &c.started), 1);
+
+        // The race future (and both dials) dropped here.
+        assert_eq!(primary_c.get(|c| &c.live), 0);
+        assert_eq!(secondary_c.get(|c| &c.live), 0);
+        assert_eq!(primary_c.get(|c| &c.opened), 0);
+        assert_eq!(secondary_c.get(|c| &c.opened), 0);
+        assert_eq!(primary_c.get(|c| &c.disconnects), 0);
+        assert_eq!(secondary_c.get(|c| &c.disconnects), 0);
+    }
+
+    #[tokio::test]
+    async fn winner_closed_immediately_after_win_leaves_no_loser() {
+        let (primary, primary_c) = scripted(Some(50), None);
+        let (secondary, secondary_c) = scripted(Some(5), None);
+
+        let (transport, _rx) = race(primary, secondary)
+            .create_transport()
+            .await
+            .expect("the fast dial succeeds");
+        transport.disconnect().await;
+
+        assert_eq!(secondary_c.get(|c| &c.disconnects), 1);
+        assert_eq!(primary_c.get(|c| &c.opened), 0);
+        assert_eq!(primary_c.get(|c| &c.disconnects), 0);
+        assert_eq!(primary_c.get(|c| &c.live), 0);
+        assert_eq!(secondary_c.get(|c| &c.live), 0);
+    }
+
+    #[test]
+    fn edge_routing_param_absent_or_empty_leaves_url_untouched() {
+        for url in [
+            WHATSAPP_WEB_WS_URL,
+            "wss://example.invalid/ws/chat?ED=%ZZ&ED=#frag",
+        ] {
+            assert_eq!(with_edge_routing_param(url, None), url);
+            assert_eq!(with_edge_routing_param(url, Some(&[])), url);
+        }
+
+        let (header, used) = wacore_noise::build_handshake_header(Some(&[]));
+        assert!(used);
+        assert_eq!(&header[..7], b"ED\x00\x01\x00\x00\x00");
+        assert_eq!(&header[7..], &wacore_binary::consts::WA_CONN_HEADER);
+    }
+
+    #[test]
+    fn edge_routing_param_retains_padding_unlike_captured_wa_web() {
+        use base64::Engine as _;
+        use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+
+        // Synthetic literals verified by executing WABase64 from official WA
+        // 2.3000.1044770897, bundle content SHA-256
+        // 4de5ec27b53a202be96d64493441fe6aed113d6e35e5745e61d1f32a3341a30a.
+        for (bytes, captured_unpadded, retained_padded) in [
+            (&[0x01][..], "AQ", "AQ=="),
+            (&[0x01, 0x02][..], "AQI", "AQI="),
+            (&[0x01, 0x02, 0x03][..], "AQID", "AQID"),
+            (&[0xFB, 0xFF][..], "-_8", "-_8="),
+            (&[0xDE, 0xAD, 0xBE, 0xEF][..], "3q2-7w", "3q2-7w=="),
+        ] {
+            let url = with_edge_routing_param(WHATSAPP_WEB_WS_URL, Some(bytes));
+            assert_eq!(url, format!("{WHATSAPP_WEB_WS_URL}?ED={retained_padded}"));
+            let (_, encoded) = url.split_once("?ED=").expect("query is present");
+            assert_eq!(encoded.trim_end_matches('='), captured_unpadded);
+            assert_eq!(URL_SAFE.decode(encoded).expect("valid base64url"), bytes);
+            assert_eq!(
+                URL_SAFE_NO_PAD
+                    .decode(captured_unpadded)
+                    .expect("valid captured base64url"),
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn edge_routing_param_appends_without_validating_or_normalizing() {
+        for (url, expected) in [
+            (
+                "wss://example.invalid/ws/chat?x=1",
+                "wss://example.invalid/ws/chat?x=1&ED=AQ==",
+            ),
+            (
+                "wss://example.invalid/ws/chat?ED=old",
+                "wss://example.invalid/ws/chat?ED=old&ED=AQ==",
+            ),
+            (
+                "wss://example.invalid/ws/chat?ED=&ED=%ZZ#frag",
+                "wss://example.invalid/ws/chat?ED=&ED=%ZZ&ED=AQ==#frag",
+            ),
+            (
+                "wss://example.invalid/ws/chat?",
+                "wss://example.invalid/ws/chat?&ED=AQ==",
+            ),
+            (
+                "wss://example.invalid/ws/chat?x=1&",
+                "wss://example.invalid/ws/chat?x=1&&ED=AQ==",
+            ),
+            ("not a URL?%45D=AQ%3D%3D", "not a URL?%45D=AQ%3D%3D&ED=AQ=="),
+        ] {
+            assert_eq!(with_edge_routing_param(url, Some(&[0x01])), expected);
+        }
+    }
+
+    #[test]
+    fn edge_routing_param_goes_before_any_fragment() {
+        assert_eq!(
+            with_edge_routing_param("wss://example.invalid/ws/chat#frag", Some(&[0x01])),
+            "wss://example.invalid/ws/chat?ED=AQ==#frag"
+        );
+        assert_eq!(
+            with_edge_routing_param("wss://example.invalid/ws/chat?x=1#frag", Some(&[0x01])),
+            "wss://example.invalid/ws/chat?x=1&ED=AQ==#frag"
+        );
+        assert_eq!(
+            with_edge_routing_param("wss://example.invalid/ws/chat#?ED=old#", Some(&[0x01])),
+            "wss://example.invalid/ws/chat?ED=AQ==#?ED=old#"
+        );
+        assert_eq!(
+            with_edge_routing_param("wss://example.invalid/ws/chat#", Some(&[0x01])),
+            "wss://example.invalid/ws/chat?ED=AQ==#"
+        );
+    }
+
+    #[test]
+    fn edge_routing_param_oversize_keeps_previous_behavior() {
+        let oversize = vec![0x00u8; wacore_noise::MAX_EDGE_ROUTING_LEN + 1];
+        for url in [
+            WHATSAPP_WEB_WS_URL,
+            "wss://example.invalid/ws/chat?ED=%ZZ&ED=#frag",
+        ] {
+            assert_eq!(with_edge_routing_param(url, Some(&oversize)), url);
+        }
+    }
+
+    #[test]
+    fn chat_urls_cover_both_wa_web_endpoints() {
+        assert_eq!(
+            WHATSAPP_WEB_WS_URL_FALLBACK,
+            "wss://web.whatsapp.com:5222/ws/chat"
+        );
+        assert_eq!(
+            WHATSAPP_WEB_WS_URLS,
+            [WHATSAPP_WEB_WS_URL, WHATSAPP_WEB_WS_URL_FALLBACK]
+        );
+    }
+}

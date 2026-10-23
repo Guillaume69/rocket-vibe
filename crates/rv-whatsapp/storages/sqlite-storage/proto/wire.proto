@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+// On-disk encoding for the BLOB columns this backend persists (server cert
+// chain, app-state sync keys, app-state hash state). Field-tagged so adding or
+// reordering a field never corrupts existing rows. Wire-compatible with the
+// rows previously written by the prost-derived equivalents (same field numbers
+// and proto3 semantics), so old blobs keep decoding.
+//
+// Regenerate the descriptor after editing: scripts/regenerate-wire-desc.sh
+package wire;
+
+message NoiseCert {
+  bytes key = 1;
+  int64 not_before = 2;
+  int64 not_after = 3;
+}
+
+message ServerCertChain {
+  NoiseCert intermediate = 1;
+  NoiseCert leaf = 2;
+  // Set once both XEdDSA signatures were checked when this chain was
+  // cached. Absent in rows written before this field existed, which decode
+  // to false and so fall back to one XX -- the safe direction, since only a
+  // checked chain may authorize IK.
+  bool signature_verified = 3;
+}
+
+message AppStateSyncKeyWire {
+  bytes key_data = 1;
+  bytes fingerprint = 2;
+  int64 timestamp = 3;
+}
+
+message HashStateWire {
+  uint64 version = 1;
+  bytes hash = 2;
+  map<string, bytes> index_value_map = 3;
+  // Set once the collection's ltHash has diverged from its peers'. Absent in
+  // rows written before this field existed, which decode to false — the same
+  // state a healthy collection is in.
+  bool mac_mismatch_fatal = 4;
+  // Set once the collection has completed a bootstrap. Absent in rows written
+  // before this field existed, which decode to false and so re-bootstrap once --
+  // the safe direction, because version 0 with an empty ltHash is byte-identical
+  // between "never synced" and "synced and empty", and only this flag tells them
+  // apart.
+  bool bootstrapped = 5;
+}

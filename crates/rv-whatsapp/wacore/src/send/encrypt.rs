@@ -1,0 +1,1558 @@
+//! Per-device Signal encryption fanout and the bounded spawn helper.
+
+use super::*;
+use crate::stats::UnkeyableDevice;
+use anyhow::Context;
+use std::borrow::Cow;
+use wacore_binary::node::{Attrs, AttrsVec, NodeContent};
+
+/// Caller must hold `SenderKeyStore::sender_key_lock` for `sender_key_name`
+/// across the surrounding SKDM creation + this encrypt, so a concurrent send
+/// can't split the key between the SKDM and the skmsg.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.encrypt_group", level = "debug", skip_all, err(Debug))
+)]
+pub async fn encrypt_group_message<S, R>(
+    sender_key_store: &mut S,
+    sender_key_name: &SenderKeyName,
+    plaintext: &[u8],
+    csprng: &mut R,
+) -> Result<SenderKeyMessage>
+where
+    S: SenderKeyStore + ?Sized,
+    R: Rng + CryptoRng,
+{
+    // Delegate to the libsignal primitive so the sender-key advance, the wire
+    // gate, and the iteration lease live in exactly one place. `.context` keeps
+    // the concrete SignalProtocolError as the source, so callers can still
+    // downcast NoSenderKeyState to clear stale tracking and retry with SKDM
+    // redistribution.
+    crate::libsignal::protocol::group_encrypt(sender_key_store, sender_key_name, plaintext, csprng)
+        .await
+        .context("group encrypt failed")
+}
+
+/// Object-safe `SessionStore` that can clone itself into an owned box. The
+/// encrypt fan-out hands each spawned task its own owned store handle; erasing
+/// the concrete type here (instead of a generic `S: Clone`) keeps the whole
+/// encrypt tree as a single instantiation instead of one ~60 KiB copy per
+/// concrete adapter set. Blanket-impl'd for every `Clone` store, so concrete
+/// adapters need no changes.
+pub trait CloneableSessionStore: crate::libsignal::protocol::SessionStore {
+    fn clone_box(&self) -> Box<dyn CloneableSessionStore + Send + Sync>;
+}
+
+impl<T> CloneableSessionStore for T
+where
+    T: crate::libsignal::protocol::SessionStore + Clone + Send + Sync + 'static,
+{
+    fn clone_box(&self) -> Box<dyn CloneableSessionStore + Send + Sync> {
+        Box::new(self.clone())
+    }
+}
+
+/// See [`CloneableSessionStore`].
+pub trait CloneableIdentityStore: crate::libsignal::protocol::IdentityKeyStore {
+    fn clone_box(&self) -> Box<dyn CloneableIdentityStore + Send + Sync>;
+}
+
+impl<T> CloneableIdentityStore for T
+where
+    T: crate::libsignal::protocol::IdentityKeyStore + Clone + Send + Sync + 'static,
+{
+    fn clone_box(&self) -> Box<dyn CloneableIdentityStore + Send + Sync> {
+        Box::new(self.clone())
+    }
+}
+
+/// Borrowed handles to the Signal stores for one send. The stores are
+/// type-erased (`dyn`) so the encrypt/session functions compile to a single
+/// instantiation rather than one per concrete adapter set.
+pub struct SignalStores<'a> {
+    pub sender_key_store: &'a mut (dyn SenderKeyStore + Send + Sync),
+    pub session_store: &'a mut (dyn CloneableSessionStore + Send + Sync),
+    pub identity_store: &'a mut (dyn CloneableIdentityStore + Send + Sync),
+    pub prekey_store: &'a mut (dyn crate::libsignal::protocol::PreKeyStore + Send + Sync),
+    pub signed_prekey_store: &'a (dyn crate::libsignal::protocol::SignedPreKeyStore + Send + Sync),
+}
+
+/// Check if an anyhow error is a 406 "not-acceptable" server error (device unregistered).
+/// Uses typed downcast to `ServerErrorCode` — the shared error type that the
+/// `SendContextResolver` impl wraps server errors in.
+/// The `<error code>` the server attaches to a device it no longer knows.
+pub(crate) const UNREGISTERED_DEVICE_CODE: u16 = 406;
+
+pub(crate) fn is_device_unregistered_error(err: &anyhow::Error) -> bool {
+    crate::request::ServerErrorCode::from_anyhow(err)
+        .is_some_and(|e| e.code == UNREGISTERED_DEVICE_CODE)
+}
+
+pub struct EncryptResult {
+    pub participant_nodes: Vec<Node>,
+    pub includes_prekey_message: bool,
+    pub encrypted_devices: Vec<Jid>,
+    /// True if any device returned 406 (unregistered) during prekey fetch.
+    pub had_unregistered_device: bool,
+    /// The devices the server rejected by name, when it named them. Empty for a
+    /// batch-wide failure, which names nobody.
+    pub rejected_devices: Vec<Jid>,
+}
+
+pub(crate) struct EncryptAttempt {
+    pub result: EncryptResult,
+    pub first_error: Option<anyhow::Error>,
+    /// Devices the encrypt fan-out itself dropped, excluding the ones already
+    /// accounted for during session setup. See [`unkeyed_at_encrypt`].
+    pub unkeyed_at_encrypt: u64,
+}
+
+/// One device's encrypted ciphertext, node-agnostic. The DM/peer paths map this
+/// into a `<to><enc>` node; the voip offer maps it into an `<enc>` per device.
+pub struct EncryptedDevice {
+    pub device_jid: Jid,
+    /// `pkmsg` or `msg`.
+    pub enc_type: &'static str,
+    pub is_prekey: bool,
+    pub ciphertext: Vec<u8>,
+}
+
+/// Node-agnostic encrypt fan-out result: the per-device ciphertexts plus the
+/// two batch flags the message path threads into its stanza.
+pub struct EncryptForDevicesRaw {
+    pub devices: Vec<EncryptedDevice>,
+    pub includes_prekey_message: bool,
+    /// True if any device returned 406 (unregistered) during prekey fetch.
+    pub had_unregistered_device: bool,
+    /// See [`EncryptResult::rejected_devices`].
+    pub rejected_devices: Vec<Jid>,
+    /// Devices this fan-out dropped that session setup had not already given up
+    /// on — a stored session that exists and cannot be used, or a whole chunk
+    /// whose task died. A device that reached here with no session at all is
+    /// excluded: setup counted it. Report it through
+    /// [`SendContextResolver::on_unkeyable_devices`] with
+    /// [`UnkeyableDevice::Encrypt`], or it goes unobserved.
+    pub unkeyed_at_encrypt: u64,
+}
+
+struct RawEncryptAttempt {
+    result: EncryptForDevicesRaw,
+    first_error: Option<anyhow::Error>,
+}
+
+/// Resolve the `<device-identity>` blob a stanza must carry. A pkmsg recipient
+/// validates our identity from it; without it a pkmsg advances the sender chain
+/// while the peer can't consume the pre-key message (the linked-device deadlock).
+///
+/// - `includes_prekey && account.is_some()` -> `Ok(Some(encoded))`
+/// - `includes_prekey && account.is_none()` -> `Err` (refuse before send)
+/// - `!includes_prekey` -> `Ok(None)`
+pub fn needs_device_identity(
+    includes_prekey: bool,
+    account: Option<&wa::ADVSignedDeviceIdentity>,
+) -> Result<Option<Vec<u8>>> {
+    if !includes_prekey {
+        return Ok(None);
+    }
+    let acc = account
+        .ok_or_else(|| anyhow!("pkmsg requires <device-identity> but no ADV account is present"))?;
+    Ok(Some(waproto::codec::adv_signed_device_identity_to_vec(acc)))
+}
+
+/// Maximum number of concurrent per-device crypto tasks during group send
+/// fan-out. Picked from the `perf-audit` benchmark: speedup plateaus around
+/// 16 on Oracle ARM64; 32 gives only ~10% more for double the task overhead.
+const ENCRYPT_FANOUT_CONCURRENCY: usize = 16;
+
+/// Recipient-device count up to which a send encrypts inline instead of
+/// fanning out. Five is a 1:1 recipient's ceiling (primary plus four
+/// companions), and at that size the fan-out is a net loss: an `Arc<[u8]>`
+/// copy of the plaintext, a task + oneshot per chunk, and two store clones per
+/// chunk against ~2 µs of pairwise crypto per device. `bench_dm_send_5_way_fanout`
+/// measured 77 µs spawned vs. 69 µs inline; the plateau above (8 devices inline)
+/// was within noise of 5, so the DM ceiling is the threshold rather than a tuned
+/// number.
+const INLINE_ENCRYPT_DEVICES: usize = 5;
+
+/// What one session-establishment task did with its device, shipped back to the
+/// orchestrator because a spawned task holds no borrow of the resolver.
+enum SessionOutcome {
+    /// Session ready; `Some` when establishing it replaced a stored identity.
+    Established(Option<Jid>),
+    /// Dropped here, so the encrypt fan-out must not count it a second time.
+    /// `reason` is `None` when the prekey fetch already counted the drop, which
+    /// is the case for a device the server named.
+    Dropped {
+        jid: Jid,
+        reason: Option<UnkeyableDevice>,
+        error: Option<anyhow::Error>,
+    },
+}
+
+/// Per-task encrypt result, shipped from a spawned task back to the orchestrator.
+struct EncryptOneResult {
+    enc_type: &'static str,
+    is_prekey: bool,
+    ciphertext: Vec<u8>,
+}
+
+/// Surfaces a spawned task that didn't deliver its result — either the task
+/// itself panicked or the runtime tore it down (e.g., during shutdown).
+/// Surfacing this as an Err lets the encrypt fan-out fall through to its
+/// existing log+skip path instead of propagating a panic.
+#[derive(Debug, thiserror::Error)]
+#[error("spawned task did not produce a result (panic or runtime shutdown)")]
+struct SpawnCanceled;
+
+/// Future returned by [`spawn_oneshot`]. Holds the spawned task's
+/// [`AbortHandle`] until the result is received, so dropping the future mid-
+/// flight (e.g., the outer send was cancelled by a timeout) cancels the
+/// in-flight crypto work instead of orphaning it.
+struct Spawned<T> {
+    rx: futures::channel::oneshot::Receiver<T>,
+    abort: Option<AbortHandle>,
+}
+
+impl<T> Future for Spawned<T> {
+    type Output = std::result::Result<T, SpawnCanceled>;
+
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        match std::pin::Pin::new(&mut self.rx).poll(cx) {
+            std::task::Poll::Ready(Ok(value)) => {
+                // Result delivered: disarm so Drop doesn't try to abort an
+                // already-completed task.
+                if let Some(handle) = self.abort.take() {
+                    handle.detach();
+                }
+                std::task::Poll::Ready(Ok(value))
+            }
+            std::task::Poll::Ready(Err(_)) => {
+                if let Some(handle) = self.abort.take() {
+                    handle.detach();
+                }
+                std::task::Poll::Ready(Err(SpawnCanceled))
+            }
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl<T> Drop for Spawned<T> {
+    fn drop(&mut self) {
+        // If the future was dropped before completion, abort the spawned
+        // task to stop the wasted CPU work. AbortHandle::abort is a no-op
+        // after the task has already finished, so this is always safe.
+        if let Some(handle) = self.abort.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Spawn `fut` on the runtime and return a future that resolves to its
+/// output. Cancellation propagates: dropping the returned future aborts
+/// the spawned task. A spawned-task panic surfaces as `Err(SpawnCanceled)`
+/// rather than a panic on `rx.await`.
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_oneshot<F, T>(
+    rt: &dyn Runtime,
+    fut: F,
+) -> impl Future<Output = std::result::Result<T, SpawnCanceled>> + Send + 'static
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = futures::channel::oneshot::channel();
+    let abort = rt.spawn(Box::pin(async move {
+        let _ = tx.send(fut.await);
+    }));
+    Spawned {
+        rx,
+        abort: Some(abort),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn_oneshot<F, T>(
+    rt: &dyn Runtime,
+    fut: F,
+) -> impl Future<Output = std::result::Result<T, SpawnCanceled>> + 'static
+where
+    F: Future<Output = T> + 'static,
+    T: 'static,
+{
+    let (tx, rx) = futures::channel::oneshot::channel();
+    let abort = rt.spawn(Box::pin(async move {
+        let _ = tx.send(fut.await);
+    }));
+    Spawned {
+        rx,
+        abort: Some(abort),
+    }
+}
+
+/// Encrypt padded plaintext for each device JID, producing participant `<to>` nodes.
+///
+/// Encrypt the plaintext for one device's Signal session. Shared by the
+/// single-device fast path and the parallel fan-out so both behave identically.
+async fn encrypt_one_device(
+    plaintext: &[u8],
+    addr: &ProtocolAddress,
+    session_store: &mut dyn crate::libsignal::protocol::SessionStore,
+    identity_store: &mut dyn crate::libsignal::protocol::IdentityKeyStore,
+    device_jid: Jid,
+) -> (Jid, Result<Option<EncryptOneResult>>) {
+    match message_encrypt(plaintext, addr, session_store, identity_store).await {
+        Ok(encrypted_payload) => {
+            let Some((enc_type, is_prekey, serialized_bytes)) =
+                extract_ciphertext(encrypted_payload)
+            else {
+                return (device_jid, Ok(None));
+            };
+            (
+                device_jid,
+                Ok(Some(EncryptOneResult {
+                    enc_type,
+                    is_prekey,
+                    // Box<[u8]> -> Vec<u8> reuses the allocation (no copy).
+                    ciphertext: serialized_bytes.into(),
+                })),
+            )
+        }
+        Err(error) => (
+            device_jid,
+            Err(anyhow::Error::new(error).context(format!("failed to encrypt for {addr}"))),
+        ),
+    }
+}
+
+/// Append one encrypt result to the raw fan-out output: an [`EncryptedDevice`]
+/// on success, a logged skip on failure. Node-agnostic so both the message
+/// `<to>` map and the voip offer share it.
+fn push_raw_result(
+    (device_jid, res): (Jid, Result<Option<EncryptOneResult>>),
+    devices: &mut Vec<EncryptedDevice>,
+    includes_prekey_message: &mut bool,
+    first_error: &mut Option<anyhow::Error>,
+    already_counted: &[Jid],
+    unkeyed_at_encrypt: &mut u64,
+) {
+    match res {
+        Ok(Some(one)) => {
+            *includes_prekey_message |= one.is_prekey;
+            devices.push(EncryptedDevice {
+                device_jid,
+                enc_type: one.enc_type,
+                is_prekey: one.is_prekey,
+                ciphertext: one.ciphertext,
+            });
+        }
+        Ok(None) => {}
+        Err(error) => {
+            log::warn!("Failed to encrypt for device: {error:#}. Skipping.");
+            // A device session setup already gave up on was counted there;
+            // counting it again here would report one drop as two. The list is
+            // empty on every send that keyed everyone, so this is a no-op scan.
+            if !already_counted.contains(&device_jid) {
+                *unkeyed_at_encrypt += 1;
+            }
+            if first_error.is_none() {
+                *first_error = Some(error);
+            }
+        }
+    }
+}
+
+/// Map one [`EncryptedDevice`] to the message path's `<to><enc>` participant
+/// node, applying the batch-level `mediatype` and `decrypt-fail` attrs. This is
+/// exactly the wire shape the DM/peer fan-out produced before the raw split.
+fn encrypted_device_to_participant_node(
+    one: EncryptedDevice,
+    mediatype: Option<&str>,
+    hide_decrypt_fail: bool,
+) -> Node {
+    // Built without `NodeBuilder` because the keys here are four distinct
+    // literals fixed at compile time, and `attr` cannot know that: every
+    // insert string-compares each key already present to reject a duplicate,
+    // which for `<enc>` is six comparisons per device. `<enc>` also carries one
+    // attr more than `AttrsVec` holds inline whenever a media send hides
+    // decrypt failures, so the builder's empty default spilled to the heap
+    // mid-insert; the count is known here, so the one allocation that case
+    // still needs is made once, at the right size.
+    let mut enc_attrs = AttrsVec::with_capacity(
+        2 + usize::from(mediatype.is_some()) + usize::from(hide_decrypt_fail),
+    );
+    enc_attrs.push((Cow::Borrowed("v"), stanza::ENC_VERSION.into()));
+    enc_attrs.push((Cow::Borrowed("type"), one.enc_type.into()));
+    // `mediatype` is batch-level (same for every device) and originates as
+    // a `&'static str`, so it's threaded here instead of cloned per result.
+    if let Some(mt) = mediatype {
+        enc_attrs.push((Cow::Borrowed("mediatype"), mt.into()));
+    }
+    if hide_decrypt_fail {
+        enc_attrs.push((Cow::Borrowed("decrypt-fail"), "hide".into()));
+    }
+    let enc_node = Node {
+        tag: Cow::Borrowed("enc"),
+        attrs: Attrs(enc_attrs),
+        content: Some(NodeContent::Bytes(one.ciphertext)),
+    };
+
+    let mut to_attrs = AttrsVec::with_capacity(1);
+    to_attrs.push((Cow::Borrowed("jid"), one.device_jid.into()));
+    Node {
+        tag: Cow::Borrowed("to"),
+        attrs: Attrs(to_attrs),
+        content: Some(NodeContent::Nodes(vec![enc_node])),
+    }
+}
+
+/// Per-device Signal sessions are independent (different ratchet state per
+/// recipient), so this fans the encrypt loop out across tokio tasks bounded
+/// by `ENCRYPT_FANOUT_CONCURRENCY`. Each task clones the store handles
+/// (Arc bumps under the hood); the shared cache provides interior mutability.
+///
+/// Composition of [`ensure_sessions_for_devices`] (network: prekey fetch +
+/// X3DH for missing sessions) and [`encrypt_for_devices_with_sessions`]
+/// (CPU: the pairwise encrypt fan-out). Callers that must not hold a lock
+/// across network I/O (the group sender-key chain lock) call the two phases
+/// directly with the lock taken only around the second.
+///
+/// Callers must hold per-device session locks before calling this function —
+/// concurrent ratchet mutations will corrupt Signal session state.
+pub async fn encrypt_for_devices(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    hide_decrypt_fail: bool,
+    mediatype: Option<&str>,
+) -> Result<EncryptResult> {
+    let plan = ensure_sessions_for_devices(runtime, stores, resolver, devices).await?;
+    let attempt = encrypt_for_devices_with_sessions_detailed(
+        runtime,
+        stores,
+        devices,
+        plaintext_to_encrypt,
+        hide_decrypt_fail,
+        mediatype,
+        plan,
+    )
+    .await?;
+    report_encrypt_drops(resolver, attempt.unkeyed_at_encrypt);
+    Ok(attempt.result)
+}
+
+/// Report the devices an encrypt fan-out dropped on its own, for callers that
+/// hold a resolver. Session-setup drops are reported where they happen, so this
+/// covers only the ones the fan-out is the first to see.
+///
+/// The "nothing to report" case lives here rather than at each call site, so a
+/// resolver only ever sees a call that means something.
+pub(crate) fn report_encrypt_drops(resolver: &dyn SendContextResolver, unkeyed_at_encrypt: u64) {
+    if unkeyed_at_encrypt > 0 {
+        resolver.on_unkeyable_devices(UnkeyableDevice::Encrypt, unkeyed_at_encrypt);
+    }
+}
+
+/// What a fan-out reports back when its `<to><enc>` nodes went straight into
+/// the caller's stanza buffer instead of a per-fan-out [`EncryptResult`].
+///
+/// Sealed for the same reason as [`super::PreparedDmStanza`]: nothing outside
+/// the fan-out builds one, and the set of facts worth reporting still grows.
+#[non_exhaustive]
+pub struct EncryptFanoutSummary {
+    pub includes_prekey_message: bool,
+    /// True if any device returned 406 (unregistered) during prekey fetch.
+    pub had_unregistered_device: bool,
+    /// How many of the fan-out's devices produced a `<to><enc>` node. Compared
+    /// against the device count the caller passed in, this is the only thing
+    /// that separates a complete fan-out from one that dropped devices and
+    /// still built a stanza.
+    pub encrypted_devices: usize,
+    /// A device 0 was addressed and produced nothing. For a DM this is the
+    /// recipient's own phone, so the stanza reaches the server, gets acked, and
+    /// arrives nowhere the recipient can read it.
+    pub skipped_primary: bool,
+    /// The devices that were addressed and produced no node, by name. Empty
+    /// whenever the fan-out was complete, which is every send until one is
+    /// not, so the common path allocates nothing. Named rather than counted
+    /// because a repair has to tell a device that holds the message from one
+    /// that was only addressed.
+    pub dropped_devices: Vec<Jid>,
+    /// First failure of the fan-out (session, prekey fetch or spawn), or `None`
+    /// when every device produced a node. Already collected for the group
+    /// path's detailed attempt, so a caller that turns "nothing encrypted"
+    /// into an error can name the cause instead of reporting a bare count.
+    pub first_error: Option<anyhow::Error>,
+}
+
+/// [`encrypt_for_devices`] for a caller that already owns the buffer the nodes
+/// belong in.
+///
+/// [`EncryptResult`] is shaped for the group path, which needs the encrypted
+/// device list by name to pick the users whose device list to refresh. A DM
+/// only needs to know how many of its devices made it and whether the primary
+/// was one of them, which [`EncryptFanoutSummary`] answers without a list, so
+/// it sizes one vector and lets each fan-out append into it: the per-fan-out
+/// node vector and the device list it would otherwise carry are both work done
+/// only to be moved and dropped.
+#[allow(clippy::too_many_arguments)]
+pub async fn encrypt_for_devices_into(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    hide_decrypt_fail: bool,
+    mediatype: Option<&str>,
+    participant_nodes: &mut Vec<Node>,
+    signal_addresses: Option<&[Jid]>,
+) -> Result<EncryptFanoutSummary> {
+    let plan =
+        ensure_sessions_for_devices_resolved(runtime, stores, resolver, devices, signal_addresses)
+            .await?;
+    let RawEncryptAttempt {
+        result: raw,
+        first_error,
+    } = encrypt_for_devices_with_sessions_raw_detailed(
+        runtime,
+        stores,
+        devices,
+        plaintext_to_encrypt,
+        plan,
+    )
+    .await?;
+    report_encrypt_drops(resolver, raw.unkeyed_at_encrypt);
+
+    let encrypted_devices = raw.devices.len();
+    // Gated on the counts disagreeing so the send that keyed everyone -- every
+    // send, until one does not -- pays a single comparison, no scan and no
+    // allocation.
+    let mut dropped_devices = Vec::new();
+    if encrypted_devices < devices.len() {
+        dropped_devices = devices
+            .iter()
+            .filter(|jid| !raw.devices.iter().any(|one| one.device_jid == **jid))
+            .cloned()
+            .collect();
+    }
+    let skipped_primary = dropped_devices.iter().any(|jid| jid.device == 0);
+
+    participant_nodes.reserve(raw.devices.len());
+    for one in raw.devices {
+        participant_nodes.push(encrypted_device_to_participant_node(
+            one,
+            mediatype,
+            hide_decrypt_fail,
+        ));
+    }
+
+    Ok(EncryptFanoutSummary {
+        includes_prekey_message: raw.includes_prekey_message,
+        had_unregistered_device: raw.had_unregistered_device,
+        encrypted_devices,
+        skipped_primary,
+        dropped_devices,
+        first_error,
+    })
+}
+
+/// Session material prepared for one encrypt fan-out: per-index LID
+/// encryption overrides (mirroring the `devices` slice it was built from)
+/// plus whether any device 406'd during prekey fetch. Produced only by
+/// [`ensure_sessions_for_devices`]; consumed by
+/// [`encrypt_for_devices_with_sessions`] over the same `devices` slice.
+pub struct SessionPlan {
+    /// Device count the plan was built for. Kept alongside the (possibly empty)
+    /// override map so the "same slice" invariant is still checkable now that an
+    /// override-free plan carries no vector at all.
+    device_count: usize,
+    /// Empty means "no device is overridden"; otherwise one slot per device.
+    /// See [`record_encryption_override`].
+    encryption_overrides: Vec<Option<Jid>>,
+    /// Effective encryption address per device, parallel to the `devices` slice
+    /// the plan was built from: rendered once by
+    /// [`ensure_sessions_for_devices`] so the encrypt fan-out reuses it instead
+    /// of formatting every device a second time. Empty for plans that predate
+    /// the memo ([`SessionPlan::assume_ready`]); consumers fall back to
+    /// rendering per device when the lengths disagree.
+    effective_addresses: Vec<ProtocolAddress>,
+    /// Fingerprint of the exact device identities the memo was rendered from.
+    /// Length alone cannot prove the memo belongs to this list — same length,
+    /// different devices would silently encrypt to stale sessions — so the
+    /// consume points verify it. Zero for [`SessionPlan::assume_ready`], whose
+    /// memo is always empty and never consulted.
+    device_fingerprint: u64,
+    pub had_unregistered_device: bool,
+    /// Devices the server rejected *by name*. Empty when the whole batch
+    /// failed, since a batch-wide answer names nobody.
+    ///
+    /// Kept apart from the flag because they call for different recoveries: a
+    /// named set says exactly which device lists are stale, while a batch-wide
+    /// failure leaves the caller to infer it from what went unencrypted -- and
+    /// inferring it when the server did name the devices would sweep in every
+    /// device that merely lacked a bundle or failed session setup, refreshing
+    /// unrelated users for no reason.
+    pub rejected_devices: Vec<Jid>,
+    first_error: Option<anyhow::Error>,
+    /// Devices this plan already gave up on, and already counted. The encrypt
+    /// fan-out skips them when tallying its own drops, so one dropped device is
+    /// never reported as both a session-setup drop and an encrypt drop.
+    ///
+    /// Named devices rather than a flag, because "no session at encrypt" is not
+    /// a usable proxy: libsignal reports a *degenerate stored* session as
+    /// `SessionNotFound` too, and that one is the unusable-session case this
+    /// batch exists to surface. Empty on the warm path and on
+    /// [`SessionPlan::assume_ready`], so it costs no allocation there.
+    unkeyed_devices: Vec<Jid>,
+}
+
+impl SessionPlan {
+    /// A plan that performs no LID override and no prekey fetch: each device is
+    /// encrypted against its own address as-is. For callers that already ensured
+    /// sessions out-of-band (the voip offer asserts sessions before encrypting)
+    /// and must not touch the network during the encrypt fan-out.
+    pub fn assume_ready(device_count: usize) -> Self {
+        Self {
+            device_count,
+            encryption_overrides: Vec::new(),
+            effective_addresses: Vec::new(),
+            device_fingerprint: 0,
+            had_unregistered_device: false,
+            rejected_devices: Vec::new(),
+            first_error: None,
+            unkeyed_devices: Vec::new(),
+        }
+    }
+}
+
+/// `has_session`, counting the whole fan-out as unkeyable if the store cannot
+/// answer.
+///
+/// A store failure abandons the plan before any device is keyed, and a
+/// best-effort group send then carries on distributing to nobody, so without
+/// this the loudest local fault a send can hit would move no counter at all.
+/// Every device is affected, not just the one being probed: the error takes the
+/// plan with it.
+async fn has_session_or_report(
+    session_store: &(dyn CloneableSessionStore + Send + Sync),
+    addr: &ProtocolAddress,
+    resolver: &dyn SendContextResolver,
+    devices: &[Jid],
+) -> Result<bool> {
+    match wacore_libsignal::protocol::has_session(session_store, addr).await {
+        Ok(present) => Ok(present),
+        Err(error) => {
+            resolver.on_unkeyable_devices(UnkeyableDevice::SessionLookup, devices.len() as u64);
+            Err(error.into())
+        }
+    }
+}
+
+/// The LID address recorded for `index`, or `None` when that device encrypts
+/// against its own JID. Indexing tolerates the empty (no-override) map, which
+/// is what a warm send carries.
+fn encryption_override_at(overrides: &[Option<Jid>], index: usize) -> Option<&Jid> {
+    overrides.get(index).and_then(Option::as_ref)
+}
+
+/// Identity fingerprint of the device list a [`SessionPlan`] memo was rendered
+/// from: FNV-1a over each device's user, server and device id. Compared at the
+/// consume points so a plan can never serve a same-length, different-identity
+/// list its renders do not belong to. No dependency and no allocation; the
+/// release build never calls it (see the `debug_assert` at the consume site).
+fn device_list_fingerprint(devices: &[Jid]) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash = FNV_OFFSET;
+    for device in devices {
+        for byte in device.user.as_str().as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash ^= device.server as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+        hash ^= u64::from(device.device);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Effective encryption address for `devices[index]`: the render
+/// [`ensure_sessions_for_devices`] memoized in the plan, cloned out (an inline
+/// value, so the clone is a memcpy, not an allocation). A plan without a memo
+/// for this device — [`SessionPlan::assume_ready`], or a length mismatch that
+/// means the plan was built for a different slice — renders on the spot, which
+/// is what every path did before the memo existed.
+fn encrypt_address_at(
+    effective_addresses: &[ProtocolAddress],
+    overrides: &[Option<Jid>],
+    devices: &[Jid],
+    index: usize,
+) -> ProtocolAddress {
+    if let Some(addr) = effective_addresses.get(index) {
+        return addr.clone();
+    }
+    encryption_override_at(overrides, index)
+        .unwrap_or(&devices[index])
+        .to_protocol_address()
+}
+
+/// Record a per-index LID override, materializing the map on its first entry.
+///
+/// A steady-state send overrides nothing, so the all-`None` vector it would
+/// otherwise allocate (once per encrypt fan-out, twice per DM that also has
+/// companion devices) never exists.
+fn record_encryption_override(
+    overrides: &mut Vec<Option<Jid>>,
+    device_count: usize,
+    index: usize,
+    jid: Jid,
+) {
+    if overrides.is_empty() {
+        overrides.resize(device_count, None);
+    }
+    overrides[index] = Some(jid);
+}
+
+/// Resolve LID overrides and establish missing Signal sessions (prekey
+/// fetch + X3DH) for `devices`. This is the network half of the encrypt
+/// fan-out and touches only session/identity state — never a sender-key
+/// chain — so group sends run it before taking the chain lock.
+#[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.ensure_sessions", level = "debug", skip_all, fields(count = devices.len()), err(Debug)))]
+pub async fn ensure_sessions_for_devices(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    devices: &[Jid],
+) -> Result<SessionPlan> {
+    ensure_sessions_for_devices_resolved(runtime, stores, resolver, devices, None).await
+}
+
+/// [`ensure_sessions_for_devices`] for a caller that already resolved each
+/// device's Signal address: `signal_addresses[i]` is what `devices[i]`
+/// encrypts under (the device itself when no LID upgrade applies), so no
+/// mapping is looked up here. `None` resolves per device as before.
+pub async fn ensure_sessions_for_devices_resolved(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    devices: &[Jid],
+    signal_addresses: Option<&[Jid]>,
+) -> Result<SessionPlan> {
+    // A list that is not parallel to `devices` cannot be indexed by device;
+    // resolving per device is always correct, so that is the fallback in
+    // every build rather than a debug-only assertion that would make a
+    // malformed caller panic in tests and silently degrade in release.
+    let signal_addresses = signal_addresses.filter(|addrs| addrs.len() == devices.len());
+    // Per-device LID upgrade map: encryption_overrides[i] mirrors devices[i].
+    // None = use devices[i] as-is; Some(jid) = use this LID-upgraded version.
+    // The Vec replaces a HashMap<&Jid, Jid> that paid hash + alloc per insert
+    // and per get (~666 of each on a large group). Plain Vec<Option<Jid>> is
+    // direct indexing and contiguous memory. Both vectors stay unallocated
+    // until something is actually recorded in them, which on a warm send is
+    // never.
+    let mut encryption_overrides: Vec<Option<Jid>> = Vec::new();
+    // Indices into `devices` for those needing prekey fetch.
+    let mut indices_needing_prekeys: Vec<usize> = Vec::new();
+    let mut had_406 = false;
+    let mut rejected_devices: Vec<Jid> = Vec::new();
+    // Stays unallocated unless a device is actually dropped.
+    let mut unkeyed_devices: Vec<Jid> = Vec::new();
+    let mut first_error = None;
+
+    // Resolve every device's LID upgrade up front: the prefetch below and the
+    // probe loop both index by device, and resolving twice would pay the
+    // mapping lookup (a boxed `async_trait` call into an async-locked cache) N
+    // extra times. A caller-resolved address that equals the device is "no
+    // upgrade", the same answer the lookup gives.
+    let mut lid_upgrades: Vec<Option<Cow<'_, Jid>>> = Vec::with_capacity(devices.len());
+    for (idx, device_jid) in devices.iter().enumerate() {
+        lid_upgrades.push(match signal_addresses {
+            Some(addrs) => {
+                let addr = &addrs[idx];
+                (addr != device_jid).then_some(Cow::Borrowed(addr))
+            }
+            None if device_jid.is_pn() => resolver
+                .get_lid_for_phone(&device_jid.user)
+                .await
+                .map(|lid_user| Cow::Owned(Jid::lid_device(lid_user, device_jid.device))),
+            None => None,
+        });
+    }
+
+    // Render every candidate address once: `candidates[i]` is what `devices[i]`
+    // probes under, with the LID upgrades appended after (their positions in
+    // `lid_addr_of`). The probe loop and the encrypt fan-out both consume these
+    // renders, so no device formats its address twice per send anymore.
+    let mut candidates: Vec<ProtocolAddress> =
+        Vec::with_capacity(devices.len() + lid_upgrades.iter().filter(|u| u.is_some()).count());
+    for device_jid in devices.iter() {
+        candidates.push(device_jid.to_protocol_address());
+    }
+    let mut lid_addr_of: Vec<Option<usize>> = Vec::with_capacity(devices.len());
+    for upgrade in &lid_upgrades {
+        match upgrade {
+            Some(lid_jid) => {
+                lid_addr_of.push(Some(candidates.len()));
+                candidates.push(lid_jid.to_protocol_address());
+            }
+            None => lid_addr_of.push(None),
+        }
+    }
+
+    // One backend round-trip for the whole fan-out instead of one per cold
+    // device: the probes below (and the encrypt checkouts after them) then hit
+    // cache. Best-effort — a failure falls through to the per-device paths,
+    // which report it with its address attached.
+    if let Err(error) = stores.session_store.prefetch_sessions(&candidates).await {
+        log::debug!("session prefetch failed, falling back to per-device loads: {error}");
+    }
+
+    // The effective encryption address per device, parallel to `devices`: the
+    // single render the encrypt fan-out reuses.
+    let mut effective_addresses: Vec<ProtocolAddress> = Vec::with_capacity(devices.len());
+
+    for (idx, device_jid) in devices.iter().enumerate() {
+        // WhatsApp Web's SignalAddress.toString() normalizes PN → LID before
+        // creating signal addresses. We do the same: check LID session FIRST.
+        // This prevents using stale PN sessions when a newer LID session exists.
+        if let (Some(lid_jid), Some(lid_addr_idx)) =
+            (lid_upgrades[idx].as_deref(), lid_addr_of[idx])
+            && has_session_or_report(
+                stores.session_store,
+                &candidates[lid_addr_idx],
+                resolver,
+                devices,
+            )
+            .await?
+        {
+            log::debug!(
+                "Using LID session {} for PN {} (LID-first lookup)",
+                lid_jid.observe(),
+                device_jid.observe()
+            );
+            record_encryption_override(
+                &mut encryption_overrides,
+                devices.len(),
+                idx,
+                lid_jid.clone(),
+            );
+            effective_addresses.push(candidates[lid_addr_idx].clone());
+            continue;
+        }
+
+        if has_session_or_report(stores.session_store, &candidates[idx], resolver, devices).await? {
+            effective_addresses.push(candidates[idx].clone());
+            continue;
+        }
+
+        // No session found - need to fetch prekeys and create session.
+        // Keep device_jid for prekey fetch (server returns bundles keyed by this),
+        // but normalize to LID for the actual session creation.
+        if let (Some(lid_jid), Some(lid_addr_idx)) = (
+            lid_upgrades[idx].clone().map(Cow::into_owned),
+            lid_addr_of[idx],
+        ) {
+            log::debug!(
+                "Will create LID session {} for PN {} (no existing session)",
+                lid_jid.observe(),
+                device_jid.observe()
+            );
+            effective_addresses.push(candidates[lid_addr_idx].clone());
+            record_encryption_override(&mut encryption_overrides, devices.len(), idx, lid_jid);
+        } else {
+            effective_addresses.push(candidates[idx].clone());
+        }
+        indices_needing_prekeys.push(idx);
+    }
+
+    if !indices_needing_prekeys.is_empty() {
+        log::debug!(
+            "Fetching prekeys for {} devices without sessions",
+            indices_needing_prekeys.len()
+        );
+        // Materialize the Jid slice for the resolver call. fetch_prekeys
+        // wants &[Jid]; same per-device clone count as the previous Vec
+        // model, just sourced from the indices.
+        let jids_for_fetch: Vec<Jid> = indices_needing_prekeys
+            .iter()
+            .map(|&i| devices[i].clone())
+            .collect();
+        // Devices whose drop the fetch already counted, so the per-device
+        // branch below does not report one drop twice: a rejection *is* the
+        // reason that device's bundle is missing.
+        let mut server_named: Vec<crate::prekeys::RejectedDevice> = Vec::new();
+        let mut batch_refused = false;
+        // A batch-wide 406 is all-or-nothing — per-device retries just wasted
+        // N·RTT with the same failure. Mark `had_406` so the caller invalidates
+        // the users and the next send re-fetches. Matches WA Web's
+        // `GroupSkmsgJob`: log, continue without those devices.
+        //
+        // A per-device rejection is the better-informed case: the server names
+        // the device in its own `<user>`, so it sets the same flag without
+        // condemning the rest of the batch.
+        let prekey_bundles = match resolver
+            .fetch_prekeys_for_identity_check(&jids_for_fetch)
+            .await
+        {
+            Ok(outcome) => {
+                for device in &outcome.rejected {
+                    resolver.on_unkeyable_devices(UnkeyableDevice::Rejected(device.code), 1);
+                }
+                rejected_devices.extend(
+                    outcome
+                        .rejected
+                        .iter()
+                        .filter(|device| device.code == UNREGISTERED_DEVICE_CODE)
+                        .map(|device| device.jid.clone()),
+                );
+                if !rejected_devices.is_empty() {
+                    log::debug!(
+                        "prekey fetch rejected {} of {} device(s) by name",
+                        rejected_devices.len(),
+                        jids_for_fetch.len()
+                    );
+                    had_406 = true;
+                }
+                server_named = outcome.rejected;
+                outcome.bundles
+            }
+            Err(e) if is_device_unregistered_error(&e) => {
+                // No server prekeys for these devices this round; the next send
+                // re-fetches. Debug, not warn — a batch 406 would otherwise flood the log.
+                log::debug!(
+                    "Prekey fetch returned 406 for {} device(s); skipping them this round",
+                    jids_for_fetch.len()
+                );
+                had_406 = true;
+                // The refusal answers for the whole batch, so every device in it
+                // is unkeyable for that reason rather than for an absent bundle.
+                // Its own reason, not `Rejected`: the batch names nobody, so
+                // this is an attribution and must not read as a per-device fact.
+                batch_refused = true;
+                resolver.on_unkeyable_devices(
+                    UnkeyableDevice::BatchRefused,
+                    jids_for_fetch.len() as u64,
+                );
+                // Best-effort callers still skip these devices, while a required
+                // distribution can surface the typed server failure without
+                // reconstructing it or reducing the source chain to a string.
+                first_error = Some(e);
+                std::collections::HashMap::new()
+            }
+            Err(e) => {
+                // A timeout, a transport failure or a 429/5xx leaves the same
+                // devices unkeyed as a refusal does, and a best-effort group
+                // send swallows this error and distributes to nobody. Counting
+                // only the refusal would make the signal go quiet during the
+                // outage that needs it loudest.
+                resolver.on_unkeyable_devices(
+                    UnkeyableDevice::FetchFailed,
+                    jids_for_fetch.len() as u64,
+                );
+                return Err(e);
+            }
+        };
+
+        // Parallel session establishment via process_prekey_bundle. Each
+        // recipient device has an independent Signal session and an
+        // independent prekey bundle, so the X3DH derivations run on
+        // ENCRYPT_FANOUT_CONCURRENCY tasks. One task per chunk, not per
+        // device, as in the encrypt fan-out below: spawning per device cost a
+        // task, a oneshot channel, a boxed future and two boxed store clones
+        // for every device of a cold cohort, which is exactly when the cohort
+        // is largest. `process_prekey_bundle` writes through the Arc-backed
+        // cache, so one store clone serving a whole chunk persists every
+        // session it establishes.
+        let prekey_bundles = std::sync::Arc::new(prekey_bundles);
+        let total = indices_needing_prekeys.len();
+        let num_chunks = ENCRYPT_FANOUT_CONCURRENCY.min(total);
+
+        let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+        for chunk_idx in 0..num_chunks {
+            let chunk_start = chunk_idx * total / num_chunks;
+            let chunk_end = (chunk_idx + 1) * total / num_chunks;
+            // The 'static task can't borrow devices/encryption_overrides.
+            // `encryption_jid` is `None` when the device keys under its own
+            // address, so the common case clones one `Jid`, not two.
+            let jobs: Vec<(Jid, Option<Jid>, bool)> = (chunk_start..chunk_end)
+                .map(|spawn_idx| {
+                    let idx = indices_needing_prekeys[spawn_idx];
+                    let lookup_jid = devices[idx].clone();
+                    let encryption_jid =
+                        encryption_override_at(&encryption_overrides, idx).cloned();
+                    let counted_at_fetch =
+                        batch_refused || server_named.iter().any(|device| device.jid == lookup_jid);
+                    (lookup_jid, encryption_jid, counted_at_fetch)
+                })
+                .collect();
+            let chunk_len = jobs.len();
+            let bundles = prekey_bundles.clone();
+            let mut session_store = stores.session_store.clone_box();
+            let mut identity_store = stores.identity_store.clone_box();
+
+            let task = spawn_oneshot(runtime, async move {
+                let mut addr = crate::types::jid::make_reusable_protocol_address();
+                let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+                let mut out = Vec::with_capacity(jobs.len());
+                for (lookup_jid, encryption_jid, counted_at_fetch) in jobs {
+                    encryption_jid
+                        .as_ref()
+                        .unwrap_or(&lookup_jid)
+                        .reset_protocol_address(&mut addr);
+
+                    let Some(bundle) = bundles.get(&lookup_jid) else {
+                        // No key material this round (usually the 406 cascade); the next
+                        // send re-fetches. Debug avoids one warn per skipped device.
+                        log::debug!(
+                            "No pre-key bundle returned for device {}. This device will be skipped for encryption.",
+                            addr
+                        );
+                        out.push(SessionOutcome::Dropped {
+                            jid: lookup_jid,
+                            reason: (!counted_at_fetch).then_some(UnkeyableDevice::NoBundle),
+                            error: None,
+                        });
+                        continue;
+                    };
+
+                    // No UntrustedIdentity recovery: WA Web's isTrustedIdentity is
+                    // unconditional Ok(true) (TOFU), and save_identity inside
+                    // process_prekey_bundle persists rotations transparently.
+                    out.push(
+                        match process_prekey_bundle(
+                            &addr,
+                            &mut *session_store,
+                            &mut *identity_store,
+                            bundle,
+                            &mut rng,
+                            UsePQRatchet::No,
+                        )
+                        .await
+                        {
+                            // Surface a replaced identity so the caller can react
+                            // (resolver has no 'static handle into this spawned task).
+                            Ok(IdentityChange::ReplacedExisting) => SessionOutcome::Established(
+                                Some(encryption_jid.unwrap_or(lookup_jid)),
+                            ),
+                            Ok(IdentityChange::NewOrUnchanged) => SessionOutcome::Established(None),
+                            Err(error) => SessionOutcome::Dropped {
+                                jid: lookup_jid,
+                                reason: Some(UnkeyableDevice::SessionSetup),
+                                error: Some(anyhow::Error::new(error).context(format!(
+                                    "failed to process pre-key bundle for {addr}"
+                                ))),
+                            },
+                        },
+                    );
+                }
+                out
+            });
+            in_flight.push(async move { (chunk_len, task.await) });
+        }
+        while let Some((chunk_len, spawn_result)) = in_flight.next().await {
+            let outcomes = match spawn_result {
+                Ok(outcomes) => outcomes,
+                Err(error) => {
+                    // The task took the devices' identities with it, so these
+                    // drops cannot join `unkeyed_devices` — and must not be
+                    // counted here either, or the encrypt fan-out (which will
+                    // fail for the same devices) would count them a second time.
+                    log::warn!(
+                        "Session-establishment task did not deliver a result; skipping {chunk_len} device(s)."
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(anyhow::Error::new(error));
+                    }
+                    continue;
+                }
+            };
+            for outcome in outcomes {
+                match outcome {
+                    // Some(jid) => establishing this session replaced a stored
+                    // identity; notify the client so it can react off-path.
+                    SessionOutcome::Established(Some(changed_jid)) => {
+                        resolver.on_local_identity_change(&changed_jid)
+                    }
+                    SessionOutcome::Established(None) => {}
+                    // Isolate the failure to this device so one participant can't abort
+                    // the cohort's SKDM (matching WA Web GroupKeyDistributionMsg's
+                    // per-device try/catch). The sessionless device is dropped by the
+                    // fan-out below, which skips it when tallying its own drops.
+                    SessionOutcome::Dropped { jid, reason, error } => {
+                        if let Some(reason) = reason {
+                            resolver.on_unkeyable_devices(reason, 1);
+                        }
+                        unkeyed_devices.push(jid);
+                        if let Some(error) = error {
+                            log::warn!(
+                                "Group session setup failed for a device, skipping it: {error}"
+                            );
+                            if first_error.is_none() {
+                                first_error = Some(error);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(SessionPlan {
+        device_count: devices.len(),
+        encryption_overrides,
+        effective_addresses,
+        device_fingerprint: device_list_fingerprint(devices),
+        had_unregistered_device: had_406,
+        rejected_devices,
+        first_error,
+        unkeyed_devices,
+    })
+}
+
+/// CPU half of the encrypt fan-out: pairwise-encrypt `plaintext_to_encrypt`
+/// for each device using sessions prepared by [`ensure_sessions_for_devices`]
+/// over the same `devices` slice. No resolver, no network — safe to run
+/// under locks that must not span I/O. A device whose session is still
+/// missing (e.g. its bundle was absent) fails its encrypt and is skipped,
+/// matching the combined path's behavior.
+///
+/// Holding no resolver, this cannot report the devices it skipped. Every
+/// in-tree path goes through [`encrypt_for_devices`], [`encrypt_for_devices_into`]
+/// or the raw variant instead; a caller that wants the tally wants
+/// [`encrypt_for_devices_with_sessions_raw`], whose result carries it.
+pub async fn encrypt_for_devices_with_sessions(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    hide_decrypt_fail: bool,
+    mediatype: Option<&str>,
+    plan: SessionPlan,
+) -> Result<EncryptResult> {
+    Ok(encrypt_for_devices_with_sessions_detailed(
+        runtime,
+        stores,
+        devices,
+        plaintext_to_encrypt,
+        hide_decrypt_fail,
+        mediatype,
+        plan,
+    )
+    .await?
+    .result)
+}
+
+#[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.encrypt_fanout", level = "debug", skip_all, fields(count = devices.len()), err(Debug)))]
+pub(crate) async fn encrypt_for_devices_with_sessions_detailed(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    hide_decrypt_fail: bool,
+    mediatype: Option<&str>,
+    plan: SessionPlan,
+) -> Result<EncryptAttempt> {
+    let RawEncryptAttempt {
+        result: raw,
+        first_error,
+    } = encrypt_for_devices_with_sessions_raw_detailed(
+        runtime,
+        stores,
+        devices,
+        plaintext_to_encrypt,
+        plan,
+    )
+    .await?;
+    let unkeyed_at_encrypt = raw.unkeyed_at_encrypt;
+
+    // Map each ciphertext to the message path's `<to><enc>` node, preserving the
+    // raw fan-out order so the wire output is identical to the pre-split path.
+    // `encrypted_devices` mirrors `participant_nodes` index-for-index, as before.
+    let mut participant_nodes = Vec::with_capacity(raw.devices.len());
+    let mut encrypted_devices = Vec::with_capacity(raw.devices.len());
+    for one in raw.devices {
+        // Both lists need the JID by value (`NodeValue::Jid` owns one), so one
+        // copy is the floor. It is a `CompactString` that holds every phone and
+        // LID user inline, so the copy is a move of the struct, not a heap
+        // round trip.
+        encrypted_devices.push(one.device_jid.clone());
+        participant_nodes.push(encrypted_device_to_participant_node(
+            one,
+            mediatype,
+            hide_decrypt_fail,
+        ));
+    }
+
+    Ok(EncryptAttempt {
+        result: EncryptResult {
+            participant_nodes,
+            includes_prekey_message: raw.includes_prekey_message,
+            encrypted_devices,
+            had_unregistered_device: raw.had_unregistered_device,
+            // The raw result is consumed here, so its rejection list can be
+            // handed over rather than duplicated.
+            rejected_devices: raw.rejected_devices,
+        },
+        first_error,
+        unkeyed_at_encrypt,
+    })
+}
+
+/// Node-agnostic core of the encrypt fan-out: pairwise-encrypt
+/// `plaintext_to_encrypt` for each device using sessions prepared by
+/// [`ensure_sessions_for_devices`] over the same `devices` slice, returning the
+/// per-device ciphertexts. No resolver, no network, no node-building — safe to
+/// run under locks that must not span I/O. A device whose session is still
+/// missing (e.g. its bundle was absent) fails its encrypt and is skipped.
+/// Same parallel fan-out + skip-on-fail contract as the message path.
+pub async fn encrypt_for_devices_with_sessions_raw(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    plan: SessionPlan,
+) -> Result<EncryptForDevicesRaw> {
+    Ok(encrypt_for_devices_with_sessions_raw_detailed(
+        runtime,
+        stores,
+        devices,
+        plaintext_to_encrypt,
+        plan,
+    )
+    .await?
+    .result)
+}
+
+#[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.encrypt_fanout_raw", level = "debug", skip_all, fields(count = devices.len()), err(Debug)))]
+async fn encrypt_for_devices_with_sessions_raw_detailed(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    devices: &[Jid],
+    plaintext_to_encrypt: &[u8],
+    plan: SessionPlan,
+) -> Result<RawEncryptAttempt> {
+    debug_assert_eq!(
+        plan.device_count,
+        devices.len(),
+        "SessionPlan built for a different device list"
+    );
+    // Same length is not same list: the memo is parallel to the exact
+    // identities it was rendered from, and serving it to different devices
+    // would encrypt to stale sessions. Unreachable by construction — the memo
+    // field is private, `assume_ready` (the only cross-crate constructor)
+    // leaves it empty, and every in-tree flow consumes the plan over the slice
+    // it was built from — so this stays a debug check and release pays nothing.
+    // An empty memo (`assume_ready`) always falls back to per-device rendering.
+    debug_assert!(
+        plan.effective_addresses.is_empty()
+            || plan.device_fingerprint == device_list_fingerprint(devices),
+        "SessionPlan consumed with different device identities than built from"
+    );
+    let SessionPlan {
+        device_count: _,
+        encryption_overrides,
+        effective_addresses,
+        device_fingerprint: _,
+        had_unregistered_device,
+        rejected_devices,
+        mut first_error,
+        unkeyed_devices,
+    } = plan;
+
+    let mut encrypted = Vec::with_capacity(devices.len());
+    let mut includes_prekey_message = false;
+    let mut unkeyed_at_encrypt = 0u64;
+
+    // The wire-order of `<to>` participants does not need to match the input
+    // device order: WA Web's `phash` (computed both client and server side)
+    // sorts before hashing, as does our `participant_list_hash`.
+    if devices.len() <= INLINE_ENCRYPT_DEVICES {
+        for (idx, device) in devices.iter().enumerate() {
+            let addr =
+                encrypt_address_at(&effective_addresses, &encryption_overrides, devices, idx);
+            let res = encrypt_one_device(
+                plaintext_to_encrypt,
+                &addr,
+                &mut *stores.session_store,
+                &mut *stores.identity_store,
+                device.clone(),
+            )
+            .await;
+            push_raw_result(
+                res,
+                &mut encrypted,
+                &mut includes_prekey_message,
+                &mut first_error,
+                &unkeyed_devices,
+                &mut unkeyed_at_encrypt,
+            );
+        }
+    } else {
+        // One task per chunk, not per device: the per-device fan-out allocated a
+        // task + oneshot + two store clones for every recipient. Same parallelism,
+        // spawns bounded by ENCRYPT_FANOUT_CONCURRENCY. Wire order is irrelevant
+        // (phash sorts before hashing on both ends).
+        let plaintext_arc: std::sync::Arc<[u8]> = std::sync::Arc::from(plaintext_to_encrypt);
+
+        let total = devices.len();
+        let num_chunks = ENCRYPT_FANOUT_CONCURRENCY.min(total);
+
+        let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+        // Index partitioning gives exactly num_chunks slices (keeps the configured
+        // parallelism) and no-ops on an empty device set instead of dividing by zero.
+        for chunk_idx in 0..num_chunks {
+            let chunk_start = chunk_idx * total / num_chunks;
+            let chunk_end = (chunk_idx + 1) * total / num_chunks;
+            // The 'static task can't borrow devices/encryption_overrides.
+            let jobs: Vec<(ProtocolAddress, Jid)> = (chunk_start..chunk_end)
+                .map(|idx| {
+                    (
+                        encrypt_address_at(
+                            &effective_addresses,
+                            &encryption_overrides,
+                            devices,
+                            idx,
+                        ),
+                        devices[idx].clone(),
+                    )
+                })
+                .collect();
+            let plaintext = plaintext_arc.clone();
+            // clone_box shares the Arc-backed backend, so the sequential ratchet
+            // advances persist despite one clone serving the whole chunk.
+            let mut session_store = stores.session_store.clone_box();
+            let mut identity_store = stores.identity_store.clone_box();
+
+            // The chunk's countable size rides along so a chunk that never
+            // delivers reports exactly how many devices it took down with it,
+            // instead of leaving the count to an estimate. Devices session setup
+            // already gave up on are excluded here for the same reason the
+            // per-device branch excludes them: they are counted once, there.
+            let chunk_countable = jobs
+                .iter()
+                .filter(|(_, device_jid)| !unkeyed_devices.contains(device_jid))
+                .count() as u64;
+            let task = spawn_oneshot(runtime, async move {
+                let mut out = Vec::with_capacity(jobs.len());
+                for (addr, device_jid) in jobs {
+                    out.push(
+                        encrypt_one_device(
+                            &plaintext,
+                            &addr,
+                            &mut *session_store,
+                            &mut *identity_store,
+                            device_jid,
+                        )
+                        .await,
+                    );
+                }
+                out
+            });
+            in_flight.push(async move { (chunk_countable, task.await) });
+        }
+        while let Some((chunk_countable, spawn_result)) = in_flight.next().await {
+            match spawn_result {
+                Ok(results) => {
+                    for res in results {
+                        push_raw_result(
+                            res,
+                            &mut encrypted,
+                            &mut includes_prekey_message,
+                            &mut first_error,
+                            &unkeyed_devices,
+                            &mut unkeyed_at_encrypt,
+                        );
+                    }
+                }
+                Err(error) => {
+                    // A whole chunk drops (not one device); its members stay
+                    // un-warm and are re-targeted next send.
+                    log::warn!(
+                        "Encrypt chunk did not deliver a result; {chunk_countable} further device(s) skipped this send."
+                    );
+                    unkeyed_at_encrypt += chunk_countable;
+                    if first_error.is_none() {
+                        first_error = Some(anyhow::Error::new(error));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(RawEncryptAttempt {
+        result: EncryptForDevicesRaw {
+            devices: encrypted,
+            includes_prekey_message,
+            had_unregistered_device,
+            rejected_devices,
+            unkeyed_at_encrypt,
+        },
+        first_error,
+    })
+}
+
+#[cfg(test)]
+mod participant_node_tests {
+    use super::{EncryptedDevice, encrypted_device_to_participant_node};
+    use wacore_binary::Jid;
+    use wacore_binary::node::NodeContent;
+
+    /// The per-device ciphertext is the largest buffer the fan-out touches, and
+    /// it is handed straight to the `<enc>` node. `NodeBuilder::bytes` takes an
+    /// `impl Into<Vec<u8>>`, which is a no-op for the `Vec<u8>` it is given.
+    /// Pass a slice instead and every device silently pays a full copy, so
+    /// pointer identity is the only thing that catches the regression.
+    #[test]
+    fn the_ciphertext_reaches_the_enc_node_without_being_copied() {
+        let ciphertext = vec![0xAB; 4096];
+        let expected_ptr = ciphertext.as_ptr();
+        let one = EncryptedDevice {
+            device_jid: Jid::lid_device("100000000000001".to_owned(), 3),
+            enc_type: "msg",
+            is_prekey: false,
+            ciphertext,
+        };
+
+        let to_node = encrypted_device_to_participant_node(one, None, false);
+        let Some(NodeContent::Nodes(children)) = to_node.content else {
+            panic!("a `<to>` node carries its `<enc>` child");
+        };
+        let Some(NodeContent::Bytes(bytes)) = &children[0].content else {
+            panic!("an `<enc>` node carries the ciphertext as bytes");
+        };
+        assert_eq!(bytes.as_ptr(), expected_ptr, "the ciphertext was copied");
+    }
+}
+
+#[cfg(test)]
+mod encryption_override_tests {
+    use super::{
+        SessionPlan, device_list_fingerprint, encrypt_address_at, encryption_override_at,
+        record_encryption_override,
+    };
+    use crate::types::jid::JidExt;
+    use wacore_binary::Jid;
+
+    fn lid(user: &str, device: u16) -> Jid {
+        Jid::lid_device(user.to_owned(), device)
+    }
+
+    /// The steady state: nothing is overridden, so the per-device map is never
+    /// allocated and every lookup still answers "use the device's own JID".
+    #[test]
+    fn an_empty_map_answers_every_index_without_allocating() {
+        let overrides: Vec<Option<Jid>> = Vec::new();
+        assert_eq!(overrides.capacity(), 0, "no override must mean no buffer");
+        for index in [0, 1, 7, usize::MAX] {
+            assert!(encryption_override_at(&overrides, index).is_none());
+        }
+
+        let plan = SessionPlan::assume_ready(4);
+        assert!(
+            plan.encryption_overrides.is_empty(),
+            "a plan that overrides nothing must carry no override buffer"
+        );
+        assert_eq!(plan.device_count, 4, "the slice length is still recorded");
+    }
+
+    /// The first recorded override materializes the full map, so later indices
+    /// stay addressable and earlier ones stay `None`.
+    #[test]
+    fn recording_materializes_the_whole_map_once() {
+        let mut overrides: Vec<Option<Jid>> = Vec::new();
+        record_encryption_override(&mut overrides, 3, 2, lid("100000000000001", 5));
+        assert_eq!(overrides.len(), 3);
+        assert!(encryption_override_at(&overrides, 0).is_none());
+        assert!(encryption_override_at(&overrides, 1).is_none());
+        assert_eq!(
+            encryption_override_at(&overrides, 2),
+            Some(&lid("100000000000001", 5))
+        );
+
+        // A second record must not resize again, nor clear the first.
+        record_encryption_override(&mut overrides, 3, 0, lid("100000000000002", 0));
+        assert_eq!(overrides.len(), 3);
+        assert_eq!(
+            encryption_override_at(&overrides, 0),
+            Some(&lid("100000000000002", 0))
+        );
+        assert_eq!(
+            encryption_override_at(&overrides, 2),
+            Some(&lid("100000000000001", 5))
+        );
+
+        // Overwriting an index replaces it rather than appending.
+        record_encryption_override(&mut overrides, 3, 2, lid("100000000000003", 1));
+        assert_eq!(overrides.len(), 3);
+        assert_eq!(
+            encryption_override_at(&overrides, 2),
+            Some(&lid("100000000000003", 1))
+        );
+    }
+
+    /// A single-device fan-out is the DM hot path, and it reads index 0 off a
+    /// map that may not exist.
+    #[test]
+    fn a_single_device_plan_records_and_reads_index_zero() {
+        let mut overrides: Vec<Option<Jid>> = Vec::new();
+        assert!(encryption_override_at(&overrides, 0).is_none());
+        record_encryption_override(&mut overrides, 1, 0, lid("100000000000009", 33));
+        assert_eq!(
+            encryption_override_at(&overrides, 0),
+            Some(&lid("100000000000009", 33))
+        );
+        assert!(encryption_override_at(&overrides, 1).is_none());
+    }
+
+    /// The memo hit serves the exact render `ensure` stored, so the fan-out
+    /// formats nothing; without a memo entry the address renders on the spot,
+    /// byte-identical to the pre-memo path.
+    #[test]
+    fn encrypt_address_prefers_the_memoized_render() {
+        let device = lid("100000000000001", 5);
+        let upgraded = lid("100000000000002", 5);
+        let devices = vec![device.clone()];
+        let memo = vec![upgraded.to_protocol_address()];
+        let overrides = vec![Some(upgraded.clone())];
+
+        let addr = encrypt_address_at(&memo, &overrides, &devices, 0);
+        assert_eq!(addr.as_str(), upgraded.to_protocol_address().as_str());
+        assert_ne!(addr.as_str(), device.to_protocol_address().as_str());
+
+        // No memo (e.g. `assume_ready`): the override still decides the render.
+        let empty: Vec<crate::libsignal::protocol::ProtocolAddress> = Vec::new();
+        let addr = encrypt_address_at(&empty, &overrides, &devices, 0);
+        assert_eq!(addr.as_str(), upgraded.to_protocol_address().as_str());
+
+        // Neither memo nor override: the device's own address.
+        let no_overrides: Vec<Option<Jid>> = Vec::new();
+        let addr = encrypt_address_at(&empty, &no_overrides, &devices, 0);
+        assert_eq!(addr.as_str(), device.to_protocol_address().as_str());
+    }
+
+    /// The fingerprint behind the consume-site guard: stable for the same
+    /// list, different for a same-length list with different identities, so a
+    /// memo can never serve devices it was not rendered from.
+    #[test]
+    fn device_list_fingerprint_separates_same_length_lists() {
+        let list = vec![lid("100000000000001", 5), lid("100000000000002", 0)];
+        assert_eq!(
+            device_list_fingerprint(&list),
+            device_list_fingerprint(&list.clone())
+        );
+        assert_ne!(
+            device_list_fingerprint(&list),
+            device_list_fingerprint(&[lid("100000000000001", 5), lid("100000000000003", 0)])
+        );
+        assert_ne!(
+            device_list_fingerprint(&list),
+            device_list_fingerprint(&[lid("100000000000001", 5)])
+        );
+    }
+}

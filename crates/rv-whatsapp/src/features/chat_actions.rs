@@ -1,0 +1,1979 @@
+//! Chat management via app state sync (syncd).
+//!
+//! ## Collections (from WhatsApp Web JS)
+//! - `regular_low`: archive, pin, markChatAsRead, lock
+//! - `regular_high`: mute, star, deleteChat, deleteMessageForMe
+
+use crate::MessageRef;
+use crate::appstate_sync::Mutation;
+use crate::client::Client;
+use crate::client::{AppStateDispatchOutcome, fingerprint_id, redact_jid};
+use anyhow::Result;
+use log::debug;
+use thiserror::Error;
+use wacore::appstate::schemas::{self, IndexPart, Schema};
+use wacore::types::events::{
+    ArchiveUpdate, ClearChatUpdate, ContactRemoved, ContactUpdate, DeleteChatUpdate,
+    DeleteMessageForMeUpdate, Event, LockChatUpdate, MarkChatAsReadUpdate, MuteUpdate, PinUpdate,
+    StarUpdate, UserStatusMuteUpdate,
+};
+use wacore_binary::Jid;
+use waproto::whatsapp as wa;
+
+/// Error returned by app-state (syncd) requests — the shared failure domain of
+/// chat actions ([`ChatActions`]), labels ([`crate::Labels`]) and re-syncs
+/// ([`crate::Client::resync_app_state`]).
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum AppStateError {
+    /// The mutation arguments are invalid (e.g. a past mute timestamp, a
+    /// non-phone-number contact id, a missing group participant, an empty
+    /// label id).
+    #[error("invalid app-state request: {0}")]
+    InvalidRequest(String),
+    /// The transport, not the request, is what stopped it: the client is
+    /// shutting down, was never started, or lost the socket before the request
+    /// could be sent or answered.
+    #[error("no usable connection for the app-state request")]
+    NotConnected,
+    /// Encoding, key lookup, or sending the app-state patch failed.
+    #[error("{0}")]
+    Internal(#[from] anyhow::Error),
+}
+
+/// WA Web uses `-1` for indefinite mute.
+const MUTE_INDEFINITE: i64 = -1;
+
+pub type SyncActionMessageRange = wa::sync_action_value::SyncActionMessageRange;
+
+/// Enables multi-device conflict resolution. `None` is safe for clients without
+/// a complete message database; callers with one can populate the range.
+///
+/// Consumes typed references and their timestamps in iteration order. Keys use
+/// [`MessageRef::to_raw_key`], preserving referential author/from-me scope.
+/// The returned range owns its keys and does not retain the references.
+pub fn message_range<'a>(
+    last_message_timestamp: i64,
+    last_system_message_timestamp: Option<i64>,
+    messages: impl IntoIterator<Item = (MessageRef<'a>, i64)>,
+) -> SyncActionMessageRange {
+    {
+        let mut proto_ = SyncActionMessageRange::default();
+        proto_.last_message_timestamp = Some(last_message_timestamp);
+        proto_.last_system_message_timestamp = last_system_message_timestamp;
+        proto_.messages = messages
+            .into_iter()
+            .map(|(reference, ts)| {
+                let mut proto = wa::sync_action_value::SyncActionMessage::default();
+                proto.key = buffa::MessageField::some(reference.to_raw_key());
+                proto.timestamp = Some(ts);
+                proto
+            })
+            .collect();
+        proto_
+    }
+}
+
+/// Every `index[0]` `dispatch_chat_mutation_outcome` claims; a kind missing
+/// here never reaches its match arm.
+const CHAT_ACTION_KINDS: &[&str] = &[
+    "mute",
+    "pin",
+    "pin_v1",
+    "archive",
+    "star",
+    "contact",
+    "mark_chat_as_read",
+    "markChatAsRead",
+    "deleteChat",
+    "clearChat",
+    "lock",
+    "userStatusMute",
+    "deleteMessageForMe",
+];
+
+/// Dispatch inbound chat mutations, returning the [`AppStateDispatchOutcome`]
+/// for the semantic per-mutation log line. A new WhatsApp command that falls
+/// through every handler shows up as `Unclaimed` instead of vanishing
+/// silently. Never log a `SyncActionValue` through this: it can carry names,
+/// message text, contacts and salts.
+///
+/// `event_full_sync` is public event provenance (lands on
+/// `*.from_full_sync`); it is never a logging level (see
+/// `dispatch_app_state_mutation_inner`).
+pub(crate) fn dispatch_chat_mutation_outcome(
+    event_bus: &wacore::types::events::CoreEventBus,
+    m: &mut Mutation,
+    event_full_sync: bool,
+) -> AppStateDispatchOutcome {
+    if m.index.is_empty() {
+        return AppStateDispatchOutcome::Unclaimed;
+    }
+
+    let kind = &m.index[0];
+
+    // `contact` is the one chat action whose deletion arrives as a syncd
+    // `Remove` (WAWebContactSync branches on `operation === "remove"`); every
+    // other kind here encodes its "off" state inside a `Set` value, so a
+    // non-`Set` operation on one of them is not ours to interpret. The
+    // operation gates the claim — not the index length: a `REMOVE contact`
+    // with no JID is still a contact removal, and the missing-JID branch
+    // below reports it as `Skipped` rather than misrouting it to `Unclaimed`
+    // (no other dispatcher owns contact removals).
+    let is_contact_remove =
+        m.operation == wa::syncd_mutation::SyncdOperation::REMOVE && kind == "contact";
+    if m.operation != wa::syncd_mutation::SyncdOperation::SET && !is_contact_remove {
+        return AppStateDispatchOutcome::Unclaimed;
+    }
+
+    if !CHAT_ACTION_KINDS.contains(&kind.as_str()) {
+        return AppStateDispatchOutcome::Unclaimed;
+    }
+
+    let ts = m.action_value.as_ref().and_then(|v| v.timestamp);
+    let action_timestamp = ts.and_then(wacore::time::from_millis);
+    // `timestamp` predates `action_timestamp` and keeps its fallbacks (epoch
+    // for a missing value, now for an unrepresentable one) so existing
+    // consumers see no change. Neither is an instant the server sent, which
+    // is why a consumer that must tell a replay from a live change reads
+    // `action_timestamp` instead (#1551).
+    let time = wacore::time::from_millis_or_now(ts.unwrap_or(0));
+    let jid: Jid = if m.index.len() > 1 {
+        match m.index[1].parse() {
+            Ok(j) => j,
+            Err(_) => {
+                // Fingerprinted: the wire value failed validation, so it is
+                // untrusted input — never logged verbatim. The semantic line
+                // already carries the protected target.
+                log::warn!(
+                    "Skipping chat mutation '{}': malformed JID ({})",
+                    kind,
+                    fingerprint_id(&m.index[1])
+                );
+                return AppStateDispatchOutcome::Skipped("malformed-jid");
+            }
+        }
+    } else {
+        log::warn!("Skipping chat mutation '{}': missing JID in index", kind);
+        return AppStateDispatchOutcome::Skipped("missing-jid");
+    };
+
+    match kind.as_str() {
+        "mute" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.mute_action.take()
+            {
+                event_bus.dispatch(Event::MuteUpdate(
+                    MuteUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("MuteUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("MuteUpdate")
+            }
+        }
+        "pin" | "pin_v1" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.pin_action.take()
+            {
+                event_bus.dispatch(Event::PinUpdate(
+                    PinUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("PinUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("PinUpdate")
+            }
+        }
+        "archive" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.archive_chat_action.take()
+            {
+                event_bus.dispatch(Event::ArchiveUpdate(
+                    ArchiveUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("ArchiveUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("ArchiveUpdate")
+            }
+        }
+        "star" => {
+            // Index first: it borrows nothing, so a short index or a bad
+            // participant JID is reported as `Skipped` without touching the
+            // action. Taking the action first would consume it and then blame
+            // a missing `starAction` for what was really a bad index.
+            let Some((message_id, from_me, participant_jid)) =
+                parse_message_key_fields(kind, &m.index)
+            else {
+                return AppStateDispatchOutcome::Skipped("bad-message-key");
+            };
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.star_action.take()
+            {
+                event_bus.dispatch(Event::StarUpdate(
+                    StarUpdate::builder()
+                        .chat_jid(jid)
+                        .maybe_participant_jid(participant_jid)
+                        .message_id(message_id)
+                        .from_me(from_me)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("StarUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("StarUpdate")
+            }
+        }
+        "contact" if is_contact_remove => {
+            event_bus.dispatch(Event::ContactRemoved(
+                ContactRemoved::builder()
+                    .jid(jid)
+                    .timestamp(time)
+                    .maybe_action_timestamp(action_timestamp)
+                    .from_full_sync(event_full_sync)
+                    .build(),
+            ));
+            AppStateDispatchOutcome::Event("ContactRemoved")
+        }
+        "contact" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.contact_action.take()
+            {
+                event_bus.dispatch(Event::ContactUpdate(
+                    ContactUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("ContactUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("ContactUpdate")
+            }
+        }
+        "mark_chat_as_read" | "markChatAsRead" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.mark_chat_as_read_action.take()
+            {
+                event_bus.dispatch(Event::MarkChatAsReadUpdate(
+                    MarkChatAsReadUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("MarkChatAsReadUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("MarkChatAsReadUpdate")
+            }
+        }
+        "deleteChat" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.delete_chat_action.take()
+            {
+                // delete_media is in index[2], not in the proto (which only has messageRange)
+                let delete_media = m.index.get(2).is_none_or(|v| v != "0");
+                event_bus.dispatch(Event::DeleteChatUpdate(
+                    DeleteChatUpdate::builder()
+                        .jid(jid)
+                        .delete_media(delete_media)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("DeleteChatUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("DeleteChatUpdate")
+            }
+        }
+        "clearChat" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.clear_chat_action.take()
+            {
+                // deleteStarred/deleteMedia live in the index (index[2]/index[3]),
+                // not in ClearChatAction (which only has messageRange). WA Web's send
+                // builder encodes both as "1"/"0".
+                let delete_starred = m.index.get(2).is_some_and(|v| v == "1");
+                let delete_media = m.index.get(3).is_some_and(|v| v == "1");
+                event_bus.dispatch(Event::ClearChatUpdate(
+                    ClearChatUpdate::builder()
+                        .jid(jid)
+                        .delete_starred(delete_starred)
+                        .delete_media(delete_media)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("ClearChatUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("ClearChatUpdate")
+            }
+        }
+        "lock" => {
+            // WAWebLockChatSync rejects an omitted `locked`; it is not an unlock.
+            if let Some(val) = &m.action_value
+                && let Some(act) = val.lock_chat_action.as_option()
+                && act.locked.is_some()
+            {
+                event_bus.dispatch(Event::LockChatUpdate(
+                    LockChatUpdate::builder()
+                        .jid(jid)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act.clone()))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("LockChatUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("LockChatUpdate")
+            }
+        }
+        "userStatusMute" => {
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.user_status_mute_action.take()
+            {
+                event_bus.dispatch(Event::UserStatusMuteUpdate(
+                    UserStatusMuteUpdate::builder()
+                        .jid(jid)
+                        .muted(act.muted.unwrap_or(false))
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("UserStatusMuteUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("UserStatusMuteUpdate")
+            }
+        }
+        "deleteMessageForMe" => {
+            // Same ordering as `star` above: validate the index before taking
+            // the action, or a bad index invents a missing-action diagnosis.
+            let Some((message_id, from_me, participant_jid)) =
+                parse_message_key_fields(kind, &m.index)
+            else {
+                return AppStateDispatchOutcome::Skipped("bad-message-key");
+            };
+            if let Some(val) = &mut m.action_value
+                && let Some(act) = val.delete_message_for_me_action.take()
+            {
+                event_bus.dispatch(Event::DeleteMessageForMeUpdate(
+                    DeleteMessageForMeUpdate::builder()
+                        .chat_jid(jid)
+                        .maybe_participant_jid(participant_jid)
+                        .message_id(message_id)
+                        .from_me(from_me)
+                        .timestamp(time)
+                        .maybe_action_timestamp(action_timestamp)
+                        .action(Box::new(act))
+                        .from_full_sync(event_full_sync)
+                        .build(),
+                ));
+                AppStateDispatchOutcome::Event("DeleteMessageForMeUpdate")
+            } else {
+                AppStateDispatchOutcome::Malformed("DeleteMessageForMeUpdate")
+            }
+        }
+        _ => AppStateDispatchOutcome::Unclaimed,
+    }
+}
+
+/// Parse message-key fields (messageId, fromMe, participant) from index positions 2-4.
+/// Returns `None` (with a warning log) if the index is too short or participant is malformed.
+fn parse_message_key_fields(kind: &str, index: &[String]) -> Option<(String, bool, Option<Jid>)> {
+    if index.len() < 5 {
+        log::warn!(
+            "Skipping {kind} mutation: expected 5 index elements, got {}",
+            index.len()
+        );
+        return None;
+    }
+    let message_id = index[2].clone();
+    let from_me = index[3] == "1";
+    let participant_jid = if index[4] != "0" {
+        match index[4].parse() {
+            Ok(j) => Some(j),
+            Err(_) => {
+                log::warn!(
+                    "Skipping {kind} mutation: malformed participant JID ({})",
+                    fingerprint_id(&index[4])
+                );
+                return None;
+            }
+        }
+    } else {
+        None
+    };
+    Some((message_id, from_me, participant_jid))
+}
+
+/// Project the syncd message key without changing its identity namespace.
+fn message_key_owned(target: &MessageRef<'_>) -> (String, Option<String>) {
+    // WAWebSyncdActionUtils.buildMessageKey omits our own participant. A DM's
+    // sender is addressing metadata, not a participant in its syncd index.
+    // Group authors use account identities, as in WAWebWidFactory.asUserWidOrThrow:
+    // strip the transport device without converting between PN and LID.
+    let participant = if target.from_me() {
+        None
+    } else {
+        target.receipt_sender()
+    };
+    (
+        target.chat().to_string(),
+        participant.map(Jid::to_non_ad_string),
+    )
+}
+
+/// The `"1"`/`"0"` wire string for a `fromMe` flag (no allocation).
+#[inline]
+fn bool_str(b: bool) -> &'static str {
+    if b { "1" } else { "0" }
+}
+
+/// Assemble the JSON-array mutation index for `schema` from its non-literal index
+/// args (in `schema.index_parts` order). The arg count must match.
+/// A `contact` app-state mutation is keyed by a bare phone-number JID. Reject
+/// LIDs (a separate WA Web path), group/status/broadcast/newsletter JIDs, and
+/// AD/device JIDs (e.g. `123:4@s.whatsapp.net`) that would form an invalid index.
+fn is_valid_contact_id(jid: &Jid) -> bool {
+    jid.is_pn() && jid.device == 0
+}
+
+pub(crate) fn build_action_index(schema: &Schema, args: &[&str]) -> Result<Vec<u8>> {
+    let non_literal = schema
+        .index_parts
+        .iter()
+        .filter(|p| !matches!(p, IndexPart::Literal { .. }))
+        .count();
+    if args.len() != non_literal {
+        anyhow::bail!(
+            "index args for action '{}': expected {non_literal}, got {}",
+            schema.name,
+            args.len()
+        );
+    }
+    let mut parts: Vec<&str> = Vec::with_capacity(schema.index_parts.len());
+    let mut it = args.iter();
+    for part in schema.index_parts {
+        match part {
+            IndexPart::Literal { value } => parts.push(value),
+            _ => parts.push(it.next().expect("arg count checked above")),
+        }
+    }
+    Ok(serde_json::to_vec(&parts)?)
+}
+
+/// Access via `client.chat_actions()`.
+pub struct ChatActions<'a> {
+    client: &'a Client,
+}
+
+impl<'a> ChatActions<'a> {
+    pub(crate) fn new(client: &'a Client) -> Self {
+        Self { client }
+    }
+
+    pub async fn archive_chat(
+        &self,
+        jid: &Jid,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        debug!("Archiving chat {}", redact_jid(jid));
+        self.send_archive_mutation(jid, true, message_range).await
+    }
+
+    pub async fn unarchive_chat(
+        &self,
+        jid: &Jid,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        debug!("Unarchiving chat {}", redact_jid(jid));
+        self.send_archive_mutation(jid, false, message_range).await
+    }
+
+    pub async fn pin_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Pinning chat {}", redact_jid(jid));
+        self.send_pin_mutation(jid, true).await
+    }
+
+    pub async fn unpin_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Unpinning chat {}", redact_jid(jid));
+        self.send_pin_mutation(jid, false).await
+    }
+
+    pub async fn mute_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Muting chat {} indefinitely", redact_jid(jid));
+        self.send_mute_mutation(jid, true, MUTE_INDEFINITE).await
+    }
+
+    /// Must be in the future. Use [`mute_chat`](Self::mute_chat) for indefinite.
+    pub async fn mute_chat_until(
+        &self,
+        jid: &Jid,
+        mute_end_timestamp_ms: i64,
+    ) -> Result<(), AppStateError> {
+        if mute_end_timestamp_ms <= 0 {
+            return Err(AppStateError::InvalidRequest(
+                "mute_end_timestamp_ms must be a positive future timestamp (use mute_chat() for indefinite)".into(),
+            ));
+        }
+        let now_ms = wacore::time::now_millis();
+        if mute_end_timestamp_ms <= now_ms {
+            return Err(AppStateError::InvalidRequest(format!(
+                "mute_end_timestamp_ms is in the past ({mute_end_timestamp_ms} <= {now_ms})"
+            )));
+        }
+        debug!(
+            "Muting chat {} until {mute_end_timestamp_ms}",
+            redact_jid(jid)
+        );
+        self.send_mute_mutation(jid, true, mute_end_timestamp_ms)
+            .await
+    }
+
+    pub async fn unmute_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Unmuting chat {}", redact_jid(jid));
+        self.send_mute_mutation(jid, false, 0).await
+    }
+
+    /// Chat lock: moves the chat into the account's "locked chats" folder.
+    /// Only the lock state syncs; no message or key leaves the device.
+    pub async fn lock_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Locking chat {}", redact_jid(jid));
+        self.send_lock_mutation(jid, true).await
+    }
+
+    pub async fn unlock_chat(&self, jid: &Jid) -> Result<(), AppStateError> {
+        debug!("Unlocking chat {}", redact_jid(jid));
+        self.send_lock_mutation(jid, false).await
+    }
+
+    /// Star a message using its received or sent reference.
+    pub async fn star_message(&self, target: &MessageRef<'_>) -> Result<(), AppStateError> {
+        self.send_star_mutation(target, true).await
+    }
+
+    /// Remove a message's star without reconstructing its author scope.
+    pub async fn unstar_message(&self, target: &MessageRef<'_>) -> Result<(), AppStateError> {
+        self.send_star_mutation(target, false).await
+    }
+
+    /// Distinct from `readMessages` IQ receipts — this syncs state across linked devices.
+    pub async fn mark_chat_as_read(
+        &self,
+        jid: &Jid,
+        read: bool,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        debug!(
+            "Marking chat {} as {}",
+            redact_jid(jid),
+            if read { "read" } else { "unread" }
+        );
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.mark_chat_as_read_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::MarkChatAsReadAction::default();
+                proto.read = Some(read);
+                proto.message_range = message_range.into();
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::MARK_CHAT_AS_READ, &[jid.as_str()], &value)
+            .await
+    }
+
+    pub async fn delete_chat(
+        &self,
+        jid: &Jid,
+        delete_media: bool,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        debug!("Deleting chat {}", redact_jid(jid));
+        let delete_media_str = if delete_media { "1" } else { "0" };
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.delete_chat_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::DeleteChatAction::default();
+                proto.message_range = message_range.into();
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(
+                &schemas::DELETE_CHAT,
+                &[jid.as_str(), delete_media_str],
+                &value,
+            )
+            .await
+    }
+
+    /// Clears a chat's messages while keeping the chat (WA Web's clearChat).
+    ///
+    /// `delete_starred` also removes starred messages; `delete_media` also removes
+    /// downloaded media. Both flags live only in the mutation index, not the proto.
+    pub async fn clear_chat(
+        &self,
+        jid: &Jid,
+        delete_starred: bool,
+        delete_media: bool,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        debug!("Clearing chat {}", redact_jid(jid));
+        // WA Web's $ClearChatSync$p_3 encodes both flags as "1"/"0".
+        let delete_starred_str = if delete_starred { "1" } else { "0" };
+        let delete_media_str = if delete_media { "1" } else { "0" };
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.clear_chat_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::ClearChatAction::default();
+                proto.message_range = message_range.into();
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(
+                &schemas::CLEAR_CHAT,
+                &[jid.as_str(), delete_starred_str, delete_media_str],
+                &value,
+            )
+            .await
+    }
+
+    /// Mute or unmute a contact/group/newsletter's status updates across devices
+    /// (WA Web's userStatusMute). `muted = true` hides their status.
+    pub async fn set_user_status_mute(&self, jid: &Jid, muted: bool) -> Result<(), AppStateError> {
+        debug!("Setting userStatusMute for {} -> {muted}", redact_jid(jid));
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.user_status_mute_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::UserStatusMuteAction::default();
+                proto.muted = Some(muted);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::USER_STATUS_MUTE, &[jid.as_str()], &value)
+            .await
+    }
+
+    /// Deletes locally only (not for everyone).
+    pub async fn delete_message_for_me(
+        &self,
+        target: &MessageRef<'_>,
+        delete_media: bool,
+        message_timestamp: Option<i64>,
+    ) -> Result<(), AppStateError> {
+        let (chat, participant) = message_key_owned(target);
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.delete_message_for_me_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::DeleteMessageForMeAction::default();
+                proto.delete_media = Some(delete_media);
+                proto.message_timestamp = message_timestamp;
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        self.client
+            .send_app_state_action(
+                &schemas::DELETE_MESSAGE_FOR_ME,
+                &[
+                    chat.as_str(),
+                    target.id().as_str(),
+                    bool_str(target.from_me()),
+                    participant.as_deref().unwrap_or("0"),
+                ],
+                &value,
+            )
+            .await
+    }
+
+    /// Save or rename a contact, syncing the name to the user's other linked devices.
+    ///
+    /// Writes a `contact` app-state SET mutation (WAWebContactSync.getContactSyncMutation)
+    /// to the `critical_unblock_low` collection with index `["contact", jid]`.
+    /// `full_name`/`first_name` are sent verbatim; an absent `first_name` is omitted
+    /// (WA Web derives no short-name default). `save_on_primary_addressbook` controls
+    /// whether it is saved to the phone's address book.
+    ///
+    /// The contact id must be a phone-number JID: WA Web refuses to send a contact
+    /// mutation keyed by a LID (LID contacts use a separate path), so a LID is rejected.
+    pub async fn save_contact(
+        &self,
+        jid: &Jid,
+        full_name: Option<String>,
+        first_name: Option<String>,
+        save_on_primary_addressbook: bool,
+    ) -> Result<(), AppStateError> {
+        if !is_valid_contact_id(jid) {
+            return Err(AppStateError::InvalidRequest(
+                "save_contact: contact id must be a bare phone-number JID (not a LID, group, or device-specific JID)".into(),
+            ));
+        }
+        debug!("Saving contact {}", redact_jid(jid));
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.contact_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::ContactAction::default();
+                proto.full_name = full_name;
+                proto.first_name = first_name;
+                proto.save_on_primary_addressbook = Some(save_on_primary_addressbook);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid_str = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::CONTACT, &[jid_str.as_str()], &value)
+            .await
+    }
+
+    /// Delete a saved contact, syncing the removal to the user's other linked
+    /// devices.
+    ///
+    /// Writes the same `["contact", jid]` index as
+    /// [`save_contact`](Self::save_contact) on `critical_unblock_low`, but as a
+    /// syncd **`Remove`** — WA Web's `WAWebContactSync.getContactSyncMutation`
+    /// selects the operation from its `isDelete` flag
+    /// (`isDelete ? SyncdOperation.REMOVE : SyncdOperation.SET`) and its
+    /// receiving side branches on `operation === "remove"` to drop the contact
+    /// from the address book. A `Set` carrying an empty `ContactAction` would
+    /// instead be applied as a rename to the empty string.
+    ///
+    /// The value is still sent: WA Web builds its `contactAction` before
+    /// choosing the operation, so a removal carries an all-absent action.
+    pub async fn remove_contact(&self, jid: &Jid) -> Result<(), AppStateError> {
+        if !is_valid_contact_id(jid) {
+            return Err(AppStateError::InvalidRequest(
+                "remove_contact: contact id must be a bare phone-number JID (not a LID, group, or device-specific JID)".into(),
+            ));
+        }
+        debug!("Removing contact {}", redact_jid(jid));
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.contact_action =
+                buffa::MessageField::some(wa::sync_action_value::ContactAction::default());
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid_str = jid.to_string();
+        self.client
+            .remove_app_state_action(&schemas::CONTACT, &[jid_str.as_str()], &value)
+            .await
+    }
+
+    async fn send_archive_mutation(
+        &self,
+        jid: &Jid,
+        archived: bool,
+        message_range: Option<SyncActionMessageRange>,
+    ) -> Result<(), AppStateError> {
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.archive_chat_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::ArchiveChatAction::default();
+                proto.archived = Some(archived);
+                proto.message_range = message_range.into();
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::ARCHIVE, &[jid.as_str()], &value)
+            .await
+    }
+
+    async fn send_pin_mutation(&self, jid: &Jid, pinned: bool) -> Result<(), AppStateError> {
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.pin_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::PinAction::default();
+                proto.pinned = Some(pinned);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::PIN, &[jid.as_str()], &value)
+            .await
+    }
+
+    async fn send_mute_mutation(
+        &self,
+        jid: &Jid,
+        muted: bool,
+        mute_end_timestamp_ms: i64,
+    ) -> Result<(), AppStateError> {
+        // -1 = indefinite, 0 = unmuted, positive = expiry ms
+        let mute_end = if muted {
+            Some(mute_end_timestamp_ms)
+        } else {
+            Some(0)
+        };
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.mute_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::MuteAction::default();
+                proto.muted = Some(muted);
+                proto.mute_end_timestamp = mute_end;
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::MUTE, &[jid.as_str()], &value)
+            .await
+    }
+
+    async fn send_lock_mutation(&self, jid: &Jid, locked: bool) -> Result<(), AppStateError> {
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.lock_chat_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::LockChatAction::default();
+                proto.locked = Some(locked);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        let jid = jid.to_string();
+        self.client
+            .send_app_state_action(&schemas::LOCK_CHAT, &[jid.as_str()], &value)
+            .await
+    }
+
+    async fn send_star_mutation(
+        &self,
+        target: &MessageRef<'_>,
+        starred: bool,
+    ) -> Result<(), AppStateError> {
+        let (chat, participant) = message_key_owned(target);
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.star_action = buffa::MessageField::some({
+                let mut proto = wa::sync_action_value::StarAction::default();
+                proto.starred = Some(starred);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        self.client
+            .send_app_state_action(
+                &schemas::STAR,
+                &[
+                    chat.as_str(),
+                    target.id().as_str(),
+                    bool_str(target.from_me()),
+                    participant.as_deref().unwrap_or("0"),
+                ],
+                &value,
+            )
+            .await
+    }
+}
+
+impl Client {
+    pub fn chat_actions(&self) -> ChatActions<'_> {
+        ChatActions::new(self)
+    }
+
+    /// Encode a single app-state mutation (stamped with the action schema
+    /// `version`) and send it as a patch on `collection`. Shared by the
+    /// chat-action and label features.
+    pub(crate) async fn send_app_state_mutation(
+        &self,
+        collection: &str,
+        index: &[u8],
+        value: &wa::SyncActionValue,
+        version: i32,
+        operation: wa::syncd_mutation::SyncdOperation,
+    ) -> Result<(), AppStateError> {
+        use rand::Rng;
+        use wacore::appstate::encode::encode_record;
+
+        let proc = self.get_app_state_processor();
+        let key_id = proc
+            .backend
+            .get_latest_sync_key_id()
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?
+            .ok_or_else(|| {
+                AppStateError::InvalidRequest("no app state sync key available".into())
+            })?;
+        let keys = proc
+            .get_app_state_key(&key_id)
+            .await
+            .map_err(|e| AppStateError::Internal(e.into()))?;
+
+        let mut iv = [0u8; 16];
+        rand::make_rng::<rand::rngs::StdRng>().fill_bytes(&mut iv);
+
+        let (mutation, _) = encode_record(operation, index, value, &keys, &key_id, &iv, version);
+
+        // This cold metadata transaction must not expose its recovery future's
+        // nested layout through every public action and downstream host.
+        Box::pin(self.send_app_state_patch(collection, vec![mutation])).await?;
+        Ok(())
+    }
+
+    /// Send any app-state (syncd) `Set` action, driven by a generated
+    /// [`Schema`] from
+    /// [`wacore::appstate::schemas`]. The collection, action version, and index
+    /// shape come from the registry; the caller only fills the typed
+    /// [`SyncActionValue`](wa::SyncActionValue) (its action sub-field, plus a
+    /// `timestamp`) and supplies the non-literal index args in `index_parts`
+    /// order. This is the generic escape hatch for actions without a dedicated
+    /// helper (e.g. `clear_chat`, `favorites`, `quick_reply`); the typed APIs
+    /// like [`ChatActions`] and [`Labels`](crate::Labels) wrap it.
+    ///
+    /// ```no_run
+    /// # #![recursion_limit = "512"]
+    /// # async fn ex(client: &whatsapp_rust::Client) -> anyhow::Result<()> {
+    /// use whatsapp_rust::schemas;
+    /// use whatsapp_rust::waproto::whatsapp as wa;
+    /// let mut value = wa::SyncActionValue::default();
+    /// value.clear_chat_action = Some(Default::default()).into();
+    /// value.timestamp = Some(1_700_000_000_000); // epoch-ms timestamp
+    /// // Args are the non-literal index parts in `schema.index_parts` order;
+    /// // CLEAR_CHAT is [chatJid, deleteStarred, deleteMedia].
+    /// client
+    ///     .send_app_state_action(
+    ///         &schemas::CLEAR_CHAT,
+    ///         &["123@s.whatsapp.net", "0", "0"],
+    ///         &value,
+    ///     )
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
+    pub async fn send_app_state_action(
+        &self,
+        schema: &Schema,
+        index_args: &[&str],
+        value: &wa::SyncActionValue,
+    ) -> Result<(), AppStateError> {
+        self.send_app_state_action_op(
+            schema,
+            index_args,
+            value,
+            wa::syncd_mutation::SyncdOperation::SET,
+        )
+        .await
+    }
+
+    /// Send an app-state action as a syncd `Remove` rather than a `Set`.
+    ///
+    /// Only a few actions model deletion this way — most (labels, quick
+    /// replies) carry a `deleted` flag inside a `Set` value instead, and sending
+    /// a `Remove` for one of those would drop the record from the collection
+    /// without the linked devices ever seeing the deletion. Check the action's
+    /// WA Web builder before reaching for this;
+    /// [`ChatActions::remove_contact`] is the one wrapped helper.
+    ///
+    /// `value` is still encoded and MAC'd (WA Web builds the same value struct
+    /// for both branches of `getContactSyncMutation`), so pass the action's
+    /// value type with the fields it would carry, plus a `timestamp`.
+    pub async fn remove_app_state_action(
+        &self,
+        schema: &Schema,
+        index_args: &[&str],
+        value: &wa::SyncActionValue,
+    ) -> Result<(), AppStateError> {
+        self.send_app_state_action_op(
+            schema,
+            index_args,
+            value,
+            wa::syncd_mutation::SyncdOperation::REMOVE,
+        )
+        .await
+    }
+
+    async fn send_app_state_action_op(
+        &self,
+        schema: &Schema,
+        index_args: &[&str],
+        value: &wa::SyncActionValue,
+        operation: wa::syncd_mutation::SyncdOperation,
+    ) -> Result<(), AppStateError> {
+        let index = build_action_index(schema, index_args)?;
+        let collection = schema.collection.as_str();
+        self.send_app_state_mutation(collection, &index, value, schema.version as i32, operation)
+            .await
+    }
+}
+
+/// Capture what an app-state verb actually puts on the wire.
+///
+/// Runs `send` against a mock transport with a seeded sync key, takes the
+/// `<sync><collection><patch>` blob out of the first IQ it writes, and decodes
+/// the single mutation inside it. The result is the same [`Mutation`] the
+/// receiving device would see — operation, index and `SyncActionValue` — so a
+/// test can assert on the wire form rather than on the builder that produced it.
+#[cfg(test)]
+pub(crate) async fn capture_app_state_mutation<F, Fut>(collection: &str, send: F) -> Mutation
+where
+    F: FnOnce(std::sync::Arc<Client>) -> Fut,
+    Fut: Future<Output = Result<(), AppStateError>> + Send + 'static,
+{
+    use wacore::appstate::{decode_record, expand_app_state_keys};
+
+    let (client, transport) = crate::test_utils::create_iq_test_client().await;
+    let key_id = b"capture-key".to_vec();
+    let backend = client.persistence_manager.backend();
+    backend
+        .set_sync_key(
+            &key_id,
+            crate::store::traits::AppStateSyncKey {
+                key_data: vec![5u8; 32],
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("test backend should accept a sync key");
+    backend
+        .set_version(
+            collection,
+            wacore::appstate::hash::HashState {
+                version: 7,
+                // `send_app_state_patch` refuses to build on a collection whose
+                // bootstrap never completed and syncs it first, which the mock
+                // transport cannot answer. A verb test is about the mutation the
+                // verb writes, not about reaching that state, so the fixture
+                // starts from a collection that has bootstrapped.
+                bootstrapped: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("test backend should accept a version");
+
+    // The verb blocks on the server's answer, which never comes; the patch it
+    // wrote first is all this needs.
+    let sending = tokio::spawn(send(std::sync::Arc::clone(&client)));
+    let iq = crate::test_utils::decode_sent_iq(&transport, 0).await;
+    sending.abort();
+
+    let iq = iq.get().to_owned();
+    let patch = iq
+        .get_optional_child_by_tag(&["sync", "collection", "patch"])
+        .expect("the verb should send a <patch>");
+    let wacore_binary::NodeContent::Bytes(bytes) = patch.content.as_ref().expect("patch has bytes")
+    else {
+        panic!("a <patch> carries bytes");
+    };
+    let patch = waproto::codec::syncd_patch_decode(bytes).expect("the patch should decode");
+    assert_eq!(patch.mutations.len(), 1, "verbs send one mutation each");
+    let mutation = &patch.mutations[0];
+    let operation = mutation
+        .operation
+        .expect("every mutation states its operation")
+        .as_known()
+        .expect("and it is a known one");
+    let keys = expand_app_state_keys(&[5u8; 32]);
+    let (decoded, _) = decode_record(
+        operation,
+        mutation.record.as_option().expect("mutation has a record"),
+        &keys,
+        &key_id,
+        true,
+    )
+    .expect("the record we just wrote should decode and verify");
+    decoded
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn message_range_preserves_referential_keys_and_iteration_order() {
+        // Use the addressing cases covered by the action-index fixtures below.
+        // Ranges retain known own authors and device suffixes, unlike indices.
+        let cases = [
+            (
+                "12025550111@s.whatsapp.net",
+                Some("12025550111:7@s.whatsapp.net"),
+                false,
+                None,
+            ),
+            ("12025550111@lid", Some("12025550111@lid"), false, None),
+            (
+                "120000000001@g.us",
+                Some("12025550111@s.whatsapp.net"),
+                false,
+                Some("12025550111@s.whatsapp.net"),
+            ),
+            (
+                "120000000001@g.us",
+                Some("100000000001:9@lid"),
+                false,
+                Some("100000000001:9@lid"),
+            ),
+            (
+                "120000000001@g.us",
+                Some("100000000001:9@lid"),
+                true,
+                Some("100000000001:9@lid"),
+            ),
+            ("120000000001@g.us", None, true, None),
+            ("12025550111@s.whatsapp.net", None, true, None),
+        ];
+        let chats: Vec<Jid> = cases.iter().map(|c| c.0.parse().unwrap()).collect();
+        let senders: Vec<Option<Jid>> = cases
+            .iter()
+            .map(|c| c.1.map(|s| s.parse().unwrap()))
+            .collect();
+        let timestamps = [9, -3, 0, i64::MAX, 5, i64::MIN, 9];
+        let entries = cases.iter().enumerate().map(|(i, case)| {
+            let reference = MessageRef::new(
+                &chats[i],
+                crate::MessageId::new(format!("range-{i}")).unwrap(),
+                senders[i].as_ref(),
+                case.2,
+            )
+            .unwrap();
+            (reference, timestamps[i])
+        });
+        let range = message_range(1234, Some(-7), entries);
+        assert_eq!(range.last_message_timestamp, Some(1234));
+        assert_eq!(range.last_system_message_timestamp, Some(-7));
+        assert_eq!(range.messages.len(), cases.len());
+        for (i, message) in range.messages.iter().enumerate() {
+            assert_eq!(message.timestamp, Some(timestamps[i]));
+            assert_eq!(message.key.as_option().unwrap(), &{
+                let mut proto = wa::MessageKey::default();
+                proto.remote_jid = Some(cases[i].0.into());
+                proto.id = Some(format!("range-{i}"));
+                proto.from_me = Some(cases[i].2);
+                proto.participant = cases[i].3.map(str::to_owned);
+                proto
+            });
+        }
+    }
+
+    #[test]
+    fn message_range_preserves_empty_ranges_and_optional_timestamp() {
+        for system_timestamp in [None, Some(0), Some(-1)] {
+            let range = message_range(-5, system_timestamp, []);
+            assert_eq!(range.last_message_timestamp, Some(-5));
+            assert_eq!(range.last_system_message_timestamp, system_timestamp);
+            assert!(range.messages.is_empty());
+        }
+    }
+
+    #[test]
+    fn build_index_matches_legacy_shapes() {
+        let cases: &[(&Schema, &[&str], &[&str])] = &[
+            (
+                &schemas::ARCHIVE,
+                &["123@s.whatsapp.net"],
+                &["archive", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::PIN,
+                &["123@s.whatsapp.net"],
+                &["pin_v1", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::MUTE,
+                &["123@s.whatsapp.net"],
+                &["mute", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::LOCK_CHAT,
+                &["123@s.whatsapp.net"],
+                &["lock", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::MARK_CHAT_AS_READ,
+                &["123@s.whatsapp.net"],
+                &["markChatAsRead", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::DELETE_CHAT,
+                &["123@s.whatsapp.net", "1"],
+                &["deleteChat", "123@s.whatsapp.net", "1"],
+            ),
+            (
+                &schemas::CLEAR_CHAT,
+                &["123@s.whatsapp.net", "0", "1"],
+                &["clearChat", "123@s.whatsapp.net", "0", "1"],
+            ),
+            (
+                &schemas::USER_STATUS_MUTE,
+                &["123@s.whatsapp.net"],
+                &["userStatusMute", "123@s.whatsapp.net"],
+            ),
+            (&schemas::LABEL_EDIT, &["5"], &["label_edit", "5"]),
+            (
+                &schemas::LABEL_JID,
+                &["5", "123@s.whatsapp.net"],
+                &["label_jid", "5", "123@s.whatsapp.net"],
+            ),
+            (
+                &schemas::STAR,
+                &["123@g.us", "MSGID", "1", "0"],
+                &["star", "123@g.us", "MSGID", "1", "0"],
+            ),
+            (&schemas::SETTING_PUSH_NAME, &[], &["setting_pushName"]),
+        ];
+        for (schema, args, expected) in cases {
+            assert_eq!(
+                build_action_index(schema, args).unwrap(),
+                serde_json::to_vec(expected).unwrap(),
+                "index mismatch for {}",
+                schema.name
+            );
+        }
+    }
+
+    #[test]
+    fn build_index_rejects_arg_count_mismatch() {
+        assert!(build_action_index(&schemas::ARCHIVE, &[]).is_err());
+        assert!(build_action_index(&schemas::ARCHIVE, &["a", "b"]).is_err());
+        assert!(build_action_index(&schemas::SETTING_PUSH_NAME, &["x"]).is_err());
+    }
+
+    #[test]
+    fn registry_versions_match_whatsmeow() {
+        // Locks the per-action versions the migration relies on (vs whatsmeow);
+        // a regenerated registry that changes one will trip this for review.
+        assert_eq!(schemas::MUTE.version, 2);
+        assert_eq!(schemas::PIN.version, 5);
+        assert_eq!(schemas::ARCHIVE.version, 3);
+        assert_eq!(schemas::MARK_CHAT_AS_READ.version, 3);
+        assert_eq!(schemas::STAR.version, 2);
+        assert_eq!(schemas::CONTACT.version, 2);
+        assert_eq!(schemas::DELETE_MESSAGE_FOR_ME.version, 3);
+        assert_eq!(schemas::LABEL_EDIT.version, 3);
+        assert_eq!(schemas::LABEL_JID.version, 3);
+        assert_eq!(schemas::SETTING_PUSH_NAME.version, 1);
+    }
+
+    #[test]
+    fn contact_action_index_and_collection() {
+        // WAWebContactSync writes ["contact", jid] to critical_unblock_low.
+        let index = build_action_index(&schemas::CONTACT, &["5511999@s.whatsapp.net"]).unwrap();
+        let parts: Vec<String> = serde_json::from_slice(&index).unwrap();
+        assert_eq!(
+            parts,
+            vec!["contact".to_string(), "5511999@s.whatsapp.net".to_string()]
+        );
+        assert_eq!(schemas::CONTACT.collection.as_str(), "critical_unblock_low");
+    }
+
+    #[tokio::test]
+    async fn referenced_message_actions_preserve_syncd_indices() {
+        // Original WAWebSyncdActionUtils.buildMessageKey and
+        // WAWebSyncdUtils.constructMsgKeySegmentsFromMsgKey use the same tail.
+        for (chat, sender, from_me, participant) in [
+            (
+                "12025550111@s.whatsapp.net",
+                "12025550111@s.whatsapp.net",
+                false,
+                "0",
+            ),
+            ("12025550111@lid", "12025550111@lid", false, "0"),
+            (
+                "120000000001@g.us",
+                "12025550111@s.whatsapp.net",
+                false,
+                "12025550111@s.whatsapp.net",
+            ),
+            (
+                "120000000001@g.us",
+                "100000000001@lid",
+                false,
+                "100000000001@lid",
+            ),
+            ("120000000001@g.us", "100000000001@lid", true, "0"),
+            (
+                "120000000001@g.us",
+                "12025550111:7@s.whatsapp.net",
+                false,
+                "12025550111@s.whatsapp.net",
+            ),
+            (
+                "120000000001@g.us",
+                "100000000001:9@lid",
+                false,
+                "100000000001@lid",
+            ),
+            ("120000000001@g.us", "100000000001:9@lid", true, "0"),
+        ] {
+            for operation in 0..3 {
+                let mutation =
+                    capture_app_state_mutation("regular_high", move |client| async move {
+                        let chat: Jid = chat.parse().unwrap();
+                        let sender: Jid = sender.parse().unwrap();
+                        let target = MessageRef::new(
+                            &chat,
+                            crate::MessageId::new("original-ID").unwrap(),
+                            Some(&sender),
+                            from_me,
+                        )
+                        .unwrap();
+                        match operation {
+                            0 => client.chat_actions().star_message(&target).await,
+                            1 => client.chat_actions().unstar_message(&target).await,
+                            _ => {
+                                client
+                                    .chat_actions()
+                                    .delete_message_for_me(&target, true, Some(1234))
+                                    .await
+                            }
+                        }
+                    })
+                    .await;
+                assert_eq!(
+                    mutation.index,
+                    [
+                        if operation == 2 {
+                            "deleteMessageForMe"
+                        } else {
+                            "star"
+                        },
+                        chat,
+                        "original-ID",
+                        if from_me { "1" } else { "0" },
+                        participant
+                    ]
+                );
+                assert_eq!(mutation.operation, wa::syncd_mutation::SyncdOperation::SET);
+                let value = mutation.action_value.as_ref().unwrap();
+                if operation == 2 {
+                    let action = value.delete_message_for_me_action.as_option().unwrap();
+                    assert_eq!(action.delete_media, Some(true));
+                    assert_eq!(action.message_timestamp, Some(1234));
+                } else {
+                    assert_eq!(
+                        value.star_action.as_option().unwrap().starred,
+                        Some(operation == 0)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn app_state_reference_rejects_missing_group_sender_and_newsletters() {
+        let group: Jid = "120000000001@g.us".parse().unwrap();
+        let newsletter: Jid = "120000000001@newsletter".parse().unwrap();
+        assert!(matches!(
+            MessageRef::new(&group, crate::MessageId::new("ID").unwrap(), None, false),
+            Err(crate::MessageRefError::MissingSender)
+        ));
+        assert!(matches!(
+            MessageRef::new(
+                &newsletter,
+                crate::MessageId::new("ID").unwrap(),
+                None,
+                true
+            ),
+            Err(crate::MessageRefError::ExpectedChat)
+        ));
+    }
+
+    /// The question this feature turns on: deleting a contact is a syncd
+    /// `Remove`, not a `Set` carrying an empty `ContactAction`.
+    ///
+    /// WA Web's `WAWebContactSync.getContactSyncMutation` selects
+    /// `isDelete ? SyncdOperation.REMOVE : SyncdOperation.SET` over the same
+    /// `["contact", jid]` index, and its receiving side branches on
+    /// `operation === "remove"` to drop the contact from the address book — a
+    /// `Set` with empty names would be applied as a rename instead.
+    #[tokio::test]
+    async fn remove_contact_sends_a_remove_and_save_contact_a_set() {
+        let jid: Jid = "12025550111@s.whatsapp.net".parse().expect("test JID");
+        let collection = schemas::CONTACT.collection.as_str();
+
+        let removed = capture_app_state_mutation(collection, {
+            let jid = jid.clone();
+            move |client| async move { client.chat_actions().remove_contact(&jid).await }
+        })
+        .await;
+        assert_eq!(
+            removed.operation,
+            wa::syncd_mutation::SyncdOperation::REMOVE,
+            "contact deletion must be a Remove, not a Set with an empty action"
+        );
+        assert_eq!(removed.index, vec!["contact", "12025550111@s.whatsapp.net"]);
+
+        let saved = capture_app_state_mutation(collection, {
+            let jid = jid.clone();
+            move |client| async move {
+                client
+                    .chat_actions()
+                    .save_contact(&jid, Some("Alex Doe".into()), Some("Alex".into()), true)
+                    .await
+            }
+        })
+        .await;
+        assert_eq!(
+            saved.operation,
+            wa::syncd_mutation::SyncdOperation::SET,
+            "saving must stay a Set — the two verbs differ by operation, not just by payload"
+        );
+        assert_eq!(saved.index, removed.index, "both key the same index");
+        let action = saved
+            .action_value
+            .as_ref()
+            .and_then(|v| v.contact_action.as_option())
+            .expect("a save carries contactAction");
+        assert_eq!(action.full_name.as_deref(), Some("Alex Doe"));
+        assert_eq!(action.first_name.as_deref(), Some("Alex"));
+        assert_eq!(action.save_on_primary_addressbook, Some(true));
+    }
+
+    /// A removal that comes back from a linked device must reach the consumer.
+    /// Before this feature the Set-only gate in `dispatch_app_state_mutation`
+    /// silently dropped it.
+    #[tokio::test]
+    async fn contact_removal_round_trips_to_an_event() {
+        let jid: Jid = "12025550111@s.whatsapp.net".parse().expect("test JID");
+        let mutation = capture_app_state_mutation(schemas::CONTACT.collection.as_str(), {
+            let jid = jid.clone();
+            move |client| async move { client.chat_actions().remove_contact(&jid).await }
+        })
+        .await;
+
+        let sent_at = mutation
+            .action_value
+            .as_ref()
+            .and_then(|v| v.timestamp)
+            .expect("the removal stamps its value with a timestamp");
+
+        let (outcome, events) = dispatch_outcome_into_recorder(&mutation);
+        assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+        assert_eq!(events.len(), 1);
+        match &*events[0] {
+            Event::ContactRemoved(u) => {
+                assert_eq!(u.jid, jid);
+                // The whole payload, not just the JID: the event carries the
+                // mutation's own timestamp, not the moment it was dispatched.
+                assert_eq!(u.timestamp, wacore::time::from_millis_or_now(sent_at));
+                assert!(!u.from_full_sync, "this arrived as an incremental patch");
+            }
+            other => panic!("expected ContactRemoved, got {other:?}"),
+        }
+
+        // ...and a full-sync replay is marked as one.
+        let (_, events) = dispatch_outcome_into_recorder_with(&mutation, true);
+        match &*events[0] {
+            Event::ContactRemoved(u) => assert!(u.from_full_sync),
+            other => panic!("expected ContactRemoved, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_contact_set_still_dispatches_an_update_not_a_removal() {
+        // The Remove arm must not swallow the Set one.
+        let m = Mutation {
+            index: vec!["contact".into(), "12025550111@s.whatsapp.net".into()],
+            operation: wa::syncd_mutation::SyncdOperation::SET,
+            action_value: Some({
+                let mut proto = wa::SyncActionValue::default();
+                proto.contact_action = buffa::MessageField::some({
+                    let mut proto = wa::sync_action_value::ContactAction::default();
+                    proto.full_name = Some("Alex Doe".into());
+                    proto
+                });
+                proto
+            }),
+        };
+        let (outcome, events) = dispatch_outcome_into_recorder(&m);
+        assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+        assert!(matches!(&*events[0], Event::ContactUpdate(_)));
+    }
+
+    #[test]
+    fn a_contact_remove_without_jid_is_skipped_not_unclaimed() {
+        // `contact` owns the Remove operation regardless of index length:
+        // a bare `REMOVE contact` is a malformed contact mutation (the
+        // missing-JID branch reports `Skipped`), never an unknown command.
+        // No other dispatcher owns contact removals, so `Unclaimed` here
+        // would misroute it and mute the specific warning.
+        let m = Mutation {
+            index: vec!["contact".into()],
+            operation: wa::syncd_mutation::SyncdOperation::REMOVE,
+            action_value: Some(wa::SyncActionValue::default()),
+        };
+        let (outcome, events) = dispatch_outcome_into_recorder(&m);
+        assert_eq!(outcome, AppStateDispatchOutcome::Skipped("missing-jid"));
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn a_remove_on_another_kind_is_not_claimed() {
+        // Only `contact` models deletion as a Remove; a Remove on anything else
+        // must fall through untouched rather than be read as its Set.
+        for kind in ["mute", "pin", "archive", "star", "lock"] {
+            let m = Mutation {
+                index: vec![kind.into(), "12025550111@s.whatsapp.net".into()],
+                operation: wa::syncd_mutation::SyncdOperation::REMOVE,
+                action_value: Some(wa::SyncActionValue::default()),
+            };
+            let (outcome, events) = dispatch_outcome_into_recorder(&m);
+            assert_eq!(
+                outcome,
+                AppStateDispatchOutcome::Unclaimed,
+                "a Remove on '{kind}' must not be claimed"
+            );
+            assert!(events.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn contact_verbs_reject_a_non_phone_number_id() {
+        let client = crate::test_utils::create_test_client().await;
+        let lid: Jid = "100000012345678@lid".parse().expect("test JID");
+        assert!(client.chat_actions().remove_contact(&lid).await.is_err());
+        assert!(
+            client
+                .chat_actions()
+                .save_contact(&lid, None, None, false)
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_lock_set_dispatches_a_lock_chat_update() {
+        // Chat lock's "off" state is a Set carrying locked: false, so both
+        // directions arrive as Sets over ["lock", jid].
+        for locked in [true, false] {
+            let m = Mutation {
+                index: vec!["lock".into(), "12025550111@s.whatsapp.net".into()],
+                operation: wa::syncd_mutation::SyncdOperation::SET,
+                action_value: Some({
+                    let mut proto = wa::SyncActionValue::default();
+                    proto.lock_chat_action = buffa::MessageField::some({
+                        let mut proto = wa::sync_action_value::LockChatAction::default();
+                        proto.locked = Some(locked);
+                        proto
+                    });
+                    proto
+                }),
+            };
+            let (outcome, events) = dispatch_outcome_into_recorder(&m);
+            assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+            match &*events[0] {
+                Event::LockChatUpdate(u) => {
+                    assert_eq!(u.action.locked, Some(locked));
+                    assert_eq!(u.jid.to_string(), "12025550111@s.whatsapp.net");
+                }
+                other => panic!("expected LockChatUpdate, got {other:?}"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn lock_chat_round_trips_to_an_event() {
+        let jid: Jid = "12025550111@s.whatsapp.net".parse().expect("test JID");
+        let mutation = capture_app_state_mutation(schemas::LOCK_CHAT.collection.as_str(), {
+            let jid = jid.clone();
+            move |client| async move { client.chat_actions().lock_chat(&jid).await }
+        })
+        .await;
+
+        let parts = &mutation.index;
+        assert_eq!(
+            parts,
+            &["lock".to_string(), "12025550111@s.whatsapp.net".to_string()]
+        );
+
+        let (outcome, events) = dispatch_outcome_into_recorder(&mutation);
+        assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+        match &*events[0] {
+            Event::LockChatUpdate(u) => {
+                assert_eq!(u.jid, jid);
+                assert_eq!(u.action.locked, Some(true));
+            }
+            other => panic!("expected LockChatUpdate, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_lock_without_a_locked_value_is_malformed() {
+        for jid in ["12025550111@s.whatsapp.net", "100000012345678@lid"] {
+            for full_sync in [false, true] {
+                let m = Mutation {
+                    index: vec!["lock".into(), jid.into()],
+                    operation: wa::syncd_mutation::SyncdOperation::SET,
+                    action_value: Some({
+                        let mut value = wa::SyncActionValue::default();
+                        value.lock_chat_action = buffa::MessageField::some(
+                            wa::sync_action_value::LockChatAction::default(),
+                        );
+                        value
+                    }),
+                };
+                let (outcome, events) = dispatch_outcome_into_recorder_with(&m, full_sync);
+                assert_eq!(
+                    outcome,
+                    AppStateDispatchOutcome::Malformed("LockChatUpdate")
+                );
+                assert!(events.is_empty());
+            }
+        }
+    }
+
+    /// One mutation per kind `dispatch_chat_mutation_outcome` claims, plus a
+    /// contact removal, each stamped with `timestamp`.
+    fn every_chat_mutation(timestamp: Option<i64>) -> Vec<Mutation> {
+        use wa::sync_action_value as sav;
+        const CHAT: &str = "12025550111@s.whatsapp.net";
+        let set = |index: &[&str], value: wa::SyncActionValue| Mutation {
+            index: index.iter().map(|s| s.to_string()).collect(),
+            operation: wa::syncd_mutation::SyncdOperation::SET,
+            action_value: Some({
+                let mut proto = value;
+                proto.timestamp = timestamp;
+                proto
+            }),
+        };
+        let range = || buffa::MessageField::some(message_range(1_700_000_000_000, None, vec![]));
+        let message_key = ["120363000000000042@g.us", "MSGID", "0", CHAT];
+        vec![
+            set(&["mute", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.mute_action = buffa::MessageField::some(sav::MuteAction::default());
+                proto
+            }),
+            set(&["pin_v1", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.pin_action = buffa::MessageField::some(sav::PinAction::default());
+                proto
+            }),
+            set(&["pin", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.pin_action = buffa::MessageField::some(sav::PinAction::default());
+                proto
+            }),
+            set(&["archive", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.archive_chat_action =
+                    buffa::MessageField::some(sav::ArchiveChatAction::default());
+                proto
+            }),
+            set(&[&["star"][..], &message_key].concat(), {
+                let mut proto = wa::SyncActionValue::default();
+                proto.star_action = buffa::MessageField::some(sav::StarAction::default());
+                proto
+            }),
+            set(&["contact", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.contact_action = buffa::MessageField::some(sav::ContactAction::default());
+                proto
+            }),
+            Mutation {
+                operation: wa::syncd_mutation::SyncdOperation::REMOVE,
+                ..set(&["contact", CHAT], wa::SyncActionValue::default())
+            },
+            set(&["markChatAsRead", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.mark_chat_as_read_action =
+                    buffa::MessageField::some(sav::MarkChatAsReadAction::default());
+                proto
+            }),
+            set(&["mark_chat_as_read", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.mark_chat_as_read_action =
+                    buffa::MessageField::some(sav::MarkChatAsReadAction::default());
+                proto
+            }),
+            set(&["deleteChat", CHAT, "1"], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.delete_chat_action = buffa::MessageField::some({
+                    let mut proto = sav::DeleteChatAction::default();
+                    proto.message_range = range();
+                    proto
+                });
+                proto
+            }),
+            set(&["clearChat", CHAT, "0", "1"], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.clear_chat_action = buffa::MessageField::some({
+                    let mut proto = sav::ClearChatAction::default();
+                    proto.message_range = range();
+                    proto
+                });
+                proto
+            }),
+            set(&["lock", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.lock_chat_action = buffa::MessageField::some({
+                    let mut action = sav::LockChatAction::default();
+                    action.locked = Some(true);
+                    action
+                });
+                proto
+            }),
+            set(&["userStatusMute", CHAT], {
+                let mut proto = wa::SyncActionValue::default();
+                proto.user_status_mute_action =
+                    buffa::MessageField::some(sav::UserStatusMuteAction::default());
+                proto
+            }),
+            set(&[&["deleteMessageForMe"][..], &message_key].concat(), {
+                let mut proto = wa::SyncActionValue::default();
+                proto.delete_message_for_me_action =
+                    buffa::MessageField::some(sav::DeleteMessageForMeAction::default());
+                proto
+            }),
+        ]
+    }
+
+    /// An event's name, `timestamp` and `action_timestamp`.
+    type Stamps = (
+        &'static str,
+        chrono::DateTime<chrono::Utc>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    );
+
+    /// The timestamps of every event the mutations dispatch.
+    fn dispatched_timestamps(timestamp: Option<i64>) -> Vec<Stamps> {
+        let mutations = every_chat_mutation(timestamp);
+        let stamps: Vec<_> = mutations
+            .iter()
+            .map(|m| {
+                let (outcome, events) = dispatch_outcome_into_recorder_with(m, true);
+                let AppStateDispatchOutcome::Event(name) = outcome else {
+                    panic!("{:?} dispatched no event: {outcome:?}", m.index);
+                };
+                let (t, a) = match &*events[0] {
+                    Event::MuteUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::PinUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::ArchiveUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::StarUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::ContactUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::ContactRemoved(u) => (u.timestamp, u.action_timestamp),
+                    Event::MarkChatAsReadUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::DeleteChatUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::ClearChatUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::LockChatUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::UserStatusMuteUpdate(u) => (u.timestamp, u.action_timestamp),
+                    Event::DeleteMessageForMeUpdate(u) => (u.timestamp, u.action_timestamp),
+                    other => panic!("unexpected event {other:?}"),
+                };
+                (name, t, a)
+            })
+            .collect();
+        // Keyed on the dispatcher's own kinds, so a kind it starts claiming
+        // fails here until the table covers it.
+        let covered: std::collections::BTreeSet<_> =
+            mutations.iter().map(|m| m.index[0].as_str()).collect();
+        let claimed: std::collections::BTreeSet<_> = CHAT_ACTION_KINDS.iter().copied().collect();
+        assert_eq!(covered, claimed);
+        stamps
+    }
+
+    #[test]
+    fn a_carried_timestamp_reaches_every_chat_event() {
+        let sent = wacore::time::from_millis(1_700_000_000_123).expect("in range");
+        for (event, timestamp, action_timestamp) in dispatched_timestamps(Some(1_700_000_000_123)) {
+            assert_eq!(timestamp, sent, "{event}");
+            assert_eq!(action_timestamp, Some(sent), "{event}");
+        }
+    }
+
+    /// #1551: a replayed mutation whose value carries no timestamp. The
+    /// fallback in `timestamp` is kept for compatibility; `action_timestamp`
+    /// is what tells it apart from a mutation made at the epoch.
+    #[test]
+    fn a_missing_timestamp_is_absent_on_every_chat_event() {
+        for (event, timestamp, action_timestamp) in dispatched_timestamps(None) {
+            assert_eq!(timestamp, chrono::DateTime::UNIX_EPOCH, "{event}");
+            assert_eq!(action_timestamp, None, "{event}");
+        }
+    }
+
+    /// A timestamp `DateTime` cannot hold is no more an instant than a missing
+    /// one, whatever `timestamp` falls back to.
+    #[test]
+    fn an_out_of_range_timestamp_is_absent_on_every_chat_event() {
+        let before = wacore::time::now_utc();
+        for (event, timestamp, action_timestamp) in dispatched_timestamps(Some(i64::MAX)) {
+            assert!(
+                timestamp >= before,
+                "{event}: {timestamp} predates the dispatch"
+            );
+            assert_eq!(action_timestamp, None, "{event}");
+        }
+    }
+
+    /// Outcome-level dispatch: the single `AppStateDispatchOutcome` contract
+    /// tells "event emitted" apart from "known command, payload absent".
+    fn dispatch_outcome_into_recorder(
+        m: &Mutation,
+    ) -> (AppStateDispatchOutcome, Vec<std::sync::Arc<Event>>) {
+        use std::sync::{Arc, Mutex};
+        use wacore::types::events::{CoreEventBus, EventHandler, EventInterest};
+
+        struct Recorder(Arc<Mutex<Vec<Arc<Event>>>>);
+        impl EventHandler for Recorder {
+            fn handle_event(&self, event: Arc<Event>) {
+                self.0.lock().unwrap().push(event);
+            }
+            fn interest(&self) -> EventInterest {
+                EventInterest::ALL
+            }
+        }
+
+        let bus = CoreEventBus::new();
+        let seen: Arc<Mutex<Vec<Arc<Event>>>> = Arc::new(Mutex::new(Vec::new()));
+        bus.subscribe_handler(Arc::new(Recorder(seen.clone())))
+            .detach();
+        let outcome = dispatch_chat_mutation_outcome(&bus, &mut m.clone(), false);
+        let events = seen.lock().unwrap().clone();
+        (outcome, events)
+    }
+
+    /// `handled=true` used to mean "an event was created"; a known command
+    /// with its action missing took the same path. The outcome tells them
+    /// apart: the mutation is still claimed (no other dispatcher owns
+    /// `archive`), but no event exists.
+    #[test]
+    fn known_command_with_missing_action_is_malformed_not_an_event() {
+        let m = Mutation {
+            index: vec!["archive".to_string(), "120363000000000042@g.us".to_string()],
+            operation: wa::syncd_mutation::SyncdOperation::SET,
+            action_value: Some({
+                let mut proto = wa::SyncActionValue::default();
+                proto.timestamp = Some(1_700_000_000_000);
+                proto
+            }),
+        };
+        let (outcome, events) = dispatch_outcome_into_recorder(&m);
+        assert_eq!(outcome, AppStateDispatchOutcome::Malformed("ArchiveUpdate"));
+        assert!(events.is_empty());
+        // …while still claimed, so dispatch keeps routing it to no one else.
+        assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+    }
+
+    /// An unknown command is unclaimed: the dispatcher below must still get
+    /// its turn. This is what makes a new WhatsApp mutation visible as
+    /// `unhandled` instead of silently absorbed.
+    #[test]
+    fn unknown_command_is_unclaimed() {
+        let m = Mutation {
+            index: vec![
+                "some_new_whatsapp_action".to_string(),
+                "120363000000000042@g.us".to_string(),
+            ],
+            operation: wa::syncd_mutation::SyncdOperation::SET,
+            action_value: Some({
+                let mut proto = wa::SyncActionValue::default();
+                proto.timestamp = Some(1_700_000_000_000);
+                proto
+            }),
+        };
+        let (outcome, events) = dispatch_outcome_into_recorder(&m);
+        assert_eq!(outcome, AppStateDispatchOutcome::Unclaimed);
+        assert!(events.is_empty());
+    }
+
+    /// An empty index names no command; nothing can route it.
+    #[test]
+    fn empty_index_is_unclaimed() {
+        let m = Mutation {
+            index: vec![],
+            operation: wa::syncd_mutation::SyncdOperation::SET,
+            action_value: None,
+        };
+        let (outcome, _) = dispatch_outcome_into_recorder(&m);
+        assert_eq!(outcome, AppStateDispatchOutcome::Unclaimed);
+    }
+
+    fn dispatch_outcome_into_recorder_with(
+        m: &Mutation,
+        full_sync: bool,
+    ) -> (AppStateDispatchOutcome, Vec<std::sync::Arc<Event>>) {
+        use std::sync::{Arc, Mutex};
+        use wacore::types::events::{CoreEventBus, EventHandler, EventInterest};
+
+        struct Recorder(Arc<Mutex<Vec<Arc<Event>>>>);
+        impl EventHandler for Recorder {
+            fn handle_event(&self, event: Arc<Event>) {
+                self.0.lock().unwrap().push(event);
+            }
+            fn interest(&self) -> EventInterest {
+                EventInterest::ALL
+            }
+        }
+
+        let bus = CoreEventBus::new();
+        let seen: Arc<Mutex<Vec<Arc<Event>>>> = Arc::new(Mutex::new(Vec::new()));
+        bus.subscribe_handler(Arc::new(Recorder(seen.clone())))
+            .detach();
+        let outcome = dispatch_chat_mutation_outcome(&bus, &mut m.clone(), full_sync);
+        let events = seen.lock().unwrap().clone();
+        (outcome, events)
+    }
+
+    #[test]
+    fn contact_id_validation_accepts_only_bare_pn() {
+        let valid = |s: &str| is_valid_contact_id(&s.parse::<Jid>().expect("test JID"));
+        // bare PN -> accepted
+        assert!(valid("5511999@s.whatsapp.net"));
+        // AD/device-specific PN -> rejected (would form an invalid contact index)
+        assert!(!valid("5511999:4@s.whatsapp.net"));
+        // LID -> rejected (separate WA Web path)
+        assert!(!valid("100000012345678@lid"));
+        // group / newsletter / status -> rejected
+        assert!(!valid("120363012345@g.us"));
+        assert!(!valid("123@newsletter"));
+        assert!(!valid("status@broadcast"));
+    }
+}

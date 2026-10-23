@@ -1,0 +1,105 @@
+{
+  "inputs": {
+    "callKey": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "hbhKey": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d",
+    "selfLid": "111111111111111:0@lid",
+    "peerLid": "222222222222222:0@lid",
+    "ssrc": 305419896,
+    "seq": 7,
+    "roc": 0,
+    "payload": "102132435465768798a9bacb",
+    "callId": "00112233445566778899AABBCCDDEEFF",
+    "sframeCounter": 5,
+    "samplePacket": "90780007000003c012345678deadbeef"
+  },
+  "sframe": {
+    "participantPeerId": "222222222222222:0@lid",
+    "infoLabelPeer": "e2e sframe key222222222222222:0@lid",
+    "peerKey32": "e77cc4666a53d2264ba278b3e2b9ba1cc41ac0e3b587b09db3dd3fa646d51ae9",
+    "selfKey32": "07e656b474ef306e7e5353f94057a8904821c0f2247b867c102e7ef4cc0dd95c",
+    "counterToIv_5": "00000000000000000500000000000000",
+    "header_5_0": "050003",
+    "encrypt_out": "e5ef789f9fa501842a9ff5f54cc12a630d12008f1bb39060c951724f050003"
+  },
+  "e2e_srtp": {
+    "peer_cipherKey": "747055a9d18be0fcdc0e29d871309081",
+    "peer_salt": "10fb8133eff7639cc0d06788f49c",
+    "peer_authKey": "8eff4bb04971d92512b034ce0ebc466059bfc6ea",
+    "self_cipherKey": "261bde5b556020e3e6da0f5e3132db57",
+    "self_salt": "44224a8c019b379c4bbf7dda284a",
+    "self_authKey": "56b2655b60a1c17c03dfe94950d5df233481ad41",
+    "rtpIv": "10fb8133fdc335e4c0d06788f49b0000",
+    "cipher_out": "17b30591a2650ed7bbae9c5a",
+    "warp_mi_tag4": "53fada83"
+  },
+  "wahkdf": {
+    "okm46": "3f5423fb6f67e4c588bf5741a3a4e92c749ee99101a47c82bb5dacec40cfc7b95d387fe9ff466f78db6cc4fdaa30",
+    "masterKey": "3f5423fb6f67e4c588bf5741a3a4e92c",
+    "masterSalt": "749ee99101a47c82bb5dacec40cf"
+  },
+  "hbh_srtp": {
+    "uplinkSalt32": "501238bf8f996669b5172c9aa47338eb7de4d12ddba98eea1e531a694f894129",
+    "uplinkKey30": "f77854760b4340f0eabbe93930eafe0310c8f699d1ebaf1f609a1781f3fc",
+    "sharedSrtpKey30": "693a8070145a5d26d39183593d1b648e895a8a3f2354ab38e718cbd93822",
+    "sharedSrtcpKey30": "4ad41608b1fe681b56e8230ba5fea1060de1e767fb1275d4dcf85ce3cea9",
+    "downlinkKey30": "707aad5216a25868eea63a32403b9d0c643644f691145e02b6d7d3776301",
+    "masterKey": "f77854760b4340f0eabbe93930eafe03",
+    "masterSalt": "10c8f699d1ebaf1f609a1781f3fc",
+    "sessionKey": "cf8c0c31437c9a5ab292cbdaa533c2c0",
+    "sessionSalt": "30879d9e6a76f04e7349f40066a7",
+    "authKey": "b012d6003068b460da0121866712a335987d72b8",
+    "srtcpSessionKey": "f065528cfce4757f444bb8b5892aad7c",
+    "srtcpSessionSalt": "54bc95ca04c05be16456f0f12dc0",
+    "srtcpAuthKey": "6e6b37a126a522302a578c9713d38e85606048eb",
+    "srtcpProtectedSrIndex1": "80c80006123456787d74643dbb62b23f5005bf9b4296de885c3ff6e280000001cc486281b0510f8b2a83",
+    "icmKey30": "cf8c0c31437c9a5ab292cbdaa533c2c030879d9e6a76f04e7349f40066a7",
+    "rtpIcmNonce": "00000000123456780000000000070000",
+    "cipher_out": "363ea223cb020f6d58cea9ee"
+  },
+  "voip_crypto": {
+    "ssrc_slot0": 1805509457,
+    "ssrc_slot1": 2479325408
+  },
+  "rtp": {
+    "speechHeader16": "90f800010000000012345678debe0000",
+    "dtxHeader20": "907800020000014012345678debe000130010000",
+    "androidVideoHeader28": "90e100010001bdc849c5fb8cdebe0003300951000061001d910c3f00",
+    "androidVideoExtension12": "300951000061001d910c3f00",
+    "androidVideoDeltaHeader28": "90e1000700022ea29b1959f0debe00033001510000610024910a6a00",
+    "androidVideoDeltaExtension12": "3001510000610024910a6a00",
+    "estimateSpeech12": 32,
+    "estimateDtx1": 25,
+    "estimatePriming2": 25
+  },
+  "rtcp": {
+    "nowMs": 1718000000000,
+    "remoteSsrc": 2596069104,
+    "stats": {
+      "packetsSent": 5,
+      "octetsSent": 600,
+      "rtpTimestamp": 1600
+    },
+    "compact208": "81d00002123456789abcdef0",
+    "compact209": "81d1000112345678",
+    "senderReport": "80c8000612345678ea11180000000000000006400000000500000258"
+  },
+  "stun": {
+    "tx": "a0a1a2a3a4a5a6a7a8a9aaab",
+    "relayToken": "1020304050607080",
+    "miKey": "30313233343536373839616263646566",
+    "crc32_abc": 891568578,
+    "attr_token": "400000081020304050607080",
+    "xorEndpoint": "2c84bce246c7",
+    "nativeSenderSub": "0112345678",
+    "minimalMi": "000300242112a442a0a1a2a3a4a5a6a7a8a9aaab4000000810203040506070800008001450c96f7efef837bbde7e1f534dae139816d3e015",
+    "withFp": "0003002c2112a442a0a1a2a3a4a5a6a7a8a9aaab4000000810203040506070800008001450c96f7efef837bbde7e1f534dae139816d3e01580280004ade1f63c",
+    "wasmAllocate": "000300942112a442a0a1a2a3a4a5a6a7a8a9aaab400000081020304050607080402400600a0618cabc85ae040a08100118a5acafae0a0a08100218d6a4e6f90f0a08080118f7dd9eb60a0a0a0801100118abccb1f30d0a0a0801100218dadaef8a050a08080218c5e9ec8e0b0a0a0802100118fdc2b1b60f0a0a0802100218b097f7b2090016000800012c84bce246c700080014816c90841f948115ce794ef87726c00ff74220c7",
+    "ping": "080100002112a442a0a1a2a3a4a5a6a7a8a9aaab"
+  },
+  "stun_proto": {
+    "voip_sender_subscriptions": "0a0a18f8acd1910128003000",
+    "apk_sender_subscriptions_nopid": "0a080a0608f0d9a2a302",
+    "apk_sender_subscriptions_pid": "0a130a1108f0d9a2a3021209080e1205617564696f",
+    "apk_stream_descriptors": "0a150a05617564696f12044f50555318f0d9a2a3022000"
+  }
+}

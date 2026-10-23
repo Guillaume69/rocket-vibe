@@ -1,0 +1,440 @@
+//! Media retry protocol: crypto + node building for requesting media reupload.
+//!
+//! When a media download fails (e.g., expired URL), the client can request
+//! the server to re-upload the media. This module handles:
+//! - Encrypting the `ServerErrorReceipt` protobuf (HKDF + AES-256-GCM)
+//! - Building the `<receipt type="server-error">` stanza
+//! - Decrypting the `MediaRetryNotification` response
+//! - Parsing the notification node
+//!
+//! Reference: WAWebCryptoMediaRetry, WAWebSendServerErrorReceiptJob,
+//! WAWebHandleMediaRetryNotification.
+
+use anyhow::{Result, anyhow};
+use buffa::MessageView;
+use rand::Rng;
+use wacore_binary::Jid;
+use wacore_binary::builder::NodeBuilder;
+use wacore_binary::{Node, NodeContentRef, NodeRef};
+use wacore_libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
+use waproto::whatsapp as wa;
+
+const MEDIA_RETRY_HKDF_INFO: &str = "WhatsApp Media Retry Notification";
+const ENC_IV_SIZE: usize = 12;
+
+/// Result of a media retry request.
+#[derive(Debug, Clone)]
+pub enum MediaRetryResult {
+    /// Server re-uploaded the media; new path available.
+    Success {
+        direct_path: String,
+    },
+    GeneralError,
+    NotFound,
+    DecryptionError,
+}
+
+/// Derive a 32-byte AES-256-GCM key from a media key using HKDF-SHA256.
+///
+/// WA Web: `WACryptoHkdf.extractAndExpand(mediaKey, "WhatsApp Media Retry Notification", 32)`
+fn derive_media_retry_key(media_key: &[u8]) -> Result<[u8; 32]> {
+    let mut key = [0u8; 32];
+    crate::crypto::hkdf_sha256_into(media_key, None, MEDIA_RETRY_HKDF_INFO.as_bytes(), &mut key)
+        .map_err(|e| anyhow!("HKDF expand failed: {e}"))?;
+    Ok(key)
+}
+
+/// Extract byte content from a NodeRef.
+fn get_bytes_content_ref<'a>(node: &'a NodeRef<'_>) -> Option<&'a [u8]> {
+    match node.content.as_ref() {
+        Some(NodeContentRef::Bytes(b)) => Some(b.as_ref()),
+        _ => None,
+    }
+}
+
+/// Encrypt a `ServerErrorReceipt` protobuf for a media retry request.
+///
+/// Returns `(ciphertext, iv)`.
+///
+/// WA Web: `WAWebCryptoMediaRetry.encryptServerErrorReceipt(mediaKey, stanzaId)`
+pub fn encrypt_media_retry_receipt(
+    media_key: &[u8],
+    stanza_id: &str,
+) -> Result<(Vec<u8>, [u8; ENC_IV_SIZE])> {
+    let key = derive_media_retry_key(media_key)?;
+
+    let mut iv = [0u8; ENC_IV_SIZE];
+    rand::make_rng::<rand::rngs::StdRng>().fill_bytes(&mut iv);
+
+    let receipt = {
+        let mut proto = wa::ServerErrorReceipt::default();
+        proto.stanza_id = Some(stanza_id.to_string());
+        proto
+    };
+    let plaintext = waproto::codec::server_error_receipt_to_vec(&receipt);
+
+    let mut ciphertext = Vec::with_capacity(plaintext.len() + 16);
+    aes_256_gcm_encrypt(&key, &iv, stanza_id.as_bytes(), &plaintext, &mut ciphertext)
+        .map_err(|e| anyhow!("AES-GCM encrypt failed: {e}"))?;
+
+    Ok((ciphertext, iv))
+}
+
+/// Decrypt a media-retry notification, returning the plaintext protobuf bytes.
+/// Decode them with [`wa::MediaRetryNotificationView`] to read the handful of
+/// needed fields without an owned decode.
+///
+/// WA Web: `WAWebCryptoMediaRetry.decryptMediaRetryNotification(mediaKey, stanzaId, iv, ciphertext)`
+pub fn decrypt_media_retry_notification(
+    media_key: &[u8],
+    stanza_id: &str,
+    iv: &[u8],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>> {
+    let key = derive_media_retry_key(media_key)?;
+    let nonce: &[u8; 12] = iv.try_into().map_err(|_| anyhow!("Invalid IV length"))?;
+
+    let mut plaintext = Vec::with_capacity(ciphertext.len().saturating_sub(16));
+    aes_256_gcm_decrypt(
+        &key,
+        nonce,
+        stanza_id.as_bytes(),
+        ciphertext,
+        &mut plaintext,
+    )
+    .map_err(|e| anyhow!("AES-GCM decrypt failed: {e}"))?;
+
+    Ok(plaintext)
+}
+
+/// Build the `<receipt type="server-error">` node for a media retry request.
+///
+/// WA Web: `WAWebSendServerErrorReceiptJob`
+///
+/// ```text
+/// <receipt type="server-error" to="{own_jid}" id="{msg_id}">
+///   <encrypt>
+///     <enc_p>{ciphertext}</enc_p>
+///     <enc_iv>{iv}</enc_iv>
+///   </encrypt>
+///   <rmr jid="{chat_jid}" from_me="{is_from_me}" participant="{participant}"/>
+/// </receipt>
+/// ```
+pub fn build_media_retry_receipt(
+    own_jid: &Jid,
+    msg_id: &str,
+    chat_jid: &Jid,
+    is_from_me: bool,
+    participant: Option<&Jid>,
+    ciphertext: &[u8],
+    iv: &[u8],
+) -> Node {
+    let encrypt_node = NodeBuilder::new("encrypt")
+        .children([
+            NodeBuilder::new("enc_p").bytes(ciphertext.to_vec()).build(),
+            NodeBuilder::new("enc_iv").bytes(iv.to_vec()).build(),
+        ])
+        .build();
+
+    let mut rmr_builder = NodeBuilder::new("rmr")
+        .attr("jid", chat_jid)
+        .attr("from_me", is_from_me);
+
+    if let Some(p) = participant {
+        rmr_builder = rmr_builder.attr("participant", p);
+    }
+
+    NodeBuilder::new("receipt")
+        .attr("type", "server-error")
+        .attr("to", own_jid)
+        .attr("id", msg_id)
+        .children([encrypt_node, rmr_builder.build()])
+        .build()
+}
+
+/// Build the `<receipt type="server-error" category="peer">` node that asks the
+/// phone to re-upload a history-sync blob whose download failed.
+///
+/// WA Web: `WAWebSendHistSyncServerErrorReceiptJob`. Differs from the media
+/// retry receipt: it carries `category="peer"`, targets our own JID, and omits
+/// the `<rmr>` child. The encrypted payload reuses [`encrypt_media_retry_receipt`].
+pub fn build_history_sync_server_error_receipt(
+    own_jid: &Jid,
+    msg_id: &str,
+    ciphertext: &[u8],
+    iv: &[u8],
+) -> Node {
+    let encrypt_node = NodeBuilder::new("encrypt")
+        .children([
+            NodeBuilder::new("enc_p").bytes(ciphertext.to_vec()).build(),
+            NodeBuilder::new("enc_iv").bytes(iv.to_vec()).build(),
+        ])
+        .build();
+
+    NodeBuilder::new("receipt")
+        .attr("type", "server-error")
+        .attr("to", own_jid)
+        .attr("id", msg_id)
+        .attr("category", "peer")
+        .children([encrypt_node])
+        .build()
+}
+
+/// Parse a `<notification type="mediaretry">` node into a `MediaRetryResult`.
+///
+/// The node may contain:
+/// - `<error code="N">` — server-side error
+/// - `<encrypt>` with `<enc_p>` and `<enc_iv>` — encrypted success response
+///
+/// WA Web: `WAWebHandleMediaRetryNotification`
+pub fn parse_media_retry_notification(
+    node: &NodeRef<'_>,
+    media_key: &[u8],
+) -> Result<MediaRetryResult> {
+    let msg_id = node
+        .get_attr("id")
+        .map(|v| v.as_str())
+        .ok_or_else(|| anyhow!("notification missing 'id' attribute"))?
+        .into_owned();
+
+    // Check for error child first
+    if let Some(error_node) = node.get_optional_child_by_tag(&["error"]) {
+        let code = error_node
+            .get_attr("code")
+            .map(|v| v.as_str())
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(0);
+        return Ok(match code {
+            2 => MediaRetryResult::NotFound,
+            3 => MediaRetryResult::DecryptionError,
+            _ => MediaRetryResult::GeneralError,
+        });
+    }
+
+    // Decrypt success response
+    let encrypt_node = node
+        .get_optional_child_by_tag(&["encrypt"])
+        .ok_or_else(|| anyhow!("notification has neither <error> nor <encrypt> child"))?;
+
+    let enc_p = encrypt_node
+        .get_optional_child_by_tag(&["enc_p"])
+        .and_then(get_bytes_content_ref)
+        .ok_or_else(|| anyhow!("missing enc_p in encrypt node"))?;
+
+    let enc_iv = encrypt_node
+        .get_optional_child_by_tag(&["enc_iv"])
+        .and_then(get_bytes_content_ref)
+        .ok_or_else(|| anyhow!("missing enc_iv in encrypt node"))?;
+
+    let plaintext = decrypt_media_retry_notification(media_key, &msg_id, enc_iv, enc_p)?;
+    let notification = wa::MediaRetryNotificationView::decode_view(&plaintext)
+        .map_err(|e| anyhow!("protobuf decode failed: {e}"))?;
+
+    // The encrypted payload must bind to the outer correlation ID, including
+    // on error results. Plaintext <error> notifications take the branch above.
+    let returned_id = notification
+        .stanza_id
+        .ok_or_else(|| anyhow!("encrypted media retry notification missing stanza ID"))?;
+    if returned_id != msg_id.as_str() {
+        return Err(anyhow!(
+            "stanza ID mismatch: expected {msg_id}, got {returned_id}"
+        ));
+    }
+
+    // Check result enum
+    let result_type = notification
+        .result
+        .unwrap_or(wa::media_retry_notification::ResultType::GENERAL_ERROR);
+    match result_type {
+        wa::media_retry_notification::ResultType::SUCCESS => {
+            let direct_path = notification
+                .direct_path
+                .ok_or_else(|| anyhow!("SUCCESS result but no directPath"))?
+                .to_string();
+            Ok(MediaRetryResult::Success { direct_path })
+        }
+        wa::media_retry_notification::ResultType::NOT_FOUND => Ok(MediaRetryResult::NotFound),
+        wa::media_retry_notification::ResultType::DECRYPTION_ERROR => {
+            Ok(MediaRetryResult::DecryptionError)
+        }
+        _ => Ok(MediaRetryResult::GeneralError),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WAWebHandleMediaRetryNotification, WA 2.3000.1045368834:
+    // bundle 034314e49fa571a8e2e8491843a15536326b4a47d1f66ac7704d2332ee1b391e,
+    // bytes 1049768..1052840, compares decrypted stanzaId strictly.
+    #[test]
+    #[allow(clippy::disallowed_methods)] // Test-only protobuf fixture; no production encode tree.
+    fn encrypted_response_requires_matching_stanza_id() {
+        use buffa::Message;
+        let key = [42; 32];
+        for id in [Some("MSG"), None, Some("OTHER")] {
+            let plaintext = {
+                let mut proto = wa::MediaRetryNotification::default();
+                proto.stanza_id = id.map(str::to_owned);
+                proto.direct_path = Some("/media/test.enc".into());
+                proto.result = Some(wa::media_retry_notification::ResultType::SUCCESS);
+                proto
+            }
+            .encode_to_vec();
+            let iv = [1; 12];
+            let mut encrypted = Vec::new();
+            aes_256_gcm_encrypt(
+                &derive_media_retry_key(&key).unwrap(),
+                &iv,
+                b"MSG",
+                &plaintext,
+                &mut encrypted,
+            )
+            .unwrap();
+            let node = NodeBuilder::new("notification")
+                .attr("id", "MSG")
+                .children([NodeBuilder::new("encrypt")
+                    .children([
+                        NodeBuilder::new("enc_p").bytes(encrypted).build(),
+                        NodeBuilder::new("enc_iv").bytes(iv.to_vec()).build(),
+                    ])
+                    .build()])
+                .build();
+            let result = parse_media_retry_notification(&node.as_node_ref(), &key);
+            if id == Some("MSG") {
+                assert!(
+                    matches!(result.unwrap(), MediaRetryResult::Success { direct_path } if direct_path == "/media/test.enc")
+                );
+            } else {
+                assert!(result.unwrap_err().to_string().contains("stanza ID"));
+            }
+        }
+    }
+
+    #[test]
+    fn plaintext_errors_do_not_require_encrypted_stanza_id() {
+        for code in [2, 3, 99] {
+            let node = NodeBuilder::new("notification")
+                .attr("id", "MSG")
+                .children([NodeBuilder::new("error")
+                    .attr("code", code.to_string())
+                    .build()])
+                .build();
+            let result = parse_media_retry_notification(&node.as_node_ref(), &[1; 32]).unwrap();
+            assert!(matches!(
+                (code, result),
+                (2, MediaRetryResult::NotFound)
+                    | (3, MediaRetryResult::DecryptionError)
+                    | (99, MediaRetryResult::GeneralError)
+            ));
+        }
+    }
+
+    #[test]
+    fn round_trip_encrypt_decrypt() {
+        let media_key = [42u8; 32];
+        let stanza_id = "TEST-MSG-ID-123";
+
+        let (ciphertext, iv) = encrypt_media_retry_receipt(&media_key, stanza_id).unwrap();
+
+        let plaintext =
+            decrypt_media_retry_notification(&media_key, stanza_id, &iv, &ciphertext).unwrap();
+        let notification = wa::MediaRetryNotificationView::decode_view(&plaintext).unwrap();
+
+        assert_eq!(notification.stanza_id, Some(stanza_id));
+    }
+
+    #[test]
+    fn wrong_key_fails_decrypt() {
+        let media_key = [42u8; 32];
+        let wrong_key = [99u8; 32];
+        let stanza_id = "TEST-MSG-ID-456";
+
+        let (ciphertext, iv) = encrypt_media_retry_receipt(&media_key, stanza_id).unwrap();
+
+        let result = decrypt_media_retry_notification(&wrong_key, stanza_id, &iv, &ciphertext);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_receipt_node_structure() {
+        let own_jid = Jid::pn("1234567890");
+        let chat_jid = Jid::pn("9876543210");
+        let msg_id = "ABC123";
+
+        let (ciphertext, iv) = encrypt_media_retry_receipt(&[1u8; 32], msg_id).unwrap();
+
+        let node =
+            build_media_retry_receipt(&own_jid, msg_id, &chat_jid, false, None, &ciphertext, &iv);
+
+        assert_eq!(node.tag.as_ref(), "receipt");
+        assert_eq!(
+            node.attrs().optional_string("type").unwrap().as_ref(),
+            "server-error"
+        );
+        assert_eq!(node.attrs().optional_string("id").unwrap().as_ref(), msg_id);
+
+        let encrypt = node.get_optional_child_by_tag(&["encrypt"]);
+        assert!(encrypt.is_some());
+
+        let rmr = node.get_optional_child_by_tag(&["rmr"]);
+        assert!(rmr.is_some());
+        let rmr = rmr.unwrap();
+        assert_eq!(
+            rmr.attrs().optional_string("from_me").unwrap().as_ref(),
+            "false"
+        );
+    }
+
+    #[test]
+    fn build_receipt_with_participant() {
+        let own_jid = Jid::pn("1234567890");
+        let chat_jid = Jid::group("120363040237990503");
+        let participant = Jid::pn("9876543210");
+
+        let (ciphertext, iv) = encrypt_media_retry_receipt(&[1u8; 32], "MSG1").unwrap();
+
+        let node = build_media_retry_receipt(
+            &own_jid,
+            "MSG1",
+            &chat_jid,
+            false,
+            Some(&participant),
+            &ciphertext,
+            &iv,
+        );
+
+        let rmr = node.get_optional_child_by_tag(&["rmr"]).unwrap();
+        assert!(rmr.attrs().optional_string("participant").is_some());
+    }
+
+    #[test]
+    fn build_history_sync_receipt_structure() {
+        let own_jid = Jid::pn("1234567890");
+        let (ciphertext, iv) = encrypt_media_retry_receipt(&[2u8; 32], "HS1").unwrap();
+
+        let node = build_history_sync_server_error_receipt(&own_jid, "HS1", &ciphertext, &iv);
+
+        assert_eq!(node.tag.as_ref(), "receipt");
+        assert_eq!(
+            node.attrs().optional_string("type").unwrap().as_ref(),
+            "server-error"
+        );
+        assert_eq!(
+            node.attrs().optional_string("category").unwrap().as_ref(),
+            "peer"
+        );
+        assert_eq!(node.attrs().optional_string("id").unwrap().as_ref(), "HS1");
+        assert_eq!(
+            node.attrs().optional_string("to").unwrap().as_ref(),
+            own_jid.to_string()
+        );
+
+        let encrypt = node.get_optional_child_by_tag(&["encrypt"]).unwrap();
+        assert!(encrypt.get_optional_child_by_tag(&["enc_p"]).is_some());
+        assert!(encrypt.get_optional_child_by_tag(&["enc_iv"]).is_some());
+        // The history-sync variant carries no <rmr> child.
+        assert!(node.get_optional_child_by_tag(&["rmr"]).is_none());
+    }
+}

@@ -1,0 +1,350 @@
+//! Account-level settings carried by app state sync (syncd).
+//!
+//! Distinct from the `privacy` IQ namespace (`Client::set_privacy_setting`):
+//! these settings have no query/set stanza at all, they exist only as syncd
+//! mutations replicated across the user's linked devices.
+//!
+//! - `setting_disableLinkPreviews` (index `["setting_disableLinkPreviews"]`,
+//!   `regular`) -> `PrivacySettingDisableLinkPreviewsAction`
+//! - `setting_unarchiveChats` (index `["setting_unarchiveChats"]`,
+//!   `regular_low`) -> `UnarchiveChatsSetting`
+
+use crate::appstate_sync::Mutation;
+use crate::client::AppStateDispatchOutcome;
+use crate::client::Client;
+use crate::features::chat_actions::AppStateError;
+use log::debug;
+use wacore::appstate::schemas;
+use wacore::types::events::{DisableLinkPreviewsUpdate, Event, UnarchiveChatsSettingUpdate};
+use waproto::whatsapp as wa;
+
+/// Dispatch inbound syncd setting mutations synced from a linked device,
+/// returning the [`crate::client::AppStateDispatchOutcome`] for the semantic
+/// per-mutation log line.
+pub(crate) fn dispatch_app_state_setting_mutation_outcome(
+    event_bus: &wacore::types::events::CoreEventBus,
+    m: &mut Mutation,
+    event_full_sync: bool,
+) -> AppStateDispatchOutcome {
+    if m.operation != wa::syncd_mutation::SyncdOperation::Set {
+        return AppStateDispatchOutcome::Unclaimed;
+    }
+    let Some(name) = m.index.first() else {
+        return AppStateDispatchOutcome::Unclaimed;
+    };
+    let unarchive = if name == schemas::UNARCHIVE_CHATS_SETTING.name {
+        true
+    } else if name == schemas::DISABLE_LINK_PREVIEWS.name {
+        false
+    } else {
+        return AppStateDispatchOutcome::Unclaimed;
+    };
+
+    let ts = m
+        .action_value
+        .as_ref()
+        .and_then(|v| v.timestamp)
+        .unwrap_or(0);
+    let time = wacore::time::from_millis_or_now(ts);
+
+    if unarchive {
+        // Same rule as the link-preview flag below: with the flag absent there
+        // is no choice to report, and a default would invent one.
+        return if let Some(val) = &mut m.action_value
+            && let Some(act) = val.unarchive_chats_setting.take()
+            && let Some(unarchive_chats) = act.unarchive_chats
+        {
+            event_bus.dispatch(Event::UnarchiveChatsSettingUpdate(
+                UnarchiveChatsSettingUpdate::builder()
+                    .unarchive_chats(unarchive_chats)
+                    .timestamp(time)
+                    .action(Box::new(act))
+                    .from_full_sync(event_full_sync)
+                    .build(),
+            ));
+            AppStateDispatchOutcome::Event("UnarchiveChatsSettingUpdate")
+        } else {
+            AppStateDispatchOutcome::Malformed("UnarchiveChatsSettingUpdate")
+        };
+    }
+
+    // WA Web counts a mutation whose `isPreviewsDisabled` is absent as a
+    // malformed action value and applies nothing, so there is no flag to report.
+    if let Some(val) = &mut m.action_value
+        && let Some(act) = val.privacy_setting_disable_link_previews_action.take()
+        && let Some(disabled) = act.is_previews_disabled
+    {
+        event_bus.dispatch(Event::DisableLinkPreviewsUpdate(
+            DisableLinkPreviewsUpdate::builder()
+                .previews_disabled(disabled)
+                .timestamp(time)
+                .action(Box::new(act))
+                .from_full_sync(event_full_sync)
+                .build(),
+        ));
+        AppStateDispatchOutcome::Event("DisableLinkPreviewsUpdate")
+    } else {
+        // Warned once centrally by `report` (see above); logging here too
+        // would emit the same fact twice.
+        AppStateDispatchOutcome::Malformed("DisableLinkPreviewsUpdate")
+    }
+}
+
+/// Access via `client.app_state_settings()`.
+pub struct AppStateSettings<'a> {
+    client: &'a Client,
+}
+
+impl<'a> AppStateSettings<'a> {
+    pub(crate) fn new(client: &'a Client) -> Self {
+        Self { client }
+    }
+
+    /// Turn outgoing link previews off or on for the whole account.
+    ///
+    /// Mirrors WA Web's `WAWebDisableLinkPreviewsSync.getMutation`: a `Set` on
+    /// the `regular` collection with an empty index argument list, carrying
+    /// `privacySettingDisableLinkPreviewsAction.isPreviewsDisabled`.
+    ///
+    /// This is the account's stored preference, replicated to the linked
+    /// devices. It does not stop this client from attaching a preview it was
+    /// explicitly asked to send.
+    pub async fn set_link_previews_disabled(&self, disabled: bool) -> Result<(), AppStateError> {
+        debug!("Setting disableLinkPreviews -> {disabled}");
+        let value = {
+            let mut proto = wa::SyncActionValue::default();
+            proto.privacy_setting_disable_link_previews_action = buffa::MessageField::some({
+                let mut proto =
+                    wa::sync_action_value::PrivacySettingDisableLinkPreviewsAction::default();
+                proto.is_previews_disabled = Some(disabled);
+                proto
+            });
+            proto.timestamp = Some(wacore::time::now_millis());
+            proto
+        };
+        self.client
+            .send_app_state_action(&schemas::DISABLE_LINK_PREVIEWS, &[], &value)
+            .await
+    }
+}
+
+impl Client {
+    pub fn app_state_settings(&self) -> AppStateSettings<'_> {
+        AppStateSettings::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::chat_actions::{
+        build_action_index, capture_app_state_mutation as capture,
+    };
+    use std::sync::{Arc, Mutex};
+    use wacore::types::events::{CoreEventBus, EventHandler, EventInterest};
+
+    #[derive(Default)]
+    struct Recorder {
+        events: Mutex<Vec<Arc<Event>>>,
+    }
+    impl EventHandler for Recorder {
+        fn handle_event(&self, event: Arc<Event>) {
+            self.events.lock().unwrap().push(event);
+        }
+        fn interest(&self) -> EventInterest {
+            EventInterest::ALL
+        }
+    }
+
+    fn run(m: &Mutation) -> (AppStateDispatchOutcome, Vec<Arc<Event>>) {
+        let bus = CoreEventBus::new();
+        let rec = Arc::new(Recorder::default());
+        bus.subscribe_handler(rec.clone()).detach();
+        let outcome = dispatch_app_state_setting_mutation_outcome(&bus, &mut m.clone(), false);
+        let events = rec.events.lock().unwrap().clone();
+        (outcome, events)
+    }
+
+    fn set_mutation(value: wa::SyncActionValue) -> Mutation {
+        Mutation {
+            index: vec!["setting_disableLinkPreviews".into()],
+            operation: wa::syncd_mutation::SyncdOperation::Set,
+            action_value: Some(value),
+        }
+    }
+
+    #[test]
+    fn disable_link_previews_index_matches_wa_web() {
+        // WAWebDisableLinkPreviewsSync passes `indexArgs: []`, so the index is
+        // the bare action name.
+        let index = build_action_index(&schemas::DISABLE_LINK_PREVIEWS, &[]).unwrap();
+        let parts: Vec<String> = serde_json::from_slice(&index).unwrap();
+        assert_eq!(parts, vec!["setting_disableLinkPreviews"]);
+        assert_eq!(schemas::DISABLE_LINK_PREVIEWS.version, 8);
+        assert_eq!(
+            schemas::DISABLE_LINK_PREVIEWS.collection,
+            schemas::Collection::Regular
+        );
+        assert_eq!(
+            schemas::DISABLE_LINK_PREVIEWS.value_field,
+            Some("privacySettingDisableLinkPreviewsAction")
+        );
+    }
+
+    #[test]
+    fn index_rejects_any_argument() {
+        assert!(build_action_index(&schemas::DISABLE_LINK_PREVIEWS, &["1"]).is_err());
+    }
+
+    /// The exact bytes `set_link_previews_disabled` puts on the wire, against
+    /// `WAWebDisableLinkPreviewsSync.getMutation`.
+    #[tokio::test]
+    async fn link_preview_setting_matches_wa_webs_builder_on_the_wire() {
+        let collection = schemas::DISABLE_LINK_PREVIEWS.collection.as_str();
+        for disabled in [true, false] {
+            let mutation = capture(collection, move |client| async move {
+                client
+                    .app_state_settings()
+                    .set_link_previews_disabled(disabled)
+                    .await
+            })
+            .await;
+            assert_eq!(mutation.index, vec!["setting_disableLinkPreviews"]);
+            assert_eq!(mutation.operation, wa::syncd_mutation::SyncdOperation::Set);
+            assert_eq!(
+                mutation
+                    .action_value
+                    .as_ref()
+                    .and_then(|v| v.privacy_setting_disable_link_previews_action.as_option())
+                    .and_then(|a| a.is_previews_disabled),
+                Some(disabled),
+                "the flag rides on SyncActionValue.privacySettingDisableLinkPreviewsAction"
+            );
+
+            // What we emit, a linked device must be able to hand back.
+            let (outcome, events) = run(&mutation);
+            assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+            assert_eq!(events.len(), 1);
+            match &*events[0] {
+                Event::DisableLinkPreviewsUpdate(u) => assert_eq!(u.previews_disabled, disabled),
+                other => panic!("expected DisableLinkPreviewsUpdate, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn inbound_set_dispatches_the_flag() {
+        for disabled in [true, false] {
+            let m = set_mutation({
+                let mut proto = wa::SyncActionValue::default();
+                proto.privacy_setting_disable_link_previews_action = buffa::MessageField::some({
+                    let mut proto =
+                        wa::sync_action_value::PrivacySettingDisableLinkPreviewsAction::default();
+                    proto.is_previews_disabled = Some(disabled);
+                    proto
+                });
+                proto.timestamp = Some(1000);
+                proto
+            });
+            let (outcome, events) = run(&m);
+            assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+            assert_eq!(events.len(), 1);
+            match &*events[0] {
+                Event::DisableLinkPreviewsUpdate(u) => {
+                    assert_eq!(u.previews_disabled, disabled);
+                    assert_eq!(u.action.is_previews_disabled, Some(disabled));
+                }
+                other => panic!("expected DisableLinkPreviewsUpdate, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn absent_flag_is_claimed_but_not_dispatched() {
+        // WA Web logs it as a malformed action value and applies nothing; an
+        // event with a made-up default would be worse than none.
+        let m = set_mutation({
+            let mut proto = wa::SyncActionValue::default();
+            proto.privacy_setting_disable_link_previews_action = buffa::MessageField::some({
+                let mut proto =
+                    wa::sync_action_value::PrivacySettingDisableLinkPreviewsAction::default();
+                proto.is_previews_disabled = None;
+                proto
+            });
+            proto
+        });
+        let (outcome, events) = run(&m);
+        assert!(outcome != AppStateDispatchOutcome::Unclaimed);
+        assert!(events.is_empty());
+    }
+
+    fn unarchive_mutation(unarchive_chats: Option<bool>) -> Mutation {
+        Mutation {
+            index: vec!["setting_unarchiveChats".into()],
+            operation: wa::syncd_mutation::SyncdOperation::Set,
+            action_value: Some({
+                let mut proto = wa::SyncActionValue::default();
+                proto.unarchive_chats_setting = buffa::MessageField::some({
+                    let mut proto = wa::sync_action_value::UnarchiveChatsSetting::default();
+                    proto.unarchive_chats = unarchive_chats;
+                    proto
+                });
+                proto.timestamp = Some(1000);
+                proto
+            }),
+        }
+    }
+
+    #[test]
+    fn unarchive_chats_index_matches_wa_web() {
+        let index = build_action_index(&schemas::UNARCHIVE_CHATS_SETTING, &[]).unwrap();
+        let parts: Vec<String> = serde_json::from_slice(&index).unwrap();
+        assert_eq!(parts, vec!["setting_unarchiveChats"]);
+        assert_eq!(
+            schemas::UNARCHIVE_CHATS_SETTING.collection,
+            schemas::Collection::RegularLow
+        );
+    }
+
+    #[test]
+    fn inbound_unarchive_chats_dispatches_the_flag() {
+        for unarchive in [true, false] {
+            let (outcome, events) = run(&unarchive_mutation(Some(unarchive)));
+            assert_eq!(
+                outcome,
+                AppStateDispatchOutcome::Event("UnarchiveChatsSettingUpdate")
+            );
+            assert_eq!(events.len(), 1);
+            match &*events[0] {
+                Event::UnarchiveChatsSettingUpdate(u) => {
+                    assert_eq!(u.unarchive_chats, unarchive);
+                    assert_eq!(u.action.unarchive_chats, Some(unarchive));
+                    assert_eq!(u.timestamp.timestamp_millis(), 1000);
+                }
+                other => panic!("expected UnarchiveChatsSettingUpdate, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn absent_unarchive_flag_is_claimed_but_not_dispatched() {
+        let (outcome, events) = run(&unarchive_mutation(None));
+        assert_eq!(
+            outcome,
+            AppStateDispatchOutcome::Malformed("UnarchiveChatsSettingUpdate")
+        );
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn other_kinds_are_not_claimed() {
+        let m = Mutation {
+            index: vec!["setting_pushName".into()],
+            operation: wa::syncd_mutation::SyncdOperation::Set,
+            action_value: Some(wa::SyncActionValue::default()),
+        };
+        let (outcome, events) = run(&m);
+        assert_eq!(outcome, AppStateDispatchOutcome::Unclaimed);
+        assert!(events.is_empty());
+    }
+}

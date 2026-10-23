@@ -1,0 +1,40 @@
+[package]
+name = "wacore-noise"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+authors = ["João Lucas <jlucaso@hotmail.com>"]
+license = "MIT"
+repository = "https://github.com/oxidezap/whatsapp-rust"
+description = "Noise Protocol implementation for WhatsApp with AES-256-GCM"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+# Exposes `wacore_noise::test_util` (cert-chain bytes builder, etc.) so
+# downstream crates can share fixtures with the unit tests in this crate.
+test-util = []
+
+[dependencies]
+anyhow = { workspace = true }
+buffa = { workspace = true }
+bytes = { workspace = true }
+hkdf = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+wacore-binary = { workspace = true }
+wacore-libsignal = { workspace = true }
+waproto = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "noise_benchmark"
+harness = false
+
+[lints]
+workspace = true

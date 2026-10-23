@@ -1,0 +1,316 @@
+//! PCM and encoded-audio endpoints for WhatsApp calls.
+
+#[cfg(feature = "voip-libopus")]
+use anyhow::{Result, anyhow, ensure};
+#[cfg(feature = "voip-libopus")]
+use opus::{Application, Bandwidth, Bitrate, Channels, Decoder, Encoder};
+#[cfg(feature = "voip-libopus")]
+use wacore::voip::{ForeignCodecError, depacketize_opus_from_mlow, packetize_opus_for_mlow};
+
+// The audio endpoint traits live in the neutral contract (`wacore::voip_control::ports`), so a
+// backend can be handed the platform's endpoints without the engine. Re-exported for the historical
+// `whatsapp_rust::voip::audio::*` paths.
+pub use wacore::voip_control::{AudioSink, AudioSource, EncodedAudioSink, EncodedAudioSource};
+
+pub const WA_SAMPLE_RATE: u32 = 16_000;
+/// 60 ms @ 16 kHz.
+pub const WA_FRAME_SAMPLES: usize = 960;
+/// Opus permits at most 120 ms in one packet; the decoder emits 16 kHz PCM.
+pub const WA_DECODE_MAX_SAMPLES: usize = 1_920;
+#[cfg(feature = "voip-libopus")]
+const WA_BITRATE: i32 = 24_000;
+#[cfg(feature = "voip-libopus")]
+const WA_COMPLEXITY: i32 = 5;
+#[cfg(feature = "voip-libopus")]
+const OPUS_MAX_PACKET_BYTES: usize = 1_275;
+
+/// Opus encoder with constructors for standard RTP and MLOW's compatible CELT escape.
+#[cfg(feature = "voip-libopus")]
+pub struct WaOpusEncoder {
+    enc: Encoder,
+    frame_samples: usize,
+    require_mlow_escape: bool,
+}
+
+#[cfg(feature = "voip-libopus")]
+impl WaOpusEncoder {
+    pub fn new() -> Result<Self> {
+        let mut enc = Encoder::new(WA_SAMPLE_RATE, Channels::Mono, Application::Voip)
+            .map_err(|e| anyhow!("opus encoder init: {e}"))?;
+        Self::finish_init(&mut enc)?;
+        Ok(Self {
+            enc,
+            frame_samples: WA_FRAME_SAMPLES,
+            require_mlow_escape: false,
+        })
+    }
+
+    /// Configure libopus for the standard-Opus escape inside WhatsApp's MLOW RTP profile.
+    pub fn new_mlow_escape() -> Result<Self> {
+        let mut enc = Encoder::new(WA_SAMPLE_RATE, Channels::Mono, Application::LowDelay)
+            .map_err(|e| anyhow!("opus MLOW-escape encoder init: {e}"))?;
+        Self::finish_init(&mut enc)?;
+        enc.set_max_bandwidth(Bandwidth::Wideband)
+            .map_err(|e| anyhow!("opus set_max_bandwidth: {e}"))?;
+        enc.set_bandwidth(Bandwidth::Wideband)
+            .map_err(|e| anyhow!("opus set_bandwidth: {e}"))?;
+        Ok(Self {
+            enc,
+            frame_samples: WA_FRAME_SAMPLES,
+            require_mlow_escape: true,
+        })
+    }
+
+    fn finish_init(enc: &mut Encoder) -> Result<()> {
+        enc.set_bitrate(Bitrate::Bits(WA_BITRATE))
+            .map_err(|e| anyhow!("opus set_bitrate: {e}"))?;
+        enc.set_complexity(WA_COMPLEXITY)
+            .map_err(|e| anyhow!("opus set_complexity: {e}"))?;
+        enc.set_dtx(true)
+            .map_err(|e| anyhow!("opus set_dtx: {e}"))?;
+        Ok(())
+    }
+
+    /// Encode one mono frame at the rate selected by the constructor.
+    pub fn encode(&mut self, pcm: &[i16]) -> Result<Vec<u8>> {
+        ensure!(
+            pcm.len() == self.frame_samples,
+            "WaOpusEncoder expects exactly {} samples, got {}",
+            self.frame_samples,
+            pcm.len()
+        );
+        let mut payload = self
+            .enc
+            .encode_vec(pcm, OPUS_MAX_PACKET_BYTES)
+            .map_err(|e| anyhow!("opus encode: {e}"))?;
+        if self.require_mlow_escape {
+            packetize_opus_for_mlow(&mut payload)
+                .map_err(|e| anyhow!("packetize Opus for MLOW: {e}"))?;
+        }
+        Ok(payload)
+    }
+}
+
+/// Opus decoder (mono, 16 kHz).
+#[cfg(feature = "voip-libopus")]
+pub struct WaOpusDecoder {
+    dec: Decoder,
+    packet_scratch: Vec<u8>,
+    pcm_scratch: Vec<i16>,
+}
+
+#[cfg(feature = "voip-libopus")]
+impl WaOpusDecoder {
+    pub fn new() -> Result<Self> {
+        let dec = Decoder::new(WA_SAMPLE_RATE, Channels::Mono)
+            .map_err(|e| anyhow!("opus decoder init: {e}"))?;
+        Ok(Self {
+            dec,
+            packet_scratch: Vec::with_capacity(OPUS_MAX_PACKET_BYTES),
+            pcm_scratch: vec![0; WA_DECODE_MAX_SAMPLES],
+        })
+    }
+
+    /// Decode one Opus frame to mono 16-bit PCM. The returned view is valid until the next decode.
+    pub fn decode(&mut self, opus: &[u8]) -> Result<&[i16]> {
+        Self::decode_packet(&mut self.dec, &mut self.pcm_scratch, opus)
+    }
+
+    fn decode_packet<'a>(
+        dec: &mut Decoder,
+        pcm_scratch: &'a mut Vec<i16>,
+        opus: &[u8],
+    ) -> Result<&'a [i16]> {
+        pcm_scratch.resize(WA_DECODE_MAX_SAMPLES, 0);
+        let n = dec
+            .decode(opus, pcm_scratch, false)
+            .map_err(|e| anyhow!("opus decode: {e}"))?;
+        pcm_scratch.truncate(n);
+        Ok(pcm_scratch)
+    }
+
+    /// Restore MLOW's CELT TOC and decode with stock libopus.
+    pub fn decode_mlow_escape(&mut self, opus: &[u8]) -> Result<&[i16]> {
+        self.packet_scratch.clear();
+        self.packet_scratch.extend_from_slice(opus);
+        depacketize_opus_from_mlow(&mut self.packet_scratch)
+            .map_err(|e| anyhow!("depacketize Opus from MLOW: {e}"))?;
+        Self::decode_packet(&mut self.dec, &mut self.pcm_scratch, &self.packet_scratch)
+    }
+}
+
+/// The platform's standard-Opus codec, handed to the engine so a call whose peer turns out to
+/// speak Opus is decoded instead of reported silent.
+///
+/// `wacore` cannot link libopus: it builds for wasm32 and ESP32. This is the seam that keeps the
+/// core portable while a native build still rescues the call. One instance per call, driven from
+/// the drive-loop task, so no synchronisation is needed.
+#[cfg(feature = "voip-libopus")]
+pub(crate) struct LibopusAudioCodec {
+    decoder: WaOpusDecoder,
+    /// `None` for an instance the group factory built. A group decoder only ever decodes: outbound
+    /// audio is encoded once, by the call-wide instance, so building an encoder per participant
+    /// would multiply libopus setup and native state across the roster for something no call path
+    /// can reach. `encode` reports it as a refusal, which is the honest answer for a decoder.
+    encoder: Option<WaOpusEncoder>,
+}
+
+#[cfg(feature = "voip-libopus")]
+impl LibopusAudioCodec {
+    pub(crate) fn new() -> Result<Self> {
+        Ok(Self {
+            decoder: WaOpusDecoder::new()?,
+            encoder: Some(WaOpusEncoder::new()?),
+        })
+    }
+
+    /// The half a group participant needs, and the only half it can use.
+    pub(crate) fn new_decoder_only() -> Result<Self> {
+        Ok(Self {
+            decoder: WaOpusDecoder::new()?,
+            encoder: None,
+        })
+    }
+}
+
+/// Mints one decoder-only [`LibopusAudioCodec`] per group participant.
+///
+/// Zero-sized: every decoder is built from scratch, which is the point -- one shared instance would
+/// carry one speaker's inter-frame state into the next. Decoder-only because outbound audio is
+/// encoded once by the call-wide instance, so an encoder here is per-participant cost for a path
+/// that does not exist.
+#[cfg(feature = "voip-libopus")]
+pub(crate) struct LibopusCodecFactory;
+
+#[cfg(feature = "voip-libopus")]
+impl wacore::voip::ForeignAudioCodecFactory for LibopusCodecFactory {
+    fn create(&self) -> Option<Box<dyn wacore::voip::ForeignAudioCodec>> {
+        match LibopusAudioCodec::new_decoder_only() {
+            Ok(codec) => Some(Box::new(codec)),
+            Err(e) => {
+                // Reported as absence rather than as an error: the engine's answer to "no decoder"
+                // is already an honest `AudioSilent`, and this participant gets exactly that.
+                log::warn!("voip: libopus unavailable for a group participant: {e}");
+                None
+            }
+        }
+    }
+}
+
+#[cfg(feature = "voip-libopus")]
+impl wacore::voip::ForeignAudioCodec for LibopusAudioCodec {
+    fn decode(&mut self, payload: &[u8], out: &mut Vec<i16>) -> Result<(), ForeignCodecError> {
+        let pcm = self
+            .decoder
+            .decode(payload)
+            .map_err(|_| ForeignCodecError::InvalidPayload)?;
+        out.extend_from_slice(pcm);
+        Ok(())
+    }
+
+    fn conceal(&mut self, samples: usize, out: &mut Vec<i16>) {
+        // Opus packet-loss concealment needs the decoder's own state, and asking libopus for it
+        // costs an extra call per lost frame. Silence is the honest fallback here: the engine
+        // already counts the concealment, so a stream that is mostly concealed is visible as such
+        // rather than smoothed into something that sounds almost fine.
+        out.resize(out.len() + samples, 0);
+    }
+
+    fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) -> Result<(), ForeignCodecError> {
+        let payload = self
+            .encoder
+            .as_mut()
+            .ok_or(ForeignCodecError::BadFrameSize)?
+            .encode(pcm)
+            .map_err(|_| ForeignCodecError::BadFrameSize)?;
+        out.extend_from_slice(&payload);
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "voip-libopus"))]
+mod tests {
+    use super::*;
+
+    /// A 440 Hz sine over one 60 ms frame (mono, 16 kHz).
+    fn sine_frame() -> Vec<i16> {
+        (0..WA_FRAME_SAMPLES)
+            .map(|i| {
+                let t = i as f32 / WA_SAMPLE_RATE as f32;
+                (16000.0 * (2.0 * std::f32::consts::PI * 440.0 * t).sin()) as i16
+            })
+            .collect()
+    }
+
+    #[test]
+    fn opus_round_trip_recovers_a_frame() {
+        let mut enc = WaOpusEncoder::new().unwrap();
+        let mut dec = WaOpusDecoder::new().unwrap();
+        let pcm = sine_frame();
+        let encoded = enc.encode(&pcm).unwrap();
+        assert!(!encoded.is_empty(), "encoder produced bytes");
+        let decoded = dec.decode(&encoded).unwrap();
+        // Opus is lossy but frame-length preserving: one 60 ms frame decodes to 960 samples.
+        assert_eq!(decoded.len(), WA_FRAME_SAMPLES);
+    }
+
+    #[test]
+    fn silence_encodes_and_decodes() {
+        let mut enc = WaOpusEncoder::new().unwrap();
+        let mut dec = WaOpusDecoder::new().unwrap();
+        let silence = vec![0i16; WA_FRAME_SAMPLES];
+        let encoded = enc.encode(&silence).unwrap();
+        let decoded = dec.decode(&encoded).unwrap();
+        assert_eq!(decoded.len(), WA_FRAME_SAMPLES);
+    }
+
+    #[test]
+    fn decoder_reuses_pcm_scratch() {
+        let mut enc = WaOpusEncoder::new().unwrap();
+        let mut dec = WaOpusDecoder::new().unwrap();
+        let encoded = enc.encode(&sine_frame()).unwrap();
+
+        let first = dec.decode(&encoded).unwrap().as_ptr();
+        let second = dec.decode(&encoded).unwrap().as_ptr();
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mlow_escape_encoder_emits_celt_toc_and_60ms_packet() {
+        let mut enc = WaOpusEncoder::new_mlow_escape().unwrap();
+        let mut dec = WaOpusDecoder::new().unwrap();
+        let pcm = sine_frame();
+        let encoded = enc.encode(&pcm).unwrap();
+
+        assert_eq!(encoded[0], 0xDD);
+        assert_eq!(encoded[1] & 0x3F, 3);
+        assert_eq!(
+            dec.decode_mlow_escape(&encoded).unwrap().len(),
+            WA_FRAME_SAMPLES
+        );
+    }
+
+    #[test]
+    fn mlow_escape_encoder_maps_opus_dtx_to_mlow_sid() {
+        let mut enc = WaOpusEncoder::new_mlow_escape().unwrap();
+        let silence = vec![0i16; WA_FRAME_SAMPLES];
+
+        let encoded = (0..20)
+            .map(|_| enc.encode(&silence).unwrap())
+            .find(|packet| packet.as_slice() == [0x90]);
+
+        assert!(
+            encoded.is_some(),
+            "Opus did not enter DTX within 1.2 seconds"
+        );
+    }
+
+    #[test]
+    fn mlow_escape_encoder_maps_initial_silence_to_mlow_sid() {
+        let mut enc = WaOpusEncoder::new_mlow_escape().unwrap();
+        let silence = vec![0i16; WA_FRAME_SAMPLES];
+
+        assert_eq!(enc.encode(&silence).unwrap(), [0x90]);
+    }
+}

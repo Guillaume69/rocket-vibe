@@ -1,0 +1,773 @@
+use crate::client::Client;
+use crate::types::events::EncDecryptFailureReason;
+use crate::types::events::Event;
+use crate::types::message::MessageInfo;
+use log::{debug, warn};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+use wacore::libsignal::crypto::DecryptionError;
+use wacore::libsignal::protocol::SenderKeyStore;
+use wacore::libsignal::protocol::group_decrypt_shared;
+use wacore::libsignal::protocol::{
+    CiphertextMessage, DecryptionResult, IdentityChange, OwnedCiphertextMessage,
+    PreKeySignalMessage, SignalMessage, SignalProtocolError, UsePQRatchet, message_decrypt,
+    message_decrypt_owned,
+};
+use wacore::message_processing::EncType;
+use wacore::protocol::nack::NackReason;
+use wacore::types::jid::{JidExt, make_sender_key_name};
+use wacore_binary::Jid;
+use wacore_binary::JidExt as _;
+use wacore_binary::node::ValueRef;
+use wacore_binary::{NodeRef, OwnedNodeRef};
+use waproto::whatsapp::{self as wa};
+
+use wacore::protocol::retry::MAX_RETRY_COUNT as MAX_DECRYPT_RETRIES;
+
+#[inline]
+fn sender_retry_count(enc_node: &NodeRef<'_>) -> u8 {
+    enc_node
+        .get_attr("count")
+        .and_then(|value| match value {
+            ValueRef::String(value) => value.parse::<u64>().ok(),
+            ValueRef::Jid(_) => None,
+        })
+        .map(|count| count.min(MAX_DECRYPT_RETRIES as u64) as u8)
+        .unwrap_or(0)
+}
+
+#[inline]
+fn attr_matches_jid(value: &ValueRef<'_>, jid: &Jid) -> bool {
+    match value {
+        ValueRef::String(value) => wacore_binary::jid::parse_jid_ref(value)
+            .map(|parsed| jid == &parsed)
+            .unwrap_or_else(|| value.parse::<Jid>().is_ok_and(|parsed| jid == &parsed)),
+        ValueRef::Jid(value) => jid == value,
+    }
+}
+
+fn message_enc_nodes_for_device<'node, 'data: 'node>(
+    node: &'node NodeRef<'data>,
+    own_jid: Option<&'node Jid>,
+) -> impl Iterator<Item = &'node NodeRef<'data>> + 'node {
+    let per_device = node
+        .get_optional_child("participants")
+        .into_iter()
+        .flat_map(|participants| participants.get_children_by_tag("to"))
+        .filter(move |to_node| {
+            own_jid.is_some_and(|ours| {
+                to_node
+                    .get_attr("jid")
+                    .is_some_and(|value| attr_matches_jid(value, ours))
+            })
+        })
+        .flat_map(|to_node| to_node.get_children_by_tag("enc"));
+
+    node.get_children_by_tag("enc").chain(per_device)
+}
+
+/// Pre-extracted enc node payload. Holds owned copies of the fields needed for
+/// decryption so the async decrypt phase doesn't borrow the original NodeRef tree.
+pub(crate) struct EncPayload {
+    pub ciphertext: bytes::Bytes,
+    pub enc_type: EncType,
+    pub padding_version: u8,
+    /// Position in the order [`message_enc_nodes_for_device`] yields, counting
+    /// from zero: direct `<enc>` children first, then this device's under
+    /// `<participants><to>`.
+    ///
+    /// Recorded during classification because nothing downstream can recover
+    /// it: payloads are split into per-kind buckets and encs that produce no
+    /// payload are skipped, so a position within a bucket is not a position in
+    /// the stanza.
+    pub enc_index: usize,
+    /// The node's `state` attribute, verbatim. Absent on ordinary traffic, so
+    /// the common case allocates nothing.
+    pub state: Option<String>,
+    /// The node's `session_type` attribute, verbatim. Absent on ordinary
+    /// traffic, so the common case allocates nothing.
+    pub session_type: Option<String>,
+}
+
+impl EncPayload {
+    fn from_parts(
+        ciphertext: bytes::Bytes,
+        enc_node: &NodeRef<'_>,
+        enc_index: usize,
+        enc_type: EncType,
+    ) -> Option<Self> {
+        // One attribute pass: the caller already classified `type`, so only the
+        // remaining attributes are read here, through a single parser.
+        let mut attrs = enc_node.attrs();
+        let padding_version = attrs.optional_u64("v").unwrap_or(2) as u8;
+        Some(Self {
+            ciphertext,
+            enc_type,
+            padding_version,
+            enc_index,
+            state: attrs.optional_string("state").map(|s| s.into_owned()),
+            session_type: attrs
+                .optional_string("session_type")
+                .map(|s| s.into_owned()),
+        })
+    }
+
+    /// Zero-copy extraction from an OwnedNodeRef.
+    ///
+    /// `enc_type` is the node's already-parsed `type` attribute; the receive
+    /// loop validates it before calling, so it is not re-read here.
+    pub(crate) fn from_owned_node(
+        owner: &OwnedNodeRef,
+        enc_node: &NodeRef<'_>,
+        enc_index: usize,
+        enc_type: EncType,
+    ) -> Option<Self> {
+        Self::from_parts(
+            owner.slice_bytes(enc_node.content_bytes()?),
+            enc_node,
+            enc_index,
+            enc_type,
+        )
+    }
+
+    /// Copying extraction from a NodeRef (used in tests where there's no OwnedNodeRef).
+    #[cfg(test)]
+    pub(crate) fn from_node_ref(node: &NodeRef<'_>, enc_index: usize) -> Option<Self> {
+        let enc_type = EncType::from_wire(node.attrs().optional_string("type")?.as_ref())?;
+        Self::from_parts(
+            bytes::Bytes::copy_from_slice(node.content_bytes()?),
+            node,
+            enc_index,
+            enc_type,
+        )
+    }
+}
+
+/// The `<enc>` attributes this build carries to the consumer without acting on
+/// them. Borrowed from the payload they came from, so passing them costs
+/// nothing on a node that declared neither.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EncNodeAnnotations<'a> {
+    pub state: Option<&'a str>,
+    pub session_type: Option<&'a str>,
+}
+
+impl EncPayload {
+    pub(crate) fn annotations(&self) -> EncNodeAnnotations<'_> {
+        EncNodeAnnotations {
+            state: self.state.as_deref(),
+            session_type: self.session_type.as_deref(),
+        }
+    }
+}
+
+/// Parsed and classified message ready for decryption. All data is owned --
+/// the original node tree is no longer borrowed.
+pub(crate) struct ClassifiedMessage {
+    pub info: Arc<MessageInfo>,
+    pub sender_encryption_jid: Jid,
+    pub session_payloads: Vec<EncPayload>,
+    pub group_payloads: Vec<EncPayload>,
+    pub bot_payloads: Vec<EncPayload>,
+    pub max_sender_retry_count: u8,
+    pub decrypt_fail_mode: crate::types::events::DecryptFailMode,
+    /// Stanza `recipient` the parser left off `info` (non-own branches); the
+    /// server rejects a transport ack that omits it with `<stream:error><ack/>`.
+    pub ack_recipient: Option<Jid>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct SessionBatchOutcome {
+    decrypted: bool,
+    duplicate: bool,
+    undecryptable: bool,
+    dispatched: bool,
+    skdm_only: bool,
+    plaintext_failed: bool,
+    had_failure: bool,
+}
+
+/// Outcome of a PN→LID migration retry decrypt. On `Decrypted` the plaintext
+/// has already been pushed onto the caller's deferred-handling buffer (it runs
+/// after the session lock is released), so no dispatch flags travel back here.
+#[derive(Clone, Copy, Debug)]
+enum MigrationDecryptResult {
+    /// Decrypted; plaintext buffered for post-lock handling.
+    Decrypted,
+    /// Server redelivered an already-processed message.
+    Duplicate,
+    /// Migration didn't apply, or applied and the retry still failed; the
+    /// caller sends a retry receipt either way.
+    ///
+    /// `Some` carries the terminal cause when a migration actually ran and its
+    /// retry decrypt failed. Without it the caller would report the error that
+    /// sent it here — typically `NoSession` — for a message whose session was
+    /// in fact found and whose retry then failed a MAC or a store read.
+    /// `None` means nothing was migrated, so the caller's own error still is
+    /// the terminal one.
+    NotDecrypted(Option<EncDecryptFailureReason>),
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct PlaintextHandleOutcome {
+    dispatched: bool,
+    skdm_only: bool,
+    delivered: bool,
+}
+
+#[cfg(feature = "bench-harness")]
+impl PlaintextHandleOutcome {
+    pub(crate) fn flags(self) -> (bool, bool) {
+        (self.dispatched, self.skdm_only)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MessageDispatch {
+    Decrypted,
+    Recovered,
+    RecoveredCommitted,
+}
+
+/// A message identity — chat, id, author and direction — reduced to a keyed
+/// 64-bit digest.
+///
+/// The gate keys one claim per identity for a whole TTL, so what the identity
+/// costs is paid by every dispatched message twice over: once in the table
+/// slot it is stored in, once in the growth allocation that doubles that
+/// table. Spelled out it was a `Jid`, a `MessageId` and an optional second
+/// `Jid` — 96 bytes of the 208-byte slot, and a pair of `CompactString` copies
+/// on every lookup.
+///
+/// Hashing it is sound because a collision cannot suppress anything on its
+/// own: two identities landing on one claim still compare their payload
+/// digests, and a message is only suppressed when one of those 128-bit digests
+/// matches too. Aiming a message at another claim's slot means finding a
+/// collision under [`DISPATCH_IDENTITY`], whose SipHash key is drawn once per
+/// process and never leaves it, so the id and JIDs a peer chooses buy it
+/// nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DispatchKey(std::num::NonZeroU64);
+
+/// The gate's identity key, drawn per process: a fixed hash would let a peer
+/// compute which claim its id lands on.
+static DISPATCH_IDENTITY: std::sync::LazyLock<std::hash::RandomState> =
+    std::sync::LazyLock::new(std::hash::RandomState::new);
+
+impl DispatchKey {
+    /// Hashes an identity through the process key. Zero folds onto one so
+    /// `Option<DispatchKey>` rides in 8 bytes: one extra colliding pair in
+    /// 2^64, below the collision rate the identity already tolerates.
+    #[inline(never)]
+    fn new(identity: impl std::hash::Hash) -> Self {
+        use std::hash::BuildHasher;
+        let digest = DISPATCH_IDENTITY.hash_one(identity);
+        Self(std::num::NonZeroU64::new(digest).unwrap_or(std::num::NonZeroU64::MIN))
+    }
+}
+
+const MAX_DISPATCH_PAYLOADS: usize = 8;
+const PUBLICATION_PENDING: u8 = 0;
+const PUBLICATION_COMPLETE: u8 = 1;
+const PUBLICATION_INTERRUPTED: u8 = 2;
+
+/// The retained half of a payload's SHA-256.
+///
+/// A digest is only ever compared against the at most
+/// [`MAX_DISPATCH_PAYLOADS`] digests recorded under one message identity, so
+/// what it has to rule out is a second payload for *that* id colliding on 128
+/// bits — a second preimage, not a birthday collision, and unreachable for a
+/// peer that would have to find it. Keeping 32 bytes instead doubled what the
+/// dispatch gate retains per claim, and the gate's table is the largest thing
+/// this feature adds to a client's resident memory.
+pub(crate) type DispatchFingerprint = [u8; 16];
+
+#[derive(Clone)]
+struct DispatchPayload {
+    fingerprint: DispatchFingerprint,
+    state: MessageDispatch,
+    hook_committed: bool,
+    producer: Option<DispatchKey>,
+    publication: Arc<AtomicU8>,
+}
+
+/// The identity this claim's message carries under the alternate PN/LID
+/// spelling, when its stanza spelled both out.
+///
+/// The alternate *identity* rather than the alternate `Jid`: every use is a
+/// comparison against some other message's identity, so substituting the
+/// spelling once at admission answers them all without a scan re-deriving it,
+/// and `Option<DispatchKey>` rides in 8 bytes with no allocation for the
+/// minority of claims that have one.
+type DispatchAlias = Option<DispatchKey>;
+
+#[derive(Clone, Default)]
+pub(crate) struct DispatchClaim {
+    payloads: smallvec::SmallVec<[DispatchPayload; 1]>,
+    alias: DispatchAlias,
+}
+
+#[derive(Default)]
+pub(crate) struct PublicationGuard {
+    owner: Option<Arc<AtomicU8>>,
+}
+
+/// Duplicate-probe answer with the plaintext already resolved: dispatch must
+/// reuse it instead of resolving the parent secret a second time. Carry the
+/// final event handle so the near-kilobyte message never moves through the
+/// receive/dispatch futures again.
+pub(crate) enum ProbeOutcome {
+    Suppress { decrypted: Option<Arc<wa::Message>> },
+    Proceed { decrypted: Option<Arc<wa::Message>> },
+}
+
+impl PublicationGuard {
+    fn owner(&mut self) -> Arc<AtomicU8> {
+        Arc::clone(
+            self.owner
+                .get_or_insert_with(|| Arc::new(AtomicU8::new(PUBLICATION_PENDING))),
+        )
+    }
+
+    pub(crate) fn complete(mut self) {
+        if let Some(owner) = self.owner.take() {
+            owner.store(PUBLICATION_COMPLETE, Ordering::Release);
+        }
+    }
+}
+
+impl Drop for PublicationGuard {
+    fn drop(&mut self) {
+        if let Some(owner) = &self.owner {
+            // Only slots still carrying this token become invalid. A newer
+            // publisher can replace a pending slot without an ABA rollback.
+            owner.store(PUBLICATION_INTERRUPTED, Ordering::Release);
+        }
+    }
+}
+
+impl DispatchClaim {
+    fn prune(&mut self) {
+        self.payloads.retain(|payload| {
+            payload.publication.load(Ordering::Acquire) != PUBLICATION_INTERRUPTED
+        });
+    }
+
+    fn has_deliveries(&self) -> bool {
+        self.payloads
+            .iter()
+            .any(|payload| payload.publication.load(Ordering::Acquire) != PUBLICATION_INTERRUPTED)
+    }
+
+    fn has_recovery(&self) -> bool {
+        self.payloads.iter().any(|payload| {
+            payload.state != MessageDispatch::Decrypted
+                && payload.publication.load(Ordering::Acquire) != PUBLICATION_INTERRUPTED
+        })
+    }
+
+    fn state(&self, fingerprint: &DispatchFingerprint) -> Option<MessageDispatch> {
+        self.payloads
+            .iter()
+            .find(|payload| {
+                &payload.fingerprint == fingerprint
+                    && payload.publication.load(Ordering::Acquire) != PUBLICATION_INTERRUPTED
+            })
+            .map(|payload| payload.state)
+    }
+
+    fn admit(
+        &mut self,
+        fingerprint: DispatchFingerprint,
+        pdo: bool,
+        hook_committed: bool,
+        producer: Option<DispatchKey>,
+        publication: &mut PublicationGuard,
+    ) -> bool {
+        if let Some(payload) = self.payloads.iter_mut().find(|payload| {
+            payload.fingerprint == fingerprint
+                && payload.publication.load(Ordering::Acquire) != PUBLICATION_INTERRUPTED
+        }) {
+            // Suppress on a live match, including an in-flight one. The only
+            // way it can still roll back is a concurrent panic: this region
+            // runs no awaits between admission and completion, so cancellation
+            // cannot land inside it. Delivering instead would re-enter a
+            // blocked callback on every overlap and break the progress
+            // contract pinned by
+            // `pdo_retry_blocked_recovery_callback_admits_no_duplicate`.
+            // A rolled-back publication stays observable: its token flips to
+            // INTERRUPTED, which the find above skips, so the next redelivery
+            // after the rollback is admitted fresh.
+            if pdo {
+                return true;
+            }
+            if payload.state != MessageDispatch::Decrypted {
+                if hook_committed {
+                    payload.state = MessageDispatch::RecoveredCommitted;
+                }
+                return true;
+            }
+            payload.hook_committed |= hook_committed;
+            payload.producer = producer.or(payload.producer);
+            // Ordinary multipart dispatches still fan out. Retained-row cleanup
+            // replay separately checks completed hook publication before admission.
+            // Keep a completed claim, but let a new publisher own a pending one.
+            if payload.publication.load(Ordering::Acquire) != PUBLICATION_COMPLETE {
+                payload.publication = publication.owner();
+            }
+            return false;
+        }
+        if self.payloads.len() < MAX_DISPATCH_PAYLOADS {
+            self.payloads.push(DispatchPayload {
+                fingerprint,
+                hook_committed,
+                producer,
+                state: if pdo {
+                    MessageDispatch::Recovered
+                } else {
+                    MessageDispatch::Decrypted
+                },
+                publication: publication.owner(),
+            });
+        }
+        // Overflow stays unclaimed, never silently discards another payload.
+        false
+    }
+}
+
+// Rare-path callers (PDO recovery, duplicate probes) share one encode buffer
+// per thread instead of allocating a message-sized `Vec` per call. Borrowed
+// synchronously only, never held across an await. Capacity stays bounded: one
+// huge message must not pin a huge buffer on the worker for the rest of the
+// process.
+const MAX_FINGERPRINT_SCRATCH_BYTES: usize = 64 * 1024;
+
+std::thread_local! {
+    static FINGERPRINT_SCRATCH: std::cell::RefCell<Vec<u8>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// One publication token allocation: the value plus the strong and weak
+/// counts. Allocator rounding above that is not counted, the same floor the
+/// table accounting in `hash_table_bytes` uses.
+const TOKEN_ALLOC_BYTES: usize = 2 * size_of::<usize>() + size_of::<AtomicU8>();
+
+impl wacore::stats::HeapSize for DispatchClaim {
+    /// Heap retained beside the table slot: spilled payloads at their
+    /// allocated capacity and one token allocation per payload. The inline
+    /// SmallVec slot and the alias identity live in the slot itself and are
+    /// charged with the table.
+    fn heap_bytes(&self) -> usize {
+        let mut bytes = 0;
+        if self.payloads.spilled() {
+            bytes += self.payloads.capacity() * size_of::<DispatchPayload>();
+        }
+        bytes += self.payloads.len() * TOKEN_ALLOC_BYTES;
+        bytes
+    }
+}
+
+impl MessageDispatch {
+    // One `Vec<u8>` sink only: `message_to_vec`/`message_encode_into` already
+    // stamp the `Message` encode tree once. A second sink type stamps it again
+    // (measured +284 KiB .text); see the pinning note on `message_encode_into`.
+    #[inline(never)]
+    pub(crate) fn fingerprint(message: &wa::Message) -> DispatchFingerprint {
+        FINGERPRINT_SCRATCH.with(|scratch| {
+            let mut scratch = scratch.borrow_mut();
+            let fingerprint = Self::fingerprint_into(message, &mut scratch);
+            if scratch.capacity() > MAX_FINGERPRINT_SCRATCH_BYTES {
+                scratch.clear();
+                scratch.shrink_to(MAX_FINGERPRINT_SCRATCH_BYTES);
+            }
+            fingerprint
+        })
+    }
+
+    #[inline(never)]
+    pub(crate) fn fingerprint_into(
+        message: &wa::Message,
+        scratch: &mut Vec<u8>,
+    ) -> DispatchFingerprint {
+        scratch.clear();
+        waproto::codec::message_encode_into(message, scratch);
+        Self::fingerprint_encoded(scratch, message.sender_key_distribution_message.is_set())
+    }
+
+    /// SKDM is a protocol carrier, processed before dispatch admission: adding
+    /// it to a pairwise group resend must not publish the same user payload
+    /// again after PDO. Exclude only that top-level field, without changing the
+    /// event or persisted bytes. Context, wrappers and the legacy fast-ratchet
+    /// field remain significant; their recovery equivalence is not established.
+    /// Reuse the existing encoding rather than cloning Message or instantiating
+    /// another protobuf sink (the latter costs an entire encode tree).
+    #[inline(never)]
+    pub(crate) fn fingerprint_encoded(encoded: &[u8], has_skdm: bool) -> DispatchFingerprint {
+        use buffa::encoding::{Tag, WireType, skip_field_depth};
+        use sha2::{Digest, Sha256};
+        if !has_skdm {
+            return Self::truncate(Sha256::digest(encoded).into());
+        }
+        let mut digest = Sha256::new();
+        let mut remaining = encoded;
+        while !remaining.is_empty() {
+            let field = remaining;
+            let Ok(tag) = Tag::decode(&mut remaining) else {
+                return Self::truncate(Sha256::digest(encoded).into());
+            };
+            if skip_field_depth(tag, &mut remaining, buffa::RECURSION_LIMIT).is_err() {
+                // A malformed encoding cannot justify discarding bytes.
+                return Self::truncate(Sha256::digest(encoded).into());
+            }
+            if tag.field_number() != waproto::tags::message::SENDER_KEY_DISTRIBUTION_MESSAGE
+                || tag.wire_type() != WireType::LengthDelimited
+            {
+                digest.update(&field[..field.len() - remaining.len()]);
+            }
+        }
+        Self::truncate(digest.finalize().into())
+    }
+
+    /// The retained prefix of a full digest, for a caller that already hashed
+    /// the encoded bytes it was writing anyway.
+    pub(crate) fn truncate(digest: [u8; 32]) -> DispatchFingerprint {
+        const LEN: usize = size_of::<DispatchFingerprint>();
+        let mut fingerprint = [0u8; LEN];
+        fingerprint.copy_from_slice(&digest[..LEN]);
+        fingerprint
+    }
+}
+
+const INBOUND_COMMIT_PENDING: u8 = 0;
+const INBOUND_COMMIT_DURABLE: u8 = 1;
+const INBOUND_COMMIT_DROPPED: u8 = 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InboundCommitTicketState {
+    Pending,
+    Durable,
+    Dropped,
+}
+
+#[derive(Clone)]
+pub(crate) struct InboundCommitTicket(Arc<AtomicU8>);
+
+impl InboundCommitTicket {
+    fn new() -> Self {
+        Self(Arc::new(AtomicU8::new(INBOUND_COMMIT_PENDING)))
+    }
+
+    fn state(&self) -> InboundCommitTicketState {
+        match self.0.load(Ordering::Acquire) {
+            INBOUND_COMMIT_DURABLE => InboundCommitTicketState::Durable,
+            INBOUND_COMMIT_DROPPED => InboundCommitTicketState::Dropped,
+            _ => InboundCommitTicketState::Pending,
+        }
+    }
+
+    fn resolve(&self, state: u8) {
+        let _ = self.0.compare_exchange(
+            INBOUND_COMMIT_PENDING,
+            state,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    fn mark_durable(&self) {
+        self.resolve(INBOUND_COMMIT_DURABLE);
+    }
+
+    fn mark_dropped(&self) {
+        self.resolve(INBOUND_COMMIT_DROPPED);
+    }
+}
+
+pub(crate) enum InboundCommitState {
+    Durable,
+    /// The row is stored, but the consumer hook has not accepted it yet.
+    Buffered,
+    Deferred(Option<InboundCommitTicket>),
+    Failed,
+}
+
+/// A decrypted session plaintext buffered during the locked decrypt loop and
+/// handled after the per-sender session lock is released.
+struct DeferredPlaintext {
+    enc_type: &'static str,
+    plaintext: bytes::Bytes,
+    padding_version: u8,
+    /// Which `<enc>` in the stanza produced this — [`EncPayload::enc_index`],
+    /// carried through because the buffer drains after the decrypt loop.
+    enc_index: usize,
+    state: Option<String>,
+    session_type: Option<String>,
+}
+
+fn should_process_skmsg_after_session(
+    session_payloads_empty: bool,
+    session_outcome: SessionBatchOutcome,
+) -> bool {
+    session_payloads_empty
+        || (!session_outcome.had_failure
+            && (session_outcome.decrypted || session_outcome.duplicate))
+}
+
+fn should_ack_skdm_only_session_fallback(
+    session_outcome: SessionBatchOutcome,
+    bot_payloads_empty: bool,
+) -> bool {
+    session_outcome.decrypted
+        && session_outcome.skdm_only
+        && !session_outcome.dispatched
+        && !session_outcome.had_failure
+        && !session_outcome.plaintext_failed
+        && !session_outcome.undecryptable
+        && bot_payloads_empty
+}
+
+/// Retry count threshold for logging high retry warnings.
+/// WhatsApp Web logs metrics when retry count exceeds this value.
+const HIGH_RETRY_COUNT_THRESHOLD: u8 = 3;
+
+/// `decrypt-fail="hide"` failures are expected (addon/fan-out), so log them at
+/// DEBUG to avoid WARN spam. Mode never changes control flow: retry + ack still
+/// fire (WA Web retries regardless of `hide`).
+fn decrypt_fail_log_level(mode: crate::types::events::DecryptFailMode) -> log::Level {
+    match mode {
+        crate::types::events::DecryptFailMode::Hide => log::Level::Debug,
+        crate::types::events::DecryptFailMode::Show => log::Level::Warn,
+    }
+}
+
+/// Errors libsignal raises while turning bytes into a message of their declared
+/// type: too short to hold the signature, a version this build predates or does
+/// not know, or a body that is not the protobuf it claims. No key material is
+/// used to reach any of them.
+///
+/// Shared by the session and group arms so one libsignal error cannot be
+/// reported as a malformed envelope on one path and an unclassified failure on
+/// the other. `UnrecognizedMessageVersion` is deliberately absent: it is the
+/// *state* mismatch `group_decrypt` raises after parsing, not a parse failure —
+/// `UnrecognizedCiphertextVersion` is that one.
+fn is_malformed_envelope_error(e: &SignalProtocolError) -> bool {
+    matches!(
+        e,
+        SignalProtocolError::CiphertextMessageTooShort(_)
+            | SignalProtocolError::LegacyCiphertextVersion(_)
+            | SignalProtocolError::UnrecognizedCiphertextVersion(_)
+            | SignalProtocolError::InvalidProtobufEncoding
+    )
+}
+
+/// Cause reported for a libsignal error the decrypt arms do not name themselves.
+///
+/// Shared by the session catch-all and the group arm so the same error cannot be
+/// classified two ways. `BackendError` is local storage failing to answer — the
+/// store adapter wraps every backend error in it — and not the ciphertext
+/// failing: reporting it as a cryptographic error would blame the peer for our
+/// own disk, and corrupt any per-peer health signal built on this event.
+fn signal_error_reason(e: &SignalProtocolError) -> EncDecryptFailureReason {
+    if is_malformed_envelope_error(e) {
+        EncDecryptFailureReason::MalformedCiphertext
+    } else if matches!(e, SignalProtocolError::BackendError(_, _)) {
+        EncDecryptFailureReason::StorageFailure
+    } else if matches!(e, SignalProtocolError::KeyAgreementFailed(_)) {
+        // "the active crypto provider failed the key agreement" — our provider,
+        // not the sender's bytes, which were never judged.
+        EncDecryptFailureReason::LocalCryptoFailure
+    } else if e.is_stored_session_corruption() {
+        // A stored `SessionRecord` that decoded and then would not yield usable
+        // state. The predicate lives in libsignal because the distinction is
+        // drawn on `InvalidSessionStructure`'s message, and only the crate that
+        // writes those messages can keep the two in step.
+        EncDecryptFailureReason::StorageFailure
+    } else if matches!(e, SignalProtocolError::InvalidSenderKeySession) {
+        // A sender-key record that loaded but does not hold usable state: no
+        // chain key, a signing key that will not parse, or a chain whose derived
+        // key/IV the cipher rejects. Every site `group_decrypt` can reach it
+        // from is reading our stored record, which is why libsignal's own log
+        // there says the state is corrupt. The peer's copy is judged by
+        // `SignatureValidationFailed` and `InvalidMessage` instead.
+        EncDecryptFailureReason::StorageFailure
+    } else if matches!(e, SignalProtocolError::UnrecognizedMessageVersion(_)) {
+        // The group arm reaches this one through `group_decrypt_retry_reason`
+        // and calls it an invalid message. Naming it here too keeps a session
+        // `<enc>` and an `skmsg` from reporting the same rejection differently.
+        EncDecryptFailureReason::InvalidMessage
+    } else {
+        EncDecryptFailureReason::SignalError
+    }
+}
+
+/// Cause for a terminal error on the 1:1 session path, matching what the arms
+/// of `process_session_enc_batch` report for the same libsignal errors.
+///
+/// Used where an error reaches a reporting site that has no arm of its own —
+/// the PN→LID migration's retry decrypt — so a migrated session that then fails
+/// a MAC is not reported under the error that opened the migration.
+fn session_error_reason(e: &SignalProtocolError) -> EncDecryptFailureReason {
+    match e {
+        SignalProtocolError::SessionNotFound(_) => EncDecryptFailureReason::NoSession,
+        SignalProtocolError::BadMac(_) => EncDecryptFailureReason::BadMac,
+        SignalProtocolError::InvalidMessage(_, _) => EncDecryptFailureReason::InvalidMessage,
+        SignalProtocolError::InvalidPreKeyId | SignalProtocolError::InvalidSignedPreKeyId => {
+            EncDecryptFailureReason::UnknownPreKey
+        }
+        SignalProtocolError::UntrustedIdentity(_) => EncDecryptFailureReason::UntrustedIdentity,
+        other => signal_error_reason(other),
+    }
+}
+
+/// WA Web treats every `SignalDecryptionError` as `SignalRetryable`, so a
+/// sender-key desync must request a resend rather than NACK (which stops the
+/// server retransmitting). `None` = keep the NACK (genuinely non-Signal error).
+fn group_decrypt_retry_reason(e: &SignalProtocolError) -> Option<RetryReason> {
+    match e {
+        SignalProtocolError::SignatureValidationFailed => Some(RetryReason::InvalidSignature),
+        SignalProtocolError::InvalidSenderKeySession => Some(RetryReason::InvalidSession),
+        SignalProtocolError::UnrecognizedMessageVersion(_) => Some(RetryReason::InvalidMessage),
+        SignalProtocolError::InvalidMessage(_, _) => Some(RetryReason::InvalidMessage),
+        _ => None,
+    }
+}
+
+pub(crate) use wacore::protocol::retry::RetryReason;
+
+pub(crate) mod commit_batch;
+mod dispatch;
+mod durability;
+mod live_retention;
+mod msg_secret;
+mod raw_pending;
+mod receive;
+mod retry;
+mod special;
+
+/// Unwraps a `DeviceSentMessage` wrapper, returning the inner message with
+/// merged `message_context_info`.
+///
+/// Self-sent messages synced from the primary device arrive with the actual
+/// content (reactions, text, etc.) nested inside `device_sent_message.message`.
+/// This extracts the inner message when present, merges `MessageContextInfo`
+/// from outer and inner following WhatsApp Web's
+/// `WAWebDeviceSentMessageProtoUtils.unwrapDeviceSentMessage` logic, or returns
+/// the original message unchanged when there is no wrapper or the wrapper has
+/// no inner message.
+/// Re-export from wacore for backwards compatibility (used by tests via `super::*`).
+#[cfg(test)]
+fn unwrap_device_sent(msg: wa::Message) -> wa::Message {
+    wacore::messages::unwrap_device_sent(msg)
+}
+
+/// Re-export from wacore for backwards compatibility (used by tests via `super::*`).
+#[cfg(test)]
+fn is_sender_key_distribution_only(msg: &mut wa::Message) -> bool {
+    wacore::messages::is_sender_key_distribution_only(msg)
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod history_durability_tests;

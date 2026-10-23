@@ -1,0 +1,2219 @@
+//! Reporting Token Implementation for WhatsApp
+//!
+//! Reporting tokens are a privacy-preserving mechanism that allows users to report
+//! spam/abuse messages to WhatsApp while maintaining end-to-end encryption.
+//!
+//! ## Protocol Overview
+//!
+//! 1. **Message Secret**: A 32-byte random value stored in MessageContextInfo
+//! 2. **Reporting Token Key**: Derived using HKDF from the message secret
+//! 3. **Reporting Token Content**: Extracted whitelisted protobuf fields from the message
+//! 4. **Reporting Token**: HMAC-SHA256 of the content, truncated to 16 bytes
+//!
+//! ## Protobuf Field Extraction
+//!
+//! The content is NOT random bytes - it's the encoded protobuf bytes of specific
+//! whitelisted fields from the message. This allows WhatsApp to verify the token
+//! without seeing the full message content. Only specific fields are extracted
+//! based on a predefined whitelist matching WhatsApp Web behavior.
+
+use smallvec::SmallVec;
+use std::{fmt, sync::LazyLock};
+
+use anyhow::{Result, anyhow};
+use hkdf::Hkdf;
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::Sha256;
+use wacore_binary::Jid;
+use wacore_binary::Node;
+use wacore_binary::builder::NodeBuilder;
+use waproto::whatsapp as wa;
+
+/// Wire type constants for protobuf parsing
+mod wire_type {
+    pub const VARINT: u32 = 0;
+    pub const FIXED64: u32 = 1;
+    pub const LENGTH_DELIMITED: u32 = 2;
+    pub const FIXED32: u32 = 5;
+}
+
+/// Reporting field definition for protobuf extraction whitelist.
+///
+/// This struct defines which protobuf fields should be extracted for the
+/// reporting token content. Fields can have subfields for nested messages,
+/// or be marked as recursive messages that use the top-level whitelist.
+#[derive(Debug, Clone, Copy)]
+pub struct ReportingField {
+    /// The protobuf field number to match
+    pub field_number: u32,
+    /// Optional subfields for nested message extraction
+    pub subfields: Option<&'static [ReportingField]>,
+    /// If true, recursively extract using top-level REPORTING_FIELDS whitelist
+    pub is_message: bool,
+}
+
+impl ReportingField {
+    /// Create a new simple field (extract whole field as-is)
+    pub const fn new(field_number: u32) -> Self {
+        Self {
+            field_number,
+            subfields: None,
+            is_message: false,
+        }
+    }
+
+    /// Create a field with specific subfields to extract
+    pub const fn with_subfields(field_number: u32, subfields: &'static [ReportingField]) -> Self {
+        Self {
+            field_number,
+            subfields: Some(subfields),
+            is_message: false,
+        }
+    }
+
+    /// Create a field that recursively uses top-level whitelist (for FutureProofMessage wrappers)
+    pub const fn message(field_number: u32) -> Self {
+        Self {
+            field_number,
+            subfields: None,
+            is_message: true,
+        }
+    }
+}
+
+/// ContextInfo subfields: only extract forwardingScore (21) and isForwarded (22)
+static CONTEXT_INFO_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(21), // forwardingScore
+    ReportingField::new(22), // isForwarded
+];
+
+/// FutureProofMessage wrapper: recursively extract inner message (field 1)
+/// Used by viewOnceMessage, docWithCaption, editedMessage, etc.
+static FUTURE_PROOF_SUBFIELDS: &[ReportingField] = &[ReportingField::message(1)];
+
+/// ImageMessage subfields (field 3)
+static IMAGE_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(2),                                     // mimetype
+    ReportingField::new(3),                                     // caption
+    ReportingField::new(8),                                     // height
+    ReportingField::new(11),                                    // width
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::new(25),                                    // fileLength (as int)
+];
+
+/// ContactMessage subfields (field 4)
+static CONTACT_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1),                                     // displayName
+    ReportingField::new(16),                                    // vcard
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+];
+
+/// LocationMessage subfields (field 5)
+static LOCATION_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(3),                                     // name
+    ReportingField::new(4),                                     // address
+    ReportingField::new(5),                                     // url
+    ReportingField::new(16),                                    // comment
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+];
+
+/// ExtendedTextMessage subfields (field 6)
+static EXTENDED_TEXT_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1),                                     // text
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::new(30),                                    // inviteLinkGroupType
+];
+
+/// DocumentMessage subfields (field 7)
+static DOCUMENT_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(2),                                     // mimetype
+    ReportingField::new(7),                                     // caption
+    ReportingField::new(10),                                    // pageCount
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::new(20),                                    // fileName
+];
+
+/// AudioMessage subfields (field 8)
+static AUDIO_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(2),                                     // mimetype
+    ReportingField::new(7),                                     // seconds
+    ReportingField::new(9),                                     // ptt
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::new(21),                                    // waveform
+];
+
+/// VideoMessage subfields (field 9)
+static VIDEO_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(2),                                     // mimetype
+    ReportingField::new(6),                                     // caption
+    ReportingField::new(7),                                     // seconds
+    ReportingField::new(13),                                    // gifPlayback
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::new(20),                                    // height
+];
+
+/// ProtocolMessage subfields (field 12)
+static PROTOCOL_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1),      // key
+    ReportingField::new(2),      // type
+    ReportingField::message(14), // editedMessage (recursive)
+    ReportingField::new(15),     // timestampMs
+];
+
+/// LiveLocationMessage subfields (field 18)
+static LIVE_LOCATION_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(6),                                     // caption
+    ReportingField::new(16),                                    // comment
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+];
+
+/// StickerMessage subfields (field 26)
+static STICKER_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(4),                                     // mimetype
+    ReportingField::new(5),                                     // height
+    ReportingField::new(8),                                     // width
+    ReportingField::new(13),                                    // isAnimated
+    ReportingField::with_subfields(17, CONTEXT_INFO_SUBFIELDS), // contextInfo
+];
+
+/// GroupInviteMessage subfields (field 28)
+static GROUP_INVITE_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1),                                    // groupJid
+    ReportingField::new(2),                                    // inviteCode
+    ReportingField::new(4),                                    // groupName
+    ReportingField::new(5),                                    // caption
+    ReportingField::new(6),                                    // groupSubject (unknown purpose)
+    ReportingField::with_subfields(7, CONTEXT_INFO_SUBFIELDS), // contextInfo (at field 7 here)
+];
+
+/// `Option` (poll option) subfields
+static POLL_OPTION_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1), // optionName
+    ReportingField::new(2), // optionValue
+];
+
+/// PollCreationMessage subfields (fields 49, 60, 64)
+static POLL_CREATION_MESSAGE_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(2),                                    // name
+    ReportingField::with_subfields(3, POLL_OPTION_SUBFIELDS),  // options
+    ReportingField::with_subfields(5, CONTEXT_INFO_SUBFIELDS), // contextInfo
+    ReportingField::with_subfields(8, POLL_OPTION_SUBFIELDS),  // additionalOptions
+];
+
+/// PollResult subfields (field 88)
+static POLL_RESULT_OPTION_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1), // optionName
+];
+
+static POLL_RESULT_SUBFIELDS: &[ReportingField] = &[
+    ReportingField::new(1),                                          // pollType
+    ReportingField::with_subfields(2, POLL_RESULT_OPTION_SUBFIELDS), // results
+    ReportingField::with_subfields(3, CONTEXT_INFO_SUBFIELDS),       // contextInfo
+];
+
+/// Whitelist of message fields to extract for reporting token content.
+pub static REPORTING_FIELDS: &[ReportingField] = &[
+    ReportingField::new(1),                                        // conversation
+    ReportingField::with_subfields(3, IMAGE_MESSAGE_SUBFIELDS),    // imageMessage
+    ReportingField::with_subfields(4, CONTACT_MESSAGE_SUBFIELDS),  // contactMessage
+    ReportingField::with_subfields(5, LOCATION_MESSAGE_SUBFIELDS), // locationMessage
+    ReportingField::with_subfields(6, EXTENDED_TEXT_MESSAGE_SUBFIELDS), // extendedTextMessage
+    ReportingField::with_subfields(7, DOCUMENT_MESSAGE_SUBFIELDS), // documentMessage
+    ReportingField::with_subfields(8, AUDIO_MESSAGE_SUBFIELDS),    // audioMessage
+    ReportingField::with_subfields(9, VIDEO_MESSAGE_SUBFIELDS),    // videoMessage
+    ReportingField::with_subfields(12, PROTOCOL_MESSAGE_SUBFIELDS), // protocolMessage
+    ReportingField::with_subfields(18, LIVE_LOCATION_MESSAGE_SUBFIELDS), // liveLocationMessage
+    ReportingField::with_subfields(26, STICKER_MESSAGE_SUBFIELDS), // stickerMessage
+    ReportingField::with_subfields(28, GROUP_INVITE_MESSAGE_SUBFIELDS), // groupInviteMessage
+    ReportingField::with_subfields(37, FUTURE_PROOF_SUBFIELDS),    // viewOnceMessage
+    ReportingField::with_subfields(49, POLL_CREATION_MESSAGE_SUBFIELDS), // pollCreationMessage
+    ReportingField::with_subfields(53, FUTURE_PROOF_SUBFIELDS),    // docWithCaptionMessage
+    ReportingField::with_subfields(55, FUTURE_PROOF_SUBFIELDS),    // viewOnceMessageV2
+    ReportingField::with_subfields(58, FUTURE_PROOF_SUBFIELDS),    // editedMessage
+    ReportingField::with_subfields(59, FUTURE_PROOF_SUBFIELDS),    // viewOnceMessageV2Extension
+    ReportingField::with_subfields(60, POLL_CREATION_MESSAGE_SUBFIELDS), // pollCreationMessageV2
+    ReportingField::with_subfields(64, POLL_CREATION_MESSAGE_SUBFIELDS), // pollCreationMessageV3
+    ReportingField::with_subfields(66, VIDEO_MESSAGE_SUBFIELDS),   // ptvMessage
+    ReportingField::with_subfields(74, FUTURE_PROOF_SUBFIELDS),    // lottieStickerMessage
+    ReportingField::with_subfields(87, FUTURE_PROOF_SUBFIELDS),    // statusMentionMessage
+    ReportingField::with_subfields(88, POLL_RESULT_SUBFIELDS),     // pollResultMessage
+    ReportingField::with_subfields(92, FUTURE_PROOF_SUBFIELDS),    // groupStatusMentionMessage
+    ReportingField::with_subfields(93, FUTURE_PROOF_SUBFIELDS),    // pollCreationMessageV4
+    ReportingField::with_subfields(94, FUTURE_PROOF_SUBFIELDS),    // future message type
+];
+
+/// Current reporting token version
+pub const REPORTING_TOKEN_VERSION: i32 = 2;
+
+/// Size of the message secret in bytes
+pub const MESSAGE_SECRET_SIZE: usize = 32;
+
+/// Size of the reporting token key in bytes
+pub const REPORTING_TOKEN_KEY_SIZE: usize = 32;
+
+/// Size of the final reporting token in bytes
+pub const REPORTING_TOKEN_SIZE: usize = 16;
+
+/// UseCaseSecretModificationType for report token derivation.
+/// This string is appended to the HKDF info as per WhatsApp Web implementation.
+const USE_CASE_REPORT_TOKEN: &str = "Report Token";
+
+/// Keeps the normal reporting-token info (`stanza || sender || remote || use-case`)
+/// on the stack. This is a performance threshold, not a protocol limit: longer
+/// inputs transparently use a heap buffer with room for subsequent formatter
+/// writes.
+const REPORTING_TOKEN_INFO_INLINE_CAPACITY: usize = 128;
+
+enum ReportingTokenInfo {
+    Inline {
+        bytes: [u8; REPORTING_TOKEN_INFO_INLINE_CAPACITY],
+        len: usize,
+    },
+    Heap(Vec<u8>),
+}
+
+impl ReportingTokenInfo {
+    fn with_capacity(capacity: usize) -> Self {
+        if capacity <= REPORTING_TOKEN_INFO_INLINE_CAPACITY {
+            Self::Inline {
+                bytes: [0; REPORTING_TOKEN_INFO_INLINE_CAPACITY],
+                len: 0,
+            }
+        } else {
+            Self::Heap(Vec::with_capacity(capacity))
+        }
+    }
+
+    fn extend_from_slice(&mut self, value: &[u8]) {
+        match self {
+            Self::Inline { bytes, len } => {
+                let end = *len + value.len();
+                if end <= bytes.len() {
+                    bytes[*len..end].copy_from_slice(value);
+                    *len = end;
+                    return;
+                }
+
+                // JIDs are emitted in multiple `fmt::Write` calls. Keep one
+                // inline buffer's worth of spare capacity so promotion does not
+                // immediately reallocate on the remaining JID/use-case writes.
+                let mut heap = Vec::with_capacity(end + REPORTING_TOKEN_INFO_INLINE_CAPACITY);
+                heap.extend_from_slice(&bytes[..*len]);
+                heap.extend_from_slice(value);
+                *self = Self::Heap(heap);
+            }
+            Self::Heap(bytes) => bytes.extend_from_slice(value),
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Inline { bytes, len } => &bytes[..*len],
+            Self::Heap(bytes) => bytes,
+        }
+    }
+}
+
+impl fmt::Write for ReportingTokenInfo {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        self.extend_from_slice(value.as_bytes());
+        Ok(())
+    }
+}
+
+/// HKDF-Extract with no salt is `HMAC-SHA256(zero_block, ikm)`, so the zero-key
+/// ipad/opad schedule is constant across every send. Cache it once and clone per
+/// derivation instead of re-running `Hkdf::new(None, ..)`'s two compressions each
+/// time. Same trick as the libsignal message-key extract and the appstate ltHash.
+static REPORTING_TOKEN_EXTRACT_HMAC: LazyLock<Hmac<Sha256>> =
+    LazyLock::new(|| Hmac::<Sha256>::new_from_slice(&[0u8; 32]).expect("32-byte HMAC key"));
+
+/// Generate a random message secret (32 bytes)
+pub fn generate_message_secret() -> [u8; MESSAGE_SECRET_SIZE] {
+    use rand::RngExt;
+    // Pull straight from the thread RNG (an auto-reseeding CSPRNG) rather than
+    // seeding a fresh StdRng per call; the discarded per-send ChaCha reseed
+    // showed up as ~16% of the small-message send-token cost in the flamegraph.
+    rand::rng().random()
+}
+
+/// Build the HKDF info bytes for reporting token key derivation.
+///
+/// The info is constructed as: stanza_id || sender_jid || remote_jid || "Report Token"
+/// This matches WhatsApp Web's Binary.build(stanzaId, senderJid, remoteJid, REPORT_TOKEN)
+fn build_hkdf_info_with(
+    stanza_id: &str,
+    sender_len: usize,
+    remote_len: usize,
+    write_jids: impl FnOnce(&mut ReportingTokenInfo) -> fmt::Result,
+) -> Result<ReportingTokenInfo> {
+    let capacity = stanza_id
+        .len()
+        .checked_add(sender_len)
+        .and_then(|len| len.checked_add(remote_len))
+        .and_then(|len| len.checked_add(USE_CASE_REPORT_TOKEN.len()))
+        .ok_or_else(|| anyhow!("Reporting token HKDF info length overflow"))?;
+
+    let mut info = ReportingTokenInfo::with_capacity(capacity);
+    info.extend_from_slice(stanza_id.as_bytes());
+    write_jids(&mut info).map_err(|_| anyhow!("Failed to format reporting token JIDs"))?;
+    info.extend_from_slice(USE_CASE_REPORT_TOKEN.as_bytes());
+    Ok(info)
+}
+
+fn build_hkdf_info(
+    stanza_id: &str,
+    sender_jid: &str,
+    remote_jid: &str,
+) -> Result<ReportingTokenInfo> {
+    build_hkdf_info_with(stanza_id, sender_jid.len(), remote_jid.len(), |info| {
+        info.extend_from_slice(sender_jid.as_bytes());
+        info.extend_from_slice(remote_jid.as_bytes());
+        Ok(())
+    })
+}
+
+fn build_hkdf_info_for_jids(
+    stanza_id: &str,
+    sender_jid: &Jid,
+    remote_jid: &Jid,
+) -> Result<ReportingTokenInfo> {
+    // Start inline and let the infallible writer promote only unusually long
+    // protocol inputs. Avoiding a separate sizing pass formats each JID once.
+    build_hkdf_info_with(stanza_id, 0, 0, |info| {
+        sender_jid.write_display_to(info)?;
+        remote_jid.write_display_to(info)
+    })
+}
+
+fn validate_message_secret(message_secret: &[u8]) -> Result<()> {
+    if message_secret.len() == MESSAGE_SECRET_SIZE {
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "Invalid message secret size: expected {}, got {}",
+        MESSAGE_SECRET_SIZE,
+        message_secret.len()
+    ))
+}
+
+fn derive_reporting_token_key_from_info(
+    message_secret: &[u8],
+    info: &[u8],
+) -> Result<[u8; REPORTING_TOKEN_KEY_SIZE]> {
+    // No-salt extract via the cached zero-keyed HMAC; output is byte-identical to
+    // `Hkdf::new(None, message_secret)` but skips the constant ipad/opad schedule.
+    let mut extract = REPORTING_TOKEN_EXTRACT_HMAC.clone();
+    extract.update(message_secret);
+    let prk = extract.finalize().into_bytes();
+    let mut key = [0u8; REPORTING_TOKEN_KEY_SIZE];
+    Hkdf::<Sha256>::from_prk(&prk)
+        .expect("PRK is hash-sized")
+        .expand(info, &mut key)
+        .map_err(|e| anyhow!("HKDF expand failed: {}", e))?;
+
+    Ok(key)
+}
+
+/// Derive the reporting token key from the message secret using HKDF.
+///
+/// # Arguments
+/// * `message_secret` - The 32-byte message secret
+/// * `stanza_id` - The message stanza ID
+/// * `sender_jid` - The sender's JID string
+/// * `remote_jid` - The recipient's JID string
+///
+/// # Returns
+/// A 32-byte reporting token key
+pub fn derive_reporting_token_key(
+    message_secret: &[u8],
+    stanza_id: &str,
+    sender_jid: &str,
+    remote_jid: &str,
+) -> Result<[u8; REPORTING_TOKEN_KEY_SIZE]> {
+    validate_message_secret(message_secret)?;
+    let info = build_hkdf_info(stanza_id, sender_jid, remote_jid)?;
+    derive_reporting_token_key_from_info(message_secret, info.as_bytes())
+}
+
+fn derive_reporting_token_key_for_jids(
+    message_secret: &[u8],
+    stanza_id: &str,
+    sender_jid: &Jid,
+    remote_jid: &Jid,
+) -> Result<[u8; REPORTING_TOKEN_KEY_SIZE]> {
+    validate_message_secret(message_secret)?;
+    let info = build_hkdf_info_for_jids(stanza_id, sender_jid, remote_jid)?;
+    derive_reporting_token_key_from_info(message_secret, info.as_bytes())
+}
+
+/// Decode a varint from a byte slice.
+/// Returns the decoded value and the number of bytes consumed.
+fn decode_varint(data: &[u8]) -> Option<(u64, usize)> {
+    let mut value: u64 = 0;
+    let mut shift = 0;
+
+    for (i, &byte) in data.iter().enumerate() {
+        value |= ((byte & 0x7F) as u64) << shift;
+        if byte & 0x80 == 0 {
+            return Some((value, i + 1));
+        }
+        shift += 7;
+        if shift > 63 {
+            return None;
+        }
+    }
+    None
+}
+
+/// Maximum bytes needed for a varint (u64 needs at most 10 bytes)
+const MAX_VARINT_LEN: usize = 10;
+
+/// Encode a varint to a fixed-size stack buffer, returns the number of bytes written.
+/// This avoids heap allocation in the hot path.
+#[inline]
+fn encode_varint_to_buf(mut value: u64, buf: &mut [u8; MAX_VARINT_LEN]) -> usize {
+    let mut i = 0;
+    loop {
+        let mut byte = (value & 0x7F) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        buf[i] = byte;
+        i += 1;
+        if value == 0 {
+            break;
+        }
+    }
+    i
+}
+
+/// Encode a value as a varint (convenience wrapper that allocates).
+/// Used in tests for verification.
+#[cfg(test)]
+#[inline]
+fn encode_varint(value: u64) -> Vec<u8> {
+    let mut buf = [0u8; MAX_VARINT_LEN];
+    let len = encode_varint_to_buf(value, &mut buf);
+    buf[..len].to_vec()
+}
+
+/// One extracted field's bytes on the way to the token.
+///
+/// A field the token copies verbatim is named by its range in the input, so it
+/// is copied once, into the result. Only a nested field, whose content is
+/// re-framed under a fresh tag and length, has bytes of its own.
+enum Piece {
+    Borrowed(core::ops::Range<usize>),
+    Owned(Vec<u8>),
+}
+
+impl Piece {
+    fn len(&self) -> usize {
+        match self {
+            Piece::Borrowed(range) => range.len(),
+            Piece::Owned(bytes) => bytes.len(),
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Counts collector runs so a test can pin that generating a token parses
+    /// the message once. A nested field owns its bytes, so a second collection
+    /// is not just a second parse, it is a second set of buffers.
+    static COLLECT_CALLS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// The whitelisted pieces, in the order the token concatenates them.
+///
+/// Split out from [`extract_reporting_token_content`] so the HMAC can consume
+/// them directly: the token is `HMAC(key, concat(pieces))` and `Mac::update` is
+/// associative over its input, so feeding the pieces one by one gives the same
+/// bytes without building the concatenation at all.
+fn collect_reporting_token_pieces(
+    data: &[u8],
+    whitelist: &[ReportingField],
+) -> Option<SmallVec<[(u32, Piece); 4]>> {
+    #[cfg(test)]
+    COLLECT_CALLS.with(|c| c.set(c.get() + 1));
+
+    // The token's bytes are contract: fields are concatenated in ascending
+    // field-number order, ties in wire order (`sort_by_key` is stable). Only
+    // where the bytes come from changed -- a flat field is named by its range
+    // in the input, and the staging list is inline for the field counts a real
+    // message has.
+    let mut extracted: SmallVec<[(u32, Piece); 4]> = SmallVec::new();
+    let mut pos = 0;
+
+    while pos < data.len() {
+        // Read tag (field number + wire type)
+        let (tag, tag_len) = decode_varint(&data[pos..])?;
+        let field_number = (tag >> 3) as u32;
+        let wire_type = (tag & 0x7) as u32;
+        let field_start = pos;
+        pos += tag_len;
+
+        // Check bounds
+        if pos > data.len() {
+            break;
+        }
+
+        // Find whitelist entry for this field
+        let entry = whitelist.iter().find(|f| f.field_number == field_number);
+
+        match wire_type {
+            wire_type::VARINT => {
+                let (_, val_len) = decode_varint(&data[pos..])?;
+                pos += val_len;
+                if entry.is_some() {
+                    extracted.push((field_number, Piece::Borrowed(field_start..pos)));
+                }
+            }
+            wire_type::FIXED64 => {
+                if pos + 8 > data.len() {
+                    break;
+                }
+                pos += 8;
+                if entry.is_some() {
+                    extracted.push((field_number, Piece::Borrowed(field_start..pos)));
+                }
+            }
+            wire_type::FIXED32 => {
+                if pos + 4 > data.len() {
+                    break;
+                }
+                pos += 4;
+                if entry.is_some() {
+                    extracted.push((field_number, Piece::Borrowed(field_start..pos)));
+                }
+            }
+            wire_type::LENGTH_DELIMITED => {
+                let (len, len_size) = decode_varint(&data[pos..])?;
+                let value_start = pos + len_size;
+                let value_end = value_start + len as usize;
+
+                if value_end > data.len() {
+                    break;
+                }
+                pos = value_end;
+
+                if let Some(entry) = entry {
+                    if entry.is_message {
+                        if let Some(nested) = extract_reporting_token_content(
+                            &data[value_start..value_end],
+                            REPORTING_FIELDS,
+                        )
+                        .filter(|n| !n.is_empty())
+                        {
+                            let mut tag_buf = [0u8; MAX_VARINT_LEN];
+                            let tag_len = encode_varint_to_buf(tag, &mut tag_buf);
+                            let mut len_buf = [0u8; MAX_VARINT_LEN];
+                            let len_len = encode_varint_to_buf(nested.len() as u64, &mut len_buf);
+
+                            let mut field_bytes =
+                                Vec::with_capacity(tag_len + len_len + nested.len());
+                            field_bytes.extend_from_slice(&tag_buf[..tag_len]);
+                            field_bytes.extend_from_slice(&len_buf[..len_len]);
+                            field_bytes.extend(nested);
+                            extracted.push((field_number, Piece::Owned(field_bytes)));
+                        }
+                    } else if let Some(subfields) = entry.subfields {
+                        if let Some(nested) = extract_reporting_token_content(
+                            &data[value_start..value_end],
+                            subfields,
+                        )
+                        .filter(|n| !n.is_empty())
+                        {
+                            let mut tag_buf = [0u8; MAX_VARINT_LEN];
+                            let tag_len = encode_varint_to_buf(tag, &mut tag_buf);
+                            let mut len_buf = [0u8; MAX_VARINT_LEN];
+                            let len_len = encode_varint_to_buf(nested.len() as u64, &mut len_buf);
+
+                            let mut field_bytes =
+                                Vec::with_capacity(tag_len + len_len + nested.len());
+                            field_bytes.extend_from_slice(&tag_buf[..tag_len]);
+                            field_bytes.extend_from_slice(&len_buf[..len_len]);
+                            field_bytes.extend(nested);
+                            extracted.push((field_number, Piece::Owned(field_bytes)));
+                        }
+                    } else {
+                        extracted.push((field_number, Piece::Borrowed(field_start..pos)));
+                    }
+                }
+            }
+            _ => {
+                // Unknown wire type - skip this message
+                return None;
+            }
+        }
+    }
+
+    if extracted.is_empty() {
+        return None;
+    }
+
+    // The token's bytes are contract: ascending field number, ties in wire
+    // order, which `sort_by_key` preserves because it is stable.
+    extracted.sort_by_key(|(num, _)| *num);
+    Some(extracted)
+}
+
+/// Extract reporting token content from encoded protobuf message bytes.
+///
+/// Builds the concatenation. The send path does not need it: it feeds the
+/// pieces straight to the HMAC instead.
+pub fn extract_reporting_token_content(
+    data: &[u8],
+    whitelist: &[ReportingField],
+) -> Option<Vec<u8>> {
+    let pieces = collect_reporting_token_pieces(data, whitelist)?;
+
+    let total_len: usize = pieces.iter().map(|(_, piece)| piece.len()).sum();
+    let mut result = Vec::with_capacity(total_len);
+    for (_, piece) in pieces {
+        match piece {
+            Piece::Borrowed(range) => result.extend_from_slice(&data[range]),
+            Piece::Owned(bytes) => result.extend_from_slice(&bytes),
+        }
+    }
+    // The reservation is only worth making if it matches what was written; an
+    // understated `Piece::len` would reallocate here and go unnoticed
+    // otherwise. Checked rather than asserted on capacity, which the allocator
+    // is free to round up.
+    debug_assert_eq!(
+        result.len(),
+        total_len,
+        "the reservation disagreed with the bytes written"
+    );
+    Some(result)
+}
+
+/// Check if reporting token should be included for this message type.
+pub fn should_include_reporting_token(message: &wa::Message) -> bool {
+    message.reaction_message.is_unset()
+        && message.enc_reaction_message.is_unset()
+        && message.poll_update_message.is_unset()
+        && message.keep_in_chat_message.is_unset()
+}
+
+/// Generate reporting token content by extracting whitelisted protobuf fields.
+pub fn generate_reporting_token_content(message: &wa::Message) -> Option<Vec<u8>> {
+    if !should_include_reporting_token(message) {
+        return None;
+    }
+    let message_bytes = waproto::codec::message_to_vec(message);
+    extract_reporting_token_content(&message_bytes, REPORTING_FIELDS)
+}
+
+/// Calculate the final reporting token.
+///
+/// Token = HMAC-SHA256(key, content)[0..16]
+pub fn calculate_reporting_token(
+    reporting_token_key: &[u8; REPORTING_TOKEN_KEY_SIZE],
+    content: &[u8],
+) -> Result<[u8; REPORTING_TOKEN_SIZE]> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(reporting_token_key)
+        .map_err(|_| anyhow!("Failed to create HMAC"))?;
+    mac.update(content);
+
+    let result = mac.finalize().into_bytes();
+    let mut token = [0u8; REPORTING_TOKEN_SIZE];
+    token.copy_from_slice(&result[..REPORTING_TOKEN_SIZE]);
+
+    Ok(token)
+}
+
+/// Same token as [`calculate_reporting_token`] over the concatenated content,
+/// without building that concatenation.
+///
+/// `Mac::update` is associative over its input, so feeding each whitelisted
+/// piece in token order hashes exactly the bytes the concatenation would have
+/// held.
+///
+/// Takes the pieces rather than collecting them: a nested field owns its
+/// re-framed bytes, so collecting twice would materialise those buffers twice
+/// and parse the message twice, which costs more than the concatenation this
+/// avoids.
+fn calculate_reporting_token_over_pieces(
+    reporting_token_key: &[u8; REPORTING_TOKEN_KEY_SIZE],
+    data: &[u8],
+    pieces: &[(u32, Piece)],
+) -> Option<[u8; REPORTING_TOKEN_SIZE]> {
+    // Both callers reach here through `collect_reporting_token_pieces`, which
+    // already returns `None` for a message with nothing whitelisted. Repeated
+    // here because the alternative is minting a perfectly valid token over no
+    // content at all, and that must not depend on a caller remembering to check.
+    if pieces.is_empty() {
+        return None;
+    }
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(reporting_token_key).ok()?;
+    for (_, piece) in pieces {
+        match piece {
+            Piece::Borrowed(range) => mac.update(&data[range.clone()]),
+            Piece::Owned(bytes) => mac.update(bytes),
+        }
+    }
+
+    let result = mac.finalize().into_bytes();
+    let mut token = [0u8; REPORTING_TOKEN_SIZE];
+    token.copy_from_slice(&result[..REPORTING_TOKEN_SIZE]);
+    Some(token)
+}
+
+/// Result of generating a reporting token for a message
+#[derive(Debug, Clone)]
+pub struct ReportingTokenResult {
+    /// The message secret (to be stored in MessageContextInfo)
+    pub message_secret: [u8; MESSAGE_SECRET_SIZE],
+    /// The reporting token (16 bytes binary)
+    pub reporting_token: [u8; REPORTING_TOKEN_SIZE],
+    /// The reporting token version
+    pub version: i32,
+}
+
+/// Generate a complete reporting token for a message.
+pub fn generate_reporting_token(
+    message: &wa::Message,
+    stanza_id: &str,
+    sender_jid: &Jid,
+    remote_jid: &Jid,
+    existing_secret: Option<&[u8]>,
+) -> Option<ReportingTokenResult> {
+    // Message types that carry no reporting token (reactions, poll votes, keep-in-chat)
+    // bail before encoding the message / minting a secret / deriving the key: the field
+    // extraction below would return None and discard all of it.
+    if !should_include_reporting_token(message) {
+        return None;
+    }
+    let encoded = waproto::codec::message_to_vec(message);
+    generate_reporting_token_from_encoded(
+        message,
+        &encoded,
+        stanza_id,
+        sender_jid,
+        remote_jid,
+        existing_secret,
+    )
+}
+
+/// Like [`generate_reporting_token`] but reuses `encoded_message` (the protobuf encoding
+/// of `message`, with no reporting context spliced on) instead of encoding `message`
+/// again. The DM send path encodes the message once for the wire plaintext and threads
+/// those same bytes here, so a token-bearing DM no longer encodes its message a second
+/// time per send just to extract the token's whitelisted fields.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.reporting_token", level = "debug", skip_all)
+)]
+pub fn generate_reporting_token_from_encoded(
+    message: &wa::Message,
+    encoded_message: &[u8],
+    stanza_id: &str,
+    sender_jid: &Jid,
+    remote_jid: &Jid,
+    existing_secret: Option<&[u8]>,
+) -> Option<ReportingTokenResult> {
+    if !should_include_reporting_token(message) {
+        return None;
+    }
+    let pieces = collect_reporting_token_pieces(encoded_message, REPORTING_FIELDS)?;
+
+    let message_secret: [u8; MESSAGE_SECRET_SIZE] = if let Some(secret) = existing_secret {
+        if secret.len() != MESSAGE_SECRET_SIZE {
+            log::warn!("Invalid existing secret size, generating new one");
+            generate_message_secret()
+        } else {
+            secret.try_into().ok()?
+        }
+    } else {
+        generate_message_secret()
+    };
+
+    let key =
+        derive_reporting_token_key_for_jids(&message_secret, stanza_id, sender_jid, remote_jid)
+            .ok()?;
+
+    let token = calculate_reporting_token_over_pieces(&key, encoded_message, &pieces)?;
+
+    Some(ReportingTokenResult {
+        message_secret,
+        reporting_token: token,
+        version: REPORTING_TOKEN_VERSION,
+    })
+}
+
+/// Build the `<reporting>` node for a message stanza.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.reporting_node", level = "debug", skip_all)
+)]
+pub fn build_reporting_node(result: &ReportingTokenResult) -> Node {
+    // The integer goes in as an integer: `NodeValue`'s numeric conversion
+    // formats through `itoa` into an inline `CompactString`, while a
+    // `to_string()` first would heap-allocate a one-byte String per message.
+    //
+    // The token goes in as the fixed-size array it is. `NodeContent::Bytes`
+    // owns a `Vec`, so one allocation is unavoidable, but `Vec::from([u8; N])`
+    // sizes and copies it with the length known at compile time, where the
+    // `to_vec()` on a slice first went through a runtime-length reserve.
+    let token_node = NodeBuilder::new("reporting_token")
+        .attr("v", result.version)
+        .bytes(result.reporting_token)
+        .build();
+
+    NodeBuilder::new("reporting").children([token_node]).build()
+}
+
+/// Prepare a message with MessageContextInfo containing the message secret.
+pub fn prepare_message_with_context(
+    message: &wa::Message,
+    message_secret: &[u8; MESSAGE_SECRET_SIZE],
+) -> wa::Message {
+    let mut new_message = message.clone();
+    let mut context_info = new_message.message_context_info.take().unwrap_or_default();
+    context_info.message_secret = Some(message_secret.to_vec());
+    context_info.reporting_token_version = Some(REPORTING_TOKEN_VERSION);
+    new_message.message_context_info = buffa::MessageField::some(context_info);
+    new_message
+}
+
+/// Build the `MessageContextInfo` carrying a generated reporting token's fields
+/// (message_secret + reporting_token_version). Single source of truth for what the
+/// send path splices onto the wire plaintext, so the DM and group paths can't drift
+/// from each other. Sets exactly the fields [`prepare_message_with_context`] does;
+/// the `splice_with_reporting_context_matches_prepare` test pins the two together.
+pub fn reporting_context_info(result: &ReportingTokenResult) -> wa::MessageContextInfo {
+    {
+        let mut proto = wa::MessageContextInfo::default();
+        proto.message_secret = Some(result.message_secret.to_vec());
+        proto.reporting_token_version = Some(REPORTING_TOKEN_VERSION);
+        proto
+    }
+}
+
+/// Extract message secret from a message's MessageContextInfo
+pub fn extract_message_secret(message: &wa::Message) -> Option<&[u8]> {
+    message
+        .message_context_info
+        .as_option()
+        .and_then(|ctx| ctx.message_secret.as_deref())
+}
+
+#[cfg(test)]
+mod tests {
+
+    /// Generating a token must parse the message once. Collecting twice would
+    /// re-materialise every nested field's owned buffer, which costs more than
+    /// the concatenation this change removes: the streaming path would then be
+    /// slower than what it replaced for exactly the messages that carry media
+    /// or quoted text.
+    #[test]
+    fn generating_a_token_collects_the_pieces_once() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("nested content owns its bytes".to_string());
+                proto
+            });
+            proto
+        };
+        let encoded = waproto::codec::message_to_vec(&message);
+        let sender: Jid = "5511987650001@s.whatsapp.net".parse().expect("sender");
+        let remote: Jid = "5511987650002@s.whatsapp.net".parse().expect("remote");
+
+        COLLECT_CALLS.with(|c| c.set(0));
+        let result = generate_reporting_token_from_encoded(
+            &message,
+            &encoded,
+            "3EB0ABCDEF",
+            &sender,
+            &remote,
+            None,
+        );
+        assert!(result.is_some(), "the message must produce a token");
+        // Two: once for the message, once for the nested field, which the
+        // collector re-frames through the same path. What must not happen is
+        // four, which is what collecting again to feed the hmac would cost.
+        assert_eq!(
+            COLLECT_CALLS.with(|c| c.get()),
+            2,
+            "the pieces must be collected once and reused for the hmac"
+        );
+    }
+
+    /// The streaming HMAC must hash exactly the bytes the concatenation would
+    /// have held. The token goes on the wire and is verified by the server, so
+    /// a divergence here is not a performance bug, it is a message the peer
+    /// rejects.
+    #[test]
+    fn streaming_and_concatenating_produce_the_same_token() {
+        let key = [0x5au8; REPORTING_TOKEN_KEY_SIZE];
+        let cases: Vec<(&str, Vec<u8>)> = vec![
+            ("flat text field", {
+                let m = {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hello reporting".to_string());
+                    proto
+                };
+                waproto::codec::message_to_vec(&m)
+            }),
+            ("nested field", {
+                let m = {
+                    let mut proto = wa::Message::default();
+                    proto.extended_text_message = buffa::MessageField::some({
+                        let mut proto = wa::message::ExtendedTextMessage::default();
+                        proto.text = Some("nested body".to_string());
+                        proto
+                    });
+                    proto
+                };
+                waproto::codec::message_to_vec(&m)
+            }),
+            // Two whitelisted fields, so the pieces have an order to get wrong.
+            // With a single piece the concatenation is trivially the same
+            // whatever order it is fed in, and this test would prove nothing.
+            ("two fields, so order matters", {
+                let m = {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("first by field number".to_string());
+                    proto.extended_text_message = buffa::MessageField::some({
+                        let mut proto = wa::message::ExtendedTextMessage::default();
+                        proto.text = Some("sixth by field number".to_string());
+                        proto
+                    });
+                    proto
+                };
+                waproto::codec::message_to_vec(&m)
+            }),
+            ("multibyte payload", {
+                let m = {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("olá 🌍 ünïcode".repeat(4));
+                    proto
+                };
+                waproto::codec::message_to_vec(&m)
+            }),
+        ];
+
+        for (name, encoded) in cases {
+            let concatenated = extract_reporting_token_content(&encoded, REPORTING_FIELDS)
+                .unwrap_or_else(|| panic!("{name}: the case must extract something"));
+            let expected = calculate_reporting_token(&key, &concatenated)
+                .unwrap_or_else(|_| panic!("{name}: hmac over the concatenation"));
+            let pieces = collect_reporting_token_pieces(&encoded, REPORTING_FIELDS)
+                .unwrap_or_else(|| panic!("{name}: the case must collect something"));
+            let streamed = calculate_reporting_token_over_pieces(&key, &encoded, &pieces)
+                .unwrap_or_else(|| panic!("{name}: hmac over the pieces"));
+            assert_eq!(streamed, expected, "{name}: the token bytes are contract");
+        }
+    }
+
+    /// Bad path: a message with nothing whitelisted must decline in both
+    /// spellings rather than hashing an empty input, which would produce a
+    /// perfectly valid token for no content.
+    #[test]
+    fn a_message_with_nothing_to_report_produces_no_token() {
+        let key = [0x5au8; REPORTING_TOKEN_KEY_SIZE];
+        let encoded = waproto::codec::message_to_vec(&wa::Message::default());
+
+        assert!(extract_reporting_token_content(&encoded, REPORTING_FIELDS).is_none());
+        assert!(collect_reporting_token_pieces(&encoded, REPORTING_FIELDS).is_none());
+
+        // The collector is what stops the HMAC from ever seeing an empty list,
+        // so the HMAC is asked directly: a token over no content is a token
+        // that says nothing, and it would still verify.
+        assert!(
+            calculate_reporting_token_over_pieces(&key, &encoded, &[]).is_none(),
+            "hashing no pieces must not mint a token"
+        );
+    }
+    use super::*;
+
+    #[test]
+    fn test_generate_message_secret() {
+        let secret1 = generate_message_secret();
+        let secret2 = generate_message_secret();
+
+        assert_eq!(secret1.len(), MESSAGE_SECRET_SIZE);
+        assert_eq!(secret2.len(), MESSAGE_SECRET_SIZE);
+        // Secrets should be different (extremely unlikely to be the same)
+        assert_ne!(secret1, secret2);
+    }
+
+    #[test]
+    fn reporting_token_reuses_existing_message_secret() {
+        // A caller-provided secret (e.g. a poll's) must survive the send path: the
+        // reporting token derives from it rather than minting a fresh one that would
+        // overwrite messageContextInfo.message_secret. Matches WA Web (`p ?? e.messageSecret`),
+        // and is what lets a poll creator decrypt later votes with the returned secret.
+        let secret = [0x42u8; MESSAGE_SECRET_SIZE];
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi".into());
+            proto.message_context_info = buffa::MessageField::some({
+                let mut proto = wa::MessageContextInfo::default();
+                proto.message_secret = Some(secret.to_vec());
+                proto
+            });
+            proto
+        };
+        let to: Jid = "5511999999999@s.whatsapp.net".parse().unwrap();
+        let result = generate_reporting_token(&msg, "MID", &to, &to, extract_message_secret(&msg))
+            .expect("a text message produces a reporting token");
+        assert_eq!(
+            result.message_secret, secret,
+            "existing secret must be reused"
+        );
+
+        // The prepared (wire) message keeps that same secret.
+        let prepared = prepare_message_with_context(&msg, &result.message_secret);
+        assert_eq!(extract_message_secret(&prepared), Some(secret.as_slice()));
+    }
+
+    #[test]
+    fn test_derive_reporting_token_key() {
+        let secret = [0x42u8; MESSAGE_SECRET_SIZE];
+        let stanza_id = "3EB0E0E5F2D4F618589C0B";
+        let sender_jid = "5511999887766@s.whatsapp.net";
+        let remote_jid = "5511888776655@s.whatsapp.net";
+
+        let key = derive_reporting_token_key(&secret, stanza_id, sender_jid, remote_jid)
+            .expect("valid secret should derive key successfully");
+
+        assert_eq!(key.len(), REPORTING_TOKEN_KEY_SIZE);
+
+        // Verify determinism
+        let key2 = derive_reporting_token_key(&secret, stanza_id, sender_jid, remote_jid)
+            .expect("valid secret should derive key successfully");
+        assert_eq!(key, key2);
+
+        // Different inputs should produce different keys
+        let key3 = derive_reporting_token_key(&secret, "different_id", sender_jid, remote_jid)
+            .expect("valid secret should derive key successfully");
+        assert_ne!(key, key3);
+    }
+
+    #[test]
+    fn jid_key_derivation_matches_string_api_for_inline_and_heap_info() {
+        let secret = [0x42; MESSAGE_SECRET_SIZE];
+        let stanza_id = "3EB0E0E5F2D4F618589C0B";
+        let cases = [
+            (
+                Jid::pn_device("5511999887766".to_owned(), 7),
+                Jid::pn_device("5511888776655".to_owned(), 3),
+            ),
+            (
+                Jid::pn("sender".repeat(REPORTING_TOKEN_INFO_INLINE_CAPACITY)),
+                Jid::pn("remote".repeat(REPORTING_TOKEN_INFO_INLINE_CAPACITY)),
+            ),
+        ];
+
+        for (case_index, (sender, remote)) in cases.iter().enumerate() {
+            let sender_string = sender.to_string();
+            let remote_string = remote.to_string();
+            let expected =
+                derive_reporting_token_key(&secret, stanza_id, &sender_string, &remote_string)
+                    .expect("string inputs should derive a key");
+            let actual = derive_reporting_token_key_for_jids(&secret, stanza_id, sender, remote)
+                .expect("JID inputs should derive a key");
+
+            assert_eq!(
+                actual, expected,
+                "JID derivation mismatch in case {case_index}"
+            );
+
+            let info = build_hkdf_info_for_jids(stanza_id, sender, remote)
+                .expect("JIDs should build HKDF info");
+            assert_eq!(
+                matches!(info, ReportingTokenInfo::Heap(_)),
+                case_index == 1,
+                "only the oversized case should use the heap fallback"
+            );
+        }
+    }
+
+    #[test]
+    fn heap_promotion_reserves_space_for_follow_up_writes() {
+        let mut info = ReportingTokenInfo::with_capacity(REPORTING_TOKEN_INFO_INLINE_CAPACITY);
+        info.extend_from_slice(&[0; REPORTING_TOKEN_INFO_INLINE_CAPACITY]);
+        info.extend_from_slice(&[1]);
+
+        let ReportingTokenInfo::Heap(bytes) = info else {
+            panic!("overflowing inline reporting info should promote to heap");
+        };
+        assert!(
+            bytes.capacity() >= bytes.len() + REPORTING_TOKEN_INFO_INLINE_CAPACITY,
+            "heap promotion should absorb subsequent formatter writes"
+        );
+    }
+
+    #[test]
+    fn derive_key_matches_plain_hkdf_extract() {
+        // The cached zero-keyed HMAC extract must produce a key byte-identical to
+        // `Hkdf::new(None, secret)` across a spread of secrets.
+        let stanza_id = "3EB0E0E5F2D4F618589C0B";
+        let sender_jid = "5511999887766@s.whatsapp.net";
+        let remote_jid = "5511888776655@s.whatsapp.net";
+        let info = build_hkdf_info(stanza_id, sender_jid, remote_jid)
+            .expect("test inputs should build HKDF info");
+
+        for seed in 0u8..32 {
+            let secret = [seed.wrapping_mul(37).wrapping_add(11); MESSAGE_SECRET_SIZE];
+
+            let mut expected = [0u8; REPORTING_TOKEN_KEY_SIZE];
+            Hkdf::<Sha256>::new(None, &secret)
+                .expand(info.as_bytes(), &mut expected)
+                .expect("valid output length");
+
+            let got = derive_reporting_token_key(&secret, stanza_id, sender_jid, remote_jid)
+                .expect("valid secret should derive key successfully");
+
+            assert_eq!(got, expected, "mismatch for seed {seed}");
+        }
+    }
+
+    #[test]
+    fn test_decode_varint() {
+        // Single byte varint
+        assert_eq!(decode_varint(&[0x01]), Some((1, 1)));
+        assert_eq!(decode_varint(&[0x7F]), Some((127, 1)));
+
+        // Two byte varint
+        assert_eq!(decode_varint(&[0x80, 0x01]), Some((128, 2)));
+        assert_eq!(decode_varint(&[0xAC, 0x02]), Some((300, 2)));
+
+        // Empty slice
+        assert_eq!(decode_varint(&[]), None);
+    }
+
+    #[test]
+    fn test_encode_varint() {
+        assert_eq!(encode_varint(1), vec![0x01]);
+        assert_eq!(encode_varint(127), vec![0x7F]);
+        assert_eq!(encode_varint(128), vec![0x80, 0x01]);
+        assert_eq!(encode_varint(300), vec![0xAC, 0x02]);
+    }
+
+    #[test]
+    fn test_varint_roundtrip() {
+        for value in [0u64, 1, 127, 128, 255, 256, 16383, 16384, 1000000] {
+            let encoded = encode_varint(value);
+            let (decoded, _) =
+                decode_varint(&encoded).expect("encoded varint should decode successfully");
+            assert_eq!(decoded, value);
+        }
+    }
+
+    #[test]
+    fn test_generate_reporting_token_content_text() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Hello, World!".to_string());
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message);
+        assert!(content.is_some());
+
+        let content = content.expect("text message should generate reporting token content");
+        // Content should be non-empty
+        assert!(!content.is_empty());
+
+        // Content should be deterministic (same message = same content)
+        let content2 = generate_reporting_token_content(&message)
+            .expect("text message should generate reporting token content");
+        assert_eq!(content, content2);
+    }
+
+    #[test]
+    fn test_generate_reporting_token_content_extended_text() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("Extended text message".to_string());
+                proto
+            });
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message);
+        assert!(content.is_some());
+
+        // Content should be deterministic
+        let content2 = generate_reporting_token_content(&message)
+            .expect("extended text message should generate content");
+        assert_eq!(
+            content.expect("extended text message should generate content"),
+            content2
+        );
+    }
+
+    #[test]
+    fn test_should_include_reporting_token() {
+        // Normal message should include token
+        let normal_message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Hello".to_string());
+            proto
+        };
+        assert!(should_include_reporting_token(&normal_message));
+
+        // Reaction message should NOT include token
+        let reaction_message = {
+            let mut proto = wa::Message::default();
+            proto.reaction_message = buffa::MessageField::some({
+                let mut proto = wa::message::ReactionMessage::default();
+                proto.text = Some("\u{1f44d}".to_string());
+                proto
+            });
+            proto
+        };
+        assert!(!should_include_reporting_token(&reaction_message));
+
+        // Poll update should NOT include token
+        let poll_update = {
+            let mut proto = wa::Message::default();
+            proto.poll_update_message =
+                buffa::MessageField::some(wa::message::PollUpdateMessage::default());
+            proto
+        };
+        assert!(!should_include_reporting_token(&poll_update));
+    }
+
+    #[test]
+    fn test_extract_reporting_token_content_simple() {
+        // Test with a simple conversation message
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto
+        };
+
+        let message_bytes = waproto::codec::message_to_vec(&message);
+        let extracted = extract_reporting_token_content(&message_bytes, REPORTING_FIELDS);
+
+        assert!(extracted.is_some());
+        // The extracted content should match the original field 1 (conversation)
+        assert_eq!(
+            extracted.expect("conversation message should extract successfully"),
+            message_bytes
+        );
+    }
+
+    #[test]
+    fn test_extract_filters_non_whitelisted_fields() {
+        // Create an extended text message with contextInfo that has non-whitelisted fields
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("Hello".to_string());
+                proto.context_info = buffa::MessageField::some({
+                    let mut proto = wa::ContextInfo::default();
+                    proto.stanza_id = Some("should-be-excluded".to_string()); // Field 1 - NOT in whitelist
+
+                    proto.is_forwarded = Some(true);
+                    proto
+                });
+                proto
+            });
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message);
+        assert!(content.is_some());
+
+        let content_bytes = content.expect("message with contextInfo should generate content");
+        // The content should NOT contain the stanza_id string
+        let content_str = String::from_utf8_lossy(&content_bytes);
+        assert!(!content_str.contains("should-be-excluded"));
+    }
+
+    #[test]
+    fn test_calculate_reporting_token() {
+        let key = [0x55u8; REPORTING_TOKEN_KEY_SIZE];
+        let content = b"test content";
+
+        let token = calculate_reporting_token(&key, content)
+            .expect("valid key and content should calculate token");
+        assert_eq!(token.len(), REPORTING_TOKEN_SIZE);
+
+        // Verify determinism
+        let token2 = calculate_reporting_token(&key, content)
+            .expect("valid key and content should calculate token");
+        assert_eq!(token, token2);
+
+        // Different content should produce different token
+        let token3 = calculate_reporting_token(&key, b"different content")
+            .expect("valid key and content should calculate token");
+        assert_ne!(token, token3);
+    }
+
+    #[test]
+    fn test_generate_reporting_token_full() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test message".to_string());
+            proto
+        };
+
+        let sender = Jid::pn("5511999887766");
+        let remote = Jid::pn("5511888776655");
+
+        let result = generate_reporting_token(&message, "test_stanza_id", &sender, &remote, None)
+            .expect("valid message should generate reporting token");
+        assert_eq!(result.message_secret.len(), MESSAGE_SECRET_SIZE);
+        assert_eq!(result.reporting_token.len(), REPORTING_TOKEN_SIZE);
+        assert_eq!(result.version, REPORTING_TOKEN_VERSION);
+    }
+
+    #[test]
+    fn test_generate_reporting_token_with_existing_secret() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test message".to_string());
+            proto
+        };
+
+        let sender = Jid::pn("5511999887766");
+        let remote = Jid::pn("5511888776655");
+
+        let existing_secret = [0xAAu8; MESSAGE_SECRET_SIZE];
+        let result = generate_reporting_token(
+            &message,
+            "test_stanza_id",
+            &sender,
+            &remote,
+            Some(&existing_secret),
+        )
+        .expect("valid message with existing secret should generate token");
+        assert_eq!(result.message_secret, existing_secret);
+    }
+
+    #[test]
+    fn from_encoded_matches_generate_and_skips_excluded_types() {
+        let sender = Jid::pn("5511999887766");
+        let remote = Jid::pn("5511888776655");
+        let secret = [0x5Au8; MESSAGE_SECRET_SIZE];
+
+        // Token-bearing message: feeding the message's own encoding to the _from_encoded
+        // variant yields the same token the all-in-one path derives — the contract the DM
+        // send path relies on when it shares one encode between the token and the plaintext.
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test message".to_string());
+            proto
+        };
+        let encoded = waproto::codec::message_to_vec(&message);
+        let direct = generate_reporting_token(&message, "SID", &sender, &remote, Some(&secret))
+            .expect("token-bearing message");
+        let shared = generate_reporting_token_from_encoded(
+            &message,
+            &encoded,
+            "SID",
+            &sender,
+            &remote,
+            Some(&secret),
+        )
+        .expect("token-bearing message");
+        assert_eq!(direct.reporting_token, shared.reporting_token);
+        assert_eq!(direct.message_secret, shared.message_secret);
+
+        // Excluded type (reaction): both paths bail before extraction/secret/key (the
+        // reorder makes that skip explicit) and return None.
+        let reaction = {
+            let mut proto = wa::Message::default();
+            proto.reaction_message = buffa::MessageField::some({
+                let mut proto = wa::message::ReactionMessage::default();
+                proto.text = Some("👍".to_string());
+                proto
+            });
+            proto
+        };
+        let reaction_encoded = waproto::codec::message_to_vec(&reaction);
+        assert!(
+            generate_reporting_token(&reaction, "SID", &sender, &remote, Some(&secret)).is_none()
+        );
+        assert!(
+            generate_reporting_token_from_encoded(
+                &reaction,
+                &reaction_encoded,
+                "SID",
+                &sender,
+                &remote,
+                Some(&secret)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn test_build_reporting_node() {
+        use wacore_binary::NodeContent;
+
+        let expected_token = [
+            0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88,
+        ];
+
+        let result = ReportingTokenResult {
+            message_secret: [0u8; MESSAGE_SECRET_SIZE],
+            reporting_token: expected_token,
+            version: 2,
+        };
+
+        let node = build_reporting_node(&result);
+        assert_eq!(node.tag, "reporting");
+
+        let token_node = node.get_children_by_tag("reporting_token").next().unwrap();
+
+        assert!(token_node.attrs.get("v").is_some_and(|v| v == "2"));
+
+        // CRITICAL: Verify the token content is BINARY BYTES, not a hex string.
+        // WhatsApp expects raw bytes in the reporting_token node content.
+        // Using String content instead of Bytes causes error 479.
+        match &token_node.content {
+            Some(NodeContent::Bytes(bytes)) => {
+                assert_eq!(
+                    bytes.as_slice(),
+                    &expected_token,
+                    "Token bytes must match the original binary token"
+                );
+            }
+            Some(NodeContent::String(s)) => {
+                panic!(
+                    "REGRESSION: reporting_token content is a String '{}', but must be Bytes! \
+                     This will cause WhatsApp error 479.",
+                    s
+                );
+            }
+            other => {
+                panic!(
+                    "reporting_token content must be NodeContent::Bytes, got {:?}",
+                    other
+                );
+            }
+        }
+
+        // `v` carries the result's version, not a baked-in constant: the
+        // integer goes through `NodeValue`'s itoa conversion, so a version
+        // bump must reach the wire without touching this builder.
+        let bumped = ReportingTokenResult {
+            version: 7,
+            ..result
+        };
+        let node = build_reporting_node(&bumped);
+        let token_node = node.get_children_by_tag("reporting_token").next().unwrap();
+        assert!(token_node.attrs.get("v").is_some_and(|v| v == "7"));
+    }
+
+    #[test]
+    fn test_prepare_message_with_context() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto
+        };
+
+        let secret = [0x42u8; MESSAGE_SECRET_SIZE];
+        let prepared = prepare_message_with_context(&message, &secret);
+
+        assert!(
+            prepared.message_context_info.is_set(),
+            "prepared message should have context info"
+        );
+        assert_eq!(
+            prepared.message_context_info.message_secret,
+            Some(secret.to_vec())
+        );
+        assert_eq!(
+            prepared.message_context_info.reporting_token_version,
+            Some(REPORTING_TOKEN_VERSION)
+        );
+    }
+
+    #[test]
+    fn test_extract_message_secret() {
+        let secret = vec![0x55u8; MESSAGE_SECRET_SIZE];
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.message_context_info = buffa::MessageField::some({
+                let mut proto = wa::MessageContextInfo::default();
+                proto.message_secret = Some(secret.clone());
+                proto
+            });
+            proto
+        };
+
+        let extracted = extract_message_secret(&message);
+        assert!(extracted.is_some());
+        assert_eq!(
+            extracted.expect("message should have extractable secret"),
+            secret.as_slice()
+        );
+    }
+
+    #[test]
+    fn test_unsupported_message_type_returns_none() {
+        // A message with no supported content type
+        let message = wa::Message::default();
+
+        let sender = Jid::pn("5511999887766");
+        let remote = Jid::pn("5511888776655");
+
+        let result = generate_reporting_token(&message, "test_id", &sender, &remote, None);
+        assert!(result.is_none());
+    }
+
+    /// Helper to create a test JID
+    fn test_jid(user: &str) -> Jid {
+        Jid::pn(user)
+    }
+
+    #[test]
+    fn test_golden_hkdf_key_derivation() {
+        // Golden test: fixed inputs must always produce the same HKDF key
+        let secret = [0x42u8; MESSAGE_SECRET_SIZE];
+        let stanza_id = "3EB0E0E5F2D4F618589C0B";
+        let sender_jid = "5511999887766@s.whatsapp.net";
+        let remote_jid = "5511888776655@s.whatsapp.net";
+
+        let key = derive_reporting_token_key(&secret, stanza_id, sender_jid, remote_jid)
+            .expect("valid inputs should derive key for golden test");
+
+        // This is the expected output - if this changes, the algorithm is broken
+        let expected_key = [
+            0xba, 0x50, 0xb2, 0x2b, 0xe5, 0xcc, 0x25, 0x71, 0x7d, 0x32, 0xb7, 0xd2, 0x77, 0xda,
+            0xe1, 0xbc, 0x9f, 0xa8, 0xad, 0x12, 0x2c, 0xdd, 0xb0, 0xec, 0x4f, 0xbc, 0x87, 0x24,
+            0x52, 0xa5, 0xe0, 0x8c,
+        ];
+        assert_eq!(
+            key, expected_key,
+            "HKDF key derivation changed! Expected: {:02x?}, Got: {:02x?}",
+            expected_key, key
+        );
+    }
+
+    #[test]
+    fn test_golden_hmac_token_calculation() {
+        // Golden test: fixed key and content must produce the same token
+        let key = [0x55u8; REPORTING_TOKEN_KEY_SIZE];
+        let content = b"Hello, World!";
+
+        let token = calculate_reporting_token(&key, content)
+            .expect("valid key and content should calculate token for golden test");
+
+        // Expected HMAC-SHA256 truncated to 16 bytes
+        let expected_token = [
+            0xc2, 0x2b, 0x68, 0x1d, 0x7d, 0x7e, 0xef, 0xbc, 0x59, 0xa2, 0x02, 0xfc, 0x14, 0x1e,
+            0xb5, 0xf8,
+        ];
+        assert_eq!(
+            token, expected_token,
+            "HMAC token calculation changed! Expected: {:02x?}, Got: {:02x?}",
+            expected_token, token
+        );
+    }
+
+    #[test]
+    fn test_golden_conversation_content_extraction() {
+        // Golden test: conversation message content extraction
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message)
+            .expect("conversation message should generate content for golden test");
+
+        // Field 1 (conversation) = tag 0x0a (field 1, wire type 2) + length + "Test"
+        let expected = vec![0x0a, 0x04, b'T', b'e', b's', b't'];
+        assert_eq!(
+            content, expected,
+            "Conversation content extraction changed! Expected: {:02x?}, Got: {:02x?}",
+            expected, content
+        );
+    }
+
+    #[test]
+    fn test_golden_extended_text_content_extraction() {
+        // Golden test: extended text message content extraction
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("Hi".to_string());
+                proto
+            });
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message)
+            .expect("conversation message should generate content for golden test");
+
+        // Field 6 (extendedTextMessage) containing field 1 (text) = "Hi"
+        // Outer: tag 0x32 (field 6, wire type 2), length 4
+        // Inner: tag 0x0a (field 1, wire type 2), length 2, "Hi"
+        let expected = vec![0x32, 0x04, 0x0a, 0x02, b'H', b'i'];
+        assert_eq!(
+            content, expected,
+            "ExtendedText content extraction changed! Expected: {:02x?}, Got: {:02x?}",
+            expected, content
+        );
+    }
+
+    #[test]
+    fn test_golden_full_token_generation() {
+        // Golden test: complete token generation with fixed secret
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Hello".to_string());
+            proto
+        };
+
+        let secret = [0xAA; MESSAGE_SECRET_SIZE];
+        let sender = test_jid("sender");
+        let remote = test_jid("remote");
+
+        let result =
+            generate_reporting_token(&message, "STANZA123", &sender, &remote, Some(&secret))
+                .expect("valid message should generate token for golden test");
+
+        // Verify the secret is preserved
+        assert_eq!(result.message_secret, secret);
+        assert_eq!(result.version, REPORTING_TOKEN_VERSION);
+
+        // The token must be deterministic - same inputs = same output
+        let result2 =
+            generate_reporting_token(&message, "STANZA123", &sender, &remote, Some(&secret))
+                .expect("repeated generation should succeed");
+        assert_eq!(
+            result.reporting_token, result2.reporting_token,
+            "Token generation is not deterministic!"
+        );
+
+        // Store expected token for regression detection
+        let expected_token = result.reporting_token;
+        let result3 =
+            generate_reporting_token(&message, "STANZA123", &sender, &remote, Some(&secret))
+                .expect("repeated generation should succeed");
+        assert_eq!(
+            result3.reporting_token, expected_token,
+            "Token changed across calls with same inputs!"
+        );
+    }
+
+    #[test]
+    fn test_context_info_filtering_only_extracts_whitelisted() {
+        // Verify that contextInfo only extracts fields 21 (forwardingScore) and 22 (isForwarded)
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("Test".to_string());
+                proto.context_info = buffa::MessageField::some({
+                    let mut proto = wa::ContextInfo::default();
+                    proto.stanza_id = Some("SHOULD_BE_EXCLUDED".to_string()); // Field 1
+
+                    proto.participant = Some("ALSO_EXCLUDED".to_string()); // Field 2
+
+                    proto.is_forwarded = Some(true); // Field 22 - INCLUDED
+
+                    proto.forwarding_score = Some(5);
+                    proto
+                });
+                proto
+            });
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message)
+            .expect("conversation message should generate content for golden test");
+        let content_str = String::from_utf8_lossy(&content);
+
+        // Must NOT contain excluded fields
+        assert!(
+            !content_str.contains("SHOULD_BE_EXCLUDED"),
+            "stanza_id should be excluded from contextInfo"
+        );
+        assert!(
+            !content_str.contains("ALSO_EXCLUDED"),
+            "participant should be excluded from contextInfo"
+        );
+
+        // Content should still exist (has text + contextInfo with forwarding fields)
+        assert!(!content.is_empty());
+    }
+
+    #[test]
+    fn test_field_extraction_order_is_deterministic() {
+        // Verify that fields are always sorted by field number
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Text".to_string());
+            proto
+        };
+
+        // Generate multiple times and verify same output
+        let content1 = generate_reporting_token_content(&message)
+            .expect("message should generate content for determinism test");
+        let content2 = generate_reporting_token_content(&message)
+            .expect("message should generate content for determinism test");
+        let content3 = generate_reporting_token_content(&message)
+            .expect("message should generate content for determinism test");
+
+        assert_eq!(content1, content2, "Content extraction not deterministic");
+        assert_eq!(content2, content3, "Content extraction not deterministic");
+    }
+
+    #[test]
+    fn test_varint_edge_cases() {
+        // Test varint encoding/decoding at important boundaries
+        let test_cases = [
+            (0u64, vec![0x00]),
+            (1, vec![0x01]),
+            (127, vec![0x7F]),               // Max single byte
+            (128, vec![0x80, 0x01]),         // Min two bytes
+            (16383, vec![0xFF, 0x7F]),       // Max two bytes
+            (16384, vec![0x80, 0x80, 0x01]), // Min three bytes
+            (u32::MAX as u64, vec![0xFF, 0xFF, 0xFF, 0xFF, 0x0F]), // Max u32
+        ];
+
+        for (value, expected_bytes) in test_cases {
+            let encoded = encode_varint(value);
+            assert_eq!(
+                encoded, expected_bytes,
+                "encode_varint({}) = {:02x?}, expected {:02x?}",
+                value, encoded, expected_bytes
+            );
+
+            let (decoded, len) =
+                decode_varint(&encoded).expect("valid encoded bytes should decode");
+            assert_eq!(
+                decoded, value,
+                "decode_varint round-trip failed for {}",
+                value
+            );
+            assert_eq!(
+                len,
+                expected_bytes.len(),
+                "varint length mismatch for {}",
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn test_extraction_handles_empty_nested_message() {
+        // An extended text message with empty contextInfo should still extract the text
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.extended_text_message = buffa::MessageField::some({
+                let mut proto = wa::message::ExtendedTextMessage::default();
+                proto.text = Some("Content".to_string());
+                proto.context_info = buffa::MessageField::some(wa::ContextInfo::default());
+                proto
+            });
+            proto
+        };
+
+        let content = generate_reporting_token_content(&message);
+        assert!(
+            content.is_some(),
+            "Should extract text even with empty contextInfo"
+        );
+
+        let content = content.expect("message with empty contextInfo should generate content");
+        assert!(
+            content.windows(7).any(|w| w == b"Content"),
+            "Text 'Content' should be in extracted bytes"
+        );
+    }
+
+    #[test]
+    fn test_raw_protobuf_extraction_simple_fields() {
+        // Test raw extraction with hand-crafted protobuf bytes
+        // Field 1 (varint): tag=0x08, value=150 (0x96 0x01)
+        // Field 2 (string): tag=0x12, len=5, "hello"
+        let data = vec![
+            0x08, 0x96, 0x01, // Field 1: varint 150
+            0x12, 0x05, b'h', b'e', b'l', b'l', b'o', // Field 2: string "hello"
+        ];
+
+        // Whitelist only field 1
+        let whitelist = &[ReportingField::new(1)];
+        let extracted = extract_reporting_token_content(&data, whitelist)
+            .expect("raw protobuf with whitelisted field should extract");
+
+        // Should only contain field 1
+        assert_eq!(extracted, vec![0x08, 0x96, 0x01]);
+    }
+
+    #[test]
+    fn test_raw_protobuf_extraction_nested_with_subfields() {
+        // Test nested extraction with subfield filtering
+        // Outer field 6 containing inner fields 1 and 2
+        // We whitelist field 6 with subfield 1 only
+
+        // Inner message: field 1 = "a", field 2 = "b"
+        let inner = vec![
+            0x0a, 0x01, b'a', // Field 1: "a"
+            0x12, 0x01, b'b', // Field 2: "b"
+        ];
+
+        // Outer: field 6 (wire type 2) containing inner
+        let mut data = vec![0x32, inner.len() as u8];
+        data.extend(&inner);
+
+        // Whitelist: field 6 with only subfield 1
+        static TEST_SUBFIELDS: &[ReportingField] = &[ReportingField::new(1)];
+        let whitelist = &[ReportingField::with_subfields(6, TEST_SUBFIELDS)];
+
+        let extracted = extract_reporting_token_content(&data, whitelist)
+            .expect("nested protobuf with subfield filtering should extract");
+
+        // Should contain field 6 with only field 1 inside
+        // Outer tag (0x32) + new length (3) + inner field 1 (0x0a 0x01 'a')
+        let expected = vec![0x32, 0x03, 0x0a, 0x01, b'a'];
+        assert_eq!(
+            extracted, expected,
+            "Nested extraction with subfield filtering failed"
+        );
+    }
+
+    /// Nothing whitelisted matched: the token has no content at all, which is
+    /// a distinct answer from "content that happens to be empty".
+    #[test]
+    fn no_matching_field_yields_no_content() {
+        let data = vec![
+            0x08, 0x96, 0x01, // field 1: varint 150
+            0x12, 0x05, b'h', b'e', b'l', b'l', b'o', // field 2: "hello"
+        ];
+        let whitelist = &[ReportingField::new(9)];
+        assert!(extract_reporting_token_content(&data, whitelist).is_none());
+        assert!(extract_reporting_token_content(&[], whitelist).is_none());
+    }
+
+    /// The concatenation order is by ascending field number, not wire order:
+    /// a message that puts a higher-numbered field first must still hash the
+    /// same as one that does not.
+    #[test]
+    fn fields_are_concatenated_in_field_number_order_not_wire_order() {
+        let low = [0x0a, 0x01, b'a']; // field 1: "a"
+        let high = [0x12, 0x01, b'b']; // field 2: "b"
+        let whitelist = &[ReportingField::new(1), ReportingField::new(2)];
+
+        let mut wire_ascending = Vec::new();
+        wire_ascending.extend_from_slice(&low);
+        wire_ascending.extend_from_slice(&high);
+        let mut wire_descending = Vec::new();
+        wire_descending.extend_from_slice(&high);
+        wire_descending.extend_from_slice(&low);
+
+        let expected = [0x0a, 0x01, b'a', 0x12, 0x01, b'b'];
+        assert_eq!(
+            extract_reporting_token_content(&wire_ascending, whitelist).unwrap(),
+            expected
+        );
+        assert_eq!(
+            extract_reporting_token_content(&wire_descending, whitelist).unwrap(),
+            expected
+        );
+    }
+
+    /// Repeats of the same field keep their wire order relative to each other,
+    /// which is what makes the sort's stability part of the wire contract.
+    #[test]
+    fn repeats_of_one_field_keep_their_wire_order() {
+        let data = vec![
+            0x0a, 0x01, b'x', // field 1: "x"
+            0x12, 0x01, b'm', // field 2: "m"
+            0x0a, 0x01, b'y', // field 1: "y"
+        ];
+        let whitelist = &[ReportingField::new(1), ReportingField::new(2)];
+
+        assert_eq!(
+            extract_reporting_token_content(&data, whitelist).unwrap(),
+            vec![0x0a, 0x01, b'x', 0x0a, 0x01, b'y', 0x12, 0x01, b'm'],
+        );
+    }
+
+    /// More fields than the inline staging list holds: spilling must not
+    /// reorder or drop anything.
+    #[test]
+    fn more_fields_than_the_inline_list_holds_still_concatenate_in_order() {
+        let mut data = Vec::new();
+        let mut whitelist = Vec::new();
+        // Emit fields 8..=1 (descending on the wire) so the sort has work to do.
+        for field in (1u8..=8).rev() {
+            data.push((field << 3) | 2);
+            data.push(1);
+            data.push(b'a' + field);
+            whitelist.push(ReportingField::new(u32::from(field)));
+        }
+
+        let extracted = extract_reporting_token_content(&data, &whitelist)
+            .expect("eight whitelisted fields extract");
+
+        let mut expected = Vec::new();
+        for field in 1u8..=8 {
+            expected.push((field << 3) | 2);
+            expected.push(1);
+            expected.push(b'a' + field);
+        }
+        assert_eq!(extracted, expected);
+    }
+
+    /// A multi-byte payload must be copied byte for byte: a range-based piece
+    /// that got its bounds wrong would slice a UTF-8 sequence in half.
+    #[test]
+    fn a_multibyte_payload_survives_the_copy_byte_for_byte() {
+        let text = "héllo ✅ 日本";
+        let bytes = text.as_bytes();
+        let mut data = vec![0x0a, u8::try_from(bytes.len()).unwrap()];
+        data.extend_from_slice(bytes);
+        // A second, unwhitelisted field so the extraction is not the whole input.
+        data.extend_from_slice(&[0x12, 0x02, 0xff, 0xfe]);
+
+        let whitelist = &[ReportingField::new(1)];
+        let extracted = extract_reporting_token_content(&data, whitelist)
+            .expect("the whitelisted field extracts");
+
+        assert_eq!(extracted, data[..2 + bytes.len()]);
+        assert_eq!(std::str::from_utf8(&extracted[2..]).unwrap(), text);
+    }
+
+    /// A nested field is re-framed under a fresh length, so it is the one kind
+    /// of piece that cannot be a range into the input.
+    #[test]
+    fn a_nested_field_is_rebuilt_and_still_ordered_with_the_flat_ones() {
+        let inner = vec![
+            0x0a, 0x01, b'a', // field 1: "a" (kept)
+            0x12, 0x01, b'b', // field 2: "b" (dropped)
+        ];
+        // field 1 (flat, kept) then field 6 (nested), emitted in that order.
+        let mut data = vec![0x0a, 0x01, b'z'];
+        data.push(0x32);
+        data.push(u8::try_from(inner.len()).unwrap());
+        data.extend_from_slice(&inner);
+
+        static TEST_SUBFIELDS: &[ReportingField] = &[ReportingField::new(1)];
+        let whitelist = &[
+            ReportingField::new(1),
+            ReportingField::with_subfields(6, TEST_SUBFIELDS),
+        ];
+
+        let extracted = extract_reporting_token_content(&data, whitelist)
+            .expect("flat + nested fields extract");
+
+        assert_eq!(
+            extracted,
+            vec![
+                0x0a, 0x01, b'z', // field 1 verbatim
+                0x32, 0x03, 0x0a, 0x01, b'a', // field 6 re-framed around field 1 only
+            ],
+        );
+    }
+
+    /// A nested field whose every subfield is filtered out contributes
+    /// nothing, rather than an empty re-framed wrapper.
+    #[test]
+    fn a_nested_field_with_nothing_kept_contributes_nothing() {
+        let inner = vec![0x12, 0x01, b'b']; // field 2 only
+        let mut data = vec![0x32, u8::try_from(inner.len()).unwrap()];
+        data.extend_from_slice(&inner);
+
+        static TEST_SUBFIELDS: &[ReportingField] = &[ReportingField::new(1)];
+        let whitelist = &[ReportingField::with_subfields(6, TEST_SUBFIELDS)];
+
+        assert!(extract_reporting_token_content(&data, whitelist).is_none());
+    }
+
+    /// The result is allocated once, from a length summed over every piece.
+    /// A piece kind left out of that sum makes the buffer grow mid-write,
+    /// which is exactly the allocation this staging model exists to avoid.
+    #[test]
+    fn the_result_is_allocated_once_for_the_exact_length_it_holds() {
+        // Sizes chosen so an understated reservation cannot land back on the
+        // final length by accident: Vec grows to at least twice its capacity.
+        let inner = vec![0x0a, 0x01, b'a'];
+        let mut nested_and_flat = vec![0x0a, 0x0a];
+        nested_and_flat.extend_from_slice(b"0123456789");
+        nested_and_flat.push(0x32);
+        nested_and_flat.push(u8::try_from(inner.len()).unwrap());
+        nested_and_flat.extend_from_slice(&inner);
+
+        static TEST_SUBFIELDS: &[ReportingField] = &[ReportingField::new(1)];
+        let cases: [(&[u8], &[ReportingField]); 2] = [
+            (&[0x0a, 0x01, b'z'], &[ReportingField::new(1)]),
+            (
+                &nested_and_flat,
+                &[
+                    ReportingField::new(1),
+                    ReportingField::with_subfields(6, TEST_SUBFIELDS),
+                ],
+            ),
+        ];
+
+        for (data, whitelist) in cases {
+            let extracted =
+                extract_reporting_token_content(data, whitelist).expect("content extracts");
+            // The property is that the length reserved from `Piece::len` is the
+            // length actually written; an understated reservation reallocates
+            // silently. That is checked by the `debug_assert` inside the
+            // extractor, which every call here exercises, so this case exists
+            // to feed it shapes: flat fields, a nested field, and both mixed.
+            // Asserting `capacity()` instead would be testing the allocator,
+            // which is free to round a request up.
+            assert!(
+                !extracted.is_empty(),
+                "each case must actually extract something, or it feeds the check nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn test_excluded_message_types() {
+        // Verify all excluded message types return None/false
+
+        let reaction = {
+            let mut proto = wa::Message::default();
+            proto.reaction_message = buffa::MessageField::some({
+                let mut proto = wa::message::ReactionMessage::default();
+                proto.text = Some("\u{1f44d}".to_string());
+                proto
+            });
+            proto
+        };
+        assert!(!should_include_reporting_token(&reaction));
+        assert!(generate_reporting_token_content(&reaction).is_none());
+
+        let enc_reaction = {
+            let mut proto = wa::Message::default();
+            proto.enc_reaction_message =
+                buffa::MessageField::some(wa::message::EncReactionMessage::default());
+            proto
+        };
+        assert!(!should_include_reporting_token(&enc_reaction));
+
+        let poll_update = {
+            let mut proto = wa::Message::default();
+            proto.poll_update_message =
+                buffa::MessageField::some(wa::message::PollUpdateMessage::default());
+            proto
+        };
+        assert!(!should_include_reporting_token(&poll_update));
+
+        let keep_in_chat = {
+            let mut proto = wa::Message::default();
+            proto.keep_in_chat_message =
+                buffa::MessageField::some(wa::message::KeepInChatMessage::default());
+            proto
+        };
+        assert!(!should_include_reporting_token(&keep_in_chat));
+    }
+
+    #[test]
+    fn test_hkdf_info_construction() {
+        // Verify the HKDF info is constructed correctly
+        let info = build_hkdf_info("STANZA", "sender@s.whatsapp.net", "remote@s.whatsapp.net")
+            .expect("test inputs should build HKDF info");
+
+        let expected = b"STANZAsender@s.whatsapp.netremote@s.whatsapp.netReport Token";
+        assert_eq!(
+            info.as_bytes(),
+            expected,
+            "HKDF info construction changed! This will break token verification."
+        );
+    }
+
+    #[test]
+    fn test_message_secret_in_prepared_message() {
+        // Verify prepare_message_with_context correctly adds MessageContextInfo
+        let original = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto
+        };
+
+        let secret = [0x12u8; MESSAGE_SECRET_SIZE];
+        let prepared = prepare_message_with_context(&original, &secret);
+
+        // Original message content preserved
+        assert_eq!(prepared.conversation, original.conversation);
+
+        // MessageContextInfo added with correct values
+        let ctx = prepared
+            .message_context_info
+            .as_option()
+            .expect("prepared message should have context info");
+        assert_eq!(
+            ctx.message_secret
+                .as_ref()
+                .expect("context info should have message secret"),
+            &secret.to_vec()
+        );
+        assert_eq!(ctx.reporting_token_version, Some(REPORTING_TOKEN_VERSION));
+    }
+
+    #[test]
+    fn test_prepare_message_preserves_existing_context_info() {
+        // If message already has MessageContextInfo, we should update it, not replace
+        let original = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto.message_context_info = buffa::MessageField::some({
+                let mut proto = wa::MessageContextInfo::default();
+                proto.device_list_metadata_version = Some(42);
+                proto
+            });
+            proto
+        };
+
+        let secret = [0x12u8; MESSAGE_SECRET_SIZE];
+        let prepared = prepare_message_with_context(&original, &secret);
+
+        let ctx = prepared
+            .message_context_info
+            .as_option()
+            .expect("prepared message should have existing context info preserved");
+        assert_eq!(
+            ctx.message_secret
+                .as_ref()
+                .expect("context info should have message secret"),
+            &secret.to_vec()
+        );
+        assert_eq!(ctx.reporting_token_version, Some(REPORTING_TOKEN_VERSION));
+        assert_eq!(ctx.device_list_metadata_version, Some(42));
+    }
+
+    #[test]
+    fn test_invalid_secret_size_generates_new() {
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("Test".to_string());
+            proto
+        };
+
+        let invalid_secret = [0u8; 16]; // Wrong size (16 instead of 32)
+        let sender = test_jid("sender");
+        let remote = test_jid("remote");
+
+        let result =
+            generate_reporting_token(&message, "STANZA", &sender, &remote, Some(&invalid_secret));
+
+        // Should still succeed (generates new secret)
+        let result = result.expect("message should generate token even with invalid secret");
+        // Secret should be 32 bytes (new one generated)
+        assert_eq!(result.message_secret.len(), MESSAGE_SECRET_SIZE);
+        // Should NOT be all zeros (the invalid one truncated)
+        assert_ne!(result.message_secret, [0u8; MESSAGE_SECRET_SIZE]);
+    }
+}

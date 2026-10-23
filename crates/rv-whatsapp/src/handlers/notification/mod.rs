@@ -1,0 +1,2006 @@
+use super::traits::StanzaHandler;
+use crate::client::Client;
+use crate::types::events::Event;
+use async_trait::async_trait;
+use log::debug;
+use std::sync::Arc;
+use wacore::stanza::wire_tags::NotificationType;
+use wacore::stanza::wire_tags::StanzaTag;
+use wacore_binary::OwnedNodeRef;
+
+/// Handler for `<notification>` stanzas.
+///
+/// Processes various notification types including:
+/// - Encrypt notifications (key upload requests)
+/// - Server sync notifications
+/// - Account sync notifications (push name updates)
+/// - Device notifications (device add/remove/update)
+#[derive(Default)]
+pub(crate) struct NotificationHandler;
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl StanzaHandler for NotificationHandler {
+    fn tag(&self) -> &'static str {
+        StanzaTag::Notification.as_str()
+    }
+
+    async fn handle(
+        &self,
+        client: Arc<Client>,
+        node: Arc<OwnedNodeRef>,
+        cancelled: &mut bool,
+    ) -> bool {
+        let generation = client
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let shutdown = client.connection_shutdown_signal();
+        if shutdown.is_fired()
+            || Self::capture_group(&client, &node, &shutdown, generation)
+                .await
+                .is_err()
+        {
+            *cancelled = true;
+            return true;
+        }
+        *cancelled |= !Self::handle_scoped(&client, node, &shutdown, generation).await;
+        true
+    }
+}
+
+impl NotificationHandler {
+    /// The node dispatcher calls this before interceptors; direct router
+    /// callers enter through `handle` instead. Neither path captures twice.
+    pub(crate) async fn capture_group(
+        client: &Client,
+        node: &Arc<OwnedNodeRef>,
+        shutdown: &wacore::runtime::ShutdownSignal,
+        generation: u64,
+    ) -> Result<Option<u64>, ()> {
+        let Some(hook) = client.group_notification_durability_hook.get() else {
+            return Ok(None);
+        };
+        if node.get().attrs().optional_string("type").as_deref()
+            != Some(NotificationType::WGp2.as_str())
+        {
+            return Ok(None);
+        }
+        let scope = crate::client::NotificationScope::new(generation, shutdown);
+        let Some(result) = scope
+            .run(client, hook.on_notification(Arc::clone(node)))
+            .await
+        else {
+            return Err(());
+        };
+        if result.is_err() {
+            log::warn!("Group notification capture failed; ACK withheld");
+            return Err(());
+        }
+        // Capture can outlive the socket that received this envelope. Its
+        // durable record remains useful, but old effects must not mutate the
+        // replacement connection or ACK its notification queue.
+        if shutdown.is_fired()
+            || client
+                .connection_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                != generation
+        {
+            debug!(
+                "Group notification capture completed on a retired connection; effects withheld"
+            );
+            return Err(());
+        }
+        Ok(Some(generation))
+    }
+    pub(crate) async fn handle_scoped(
+        client: &Arc<Client>,
+        node: Arc<OwnedNodeRef>,
+        shutdown: &wacore::runtime::ShutdownSignal,
+        generation: u64,
+    ) -> bool {
+        if shutdown.is_fired() {
+            false
+        } else {
+            handle_notification_scoped(client, node, shutdown, generation).await
+        }
+    }
+}
+
+#[cfg(test)]
+async fn handle_notification_impl(client: &Arc<Client>, node: Arc<OwnedNodeRef>) {
+    let shutdown = client.connection_shutdown_signal();
+    handle_notification_scoped(
+        client,
+        node,
+        &shutdown,
+        client
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+    )
+    .await;
+}
+
+/// Dispatch notification by type.
+///
+/// Every asynchronous arm is `Box::pin`ned. Awaiting a plain async fn inlines
+/// its state machine into this one, retained by both the node dispatcher and
+/// the boxed router handler. Without the indirection their futures carry the
+/// union of all the arms, and a
+/// `<notification type="picture">` pays for `handle_devices_notification`'s
+/// locals. Measured on `benches/inbound_stanza`, a `<notification
+/// type="picture">` allocated 2306 bytes before — of which a single 2272-byte
+/// block was this future — and 146 bytes after. The box the arm that actually
+/// runs pays instead is a small block from a hot malloc bin, and only the arm
+/// that runs pays it. Synchronous arms need none of this: a plain call
+/// contributes no state to the caller's future.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.notif.dispatch", level = "debug", skip_all)
+)]
+async fn handle_notification_scoped(
+    client: &Arc<Client>,
+    node: Arc<OwnedNodeRef>,
+    shutdown: &wacore::runtime::ShutdownSignal,
+    generation: u64,
+) -> bool {
+    let nr = node.get();
+    let notification_type = nr.attrs().optional_string("type");
+
+    let parsed = notification_type
+        .as_deref()
+        .and_then(|t| NotificationType::try_from(t).ok());
+
+    match parsed {
+        Some(NotificationType::Encrypt) => Box::pin(handle_encrypt_notification(client, nr)).await,
+        Some(NotificationType::ServerSync) => handle_server_sync_notification(client, nr),
+        Some(NotificationType::AccountSync) => {
+            Box::pin(handle_account_sync_notification(client, nr)).await
+        }
+        Some(NotificationType::Devices) => Box::pin(handle_devices_notification(client, nr)).await,
+        Some(NotificationType::LinkCodeCompanionReg) => {
+            Box::pin(crate::pair_code::handle_pair_code_notification_scoped(
+                client, nr, shutdown,
+            ))
+            .await;
+        }
+        Some(NotificationType::CompanionRegRefresh) => {
+            Box::pin(handle_companion_reg_refresh(client, nr)).await
+        }
+        Some(NotificationType::Business) => {
+            Box::pin(handle_business_notification(client, nr)).await
+        }
+        Some(NotificationType::Picture) => handle_picture_notification(client, nr),
+        Some(NotificationType::PrivacyToken) => {
+            Box::pin(handle_privacy_token_notification(client, nr)).await
+        }
+        Some(NotificationType::Status) => handle_status_notification(client, nr),
+        Some(NotificationType::Contacts) => {
+            Box::pin(handle_contacts_notification(client, nr)).await
+        }
+        Some(NotificationType::WGp2) => {
+            let scope = crate::client::NotificationScope::new(generation, shutdown);
+            return Box::pin(handle_group_notification(client, Arc::clone(&node), scope)).await;
+        }
+        Some(NotificationType::DisappearingMode) => {
+            handle_disappearing_mode_notification(client, nr)
+        }
+        Some(NotificationType::Newsletter) => {
+            handle_newsletter_notification(client, Arc::clone(&node))
+        }
+        Some(NotificationType::Mex) => handle_mex_notification(client, nr),
+        Some(NotificationType::MediaRetry) => {
+            debug!(
+                "Received mediaretry notification for msg {}",
+                nr.attrs().optional_string("id").unwrap_or_default()
+            );
+        }
+        // A type the core does not model itself. An attached subsystem may
+        // claim it; otherwise it is one this client does not act on, or does
+        // not model at all, and both reach the consumer as a raw event.
+        _ => {
+            if let Some(parsed) = parsed
+                && Box::pin(crate::client::subsystem::dispatch_notification(
+                    client, parsed, &node,
+                ))
+                .await
+            {
+                return true;
+            }
+            let other = notification_type.as_deref().unwrap_or_default();
+            debug!("Unhandled notification type '{other}', dispatching raw event");
+            client
+                .core
+                .event_bus
+                .dispatch(Event::Notification(Arc::clone(&node)));
+        }
+    }
+    true
+}
+
+mod companion_reg;
+mod device;
+mod groups;
+mod privacy_business;
+mod profile;
+
+use companion_reg::*;
+// `pub(crate)` re-export keeps `crate::handlers::notification::handle_local_identity_change`
+// resolving for device_registry.rs.
+pub(crate) use device::*;
+use groups::*;
+use privacy_business::*;
+use profile::*;
+
+#[cfg(test)]
+mod durability_tests;
+#[cfg(test)]
+mod reachout_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lid_pn_cache::LearningSource;
+    use crate::test_utils::{TestEventCollector, create_test_client};
+    use std::sync::Arc;
+    use wacore::stanza::devices::{DeviceNotification, DeviceNotificationType};
+    use wacore::stanza::groups::GroupNotificationAction;
+    use wacore::types::events::{
+        ContactNumberChanged, ContactSyncRequested, ContactUpdated, DeviceListUpdateType,
+    };
+    use wacore_binary::builder::NodeBuilder;
+    use wacore_binary::{Jid, Node};
+
+    fn node_to_arc(node: Node) -> Arc<OwnedNodeRef> {
+        crate::test_utils::node_to_owned_ref(&node)
+    }
+
+    // ── `companion_reg_refresh` (WA Web `Handle/CompanionReqRefreshNotification.js`)
+    //
+    // The server tells an unpaired companion to re-mint its registration. WA
+    // Web regenerates the ADV secret key and acks; we routed the stanza to the
+    // catch-all instead, so the QR we kept advertising carried a secret the
+    // server had already retired.
+
+    fn companion_reg_refresh_notif(child: &'static str) -> Node {
+        NodeBuilder::new("notification")
+            .attr("type", "companion_reg_refresh")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "reg-refresh-1")
+            .children([NodeBuilder::new(child).build()])
+            .build()
+    }
+
+    async fn adv_secret(client: &Arc<Client>) -> [u8; 32] {
+        client
+            .persistence_manager
+            .get_device_snapshot()
+            .adv_secret_key
+    }
+
+    /// The failure path of the seam: a type the core does not
+    /// model and no attached subsystem claims reaches the consumer whole
+    /// instead of being dropped. That is what an operation belonging to a
+    /// subsystem this build left out looks like from outside.
+    #[tokio::test]
+    async fn an_unclaimed_notification_type_reaches_the_consumer_raw() {
+        use crate::types::events::EventHandler;
+
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client
+            .subscribe_handler(collector.clone() as Arc<dyn EventHandler>)
+            .detach();
+
+        let notif = NodeBuilder::new("notification")
+            .attr("type", NotificationType::Psa.as_str())
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "psa-1")
+            .build();
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert!(
+            collector
+                .events()
+                .iter()
+                .any(|event| matches!(event.as_ref(), Event::Notification(_))),
+            "an unclaimed notification type must reach the consumer as a raw event"
+        );
+    }
+
+    /// A client with an event collector already subscribed. Every test below
+    /// observes the dispatcher through the bus, so the wiring is shared rather
+    /// than repeated per test.
+    async fn client_with_collector() -> (Arc<Client>, Arc<TestEventCollector>) {
+        use crate::types::events::EventHandler;
+
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client
+            .subscribe_handler(collector.clone() as Arc<dyn EventHandler>)
+            .detach();
+        (client, collector)
+    }
+
+    /// The account this client owns, as the `from` of a notification the
+    /// server sends about it.
+    const OWN_PN: &str = "12025550199@s.whatsapp.net";
+
+    /// `<notification type="account_sync" from=OWN_PN>` wrapping one
+    /// `<disappearing_mode>` child — the envelope both arms share, so only the
+    /// child differs between them.
+    fn account_sync_disappearing_mode(id: &str, disappearing_mode: Node) -> Node {
+        NodeBuilder::new("notification")
+            .attr("type", NotificationType::AccountSync.as_str())
+            .attr("from", OWN_PN)
+            .attr("id", id)
+            .attr("t", "1704067200")
+            .children([disappearing_mode])
+            .build()
+    }
+
+    // ── `w:gp2` / `<groups_dirty>` (WA Web
+    // `WASmaxInGroupsGroupsDirtyNotificationRequest`)
+    //
+    // The one `w:gp2` stanza whose `from` is the server rather than a group.
+    // We ran it through the ordinary group-notification parser, which named
+    // `s.whatsapp.net` as the group in the event it produced and left the
+    // groups the server had actually called stale still cached.
+
+    #[tokio::test]
+    async fn groups_dirty_invalidates_the_named_groups_and_names_no_group_update() {
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore::types::message::AddressingMode;
+
+        let (client, collector) = client_with_collector().await;
+
+        // Several dirty groups, so the bounded fan-out is exercised with more
+        // than one entry rather than degenerating to the single-item case.
+        let dirty: Vec<Jid> = [
+            "120363000000000001@g.us",
+            "120363000000000003@g.us",
+            "120363000000000004@g.us",
+        ]
+        .iter()
+        .map(|jid| jid.parse().unwrap())
+        .collect();
+        let untouched: Jid = "120363000000000002@g.us".parse().unwrap();
+        let cache = client.get_group_cache();
+        for jid in dirty.iter().chain([&untouched]) {
+            cache
+                .insert(
+                    jid.clone(),
+                    Arc::new(GroupRoutingInfo::new(
+                        vec!["12025550101@s.whatsapp.net".parse().unwrap()],
+                        AddressingMode::Pn,
+                    )),
+                )
+                .await;
+        }
+
+        let notif = NodeBuilder::new("notification")
+            .attr("type", NotificationType::WGp2.as_str())
+            .attr("from", "g.us")
+            .attr("id", "groups-dirty-1")
+            .attr("t", "1704067200")
+            .children([NodeBuilder::new("groups_dirty")
+                .children(
+                    dirty
+                        .iter()
+                        .map(|jid| NodeBuilder::new("group").attr("jid", jid).build()),
+                )
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        // The invalidation runs in the per-group lane, off the ack path, so it
+        // lands shortly after the handler returns rather than inside it.
+        // `poll_until` takes a sync predicate and this one is async, hence a
+        // bounded timeout around the poll rather than that helper.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for jid in &dirty {
+                while cache.get(jid).await.is_some() {
+                    tokio::task::yield_now().await;
+                }
+            }
+        })
+        .await
+        .expect("every group the server called stale must lose its cached metadata");
+        assert!(
+            cache.get(&untouched).await.is_some(),
+            "a group the notification did not name must keep its cache"
+        );
+        assert!(
+            !collector
+                .events()
+                .iter()
+                .any(|event| matches!(event.as_ref(), Event::GroupUpdate(_))),
+            "groups_dirty must not be reported as an update to a group named by `from`"
+        );
+        assert!(
+            collector
+                .events()
+                .iter()
+                .any(|event| matches!(event.as_ref(), Event::Notification(_))),
+            "the stanza must still reach the consumer raw"
+        );
+    }
+
+    // ── `account_sync` / `<disappearing_mode>` (WA Web's account_sync parser)
+    //
+    // Our own account's default disappearing-messages timer, changed from
+    // another device. We read only `pushname` and `<devices>` out of this
+    // notification, so the change was dropped without even the raw-event
+    // fallback, which the matched `account_sync` arm skips.
+    //
+    // WA Web's parser makes `action` and `duration`/`t` mutually exclusive
+    // (`h.hasAttr("action") ? … : (duration, t)`), so the two shapes are
+    // tested apart: only the second carries a timer to report.
+
+    #[tokio::test]
+    async fn account_sync_disappearing_mode_reaches_the_consumer() {
+        let (client, collector) = client_with_collector().await;
+
+        let notif = account_sync_disappearing_mode(
+            "acct-sync-dm-1",
+            NodeBuilder::new("disappearing_mode")
+                .attr("duration", "604800")
+                .attr("t", "1704067200")
+                .build(),
+        );
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        let changed = collector
+            .events()
+            .into_iter()
+            .find_map(|event| match event.as_ref() {
+                Event::DisappearingModeChanged(changed) => Some(changed.clone()),
+                _ => None,
+            })
+            .expect("an account_sync disappearing_mode must reach the consumer");
+        assert_eq!(changed.from, OWN_PN.parse::<Jid>().unwrap());
+        assert_eq!(changed.duration, 604_800);
+    }
+
+    /// The other arm. `action` present means the stanza carries no timer at
+    /// all — WA Web goes back to the server for it. Reporting a
+    /// `DisappearingModeChanged` here would be inventing a duration the
+    /// notification never stated, so nothing is dispatched.
+    #[tokio::test]
+    async fn account_sync_disappearing_mode_action_reports_no_duration() {
+        let (client, collector) = client_with_collector().await;
+
+        let notif = account_sync_disappearing_mode(
+            "acct-sync-dm-2",
+            NodeBuilder::new("disappearing_mode")
+                .attr("action", "modify")
+                .build(),
+        );
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert!(
+            !collector
+                .events()
+                .iter()
+                .any(|event| matches!(event.as_ref(), Event::DisappearingModeChanged(_))),
+            "an action-only disappearing_mode states no duration, so none may be reported"
+        );
+    }
+
+    /// A type a subsystem claims must not be shadowed by a core arm. The seam
+    /// is consulted only in the fallthrough, so an arm added here later would
+    /// take the stanza and the subsystem would silently stop seeing it. The
+    /// counter is what separates the two: suppressing the raw event alone
+    /// proves nothing, since a shadowing arm suppresses it too. `from` is not
+    /// the server, which the handlers reject, so this observes routing without
+    /// running the subsystem's work. Vacuous when no subsystem is attached, so
+    /// the all-features job is where it has teeth.
+    #[tokio::test]
+    async fn a_claimed_notification_type_is_not_shadowed_by_a_core_arm() {
+        use crate::client::subsystem::{CLAIMS, DISPATCHED};
+
+        let client = create_test_client().await;
+
+        for claimed in CLAIMS {
+            for notification_type in *claimed {
+                let before = DISPATCHED.with(|dispatched| dispatched.get());
+                let notif = NodeBuilder::new("notification")
+                    .attr("type", notification_type.as_str())
+                    .attr("from", "12025550111@s.whatsapp.net")
+                    .attr("id", "claimed-1")
+                    .build();
+                handle_notification_impl(&client, node_to_arc(notif)).await;
+
+                assert!(
+                    DISPATCHED.with(|dispatched| dispatched.get()) > before,
+                    "{notification_type:?} never reached its subsystem, so a core arm took it"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn companion_reg_refresh_rotates_the_adv_secret() {
+        let client = create_test_client().await;
+        let before = adv_secret(&client).await;
+
+        let notif = companion_reg_refresh_notif("companion_reg_refresh");
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert_ne!(
+            adv_secret(&client).await,
+            before,
+            "companion_reg_refresh must re-mint the ADV secret the QR advertises"
+        );
+    }
+
+    /// WA Web accepts either child tag on this notification.
+    #[tokio::test]
+    async fn pair_device_rotate_qr_is_the_same_request() {
+        let client = create_test_client().await;
+        let before = adv_secret(&client).await;
+
+        let notif = companion_reg_refresh_notif("pair-device-rotate-qr");
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert_ne!(adv_secret(&client).await, before);
+    }
+
+    /// WA Web's parser rejects the stanza when neither child is present; a
+    /// malformed notification must not silently rotate live key material.
+    #[tokio::test]
+    async fn companion_reg_refresh_without_a_known_child_is_ignored() {
+        let client = create_test_client().await;
+        let before = adv_secret(&client).await;
+
+        let notif = companion_reg_refresh_notif("something-else");
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert_eq!(adv_secret(&client).await, before);
+    }
+
+    // ── `<notification type="encrypt">` prekey-low routing
+    //
+    // What these pin: a `<count>` child reaches the prekey-low path wherever it
+    // sits among the children, and a PQ-only notification reaches nothing. Why
+    // WA Web splits it that way is stated once, at `handle_encrypt_notification`.
+
+    fn encrypt_notif(children: &[&'static str]) -> Node {
+        NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "prekey-low-1")
+            .children(children.iter().map(|c| NodeBuilder::new(c).build()))
+            .build()
+    }
+
+    /// `handle_prekey_low` clears `server_has_prekeys` synchronously, before it
+    /// spawns the upload, so the flag is the observable that says the stanza was
+    /// routed to the prekey-low path at all.
+    async fn server_has_prekeys(client: &Arc<Client>) -> bool {
+        client
+            .persistence_manager
+            .get_device_snapshot()
+            .server_has_prekeys
+    }
+
+    async fn dispatch_encrypt(client: &Arc<Client>, children: &[&'static str]) -> bool {
+        client
+            .persistence_manager
+            .modify_device(|d| d.server_has_prekeys = true)
+            .await;
+        handle_notification_impl(client, node_to_arc(encrypt_notif(children))).await;
+        !server_has_prekeys(client).await
+    }
+
+    /// Every child arrangement that carries `<count>` must reach the prekey-low
+    /// path, whatever the tag order.
+    #[tokio::test]
+    async fn a_pq_count_first_encrypt_notification_still_refills_the_classic_pool() {
+        let client = create_test_client().await;
+
+        assert!(
+            dispatch_encrypt(&client, &["count"]).await,
+            "<count> alone must reach the prekey-low path"
+        );
+        assert!(
+            dispatch_encrypt(&client, &["count", "pq_count"]).await,
+            "<count> first must reach the prekey-low path"
+        );
+        assert!(
+            dispatch_encrypt(&client, &["pq_count", "count"]).await,
+            "<count> after <pq_count> must reach the prekey-low path"
+        );
+    }
+
+    /// A notification with no `<count>` anywhere must reach nothing. This one
+    /// holds on both sides of the fix; it is here to pin the other half of the
+    /// routing condition, not to demonstrate the bug.
+    #[tokio::test]
+    async fn a_pq_count_only_encrypt_notification_uploads_nothing() {
+        let client = create_test_client().await;
+
+        assert!(
+            !dispatch_encrypt(&client, &["pq_count"]).await,
+            "a PQ-only prekey-low notification must not trigger the classic upload"
+        );
+    }
+
+    /// Regression: the displayed-code window and the pending-link window are not
+    /// the same. A `primary_hello` accepted near the end of the 180s validity
+    /// leaves `companion_finish` waiting up to another minute for pair-success,
+    /// and the ADV secret that HMAC is computed over is already derived — but
+    /// the code itself has expired, so a validity-only guard would rotate right
+    /// through it.
+    #[tokio::test]
+    async fn companion_reg_refresh_waits_for_a_pending_pair_success() {
+        use wacore::libsignal::protocol::KeyPair;
+        use wacore::pair_code::PairCodeState;
+
+        let client = create_test_client().await;
+        let expired = wacore::time::Instant::ZERO;
+        *client.pair_code_state.lock().await = PairCodeState::WaitingForPhoneConfirmation {
+            pairing_ref: b"3@2:ref".to_vec(),
+            phone_jid: "15551234567".to_string(),
+            pair_code: "ABCD1234".to_string(),
+            ephemeral_keypair: Box::new(KeyPair::generate(
+                &mut rand::make_rng::<rand::rngs::StdRng>(),
+            )),
+            code_expires_at: expired,
+            // Stage 2 ran: companion_finish is out and pair-success is pending.
+            primary_hello_attempt_count: 1,
+        };
+        let before = adv_secret(&client).await;
+
+        let notif = companion_reg_refresh_notif("companion_reg_refresh");
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert_eq!(
+            adv_secret(&client).await,
+            before,
+            "the pending pair-success HMAC is computed over this secret"
+        );
+    }
+
+    /// A code that is merely displayed does not depend on the current ADV
+    /// secret — stage 2 derives and persists a fresh one when the phone
+    /// answers. Deferring there would protect nothing while leaving the QR,
+    /// which shares the connection, advertising registration material the
+    /// server asked to retire for the code's whole validity window.
+    #[tokio::test]
+    async fn a_merely_displayed_code_does_not_defer_the_rotation() {
+        use wacore::libsignal::protocol::KeyPair;
+        use wacore::pair_code::PairCodeState;
+
+        let client = create_test_client().await;
+        *client.pair_code_state.lock().await = PairCodeState::WaitingForPhoneConfirmation {
+            pairing_ref: b"3@2:ref".to_vec(),
+            phone_jid: "15551234567".to_string(),
+            pair_code: "ABCD1234".to_string(),
+            ephemeral_keypair: Box::new(KeyPair::generate(
+                &mut rand::make_rng::<rand::rngs::StdRng>(),
+            )),
+            code_expires_at: wacore::time::Instant::now()
+                + wacore::pair_code::PairCodeUtils::code_validity(),
+            primary_hello_attempt_count: 0,
+        };
+        let before = adv_secret(&client).await;
+
+        let notif = companion_reg_refresh_notif("companion_reg_refresh");
+        handle_notification_impl(&client, node_to_arc(notif)).await;
+
+        assert_ne!(
+            adv_secret(&client).await,
+            before,
+            "nothing depends on this secret yet, and the QR still needs it rotated"
+        );
+    }
+
+    #[test]
+    fn test_parse_device_add_notification() {
+        // Per WhatsApp Web: add operation has single device + key-index-list
+        let node = NodeBuilder::new("notification")
+            .attr("type", "devices")
+            .attr("from", "1234567890@s.whatsapp.net")
+            .children([NodeBuilder::new("add")
+                .children([
+                    NodeBuilder::new("device")
+                        .attr("jid", "1234567890:1@s.whatsapp.net")
+                        .build(),
+                    NodeBuilder::new("key-index-list")
+                        .attr("ts", "1000")
+                        .bytes(vec![0x01, 0x02, 0x03])
+                        .build(),
+                ])
+                .build()])
+            .build();
+
+        let parsed = DeviceNotification::try_parse(&node.as_node_ref()).unwrap();
+        assert_eq!(parsed.operation.operation_type, DeviceNotificationType::Add);
+        assert_eq!(parsed.operation.device_ids(), vec![1]);
+        // Verify key index info
+        assert!(parsed.operation.key_index.is_some());
+        assert_eq!(parsed.operation.key_index.as_ref().unwrap().timestamp, 1000);
+    }
+
+    #[test]
+    fn test_parse_device_remove_notification() {
+        let node = NodeBuilder::new("notification")
+            .attr("type", "devices")
+            .attr("from", "1234567890@s.whatsapp.net")
+            .children([NodeBuilder::new("remove")
+                .children([
+                    NodeBuilder::new("device")
+                        .attr("jid", "1234567890:3@s.whatsapp.net")
+                        .build(),
+                    NodeBuilder::new("key-index-list")
+                        .attr("ts", "2000")
+                        .build(),
+                ])
+                .build()])
+            .build();
+
+        let parsed = DeviceNotification::try_parse(&node.as_node_ref()).unwrap();
+        assert_eq!(
+            parsed.operation.operation_type,
+            DeviceNotificationType::Remove
+        );
+        assert_eq!(parsed.operation.device_ids(), vec![3]);
+    }
+
+    #[test]
+    fn test_parse_device_update_notification_with_hash() {
+        let node = NodeBuilder::new("notification")
+            .attr("type", "devices")
+            .attr("from", "1234567890@s.whatsapp.net")
+            .children([NodeBuilder::new("update")
+                .attr("hash", "2:abcdef123456")
+                .build()])
+            .build();
+
+        let parsed = DeviceNotification::try_parse(&node.as_node_ref()).unwrap();
+        assert_eq!(
+            parsed.operation.operation_type,
+            DeviceNotificationType::Update
+        );
+        assert_eq!(
+            parsed.operation.contact_hash,
+            Some("2:abcdef123456".to_string())
+        );
+        // Update operations don't have devices (just hash for lookup)
+        assert!(parsed.operation.devices.is_empty());
+    }
+
+    #[test]
+    fn test_parse_empty_device_notification_fails() {
+        // Per WhatsApp Web: at least one operation (add/remove/update) is required
+        let node = NodeBuilder::new("notification")
+            .attr("type", "devices")
+            .attr("from", "1234567890@s.whatsapp.net")
+            .build();
+
+        let result = DeviceNotification::try_parse(&node.as_node_ref());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("missing required operation")
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_operations_uses_priority() {
+        // Per WhatsApp Web: only ONE operation is processed with priority remove > add > update
+        // If both remove and add are present, remove should be processed
+        let node = NodeBuilder::new("notification")
+            .attr("type", "devices")
+            .attr("from", "1234567890@s.whatsapp.net")
+            .children([
+                NodeBuilder::new("add")
+                    .children([
+                        NodeBuilder::new("device")
+                            .attr("jid", "1234567890:5@s.whatsapp.net")
+                            .build(),
+                        NodeBuilder::new("key-index-list")
+                            .attr("ts", "3000")
+                            .build(),
+                    ])
+                    .build(),
+                NodeBuilder::new("remove")
+                    .children([
+                        NodeBuilder::new("device")
+                            .attr("jid", "1234567890:2@s.whatsapp.net")
+                            .build(),
+                        NodeBuilder::new("key-index-list")
+                            .attr("ts", "3001")
+                            .build(),
+                    ])
+                    .build(),
+            ])
+            .build();
+
+        let parsed = DeviceNotification::try_parse(&node.as_node_ref()).unwrap();
+        // Should process remove, not add (priority: remove > add > update)
+        assert_eq!(
+            parsed.operation.operation_type,
+            DeviceNotificationType::Remove
+        );
+        assert_eq!(parsed.operation.device_ids(), vec![2]);
+    }
+
+    #[test]
+    fn test_device_list_update_type_from_notification_type() {
+        assert_eq!(
+            DeviceListUpdateType::from(DeviceNotificationType::Add),
+            DeviceListUpdateType::Add
+        );
+        assert_eq!(
+            DeviceListUpdateType::from(DeviceNotificationType::Remove),
+            DeviceListUpdateType::Remove
+        );
+        assert_eq!(
+            DeviceListUpdateType::from(DeviceNotificationType::Update),
+            DeviceListUpdateType::Update
+        );
+    }
+
+    // Tests for account_sync device parsing
+
+    #[test]
+    fn test_parse_account_sync_device_list_basic() {
+        let devices_node = NodeBuilder::new("devices")
+            .attr("dhash", "2:FnEWjS13")
+            .children([
+                NodeBuilder::new("device")
+                    .attr("jid", "15551234567@s.whatsapp.net")
+                    .build(),
+                NodeBuilder::new("device")
+                    .attr("jid", "15551234567:64@s.whatsapp.net")
+                    .attr("key-index", "2")
+                    .build(),
+            ])
+            .build();
+
+        let devices = parse_account_sync_device_list(&devices_node.as_node_ref());
+        assert_eq!(devices.len(), 2);
+
+        // Primary device (device 0)
+        assert_eq!(devices[0].jid.user, "15551234567");
+        assert_eq!(devices[0].jid.device, 0);
+        assert_eq!(devices[0].key_index, None);
+
+        // Companion device (device 64)
+        assert_eq!(devices[1].jid.user, "15551234567");
+        assert_eq!(devices[1].jid.device, 64);
+        assert_eq!(devices[1].key_index, Some(2));
+    }
+
+    #[test]
+    fn test_parse_account_sync_device_list_with_key_index_list() {
+        // Real-world structure includes <key-index-list> which should be ignored
+        let devices_node = NodeBuilder::new("devices")
+            .attr("dhash", "2:FnEWjS13")
+            .children([
+                NodeBuilder::new("device")
+                    .attr("jid", "15551234567@s.whatsapp.net")
+                    .build(),
+                NodeBuilder::new("device")
+                    .attr("jid", "15551234567:77@s.whatsapp.net")
+                    .attr("key-index", "15")
+                    .build(),
+                NodeBuilder::new("key-index-list")
+                    .attr("ts", "1766612162")
+                    .bytes(vec![0x01, 0x02, 0x03]) // Simulated signed bytes
+                    .build(),
+            ])
+            .build();
+
+        let devices = parse_account_sync_device_list(&devices_node.as_node_ref());
+        // Should only parse <device> tags, not <key-index-list>
+        assert_eq!(devices.len(), 2);
+        assert_eq!(devices[0].jid.device, 0);
+        assert_eq!(devices[1].jid.device, 77);
+        assert_eq!(devices[1].key_index, Some(15));
+    }
+
+    #[test]
+    fn test_parse_account_sync_device_list_empty() {
+        let devices_node = NodeBuilder::new("devices")
+            .attr("dhash", "2:FnEWjS13")
+            .build();
+
+        let devices = parse_account_sync_device_list(&devices_node.as_node_ref());
+        assert!(devices.is_empty());
+    }
+
+    #[test]
+    fn test_parse_account_sync_device_list_multiple_devices() {
+        let devices_node = NodeBuilder::new("devices")
+            .attr("dhash", "2:XYZ123")
+            .children([
+                NodeBuilder::new("device")
+                    .attr("jid", "1234567890@s.whatsapp.net")
+                    .build(),
+                NodeBuilder::new("device")
+                    .attr("jid", "1234567890:1@s.whatsapp.net")
+                    .attr("key-index", "1")
+                    .build(),
+                NodeBuilder::new("device")
+                    .attr("jid", "1234567890:2@s.whatsapp.net")
+                    .attr("key-index", "5")
+                    .build(),
+                NodeBuilder::new("device")
+                    .attr("jid", "1234567890:3@s.whatsapp.net")
+                    .attr("key-index", "10")
+                    .build(),
+            ])
+            .build();
+
+        let devices = parse_account_sync_device_list(&devices_node.as_node_ref());
+        assert_eq!(devices.len(), 4);
+
+        // Verify device IDs are correctly parsed
+        assert_eq!(devices[0].jid.device, 0);
+        assert_eq!(devices[1].jid.device, 1);
+        assert_eq!(devices[2].jid.device, 2);
+        assert_eq!(devices[3].jid.device, 3);
+
+        // Verify key indexes
+        assert_eq!(devices[0].key_index, None);
+        assert_eq!(devices[1].key_index, Some(1));
+        assert_eq!(devices[2].key_index, Some(5));
+        assert_eq!(devices[3].key_index, Some(10));
+    }
+
+    // ── disappearing_mode notification parsing tests ─────────────────────
+
+    /// Helper: parse a disappearing_mode notification node the same way
+    /// the handler does, returning `(duration, setting_timestamp)` or `None`
+    /// on validation failure.
+    fn parse_disappearing_mode(node: &Node) -> Option<(u32, i64)> {
+        let dm_node = node.get_optional_child("disappearing_mode")?;
+        let mut dm_attrs = dm_node.attrs();
+        let duration = dm_attrs
+            .optional_string("duration")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let setting_timestamp = dm_attrs
+            .optional_string("t")
+            .and_then(|s| s.parse::<i64>().ok())
+            .filter(|&t| wacore::time::from_secs(t).is_some())?;
+        Some((duration, setting_timestamp))
+    }
+
+    #[test]
+    fn test_parse_disappearing_mode_valid() {
+        let node = NodeBuilder::new("notification")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .attr("type", "disappearing_mode")
+            .children([NodeBuilder::new("disappearing_mode")
+                .attr("duration", "86400")
+                .attr("t", "1773519041")
+                .build()])
+            .build();
+
+        let (duration, ts) = parse_disappearing_mode(&node).expect("should parse");
+        assert_eq!(duration, 86400);
+        assert_eq!(ts, 1773519041);
+    }
+
+    #[test]
+    fn test_parse_disappearing_mode_disabled() {
+        // duration=0 means disappearing messages disabled
+        let node = NodeBuilder::new("notification")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .children([NodeBuilder::new("disappearing_mode")
+                .attr("duration", "0")
+                .attr("t", "1773519041")
+                .build()])
+            .build();
+
+        let (duration, ts) = parse_disappearing_mode(&node).expect("should parse");
+        assert_eq!(duration, 0, "duration=0 means disabled");
+        assert_eq!(ts, 1773519041);
+    }
+
+    #[test]
+    fn test_parse_disappearing_mode_missing_child() {
+        // No <disappearing_mode> child → returns None
+        let node = NodeBuilder::new("notification")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .attr("type", "disappearing_mode")
+            .build();
+
+        assert!(
+            parse_disappearing_mode(&node).is_none(),
+            "should return None when child element is missing"
+        );
+    }
+
+    #[test]
+    fn test_parse_disappearing_mode_missing_timestamp() {
+        // Missing 't' attribute → returns None (required field)
+        let node = NodeBuilder::new("notification")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .children([NodeBuilder::new("disappearing_mode")
+                .attr("duration", "86400")
+                .build()])
+            .build();
+
+        assert!(
+            parse_disappearing_mode(&node).is_none(),
+            "should return None when 't' attribute is missing"
+        );
+    }
+
+    #[test]
+    fn test_parse_disappearing_mode_missing_duration_defaults_to_zero() {
+        // Missing duration defaults to 0 (WA Web: attrInt("duration", 0))
+        let node = NodeBuilder::new("notification")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .children([NodeBuilder::new("disappearing_mode")
+                .attr("t", "1773519041")
+                .build()])
+            .build();
+
+        let (duration, _) = parse_disappearing_mode(&node).expect("should parse");
+        assert_eq!(duration, 0, "missing duration should default to 0");
+    }
+
+    #[tokio::test]
+    async fn test_contacts_update_dispatches_contact_updated_event() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-update-1")
+            .attr("t", "1773519041")
+            .children([NodeBuilder::new("update")
+                .attr("jid", "5511999999999@s.whatsapp.net")
+                .build()])
+            .build();
+
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let events = collector.events();
+        assert!(
+            events.len() == 1
+                && matches!(
+                    &*events[0],
+                    Event::ContactUpdated(ContactUpdated { jid, .. })
+                    if jid == &Jid::pn("5511999999999")
+                )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contacts_modify_with_lid_creates_mappings() {
+        // WA Web: old/new are PN JIDs, old_lid/new_lid are LID JIDs.
+        // Creates two mappings: old_lid→old_pn AND new_lid→new_pn.
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-modify-1")
+            .children([NodeBuilder::new("modify")
+                .attr("old", "5511999999999@s.whatsapp.net")
+                .attr("new", "5511888888888@s.whatsapp.net")
+                .attr("old_lid", "100000011111111@lid")
+                .attr("new_lid", "100000022222222@lid")
+                .build()])
+            .build();
+
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        // Both LID-PN mappings should be created
+        assert_eq!(
+            client
+                .lid_pn_cache
+                .get_phone_number("100000011111111")
+                .await,
+            Some("5511999999999".to_string()),
+            "old_lid should map to old PN"
+        );
+        assert_eq!(
+            client
+                .lid_pn_cache
+                .get_phone_number("100000022222222")
+                .await,
+            Some("5511888888888".to_string()),
+            "new_lid should map to new PN"
+        );
+
+        let events = collector.events();
+        assert!(
+            events.len() == 1
+                && matches!(
+                    &*events[0],
+                    Event::ContactNumberChanged(ContactNumberChanged {
+                        old_jid, new_jid, old_lid, new_lid, ..
+                    })
+                    if old_jid == &Jid::pn("5511999999999")
+                        && new_jid == &Jid::pn("5511888888888")
+                        && old_lid.is_some()
+                        && new_lid.is_some()
+                )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contacts_modify_without_lid_skips_mapping() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-modify-2")
+            .children([NodeBuilder::new("modify")
+                .attr("old", "5511999999999@s.whatsapp.net")
+                .attr("new", "5511888888888@s.whatsapp.net")
+                .build()])
+            .build();
+
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        // Event should still be dispatched, just without LID info
+        assert_eq!(collector.events().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_contacts_sync_dispatches_contact_sync_requested_event() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-sync-1")
+            .children([NodeBuilder::new("sync").attr("after", "1773519041").build()])
+            .build();
+
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let events = collector.events();
+        assert!(
+            events.len() == 1
+                && matches!(
+                    &*events[0],
+                    Event::ContactSyncRequested(ContactSyncRequested { after, .. })
+                    if after.is_some()
+                )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contacts_add_remove_do_not_dispatch_events() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        for tag in ["add", "remove"] {
+            let node = NodeBuilder::new("notification")
+                .attr("type", "contacts")
+                .attr("from", "s.whatsapp.net")
+                .attr("id", format!("contacts-{tag}-1"))
+                .children([NodeBuilder::new(tag).build()])
+                .build();
+            handle_notification_impl(&client, node_to_arc(node)).await;
+        }
+
+        assert!(
+            collector.events().is_empty(),
+            "add/remove should not dispatch events"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contacts_empty_notification_ignored() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        // No child element
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-empty-1")
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "empty contacts notification should not dispatch events"
+        );
+    }
+
+    /// Same PN on both sides is still dispatched as a ContactNumberChanged
+    /// event (with `old_jid == new_jid`). WA Web JS has no special guard for
+    /// this case either; the LID mapping update is a no-op when LIDs are
+    /// also equal. Consumers can filter if they care.
+    #[tokio::test]
+    async fn test_contacts_modify_same_jid_still_dispatches() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-modify-same")
+            .children([NodeBuilder::new("modify")
+                .attr("old", "5511999999999@s.whatsapp.net")
+                .attr("new", "5511999999999@s.whatsapp.net")
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let events = collector.events();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            &*events[0],
+            Event::ContactNumberChanged(ContactNumberChanged { old_jid, new_jid, .. })
+                if old_jid == new_jid
+        ));
+    }
+
+    /// Partial LID (only `new_lid`, missing `old_lid`) must NOT create any
+    /// LID-PN mapping, since WA Web requires BOTH for createLidPnMappings.
+    #[tokio::test]
+    async fn test_contacts_modify_partial_lid_skips_mappings() {
+        let client = create_test_client().await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-modify-partial")
+            .children([NodeBuilder::new("modify")
+                .attr("old", "5511999999999@s.whatsapp.net")
+                .attr("new", "5511888888888@s.whatsapp.net")
+                .attr("new_lid", "100000022222222@lid")
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            client
+                .lid_pn_cache
+                .get_phone_number("100000022222222")
+                .await
+                .is_none(),
+            "no mapping should be created when old_lid is missing"
+        );
+    }
+
+    /// Missing `new` attribute: the parser should warn and not dispatch
+    /// anything, mirroring WA Web's parser error path.
+    #[tokio::test]
+    async fn test_contacts_modify_missing_new_attr_drops_event() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "s.whatsapp.net")
+            .attr("id", "contacts-modify-bad")
+            .children([NodeBuilder::new("modify")
+                .attr("old", "5511999999999@s.whatsapp.net")
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(collector.events().is_empty());
+    }
+
+    /// Group `w:gp2` change_number: the parsed action must carry the new
+    /// owner from the child's `jid` attr and the sub_group_suggestions from
+    /// `<sub_group_suggestion jid=.../>` children. The old owner is the
+    /// notification's top-level `participant` attribute, surfaced on
+    /// `GroupUpdate.participant`.
+    #[tokio::test]
+    async fn test_group_change_number_dispatches_with_new_owner_and_suggestions() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "w:gp2")
+            .attr("from", "120363000000000000@g.us")
+            .attr("participant", "5511999999999@s.whatsapp.net")
+            .attr("id", "gp2-change-1")
+            .attr("t", "1773519041")
+            .children([NodeBuilder::new("change_number")
+                .attr("jid", "5511888888888@s.whatsapp.net")
+                .children([
+                    NodeBuilder::new("sub_group_suggestion")
+                        .attr("jid", "120363111111111111@g.us")
+                        .build(),
+                    NodeBuilder::new("sub_group_suggestion")
+                        .attr("jid", "120363222222222222@g.us")
+                        .build(),
+                ])
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let events = collector.events();
+        let group_update = events
+            .iter()
+            .find_map(|e| match &**e {
+                Event::GroupUpdate(u) => Some(u),
+                _ => None,
+            })
+            .expect("expected GroupUpdate");
+
+        assert_eq!(
+            group_update.participant.as_ref().map(|j| j.user.as_str()),
+            Some("5511999999999"),
+            "old owner comes from notification.participant"
+        );
+        match &*group_update.action {
+            GroupNotificationAction::ChangeNumber {
+                new_owner,
+                sub_group_suggestions,
+            } => {
+                assert_eq!(
+                    new_owner.as_ref().map(|j| j.user.as_str()),
+                    Some("5511888888888")
+                );
+                assert_eq!(sub_group_suggestions.len(), 2);
+            }
+            other => panic!("expected ChangeNumber, got {:?}", other),
+        }
+    }
+
+    /// Group `w:gp2` `<modify>` (number/LID migration): WA Web rotates the
+    /// sender key unconditionally, so our handler must force-rotate the own
+    /// group sender key (delete it) so the next send regenerates and
+    /// redistributes — and clear the stale has_key tracking for the old number.
+    #[tokio::test]
+    async fn test_group_modify_rotates_sender_key() {
+        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::types::jid::JidExt;
+
+        let client = create_test_client().await;
+        let own_jid: Jid = "12025550101@s.whatsapp.net".parse().unwrap();
+        client
+            .persistence_manager
+            .modify_device(|d| d.pn = Some(own_jid.clone()))
+            .await;
+
+        let group = "120363000000000000@g.us";
+        // Seed has_key tracking for the migrating device so we can assert the
+        // rotation clears it (not just the cached sender key).
+        let migrated_jid: Jid = "12025550102@s.whatsapp.net".parse().unwrap();
+        client
+            .set_sender_key_status_for_devices(
+                group,
+                std::slice::from_ref(&migrated_jid),
+                true,
+                false,
+            )
+            .await
+            .unwrap();
+
+        let sk_name = SenderKeyName::from_parts(group, own_jid.to_protocol_address().as_str());
+        client
+            .signal_cache
+            .put_sender_key(
+                &sk_name,
+                wacore::libsignal::protocol::SenderKeyRecord::new_empty(),
+            )
+            .await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "w:gp2")
+            .attr("from", group)
+            .attr("id", "gp2-modify-1")
+            .attr("t", "1773519041")
+            .children([NodeBuilder::new("modify")
+                .children([NodeBuilder::new("participant")
+                    .attr("jid", "12025550102@s.whatsapp.net")
+                    .build()])
+                .build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let backend = client.persistence_manager.backend();
+        let sk = client
+            .signal_cache
+            .get_sender_key(&sk_name, &*backend)
+            .await
+            .unwrap();
+        assert!(
+            sk.is_none(),
+            "group <modify> must rotate (delete) the own group sender key"
+        );
+        assert!(
+            client
+                .persistence_manager
+                .get_sender_key_devices(group)
+                .await
+                .unwrap()
+                .is_empty(),
+            "group <modify> must clear stale sender_key_devices tracking"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_contacts_update_hash_only_ignored() {
+        // WA Web sends <update hash="Quvc"/> without jid when using hash-based lookup.
+        // We don't maintain a userhash index, so this should be a no-op.
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "contacts")
+            .attr("from", "551199887766@s.whatsapp.net")
+            .attr("id", "3251801952")
+            .attr("t", "1773668072")
+            .children([NodeBuilder::new("update").attr("hash", "Quvc").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "hash-only update without jid should not dispatch events"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_dispatches_event_and_invalidates_cache() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        // Pre-populate device registry so clear_device_record has something to clear
+        let record = wacore::store::traits::DeviceListRecord {
+            user: "5511999999999".into(),
+            devices: [wacore::store::traits::DeviceInfo::new(1, None)].into(),
+            timestamp: wacore::time::now_secs(),
+            phash: None,
+            raw_id: Some(42),
+        };
+        client
+            .device_registry_cache
+            .raw_insert_for_tests("5511999999999".into(), Arc::new(record))
+            .await;
+
+        // Seed a stored identity so the had-prior-identity gate runs the full reset
+        // (delete + notify), matching WA Web's `if (!isEmpty(loadIdentityKey(addr)))`.
+        {
+            use wacore::types::jid::JidExt;
+            let target: Jid = "5511999999999@s.whatsapp.net".parse().unwrap();
+            client
+                .signal_cache
+                .put_identity(&target.to_protocol_address(), &[7u8; 32])
+                .await;
+        }
+
+        // Simulate identity change notification: type="encrypt" with <identity/> child
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .attr("id", "identity-change-1")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        // Should have dispatched IdentityChange event
+        let events = collector.events();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(&**e, Event::IdentityChange(_))),
+            "should dispatch IdentityChange event, got: {:?}",
+            events
+        );
+
+        // Device registry cache should be invalidated
+        assert!(
+            client
+                .device_registry_cache
+                .get("5511999999999")
+                .await
+                .is_none(),
+            "device registry cache should be invalidated after identity change"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_ignores_self_primary() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        // Set our own JID so the self-check works
+        client
+            .persistence_manager
+            .modify_device(|d| {
+                d.pn = Some("5511999999999@s.whatsapp.net".parse().unwrap());
+            })
+            .await;
+
+        // Identity change FROM our own JID — should be ignored per WA Web's isMePrimary
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511999999999@s.whatsapp.net")
+            .attr("id", "identity-change-self")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "self identity change should be ignored"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_ignores_companion_device() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511999999999:5@s.whatsapp.net")
+            .attr("id", "identity-change-2")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "companion device identity change should be ignored"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_identity_change_dispatches_implicit_event() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let sender: Jid = "5511777777777@s.whatsapp.net".parse().unwrap();
+        handle_local_identity_change(&client, sender).await;
+
+        let events = collector.events();
+        // The event is dispatched last (after clear_device_record +
+        // invalidate_device_cache), so observing it proves the handler ran to
+        // completion. invalidate_device_cache itself is covered by
+        // test_invalidate_device_cache_uses_correct_jid_types.
+        let ic = events
+            .iter()
+            .find_map(|e| match &**e {
+                Event::IdentityChange(ic) => Some(ic.clone()),
+                _ => None,
+            })
+            .expect("local detection should dispatch IdentityChange");
+        assert!(
+            ic.implicit,
+            "locally-detected identity change must set implicit=true"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_identity_change_skips_self() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        client
+            .persistence_manager
+            .modify_device(|d| {
+                d.pn = Some("5511999999999@s.whatsapp.net".parse().unwrap());
+            })
+            .await;
+
+        let sender: Jid = "5511999999999@s.whatsapp.net".parse().unwrap();
+        handle_local_identity_change(&client, sender).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "self identity change must never clear our own record"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_identity_change_skips_companion_device() {
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let sender: Jid = "5511777777777:5@s.whatsapp.net".parse().unwrap();
+        handle_local_identity_change(&client, sender).await;
+
+        assert!(
+            collector.events().is_empty(),
+            "companion device identity change should be ignored"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_deletes_primary_session() {
+        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::types::jid::JidExt;
+
+        let client = create_test_client().await;
+
+        let target_jid: Jid = "5511888888888@s.whatsapp.net".parse().unwrap();
+        let addr = target_jid.to_protocol_address();
+
+        // Pre-populate a session for the primary device
+        client
+            .signal_cache
+            .put_session(&addr, SessionRecord::new_fresh())
+            .await;
+        client.signal_cache.put_identity(&addr, &[0u8; 32]).await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511888888888@s.whatsapp.net")
+            .attr("id", "identity-change-3")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let backend = client.persistence_manager.backend();
+        let has_session = client
+            .signal_cache
+            .has_session(&addr, &*backend)
+            .await
+            .unwrap();
+        assert!(!has_session, "primary session should be deleted");
+
+        let has_identity = client
+            .signal_cache
+            .get_identity(&addr, &*backend)
+            .await
+            .unwrap();
+        assert!(has_identity.is_none(), "identity key should be deleted");
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_rotates_status_sender_key() {
+        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::types::jid::JidExt;
+
+        let client = create_test_client().await;
+
+        // Set our own JID so sender key deletion knows which namespaces to check
+        let own_jid: Jid = "5511777777777@s.whatsapp.net".parse().unwrap();
+        client
+            .persistence_manager
+            .modify_device(|d| {
+                d.pn = Some(own_jid.clone());
+            })
+            .await;
+
+        // Pre-populate a sender key for status@broadcast
+        let sk_name =
+            SenderKeyName::from_parts("status@broadcast", own_jid.to_protocol_address().as_str());
+        let sk_record = wacore::libsignal::protocol::SenderKeyRecord::new_empty();
+        client
+            .signal_cache
+            .put_sender_key(&sk_name, sk_record)
+            .await;
+
+        // Seed a stored identity for the changed user so the had-prior-identity gate
+        // runs the reset (which rotates the status sender key).
+        let changed: Jid = "5511888888888@s.whatsapp.net".parse().unwrap();
+        client
+            .signal_cache
+            .put_identity(&changed.to_protocol_address(), &[7u8; 32])
+            .await;
+
+        // Fire identity change for a different user
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511888888888@s.whatsapp.net")
+            .attr("id", "identity-change-4")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        let backend = client.persistence_manager.backend();
+        let sk = client
+            .signal_cache
+            .get_sender_key(&sk_name, &*backend)
+            .await
+            .unwrap();
+        assert!(
+            sk.is_none(),
+            "status@broadcast sender key should be deleted for forward secrecy"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_identity_change_with_offline_attribute() {
+        use wacore::types::jid::JidExt;
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        // Prior identity present so the gate runs (the offline attr only defers the
+        // eager session re-establishment, not the change notification).
+        let changed: Jid = "5511888888888@s.whatsapp.net".parse().unwrap();
+        client
+            .signal_cache
+            .put_identity(&changed.to_protocol_address(), &[7u8; 32])
+            .await;
+
+        // Notification with offline attribute should still be processed
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511888888888@s.whatsapp.net")
+            .attr("id", "identity-change-5")
+            .attr("offline", "1")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector
+                .events()
+                .iter()
+                .any(|e| matches!(&**e, Event::IdentityChange(_))),
+            "offline identity change should still dispatch event"
+        );
+    }
+
+    /// With no prior identity for the peer (e.g. a group-only member we never had a
+    /// session with), the had-prior-identity gate skips the heavy reset: no change
+    /// notification and no session/identity deletion. Only the device-list cleanup
+    /// runs. Mirrors WA Web `if (!isEmpty(loadIdentityKey(addr)))`.
+    #[tokio::test]
+    async fn test_identity_change_no_prior_identity_skips_reset() {
+        use wacore::types::jid::JidExt;
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let target: Jid = "5511666666666@s.whatsapp.net".parse().unwrap();
+        let addr = target.to_protocol_address();
+        // Seed a device-registry entry (with a companion device) so the always-on
+        // cleanup has something to do, but deliberately do NOT seed an identity.
+        client
+            .device_registry_cache
+            .raw_insert_for_tests(
+                "5511666666666".into(),
+                Arc::new(wacore::store::traits::DeviceListRecord {
+                    user: "5511666666666".into(),
+                    devices: [wacore::store::traits::DeviceInfo::new(1, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: Some(1),
+                }),
+            )
+            .await;
+
+        // Seed a companion-device (device 1) Signal session: clear_device_record
+        // runs even on the no-prior path, so this must be deleted afterward. Keyed
+        // the same way delete_sessions_for_devices builds the address.
+        let mut companion = Jid::new("5511666666666", wacore_binary::Server::Pn);
+        companion.device = 1;
+        let companion_addr = companion.to_protocol_address();
+        client
+            .signal_cache
+            .put_session(
+                &companion_addr,
+                wacore::libsignal::protocol::SessionRecord::new_fresh(),
+            )
+            .await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511666666666@s.whatsapp.net")
+            .attr("id", "identity-change-noprior")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        // No change notification for a peer we had no prior identity with.
+        assert!(
+            collector.events().is_empty(),
+            "no-prior-identity push must not dispatch IdentityChange, got: {:?}",
+            collector.events()
+        );
+        // But the always-on device-list cleanup still ran.
+        assert!(
+            client
+                .device_registry_cache
+                .get("5511666666666")
+                .await
+                .is_none(),
+            "device registry cache should still be invalidated on the no-prior path"
+        );
+        // And no identity was created by an (skipped) eager re-establishment.
+        let backend = client.persistence_manager.backend();
+        assert!(
+            client
+                .signal_cache
+                .get_identity(&addr, backend.as_ref())
+                .await
+                .unwrap()
+                .is_none(),
+            "no-prior path must not establish an identity"
+        );
+        // The always-on clear_device_record must still delete companion sessions.
+        assert!(
+            !client
+                .signal_cache
+                .has_session(&companion_addr, backend.as_ref())
+                .await
+                .unwrap(),
+            "companion-device session must be cleared even on the no-prior path"
+        );
+    }
+
+    /// Regression: when a PN->LID mapping was learned offline (migration deferred),
+    /// the identity is still under the PN address while resolve_encryption_jid points
+    /// at the LID. The gate must check the original PN address too and still run the
+    /// reset (delete the stale PN identity + dispatch the event), not false-negative.
+    #[tokio::test]
+    async fn test_identity_change_resets_unmigrated_pn_identity_under_lid_resolve() {
+        use wacore::types::jid::JidExt;
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        let pn = "5511555555555";
+        let lid = "100000000000055";
+        // Offline learn: records the PN->LID mapping in cache but skips the Signal
+        // migration, so resolve points at the LID while state stays under the PN.
+        client
+            .learn_lid_pn_mapping_fast(lid, pn, LearningSource::Other, true)
+            .await;
+
+        let pn_jid: Jid = "5511555555555@s.whatsapp.net".parse().unwrap();
+        // Confirm the setup actually diverges (resolve -> LID), else the test is moot.
+        let resolved = client.resolve_encryption_jid(&pn_jid).await;
+        assert!(
+            resolved.is_lid(),
+            "test setup: resolve_encryption_jid should return the LID, got {resolved}"
+        );
+
+        // Seed the identity under the PN address (not the LID).
+        let pn_addr = pn_jid.to_protocol_address();
+        client.signal_cache.put_identity(&pn_addr, &[7u8; 32]).await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511555555555@s.whatsapp.net")
+            .attr("id", "identity-change-pnlid")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector
+                .events()
+                .iter()
+                .any(|e| matches!(&**e, Event::IdentityChange(_))),
+            "must dispatch IdentityChange when the identity is under the unmigrated PN address"
+        );
+        let backend = client.persistence_manager.backend();
+        assert!(
+            client
+                .signal_cache
+                .get_identity(&pn_addr, backend.as_ref())
+                .await
+                .unwrap()
+                .is_none(),
+            "the stale PN identity must be deleted by the reset"
+        );
+    }
+
+    /// Regression: a stanza can carry a `lid` attr while the local PN->LID cache is
+    /// cold, so resolve_encryption_jid falls back to PN. If the identity lives under
+    /// the stanza LID, the gate must still find it (via the stanza-LID candidate) and
+    /// run the reset rather than skip it.
+    #[tokio::test]
+    async fn test_identity_change_resets_identity_under_stanza_lid_with_cold_cache() {
+        use wacore::types::jid::JidExt;
+        let client = create_test_client().await;
+        let collector = Arc::new(TestEventCollector::default());
+        client.subscribe_handler(collector.clone()).detach();
+
+        // Cold cache: no PN->LID mapping, so resolve_encryption_jid(PN) returns PN.
+        let pn_jid: Jid = "5511444444444@s.whatsapp.net".parse().unwrap();
+        let resolved = client.resolve_encryption_jid(&pn_jid).await;
+        assert!(
+            !resolved.is_lid(),
+            "test setup: cache must be cold (resolve -> PN), got {resolved}"
+        );
+
+        // The identity lives under the LID carried by the stanza, not the PN.
+        let lid_jid: Jid = "100000000000066@lid".parse().unwrap();
+        let lid_addr = lid_jid.to_protocol_address();
+        client
+            .signal_cache
+            .put_identity(&lid_addr, &[7u8; 32])
+            .await;
+
+        let node = NodeBuilder::new("notification")
+            .attr("type", "encrypt")
+            .attr("from", "5511444444444@s.whatsapp.net")
+            .attr("lid", "100000000000066@lid")
+            .attr("id", "identity-change-stanzalid")
+            .children([NodeBuilder::new("identity").build()])
+            .build();
+        handle_notification_impl(&client, node_to_arc(node)).await;
+
+        assert!(
+            collector
+                .events()
+                .iter()
+                .any(|e| matches!(&**e, Event::IdentityChange(_))),
+            "must dispatch IdentityChange when the identity is under the stanza LID"
+        );
+        let backend = client.persistence_manager.backend();
+        assert!(
+            client
+                .signal_cache
+                .get_identity(&lid_addr, backend.as_ref())
+                .await
+                .unwrap()
+                .is_none(),
+            "the stale stanza-LID identity must be deleted by the reset"
+        );
+    }
+    /// The one heap block `async_trait` allocates per inbound `<notification>`
+    /// must stay small.
+    ///
+    /// Awaiting an unboxed async fn inlines its state machine into the caller's
+    /// future, so a single `.await` on an unboxed arm re-sizes this allocation
+    /// for the union of every arm: 2272 bytes when it was measured that way,
+    /// against 146 bytes for the whole notification once they are boxed.
+    /// Nothing else observes that — the
+    /// allocation *count* does not move, the handler's behaviour does not
+    /// change, and `benches/inbound_stanza` reports it but does not run in
+    /// nextest. Hence a unit test, and hence a ceiling (1 KiB) rather than an
+    /// exact size: the point is the order of magnitude, not the byte.
+    #[test]
+    fn notification_future_is_not_sized_for_every_arm() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("current-thread runtime");
+        let client = runtime.block_on(create_test_client());
+        let peer = "19045550180@s.whatsapp.net";
+        let node = node_to_arc(
+            NodeBuilder::new("notification")
+                .attr("from", peer)
+                .attr("type", "picture")
+                .attr("id", "N1")
+                .attr("t", "1700000000")
+                .children([NodeBuilder::new("delete").attr("jid", peer).build()])
+                .build(),
+        );
+
+        // Through `StanzaHandler::handle`, because `async_trait`'s box around
+        // it is the allocation under test; calling `handle_notification_impl`
+        // directly would leave the future on the stack.
+        let handler = NotificationHandler;
+        let largest = crate::test_alloc::min_max_block(1024, || {
+            let mut cancelled = false;
+            runtime.block_on(handler.handle(Arc::clone(&client), Arc::clone(&node), &mut cancelled))
+        });
+        assert!(
+            largest < 1024,
+            "a notification allocated {largest} bytes in one block; an `.await` on an \
+             unboxed arm of handle_notification_impl re-inflates the boxed future"
+        );
+    }
+}

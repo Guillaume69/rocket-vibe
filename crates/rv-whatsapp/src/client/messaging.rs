@@ -1,0 +1,992 @@
+//! Outgoing send primitives, receipts, reactions, edits and chat-state events.
+
+use super::*;
+
+// Guard the allocation inside Client::edit_message, in addition to callers'
+// wrapper futures. A small public wrapper can hide a much larger inner box.
+fn bounded_edit_request_future<F: Future>(future: F) -> F {
+    const {
+        let budget = if usize::BITS == 64 { 2048 } else { 1024 };
+        assert!(
+            size_of::<F>() <= budget,
+            "edit request future exceeds its allocation budget"
+        );
+    }
+    future
+}
+
+impl Client {
+    /// Send a pre-marshaled stanza through the noise socket.
+    ///
+    /// The bytes must be a packed payload: the format byte followed by the node
+    /// bytes, which is what every `wacore_binary::marshal::marshal*` function
+    /// writes. A stanza that came off the wire is one byte short of that, since
+    /// `OwnedNodeRef::backing_bytes()` returns node bytes only and the receive
+    /// path stripped the format byte, so forward it through
+    /// `wacore_binary::util::pack`. Anything else the server answers by closing
+    /// the connection, which is why the format byte is checked here.
+    ///
+    /// This bypasses node logging and `sent_node_waiter` resolution — use
+    /// [`send_node`](Client::send_node) for normal stanza sending. It is still
+    /// observed: `Event::SentFrame` is emitted from the noise sender, past every
+    /// bypass here.
+    pub async fn send_raw_bytes(&self, plaintext: Vec<u8>) -> Result<(), ClientError> {
+        wacore_binary::util::check_plain_payload(&plaintext).map_err(SocketError::Marshal)?;
+        let noise_socket = self.get_noise_socket()?;
+        // Wire bytes and the last-sent timestamp are recorded by the noise
+        // sender task at the actual transport write.
+        noise_socket.encrypt_and_send(plaintext.into()).await?;
+        Ok(())
+    }
+
+    /// Receivers a burst holds without allocating. Both callers cap their batch
+    /// at 4 ([`MAX_ACK_BURST`](Self::MAX_ACK_BURST) and
+    /// [`MAX_RECEIPT_BURST`](Self::MAX_RECEIPT_BURST)), so a real burst fits.
+    pub(crate) const MAX_INLINE_BURST: usize = 4;
+
+    /// Send several pre-marshaled stanzas as one burst, returning a result per
+    /// stanza in the order given.
+    ///
+    /// The noise sender coalesces whatever is queued when it wakes, but a
+    /// worker that awaits each send before starting the next never has two
+    /// frames queued at once, so the coalescing it was built for never fires.
+    /// Handing over the whole burst is what turns batching from incidental into
+    /// the normal case.
+    ///
+    /// Order is preserved, which the ack worker depends on.
+    ///
+    /// Always drains `frames`, including when no socket is installed, while
+    /// retaining its outer allocation for the persistent workers to reuse.
+    ///
+    /// Results land in `results`, which the caller owns and reuses too. A
+    /// returned `Vec` would allocate once per burst, and the common burst is a
+    /// single frame, so that allocation was the dominant cost of sending one.
+    /// A multi-frame burst holds its receivers inline up to
+    /// [`MAX_INLINE_BURST`](Self::MAX_INLINE_BURST), so it does not allocate
+    /// either; beyond that the spill is one allocation, which is what the
+    /// previous `join_all` cost every time.
+    pub(crate) async fn send_raw_bytes_burst<P: Into<bytes::Bytes>>(
+        &self,
+        frames: &mut Vec<P>,
+        results: &mut Vec<crate::socket::error::EncryptSendResult>,
+    ) -> Result<(), ClientError> {
+        self.send_raw_bytes_burst_scoped(frames, results, None)
+            .await
+    }
+
+    pub(crate) async fn send_raw_bytes_burst_scoped<P: Into<bytes::Bytes>>(
+        &self,
+        frames: &mut Vec<P>,
+        results: &mut Vec<crate::socket::error::EncryptSendResult>,
+        shutdown: Option<&wacore::runtime::ShutdownSignal>,
+    ) -> Result<(), ClientError> {
+        results.clear();
+        let noise_socket = match self.get_noise_socket() {
+            Ok(socket) => socket,
+            Err(error) => {
+                frames.clear();
+                return Err(error);
+            }
+        };
+        // Capture the socket before checking the original scope. A reconnect
+        // after this check can only leave us sending to the old socket; it can
+        // never redirect an old ACK onto the replacement connection.
+        if shutdown.is_some_and(wacore::runtime::ShutdownSignal::is_fired) {
+            frames.clear();
+            return Err(ClientError::NotConnected);
+        }
+        if frames.len() == 1 {
+            let plaintext = frames.pop().expect("length checked");
+            results.push(noise_socket.encrypt_and_send(plaintext.into()).await);
+            return Ok(());
+        }
+        // Every frame is enqueued before any is awaited, which is what lets the
+        // sender coalesce them into one transport write; awaiting each before
+        // enqueueing the next would hand them over one completion apart. The
+        // receivers live inline for the burst sizes both callers cap at, so
+        // unlike `join_all` this neither allocates storage for the futures nor
+        // a `Vec` for their results.
+        let mut receivers: smallvec::SmallVec<[_; Self::MAX_INLINE_BURST]> =
+            smallvec::SmallVec::new();
+        // An enqueue only fails once the sender task is gone, which no later
+        // frame recovers from. Recording where it happened keeps `results`
+        // aligned with the frames that were drained: a caller reporting a
+        // failure against the wrong frame is worse than the failure.
+        let mut frames_after_enqueue_failed = 0usize;
+        for plaintext in frames.drain(..) {
+            if frames_after_enqueue_failed > 0 {
+                frames_after_enqueue_failed += 1;
+                continue;
+            }
+            match noise_socket.enqueue_send(plaintext.into()).await {
+                Ok(receiver) => receivers.push(receiver),
+                Err(_) => frames_after_enqueue_failed = 1,
+            }
+        }
+
+        for receiver in receivers {
+            results.push(NoiseSocket::await_send(receiver).await);
+        }
+        for _ in 0..frames_after_enqueue_failed {
+            results.push(Err(EncryptSendError::channel_closed()));
+        }
+        Ok(())
+    }
+
+    pub async fn send_node(&self, node: Node) -> Result<(), ClientError> {
+        self.send_node_observed(node, None).await
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.node", level = "debug", skip_all, fields(tag = %node.tag), err(Debug)))]
+    pub(crate) async fn send_node_observed(
+        &self,
+        node: Node,
+        observer: Option<Box<dyn wacore::socket::noise_socket::SendObserver>>,
+    ) -> Result<(), ClientError> {
+        let plaintext = self.marshal_node_for_send(node)?;
+        wacore_binary::util::check_plain_payload(&plaintext).map_err(SocketError::Marshal)?;
+        let socket = self.get_noise_socket()?;
+        let receiver = socket
+            .enqueue_send_observed(plaintext.into(), observer)
+            .await?;
+        NoiseSocket::await_send(receiver).await?;
+        Ok(())
+    }
+
+    /// Hold the captured socket across enqueue awaits, so a reconnect cannot
+    /// publish an old recovery request on the replacement socket.
+    pub(crate) async fn send_node_observed_in_scope(
+        &self,
+        node: Node,
+        observer: Option<Box<dyn wacore::socket::noise_socket::SendObserver>>,
+        generation: u64,
+        socket: Arc<NoiseSocket>,
+    ) -> Result<(), ClientError> {
+        if self.connection_generation.load(Ordering::Acquire) != generation
+            || self.authenticated_generation.load(Ordering::SeqCst) != generation
+            || !self.can_reach_server()
+        {
+            return Err(anyhow::anyhow!("connection changed before peer recovery send").into());
+        }
+        let plaintext = self.marshal_node_for_send(node)?;
+        wacore_binary::util::check_plain_payload(&plaintext).map_err(SocketError::Marshal)?;
+        let receiver = socket
+            .enqueue_send_observed(plaintext.into(), observer)
+            .await?;
+        NoiseSocket::await_send(receiver).await?;
+        Ok(())
+    }
+
+    /// Everything [`send_node`](Client::send_node) does short of the send:
+    /// logging, waiter resolution and marshalling. Split out so a burst can
+    /// marshal its whole batch before touching the socket, which is what keeps
+    /// the sends orderable.
+    pub(crate) fn marshal_node_for_send(&self, node: Node) -> Result<Vec<u8>, ClientError> {
+        debug!(target: "Client/Send", "{}", DisplayableNode(&node));
+        if self.sent_node_waiter_count.load(Ordering::Acquire) > 0 {
+            self.resolve_sent_node_waiters(&Arc::new(node.clone()));
+        }
+
+        // One pass over the tree, into a buffer reserved from the node's own
+        // byte lengths. The exact two-pass sizing this replaced bought a
+        // perfectly sized buffer with a second full traversal — and the buffer
+        // is transient (it goes straight into the frame), while the traversal
+        // is paid on every send and grows with the fan-out width.
+        wacore_binary::marshal::marshal_shallow(&node).map_err(|e| {
+            error!("Failed to marshal node: {e:?}");
+            SocketError::Marshal(e).into()
+        })
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "wa.send.unified_session", level = "debug", skip_all)
+    )]
+    pub(crate) async fn send_unified_session(&self) {
+        if !self.is_socket_connected() {
+            debug!(target: "Client/UnifiedSession", "Skipping: not connected");
+            return;
+        }
+
+        let Some((node, _sequence)) = self.unified_session.prepare_send().await else {
+            return;
+        };
+
+        if let Err(e) = self.send_node(node).await {
+            debug!(target: "Client/UnifiedSession", "Send failed: {e}");
+            self.unified_session.clear_last_sent().await;
+        }
+    }
+
+    /// Edit original content using a typed target and operation options.
+    ///
+    /// The result describes the new envelope, not the target. Community
+    /// announcement edits require `EditRequest::with_secret`. Determining the
+    /// group subtype may query metadata; rejection means no message send.
+    pub async fn edit_message<'a>(
+        &'a self,
+        request: crate::EditRequest<'a>,
+    ) -> Result<crate::SendResult, crate::SendError> {
+        Box::pin(bounded_edit_request_future(
+            self.edit_request_inner(request),
+        ))
+        .await
+    }
+
+    async fn edit_request_inner(
+        &self,
+        request: crate::EditRequest<'_>,
+    ) -> Result<crate::SendResult, crate::SendError> {
+        request.target.require_chat_operation()?;
+        request.target.require_own()?;
+        let to = request.target.chat();
+        let id = request.target.id().to_string();
+        let stanza_id = request.options.stanza_id.map(crate::StanzaId::into_string);
+        if let Some((creator, secret)) = request.encryption {
+            if creator.user.is_empty() || !(creator.is_pn() || creator.is_lid()) {
+                return Err(crate::SendError::InvalidRequest(
+                    "invalid original creator".into(),
+                ));
+            }
+            // Secret-specific routing must not enlarge the ordinary edit frame.
+            return Box::pin(self.edit_message_encrypted_inner(
+                to.clone(),
+                id,
+                secret.as_bytes(),
+                Arc::unwrap_or_clone(request.content),
+                Some(creator),
+                stanza_id,
+            ))
+            .await;
+        }
+        if to.is_group() && self.is_community_announce_group(to).await? {
+            return Err(crate::SendError::InvalidRequest(
+                "community announcement group edits require EditRequest::with_secret and the original message secret".into(),
+            ));
+        }
+        self.edit_message_inner(
+            to.clone(),
+            id,
+            move || Arc::unwrap_or_clone(request.content),
+            stanza_id,
+        )
+        .await
+    }
+
+    /// Explicit raw chat/id escape for hosts composing their own edit addressing.
+    /// Prefer [`Self::edit_message`] with [`crate::EditRequest`] for origin and
+    /// ownership validation. This raw path retains its manual routing contract.
+    ///
+    /// The returned [`SendResult`](crate::send::SendResult) describes the edit
+    /// itself: `message_id` is the edit stanza's own fresh id (never
+    /// `original_id`, which the server would deduplicate against the original
+    /// and drop), and `message` the protocol message this crate built around
+    /// `new_content`, keyed by `original_id`.
+    pub async fn edit_message_raw(
+        &self,
+        to: impl Into<Jid>,
+        original_id: impl Into<String>,
+        new_content: wa::Message,
+        options: crate::EditOptions,
+    ) -> Result<crate::SendResult, crate::SendError> {
+        let id = crate::MessageId::try_from(original_id.into())?;
+        self.edit_message_inner(
+            to.into(),
+            id.into_string(),
+            move || new_content,
+            options.stanza_id.map(crate::StanzaId::into_string),
+        )
+        .await
+    }
+
+    /// Shared edit-send flow for the canonical request and explicit raw path.
+    /// `request_id` borrows the outer stanza id; `None` generates a fresh id.
+    /// Defer unwrapping shared content until routing finishes, while raw callers
+    /// can transfer their owned content without another allocation.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.edit", level = "debug", skip_all, fields(to = %to.observe()), err(Debug)))]
+    async fn edit_message_inner(
+        &self,
+        to: Jid,
+        original_id: String,
+        new_content: impl FnOnce() -> wa::Message,
+        request_id: Option<String>,
+    ) -> Result<crate::send::SendResult, crate::send::SendError> {
+        // WhatsApp Web uses getMeUserLidOrJidForChat(chat, EditMessage) which
+        // returns LID for LID-addressing groups and PN otherwise.
+        let participant = if to.is_group() {
+            Some(
+                self.get_own_jid_for_group(&to)
+                    .await
+                    .map_err(crate::send::SendError::from_anyhow)?
+                    .to_non_ad()
+                    .to_string(),
+            )
+        } else {
+            if self.pn().is_none() {
+                return Err(crate::send::SendError::NotLoggedIn);
+            }
+            None
+        };
+
+        let edit_container_message = crate::send::build_edit_message(
+            &to,
+            original_id,
+            participant,
+            new_content(),
+            wacore::time::now_millis(),
+        );
+
+        // Default (`request_id = None`) uses a fresh stanza ID instead of
+        // reusing the original message ID: the original ID is already embedded
+        // in protocolMessage.key.id inside the encrypted payload, and reusing it
+        // as the outer stanza ID makes the server deduplicate against the
+        // original message and silently drop the edit. Callers that intentionally
+        // want to pin the outer stanza id pass it via `request_id`; that id is
+        // borrowed from another message, so id-keyed state (retry cache, outbound
+        // secret) must not be bound to it.
+        self.send_built_message(
+            to,
+            edit_container_message,
+            crate::types::message::EditAttribute::MessageEdit,
+            request_id,
+        )
+        .await
+    }
+
+    /// Explicit raw message-secret edit for an E2E chat. Newsletters use the
+    /// plaintext newsletter facade instead. Prefer [`crate::EditRequest::with_secret`]
+    /// to associate the original creation's exact creator namespace and secret.
+    ///
+    /// `message_secret` is the *original* message's 32-byte secret (you generated it when
+    /// you sent that message). You can only edit your own messages, so the original
+    /// sender and editor are assumed to use the current chat-specific identity.
+    /// This raw assumption is not a PN/LID cryptographic equivalence guarantee.
+    ///
+    /// Returns the edit's own [`SendResult`](crate::send::SendResult), like
+    /// [`Client::edit_message`]; here `message` is the `secretEncryptedMessage`
+    /// envelope, so `new_content` is not readable from it.
+    pub async fn edit_message_encrypted_raw(
+        &self,
+        to: impl Into<Jid>,
+        original_id: impl Into<String>,
+        message_secret: &[u8],
+        new_content: wa::Message,
+    ) -> Result<crate::send::SendResult, crate::send::SendError> {
+        let id = crate::MessageId::try_from(original_id.into())?;
+        let secret = crate::MessageSecret::try_from(message_secret)?;
+        self.edit_message_encrypted_inner(
+            to.into(),
+            id.into_string(),
+            secret.as_bytes(),
+            new_content,
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.edit_encrypted", level = "debug", skip_all, fields(to = %to.observe()), err(Debug)))]
+    async fn edit_message_encrypted_inner(
+        &self,
+        to: Jid,
+        original_id: String,
+        message_secret: &[u8],
+        new_content: wa::Message,
+        original_creator: Option<&Jid>,
+        request_id: Option<String>,
+    ) -> Result<crate::send::SendResult, crate::send::SendError> {
+        use crate::send::SendError;
+        // Newsletters/channels are plaintext (no message-secret addon crypto) and the
+        // E2E send path rejects them, so an encrypted edit can't apply there; fail with
+        // a clear boundary error instead of the cryptic downstream rejection.
+        if to.is_newsletter() {
+            return Err(SendError::InvalidRequest(
+                "edit_message_encrypted is not valid for newsletters/channels; use newsletter().edit_message"
+                    .into(),
+            ));
+        }
+        if message_secret.len() != 32 {
+            return Err(SendError::InvalidRequest(format!(
+                "message_secret must be exactly 32 bytes, got {}",
+                message_secret.len()
+            )));
+        }
+
+        let self_jid = if to.is_group() {
+            self.get_own_jid_for_group(&to)
+                .await
+                .map_err(SendError::from_anyhow)?
+                .to_non_ad()
+        } else {
+            // The current DM editor uses the sending namespace (LID for bots),
+            // independently of the original creation's captured creator.
+            self.dm_sender_identity_for(&to)
+                .await
+                .ok_or(SendError::NotLoggedIn)?
+                .to_non_ad()
+        };
+        let participant = if to.is_group() {
+            Some(original_creator.unwrap_or(&self_jid).to_non_ad_string())
+        } else {
+            None
+        };
+
+        let envelope = build_secret_message_edit(
+            &to,
+            &original_id,
+            participant,
+            &original_creator.unwrap_or(&self_jid).to_non_ad_string(),
+            &self_jid.to_string(),
+            message_secret,
+            new_content,
+        )?;
+
+        self.send_built_message(
+            to,
+            envelope,
+            crate::types::message::EditAttribute::MessageEdit,
+            request_id,
+        )
+        .await
+    }
+
+    /// Send a server-side reaction (used by both newsletter and status reactions).
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.server_reaction", level = "debug", skip_all, fields(to = %to.observe()), err(Debug)))]
+    pub(crate) async fn send_server_reaction(
+        &self,
+        to: &Jid,
+        server_id: u64,
+        reaction: &str,
+    ) -> Result<String, anyhow::Error> {
+        let request_id = self.generate_message_id_at(wacore::time::now_secs_u64());
+
+        let stanza = NodeBuilder::new("message")
+            .attr("to", to)
+            .attr("type", "reaction")
+            .attr("id", &request_id)
+            .attr("server_id", server_id)
+            .children([NodeBuilder::new("reaction").attr("code", reaction).build()])
+            .build();
+
+        self.send_node(stanza).await?;
+        Ok(request_id)
+    }
+
+    /// Register a oneshot waiter for a server ack by message ID.
+    /// Register an ACK waiter only if this message ID is not already pending.
+    /// Returns the entry generation so timeout cleanup cannot remove a newer
+    /// waiter that reuses the same ID after this one was consumed.
+    pub(crate) fn try_register_ack_waiter(
+        &self,
+        message_id: &str,
+    ) -> Option<(
+        futures::channel::oneshot::Receiver<Arc<wacore_binary::OwnedNodeRef>>,
+        NonZeroU64,
+    )> {
+        let (tx, rx) = futures::channel::oneshot::channel();
+        let generation = self
+            .response_waiters_guard()
+            .try_insert_guarded(message_id.to_string(), ResponseWaiter::Iq(tx))?;
+        Some((rx, generation))
+    }
+
+    /// Register the phash the server is expected to echo for this send.
+    ///
+    /// Nothing awaits the result: the read loop compares inline when the ack
+    /// lands and only acts on a mismatch, so a send costs a map entry instead of
+    /// a task, a oneshot and a timer.
+    pub(crate) fn register_phash_waiter(
+        &self,
+        message_id: &str,
+        expected: wacore_binary::CompactString,
+        jid: Jid,
+        invalidate_group_cache: bool,
+        dm_devices: Option<Arc<wacore::send::ResolvedDmDevices>>,
+        dm_unreached: Vec<Jid>,
+    ) {
+        let mut waiters = self.response_waiters_guard();
+        // Stamped with the sweep epoch under the lock the insert already holds:
+        // a deadline derived from the instant the send started would already be
+        // stale here when preparation is slow, and a wall clock can jump.
+        let registered_epoch = waiters.current_epoch();
+        waiters.insert(
+            message_id.to_string(),
+            ResponseWaiter::Phash(PhashWaiter {
+                expected,
+                jid,
+                invalidate_group_cache,
+                dm_devices,
+                dm_unreached,
+                registered_epoch,
+            }),
+        );
+    }
+
+    /// Creates a normalized ChatMessageId by resolving PN to LID JIDs.
+    pub(crate) async fn make_chat_message_id(&self, chat: &Jid, id: &str) -> ChatMessageId {
+        // Resolve chat JID to LID if possible
+        let chat = self.resolve_encryption_jid(chat).await;
+
+        ChatMessageId {
+            chat,
+            id: id.into(),
+        }
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "wa.send.protocol_receipt", level = "debug", skip_all)
+    )]
+    pub(crate) async fn send_protocol_receipt(
+        &self,
+        id: String,
+        receipt_type: crate::types::presence::ReceiptType,
+    ) {
+        if id.is_empty() {
+            return;
+        }
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        if let Some(own_jid) = &device_snapshot.pn {
+            // Single source of truth for the wire mapping (ReceiptType::Sent is a derived
+            // incoming-only state and is never sent by us).
+            let type_str = receipt_type.as_wire_str();
+
+            // Borrow `id` for the attr so it stays available for the error log
+            // below (the warn used to log self.unique_id, the client UUID, by
+            // mistake). Separate .attr calls avoid cloning into a homogeneous map.
+            let node = NodeBuilder::new("receipt")
+                .attr("id", id.as_str())
+                .attr("type", type_str)
+                .attr("to", own_jid.to_non_ad_string())
+                .build();
+
+            if let Err(e) = self.send_node(node).await {
+                warn!(
+                    "Failed to send protocol receipt of type {:?} for message ID {}: {:?}",
+                    receipt_type, id, e
+                );
+            }
+        }
+    }
+
+    /// Subscribe to chatstate through the core event bus. The adapter preserves
+    /// chat, group participant and typing/audio/idle state, so a synchronous
+    /// observer need not translate presence/media pairs or recover the optional
+    /// group participant. For async callbacks or configurable delivery, use
+    /// [`crate::CallbackEventHandler`] with [`Self::subscribe_handler`] instead.
+    ///
+    /// Migration from permanent registration: retain the returned Subscription
+    /// in the owner's scope rather than discarding it. Dropping it removes future
+    /// deliveries (an old bus snapshot may still deliver).
+    /// Accepted work is cancelled when the adapter is dropped or Client shuts down.
+    /// Each registration uses an ordered, non-blocking 256-event mailbox; overflow
+    /// drops the newest event and increments Client::stats().events_dropped.
+    /// Synchronous user code runs on a worker, but cannot be preempted once entered.
+    ///
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use whatsapp_rust::Client;
+    /// # fn observe(client: &Arc<Client>) {
+    /// let subscription = client.subscribe_chatstate_handler(Arc::new(|event| {
+    ///     println!("{:?}: {:?}", event.chat, event.state);
+    /// }));
+    /// // Keep subscription in the observer owner's state until it should stop.
+    /// drop(subscription);
+    /// # }
+    /// ```
+    pub fn subscribe_chatstate_handler(
+        self: &Arc<Self>,
+        handler: Arc<dyn Fn(ChatStateEvent) + Send + Sync>,
+    ) -> wacore::types::events::Subscription {
+        use crate::bot::{CallbackEventHandler, EventDelivery};
+        use crate::handlers::chatstate::ChatstateRegistration;
+        use wacore::types::events::{EventInterest, EventKind};
+
+        let callback = CallbackEventHandler::from_callback(
+            self,
+            EventInterest::of(&[EventKind::ChatPresence]),
+            EventDelivery::Ordered { capacity: 256 },
+            move |event, _client| {
+                let handler = handler.clone();
+                async move {
+                    if let Event::ChatPresence(presence) = &*event {
+                        handler(ChatStateEvent::from_presence(presence));
+                    }
+                }
+            },
+        );
+        self.chatstate_handler_count.fetch_add(1, Ordering::Relaxed);
+        self.subscribe_handler(Arc::new(ChatstateRegistration {
+            callback,
+            count: self.chatstate_handler_count.clone(),
+        }))
+    }
+
+    /// Dispatch a parsed chatstate stanza to registered handlers.
+    ///
+    /// Called by `ChatstateHandler` after parsing the incoming stanza.
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(name = "wa.notif.chatstate", level = "debug", skip_all)
+    )]
+    pub(crate) async fn dispatch_chatstate_event(
+        &self,
+        stanza: wacore::iq::chatstate::ChatstateStanza,
+    ) {
+        use wacore::iq::chatstate::ChatstateSource;
+        use wacore::types::events::ChatPresenceUpdate;
+        use wacore::types::message::MessageSource;
+
+        if !self
+            .core
+            .event_bus
+            .has_handler_for(wacore::types::events::EventKind::ChatPresence)
+        {
+            return;
+        }
+        #[cfg(test)]
+        self.chatstate_events_built.fetch_add(1, Ordering::Release);
+
+        let (chat, sender, is_group) = match &stanza.source {
+            ChatstateSource::User { from } => (from.clone(), from.clone(), false),
+            ChatstateSource::Group { from, participant } => {
+                (from.clone(), participant.clone(), true)
+            }
+        };
+
+        self.core.event_bus.dispatch(Event::ChatPresence(
+            ChatPresenceUpdate::builder()
+                .source(MessageSource {
+                    chat,
+                    sender,
+                    is_from_me: false,
+                    is_group,
+                    addressing_mode: None,
+                    sender_alt: None,
+                    recipient_alt: None,
+                    broadcast_list_owner: None,
+                    recipient: None,
+                })
+                .state(stanza.state)
+                .build(),
+        ));
+    }
+
+    /// Whether delivery receipts should be sent active (rendered as ticks) vs
+    /// `type="inactive"`. Mirrors whatsmeow's `sendActiveReceipts != 0`.
+    pub(crate) fn receipts_are_active(&self) -> bool {
+        self.send_active_receipts.load(Ordering::Acquire) != 0
+    }
+
+    /// Force active delivery receipts even when offline (whatsmeow's
+    /// `SetForceActiveDeliveryReceipts`); off restores the default.
+    pub fn set_force_active_delivery_receipts(&self, active: bool) {
+        self.send_active_receipts
+            .store(if active { 2 } else { 0 }, Ordering::Release);
+    }
+
+    /// CAS so a forced value (2) is preserved (whatsmeow's `CompareAndSwap`).
+    pub(crate) fn mark_receipts_active_on_presence(&self) {
+        let _ =
+            self.send_active_receipts
+                .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    pub(crate) fn mark_receipts_inactive_on_presence(&self) {
+        let _ =
+            self.send_active_receipts
+                .compare_exchange(1, 0, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+
+/// Encrypt the edit protocol message under the original creation's secret.
+/// The replacement content selects both the envelope kind and HKDF use case;
+/// the addressing reference alone does not describe the original body kind.
+fn build_secret_message_edit(
+    to: &Jid,
+    original_id: &str,
+    participant: Option<String>,
+    creator_jid_str: &str,
+    self_jid_str: &str,
+    message_secret: &[u8],
+    new_content: wa::Message,
+) -> Result<wa::Message, anyhow::Error> {
+    use wa::message::secret_encrypted_message::SecretEncType;
+    use wacore::secret_enc_addon::{AddonContext, ModificationType, encrypt_addon};
+
+    let (secret_enc_type, modification_type) = if new_content.event_message.is_set() {
+        (SecretEncType::EventEdit, ModificationType::EventEdit)
+    } else if new_content.poll_creation_message.is_set()
+        || new_content.poll_creation_message_v2.is_set()
+        || new_content.poll_creation_message_v3.is_set()
+        || new_content.poll_creation_message_v4.is_set()
+        || new_content.poll_creation_message_v5.is_set()
+        || new_content.poll_creation_message_v6.is_set()
+    {
+        (SecretEncType::PollEdit, ModificationType::PollEdit)
+    } else {
+        (SecretEncType::MessageEdit, ModificationType::MessageEdit)
+    };
+    let inner = crate::send::build_edit_message(
+        to,
+        original_id.to_string(),
+        participant.clone(),
+        new_content,
+        wacore::time::now_millis(),
+    );
+
+    // The creator is the original cryptographic namespace, not a routing alias.
+    let ctx = AddonContext {
+        stanza_id: original_id,
+        parent_msg_original_sender: creator_jid_str,
+        modification_sender: self_jid_str,
+        modification_type,
+    };
+    let (enc_payload, iv) = encrypt_addon(
+        &waproto::codec::message_to_vec(&inner),
+        message_secret,
+        &ctx,
+    )?;
+
+    Ok({
+        let mut proto = wa::Message::default();
+        proto.secret_encrypted_message = buffa::MessageField::some({
+            let mut proto = wa::message::SecretEncryptedMessage::default();
+            proto.target_message_key = buffa::MessageField::some({
+                let mut proto = wa::MessageKey::default();
+                proto.remote_jid = Some(to.to_string());
+                proto.from_me = Some(true);
+                proto.id = Some(original_id.to_string());
+                proto.participant = participant;
+                proto
+            });
+            proto.enc_payload = Some(enc_payload);
+            proto.enc_iv = Some(iv.to_vec());
+            proto.secret_enc_type = Some(secret_enc_type);
+            proto.remote_key_id = None;
+            proto
+        });
+        proto.message_context_info = buffa::MessageField::some({
+            let mut proto = wa::MessageContextInfo::default();
+            proto.message_secret = Some(message_secret.to_vec());
+            proto
+        });
+        proto
+    })
+}
+
+#[cfg(test)]
+mod secret_message_edit_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn ordinary_edit_inner_frame_is_bounded_and_preserves_login_validation() {
+        let client = crate::test_utils::create_test_client().await;
+        let chat = Jid::pn("15550000001");
+        let id = crate::MessageId::new("FRAME-REGRESSION").unwrap();
+        let target = crate::MessageRef::new(&chat, id, None, true).unwrap();
+        let future = client.edit_request_inner(crate::EditRequest::new(target, {
+            let mut content = wa::Message::default();
+            content.conversation = Some("replacement".into());
+            content
+        }));
+        let bytes = size_of_val(&future);
+        let budget = if usize::BITS == 64 { 2048 } else { 1024 };
+        assert!(bytes <= budget, "inner edit frame: {bytes} > {budget}");
+        assert!(matches!(future.await, Err(crate::SendError::NotLoggedIn)));
+    }
+
+    #[test]
+    fn secret_edit_content_kind_and_hkdf_stay_paired() {
+        use wa::message::secret_encrypted_message::SecretEncType;
+        use wacore::secret_enc_addon::ModificationType;
+
+        let to = Jid::pn("15550000001");
+        let creator = "100000000000001@lid";
+        let editor = "15550000002@s.whatsapp.net";
+        let secret = [0x33; 32];
+        for variant in 0..8 {
+            let mut content = wa::Message::default();
+            match variant {
+                0 => {
+                    content.event_message.get_or_insert_default().name =
+                        Some("Updated event".into())
+                }
+                1 => {
+                    content.poll_creation_message.get_or_insert_default().name =
+                        Some("Updated poll".into())
+                }
+                2 => {
+                    content
+                        .poll_creation_message_v2
+                        .get_or_insert_default()
+                        .name = Some("Updated poll".into())
+                }
+                3 => {
+                    content
+                        .poll_creation_message_v3
+                        .get_or_insert_default()
+                        .name = Some("Updated poll".into())
+                }
+                4 => {
+                    content
+                        .poll_creation_message_v4
+                        .get_or_insert_default()
+                        .message
+                        .get_or_insert_default()
+                        .poll_creation_message_v3
+                        .get_or_insert_default()
+                        .name = Some("Updated poll".into())
+                }
+                5 => {
+                    content
+                        .poll_creation_message_v5
+                        .get_or_insert_default()
+                        .name = Some("Updated poll".into())
+                }
+                6 => {
+                    content
+                        .poll_creation_message_v6
+                        .get_or_insert_default()
+                        .name = Some("Updated poll".into())
+                }
+                _ => content.conversation = Some("Updated text".into()),
+            }
+            let (kind, modification) = match variant {
+                0 => (SecretEncType::EventEdit, ModificationType::EventEdit),
+                1..=6 => (SecretEncType::PollEdit, ModificationType::PollEdit),
+                _ => (SecretEncType::MessageEdit, ModificationType::MessageEdit),
+            };
+            let envelope = build_secret_message_edit(
+                &to,
+                "ORIGINAL",
+                None,
+                creator,
+                editor,
+                &secret,
+                content.clone(),
+            )
+            .unwrap();
+            let envelope = envelope.secret_encrypted_message.as_option().unwrap();
+            assert_eq!(envelope.secret_enc_type, Some(kind));
+            let context = wacore::message_edit::MessageEditContext {
+                original_msg_id: "ORIGINAL",
+                original_sender_jid: creator,
+                editor_jid: editor,
+            };
+            let inner = wacore::message_edit::decrypt_secret_encrypted(
+                envelope.enc_payload.as_deref().unwrap(),
+                envelope.enc_iv.as_deref().unwrap(),
+                &secret,
+                modification,
+                &context,
+            )
+            .unwrap();
+            assert_eq!(
+                inner.protocol_message.edited_message.as_option(),
+                Some(&content)
+            );
+            let wrong_modification = if variant == 7 {
+                ModificationType::EventEdit
+            } else {
+                ModificationType::MessageEdit
+            };
+            assert!(
+                wacore::message_edit::decrypt_secret_encrypted(
+                    envelope.enc_payload.as_deref().unwrap(),
+                    envelope.enc_iv.as_deref().unwrap(),
+                    &secret,
+                    wrong_modification,
+                    &context,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn secret_message_edit_roundtrip() {
+        let secret = [0x33u8; 32];
+        let to: Jid = "5511777777777@s.whatsapp.net".parse().unwrap();
+        let self_str = "5511999999999@s.whatsapp.net";
+        let new_content = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("edited!".into());
+            proto
+        };
+
+        let envelope = build_secret_message_edit(
+            &to,
+            "ORIGID",
+            None,
+            self_str,
+            self_str,
+            &secret,
+            new_content,
+        )
+        .unwrap();
+
+        let sem = envelope.secret_encrypted_message.as_option().unwrap();
+        assert_eq!(
+            sem.secret_enc_type,
+            Some(wa::message::secret_encrypted_message::SecretEncType::MessageEdit)
+        );
+        // The envelope carries the original secret (WAWebGenerateSecretMessageEditProto).
+        assert_eq!(
+            envelope
+                .message_context_info
+                .as_option()
+                .and_then(|c| c.message_secret.as_deref()),
+            Some(&secret[..])
+        );
+
+        // The recipient decrypts with the original message's secret + same ctx.
+        let ctx = wacore::message_edit::MessageEditContext {
+            original_msg_id: "ORIGID",
+            original_sender_jid: self_str,
+            editor_jid: self_str,
+        };
+        let inner = wacore::message_edit::decrypt_message_edit(
+            sem.enc_payload.as_deref().unwrap(),
+            sem.enc_iv.as_deref().unwrap(),
+            &secret,
+            &ctx,
+        )
+        .unwrap();
+        let edited = inner
+            .protocol_message
+            .into_option()
+            .and_then(|pm| pm.edited_message.into_option())
+            .and_then(|m| m.conversation);
+        assert_eq!(edited.as_deref(), Some("edited!"));
+    }
+
+    #[test]
+    fn secret_message_edit_wrong_secret_fails_to_decrypt() {
+        let secret = [0x33u8; 32];
+        let to: Jid = "5511777777777@s.whatsapp.net".parse().unwrap();
+        let self_str = "5511999999999@s.whatsapp.net";
+        let envelope =
+            build_secret_message_edit(&to, "ORIGID", None, self_str, self_str, &secret, {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("edited!".into());
+                proto
+            })
+            .unwrap();
+        let sem = envelope.secret_encrypted_message.as_option().unwrap();
+        let ctx = wacore::message_edit::MessageEditContext {
+            original_msg_id: "ORIGID",
+            original_sender_jid: self_str,
+            editor_jid: self_str,
+        };
+        assert!(
+            wacore::message_edit::decrypt_message_edit(
+                sem.enc_payload.as_deref().unwrap(),
+                sem.enc_iv.as_deref().unwrap(),
+                &[0x00u8; 32],
+                &ctx,
+            )
+            .is_err()
+        );
+    }
+}

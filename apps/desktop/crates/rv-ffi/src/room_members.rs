@@ -56,9 +56,18 @@ pub struct MemberActionResult {
     pub error: Option<String>,
 }
 
+/// What a room's settings editor may change on its server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct EditableSettings {
+    pub name: bool,
+    pub texts: bool,
+    pub read_only: bool,
+}
+
 /// A room's editable settings; texts empty when absent.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct RoomSettings {
+    pub name: String,
     pub topic: String,
     pub description: String,
     pub announcement: String,
@@ -92,6 +101,7 @@ impl From<core::MemberAction> for MemberAction {
 impl From<RoomSettings> for core::RoomSettings {
     fn from(s: RoomSettings) -> Self {
         core::RoomSettings {
+            name: s.name,
             topic: s.topic,
             description: s.description,
             announcement: s.announcement,
@@ -240,10 +250,14 @@ impl Chat {
         on_tokio(async move { s.may_post_read_only(&rid).await }).await
     }
 
-    /// Whether my roles grant `edit-room`: the texts and the read-only switch.
-    pub async fn can_edit_room(&self, rid: String) -> bool {
+    /// What the room's settings editor may change here; None when it is not offered.
+    pub async fn editable_settings(&self, rid: String) -> Option<EditableSettings> {
         let s = self.session.clone();
-        on_tokio(async move { s.can_edit_room(&rid).await }).await
+        on_tokio(async move { s.editable_settings(&rid).await }).await.map(|e| EditableSettings {
+            name: e.name,
+            texts: e.texts,
+            read_only: e.read_only,
+        })
     }
 
     /// Saves what changed between `before` and `after`; None once saved (or

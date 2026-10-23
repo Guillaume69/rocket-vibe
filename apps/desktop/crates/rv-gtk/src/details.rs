@@ -123,10 +123,10 @@ pub fn room_info(
     let weak = dialog.downgrade();
     glib::spawn_future_local(async move {
         let (s, r) = (session.clone(), rid.clone());
-        let (info, invite, manage, edit) = on_tokio(async move {
+        let (info, invite, manage, edit, editable) = on_tokio(async move {
             let info = s.room_info(&r).await;
             let manage = s.members_available(&r);
-            (info, s.can_invite(&r).await, manage, s.can_edit_room(&r).await)
+            (info, s.can_invite(&r).await, manage, s.can_edit_room(&r).await, s.editable_settings(&r).await)
         })
         .await;
         spinner.set_visible(false);
@@ -140,12 +140,18 @@ pub fn room_info(
                 None
             }
         };
+        let mut count = None;
         if manage && let Some(dialog) = weak.upgrade() {
-            let shown = Rc::new(std::cell::RefCell::new(info.clone()));
             let members = members_group(&dialog, session.clone(), &rid, info.as_ref().and_then(|i| i.members), profile);
             content.append(&members.0);
+            count = Some(members.1.clone());
             if edit && info.is_some() {
                 content.append(&room_avatar::controls(&dialog, Chat::Legacy(session.clone()), rid.clone()));
+            }
+        }
+        if let (Some(editable), true) = (editable, info.is_some()) {
+            let shown = Rc::new(std::cell::RefCell::new(info.clone()));
+            {
                 let button = gtk::Button::builder()
                     .label(t("room_settings.edit"))
                     .halign(gtk::Align::Center)
@@ -153,7 +159,7 @@ pub fn room_info(
                     .css_classes(["room-settings-edit"])
                     .build();
                 let (s, r, me, facts, count, weak) =
-                    (session.clone(), rid.clone(), me.clone(), facts.clone(), members.1.clone(), weak.clone());
+                    (session.clone(), rid.clone(), me.clone(), facts.clone(), count.clone(), weak.clone());
                 button.connect_clicked(move |_| {
                     let (Some(dialog), Some(before)) =
                         (weak.upgrade(), shown.borrow().as_ref().map(rv_core::members::RoomSettings::of))
@@ -165,7 +171,7 @@ pub fn room_info(
                     let saved: Rc<dyn Fn()> = Rc::new(move || {
                         refill_room(s2.clone(), r2.clone(), me.clone(), facts.clone(), count.clone(), shown.clone())
                     });
-                    room_settings::edit(&dialog, s.clone(), r.clone(), before, saved);
+                    room_settings::edit(&dialog, s.clone(), r.clone(), before, editable, saved);
                 });
                 content.append(&button);
             }
@@ -286,7 +292,7 @@ fn refill_room(
     rid: String,
     me: String,
     facts: gtk::Box,
-    count: adw::ActionRow,
+    count: Option<adw::ActionRow>,
     shown: Rc<std::cell::RefCell<Option<RoomInfo>>>,
 ) {
     glib::spawn_future_local(async move {
@@ -296,7 +302,9 @@ fn refill_room(
             facts.remove(&child);
         }
         fill_room(&facts, &info, &me);
-        count.set_title(&members_title(info.members));
+        if let Some(count) = &count {
+            count.set_title(&members_title(info.members));
+        }
         shown.replace(Some(info));
     });
 }

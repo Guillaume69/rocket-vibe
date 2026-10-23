@@ -1509,257 +1509,263 @@
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
       "line": 40,
       "kind": "call:PUT",
+      "surface": "&format!(\"channels/{…}/patch\")"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
+      "line": 45,
+      "kind": "call:PUT",
       "surface": "&format!(\"posts/{…}/patch\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 44,
+      "line": 49,
       "kind": "call:DELETE",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 50,
+      "line": 55,
       "kind": "call:POST",
       "surface": "&format!(\"posts/{…}/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 51,
+      "line": 56,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 58,
+      "line": 63,
       "kind": "call:PUT",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 60,
+      "line": 65,
       "kind": "call:POST",
       "surface": "\"users/me/preferences/delete\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 67,
+      "line": 72,
       "kind": "call:PUT",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 77,
+      "line": 82,
       "kind": "url",
       "surface": "/api/v4/emoji/{…}/image"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 96,
+      "line": 101,
       "kind": "call:GET",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 97,
+      "line": 102,
       "kind": "call:GET",
       "surface": "\"config/client\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 137,
+      "line": 142,
       "kind": "call:PUT",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 145,
+      "line": 150,
       "kind": "call:POST",
       "surface": "\"conferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 149,
+      "line": 154,
       "kind": "call:POST",
       "surface": "&format!(\"conferences/{…}/answer\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 153,
+      "line": 158,
       "kind": "call:POST",
       "surface": "&format!(\"conferences/{…}/decline\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 168,
+      "line": 173,
       "kind": "call:GET",
       "surface": "\"users/me/posts/flagged\", options).await?))"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 172,
+      "line": 177,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}/pinned\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 176,
+      "line": 181,
       "kind": "call:POST",
       "surface": "\"channels/members/me/view\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 182,
+      "line": 187,
       "kind": "call:POST",
       "surface": "\"channels/direct\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 184,
+      "line": 189,
       "kind": "call:PUT",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 201,
+      "line": 206,
       "kind": "call:POST",
       "surface": "\"channels/group\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 204,
+      "line": 209,
       "kind": "call:PUT",
       "surface": "\"users/me/preferences\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 209,
+      "line": 214,
       "kind": "call:POST",
       "surface": "&format!(\"channels/{…}/members\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 213,
+      "line": 218,
       "kind": "call:GET",
       "surface": "\"users/me/teams\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 233,
+      "line": 238,
       "kind": "call:POST",
       "surface": "\"users/search\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 235,
+      "line": 240,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 240,
+      "line": 245,
       "kind": "call:POST",
       "surface": "&format!(\"teams/{…}/channels/search\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 261,
+      "line": 266,
       "kind": "call:POST",
       "surface": "&format!(\"teams/{…}/posts/search\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 275,
+      "line": 280,
       "kind": "call:GET",
       "surface": "&format!(\"channels/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 313,
+      "line": 318,
       "kind": "call:GET",
       "surface": "&channel_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 342,
+      "line": 347,
       "kind": "call:GET",
       "surface": "&format!(\"teams/{…}/channels/name/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 348,
+      "line": 353,
       "kind": "call:GET",
       "surface": "&path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 353,
+      "line": 358,
       "kind": "call:GET",
       "surface": "&format!(\"users/{…}/status\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 380,
+      "line": 385,
       "kind": "call:GET",
       "surface": "\"users/me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 404,
+      "line": 409,
       "kind": "call:PUT",
       "surface": "\"users/me/status\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 418,
+      "line": 423,
       "kind": "call:PUT",
       "surface": "\"users/me/status\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 420,
+      "line": 425,
       "kind": "call:DELETE",
       "surface": "\"users/me/status/custom\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 422,
+      "line": 427,
       "kind": "call:PUT",
       "surface": "\"users/me/status/custom\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 429,
+      "line": 434,
       "kind": "call:GET",
       "surface": "\"users/me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 432,
+      "line": 437,
       "kind": "call:PUT",
       "surface": "\"users/me/patch\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 454,
+      "line": 459,
       "kind": "call:PUT",
       "surface": "\"users/me/patch\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 460,
+      "line": 465,
       "kind": "call:POST",
       "surface": "\"users/search\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 473,
+      "line": 478,
       "kind": "call:POST",
       "surface": "&format!(\"teams/{…}/channels/search\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
-      "line": 492,
+      "line": 497,
       "kind": "call:POST",
       "surface": "\"users/status/ids\""
     },
@@ -2539,13 +2545,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2728,
+      "line": 2760,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2728,
+      "line": 2760,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },
@@ -2587,19 +2593,19 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 34,
+      "line": 35,
       "kind": "endpoint",
       "surface": "users.getPresence"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 35,
+      "line": 36,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 36,
+      "line": 37,
       "kind": "endpoint",
       "surface": "users.profile.set"
     },
@@ -2653,13 +2659,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 669,
+      "line": 682,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 680,
+      "line": 693,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
@@ -2821,13 +2827,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
-      "line": 1152,
+      "line": 1173,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
-      "line": 1726,
+      "line": 1747,
       "kind": "url",
       "surface": "/api/csa"
     },
@@ -2836,6 +2842,12 @@
       "line": 455,
       "kind": "url",
       "surface": "/api/v2/query"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
+      "line": 601,
+      "kind": "url",
+      "surface": "/api/csa"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",

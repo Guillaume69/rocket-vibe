@@ -2576,6 +2576,18 @@ impl Session {
             && self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == members::EDIT_ROOM))
     }
 
+    /// What the room's settings editor may change here, None when it is not
+    /// offered: Rocket.Chat what `edit-room` grants, Mattermost, kChat and
+    /// Slack a channel's name, Teams a channel's name.
+    pub async fn editable_settings(&self, rid: &str) -> Option<members::EditableSettings> {
+        let channel = matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p"));
+        match self.backend() {
+            Backend::RocketChat => self.can_edit_room(rid).await.then_some(members::EditableSettings::ALL),
+            Backend::Mattermost(_) | Backend::Slack(_) => channel.then_some(members::EditableSettings::NAME),
+            Backend::Teams(teams) => teams.renamable(rid).then_some(members::EditableSettings::NAME),
+        }
+    }
+
     /// Gives (`put`) or takes a room role from `user_id`.
     pub async fn set_member_role(
         &self,
@@ -2602,9 +2614,29 @@ impl Session {
         before: &members::RoomSettings,
         after: &members::RoomSettings,
     ) -> Result<bool, RestError> {
-        self.member_room(rid)?;
-        let Some(fields) = members::settings_changes(before, after) else { return Ok(false) };
-        rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+        let name = members::renamed(before, after).map_err(RestError::incomplete)?;
+        match self.backend() {
+            Backend::RocketChat => {
+                self.member_room(rid)?;
+                let Some(fields) = members::settings_changes(before, after) else { return Ok(false) };
+                rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+            }
+            Backend::Mattermost(_) => {
+                let Some(name) = &name else { return Ok(false) };
+                mattermost::actions::rename(&self.rest, rid, name).await?;
+            }
+            Backend::Slack(slack) => {
+                let Some(name) = &name else { return Ok(false) };
+                slack.rename(rid, name).await?;
+            }
+            Backend::Teams(teams) => {
+                let Some(name) = &name else { return Ok(false) };
+                teams.rename(rid, name, self.teams_tenant()).await?;
+            }
+        }
+        if let Some(name) = name {
+            self.store.write(|w| w.set_room_display_name(rid, &name));
+        }
         Ok(true)
     }
 

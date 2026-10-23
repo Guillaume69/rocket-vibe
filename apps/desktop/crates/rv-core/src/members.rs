@@ -305,6 +305,7 @@ pub fn error_key(error: &RestError) -> &'static str {
 /// A room's settings as its editor shows them: texts empty when absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RoomSettings {
+    pub name: String,
     pub topic: String,
     pub description: String,
     pub announcement: String,
@@ -315,6 +316,7 @@ impl RoomSettings {
     pub fn of(info: &RoomInfo) -> Self {
         let text = |t: &Option<String>| t.clone().unwrap_or_default();
         RoomSettings {
+            name: info.name.clone(),
             topic: text(&info.topic),
             description: text(&info.description),
             announcement: text(&info.announcement),
@@ -323,11 +325,43 @@ impl RoomSettings {
     }
 }
 
+/// What a room's editor may change on its server: Rocket.Chat every field
+/// `edit-room` grants, Mattermost, kChat, Slack and Teams the name only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EditableSettings {
+    pub name: bool,
+    pub texts: bool,
+    pub read_only: bool,
+}
+
+impl EditableSettings {
+    pub const ALL: EditableSettings = EditableSettings { name: true, texts: true, read_only: true };
+    pub const NAME: EditableSettings = EditableSettings { name: true, texts: false, read_only: false };
+}
+
+/// The new name when `after` renames the room, trimmed. A name emptied is
+/// refused: Rocket.Chat ignores it silently and Mattermost stores it (both
+/// probed on the benches, 2026-10-23).
+pub fn renamed(before: &RoomSettings, after: &RoomSettings) -> Result<Option<String>, &'static str> {
+    let name = after.name.trim();
+    if name == before.name.trim() {
+        return Ok(None);
+    }
+    if name.is_empty() {
+        return Err("room_settings.name_empty");
+    }
+    Ok(Some(name.to_owned()))
+}
+
 /// The `rooms.saveRoomSettings` fields of what changed between `before`
 /// and `after`, under the server's names (it refuses any other key; an empty
-/// string clears a text). None when nothing changed.
+/// string clears a text). None when nothing changed. A new name is
+/// `roomName`, which renames the room's address too.
 pub fn settings_changes(before: &RoomSettings, after: &RoomSettings) -> Option<Map<String, Value>> {
     let mut fields = Map::new();
+    if let Ok(Some(name)) = renamed(before, after) {
+        fields.insert("roomName".into(), json!(name));
+    }
     for (key, old, new) in [
         ("roomTopic", &before.topic, &after.topic),
         ("roomDescription", &before.description, &after.description),
@@ -459,8 +493,13 @@ mod tests {
 
     #[test]
     fn only_changed_settings_are_sent() {
-        let before =
-            RoomSettings { topic: "t".into(), description: "d".into(), announcement: String::new(), read_only: false };
+        let before = RoomSettings {
+            name: "dev".into(),
+            topic: "t".into(),
+            description: "d".into(),
+            announcement: String::new(),
+            read_only: false,
+        };
         assert_eq!(settings_changes(&before, &before.clone()), None);
         let after = RoomSettings { topic: String::new(), announcement: "Hello".into(), ..before.clone() };
         assert_eq!(
@@ -469,6 +508,18 @@ mod tests {
         );
         let locked = RoomSettings { read_only: true, ..before.clone() };
         assert_eq!(Value::Object(settings_changes(&before, &locked).unwrap()), json!({"readOnly": true}));
+        let moved = RoomSettings { name: " ops ".into(), ..before.clone() };
+        assert_eq!(Value::Object(settings_changes(&before, &moved).unwrap()), json!({"roomName": "ops"}));
+    }
+
+    #[test]
+    fn a_name_is_trimmed_and_never_emptied() {
+        let before = RoomSettings { name: "dev".into(), ..Default::default() };
+        let named = |name: &str| RoomSettings { name: name.into(), ..before.clone() };
+        assert_eq!(renamed(&before, &named(" dev ")), Ok(None));
+        assert_eq!(renamed(&before, &named("Ops team")), Ok(Some("Ops team".into())));
+        assert_eq!(renamed(&before, &named("  ")), Err("room_settings.name_empty"));
+        assert_eq!(settings_changes(&before, &named("")), None);
     }
 
     #[test]
@@ -489,6 +540,7 @@ mod tests {
         assert_eq!(
             RoomSettings::of(&info),
             RoomSettings {
+                name: "dev".into(),
                 topic: "t".into(),
                 description: String::new(),
                 announcement: String::new(),

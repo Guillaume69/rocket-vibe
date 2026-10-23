@@ -210,10 +210,12 @@ public final class RoomModel {
         guard active, let chat else { return MemberActionResult(list: list, error: "members.action_failed") }
         return await chat.runMemberAction(rid: room.rid, list: list, userId: member.id, action: action)
     }
-    /// Whether my roles grant `edit-room`: the room's texts and read-only switch.
-    public func canEditRoom() async -> Bool {
-        guard supportsMembers, let chat else { return false }
-        return await chat.canEditRoom(rid: room.rid)
+    /// Whether the room's settings editor may be offered: an open room of a legacy account.
+    public var supportsRoomSettings: Bool { active && threadId == nil && !privateMode && chat != nil }
+    /// What the room's settings editor may change here; nil when it is not offered.
+    public func editableSettings() async -> EditableSettings? {
+        guard supportsRoomSettings, let chat else { return nil }
+        return await chat.editableSettings(rid: room.rid)
     }
     /// Saves what changed; nil once saved, else the catalog key of the refusal.
     public func saveRoomSettings(before: RoomSettings, after: RoomSettings) async -> String? {

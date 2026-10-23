@@ -97,7 +97,8 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
-                if model.supportsMembers { MembersSection(model: model, details: details, saved: { saves += 1 }) }
+                if model.supportsMembers { MembersSection(model: model, details: details) }
+                if model.supportsRoomSettings { RoomSettingsSection(model: model, details: details, saved: { saves += 1 }) }
                 if model.supportsRoomNotifications { RoomNotificationPicker(model: model) }
                 if model.supportsDiscussions { InviteSection(model: model) }
                 if model.canCreateDiscussion {

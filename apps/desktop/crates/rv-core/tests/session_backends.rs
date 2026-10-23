@@ -209,7 +209,7 @@ async fn mattermost_has_no_invites_or_discussions() {
                 assert!(!s.may_post_read_only("r1").await);
                 let settings = rv_core::members::RoomSettings::default();
                 let changed = rv_core::members::RoomSettings { read_only: true, ..Default::default() };
-                assert!(s.save_room_settings("r1", &settings, &changed).await.is_err());
+                assert!(!s.save_room_settings("r1", &settings, &changed).await.unwrap(), "only a name is Mattermost's");
             })
             .await;
         assert!(calls.iter().all(|(_, p)| p.ends_with("/websocket") || !p.contains("invite")), "{calls:?}");

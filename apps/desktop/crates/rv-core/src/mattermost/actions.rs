@@ -35,6 +35,11 @@ pub async fn react(rest: &RestClient, me: &str, post_id: &str, shortcode: &str, 
     }
 }
 
+/// Renames a channel: its display name only, the address (`name`) stays.
+pub async fn rename(rest: &RestClient, channel: &str, display_name: &str) -> Result<Value, RestError> {
+    rest.put(&format!("channels/{channel}/patch"), CallOptions::body(json!({"display_name": display_name}))).await
+}
+
 /// The edited post.
 pub async fn edit(rest: &RestClient, post_id: &str, text: &str) -> Result<Value, RestError> {
     rest.put(&format!("posts/{post_id}/patch"), CallOptions::body(json!({"message": text}))).await

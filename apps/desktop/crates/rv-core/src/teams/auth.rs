@@ -23,6 +23,9 @@ pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
 const PRESENCE_SCOPE: &str = "https://presence.teams.microsoft.com";
 /// Message search runs on the Substrate query API with a bearer for its scope.
 const SUBSTRATE: &str = "https://substrate.office.com";
+/// Teams' templates service, which renames a channel (its web app's own
+/// `PATCH .../fabric/<region>/templates/api/teams/...`, verified 2026-10-23).
+const TEMPLATES: &str = "https://templates.teams.microsoft.com";
 /// Microsoft Graph, for what the chat service does not reach: file download
 /// (SharePoint/OneDrive drive items), room-settings edits, pins.
 const GRAPH: &str = "https://graph.microsoft.com";
@@ -873,6 +876,7 @@ struct Held {
     presence: Option<Lease>,
     substrate: Option<Lease>,
     graph: Option<Lease>,
+    templates: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -902,6 +906,7 @@ impl Tokens {
             presence: None,
             substrate: None,
             graph: None,
+            templates: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -979,6 +984,22 @@ impl Tokens {
         let token = lease.value.clone();
         held.presence = Some(lease);
         Ok(token)
+    }
+
+    /// The templates bearer, for renaming a channel.
+    pub async fn templates(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.templates.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(TEMPLATES).await?;
+        let token = lease.value.clone();
+        held.templates = Some(lease);
+        Ok(token)
+    }
+
+    pub async fn forget_templates(&self) {
+        self.held.lock().await.templates = None;
     }
 
     /// The Substrate bearer, for message search.

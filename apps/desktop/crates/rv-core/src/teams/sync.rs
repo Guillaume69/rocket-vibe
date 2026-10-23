@@ -582,6 +582,43 @@ impl TeamsSync {
         }
     }
 
+    /// Whether a room is a channel Teams lets me rename here: one whose
+    /// aggregator entry names its team's group and its own Substrate group.
+    pub fn renamable(&self, rid: &str) -> bool {
+        self.entries.lock().unwrap().get(rid).is_some_and(|(entry, team)| {
+            team.is_some() && str_of(entry, "groupId").is_some() && str_of(entry, "substrateGroupId").is_some()
+        })
+    }
+
+    /// Renames a channel as Teams' web app does: its templates service,
+    /// addressed by the team's Graph group and the channel's Substrate group.
+    pub async fn rename(&self, rid: &str, name: &str, tenant: &str) -> Result<(), RestError> {
+        let ids = self.entries.lock().unwrap().get(rid).and_then(|(entry, _)| {
+            Some((str_of(entry, "groupId")?.to_owned(), str_of(entry, "substrateGroupId")?.to_owned()))
+        });
+        let Some((group, oid)) = ids else { return Err(crate::teams::auth::refusal("teams_team_not_found", 0)) };
+        let (_, routes) = self.tokens.chat().await?;
+        let base = format!("{}/templates", routes.aggregator.replace("/api/csa/", "/fabric/"));
+        let channel = format!("OID:{oid}@{tenant}");
+        let url = client::service_url(&base, &["api", "teams", &group, "channels", &channel], "forceSync=false")?;
+        let body = serde_json::json!({ "displayName": name });
+        for attempt in 0..2 {
+            let token = self.tokens.templates().await?;
+            let header = format!("Bearer {}", token.as_str());
+            match client::call(&self.http, Method::PATCH, url.clone(), ("authorization", &header), Some(&body)).await {
+                Err(e) if e.status == 401 && attempt == 0 => self.tokens.forget_templates().await,
+                Err(e) => return Err(e),
+                Ok(_) => {
+                    if let Some((entry, _)) = self.entries.lock().unwrap().get_mut(rid) {
+                        entry["displayName"] = Value::from(name);
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        unreachable!("the second attempt returns")
+    }
+
     /// (Graph drive id, folder item id) of a channel's SharePoint files folder, cached per room.
     async fn channel_drive(&self, rid: &str) -> Result<(String, String), RestError> {
         if let Some(found) = self.drives.lock().unwrap().get(rid).cloned() {

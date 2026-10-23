@@ -24,6 +24,7 @@ pub const METHODS: &[&str] = &[
     "reactions.add",
     "reactions.remove",
     "conversations.mark",
+    "conversations.rename",
     "pins.add",
     "pins.remove",
     "pins.list",

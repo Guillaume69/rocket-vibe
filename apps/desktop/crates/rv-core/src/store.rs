@@ -1269,6 +1269,13 @@ impl Writer<'_> {
         self.touch_rooms();
     }
 
+    pub fn set_room_display_name(&mut self, rid: &str, name: &str) {
+        self.conn
+            .execute("UPDATE rooms SET display_name = ?2 WHERE rid = ?1", [rid, name])
+            .or_note(&mut self.failed, "room name");
+        self.touch_rooms();
+    }
+
     pub fn set_upload_file_id(&mut self, id: &str, file_id: &str) {
         self.conn
             .execute("UPDATE uploads SET file_id = ?2 WHERE id = ?1", [id, file_id])

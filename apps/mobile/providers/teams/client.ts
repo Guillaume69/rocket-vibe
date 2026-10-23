@@ -235,7 +235,7 @@ export class TeamsClient {
       const chans = await this.graph(`https://graph.microsoft.com/v1.0/teams/${gid}/channels?$select=id`);
       if ((Array.isArray(chans.value) ? (chans.value as Doc[]) : []).some((c) => c.id === channel)) return gid;
     }
-    throw new TeamsError('upload_requires_channel');
+    throw new TeamsError('team_not_found');
   }
 
   /** (Graph drive id, folder item id) of a channel's files folder, cached per room. */

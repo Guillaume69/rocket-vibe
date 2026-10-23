@@ -333,6 +333,133 @@ fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<St
     }
 }
 
+/// A call event's card: the message it is drawn as, its kind (`videoconf`
+/// running, `videoconf-ended` over), the length in seconds for one over, and
+/// the call id a running card joins with.
+struct CallCard {
+    server: String,
+    ts: Option<i64>,
+    kind: &'static str,
+    seconds: String,
+    call_id: Option<String>,
+}
+
+/// A Teams call (`Event/Call`) as the call message kChat's and Slack's calls
+/// also become. Its start (`callStarted`) is a running call whose call id is
+/// its conversation: Join opens the conversation in Teams' web app
+/// (`channel_link` / `chat_link`), where the running call is joined. Its end
+/// is a separate event, in a channel a reply on the start, carrying each
+/// participant's `<duration>`: it is drawn in the start's place (the start's
+/// id and time, a Teams message id being its arrival time), and being newer it
+/// replaces the running card whichever arrives first. Read from a live
+/// channel call on 2026-10-23; the start's content is never rewritten.
+fn call_card(conversation: &str, raw: &Value, id: &str) -> Option<CallCard> {
+    let content = str_of(raw, "content").unwrap_or_default();
+    let event = tag_value(content, "callEventType").unwrap_or_default();
+    let ended = content.contains("<ended/>") || event.eq_ignore_ascii_case("callEnded");
+    if !ended {
+        return event.eq_ignore_ascii_case("callStarted").then(|| CallCard {
+            server: id.to_owned(),
+            ts: None,
+            kind: "videoconf",
+            seconds: String::new(),
+            call_id: Some(conversation.to_owned()),
+        });
+    }
+    let longest = content
+        .split("<duration>")
+        .skip(1)
+        .filter_map(|rest| rest.split("</duration>").next()?.trim().parse::<u64>().ok())
+        .max();
+    let start = root_of(raw, id).or_else(|| {
+        str_of(raw, "parentMessageId")
+            .map(str::to_owned)
+            .or_else(|| int_of(raw, "parentMessageId").map(|n| n.to_string()))
+            .filter(|p| p != id && p.bytes().all(|b| b.is_ascii_digit()))
+    });
+    Some(CallCard {
+        ts: start.as_deref().and_then(|s| s.parse().ok()),
+        server: start.unwrap_or_else(|| id.to_owned()),
+        kind: "videoconf-ended",
+        seconds: longest.map(|s| s.to_string()).unwrap_or_default(),
+        call_id: None,
+    })
+}
+
+fn call_message(conversation: &str, raw: &Value, id: &str, directory: &Directory) -> Option<Message> {
+    let card = call_card(conversation, raw, id)?;
+    directory.learn(raw);
+    let at = instant(raw, "originalarrivaltime").or_else(|| instant(raw, "composetime")).or_else(|| id.parse().ok())?;
+    let author = str_of(raw, "from").map(mri_of).unwrap_or_default().to_owned();
+    let thread_id = match card.kind {
+        "videoconf" => root_of(raw, id).map(|root| message_id(conversation, &root)),
+        _ => None,
+    };
+    Some(Message {
+        id: message_id(conversation, &card.server),
+        rid: conversation.to_owned(),
+        text: Some(card.seconds),
+        ts: card.ts.unwrap_or(at),
+        author_name: Some(directory.shown(&author)),
+        author_id: author,
+        system_type: Some(card.kind.to_owned()),
+        thread_id,
+        call_id: card.call_id,
+        updated_at: at.max(int_of(raw, "version").unwrap_or(0)),
+        ..Default::default()
+    })
+}
+
+/// A channel's page in Teams' web app, where its running call shows a Join.
+pub fn channel_link(channel: &str, name: &str, group: &str, tenant: &str) -> String {
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/channel/").expect("Teams link base");
+    url.path_segments_mut().expect("https base").pop_if_empty().extend([channel, name]);
+    url.query_pairs_mut().append_pair("groupId", group).append_pair("tenantId", tenant);
+    url.to_string()
+}
+
+/// A chat's page in Teams' web app, where its running call shows a Join.
+pub fn chat_link(chat: &str, tenant: &str) -> String {
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/chat/").expect("Teams link base");
+    url.path_segments_mut().expect("https base").pop_if_empty().extend([chat, "conversations"]);
+    url.query_pairs_mut().append_pair("tenantId", tenant);
+    url.to_string()
+}
+
+/// Where a Teams call window may go: Microsoft's own `https` pages (Teams'
+/// web app, its CDNs and the Microsoft sign-in it passes through) and the
+/// page's blobs. A tenant signing in through its own identity provider leaves
+/// this list, so that sign-in goes to the browser.
+pub fn call_allowed(url: &str, _call_url: &str) -> bool {
+    url == "about:blank"
+        || url == "about:srcdoc"
+        || url.strip_prefix("blob:").is_some_and(microsoft_web)
+        || microsoft_web(url)
+}
+
+fn microsoft_web(link: &str) -> bool {
+    const DOMAINS: [&str; 11] = [
+        "microsoft.com",
+        "cloud.microsoft",
+        "microsoftonline.com",
+        "live.com",
+        "office.com",
+        "office.net",
+        "msauth.net",
+        "msftauth.net",
+        "skype.com",
+        "teams.microsoft.us",
+        "microsoft",
+    ];
+    url::Url::parse(link).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && url.host_str().is_some_and(|h| DOMAINS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}"))))
+    })
+}
+
 /// One chat service message, or None for a kind the app does not show.
 /// A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
 /// Teams shared files live there; AMS media (call recordings) does not and is
@@ -383,6 +510,9 @@ pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
 pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option<Message> {
     let id = str_of(raw, "id").map(str::to_owned).or_else(|| int_of(raw, "id").map(|n| n.to_string()))?;
     let kind = str_of(raw, "messagetype").unwrap_or_default();
+    if kind == "Event/Call" {
+        return if deleted(raw) { None } else { call_message(conversation, raw, &id, directory) };
+    }
     let attachments = file_attachments(raw);
     let shown = matches!(kind, "Text" | "RichText/Html" | "RichText")
         || kind.starts_with("ThreadActivity/")
@@ -718,6 +848,69 @@ mod tests {
         assert_eq!((m.system_type.as_deref(), m.text.as_deref()), (Some("au"), Some("Bob")));
         for kind in ["Event/Call", "ThreadActivity/MemberJoined", "Control/Typing"] {
             assert!(message("c", &raw("40", json!({"messagetype": kind})), &d).is_none(), "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_call_starts_as_a_join_card_and_its_end_replaces_it() {
+        let d = Directory::default();
+        let channel = "19:ch@thread.tacv2";
+        let start = raw(
+            "1792713340033",
+            json!({"messagetype": "Event/Call",
+                "content": "<partlist alt =\"\"></partlist><callEventType>callStarted</callEventType><callId>c1</callId>",
+                "conversationLink": format!("https://t/conversations/{channel};messageid=1792713340033")}),
+        );
+        let running = message(channel, &start, &d).unwrap();
+        assert_eq!(running.id, format!("{channel}/1792713340033"));
+        assert_eq!(running.system_type.as_deref(), Some("videoconf"));
+        assert_eq!(running.call_id.as_deref(), Some(channel));
+        assert_eq!(running.thread_id, None);
+        let end = raw(
+            "1792713355826",
+            json!({"messagetype": "Event/Call",
+                "content": "<ended/><partlist count=\"2\"><part><duration>76</duration></part><part><duration>40</duration></part></partlist><callEventType>callEnded</callEventType>",
+                "conversationLink": format!("https://t/conversations/{channel};messageid=1792713340033")}),
+        );
+        let over = message(channel, &end, &d).unwrap();
+        assert_eq!(over.id, running.id);
+        assert_eq!(over.ts, 1792713340033);
+        assert_eq!((over.system_type.as_deref(), over.text.as_deref()), (Some("videoconf-ended"), Some("76")));
+        assert_eq!((over.thread_id.clone(), over.call_id.clone()), (None, None));
+        assert!(over.updated_at > running.updated_at);
+        let csa = json!({"messagetype": "Event/Call", "id": "9", "parentMessageId": "5",
+            "originalarrivaltime": "2026-10-22T23:55:55.826Z", "content": "<ended/><callEventType>callEnded</callEventType>"});
+        assert_eq!(message(channel, &csa, &d).unwrap().id, format!("{channel}/5"));
+    }
+
+    #[test]
+    fn call_links_open_the_conversation_and_stay_on_microsoft() {
+        let link = channel_link("19:ch@thread.tacv2", "Général", "g-1", "t-1");
+        assert_eq!(
+            link,
+            "https://teams.microsoft.com/l/channel/19:ch@thread.tacv2/G%C3%A9n%C3%A9ral?groupId=g-1&tenantId=t-1"
+        );
+        assert_eq!(
+            chat_link("19:a_b@unq.gbl.spaces", "t-1"),
+            "https://teams.microsoft.com/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1"
+        );
+        for ok in [
+            link.as_str(),
+            "https://teams.cloud.microsoft/v2/",
+            "https://login.microsoftonline.com/common/oauth2/authorize",
+            "https://statics.teams.cdn.office.net/x.js",
+            "about:blank",
+        ] {
+            assert!(call_allowed(ok, ""), "{ok}");
+        }
+        for no in [
+            "http://teams.microsoft.com/",
+            "https://evil.example/",
+            "https://microsoft.com.evil.example/",
+            "https://user@teams.microsoft.com/",
+            "https://idp.contoso.com/saml",
+        ] {
+            assert!(!call_allowed(no, ""), "{no}");
         }
     }
 

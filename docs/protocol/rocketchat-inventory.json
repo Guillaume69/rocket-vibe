@@ -2515,37 +2515,37 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2378,
+      "line": 2383,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2378,
+      "line": 2383,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2389,
+      "line": 2394,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2389,
+      "line": 2394,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2724,
+      "line": 2729,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2724,
+      "line": 2729,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },

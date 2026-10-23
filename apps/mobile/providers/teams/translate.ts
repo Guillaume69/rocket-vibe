@@ -332,10 +332,71 @@ export function fileAttachments(raw: unknown): string | null {
   return out.length ? JSON.stringify(out) : null;
 }
 
+/**
+ * A Teams call (`Event/Call`) as the call message kChat's and Slack's calls
+ * also become. Its start (`callStarted`) is a running call whose call id is
+ * its conversation: Join opens the conversation in Teams (`channelLink` /
+ * `chatLink`), where the running call is joined. Its end is a separate event,
+ * in a channel a reply on the start, carrying each participant's
+ * `<duration>`: it is drawn in the start's place (the start's id and time, a
+ * Teams message id being its arrival time), and being newer it replaces the
+ * running card whichever arrives first. Mirrors `call_card` in
+ * `apps/desktop/crates/rv-core/src/teams/translate.rs`.
+ */
+function callMessage(conversation: string, raw: unknown, id: string, directory: TeamsDirectory): LocalMessage | null {
+  const content = str(raw, 'content') ?? '';
+  const event = (tagValue(content, 'callEventType') ?? '').toLowerCase();
+  const ended = content.includes('<ended/>') || event === 'callended';
+  if (!ended && event !== 'callstarted') return null;
+  const at = instant(raw, 'originalarrivaltime') ?? instant(raw, 'composetime') ?? Number(id);
+  if (!Number.isFinite(at)) return null;
+  directory.learn(raw);
+  const author = mriOf(str(raw, 'from') ?? '');
+  const parent = str(raw, 'parentMessageId') ?? (int(raw, 'parentMessageId') !== null ? String(int(raw, 'parentMessageId')) : null);
+  const root = rootOf(raw, id);
+  const start = root ?? (parent && parent !== id && /^\d+$/.test(parent) ? parent : null);
+  const seconds = [...content.matchAll(/<duration>\s*(\d+)\s*<\/duration>/g)].map((m) => Number(m[1]));
+  return {
+    id: messageId(conversation, ended && start ? start : id),
+    rid: conversation,
+    text: ended ? (seconds.length ? String(Math.max(...seconds)) : '') : '',
+    ts: ended && start ? Number(start) : at,
+    authorId: author,
+    authorName: directory.shown(author),
+    systemType: ended ? 'videoconf-ended' : 'videoconf',
+    threadId: !ended && root ? messageId(conversation, root) : null,
+    threadCount: 0,
+    threadLast: null,
+    threadShown: false,
+    editedAt: null,
+    md: null,
+    attachments: null,
+    reactions: null,
+    urls: null,
+    callId: ended ? null : conversation,
+    encryptedRaw: null,
+    pinned: false,
+    starred: null,
+    updatedAt: Math.max(at, int(raw, 'version') ?? 0),
+  };
+}
+
+/** A channel's page in Teams, where its running call shows a Join. */
+export function channelLink(channel: string, name: string, group: string, tenant: string): string {
+  const query = new URLSearchParams({ groupId: group, tenantId: tenant });
+  return `https://teams.microsoft.com/l/channel/${encodeURIComponent(channel)}/${encodeURIComponent(name)}?${query}`;
+}
+
+/** A chat's page in Teams, where its running call shows a Join. */
+export function chatLink(chat: string, tenant: string): string {
+  return `https://teams.microsoft.com/l/chat/${encodeURIComponent(chat)}/conversations?${new URLSearchParams({ tenantId: tenant })}`;
+}
+
 /** One chat service message, or null for a kind the app does not show. */
 export function toMessage(conversation: string, raw: unknown, directory: TeamsDirectory): LocalMessage | null {
   const id = str(raw, 'id') ?? (int(raw, 'id') !== null ? String(int(raw, 'id')) : null);
   const kind = str(raw, 'messagetype') ?? '';
+  if (kind === 'Event/Call') return id && !deleted(raw) ? callMessage(conversation, raw, id, directory) : null;
   const attachments = fileAttachments(raw);
   const shown =
     kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/') || attachments !== null;

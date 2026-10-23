@@ -2208,7 +2208,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::start_conference(&self.rest, rid).await;
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.call_url(rid, self.teams_tenant()).await,
             Backend::Slack(_) => {
                 let team = self.info.slack.as_ref().map(|a| a.team_id.as_str()).unwrap_or_default();
                 return crate::slack::translate::huddle_url(team, rid)
@@ -2337,10 +2337,15 @@ impl Session {
                 return mattermost::actions::answer_conference(&self.rest, call_id).await;
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.call_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
+    }
+
+    /// The Teams account's tenant, which the conversation links carry.
+    fn teams_tenant(&self) -> &str {
+        self.info.teams.as_ref().map(|a| a.tenant_id.as_str()).unwrap_or_default()
     }
 
     /// The meeting's link to share, without anyone's token.
@@ -2352,7 +2357,7 @@ impl Session {
                     .map(|url| crate::call::meeting_link(&url));
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.call_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {

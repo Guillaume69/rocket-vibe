@@ -12,6 +12,7 @@ import { TeamsRooms, TeamsSync } from './sync.ts';
 import { TeamsDirectory } from './translate.ts';
 import { chatEvent, parseFrame } from './trouter.ts';
 import { TEAMS_CAPABILITIES, typingAction } from './index.ts';
+import { teamsCalls } from './calls.ts';
 
 type Doc = Record<string, unknown>;
 type Call = { method: string; url: string; body: Doc | null; headers: Record<string, string> };
@@ -228,6 +229,27 @@ test('a pin POSTs to the CSA aggregator under the parent team; unpin DELETEs', a
   assert.ok(pin!.url.endsWith('/csa/emea/api/v1/teams/19:team@thread.tacv2/channels/19:c@thread.v2/posts/500/pin'), pin!.url);
   assert.equal((pin!.headers as Record<string, string>).authorization, 'Bearer bearer-fixture');
   assert.ok(unpin, 'a DELETE to .../pin');
+});
+
+test('a call opens the conversation in Teams: a channel through its Graph group, a chat directly', async () => {
+  const channel = '19:ch@thread.tacv2';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'graph-fixture', expires_in: 3600 } };
+    if (call.url.endsWith('/me/joinedTeams?$select=id')) return { body: { value: [{ id: 'group-1' }] } };
+    if (call.url.endsWith('/teams/group-1/channels?$select=id')) return { body: { value: [{ id: channel }] } };
+    return { status: 404, body: {} };
+  });
+  const rooms = new TeamsRooms();
+  rooms.entries.set(channel, { entry: { id: channel, displayName: 'General' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
+  const teams = teamsCalls(client, rooms, 'tenant-1');
+  assert.equal(
+    await teams.start(channel, null, () => true),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/General?groupId=group-1&tenantId=tenant-1',
+  );
+  const before = calls.length;
+  assert.equal(await teams.join(RID, {}, () => true), 'https://teams.microsoft.com/l/chat/19%3Ac%40thread.v2/conversations?tenantId=tenant-1');
+  assert.equal(calls.length, before, 'a chat link needs no call');
+  assert.equal(TEAMS_CAPABILITIES.videoCall, true);
 });
 
 test('the Teams provider advertises pins without the saved panel', () => {

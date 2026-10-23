@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
+  TeamsDirectory, channelLink, chatLink, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -36,6 +36,34 @@ const raw = (id: string, extra: Record<string, unknown> = {}) => ({
   imdisplayname: 'Ada', originalarrivaltime: '2026-10-20T23:55:21.7260000Z', version: id,
   conversationLink: 'https://teams.microsoft.com/api/chatsvc/fr/v1/users/ME/conversations/19:c@thread.v2',
   ...extra,
+});
+
+test('a call starts as a join card and its end replaces it', () => {
+  const d = new TeamsDirectory();
+  const channel = '19:ch@thread.tacv2';
+  const link = `https://t/conversations/${channel};messageid=1792713340033`;
+  const running = toMessage(channel, raw('1792713340033', {
+    messagetype: 'Event/Call', conversationLink: link,
+    content: '<partlist alt =""></partlist><callEventType>callStarted</callEventType><callId>c1</callId>',
+  }), d)!;
+  assert.deepEqual([running.id, running.systemType, running.callId, running.threadId], [`${channel}/1792713340033`, 'videoconf', channel, null]);
+  const over = toMessage(channel, raw('1792713355826', {
+    messagetype: 'Event/Call', conversationLink: link,
+    content: '<ended/><partlist count="2"><part><duration>76</duration></part><part><duration>40</duration></part></partlist><callEventType>callEnded</callEventType>',
+  }), d)!;
+  assert.deepEqual([over.id, over.ts, over.systemType, over.text, over.callId, over.threadId], [running.id, 1792713340033, 'videoconf-ended', '76', null, null]);
+  assert.ok(over.updatedAt > running.updatedAt);
+  const csa = { id: '9', messagetype: 'Event/Call', parentMessageId: '5', originalarrivaltime: '2026-10-22T23:55:55.826Z', content: '<ended/><callEventType>callEnded</callEventType>' };
+  assert.equal(toMessage(channel, csa, d)!.id, `${channel}/5`);
+  assert.equal(toMessage('c', raw('40', { messagetype: 'Event/Call' }), d), null);
+});
+
+test('call links open the conversation in Teams', () => {
+  assert.equal(
+    channelLink('19:ch@thread.tacv2', 'Général', 'g-1', 't-1'),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/G%C3%A9n%C3%A9ral?groupId=g-1&tenantId=t-1',
+  );
+  assert.equal(chatLink('19:a_b@unq.gbl.spaces', 't-1'), 'https://teams.microsoft.com/l/chat/19%3Aa_b%40unq.gbl.spaces/conversations?tenantId=t-1');
 });
 
 test('messages, edits, reactions and deletions', () => {

@@ -2,8 +2,8 @@
  * Assembles a Teams `Provider` for a session. Rooms, read state and history
  * come from the aggregator and the chat service, live updates over Trouter.
  * Text goes out through the outbox; edit, delete, react, pin and mark read
- * through the actions. The pinned/saved panel, saves and calls are still to
- * come, and the capabilities hide them.
+ * through the actions; calls open the conversation in Teams itself. The
+ * pinned/saved panel and saves are still to come, and the capabilities hide them.
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
@@ -18,6 +18,7 @@ import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
+import { teamsCalls } from './calls.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
@@ -51,7 +52,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   push: false,
   e2ee: false,
   customEmojis: false,
-  videoCall: false,
+  videoCall: true,
   search: true,
   threadTemplate: 'tmid',
 };
@@ -121,6 +122,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
     identity: { kind: 'teams', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
     describeError: describeTeamsError,
     capabilities: TEAMS_CAPABILITIES,
+    calls: teamsCalls(client, rooms, session.teamsTenantId ?? ''),
     listener,
     setTyping: (rid, active) => { void typingAction(client, directory, session, rid, active); },
     translator,

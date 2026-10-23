@@ -1187,6 +1187,12 @@ pub fn slack_huddle_allowed(url: String) -> bool {
     rv_core::slack::translate::huddle_allowed(&url, "")
 }
 
+/// Where a Teams call window may go: Microsoft's pages, its sign-in included.
+#[uniffi::export]
+pub fn teams_call_allowed(url: String) -> bool {
+    rv_core::teams::translate::call_allowed(&url, "")
+}
+
 #[uniffi::export]
 pub fn kchat_is_redirect(url: String) -> bool {
     rv_core::mattermost::oauth::is_redirect(&url)

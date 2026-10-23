@@ -536,7 +536,24 @@ impl TeamsSync {
                 return Ok(gid.to_owned());
             }
         }
-        Err(crate::teams::auth::refusal("teams_upload_requires_channel", 0))
+        Err(crate::teams::auth::refusal("teams_team_not_found", 0))
+    }
+
+    /// The conversation's page in Teams' web app, which a call window opens to
+    /// start or join its call: a channel's needs its team's Graph group id, a
+    /// chat's only the tenant.
+    pub async fn call_url(&self, rid: &str, tenant: &str) -> Result<String, RestError> {
+        let channel =
+            self.entries.lock().unwrap().get(rid).and_then(|(entry, team)| {
+                team.as_ref().map(|_| str_of(entry, "displayName").unwrap_or(rid).to_owned())
+            });
+        match channel {
+            Some(name) => {
+                let group = self.parent_team(rid).await?;
+                Ok(translate::channel_link(rid, &name, &group, tenant))
+            }
+            None => Ok(translate::chat_link(rid, tenant)),
+        }
     }
 
     /// (Graph drive id, folder item id) of a channel's SharePoint files folder, cached per room.

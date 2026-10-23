@@ -3724,6 +3724,16 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        #[cfg(not(target_os = "linux"))]
+        if self.session().is_some_and(|s| s.info.teams.is_some()) {
+            let weak = Rc::downgrade(self);
+            crate::call_window::open_teams(&self.split, url, room, move |text| {
+                if let Some(this) = weak.upgrade() {
+                    this.toast(text);
+                }
+            });
+            return;
+        }
         let slack = self.session().filter(|s| s.info.slack.is_some());
         #[cfg(not(target_os = "linux"))]
         if let Some(cookie) = slack.as_ref().and_then(|s| s.huddle_cookie()) {

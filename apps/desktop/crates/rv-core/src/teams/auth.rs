@@ -1729,6 +1729,7 @@ impl Tokens {
             ("graph".to_owned(), ("authorization", format!("Bearer {}", graph.as_str()))),
         ];
         for aud in [
+            "https://templates.teams.microsoft.com",
             "https://api.spaces.skype.com",
             "https://chatsvcagg.teams.microsoft.com",
             "https://teams.microsoft.com",
@@ -1749,6 +1750,7 @@ impl Tokens {
         let mut working = None;
         let mut tries = serde_json::Map::new();
         let mut challenge = Value::Null;
+        let mut renamed_ok = false;
         for host_base in [base.clone(), base.replace("teams.microsoft.com", "teams.cloud.microsoft")] {
             let Some(url) = csa_url(
                 &format!("{host_base}/templates"),
@@ -1770,12 +1772,42 @@ impl Tokens {
                     challenge = json!({"www_authenticate": www, "x_ms_diagnostics": diag, "body": body});
                 }
                 tries.insert(format!("{}:{label}", url.host_str().unwrap_or("?")), json!(status));
+                if label.starts_with("https://templates.") && status != 401 {
+                    let renamed = format!("{name} rv");
+                    let set = http
+                        .patch(url.clone())
+                        .header(*name_h, value)
+                        .json(&json!({"displayName": renamed}))
+                        .send()
+                        .await;
+                    let set_status = set.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                    let set_body = match set {
+                        Ok(r) => r.text().await.unwrap_or_default().chars().take(400).collect::<String>(),
+                        Err(e) => format!("{e}"),
+                    };
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let seen = read_back(http.clone(), graph.as_str().to_owned()).await;
+                    let back =
+                        http.patch(url.clone()).header(*name_h, value).json(&json!({"displayName": name})).send().await;
+                    let back_status = back.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    out.insert(
+                        format!("rename:{}", url.host_str().unwrap_or("?")),
+                        json!({"set": set_status, "set_body": set_body, "seen": seen.get("displayName"),
+                            "restore": back_status,
+                            "after": read_back(http.clone(), graph.as_str().to_owned()).await.get("displayName")}),
+                    );
+                    if (200..300).contains(&set_status) {
+                        renamed_ok = true;
+                        break;
+                    }
+                }
                 if (200..300).contains(&status) {
                     working = Some((url.clone(), *name_h, value.clone(), label.clone()));
                     break;
                 }
             }
-            if working.is_some() {
+            if working.is_some() || renamed_ok {
                 break;
             }
         }

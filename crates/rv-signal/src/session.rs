@@ -56,11 +56,11 @@ pub struct ChainKey {
 }
 
 impl ChainKey {
-    pub(crate) fn message_seed(&self) -> [u8; 32] {
+    pub fn message_seed(&self) -> [u8; 32] {
         hmac_sha256(&self.key, &[&[0x01]])
     }
 
-    pub(crate) fn next(&self) -> Self {
+    pub fn next(&self) -> Self {
         Self {
             index: self.index + 1,
             key: hmac_sha256(&self.key, &[&[0x02]]),
@@ -131,12 +131,101 @@ pub struct SessionState {
 }
 
 impl SessionState {
+    /// A state with no chain yet, for a storage layer building one by hand.
+    pub fn new(
+        local_identity: PublicKey,
+        remote_identity: PublicKey,
+        root_key: [u8; 32],
+        alice_base_key: Option<PublicKey>,
+    ) -> Self {
+        Self {
+            local_identity,
+            remote_identity,
+            root_key,
+            previous_counter: 0,
+            sender_chain: None,
+            receiver_chains: Vec::new(),
+            pending_prekey: None,
+            remote_registration_id: 0,
+            local_registration_id: 0,
+            alice_base_key,
+        }
+    }
+
+    pub fn local_identity(&self) -> &PublicKey {
+        &self.local_identity
+    }
+
     pub fn remote_identity(&self) -> &PublicKey {
         &self.remote_identity
     }
 
     pub fn remote_registration_id(&self) -> u32 {
         self.remote_registration_id
+    }
+
+    pub fn local_registration_id(&self) -> u32 {
+        self.local_registration_id
+    }
+
+    pub fn alice_base_key(&self) -> Option<&PublicKey> {
+        self.alice_base_key.as_ref()
+    }
+
+    pub fn root_key(&self) -> &[u8; 32] {
+        &self.root_key
+    }
+
+    /// The chain the next message is sent on.
+    pub fn sender_chain_key(&self) -> Option<&ChainKey> {
+        self.sender_chain.as_ref().map(|c| &c.chain_key)
+    }
+
+    pub fn sender_ratchet_key(&self) -> Option<&PublicKey> {
+        self.sender_chain.as_ref().map(|c| &c.ratchet_key)
+    }
+
+    /// Replaces the sending chain, as a DH ratchet step does.
+    pub fn set_sender_chain(&mut self, ratchet: KeyPair, chain_key: ChainKey) {
+        self.sender_chain = Some(Chain {
+            ratchet_key: ratchet.public,
+            ratchet_private: Some(ratchet.private),
+            chain_key,
+            message_keys: Vec::new(),
+        });
+    }
+
+    /// Moves the sending chain to `chain_key`, for a storage layer skipping
+    /// counters it may have used before a crash.
+    pub fn set_sender_chain_key(&mut self, chain_key: ChainKey) -> Result<()> {
+        self.sender_chain
+            .as_mut()
+            .ok_or(Error::NoSession)?
+            .chain_key = chain_key;
+        Ok(())
+    }
+
+    /// The prekey message this side still sends until the peer answers:
+    /// (one-time prekey id, signed prekey id, base key).
+    pub fn pending_prekey(&self) -> Option<(Option<u32>, u32, PublicKey)> {
+        self.pending_prekey
+            .as_ref()
+            .map(|p| (p.prekey_id, p.signed_prekey_id, p.base_key))
+    }
+
+    pub fn clear_pending_prekey(&mut self) {
+        self.pending_prekey = None;
+    }
+
+    /// One state alone, as a `SessionStructure`.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut w = Writer::default();
+        write_state(&mut w, self);
+        w.0
+    }
+
+    pub fn deserialize(bytes: &[u8]) -> Result<Self> {
+        read_state(bytes)
     }
 
     fn receiver_chain(&mut self, ratchet_key: &PublicKey) -> Option<&mut Chain> {
@@ -304,8 +393,29 @@ pub struct SessionRecord {
 }
 
 impl SessionRecord {
+    pub fn from_states(current: Option<SessionState>, previous: Vec<SessionState>) -> Self {
+        Self { current, previous }
+    }
+
     pub fn current(&self) -> Option<&SessionState> {
         self.current.as_ref()
+    }
+
+    pub fn current_mut(&mut self) -> Option<&mut SessionState> {
+        self.current.as_mut()
+    }
+
+    /// Sessions kept behind the current one, newest first.
+    pub fn previous(&self) -> &[SessionState] {
+        &self.previous
+    }
+
+    /// Moves the current session behind, leaving none current.
+    pub fn archive_current(&mut self) {
+        if let Some(old) = self.current.take() {
+            self.previous.insert(0, old);
+            self.previous.truncate(MAX_PREVIOUS_SESSIONS);
+        }
     }
 
     /// True when a message can be encrypted right away.

@@ -72,7 +72,7 @@ fn mac(mac_key: &[u8], sender: &PublicKey, receiver: &PublicKey, body: &[u8]) ->
 
 impl SignalMessage {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
+    pub fn new(
         mac_key: &[u8],
         sender_identity: &PublicKey,
         receiver_identity: &PublicKey,
@@ -123,7 +123,7 @@ impl SignalMessage {
         })
     }
 
-    pub(crate) fn verify_mac(
+    pub fn verify_mac(
         &self,
         sender_identity: &PublicKey,
         receiver_identity: &PublicKey,
@@ -152,7 +152,7 @@ pub struct PreKeySignalMessage {
 }
 
 impl PreKeySignalMessage {
-    pub(crate) fn new(
+    pub fn new(
         registration_id: u32,
         prekey_id: Option<u32>,
         signed_prekey_id: u32,
@@ -221,12 +221,7 @@ pub struct SenderKeyDistributionMessage {
 }
 
 impl SenderKeyDistributionMessage {
-    pub(crate) fn new(
-        chain_id: u32,
-        iteration: u32,
-        chain_key: [u8; 32],
-        signing_key: PublicKey,
-    ) -> Self {
+    pub fn new(chain_id: u32, iteration: u32, chain_key: [u8; 32], signing_key: PublicKey) -> Self {
         let mut w = Writer(vec![VERSION_BYTE]);
         w.uint(1, chain_id.into());
         w.uint(2, iteration.into());
@@ -286,7 +281,7 @@ pub struct SenderKeyMessage {
 const SIGNATURE_LENGTH: usize = 64;
 
 impl SenderKeyMessage {
-    pub(crate) fn new<R: CryptoRng + ?Sized>(
+    pub fn new<R: CryptoRng + ?Sized>(
         chain_id: u32,
         iteration: u32,
         ciphertext: Vec<u8>,
@@ -330,7 +325,7 @@ impl SenderKeyMessage {
         })
     }
 
-    pub(crate) fn verify_signature(&self, signing_key: &PublicKey) -> bool {
+    pub fn verify_signature(&self, signing_key: &PublicKey) -> bool {
         let (body, signature) = self
             .serialized
             .split_at(self.serialized.len() - SIGNATURE_LENGTH);

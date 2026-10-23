@@ -96,6 +96,20 @@ async fn main() {
     };
     let me = info.user_id.clone();
     let tokens = Tokens::new(&info).expect("tokens");
+    // Pin round-trip probe: a user-authorized live write that pins then unpins
+    // one known channel post to learn the CSA read shape. Ids default to the
+    // capture's test channel; override with TEAMS_PIN_TEAM/CHANNEL/POST.
+    if std::env::var_os("TEAMS_PROBE_PIN").is_some_and(|v| !v.is_empty()) {
+        let env = |key: &str, default: &str| std::env::var(key).unwrap_or_else(|_| default.to_owned());
+        let team = env("TEAMS_PIN_TEAM", "19:30c22b53ecfc46eeb99d89d5c4429edd@thread.tacv2");
+        let channel = env("TEAMS_PIN_CHANNEL", "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2");
+        let post = env("TEAMS_PIN_POST", "1792713056746");
+        let shapes = tokens.probe_pin(&team, &channel, &post).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     let shapes = tokens.probe_shapes(&me).await;
     println!("SHAPES_BEGIN");
     println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());

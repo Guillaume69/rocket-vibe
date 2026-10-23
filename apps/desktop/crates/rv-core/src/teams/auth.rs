@@ -530,6 +530,51 @@ fn conversation_sub_url(chat: &str, id: &str, tail: &[&str], query: &str) -> Opt
     Some(u)
 }
 
+/// A CSA aggregator url: the base plus path segments, ids kept opaque.
+fn csa_url(base: &str, segments: &[&str], query: &str) -> Option<url::Url> {
+    let mut u = url::Url::parse(base).ok()?;
+    {
+        let mut seg = u.path_segments_mut().ok()?;
+        seg.pop_if_empty();
+        for s in segments {
+            seg.push(s);
+        }
+    }
+    if !query.is_empty() {
+        u.set_query(Some(query));
+    }
+    Some(u)
+}
+
+/// GET one url with a bearer, described (status and body even on 4xx).
+async fn get_desc(http: &reqwest::Client, url: Option<url::Url>, bearer: &str) -> Value {
+    match url {
+        Some(u) => describe(http.get(u).header("authorization", bearer).send().await).await,
+        None => json!({ "error": "bad url" }),
+    }
+}
+
+/// The candidate CSA endpoints for a channel's pinned set, each read and described.
+async fn pinned_reads(http: &reqwest::Client, bearer: &str, csa: &str, team: &str, channel: &str, post: &str) -> Value {
+    let chan = |extra: &[&str]| {
+        let mut s = vec!["api", "v1", "teams", team, "channels", channel];
+        s.extend_from_slice(extra);
+        csa_url(csa, &s, "")
+    };
+    let set = [
+        ("pinnedmessages", chan(&["pinnedmessages"])),
+        ("pinnedMessages", chan(&["pinnedMessages"])),
+        ("posts_pinned", chan(&["posts", "pinned"])),
+        ("channel_entry", chan(&[])),
+        ("post_entry", chan(&["posts", post])),
+    ];
+    let mut m = serde_json::Map::new();
+    for (label, url) in set {
+        m.insert(label.into(), get_desc(http, url, bearer).await);
+    }
+    Value::Object(m)
+}
+
 /// A response described by STRUCTURE only: status, the auth-challenge header
 /// and the top-level key names (or array length). Never any value.
 async fn describe_keys(r: Result<reqwest::Response, reqwest::Error>) -> Value {
@@ -1286,6 +1331,73 @@ impl Tokens {
             }
         }
         Value::Object(out)
+    }
+
+    /// Pin round-trip probe (the user authorized live writes; self-cleaning).
+    /// On a known channel post: read the CSA aggregator pinned collection before
+    /// and after pinning, read the chat-service message doc once pinned to spot
+    /// any per-message pin marker, then unpin and re-read. Statuses and bodies;
+    /// leaves no standing pin. Throwaway, like `probe_shapes`.
+    pub async fn probe_pin(&self, team: &str, channel: &str, post: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let bearer = match self.aggregator().await {
+            Ok(b) => format!("Bearer {}", b.as_str()),
+            Err(e) => return json!({ "error": format!("aggregator token: {e:?}") }),
+        };
+        let skype_header = format!("skypetoken={}", skype.as_str());
+        let http = http();
+        let csa = routes.aggregator.as_str();
+        let pin_url = csa_url(csa, &["api", "v1", "teams", team, "channels", channel, "posts", post, "pin"], "");
+
+        let before = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+        let pin_post = match pin_url.clone() {
+            Some(u) => {
+                describe(http.post(u).header("authorization", &bearer).header("content-length", "0").send().await).await
+            }
+            None => json!({ "error": "bad url" }),
+        };
+        let after = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+        let message_doc = match conversation_sub_url(
+            &routes.chat,
+            channel,
+            &["messages", post],
+            "view=msnp24Equivalent|supportsMessageProperties",
+        ) {
+            Some(u) => match http.get(u).header("authentication", &skype_header).send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body: Value = resp.json().await.unwrap_or(Value::Null);
+                    json!({
+                        "status": status,
+                        "pin_fields": pin_fields(&body),
+                        "properties_keys": body
+                            .get("properties")
+                            .and_then(Value::as_object)
+                            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                    })
+                }
+                Err(e) => json!({ "error": e.to_string() }),
+            },
+            None => json!({ "error": "bad url" }),
+        };
+        let unpin_delete = match pin_url.clone() {
+            Some(u) => describe(http.delete(u).header("authorization", &bearer).send().await).await,
+            None => json!({ "error": "bad url" }),
+        };
+        let after_unpin = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+
+        json!({
+            "before": before,
+            "pin_post": pin_post,
+            "after": after,
+            "message_doc": message_doc,
+            "unpin_delete": unpin_delete,
+            "after_unpin": after_unpin,
+        })
     }
 
     /// Forgets the Skype token after the chat service refused it.

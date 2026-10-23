@@ -12,7 +12,7 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts'
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { Capabilities, Listener, MemberPage, Provider, ProviderError, RoomInformation } from '../../lib/provider.ts';
+import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomSettingsChange } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
@@ -49,7 +49,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   stars: false,
   profile: true,
   roomInfo: true,
-  roomSettings: false,
+  roomSettings: true,
   roomRoleList: true,
   leaveRoom: false,
   roomFavorites: false,
@@ -160,6 +160,19 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
           members: roster ? rosterPage(roster, directory, '').total : null,
           readOnly: false,
         };
+      },
+      editableSettings: async (rid: string): Promise<EditableSettings | null> => {
+        const known = rooms.entries.get(rid);
+        return known?.team && str(known.entry, 'groupId') && str(known.entry, 'substrateGroupId') ? { name: true, texts: false, readOnly: false } : null;
+      },
+      saveRoomSettings: async (rid: string, fields: RoomSettingsChange): Promise<void> => {
+        const known = rooms.entries.get(rid);
+        const group = known?.team ? str(known.entry, 'groupId') : null;
+        const oid = known?.team ? str(known.entry, 'substrateGroupId') : null;
+        if (fields.name === undefined) return;
+        if (!known || !group || !oid) throw new TeamsError('team_not_found');
+        await client.rename(group, oid, session.teamsTenantId ?? '', fields.name);
+        known.entry.displayName = fields.name;
       },
       listMembers: async (rid: string, filter: string): Promise<MemberPage> =>
         rosterPage(await client.roster(rid).catch(() => ({}) as Doc), directory, filter),

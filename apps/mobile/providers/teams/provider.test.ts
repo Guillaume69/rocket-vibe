@@ -275,6 +275,20 @@ test('a channel call card joins the call itself, its starter as organizer', asyn
   assert.equal(calls.length, before, 'the entry carries the group id');
 });
 
+test('a channel is renamed through the templates service with its own token', async () => {
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'templates-fixture', expires_in: 3600 } };
+    if (call.url.includes('/fabric/')) return { body: {} };
+    return { status: 404, body: {} };
+  });
+  await client.rename('group-1', 'oid-1', 'tenant-1', 'Ops');
+  const patch = calls.find((c) => c.url.includes('/fabric/'));
+  assert.ok(patch, 'a PATCH to the fabric templates route');
+  assert.equal(patch!.method, 'PATCH');
+  assert.ok(patch!.url.endsWith('/fabric/emea/templates/api/teams/group-1/channels/OID:oid-1@tenant-1?forceSync=false'), patch!.url);
+  assert.equal((patch!.headers as Record<string, string>).authorization, 'Bearer templates-fixture');
+});
+
 test('the Teams provider lists pinned messages but has no saves', async () => {
   assert.deepEqual([TEAMS_CAPABILITIES.marks, TEAMS_CAPABILITIES.stars], [true, false]);
   const pin = '{"creatorId":"8:orgid:aaa","pinnedTime":1}';

@@ -222,6 +222,12 @@ describe('ActionsRC', () => {
     assert.deepEqual(calls, [{ path: 'rooms.saveRoomSettings', body: { rid: 'r1', roomTopic: '', roomAnnouncement: 'Hello' } }]);
   });
 
+  test('saveRoomSettings renames the room through roomName', async () => {
+    const { client, calls } = fakeClient({ success: true });
+    await new ActionsRC(client).saveRoomSettings('r1', { name: 'ops' });
+    assert.deepEqual(calls, [{ path: 'rooms.saveRoomSettings', body: { rid: 'r1', roomName: 'ops' } }]);
+  });
+
   test('saveRoomSettings sends readOnly only when it is part of the change', async () => {
     const { client, calls } = fakeClient({ success: true });
     const a = new ActionsRC(client);

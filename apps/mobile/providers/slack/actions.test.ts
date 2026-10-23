@@ -26,6 +26,21 @@ function setup(route: (call: SlackCall) => SlackAnswer | undefined = () => ({ bo
 const MID = 'C001:1780000000.000100';
 
 describe('SlackActions', () => {
+  test('room information comes from conversations.info and a channel renames itself', async () => {
+    const { actions, server } = setup((call) => call.method === 'conversations.info'
+      ? { body: { ok: true, channel: call.args.channel === 'C001'
+        ? { id: 'C001', name: 'general', is_private: false, num_members: 4, topic: { value: 'News' }, purpose: { value: '' } }
+        : { id: 'D001', is_im: true, user: 'U001' } } }
+      : { body: { ok: true } });
+    const info = await actions.roomInfo('C001');
+    assert.deepEqual([info.name, info.type, info.topic, info.description, info.members], ['general', 'c', 'News', null, 4]);
+    assert.deepEqual(await actions.editableSettings('C001'), { name: true, texts: false, readOnly: false });
+    assert.equal(await actions.editableSettings('D001'), null);
+    await actions.saveRoomSettings('C001', { name: 'announcements' });
+    const rename = server.calls.find((c) => c.method === 'conversations.rename');
+    assert.deepEqual([rename?.args.channel, rename?.args.name], ['C001', 'announcements']);
+  });
+
   test('edit and delete target the exact channel and ts', async () => {
     const { actions, server } = setup();
     await actions.edit('C001', MID, '~~old~~ new');

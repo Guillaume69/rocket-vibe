@@ -4687,121 +4687,121 @@
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 157,
+      "line": 158,
       "kind": "call:POST",
       "surface": "`{…}.kick`"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 162,
+      "line": 163,
       "kind": "call:POST",
       "surface": "put ? 'chat.followMessage' : 'chat.unfollowMessage'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 162,
+      "line": 163,
       "kind": "endpoint",
       "surface": "chat.followMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 162,
+      "line": 163,
       "kind": "endpoint",
       "surface": "chat.unfollowMessage"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 168,
+      "line": 169,
       "kind": "call:GET",
       "surface": "path"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 178,
+      "line": 179,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 178,
+      "line": 179,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 183,
+      "line": 184,
       "kind": "call:POST",
       "surface": "'subscriptions.read'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 183,
+      "line": 184,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 188,
+      "line": 189,
       "kind": "call:POST",
       "surface": "'rooms.saveNotification'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 188,
+      "line": 189,
       "kind": "endpoint",
       "surface": "rooms.saveNotification"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 195,
+      "line": 196,
       "kind": "call:POST",
       "surface": "'subscriptions.unread'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 195,
+      "line": 196,
       "kind": "endpoint",
       "surface": "subscriptions.unread"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 201,
+      "line": 202,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 201,
+      "line": 202,
       "kind": "endpoint",
       "surface": "im.create"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 220,
+      "line": 221,
       "kind": "call:POST",
       "surface": "'im.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 220,
+      "line": 221,
       "kind": "endpoint",
       "surface": "im.create"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 241,
+      "line": 242,
       "kind": "call:POST",
       "surface": "privateRoom ? 'groups.create' : 'channels.create'"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 242,
+      "line": 243,
       "kind": "endpoint",
       "surface": "channels.create"
     },
     {
       "file": "apps/mobile/providers/rocketchat/actions.ts",
-      "line": 242,
+      "line": 243,
       "kind": "endpoint",
       "surface": "groups.create"
     },

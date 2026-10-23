@@ -671,26 +671,26 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/providers/rocketchat/actions.ts:135](../../apps/mobile/providers/rocketchat/actions.ts#L135) | call:POST | \`{…}.{…}{…}\` |
 | [apps/mobile/providers/rocketchat/actions.ts:145](../../apps/mobile/providers/rocketchat/actions.ts#L145) | call:POST | 'rooms.saveRoomSettings' |
 | [apps/mobile/providers/rocketchat/actions.ts:145](../../apps/mobile/providers/rocketchat/actions.ts#L145) | endpoint | rooms.saveRoomSettings |
-| [apps/mobile/providers/rocketchat/actions.ts:157](../../apps/mobile/providers/rocketchat/actions.ts#L157) | call:POST | \`{…}.kick\` |
-| [apps/mobile/providers/rocketchat/actions.ts:162](../../apps/mobile/providers/rocketchat/actions.ts#L162) | call:POST | put ? 'chat.followMessage' : 'chat.unfollowMessage' |
-| [apps/mobile/providers/rocketchat/actions.ts:162](../../apps/mobile/providers/rocketchat/actions.ts#L162) | endpoint | chat.followMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:162](../../apps/mobile/providers/rocketchat/actions.ts#L162) | endpoint | chat.unfollowMessage |
-| [apps/mobile/providers/rocketchat/actions.ts:168](../../apps/mobile/providers/rocketchat/actions.ts#L168) | call:GET | path |
-| [apps/mobile/providers/rocketchat/actions.ts:178](../../apps/mobile/providers/rocketchat/actions.ts#L178) | call:POST | 'subscriptions.read' |
-| [apps/mobile/providers/rocketchat/actions.ts:178](../../apps/mobile/providers/rocketchat/actions.ts#L178) | endpoint | subscriptions.read |
-| [apps/mobile/providers/rocketchat/actions.ts:183](../../apps/mobile/providers/rocketchat/actions.ts#L183) | call:POST | 'subscriptions.read' |
-| [apps/mobile/providers/rocketchat/actions.ts:183](../../apps/mobile/providers/rocketchat/actions.ts#L183) | endpoint | subscriptions.read |
-| [apps/mobile/providers/rocketchat/actions.ts:188](../../apps/mobile/providers/rocketchat/actions.ts#L188) | call:POST | 'rooms.saveNotification' |
-| [apps/mobile/providers/rocketchat/actions.ts:188](../../apps/mobile/providers/rocketchat/actions.ts#L188) | endpoint | rooms.saveNotification |
-| [apps/mobile/providers/rocketchat/actions.ts:195](../../apps/mobile/providers/rocketchat/actions.ts#L195) | call:POST | 'subscriptions.unread' |
-| [apps/mobile/providers/rocketchat/actions.ts:195](../../apps/mobile/providers/rocketchat/actions.ts#L195) | endpoint | subscriptions.unread |
-| [apps/mobile/providers/rocketchat/actions.ts:201](../../apps/mobile/providers/rocketchat/actions.ts#L201) | call:POST | 'im.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:201](../../apps/mobile/providers/rocketchat/actions.ts#L201) | endpoint | im.create |
-| [apps/mobile/providers/rocketchat/actions.ts:220](../../apps/mobile/providers/rocketchat/actions.ts#L220) | call:POST | 'im.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:220](../../apps/mobile/providers/rocketchat/actions.ts#L220) | endpoint | im.create |
-| [apps/mobile/providers/rocketchat/actions.ts:241](../../apps/mobile/providers/rocketchat/actions.ts#L241) | call:POST | privateRoom ? 'groups.create' : 'channels.create' |
-| [apps/mobile/providers/rocketchat/actions.ts:242](../../apps/mobile/providers/rocketchat/actions.ts#L242) | endpoint | channels.create |
-| [apps/mobile/providers/rocketchat/actions.ts:242](../../apps/mobile/providers/rocketchat/actions.ts#L242) | endpoint | groups.create |
+| [apps/mobile/providers/rocketchat/actions.ts:158](../../apps/mobile/providers/rocketchat/actions.ts#L158) | call:POST | \`{…}.kick\` |
+| [apps/mobile/providers/rocketchat/actions.ts:163](../../apps/mobile/providers/rocketchat/actions.ts#L163) | call:POST | put ? 'chat.followMessage' : 'chat.unfollowMessage' |
+| [apps/mobile/providers/rocketchat/actions.ts:163](../../apps/mobile/providers/rocketchat/actions.ts#L163) | endpoint | chat.followMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:163](../../apps/mobile/providers/rocketchat/actions.ts#L163) | endpoint | chat.unfollowMessage |
+| [apps/mobile/providers/rocketchat/actions.ts:169](../../apps/mobile/providers/rocketchat/actions.ts#L169) | call:GET | path |
+| [apps/mobile/providers/rocketchat/actions.ts:179](../../apps/mobile/providers/rocketchat/actions.ts#L179) | call:POST | 'subscriptions.read' |
+| [apps/mobile/providers/rocketchat/actions.ts:179](../../apps/mobile/providers/rocketchat/actions.ts#L179) | endpoint | subscriptions.read |
+| [apps/mobile/providers/rocketchat/actions.ts:184](../../apps/mobile/providers/rocketchat/actions.ts#L184) | call:POST | 'subscriptions.read' |
+| [apps/mobile/providers/rocketchat/actions.ts:184](../../apps/mobile/providers/rocketchat/actions.ts#L184) | endpoint | subscriptions.read |
+| [apps/mobile/providers/rocketchat/actions.ts:189](../../apps/mobile/providers/rocketchat/actions.ts#L189) | call:POST | 'rooms.saveNotification' |
+| [apps/mobile/providers/rocketchat/actions.ts:189](../../apps/mobile/providers/rocketchat/actions.ts#L189) | endpoint | rooms.saveNotification |
+| [apps/mobile/providers/rocketchat/actions.ts:196](../../apps/mobile/providers/rocketchat/actions.ts#L196) | call:POST | 'subscriptions.unread' |
+| [apps/mobile/providers/rocketchat/actions.ts:196](../../apps/mobile/providers/rocketchat/actions.ts#L196) | endpoint | subscriptions.unread |
+| [apps/mobile/providers/rocketchat/actions.ts:202](../../apps/mobile/providers/rocketchat/actions.ts#L202) | call:POST | 'im.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:202](../../apps/mobile/providers/rocketchat/actions.ts#L202) | endpoint | im.create |
+| [apps/mobile/providers/rocketchat/actions.ts:221](../../apps/mobile/providers/rocketchat/actions.ts#L221) | call:POST | 'im.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:221](../../apps/mobile/providers/rocketchat/actions.ts#L221) | endpoint | im.create |
+| [apps/mobile/providers/rocketchat/actions.ts:242](../../apps/mobile/providers/rocketchat/actions.ts#L242) | call:POST | privateRoom ? 'groups.create' : 'channels.create' |
+| [apps/mobile/providers/rocketchat/actions.ts:243](../../apps/mobile/providers/rocketchat/actions.ts#L243) | endpoint | channels.create |
+| [apps/mobile/providers/rocketchat/actions.ts:243](../../apps/mobile/providers/rocketchat/actions.ts#L243) | endpoint | groups.create |
 | [apps/mobile/providers/rocketchat/admin.ts:233](../../apps/mobile/providers/rocketchat/admin.ts#L233) | call:GET | 'me' |
 | [apps/mobile/providers/rocketchat/admin.ts:239](../../apps/mobile/providers/rocketchat/admin.ts#L239) | call:GET | 'statistics' |
 | [apps/mobile/providers/rocketchat/admin.ts:240](../../apps/mobile/providers/rocketchat/admin.ts#L240) | call:GET | 'roles.getUsersInRole' |

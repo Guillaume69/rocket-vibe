@@ -15,6 +15,8 @@ const PRESENCE = 'https://presence.teams.microsoft.com';
 const SUBSTRATE = 'https://substrate.office.com';
 const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
 const GRAPH = 'https://graph.microsoft.com';
+/** Teams' templates service, which renames a channel (verified 2026-10-23). */
+const TEMPLATES = 'https://templates.teams.microsoft.com';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
 export const TEAMS_ORIGIN = 'https://teams.microsoft.com';
@@ -189,6 +191,7 @@ export class TeamsTokens {
   private presenceLease: Lease | null = null;
   private substrateLease: Lease | null = null;
   private graphLease: Lease | null = null;
+  private templatesLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
 
@@ -278,6 +281,18 @@ export class TeamsTokens {
     if (held) return held;
     this.graphLease = await this.access(GRAPH);
     return this.graphLease.value;
+  }
+
+  /** The templates bearer, for renaming a channel. */
+  async templates(): Promise<string> {
+    const held = fresh(this.templatesLease);
+    if (held) return held;
+    this.templatesLease = await this.access(TEMPLATES);
+    return this.templatesLease.value;
+  }
+
+  forgetTemplates(): void {
+    this.templatesLease = null;
   }
 
   /** The Skype token and the tenant's routes, from authz. */

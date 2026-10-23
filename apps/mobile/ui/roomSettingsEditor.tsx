@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
-import type { ProviderActions, RoomInformation, RoomTexts } from '../lib/provider.ts';
-import { roomSettingsChanges, roomSettingsDraft, type RoomSettingsDraft } from '../lib/roomSettings.ts';
+import type { EditableSettings, ProviderActions, RoomInformation, RoomTexts } from '../lib/provider.ts';
+import { nameEmptied, roomSettingsChanges, roomSettingsDraft, type RoomSettingsDraft } from '../lib/roomSettings.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { useT } from './i18n.ts';
 import type { TranslationKey } from './messages.ts';
@@ -17,13 +17,16 @@ const FIELDS: readonly { key: keyof RoomTexts; label: TranslationKey }[] = [
   { key: 'announcement', label: 'roomInfo.announcement' },
 ];
 
+const EVERYTHING: EditableSettings = { name: true, texts: true, readOnly: true };
+
 /**
- * Editing a Rocket.Chat room's topic, description, announcement and read-only
- * switch from its information sheet (`rooms.saveRoomSettings`, changed keys
- * only, `lib/roomSettings.ts`), for those my global and room roles grant
- * `edit-room`. The sheet reads `rooms.info` again after a save (`onSaved`),
- * which carries the read-only flag back to the room and its composer.
- * Renaming is left out: it moves the room's address, links to it included.
+ * Editing a room from its information sheet, changed keys only
+ * (`lib/roomSettings.ts`): on Rocket.Chat its name, topic, description,
+ * announcement and read-only switch for those my global and room roles grant
+ * `edit-room` (`rooms.saveRoomSettings`; a new name moves the room's address
+ * too); elsewhere what the provider's `editableSettings` allows, a channel's
+ * name on Mattermost, kChat, Slack and Teams. The sheet reads the room again
+ * after a save (`onSaved`).
  */
 export function RoomSettingsEditor({
   c,
@@ -43,24 +46,24 @@ export function RoomSettingsEditor({
   onSaved: () => void;
 }) {
   const t = useT();
-  const [allowed, setAllowed] = useState(false);
+  const [editable, setEditable] = useState<EditableSettings | null>(null);
   const [draft, setDraft] = useState<RoomSettingsDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const save = actions.saveRoomSettings?.bind(actions);
   const canSave = save !== undefined;
   useEffect(() => {
-    if (client.kind !== 'rocketchat' || !canSave) return;
+    if (!canSave) return;
     let alive = true;
-    sourcesPermissions(client).then(
-      (sources) => alive && setAllowed(grantedPermissions(sources, roomRoles(roles)).includes('edit-room')),
-      () => {},
-    );
+    const decided = client.kind === 'rocketchat'
+      ? sourcesPermissions(client).then((sources) => grantedPermissions(sources, roomRoles(roles)).includes('edit-room') ? EVERYTHING : null)
+      : actions.editableSettings?.(rid) ?? Promise.resolve(null);
+    decided.then((e) => alive && setEditable(e), () => {});
     return () => {
       alive = false;
     };
-  }, [client, roles, canSave]);
-  if (!allowed || save === undefined) return null;
+  }, [client, roles, canSave, actions, rid]);
+  if (editable === null || save === undefined) return null;
 
   const current = roomSettingsDraft(info);
   if (draft === null) {
@@ -75,7 +78,7 @@ export function RoomSettingsEditor({
       </Tappable>
     );
   }
-  const fields = roomSettingsChanges(current, draft);
+  const fields = nameEmptied(draft) ? null : roomSettingsChanges(current, draft);
   const changed = fields !== null;
   const submit = () => {
     if (busy || fields === null) return;
@@ -91,7 +94,18 @@ export function RoomSettingsEditor({
   };
   return (
     <View style={styles.editor}>
-      {FIELDS.map(({ key, label }) => (
+      {editable.name && (
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: c.dimmed }]}>{t('native.roomName')}</Text>
+          <TextInput
+            value={draft.name}
+            onChangeText={(name) => setDraft({ ...draft, name })}
+            editable={!busy}
+            style={[styles.input, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
+          />
+        </View>
+      )}
+      {editable.texts && FIELDS.map(({ key, label }) => (
         <View key={key} style={styles.field}>
           <Text style={[styles.label, { color: c.dimmed }]}>{t(label)}</Text>
           <TextInput
@@ -103,7 +117,7 @@ export function RoomSettingsEditor({
           />
         </View>
       ))}
-      <View style={styles.toggle}>
+      {editable.readOnly && <View style={styles.toggle}>
         <View style={styles.toggleLabel}>
           <Text style={[styles.toggleTitle, { color: c.text }]}>{t('roomSettings.readOnly')}</Text>
           <Text style={[styles.hint, { color: c.dimmed }]}>{t('roomSettings.readOnlyHint')}</Text>
@@ -115,7 +129,7 @@ export function RoomSettingsEditor({
           disabled={busy}
           trackColor={{ true: c.accent }}
         />
-      </View>
+      </View>}
       {failed && <Text style={[styles.error, { color: c.errorText }]}>{t('roomSettings.failed')}</Text>}
       <View style={styles.row}>
         <Tappable onPress={() => setDraft(null)} disabled={busy} accessibilityRole="button" style={styles.secondary}>

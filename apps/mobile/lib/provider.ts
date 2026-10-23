@@ -244,6 +244,9 @@ export interface ProviderActions {
   removeMember?(rid: string, type: string, userId: string): Promise<void>;
   /** Writes the given settings of the room (only those present). */
   saveRoomSettings?(rid: string, fields: RoomSettingsChange): Promise<void>;
+  /** What the settings editor may change in `rid`; null when it is not offered.
+   *  Absent: Rocket.Chat's own `edit-room` check decides. */
+  editableSettings?(rid: string): Promise<EditableSettings | null>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /** Presses an integration card's button, or picks `selected` in its menu (Mattermost `actions[]`). Absent where cards carry none. */
   cardAction?(postId: string, actionId: string, cookie: string | null, selected?: string): Promise<CardActionAnswer>;
@@ -295,8 +298,11 @@ export type MemberPage = { members: RoomMember[]; total: number };
 
 /** A room's texts as `ProviderActions.saveRoomSettings` writes them. */
 export type RoomTexts = { topic: string; description: string; announcement: string };
-/** What `ProviderActions.saveRoomSettings` sends: the changed texts and, when switched, read-only. */
-export type RoomSettingsChange = Partial<RoomTexts> & { readOnly?: boolean };
+/** What `ProviderActions.saveRoomSettings` sends: a new name, the changed texts and, when switched, read-only. */
+export type RoomSettingsChange = Partial<RoomTexts> & { name?: string; readOnly?: boolean };
+/** What a room's settings editor may change on its server: Rocket.Chat what
+ *  `edit-room` grants, Mattermost, kChat, Slack and Teams a channel's name. */
+export type EditableSettings = { name: boolean; texts: boolean; readOnly: boolean };
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };

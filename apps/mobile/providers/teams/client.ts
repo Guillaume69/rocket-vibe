@@ -220,6 +220,27 @@ export class TeamsClient {
     }
   }
 
+  /** Renames a channel as Teams' web app does: its templates service under the
+   *  fabric route, addressed by the team's Graph group and the channel's
+   *  Substrate group. Mirrors `TeamsSync::rename` in the desktop core. */
+  async rename(group: string, substrateGroup: string, tenant: string, name: string): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    const base = `${routes.aggregator.replace('/api/csa/', '/fabric/')}/templates`;
+    const url = serviceUrl(base, ['api', 'teams', group, 'channels', `OID:${substrateGroup}@${tenant}`], 'forceSync=false');
+    const body = { displayName: name };
+    try {
+      await this.send(url, ['authorization', `Bearer ${await this.tokens.templates()}`], 'PATCH', body);
+    } catch (e) {
+      if (!(e instanceof TeamsError) || e.status !== 401) throw e;
+      this.tokens.forgetTemplates();
+      try {
+        await this.send(url, ['authorization', `Bearer ${await this.tokens.templates()}`], 'PATCH', body);
+      } catch (again) {
+        this.rejected(again);
+      }
+    }
+  }
+
   /** A Graph GET with the Graph bearer, as a document. */
   private async graph(url: string): Promise<Doc> {
     return (await this.send(url, ['authorization', `Bearer ${await this.tokens.graph()}`], 'GET')).body;

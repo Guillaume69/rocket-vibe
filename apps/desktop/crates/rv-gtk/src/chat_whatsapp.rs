@@ -88,7 +88,12 @@ impl ChatPage {
             self.wa_error.replace(None);
         }
         let sending = self.current_rid().is_some_and(|rid| session.sending(&rid));
+        let reopened = !sending && !self.composer.root.is_sensitive();
         self.composer.root.set_sensitive(!sending);
+        // Disabled while it sent, the composer took the window's focus with it.
+        if reopened && self.split.root().is_some_and(|root| root.focus().is_none()) {
+            self.composer.grab_focus();
+        }
         self.schedule_whatsapp_read();
         self.whatsapp_presence();
         if let Some(rid) = self.current_rid() {

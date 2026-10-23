@@ -110,6 +110,18 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // File-upload round-trip probe: a user-authorized live write that uploads a
+    // tiny file to the channel's files folder, posts it, reads it back, then
+    // deletes both. Channel defaults to the capture's; override TEAMS_PIN_CHANNEL.
+    if std::env::var_os("TEAMS_PROBE_UPLOAD").is_some_and(|v| !v.is_empty()) {
+        let channel = std::env::var("TEAMS_PIN_CHANNEL")
+            .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
+        let shapes = tokens.probe_upload(&channel).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     let shapes = tokens.probe_shapes(&me).await;
     println!("SHAPES_BEGIN");
     println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());

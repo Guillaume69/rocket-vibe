@@ -554,6 +554,37 @@ async fn get_desc(http: &reqwest::Client, url: Option<url::Url>, bearer: &str) -
     }
 }
 
+/// GET a Graph url with the bearer; returns (status, body) for a probe to read ids from.
+async fn graph_get(http: &reqwest::Client, bearer: &str, url: &str) -> (u16, Value) {
+    match http.get(url).bearer_auth(bearer).send().await {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            (s, r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+        Err(_) => (0, Value::Null),
+    }
+}
+
+/// The channel's parent team (Graph group id) by scanning joined teams' channels
+/// for the one whose id is the chat-service thread id. Returns (status, group_id).
+async fn graph_parent_team(http: &reqwest::Client, bearer: &str, channel: &str) -> (u16, Option<String>) {
+    let (status, body) = graph_get(http, bearer, "https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id").await;
+    let teams = body.get("value").and_then(Value::as_array).cloned().unwrap_or_default();
+    for team in teams {
+        let Some(gid) = team.get("id").and_then(Value::as_str) else { continue };
+        let url = format!("https://graph.microsoft.com/v1.0/teams/{gid}/channels?$select=id");
+        let (_, chans) = graph_get(http, bearer, &url).await;
+        let found = chans
+            .get("value")
+            .and_then(Value::as_array)
+            .is_some_and(|cs| cs.iter().any(|c| c.get("id").and_then(Value::as_str) == Some(channel)));
+        if found {
+            return (status, Some(gid.to_owned()));
+        }
+    }
+    (status, None)
+}
+
 /// The candidate CSA endpoints for a channel's pinned set, each read and described.
 async fn pinned_reads(http: &reqwest::Client, bearer: &str, csa: &str, team: &str, channel: &str, post: &str) -> Value {
     let chan = |extra: &[&str]| {
@@ -1398,6 +1429,166 @@ impl Tokens {
             "unpin_delete": unpin_delete,
             "after_unpin": after_unpin,
         })
+    }
+
+    /// File-upload round-trip probe (the user authorized live writes;
+    /// self-cleaning). Uses the Graph token to find the channel's files folder,
+    /// uploads a tiny probe file there, posts a chat-service message carrying it
+    /// as `properties.files` (no asyncgw preview), reads the message back to
+    /// confirm the file survived, then deletes the message and the file. Reports
+    /// each step's status and the key ids/urls, not file content. Throwaway.
+    pub async fn probe_upload(&self, channel: &str) -> Value {
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => return json!({ "error": format!("graph token: {e:?}") }),
+        };
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let token = graph.as_str();
+        let mut out = serde_json::Map::new();
+
+        // 1. The channel's parent team (Graph group id).
+        let (jt_status, group) = graph_parent_team(&http, token, channel).await;
+        out.insert("joined_teams_status".into(), json!(jt_status));
+        out.insert("parent_team_found".into(), json!(group.is_some()));
+        let Some(group) = group else {
+            return Value::Object(out);
+        };
+
+        // 2. The channel's files folder (drive id + folder item id + url).
+        let ff_url = format!(
+            "https://graph.microsoft.com/v1.0/teams/{group}/channels/{channel}/filesFolder?$select=id,name,webUrl,parentReference"
+        );
+        let (ff_status, folder) = graph_get(&http, token, &ff_url).await;
+        out.insert("files_folder_status".into(), json!(ff_status));
+        let drive = folder.pointer("/parentReference/driveId").and_then(Value::as_str).map(str::to_owned);
+        let folder_id = folder.get("id").and_then(Value::as_str).map(str::to_owned);
+        out.insert(
+            "files_folder".into(),
+            json!({ "drive_id_present": drive.is_some(), "folder_url": folder.get("webUrl") }),
+        );
+        let (Some(drive), Some(folder_id)) = (drive, folder_id) else {
+            return Value::Object(out);
+        };
+
+        // 3. Upload a tiny probe file into that folder (simple PUT, small file).
+        let name = "rv-upload-probe.txt";
+        let put = format!("https://graph.microsoft.com/v1.0/drives/{drive}/items/{folder_id}:/{name}:/content");
+        let item = match http
+            .put(&put)
+            .bearer_auth(token)
+            .header("content-type", "text/plain")
+            .body("rv upload probe")
+            .send()
+            .await
+        {
+            Ok(r) => {
+                out.insert("upload_status".into(), json!(r.status().as_u16()));
+                r.json::<Value>().await.unwrap_or(Value::Null)
+            }
+            Err(e) => {
+                out.insert("upload".into(), json!({ "error": e.to_string() }));
+                return Value::Object(out);
+            }
+        };
+        let Some(item_id) = item.get("id").and_then(Value::as_str).map(str::to_owned) else {
+            out.insert("upload_item".into(), json!({ "no_id": true }));
+            return Value::Object(out);
+        };
+
+        // 4. Re-read the item for its SharePoint ids (the file payload needs them).
+        let item_url = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}?$select=id,name,webUrl,size,sharepointIds"
+        );
+        let (_, full) = graph_get(&http, token, &item_url).await;
+        let web_url = full.get("webUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let site = full.pointer("/sharepointIds/siteUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let unique =
+            full.pointer("/sharepointIds/listItemUniqueId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        out.insert(
+            "upload_item".into(),
+            json!({ "web_url_present": !web_url.is_empty(), "site_present": !site.is_empty(), "unique_present": !unique.is_empty() }),
+        );
+
+        // 5. Post a chat-service message carrying the file as properties.files.
+        let files = serde_json::to_string(&json!([{
+            "@type": "http://schema.skype.com/File",
+            "version": 2,
+            "id": unique,
+            "itemid": unique,
+            "fileName": name,
+            "fileType": "txt",
+            "title": name,
+            "type": "txt",
+            "state": "active",
+            "fileInfo": {"fileUrl": web_url, "siteUrl": site, "serverRelativeUrl": "", "itemId": Value::Null, "shareUrl": Value::Null, "shareId": Value::Null},
+            "fileChicletState": {"serviceName": "teams", "state": "active"},
+            "baseUrl": site,
+            "objectUrl": web_url,
+        }]))
+        .unwrap_or_default();
+        let body = json!({
+            "content": "",
+            "messagetype": "RichText/Html",
+            "contenttype": "Text",
+            "clientmessageid": chrono::Utc::now().timestamp_millis().to_string(),
+            "imdisplayname": "rv probe",
+            "properties": {"files": files},
+        });
+        let skype_header = format!("skypetoken={}", skype.as_str());
+        let Some(send_url) = conversation_sub_url(&routes.chat, channel, &["messages"], "") else {
+            return Value::Object(out);
+        };
+        let sent = http.post(send_url).header("authentication", &skype_header).json(&body).send().await;
+        let msg_id = match sent {
+            Ok(r) => {
+                let s = r.status().as_u16();
+                out.insert("send_status".into(), json!(s));
+                let b: Value = r.json().await.unwrap_or(Value::Null);
+                b.get("OriginalArrivalTime").and_then(Value::as_i64).map(|n| n.to_string())
+            }
+            Err(e) => {
+                out.insert("send".into(), json!({ "error": e.to_string() }));
+                None
+            }
+        };
+
+        // 6. Read the message back: did properties.files survive?
+        if let Some(id) = &msg_id
+            && let Some(url) = conversation_sub_url(
+                &routes.chat,
+                channel,
+                &["messages", id],
+                "view=msnp24Equivalent|supportsMessageProperties",
+            )
+        {
+            if let Ok(r) = http.get(url).header("authentication", &skype_header).send().await {
+                let b: Value = r.json().await.unwrap_or(Value::Null);
+                let props = b.get("properties");
+                out.insert(
+                    "message_back".into(),
+                    json!({
+                        "has_files": props.and_then(|p| p.get("files")).is_some(),
+                        "properties_keys": props.and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                    }),
+                );
+            }
+            // 7. Cleanup: delete the message.
+            if let Some(del) = conversation_sub_url(&routes.chat, channel, &["messages", id], "") {
+                let r = http.delete(del).header("authentication", &skype_header).send().await;
+                out.insert("message_delete_status".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+            }
+        }
+
+        // 8. Cleanup: delete the uploaded file.
+        let del = format!("https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}");
+        let r = http.delete(&del).bearer_auth(token).send().await;
+        out.insert("file_delete_status".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+
+        Value::Object(out)
     }
 
     /// Forgets the Skype token after the chat service refused it.

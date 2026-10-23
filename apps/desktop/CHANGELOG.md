@@ -11,9 +11,9 @@ section here.
 - Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
 
 ### Added
-- Microsoft Teams (experimental): calls. A call started in a conversation shows as a call card with Join, and once over as the call's length; Join and the call button open the conversation in Teams' web app in a call window (on Linux an app window of a Chromium browser), where the call is started or joined after a Microsoft sign-in. The app does not carry a Teams call's audio or video itself.
+- Microsoft Teams (experimental): calls. A call started in a conversation shows as a call card with Join, and once over as the call's length; Join on a channel call opens the call itself, and the call button (or Join on a chat call) the conversation, in Teams' web app in a call window (on Linux an app window of a Chromium browser), after a Microsoft sign-in. The app does not carry a Teams call's audio or video itself.
 - Microsoft Teams (experimental): send a file to a channel. It is stored in the channel's SharePoint folder, like the Teams app does, and shows as a downloadable file; no inline image preview yet, and a chat cannot receive files this way.
-- Microsoft Teams (experimental): pin and unpin a channel message, and see which messages are pinned. The list of a room's pinned messages is not available yet.
+- Microsoft Teams (experimental): pin and unpin a channel message, see which messages are pinned, and list a room's pinned messages (among its latest 200) in the pinned panel, which shows no saved tab on Teams.
 - Microsoft Teams (experimental): download a file shared in a conversation.
 - Microsoft Teams (experimental): the room's member list, each person with their role (read-only; Teams offers no add, remove or role change here).
 - Microsoft Teams (experimental): search a room's messages (through Microsoft Search); matches show their text, author and time and open the room. Teams' search index has no per-message id, so it cannot jump to the exact message.

@@ -20,10 +20,24 @@ import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
+
+const PINNED_LOOKBACK = 200;
+
+/** A room's pinned messages among its newest `PINNED_LOOKBACK`, newest first:
+ *  Teams has no list of them, its web app filters the messages it holds on
+ *  `properties.pinned`. Mirrors `TeamsSync::pinned` in the desktop core. */
+export async function teamsPinned(client: TeamsClient, directory: TeamsDirectory, rid: string): Promise<LocalMessage[]> {
+  const url = await client.conversation(rid, ['messages'], `view=msnp24Equivalent%7CsupportsMessageProperties&pageSize=${PINNED_LOOKBACK}`);
+  const body = (await client.chat('GET', url)).body;
+  return (Array.isArray(body.messages) ? (body.messages as Doc[]) : [])
+    .map((m) => toMessage(rid, m, directory))
+    .filter((m): m is LocalMessage => m?.pinned === true)
+    .sort((a, b) => b.ts - a.ts);
+}
 
 export const TEAMS_CAPABILITIES: Capabilities = {
   editing: true,
@@ -31,8 +45,8 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   files: true,
   threads: true,
   reactions: true,
-  marks: false,
-  pins: true,
+  marks: true,
+  stars: false,
   profile: true,
   roomInfo: true,
   roomSettings: false,
@@ -155,7 +169,7 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
       pin: (rid, mid) => pinAction(rid, mid, true),
       unpin: (rid, mid) => pinAction(rid, mid, false),
       star: refuse('star'),
-      listPinned: async (): Promise<LocalMessage[]> => [],
+      listPinned: (rid) => teamsPinned(client, directory, rid),
       listStarred: async (): Promise<LocalMessage[]> => [],
       markRead: (rid) => actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null),
       openOrCreateDm: refuse('direct_message'),

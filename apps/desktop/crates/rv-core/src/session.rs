@@ -1838,11 +1838,6 @@ impl Session {
         true
     }
 
-    /// Whether a room's pinned and saved panels are offered: not Teams yet.
-    pub fn marked_available(&self) -> bool {
-        !matches!(self.backend(), Backend::Teams(_))
-    }
-
     /// Whether starting a direct conversation is offered: not Teams yet.
     pub fn direct_messages_available(&self) -> bool {
         !matches!(self.backend(), Backend::Teams(_))
@@ -2061,7 +2056,11 @@ impl Session {
                 let ids = slack.marked(rid, starred).await?;
                 return Ok(self.store.messages_by_id(&ids));
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("saved")),
+            Backend::Teams(_) if starred => return Err(crate::slack::not_supported("saved")),
+            Backend::Teams(teams) => {
+                let ids = teams.pinned(rid).await?;
+                return Ok(self.store.messages_by_id(&ids));
+            }
             Backend::RocketChat => {}
         }
         let docs = actions::marked(&self.rest, rid, starred).await?;

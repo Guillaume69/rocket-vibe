@@ -11,7 +11,7 @@ import { TeamsMessageActions, TeamsOutbox, clientMessageId } from './outbox.ts';
 import { TeamsRooms, TeamsSync } from './sync.ts';
 import { TeamsDirectory } from './translate.ts';
 import { chatEvent, parseFrame } from './trouter.ts';
-import { TEAMS_CAPABILITIES, typingAction } from './index.ts';
+import { TEAMS_CAPABILITIES, teamsPinned, typingAction } from './index.ts';
 import { teamsCalls } from './calls.ts';
 
 type Doc = Record<string, unknown>;
@@ -275,9 +275,16 @@ test('a channel call card joins the call itself, its starter as organizer', asyn
   assert.equal(calls.length, before, 'the entry carries the group id');
 });
 
-test('the Teams provider advertises pins without the saved panel', () => {
-  assert.equal(TEAMS_CAPABILITIES.pins, true);
-  assert.equal(TEAMS_CAPABILITIES.marks, false);
+test('the Teams provider lists pinned messages but has no saves', async () => {
+  assert.deepEqual([TEAMS_CAPABILITIES.marks, TEAMS_CAPABILITIES.stars], [true, false]);
+  const pin = '{"creatorId":"8:orgid:aaa","pinnedTime":1}';
+  const { client } = fake((call) => call.url.includes('/messages?') ? { body: { messages: [
+    { id: '100', messagetype: 'RichText/Html', content: 'old', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T10:00:00Z', properties: { pinned: pin } },
+    { id: '200', messagetype: 'RichText/Html', content: 'not pinned', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T11:00:00Z' },
+    { id: '300', messagetype: 'RichText/Html', content: 'new', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T12:00:00Z', properties: { pinned: pin } },
+  ] } } : { status: 404, body: {} });
+  const listed = await teamsPinned(client, new TeamsDirectory(), RID);
+  assert.deepEqual(listed.map((m) => m.id), [`${RID}/300`, `${RID}/100`]);
 });
 
 test('downloadUrl resolves a SharePoint share to the pre-signed Graph download url', async () => {

@@ -1688,12 +1688,11 @@ impl ChatPage {
         self.wa_error.replace(None);
         let dms = session.as_ref().is_none_or(|s| s.direct_messages_available());
         let search = session.as_ref().is_none_or(|s| s.search_available());
-        let marked = session.as_ref().is_none_or(|s| s.marked_available());
         self.new_conversation.set_visible(dms);
         self.search_button.set_visible(search);
-        self.marked_button.set_visible(marked);
+        self.marked_button.set_visible(true);
         self.search_button.set_sensitive(search);
-        self.marked_button.set_sensitive(marked);
+        self.marked_button.set_sensitive(true);
         self.local_search_button.set_visible(session.is_some() && search);
         self.set_loading(false);
         if let Some(s) = &session {

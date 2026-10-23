@@ -17,6 +17,7 @@ use crate::store::Store;
 use crate::sync::{HISTORY_PAGE, HistoryPage};
 
 const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
+const PINNED_LOOKBACK: i64 = 200;
 const OLDER_PAGES: usize = 20;
 const PREVIEW_LOOKBACK: usize = 20;
 
@@ -668,6 +669,18 @@ impl TeamsSync {
         let (rows, _older) = self.page(url).await?;
         self.ingest(rid, &rows);
         Ok(())
+    }
+
+    /// A room's pinned messages among its newest `PINNED_LOOKBACK`, newest
+    /// first: Teams has no list of them, its web app filters the messages it
+    /// holds on `properties.pinned` (seen in a capture, 2026-10-23).
+    pub async fn pinned(&self, rid: &str) -> Result<Vec<String>, RestError> {
+        let query = format!("view={VIEW}&pageSize={PINNED_LOOKBACK}");
+        let url = self.conversation_url(rid, &["messages"], &query).await?;
+        let (rows, _older) = self.page(url).await?;
+        let mut pinned: Vec<Message> = self.ingest(rid, &rows).into_iter().filter(|m| m.pinned).collect();
+        pinned.sort_by_key(|m| std::cmp::Reverse(m.ts));
+        Ok(pinned.into_iter().map(|m| m.id).collect())
     }
 
     fn ingest(&self, rid: &str, raw: &[Value]) -> Vec<Message> {

@@ -118,6 +118,32 @@ impl TeamsSync {
         unreachable!("the second attempt returns")
     }
 
+    /// A CSA aggregator call with its bearer; a refused token is renewed once.
+    pub(crate) async fn aggregator_call(
+        &self,
+        method: Method,
+        segments: &[&str],
+        query: &str,
+        body: Option<&Value>,
+    ) -> Result<Answer, RestError> {
+        let (_, routes) = self.tokens.chat().await?;
+        let url = client::service_url(&routes.aggregator, segments, query)?;
+        for attempt in 0..2 {
+            let token = self.tokens.aggregator().await?;
+            let header = format!("Bearer {}", token.as_str());
+            match client::call(&self.http, method.clone(), url.clone(), ("authorization", &header), body).await {
+                Err(e) if e.status == 401 && attempt == 0 => self.tokens.forget_aggregator().await,
+                other => return other,
+            }
+        }
+        unreachable!("the second attempt returns")
+    }
+
+    /// The parent team id of a channel room, if known; None for a chat (no team).
+    pub(crate) fn team_of(&self, rid: &str) -> Option<String> {
+        self.entries.lock().unwrap().get(rid).and_then(|(_, team)| team.as_ref()).map(|(id, _)| id.clone())
+    }
+
     /// Every chat and channel with its read state and last message.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
         let snapshot = self.snapshot().await?;

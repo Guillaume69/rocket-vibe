@@ -107,7 +107,7 @@ function offered(action: ActionMessage, capabilities: Capabilities): boolean {
     case 'edit': return capabilities.editing !== false;
     case 'delete': return capabilities.deletion !== false;
     case 'pin':
-    case 'unpin':
+    case 'unpin': return (capabilities.pins ?? capabilities.marks) !== false;
     case 'star':
     case 'unstar': return capabilities.marks !== false;
     default: return true;

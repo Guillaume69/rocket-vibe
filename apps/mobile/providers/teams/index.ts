@@ -1,9 +1,9 @@
 /**
  * Assembles a Teams `Provider` for a session. Rooms, read state and history
  * come from the aggregator and the chat service, live updates over Trouter.
- * Text goes out through the outbox; edit, delete, react and mark read through
- * the actions. Files, threads, pins, saves, search, profiles, room info and
- * calls are still to come, and the capabilities hide them.
+ * Text goes out through the outbox; edit, delete, react, pin and mark read
+ * through the actions. The pinned/saved panel, saves and calls are still to
+ * come, and the capabilities hide them.
  */
 
 import type { DdpEvent } from '../../lib/ddp.ts';
@@ -30,6 +30,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   threads: true,
   reactions: true,
   marks: false,
+  pins: true,
   profile: true,
   roomInfo: true,
   roomSettings: false,
@@ -107,6 +108,13 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
   let messageActions: TeamsMessageActions | null = null;
   const actionsFor = (ingest: (raw: Doc) => Promise<void>) => (messageActions ??= new TeamsMessageActions(client, ingest));
   let ingestLive: (raw: Doc) => Promise<void> = async () => {};
+  // Pins are channel-scoped under the parent team; a chat (group or 1:1) has no
+  // team here and cannot be pinned through this surface.
+  const pinAction = (rid: string, mid: string, on: boolean): Promise<void> => {
+    const team = rooms.entries.get(rid)?.team?.id;
+    if (!team) return Promise.reject(new TeamsError('pin_requires_channel'));
+    return actionsFor(ingestLive).setPinned(team, rid, mid, on);
+  };
 
   return {
     identity: { kind: 'teams', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
@@ -141,8 +149,8 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
       react: (rid, mid, emoji, put) => actionsFor(ingestLive).react(rid, mid, emoji, put),
       edit: (rid, mid, text) => actionsFor(ingestLive).edit(rid, mid, text),
       delete: (rid, mid) => actionsFor(ingestLive).delete(rid, mid),
-      pin: refuse('pin'),
-      unpin: refuse('pin'),
+      pin: (rid, mid) => pinAction(rid, mid, true),
+      unpin: (rid, mid) => pinAction(rid, mid, false),
       star: refuse('star'),
       listPinned: async (): Promise<LocalMessage[]> => [],
       listStarred: async (): Promise<LocalMessage[]> => [],

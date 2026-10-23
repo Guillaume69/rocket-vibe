@@ -367,7 +367,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     urls: null,
     callId: null,
     encryptedRaw: null,
-    pinned: false,
+    pinned: ((raw as Doc).properties as Doc | null | undefined)?.pinned != null,
     starred: null,
     updatedAt: Math.max(edited && edited > 0 ? edited : ts, int(raw, 'version') ?? 0),
   };

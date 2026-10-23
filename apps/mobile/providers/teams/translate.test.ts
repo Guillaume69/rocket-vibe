@@ -43,6 +43,9 @@ test('messages, edits, reactions and deletions', () => {
   const m = toMessage('19:c@thread.v2', raw('1792540521726'), d)!;
   assert.equal(m.id, '19:c@thread.v2/1792540521726');
   assert.deepEqual([m.text, m.authorId, m.authorName, m.ts], ['hello', '8:orgid:aaa', 'Ada', 1792540521726]);
+  assert.equal(m.pinned, false);
+  const pinned = raw('1792540521726', { properties: { pinned: '{"creatorId":"8:orgid:aaa","pinnedTime":1}' } });
+  assert.equal(toMessage('19:c@thread.v2', pinned, d)!.pinned, true);
   const edited = raw('1792540521726', { properties: { edittime: '1792540590172', emotions: [
     { key: 'like', users: [{ mri: '8:orgid:aaa' }] }, { key: 'heart', users: [] }, { key: '1f525_fire', users: [{ mri: '8:orgid:bbb' }] },
   ] } });

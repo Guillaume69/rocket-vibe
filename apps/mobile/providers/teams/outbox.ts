@@ -206,6 +206,15 @@ export class TeamsMessageActions {
     await this.refresh(rid, target.server);
   }
 
+  /** Pins or unpins a channel post, then re-reads it so its `pinned` property
+   *  (and our flag) refreshes. `team` is the channel's parent team id. */
+  async setPinned(team: string, rid: string, mid: string, on: boolean): Promise<void> {
+    const target = splitId(mid);
+    if (!target) throw new TeamsError('message_id');
+    await this.client.setPinned(team, rid, target.server, on);
+    await this.refresh(rid, target.server);
+  }
+
   /** Moves my read horizon to `newest`, never back. */
   async markRead(rid: string, newest: string | null): Promise<void> {
     const server = newest === null ? null : int({ id: splitId(newest)?.server }, 'id');

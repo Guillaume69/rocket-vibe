@@ -361,7 +361,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:20](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L20) | url | /api/authsvc/v1.0/authz |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:1121](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L1121) | url | /api/v2/query |
-| [apps/desktop/crates/rv-core/src/teams/sync.rs:402](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L402) | url | /api/v2/query |
+| [apps/desktop/crates/rv-core/src/teams/sync.rs:428](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L428) | url | /api/v2/query |
 | [apps/desktop/crates/rv-core/src/uploads.rs:94](../../apps/desktop/crates/rv-core/src/uploads.rs#L94) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:396](../../apps/desktop/crates/rv-core/src/uploads.rs#L396) | call:POST | "posts" |
 | [apps/desktop/crates/rv-core/src/uploads.rs:553](../../apps/desktop/crates/rv-core/src/uploads.rs#L553) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |

@@ -117,6 +117,20 @@ impl TeamsSync {
         Ok(())
     }
 
+    /// Pins or unpins a channel post through the CSA aggregator, then re-reads
+    /// the message so its `pinned` property (and our flag) refreshes. Teams
+    /// scopes a channel pin under its parent team, so this is channel-only; a
+    /// chat (group or 1:1) has no team here and is refused.
+    pub async fn set_pinned(&self, msg_id: &str, pinned: bool) -> Result<(), RestError> {
+        let (rid, post) = ids(msg_id)?;
+        let team = self.team_of(rid).ok_or_else(|| refusal("pin_requires_channel", 0))?;
+        let method = if pinned { Method::POST } else { Method::DELETE };
+        let segments = ["api", "v1", "teams", team.as_str(), "channels", rid, "posts", post, "pin"];
+        self.aggregator_call(method, &segments, "", None).await?;
+        self.refresh_one(msg_id).await;
+        Ok(())
+    }
+
     /// Moves my read horizon to the room's newest stored message, never back.
     pub async fn mark_read(&self, rid: &str) -> Result<(), RestError> {
         let Some(newest) = self.unmarked_newest(rid) else { return Ok(()) };

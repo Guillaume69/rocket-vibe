@@ -93,6 +93,9 @@ export type Capabilities = {
   threads?: boolean;
   reactions?: boolean;
   marks?: boolean;
+  /** The per-message pin action, separate from the pinned/saved panel (`marks`):
+   *  Teams pins a message but has no saved panel here. Defaults to `marks`. */
+  pins?: boolean;
   profile?: boolean;
   roomInfo?: boolean;
   roomSettings?: boolean;

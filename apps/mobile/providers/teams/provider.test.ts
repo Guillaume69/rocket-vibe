@@ -217,6 +217,24 @@ test('loading a thread fetches the root and the thread-scoped conversation', asy
   assert.ok(ingested.length >= 2);
 });
 
+test('a pin POSTs to the CSA aggregator under the parent team; unpin DELETEs', async () => {
+  const { calls, client } = fake(() => ({ status: 201, body: {} }));
+  const actions = new TeamsMessageActions(client, async () => {});
+  await actions.setPinned('19:team@thread.tacv2', RID, `${RID}/500`, true);
+  await actions.setPinned('19:team@thread.tacv2', RID, `${RID}/500`, false);
+  const pin = calls.find((c) => c.method === 'POST' && c.url.includes('/pin'));
+  const unpin = calls.find((c) => c.method === 'DELETE' && c.url.includes('/pin'));
+  assert.ok(pin, 'a POST to .../pin');
+  assert.ok(pin!.url.endsWith('/csa/emea/api/v1/teams/19:team@thread.tacv2/channels/19:c@thread.v2/posts/500/pin'), pin!.url);
+  assert.equal((pin!.headers as Record<string, string>).authorization, 'Bearer bearer-fixture');
+  assert.ok(unpin, 'a DELETE to .../pin');
+});
+
+test('the Teams provider advertises pins without the saved panel', () => {
+  assert.equal(TEAMS_CAPABILITIES.pins, true);
+  assert.equal(TEAMS_CAPABILITIES.marks, false);
+});
+
 test('downloadUrl resolves a SharePoint share to the pre-signed Graph download url', async () => {
   const shareUrl = 'https://contoso.sharepoint.com/sites/x/report.pdf';
   const { calls, client } = fake((call) => {

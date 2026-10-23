@@ -2827,7 +2827,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
-      "line": 402,
+      "line": 428,
       "kind": "url",
       "surface": "/api/v2/query"
     },

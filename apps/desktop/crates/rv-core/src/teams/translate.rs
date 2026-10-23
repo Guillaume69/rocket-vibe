@@ -416,6 +416,7 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         edited_at,
         attachments,
         reactions: reactions(raw, directory),
+        pinned: props.get("pinned").is_some_and(|v| !v.is_null()),
         updated_at: edited_at.unwrap_or(at).max(int_of(raw, "version").unwrap_or(0)),
         ..Default::default()
     })
@@ -664,6 +665,10 @@ mod tests {
         assert_eq!(m.text.as_deref(), Some("hello"));
         assert_eq!((m.author_id.as_str(), m.author_name.as_deref()), ("8:orgid:aaa", Some("Ada")));
         assert_eq!(m.ts, 1792540521726);
+        assert!(!m.pinned);
+        let pinned =
+            raw("1792540521726", json!({"properties": {"pinned": "{\"creatorId\":\"8:orgid:aaa\",\"pinnedTime\":1}"}}));
+        assert!(message("19:c@thread.v2", &pinned, &d).unwrap().pinned);
         let edited = raw(
             "1792540521726",
             json!({"properties": {"edittime": "1792540590172", "emotions": [

@@ -194,6 +194,26 @@ export class TeamsClient {
     }
   }
 
+  /** Pins or unpins a channel post through the CSA aggregator (its bearer).
+   *  Channel-scoped: the post lives under its parent team. Mirrors
+   *  `TeamsSync::set_pinned` on the desktop side. */
+  async setPinned(team: string, channel: string, post: string, on: boolean): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    const url = serviceUrl(routes.aggregator, ['api', 'v1', 'teams', team, 'channels', channel, 'posts', post, 'pin']);
+    const method = on ? 'POST' : 'DELETE';
+    try {
+      await this.send(url, ['authorization', `Bearer ${await this.tokens.aggregator()}`], method);
+    } catch (e) {
+      if (!(e instanceof TeamsError) || e.status !== 401) throw e;
+      this.tokens.forgetAggregator();
+      try {
+        await this.send(url, ['authorization', `Bearer ${await this.tokens.aggregator()}`], method);
+      } catch (again) {
+        this.rejected(again);
+      }
+    }
+  }
+
   /** A backward link is followed only on the chat service's own host. */
   async trusted(link: unknown): Promise<string | null> {
     if (typeof link !== 'string') return null;

@@ -1851,7 +1851,7 @@ impl Session {
     pub fn provider_actions(&self) -> crate::actions::ProviderActions {
         match self.backend() {
             Backend::Teams(_) => {
-                crate::actions::ProviderActions { quotes: false, threads: true, pins: false, stars: false }
+                crate::actions::ProviderActions { quotes: false, threads: true, pins: true, stars: false }
             }
             Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => {
                 crate::actions::ProviderActions::default()
@@ -1990,7 +1990,7 @@ impl Session {
                 return Ok(());
             }
             Backend::Slack(slack) => return slack.pin(msg_id, true).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Teams(teams) => return teams.set_pinned(msg_id, true).await,
             Backend::RocketChat => {}
         }
         actions::pin(&self.rest, msg_id).await?;
@@ -2005,7 +2005,7 @@ impl Session {
                 return Ok(());
             }
             Backend::Slack(slack) => return slack.pin(msg_id, false).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Teams(teams) => return teams.set_pinned(msg_id, false).await,
             Backend::RocketChat => {}
         }
         actions::unpin(&self.rest, msg_id).await?;

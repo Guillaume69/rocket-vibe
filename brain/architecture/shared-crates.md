@@ -15,8 +15,9 @@ The root `Cargo.toml` is a resolver-3 workspace of `apps/server`, `crates/rv-pro
 | `crates/rv-crypto-mobile` | A `cdylib` for Android, built per ABI by the mobile build. |
 | `crates/rv-crypto-web` | The wasm build, with its own release profile (`opt-level = "s"`, LTO, `panic = "abort"`). |
 | `crates/rv-voice-mobile` | A small JNI `cdylib` for Android, built apart like `rv-crypto-mobile`. |
+| `crates/rv-signal` | WhatsApp's Signal protocol, written clean room; checked by its own CI job (`rv-signal.yml`). |
 
-Seven workspaces mean seven `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
+Eight workspaces mean eight `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
 
 ## Who uses what
 
@@ -29,6 +30,7 @@ Seven workspaces mean seven `Cargo.lock`. Within one semver-compatible line (`1.
 | `rv-crypto-mobile` | | | `modules/crypto-native` (Kotlin, UniFFI) | reused by `rv-crypto-web` |
 | `rv-crypto-web` | | | | `src/crypto/wasm/` |
 | `rv-voice-mobile` | | | `modules/voice` (JNI) | |
+| `rv-signal` | | not yet (the WhatsApp engine moves onto it) | not yet | |
 
 Cargo unifies features across a workspace: the three desktop crates all get `rv-crypto`'s `native-http` and `system-keystore` once any of them asks.
 
@@ -59,6 +61,14 @@ The client side of Vibez's MLS encryption (`crates/rv-crypto/src/lib.rs`): accou
 - **Design notes** sit next to the code: `IDENTITY.md` (roots, certificates, revocations), `ENROLLMENT.md` (a new device proves possession, approval bound to the exact request), `MESSAGES.md`, `SETTLEMENT.md` (cancel or resume a send without a second POST), `RECOVERY.md` (root backup under a 32-byte recovery code), `JOURNAL.md`, `GROUP_COMMITS.md`, `GROUP_HTTP.md`, `GROUP_SETTLEMENT.md`, `PACKAGES.md`, `READMISSION.md`. The protocol specs are `docs/protocol/E2EE_*.md` and the plan is `docs/rfcs/0002-e2ee-native.md`.
 - **What users get**: [e2ee-history](../features/e2ee-history.md), [e2ee-delegation](../features/e2ee-delegation.md), [e2ee-private-files](../features/e2ee-private-files.md), [e2ee-private-actions](../features/e2ee-private-actions.md), [e2ee-storage-keys](../features/e2ee-storage-keys.md). Rocket.Chat's own E2EE is a different scheme, in [e2ee.md](e2ee.md).
 - Tests: inline `tests.rs` modules and the `protected_smoke` and `delivery_smoke` examples. CI (`native-server.yml`) runs fmt, clippy and the tests with both features on Linux, Windows and macOS, a real Secret Service restart test on Linux (`scripts/keystore-smoke.sh`), and `delivery_smoke` against the server and PostgreSQL.
+
+## `rv-signal`: the Signal protocol as WhatsApp speaks it
+
+X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, `pkmsg`, `skmsg`, the sender key distribution message) and its stored records (`RecordStructure`, `SenderKeyRecordStructure` of `WAProto.proto`), for the Rust WhatsApp engine that replaces the Go helper ([decisions.md](../decisions.md)). It is written clean room, from Signal's X3DH, Double Ratchet and XEdDSA specifications and whatspec's protobuf schema, never from another implementation's source.
+
+- **Storage stays with the caller.** A `SessionRecord` or `SenderKeyRecord` is loaded, one method runs, and the record is stored again only if it succeeded: a failure leaves it untouched (methods work on a copy). For a `pkmsg` the caller reads its prekey ids (`PreKeySignalMessage::deserialize`), looks up the key pairs, passes them in, deletes the consumed one-time prekey (`Decrypted::used_prekey`) and decides whether to trust the sender's identity key.
+- **Behaviour matched to the other implementations where the specs leave room.** Signatures are made the spec's way (sign bit forced to zero) but verified both ways: other Signal implementations put the Edwards key's sign bit in the top bit of `s` (`curve.rs`). `previousCounter` is the index of the last message sent on the previous chain, not the spec's count. A new ratchet key is drawn only after the message that brings the peer's new key is authenticated.
+- **Checked against an independent implementation.** `tests/oracle.rs` talks to a black-box oracle wrapping another library, in both directions (pairwise sessions with and without a one-time prekey, out of order, groups, curve operations), ignored unless `RV_SIGNAL_ORACLE` names the binary; the oracle is never committed. `tests/vectors.rs` replays its recorded runs (`tests/vectors/`, 109 steps) with both parties played by this crate, requiring the same ciphertexts byte for byte and the same random bytes drawn at the same steps.
 
 ## The bridges
 
@@ -103,6 +113,13 @@ The client side of Vibez's MLS encryption (`crates/rv-crypto/src/lib.rs`): accou
 - `crates/rv-crypto-web/src/lib.rs`
 - `crates/rv-crypto-web/docker/Dockerfile`
 - `crates/rv-voice-mobile/Cargo.toml`
+- `crates/rv-signal/src/lib.rs`
+- `crates/rv-signal/src/curve.rs`
+- `crates/rv-signal/src/session.rs`
+- `crates/rv-signal/src/group.rs`
+- `crates/rv-signal/tests/oracle.rs`
+- `crates/rv-signal/tests/vectors.rs`
+- `.github/workflows/rv-signal.yml`
 - `crates/rv-voice-mobile/src/lib.rs`
 - `scripts/generate-native-protocol.mjs`
 - `scripts/generate-native-emojis.mjs`

@@ -1,0 +1,264 @@
+[
+ {
+  "request": {
+   "op": "party",
+   "name": "alice",
+   "registration_id": 4870,
+   "identity_private": "078218bfa90c93b399cdfeea817eda32af389c7c11fdb87908e86465d9d3b98a",
+   "signed_prekey": {
+    "id": 1,
+    "private": "0b0ef099637216211d5f492cbdd1784d1dc4ab69dfdcd4cef8b9a80e9a7294f3",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "f711c2120e9d11b466d0fd6b62ab21197cb33a9dc2e0381a90026bb83227bbb7b7369e8d78976e87f6af1f561d6e9b0de027f69f2bb7ffccc8914ccd5745d01e"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "8f87501a3deacee9ff5228d62331fe52a912dedb1debc76e067584b02f892cf4"
+    },
+    {
+     "id": 101,
+     "private": "d88753acf1c2973147ec4af8912736b54b4c1b2a4771fe194ba8beed43e8d1ed"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d820",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "055ef4a66399bfd099a3b70fb47a2f88a4cc9672c25787db50cace069bff684023"
+     },
+     {
+      "id": 101,
+      "public": "055cd326d1071f53711972a45e1396a6391d9907ecedbc6fe67784e4e7444b7912"
+     }
+    ],
+    "signed_prekey_public": "05903a36b293355fc39a842bd8b47e0be3475441acefb52db183179adb5ad47c0f",
+    "signed_prekey_signature": "b71b1a6067ccce1a021b67c5c08b539549bfff15bf9b8785f1a6172b74cc3a478626f8408db196132957cb4e23a3875c2640523f571d0c44e0e84b960136698a"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "party",
+   "name": "bob",
+   "registration_id": 14361,
+   "identity_private": "4ee9822450da7575ed762190893809437e1794de72b2674384a863ca3ad5e294",
+   "signed_prekey": {
+    "id": 1,
+    "private": "7af90e6aa92db0933c8dfb464b1195137b8080d0f0db6e7333e095eb964d4081",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "c0f3f9128cb4fe5098fd6487a57f1a5ab01708d6cf046ff9568b9f06bd7595762c6b7b592f8a9974b25444ac56d75583dad2963648ce2d376c1ce75aa94298e8"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "d2a60ce33b651a0266461ec753b04d764a072cb3f2c200cf8f6bf14873e2a74d"
+    },
+    {
+     "id": 101,
+     "private": "b8ec34fba2b42c266a89aeb47405879d4e900514ca54f74679a8a47af6113ed2"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626"
+     },
+     {
+      "id": 101,
+      "public": "0548f3ba20e35a57c18c3a378785bf46a8de088aef7f29922828d9d6a86e92177a"
+     }
+    ],
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "sk_distribution",
+   "name": "alice",
+   "group": "g1",
+   "chain_id": 19088743,
+   "chain_seed": "da82a27516e593697d5f3b51d6d33e920b2ad46495cbf0758ae3822b80b0ff98",
+   "signing_private": "f5bb740907bbf4f59f64babad60a82bea4a54d9ff69a7245301e6a872f65289a"
+  },
+  "response": {
+   "ok": {
+    "skdm": "3308e78a8d0910001a20da82a27516e593697d5f3b51d6d33e920b2ad46495cbf0758ae3822b80b0ff98222105dd7dffcb69be9e02abeeabf8618dc822591e8d1b4c35846539dba5d439921f42"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "sk_process",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "skdm": "3308e78a8d0910001a20da82a27516e593697d5f3b51d6d33e920b2ad46495cbf0758ae3822b80b0ff98222105dd7dffcb69be9e02abeeabf8618dc822591e8d1b4c35846539dba5d439921f42"
+  },
+  "response": {
+   "ok": {}
+  }
+ },
+ {
+  "request": {
+   "op": "group_encrypt",
+   "name": "alice",
+   "group": "g1",
+   "plaintext": "67206d6573736167652031",
+   "random": "816057754cdb16d0e98fe095dc19286e4a2f54cce736c6849ba33504c26c40ef532e17169321e47aaf98b44efd149c0a923cf788df78e5ef031f27bc7d383adb"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308e78a8d0910001a104e7ea1202f85817f68d06ce4ff8f1f93471723db9c42ffd715c0fd928c2c8ddd94b1a781f1fa0753a4f77ec0d3e546e8e3aaeaa51d8a69c8d5155f2cf9cc9cd37596d948c7f7255d1fe32c02fca10c85"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_encrypt",
+   "name": "alice",
+   "group": "g1",
+   "plaintext": "67206d6573736167652032",
+   "random": "fc1a39620226fe2d9f9b39869299d9825c899a24cd6a1e930b3c3c111de88129e55b297cc88d070439fdd8d6003139317b455bb85e7a6b0df3dd41a726be454a"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308e78a8d0910011a10db52eac840af040a62fa30ac1bc2379599e0dd14eb62e6c91fae4dd3414dd1420dc402ebcb411c8fdc263b3db75547f596867588d03422b82c45525f2ee3892f0e32a38d261c28aff8c95205c5dcfb89"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_encrypt",
+   "name": "alice",
+   "group": "g1",
+   "plaintext": "67206d6573736167652033",
+   "random": "23e9d3a49eac6ac0d5fc46da28161022266cfe24fb9e2a03b564fd5f86edf3f799bff353bde754db2ce9ee4d0ac995f235260520df62db191ff632806b14ef74"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308e78a8d0910021a108b81e28d136e794fc08a72801066dbe5de696f783076dbc18a5dab2d3a8a11652fba8f5d5c861d267066682a041336198096848d1c6d508d7c7fda93970bb3174d904431e8577d57bdc497c7b0549a82"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_encrypt",
+   "name": "alice",
+   "group": "g1",
+   "plaintext": "67206d6573736167652034",
+   "random": "07eb93b24329047a069699583520b5bf8021170d25f771e99062de2050b41f94a48b6f79a8c7a9070528e6d759a1dcc8344db1855a736c7bdf95f066831b5d58"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308e78a8d0910031a10d0813ea8fd8be8603f43f58d60acc5359d21647ddf5259fe4bbfc1c66e27b8b9bc77a084db21207a8b17dd1d4b9762f2e9dabcf502a5a78ebb07ffa6e9b5a6b4cb4f0b4baa84bc5c9a4a291c3c192e84"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_encrypt",
+   "name": "alice",
+   "group": "g1",
+   "plaintext": "67206d6573736167652035",
+   "random": "499778e785e4b99c3baa7558e3218719541927c7836c9fcbfedb6efcf17ce3332b36ec073960430f762d81c29316af13cdbb6ecf2e6d1033646a40ab09b549df"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308e78a8d0910041a1041bcefbcd45031e229df6b87ab841eae2273b51a5c7ef670360905f5242f8f71683080f6bd3e74c4aa88b180b37ce606cfd6a6d7d08caaf7f53caae5df6186b3ac1824993d966f71cdc1edfdf76d8687"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910001a104e7ea1202f85817f68d06ce4ff8f1f93471723db9c42ffd715c0fd928c2c8ddd94b1a781f1fa0753a4f77ec0d3e546e8e3aaeaa51d8a69c8d5155f2cf9cc9cd37596d948c7f7255d1fe32c02fca10c85"
+  },
+  "response": {
+   "ok": {
+    "plaintext": "67206d6573736167652031"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910021a108b81e28d136e794fc08a72801066dbe5de696f783076dbc18a5dab2d3a8a11652fba8f5d5c861d267066682a041336198096848d1c6d508d7c7fda93970bb3174d904431e8577d57bdc497c7b0549a82"
+  },
+  "response": {
+   "ok": {
+    "plaintext": "67206d6573736167652033"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910011a10db52eac840af040a62fa30ac1bc2379599e0dd14eb62e6c91fae4dd3414dd1420dc402ebcb411c8fdc263b3db75547f596867588d03422b82c45525f2ee3892f0e32a38d261c28aff8c95205c5dcfb89"
+  },
+  "response": {
+   "ok": {
+    "plaintext": "67206d6573736167652032"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910041a1041bcefbcd45031e229df6b87ab841eae2273b51a5c7ef670360905f5242f8f71683080f6bd3e74c4aa88b180b37ce606cfd6a6d7d08caaf7f53caae5df6186b3ac1824993d966f71cdc1edfdf76d8687"
+  },
+  "response": {
+   "ok": {
+    "plaintext": "67206d6573736167652035"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910031a10d0813ea8fd8be8603f43f58d60acc5359d21647ddf5259fe4bbfc1c66e27b8b9bc77a084db21207a8b17dd1d4b9762f2e9dabcf502a5a78ebb07ffa6e9b5a6b4cb4f0b4baa84bc5c9a4a291c3c192e84"
+  },
+  "response": {
+   "ok": {
+    "plaintext": "67206d6573736167652034"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "group_decrypt",
+   "name": "bob",
+   "group": "g1",
+   "sender": "alice",
+   "ciphertext": "3308e78a8d0910021a108b81e28d136e794fc08a72801066dbe5de696f783076dbc18a5dab2d3a8a11652fba8f5d5c861d267066682a041336198096848d1c6d508d7c7fda93970bb3174d904431e8577d57bdc497c7b0549a82"
+  },
+  "response": {
+   "detail": "message with old counter 5 / 2",
+   "err": "DuplicatedMessage"
+  }
+ }
+]

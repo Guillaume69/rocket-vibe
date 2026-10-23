@@ -1,0 +1,270 @@
+[
+ {
+  "request": {
+   "op": "party",
+   "name": "alice",
+   "registration_id": 4870,
+   "identity_private": "078218bfa90c93b399cdfeea817eda32af389c7c11fdb87908e86465d9d3b98a",
+   "signed_prekey": {
+    "id": 1,
+    "private": "0b0ef099637216211d5f492cbdd1784d1dc4ab69dfdcd4cef8b9a80e9a7294f3",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "f711c2120e9d11b466d0fd6b62ab21197cb33a9dc2e0381a90026bb83227bbb7b7369e8d78976e87f6af1f561d6e9b0de027f69f2bb7ffccc8914ccd5745d01e"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "8f87501a3deacee9ff5228d62331fe52a912dedb1debc76e067584b02f892cf4"
+    },
+    {
+     "id": 101,
+     "private": "d88753acf1c2973147ec4af8912736b54b4c1b2a4771fe194ba8beed43e8d1ed"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d820",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "055ef4a66399bfd099a3b70fb47a2f88a4cc9672c25787db50cace069bff684023"
+     },
+     {
+      "id": 101,
+      "public": "055cd326d1071f53711972a45e1396a6391d9907ecedbc6fe67784e4e7444b7912"
+     }
+    ],
+    "signed_prekey_public": "05903a36b293355fc39a842bd8b47e0be3475441acefb52db183179adb5ad47c0f",
+    "signed_prekey_signature": "b71b1a6067ccce1a021b67c5c08b539549bfff15bf9b8785f1a6172b74cc3a478626f8408db196132957cb4e23a3875c2640523f571d0c44e0e84b960136698a"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "party",
+   "name": "bob",
+   "registration_id": 14361,
+   "identity_private": "4ee9822450da7575ed762190893809437e1794de72b2674384a863ca3ad5e294",
+   "signed_prekey": {
+    "id": 1,
+    "private": "7af90e6aa92db0933c8dfb464b1195137b8080d0f0db6e7333e095eb964d4081",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "c0f3f9128cb4fe5098fd6487a57f1a5ab01708d6cf046ff9568b9f06bd7595762c6b7b592f8a9974b25444ac56d75583dad2963648ce2d376c1ce75aa94298e8"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "d2a60ce33b651a0266461ec753b04d764a072cb3f2c200cf8f6bf14873e2a74d"
+    },
+    {
+     "id": 101,
+     "private": "b8ec34fba2b42c266a89aeb47405879d4e900514ca54f74679a8a47af6113ed2"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626"
+     },
+     {
+      "id": 101,
+      "public": "0548f3ba20e35a57c18c3a378785bf46a8de088aef7f29922828d9d6a86e92177a"
+     }
+    ],
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "bundle",
+   "name": "bob",
+   "prekey_id": 100
+  },
+  "response": {
+   "ok": {
+    "device_id": 1,
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekey_id": 100,
+    "prekey_public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626",
+    "registration_id": 14361,
+    "signed_prekey_id": 1,
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "process_bundle",
+   "name": "alice",
+   "peer": "bob",
+   "bundle": {
+    "device_id": 1,
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekey_id": 100,
+    "prekey_public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626",
+    "registration_id": 14361,
+    "signed_prekey_id": 1,
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   },
+   "base_private": "a2f80c1e3a0fdab41ba72d2d3a39c3f47808c96df5d497378601f797998c2065",
+   "ratchet_private": "f1cc0ce50bad9ed889e768aba5a8fda2f50aa73683b706c19681cd02e9e50536"
+  },
+  "response": {
+   "ok": {}
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652030"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308641221058dd52ce752e5313859278be1489e6eb8d9c1005907f6ab1317e75506cd4bc8201a21055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8202242330a21053d00b2be1df79b0e38178bbffa8ab6e2a51cdac396e92aa1bfb5e33d1ae8362f100018002210503c8d3b6feed229a7d9d2430eb782a9389aacb3d593033c2886263001",
+    "type": "prekey"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "prekey",
+   "ciphertext": "3308641221058dd52ce752e5313859278be1489e6eb8d9c1005907f6ab1317e75506cd4bc8201a21055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8202242330a21053d00b2be1df79b0e38178bbffa8ab6e2a51cdac396e92aa1bfb5e33d1ae8362f100018002210503c8d3b6feed229a7d9d2430eb782a9389aacb3d593033c2886263001",
+   "ratchet_private": "c6ade5ecb9a135be36c51b8a6064bdc2721ba2373e56cbee528908a1e2ce76d5"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": 100,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652030"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d65737361676520313030"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a2105735866104d6d09816cd2a9b8b4856657a91277c6e8b116ee4ba40b502b7c060b100018002210fee9f59ab42bc82df1e2bc3576b24ec52f30981ea740c2fc",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a2105735866104d6d09816cd2a9b8b4856657a91277c6e8b116ee4ba40b502b7c060b100018002210fee9f59ab42bc82df1e2bc3576b24ec52f30981ea740c2fc",
+   "ratchet_private": "5e4c24d4501d50b47166d22dc3b94b4822690a009f499b16a7b8713e174e1885"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d65737361676520313030"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652031"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77a19a57b9196a108ff19c6",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77b19a57b9196a108ff19c6"
+  },
+  "response": {
+   "detail": "MAC verification failed for Whisper message",
+   "err": "BadMac"
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77a19a57b9196a108ff19c7"
+  },
+  "response": {
+   "detail": "MAC verification failed for Whisper message",
+   "err": "BadMac"
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "320a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77a19a57b9196a108ff19c6"
+  },
+  "response": {
+   "detail": "MAC verification failed for Whisper message",
+   "err": "BadMac"
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77a19a57b9196a108ff19"
+  },
+  "response": {
+   "detail": "protobuf encoding was invalid",
+   "err": "InvalidProtobufEncoding"
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105fb5cf499579eb1eac441a2e08f02a3c6acb96b60edf1a221a4e4bd858e3f727f100018002210622d4eb3eb61b90738bd73e2c77a19a57b9196a108ff19c6",
+   "ratchet_private": "9005ae405f3b45b159460f7851bc5f913b76fad724e34a1205a52a978b258097"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652031"
+   }
+  }
+ }
+]

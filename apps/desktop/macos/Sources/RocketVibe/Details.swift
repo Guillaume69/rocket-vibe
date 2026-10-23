@@ -97,7 +97,8 @@ struct RoomInfoView: View {
                 } else {
                     ProgressView()
                 }
-                if model.supportsMembers { MembersSection(model: model, details: details, saved: { saves += 1 }) }
+                if model.supportsMembers { MembersSection(model: model, details: details) }
+                if model.supportsRoomSettings { RoomSettingsSection(model: model, details: details, saved: { saves += 1 }) }
                 if model.supportsRoomNotifications { RoomNotificationPicker(model: model) }
                 if model.supportsDiscussions { InviteSection(model: model) }
                 if model.canCreateDiscussion {
@@ -334,13 +335,15 @@ struct MarkedView: View {
     var body: some View {
         SheetFrame(title: L("marked.title")) {
             VStack(spacing: 0) {
-                Picker("", selection: $starred) {
-                    Text(L("marked.pinned")).tag(false)
-                    Text(L("marked.starred")).tag(true)
+                if model.supportsStars {
+                    Picker("", selection: $starred) {
+                        Text(L("marked.pinned")).tag(false)
+                        Text(L("marked.starred")).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(12)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(12)
                 if let messages {
                     if messages.isEmpty {
                         Text(L(starred ? "marked.no_starred" : "marked.no_pinned"))

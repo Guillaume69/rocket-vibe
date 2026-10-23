@@ -26,6 +26,7 @@ use crate::rest::{CallOptions, RestClient, RestError};
 use crate::store::{Store, UploadRow};
 use crate::sync::Backend;
 use crate::sync::SyncEngine;
+use crate::teams::sync::TeamsSync;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
@@ -303,7 +304,7 @@ impl Uploads {
         let mm = match self.sync.backend() {
             Backend::Mattermost(mm) => mm.clone(),
             Backend::Slack(slack) => return self.post_slack(row, &slack.clone()).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("upload")),
+            Backend::Teams(teams) => return self.post_teams(row, &teams.clone()).await,
             Backend::RocketChat => return self.post_rocket_chat(row).await,
         };
         self.post_mattermost(row, &mm).await
@@ -451,6 +452,54 @@ impl Uploads {
         }
         if let Err(e) =
             slack.complete_upload(&file_id, &row.name, &row.rid, row.caption.as_deref(), row.tmid.as_deref()).await
+        {
+            return offline(e);
+        }
+        self.settle(row);
+        Ok(Outcome::Done)
+    }
+
+    /// Teams: upload the bytes into the channel's SharePoint folder through
+    /// Graph (recording the file id so a retry re-reads it instead of
+    /// re-uploading), then post a chat-service message carrying the file. A
+    /// retry whose upload already happened checks the room for the message its
+    /// stable client id would have posted before sending again.
+    async fn post_teams(self: &Arc<Self>, row: &UploadRow, teams: &TeamsSync) -> Result<Outcome, RestError> {
+        let offline = |e: RestError| if e.status == 0 { Ok(Outcome::Offline) } else { Err(e) };
+        let client_id = crate::teams::actions::client_message_id(&row.id);
+        let file = match &row.file_id {
+            Some(item_id) => {
+                match teams.mine_since(&row.rid, 0, &client_id).await {
+                    Ok((Some(_), _)) => {
+                        self.settle(row);
+                        return Ok(Outcome::Done);
+                    }
+                    Ok(_) => {}
+                    Err(e) => return offline(e),
+                }
+                match teams.file_ref(&row.rid, item_id).await {
+                    Ok(file) => file,
+                    Err(e) => return offline(e),
+                }
+            }
+            None => {
+                let bytes = tokio::fs::read(&row.path)
+                    .await
+                    .map_err(|e| RestError::incomplete(&format!("{}: {e}", row.path)))?;
+                self.set_progress(row, 0.0);
+                let file = match teams.upload_file(&row.rid, &row.name, &row.mime, bytes).await {
+                    Ok(file) => file,
+                    Err(e) => return offline(e),
+                };
+                self.set_progress(row, 1.0);
+                self.store.write(|w| w.set_upload_file_id(&row.id, &file.item_id));
+                file
+            }
+        };
+        if self.abandoned.lock().unwrap().contains(&row.id) {
+            return Ok(Outcome::Done);
+        }
+        if let Err(e) = teams.send_file(&row.rid, row.tmid.as_deref(), &file, row.caption.as_deref(), &client_id).await
         {
             return offline(e);
         }

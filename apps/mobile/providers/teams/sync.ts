@@ -233,6 +233,17 @@ export class TeamsSync {
     await this.ingest(engine, rid, newest.messages);
   }
 
+  /** A channel thread's root and replies, from the thread-scoped conversation. */
+  async loadThread(engine: SyncEngine, threadId: string): Promise<void> {
+    const target = splitId(threadId);
+    if (!target) return;
+    const root = await this.fetch(threadId);
+    if (root) await engine.ingestMessages([root]);
+    const scoped = `${target.rid};messageid=${target.server}`;
+    const { messages } = await this.page(await this.client.conversation(scoped, ['messages'], `${VIEW}&pageSize=${TEAMS_HISTORY_PAGE}`), target.rid);
+    await this.ingest(engine, target.rid, messages);
+  }
+
   /** The newest message the room itself shows, for its preview once the previewed one is deleted. */
   async newestShown(rid: string): Promise<Doc | null | undefined> {
     try {

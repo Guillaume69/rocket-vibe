@@ -145,6 +145,7 @@ export class ActionsRC implements ProviderActions {
     await this.client.post('rooms.saveRoomSettings', {
       body: {
         rid,
+        ...(fields.name === undefined ? {} : { roomName: fields.name }),
         ...(fields.topic === undefined ? {} : { roomTopic: fields.topic }),
         ...(fields.description === undefined ? {} : { roomDescription: fields.description }),
         ...(fields.announcement === undefined ? {} : { roomAnnouncement: fields.announcement }),

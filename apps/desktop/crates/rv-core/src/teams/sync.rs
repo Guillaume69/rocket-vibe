@@ -17,11 +17,35 @@ use crate::store::Store;
 use crate::sync::{HISTORY_PAGE, HistoryPage};
 
 const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
+const PINNED_LOOKBACK: i64 = 200;
 const OLDER_PAGES: usize = 20;
 const PREVIEW_LOOKBACK: usize = 20;
 
 /// An aggregator chat or channel, and the team (id, name) a channel belongs to.
 type Entry = (Value, Option<(String, String)>);
+
+/// A file uploaded to a channel's SharePoint folder, as the chat-service
+/// message's `properties.files` entry needs it.
+pub struct FileRef {
+    pub item_id: String,
+    pub name: String,
+    pub web_url: String,
+    pub site: String,
+    pub unique: String,
+}
+
+/// Percent-encode one URL path segment (RFC 3986 unreserved kept), for a file
+/// name in a Graph path-addressed upload.
+fn encode_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
 
 pub struct TeamsSync {
     store: Arc<Store>,
@@ -35,6 +59,8 @@ pub struct TeamsSync {
     marked: Mutex<HashMap<String, i64>>,
     /// Each room's aggregator entry and team, to rebuild its row when a message arrives.
     entries: Mutex<HashMap<String, Entry>>,
+    /// A channel's SharePoint files folder (Graph drive id, folder item id), cached per room.
+    drives: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl TeamsSync {
@@ -50,6 +76,7 @@ impl TeamsSync {
             older: Mutex::default(),
             marked: Mutex::default(),
             entries: Mutex::default(),
+            drives: Mutex::default(),
         }
     }
 
@@ -116,6 +143,32 @@ impl TeamsSync {
             }
         }
         unreachable!("the second attempt returns")
+    }
+
+    /// A CSA aggregator call with its bearer; a refused token is renewed once.
+    pub(crate) async fn aggregator_call(
+        &self,
+        method: Method,
+        segments: &[&str],
+        query: &str,
+        body: Option<&Value>,
+    ) -> Result<Answer, RestError> {
+        let (_, routes) = self.tokens.chat().await?;
+        let url = client::service_url(&routes.aggregator, segments, query)?;
+        for attempt in 0..2 {
+            let token = self.tokens.aggregator().await?;
+            let header = format!("Bearer {}", token.as_str());
+            match client::call(&self.http, method.clone(), url.clone(), ("authorization", &header), body).await {
+                Err(e) if e.status == 401 && attempt == 0 => self.tokens.forget_aggregator().await,
+                other => return other,
+            }
+        }
+        unreachable!("the second attempt returns")
+    }
+
+    /// The parent team id of a channel room, if known; None for a chat (no team).
+    pub(crate) fn team_of(&self, rid: &str) -> Option<String> {
+        self.entries.lock().unwrap().get(rid).and_then(|(_, team)| team.as_ref()).map(|(id, _)| id.clone())
     }
 
     /// Every chat and channel with its read state and last message.
@@ -282,6 +335,391 @@ impl TeamsSync {
         Ok(())
     }
 
+    /// A channel thread's root and its replies, from the thread-scoped
+    /// conversation (`<rid>;messageid=<root>`), stored as they come. The
+    /// replies carry their own thread link, so they land under the root.
+    /// Presence for a batch of people (UPS getpresence), best effort.
+    pub async fn get_presence(&self, mris: &[String]) -> Vec<(String, crate::live::Presence)> {
+        if mris.is_empty() {
+            return Vec::new();
+        }
+        let Ok((_, routes)) = self.tokens.chat().await else { return Vec::new() };
+        if routes.presence.is_empty() {
+            return Vec::new();
+        }
+        let Ok(url) = url::Url::parse(&format!("{}/v1/presence/getpresence/", routes.presence)) else {
+            return Vec::new();
+        };
+        let Ok(token) = self.tokens.presence().await else { return Vec::new() };
+        let header = format!("Bearer {}", token.as_str());
+        let body = Value::Array(mris.iter().map(|m| serde_json::json!({ "mri": m })).collect());
+        match client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await {
+            Ok(answer) => presence_rows(&answer.body),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Sets my availability (UPS forceavailability), with the presence bearer.
+    pub async fn set_presence(&self, availability: &str) -> Result<(), RestError> {
+        let (_, routes) = self.tokens.chat().await?;
+        if routes.presence.is_empty() {
+            return Ok(());
+        }
+        let url = url::Url::parse(&format!("{}/v1/me/forceavailability/", routes.presence))
+            .map_err(|_| crate::teams::auth::refusal("presence_url", 0))?;
+        let token = self.tokens.presence().await?;
+        let header = format!("Bearer {}", token.as_str());
+        let body = serde_json::json!({ "availability": availability });
+        client::call(&self.http, Method::PUT, url, ("authorization", &header), Some(&body)).await?;
+        Ok(())
+    }
+
+    /// Short profiles (name, title) by MRI, via the middle tier with the Spaces
+    /// bearer. Best effort: [] when the route or token is absent.
+    async fn profiles(&self, mris: &[String]) -> Vec<Value> {
+        if mris.is_empty() {
+            return Vec::new();
+        }
+        let Ok((_, routes)) = self.tokens.chat().await else { return Vec::new() };
+        if routes.middle_tier.is_empty() {
+            return Vec::new();
+        }
+        let Ok(bearer) = self.tokens.spaces().await else { return Vec::new() };
+        let target = format!(
+            "{}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true",
+            routes.middle_tier
+        );
+        let Ok(url) = url::Url::parse(&target) else { return Vec::new() };
+        let body = Value::Array(mris.iter().map(|m| Value::String(m.clone())).collect());
+        let header = format!("Bearer {}", bearer.as_str());
+        match client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await {
+            Ok(answer) => profile_rows(answer.body),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// The profile card for an MRI. A refused or empty call degrades to the name
+    /// already learned from messages, so the card shows a name, not an MRI.
+    pub async fn profile(&self, key: &str, _by_id: bool) -> Result<crate::info::Profile, RestError> {
+        let mri = if key.contains(':') {
+            key.to_owned()
+        } else {
+            self.directory.mri_for(key).unwrap_or_else(|| key.to_owned())
+        };
+        let rows = self.profiles(std::slice::from_ref(&mri)).await;
+        let row = rows
+            .iter()
+            .find(|r| str_of(r, "mri").is_some_and(|m| m.eq_ignore_ascii_case(&mri)))
+            .or_else(|| rows.first());
+        Ok(profile_fields(&mri, row, &self.directory))
+    }
+
+    /// Room information: name and kind from the store, enriched with the chat
+    /// service's topic. The live conversation shape (probed 2026-10-22) carries a
+    /// real `threadProperties.topic` but no description or member count; those are
+    /// left for the members list. A refused call still returns the name and kind.
+    pub async fn room_info(&self, rid: &str) -> Result<crate::info::RoomInfo, RestError> {
+        let (name, kind) =
+            self.store.room_name(rid).ok_or_else(|| crate::rest::RestError::incomplete("room info: unknown room"))?;
+        let topic = self.conversation(rid).await.as_ref().and_then(conversation_topic);
+        let members = self.members(rid).await.ok().map(|p| i64::from(p.total));
+        Ok(crate::info::RoomInfo {
+            id: rid.to_owned(),
+            name,
+            kind,
+            topic,
+            announcement: None,
+            description: None,
+            members,
+            read_only: false,
+            encrypted: false,
+            archived: false,
+            default: false,
+        })
+    }
+
+    /// The chat service's conversation document, best effort.
+    async fn conversation(&self, rid: &str) -> Option<Value> {
+        let url = self.conversation_url(rid, &[], "view=msnp24Equivalent").await.ok()?;
+        self.chat(Method::GET, url, None).await.ok().map(|a| a.body)
+    }
+
+    /// Messages in one room matching `text`, through the Substrate search API.
+    /// Substrate indexes Teams messages from Exchange, so a hit carries the
+    /// conversation id, author display name, preview and time but no
+    /// chat-service message id: the results open the room, they do not jump to
+    /// the exact message, and the id is synthetic.
+    pub async fn search(&self, rid: &str, text: &str) -> Result<Vec<Message>, RestError> {
+        let token = self.tokens.substrate().await?;
+        let header = format!("Bearer {}", token.as_str());
+        let url = url::Url::parse("https://substrate.office.com/search/api/v2/query")
+            .map_err(|_| crate::teams::auth::refusal("substrate_url", 0))?;
+        let mut cvid = [0u8; 16];
+        getrandom::fill(&mut cvid).ok();
+        let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+        let body = serde_json::json!({
+            "Cvid": cvid,
+            "Scenario": { "Name": "teamsmessages" },
+            "EntityRequests": [{
+                "EntityType": "Message",
+                "ContentSources": ["Teams"],
+                "Query": { "QueryString": text },
+                "Size": 50,
+            }],
+        });
+        let answer = client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await?;
+        Ok(search_hits(&answer.body, rid, &self.directory))
+    }
+
+    /// Download a Teams shared file: its SharePoint/OneDrive url resolved
+    /// through Graph `GET /shares/u!{base64url}/driveItem/content`, which
+    /// answers 302 to a pre-signed url we follow WITHOUT the bearer. Streams to
+    /// `dest`, reporting bytes. The chat token cannot reach this; the Graph
+    /// token can (verified live 2026-10-22).
+    pub async fn download_file(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        progress: impl Fn(u64) + Send,
+    ) -> Result<(), RestError> {
+        use base64::Engine;
+        let token = self.tokens.graph().await?;
+        let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url.as_bytes());
+        let share = format!("https://graph.microsoft.com/v1.0/shares/u!{enc}/driveItem/content");
+        let net = |e: reqwest::Error| RestError::network(format!("teams file: {e}"));
+        let first = self.http.get(&share).bearer_auth(token.as_str()).send().await.map_err(net)?;
+        let status = first.status().as_u16();
+        let response = if (300..400).contains(&status) {
+            let location = first
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| RestError::network("teams file: redirect without a location".to_owned()))?
+                .to_owned();
+            self.http.get(&location).send().await.map_err(net)?
+        } else {
+            first
+        };
+        stream_response(response, dest, progress).await
+    }
+
+    /// A GET against Microsoft Graph with the Graph bearer, as JSON.
+    async fn graph_json(&self, url: &str) -> Result<Value, RestError> {
+        let token = self.tokens.graph().await?;
+        let r = self
+            .http
+            .get(url)
+            .bearer_auth(token.as_str())
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams graph: {e}")))?;
+        let status = r.status().as_u16();
+        let body: Value = r.json().await.unwrap_or(Value::Null);
+        if status >= 400 {
+            return Err(crate::teams::auth::refusal(&format!("graph_{status}"), status));
+        }
+        Ok(body)
+    }
+
+    /// The Graph group id of the team a channel belongs to, by scanning my
+    /// joined teams for the one whose channels include it. A chat has none.
+    async fn parent_team(&self, channel: &str) -> Result<String, RestError> {
+        let known = self
+            .entries
+            .lock()
+            .unwrap()
+            .get(channel)
+            .and_then(|(entry, team)| team.as_ref().and_then(|_| str_of(entry, "groupId")).map(str::to_owned));
+        if let Some(group) = known {
+            return Ok(group);
+        }
+        let teams = self.graph_json("https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id").await?;
+        for team in teams.get("value").and_then(Value::as_array).into_iter().flatten() {
+            let Some(gid) = team.get("id").and_then(Value::as_str) else { continue };
+            let url = format!("https://graph.microsoft.com/v1.0/teams/{gid}/channels?$select=id");
+            let chans = self.graph_json(&url).await?;
+            let here = chans
+                .get("value")
+                .and_then(Value::as_array)
+                .is_some_and(|cs| cs.iter().any(|c| c.get("id").and_then(Value::as_str) == Some(channel)));
+            if here {
+                return Ok(gid.to_owned());
+            }
+        }
+        Err(crate::teams::auth::refusal("teams_team_not_found", 0))
+    }
+
+    /// The conversation's page in Teams' web app, which a call window opens to
+    /// start or join its call: a channel's needs its team's Graph group id, a
+    /// chat's only the tenant.
+    pub async fn call_url(&self, rid: &str, tenant: &str) -> Result<String, RestError> {
+        let channel =
+            self.entries.lock().unwrap().get(rid).and_then(|(entry, team)| {
+                team.as_ref().map(|_| str_of(entry, "displayName").unwrap_or(rid).to_owned())
+            });
+        match channel {
+            Some(name) => {
+                let group = self.parent_team(rid).await?;
+                Ok(translate::channel_link(rid, &name, &group, tenant))
+            }
+            None => Ok(translate::chat_link(rid, tenant)),
+        }
+    }
+
+    /// Where a call card's Join goes: a channel call's own join page, built from
+    /// its start message's author as organizer; otherwise the conversation's page.
+    pub async fn join_url(&self, call_id: &str, tenant: &str) -> Result<String, RestError> {
+        let Some((rid, server)) = translate::split_id(call_id) else { return self.call_url(call_id, tenant).await };
+        if self.team_of(rid).is_none() {
+            return self.call_url(rid, tenant).await;
+        }
+        let url = self.conversation_url(rid, &["messages", server], &format!("view={VIEW}")).await?;
+        let start = self.chat(Method::GET, url, None).await?.body;
+        let organizer = str_of(&start, "from").map(translate::mri_of).and_then(translate::object_id).map(str::to_owned);
+        match organizer {
+            Some(oid) => Ok(translate::meetup_link(rid, server, tenant, &oid)),
+            None => self.call_url(rid, tenant).await,
+        }
+    }
+
+    /// Whether a room is a channel Teams lets me rename here: one whose
+    /// aggregator entry names its team's group and its own Substrate group.
+    pub fn renamable(&self, rid: &str) -> bool {
+        self.entries.lock().unwrap().get(rid).is_some_and(|(entry, team)| {
+            team.is_some() && str_of(entry, "groupId").is_some() && str_of(entry, "substrateGroupId").is_some()
+        })
+    }
+
+    /// Renames a channel as Teams' web app does: its templates service,
+    /// addressed by the team's Graph group and the channel's Substrate group.
+    pub async fn rename(&self, rid: &str, name: &str, tenant: &str) -> Result<(), RestError> {
+        let ids = self.entries.lock().unwrap().get(rid).and_then(|(entry, _)| {
+            Some((str_of(entry, "groupId")?.to_owned(), str_of(entry, "substrateGroupId")?.to_owned()))
+        });
+        let Some((group, oid)) = ids else { return Err(crate::teams::auth::refusal("teams_team_not_found", 0)) };
+        let (_, routes) = self.tokens.chat().await?;
+        let base = format!("{}/templates", routes.aggregator.replace("/api/csa/", "/fabric/"));
+        let channel = format!("OID:{oid}@{tenant}");
+        let url = client::service_url(&base, &["api", "teams", &group, "channels", &channel], "forceSync=false")?;
+        let body = serde_json::json!({ "displayName": name });
+        for attempt in 0..2 {
+            let token = self.tokens.templates().await?;
+            let header = format!("Bearer {}", token.as_str());
+            match client::call(&self.http, Method::PATCH, url.clone(), ("authorization", &header), Some(&body)).await {
+                Err(e) if e.status == 401 && attempt == 0 => self.tokens.forget_templates().await,
+                Err(e) => return Err(e),
+                Ok(_) => {
+                    if let Some((entry, _)) = self.entries.lock().unwrap().get_mut(rid) {
+                        entry["displayName"] = Value::from(name);
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        unreachable!("the second attempt returns")
+    }
+
+    /// (Graph drive id, folder item id) of a channel's SharePoint files folder, cached per room.
+    async fn channel_drive(&self, rid: &str) -> Result<(String, String), RestError> {
+        if let Some(found) = self.drives.lock().unwrap().get(rid).cloned() {
+            return Ok(found);
+        }
+        let group = self.parent_team(rid).await?;
+        let url = format!(
+            "https://graph.microsoft.com/v1.0/teams/{group}/channels/{rid}/filesFolder?$select=id,parentReference"
+        );
+        let folder = self.graph_json(&url).await?;
+        let drive = folder.pointer("/parentReference/driveId").and_then(Value::as_str);
+        let item = folder.get("id").and_then(Value::as_str);
+        let (Some(drive), Some(item)) = (drive, item) else {
+            return Err(crate::teams::auth::refusal("teams_files_folder", 0));
+        };
+        let pair = (drive.to_owned(), item.to_owned());
+        self.drives.lock().unwrap().insert(rid.to_owned(), pair.clone());
+        Ok(pair)
+    }
+
+    /// Uploads `bytes` into a channel's files folder (Graph simple upload), and
+    /// returns the stored file as the chat message needs it.
+    pub async fn upload_file(&self, rid: &str, name: &str, mime: &str, bytes: Vec<u8>) -> Result<FileRef, RestError> {
+        let (drive, folder) = self.channel_drive(rid).await?;
+        let token = self.tokens.graph().await?;
+        let put = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{folder}:/{}:/content",
+            encode_segment(name)
+        );
+        let r = self
+            .http
+            .put(&put)
+            .bearer_auth(token.as_str())
+            .header("content-type", mime)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams upload: {e}")))?;
+        let status = r.status().as_u16();
+        let item: Value = r.json().await.unwrap_or(Value::Null);
+        if status >= 400 {
+            return Err(crate::teams::auth::refusal(&format!("graph_upload_{status}"), status));
+        }
+        let item_id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::teams::auth::refusal("teams_upload_no_id", status.max(200)))?;
+        self.file_ref(rid, item_id).await
+    }
+
+    /// The stored file's message fields, re-read for its SharePoint ids.
+    pub async fn file_ref(&self, rid: &str, item_id: &str) -> Result<FileRef, RestError> {
+        let (drive, _) = self.channel_drive(rid).await?;
+        let url = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}?$select=id,name,webUrl,sharepointIds"
+        );
+        let item = self.graph_json(&url).await?;
+        let text = |p: &str| item.pointer(p).and_then(Value::as_str).unwrap_or_default().to_owned();
+        Ok(FileRef {
+            item_id: item_id.to_owned(),
+            name: text("/name"),
+            web_url: text("/webUrl"),
+            site: text("/sharepointIds/siteUrl"),
+            unique: text("/sharepointIds/listItemUniqueId"),
+        })
+    }
+
+    /// The room's roster, from the threads service (`GET /v1/threads/<rid>`);
+    /// each member is `{id: <mri>, role}`. Read-only: Teams gives no add, remove
+    /// or role-change route here, so no rights travel with it.
+    pub async fn members(&self, rid: &str) -> Result<crate::members::MemberPage, RestError> {
+        let url = self.chat_url(&["threads", rid], "view=msnp24Equivalent&threadProperties=1").await?;
+        let body = self.chat(Method::GET, url, None).await?.body;
+        Ok(roster_page(&body, &self.directory))
+    }
+
+    pub async fn load_thread(&self, root_id: &str) -> Result<(), RestError> {
+        let Some((rid, server)) = split_id(root_id) else { return Ok(()) };
+        if let Some(root) = self.fetch_message(root_id).await? {
+            self.store.write(|w| w.upsert_message(&root));
+        }
+        let target = format!("{rid};messageid={server}");
+        let query = format!("view={VIEW}&pageSize={HISTORY_PAGE}");
+        let url = self.conversation_url(&target, &["messages"], &query).await?;
+        let (rows, _older) = self.page(url).await?;
+        self.ingest(rid, &rows);
+        Ok(())
+    }
+
+    /// A room's pinned messages among its newest `PINNED_LOOKBACK`, newest
+    /// first: Teams has no list of them, its web app filters the messages it
+    /// holds on `properties.pinned` (seen in a capture, 2026-10-23).
+    pub async fn pinned(&self, rid: &str) -> Result<Vec<String>, RestError> {
+        let query = format!("view={VIEW}&pageSize={PINNED_LOOKBACK}");
+        let url = self.conversation_url(rid, &["messages"], &query).await?;
+        let (rows, _older) = self.page(url).await?;
+        let mut pinned: Vec<Message> = self.ingest(rid, &rows).into_iter().filter(|m| m.pinned).collect();
+        pinned.sort_by_key(|m| std::cmp::Reverse(m.ts));
+        Ok(pinned.into_iter().map(|m| m.id).collect())
+    }
+
     fn ingest(&self, rid: &str, raw: &[Value]) -> Vec<Message> {
         let mut gone = Vec::new();
         let rows: Vec<Message> = raw
@@ -408,5 +846,267 @@ impl TeamsSync {
     /// Stores one message the live feed or a send answered with.
     pub fn ingest_one(&self, rid: &str, raw: &Value) -> Option<Message> {
         self.ingest(rid, std::slice::from_ref(raw)).into_iter().next()
+    }
+}
+
+/// (mri, presence) rows from a getpresence response (array or {responses:[]}).
+fn presence_rows(body: &Value) -> Vec<(String, crate::live::Presence)> {
+    let rows = body
+        .as_array()
+        .cloned()
+        .or_else(|| body.get("responses").and_then(Value::as_array).cloned())
+        .unwrap_or_default();
+    rows.iter()
+        .filter_map(|r| {
+            let mri = r.get("mri").and_then(Value::as_str)?.to_owned();
+            let availability =
+                r.get("presence").and_then(|p| p.get("availability")).and_then(Value::as_str).unwrap_or("Offline");
+            Some((mri, crate::teams::actions::availability_presence(availability)))
+        })
+        .collect()
+}
+
+/// The `value[]` rows of a `fetchShortProfile` body, whether the body is the
+/// array itself or wraps it under `value`.
+fn profile_rows(body: Value) -> Vec<Value> {
+    if let Value::Array(rows) = body {
+        return rows;
+    }
+    body.get("value").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+/// A short profile row as the card's fields, degrading to the directory name.
+fn profile_fields(mri: &str, row: Option<&Value>, directory: &Directory) -> crate::info::Profile {
+    let name = row.and_then(|r| str_of(r, "displayName")).map(str::to_owned).or_else(|| directory.name(mri));
+    if let Some(name) = &name {
+        directory.remember(mri, name);
+    }
+    let username = row
+        .and_then(|r| str_of(r, "userPrincipalName").or_else(|| str_of(r, "email")))
+        .map(str::to_owned)
+        .unwrap_or_else(|| mri.to_owned());
+    let bio = row.and_then(|r| str_of(r, "jobTitle")).filter(|t| !t.is_empty()).map(str::to_owned);
+    crate::info::Profile {
+        id: mri.to_owned(),
+        username,
+        name,
+        presence: None,
+        status_text: None,
+        roles: Vec::new(),
+        utc_offset: None,
+        bio,
+        avatar_etag: None,
+        bot: mri.starts_with("28:"),
+        bot_owner: None,
+    }
+}
+
+/// The `threadProperties.topic` of a chat-service conversation, when set.
+/// Stream an HTTP response body to `dest`, reporting bytes received. Mirrors
+/// `rest::download_protected`'s chunk loop for the Graph file path.
+async fn stream_response(
+    mut response: reqwest::Response,
+    dest: &std::path::Path,
+    progress: impl Fn(u64) + Send,
+) -> Result<(), RestError> {
+    use tokio::io::AsyncWriteExt as _;
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
+        return Err(RestError {
+            status,
+            message: format!("teams file: HTTP {status}"),
+            ..RestError::network(String::new())
+        });
+    }
+    let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+    let mut file = tokio::fs::File::create(dest).await.map_err(written)?;
+    let mut received = 0u64;
+    while let Some(chunk) = response.chunk().await.map_err(|e| RestError::network(format!("teams file: {e}")))? {
+        file.write_all(&chunk).await.map_err(written)?;
+        received += chunk.len() as u64;
+        progress(received);
+    }
+    file.flush().await.map_err(written)
+}
+
+fn conversation_topic(body: &Value) -> Option<String> {
+    body.get("threadProperties").and_then(|p| str_of(p, "topic")).filter(|t| !t.is_empty()).map(str::to_owned)
+}
+
+/// A threads-service roster as a member page: each row is `{id: <mri>, role}`,
+/// the name resolved from the directory when known.
+fn roster_page(body: &Value, directory: &Directory) -> crate::members::MemberPage {
+    let members: Vec<crate::members::Member> = body
+        .get("members")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|m| {
+            let mri = str_of(m, "id")?.to_owned();
+            let name = directory.name(&mri);
+            Some(crate::members::Member {
+                id: mri.clone(),
+                username: name.clone().unwrap_or(mri),
+                name,
+                presence: None,
+                avatar_etag: None,
+                roles: str_of(m, "role").map(|r| vec![r.to_owned()]).unwrap_or_default(),
+            })
+        })
+        .collect();
+    let total = members.len() as u32;
+    crate::members::MemberPage { members, total }
+}
+
+/// Substrate search hits for one room as messages. Keeps only hits whose
+/// conversation is `rid`; the id is synthetic (the Exchange item id, prefixed
+/// so it never collides with a real `rid/<number>` message), the author id is
+/// resolved from the display name when the directory knows it.
+fn search_hits(body: &Value, rid: &str, directory: &Directory) -> Vec<Message> {
+    let results = body
+        .get("EntitySets")
+        .and_then(Value::as_array)
+        .and_then(|s| s.first())
+        .and_then(|e| e.get("ResultSets"))
+        .and_then(Value::as_array)
+        .and_then(|r| r.first())
+        .and_then(|rs| rs.get("Results"))
+        .and_then(Value::as_array);
+    let Some(results) = results else { return Vec::new() };
+    results
+        .iter()
+        .filter_map(|hit| {
+            let source = hit.get("Source")?;
+            let here =
+                str_of(source, "ClientConversationId") == Some(rid) || str_of(source, "ClientThreadId") == Some(rid);
+            if !here {
+                return None;
+            }
+            let ts = chrono::DateTime::parse_from_rfc3339(str_of(source, "DateTimeSent")?).ok()?.timestamp_millis();
+            let name = source
+                .get("From")
+                .and_then(|from| from.get("EmailAddress"))
+                .and_then(|email| str_of(email, "Name"))
+                .map(str::to_owned);
+            let author_id = name.as_deref().and_then(|n| directory.mri_for(n)).unwrap_or_default();
+            let item = str_of(source, "ImmutableId")
+                .or_else(|| str_of(source, "ItemId"))
+                .or_else(|| str_of(source, "Id"))
+                .unwrap_or("hit");
+            Some(Message {
+                id: format!("{rid}/search:{item}"),
+                rid: rid.to_owned(),
+                text: str_of(source, "Preview").map(str::to_owned),
+                ts,
+                author_id,
+                author_name: name,
+                updated_at: ts,
+                ..Default::default()
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_rows_read_an_array_or_a_value_wrapper() {
+        let bare = serde_json::json!([{ "mri": "8:a" }]);
+        assert_eq!(profile_rows(bare).len(), 1);
+        let wrapped = serde_json::json!({ "value": [{ "mri": "8:a" }, { "mri": "8:b" }] });
+        assert_eq!(profile_rows(wrapped).len(), 2);
+        assert!(profile_rows(serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_short_profile_becomes_the_card_and_degrades_to_the_learned_name() {
+        let dir = Directory::default();
+        let mri = "8:orgid:aaaa";
+        dir.remember(mri, "Known Name");
+        let row = serde_json::json!({ "mri": mri, "displayName": "Ada Lovelace", "userPrincipalName": "ada@contoso.com", "jobTitle": "Engineer" });
+        let full = profile_fields(mri, Some(&row), &dir);
+        assert_eq!(full.id, mri);
+        assert_eq!(full.username, "ada@contoso.com");
+        assert_eq!(full.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(full.bio.as_deref(), Some("Engineer"));
+        assert!(!full.bot);
+        let degraded = profile_fields(mri, None, &dir);
+        assert_eq!(degraded.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(degraded.username, mri);
+        assert!(degraded.bio.is_none());
+        let bot = profile_fields("28:orgid:app", Some(&serde_json::json!({ "displayName": "Helper" })), &dir);
+        assert!(bot.bot);
+    }
+
+    #[test]
+    fn a_display_name_resolves_to_its_mri_only_when_unambiguous() {
+        let dir = Directory::default();
+        dir.remember("8:one", "Alice");
+        assert_eq!(dir.mri_for("Alice").as_deref(), Some("8:one"));
+        dir.remember("8:two", "Alice");
+        assert!(dir.mri_for("Alice").is_none());
+        assert!(dir.mri_for("Nobody").is_none());
+    }
+
+    #[test]
+    fn conversation_topic_reads_thread_properties() {
+        let with_topic = serde_json::json!({ "threadProperties": { "topic": "Launch", "rosterVersion": "9" } });
+        assert_eq!(conversation_topic(&with_topic).as_deref(), Some("Launch"));
+        assert_eq!(conversation_topic(&serde_json::json!({ "threadProperties": { "topic": "" } })), None);
+        assert_eq!(conversation_topic(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn search_hits_keep_the_room_and_map_the_source() {
+        let dir = Directory::default();
+        dir.remember("8:orgid:aaaa", "Ada Lovelace");
+        let body = serde_json::json!({
+            "EntitySets": [{ "ResultSets": [{ "Results": [
+                { "Source": {
+                    "ClientConversationId": "19:room@thread.tacv2",
+                    "ClientThreadId": "19:room@thread.tacv2",
+                    "Preview": "found this",
+                    "DateTimeSent": "2026-10-22T08:01:52Z",
+                    "ImmutableId": "AAItem1",
+                    "From": { "EmailAddress": { "Name": "Ada Lovelace" } },
+                } },
+                { "Source": {
+                    "ClientConversationId": "19:other@thread.tacv2",
+                    "Preview": "not this room",
+                    "DateTimeSent": "2026-10-22T09:00:00Z",
+                    "From": { "EmailAddress": { "Name": "Someone Else" } },
+                } },
+            ] }] }],
+        });
+        let hits = search_hits(&body, "19:room@thread.tacv2", &dir);
+        assert_eq!(hits.len(), 1);
+        let hit = &hits[0];
+        assert_eq!(hit.rid, "19:room@thread.tacv2");
+        assert_eq!(hit.text.as_deref(), Some("found this"));
+        assert_eq!(hit.author_name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(hit.author_id, "8:orgid:aaaa");
+        assert_eq!(hit.id, "19:room@thread.tacv2/search:AAItem1");
+        assert!(hit.ts > 0);
+        assert!(search_hits(&serde_json::json!({}), "19:room@thread.tacv2", &dir).is_empty());
+    }
+
+    #[test]
+    fn roster_page_maps_members_and_resolves_names() {
+        let dir = Directory::default();
+        dir.remember("8:orgid:aaaa", "Ada Lovelace");
+        let body = serde_json::json!({ "members": [
+            { "id": "8:orgid:aaaa", "role": "Admin" },
+            { "id": "8:orgid:bbbb", "role": "User" },
+        ] });
+        let page = roster_page(&body, &dir);
+        assert_eq!(page.total, 2);
+        assert_eq!(page.members[0].id, "8:orgid:aaaa");
+        assert_eq!(page.members[0].username, "Ada Lovelace");
+        assert_eq!(page.members[0].roles, vec!["Admin".to_owned()]);
+        assert_eq!(page.members[1].username, "8:orgid:bbbb");
+        assert_eq!(roster_page(&serde_json::json!({}), &dir).total, 0);
     }
 }

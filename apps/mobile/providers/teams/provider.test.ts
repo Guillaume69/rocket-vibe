@@ -11,6 +11,8 @@ import { TeamsMessageActions, TeamsOutbox, clientMessageId } from './outbox.ts';
 import { TeamsRooms, TeamsSync } from './sync.ts';
 import { TeamsDirectory } from './translate.ts';
 import { chatEvent, parseFrame } from './trouter.ts';
+import { TEAMS_CAPABILITIES, teamsPinned, typingAction } from './index.ts';
+import { teamsCalls } from './calls.ts';
 
 type Doc = Record<string, unknown>;
 type Call = { method: string; url: string; body: Doc | null; headers: Record<string, string> };
@@ -20,7 +22,7 @@ const RID = '19:c@thread.v2';
 const CHAT = 'https://emea.ng.msg.teams.microsoft.com';
 const ROUTES: TeamsRoutes = {
   chat: CHAT, aggregator: 'https://teams.microsoft.com/api/csa/emea', trouter: 'https://go.trouter.teams.microsoft.com',
-  registrar: 'https://teams.microsoft.com/registrar/prod', ams: 'https://eu-api.asm.skype.com', middleTier: 'https://teams.microsoft.com/api/mt/emea',
+  registrar: 'https://teams.microsoft.com/registrar/prod', ams: 'https://eu-api.asm.skype.com', middleTier: 'https://teams.microsoft.com/api/mt/emea', presence: 'https://presence.teams.microsoft.com', search: 'https://fr-prod.asyncgw.teams.microsoft.com/msgsearch',
 };
 const SESSION: Session = {
   baseUrl: 'https://teams.microsoft.com', authToken: 'fixture', userId: ME, username: 'Me', kind: 'teams', siteUrl: null,
@@ -33,7 +35,7 @@ function fake(route: (call: Call) => { status?: number; body?: unknown } | 'thro
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const call: Call = {
       method: init?.method ?? 'GET', url: String(input),
-      body: typeof init?.body === 'string' ? (JSON.parse(init.body) as Doc) : null,
+      body: typeof init?.body === 'string' && init.body.startsWith('{') ? (JSON.parse(init.body) as Doc) : null,
       headers: (init?.headers ?? {}) as Record<string, string>,
     };
     calls.push(call);
@@ -162,4 +164,158 @@ test('a Trouter message frame carries a chat event', () => {
   assert.equal(event?.name, 'NewMessage');
   assert.equal(event?.resource.id, '6000');
   assert.equal(parseFrame('3:::not json').kind, 'other');
+});
+
+test('typing posts a Control/Typing to the conversation, and a clear when it stops', async () => {
+  const { calls, client } = fake(() => ({ status: 201, body: {} }));
+  const dir = new TeamsDirectory();
+  dir.remember(ME, 'Me');
+  await typingAction(client, dir, SESSION, RID, true);
+  await typingAction(client, dir, SESSION, RID, false);
+  const posts = calls.filter((c) => c.method === 'POST');
+  assert.equal(posts.length, 2);
+  assert.ok(posts[0].url.endsWith('/messages'), posts[0].url);
+  assert.equal(posts[0].body?.messagetype, 'Control/Typing');
+  assert.equal(posts[0].body?.content, '');
+  assert.equal(posts[1].body?.messagetype, 'Control/ClearTyping');
+});
+
+test('the Teams provider advertises typing', () => {
+  assert.equal(TEAMS_CAPABILITIES.typing, true);
+});
+
+test('a thread reply is sent to the root message target', async () => {
+  const rowId = 'fedcba9876543210fedcba98';
+  const marker = clientMessageId(rowId);
+  const root = `${RID}/900`;
+  const { calls, client } = fake((call) => call.method === 'POST'
+    ? { status: 201, body: {} }
+    : { body: { messages: [message('950', { clientmessageid: marker, from: `${CHAT}/v1/users/ME/contacts/${ME}` })] } });
+  const { store } = outboxStore();
+  const outbox = new TeamsOutbox({ store, client, directory: new TeamsDirectory(), me: { id: ME, username: 'Me' }, generateId: () => rowId, ingest: async () => {} });
+  await outbox.send(RID, 'in the thread', root);
+  const post = calls.find((c) => c.method === 'POST')!;
+  assert.ok(decodeURIComponent(post.url).includes(`${RID};messageid=900/messages`), post.url);
+});
+
+test('the Teams provider advertises threads', () => {
+  assert.equal(TEAMS_CAPABILITIES.threads, true);
+});
+
+test('loading a thread fetches the root and the thread-scoped conversation', async () => {
+  const root = `${RID}/900`;
+  const seen: string[] = [];
+  const { calls, client } = fake((call) => {
+    seen.push(decodeURIComponent(call.url));
+    return { body: { messages: [message('901'), message('902')] } };
+  });
+  const ingested: Doc[] = [];
+  const engine = { ingestMessages: async (docs: Doc[]) => { ingested.push(...docs); }, syncStore: { deleteMessage: async () => {} } } as unknown as SyncEngine;
+  const sync = new TeamsSync(client, new TeamsRooms());
+  await sync.loadThread(engine, root);
+  assert.ok(seen.some((u) => u.includes(`${RID}/messages/900`)), 'root fetched');
+  assert.ok(seen.some((u) => u.includes(`${RID};messageid=900/messages`)), seen.join('\n'));
+  assert.ok(ingested.length >= 2);
+});
+
+test('a pin POSTs to the CSA aggregator under the parent team; unpin DELETEs', async () => {
+  const { calls, client } = fake(() => ({ status: 201, body: {} }));
+  const actions = new TeamsMessageActions(client, async () => {});
+  await actions.setPinned('19:team@thread.tacv2', RID, `${RID}/500`, true);
+  await actions.setPinned('19:team@thread.tacv2', RID, `${RID}/500`, false);
+  const pin = calls.find((c) => c.method === 'POST' && c.url.includes('/pin'));
+  const unpin = calls.find((c) => c.method === 'DELETE' && c.url.includes('/pin'));
+  assert.ok(pin, 'a POST to .../pin');
+  assert.ok(pin!.url.endsWith('/csa/emea/api/v1/teams/19:team@thread.tacv2/channels/19:c@thread.v2/posts/500/pin'), pin!.url);
+  assert.equal((pin!.headers as Record<string, string>).authorization, 'Bearer bearer-fixture');
+  assert.ok(unpin, 'a DELETE to .../pin');
+});
+
+test('a call opens the conversation in Teams: a channel through its Graph group, a chat directly', async () => {
+  const channel = '19:ch@thread.tacv2';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'graph-fixture', expires_in: 3600 } };
+    if (call.url.endsWith('/me/joinedTeams?$select=id')) return { body: { value: [{ id: 'group-1' }] } };
+    if (call.url.endsWith('/teams/group-1/channels?$select=id')) return { body: { value: [{ id: channel }] } };
+    return { status: 404, body: {} };
+  });
+  const rooms = new TeamsRooms();
+  rooms.entries.set(channel, { entry: { id: channel, displayName: 'General' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
+  const teams = teamsCalls(client, rooms, 'tenant-1');
+  assert.equal(
+    await teams.start(channel, null, () => true),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/General?groupId=group-1&tenantId=tenant-1',
+  );
+  const before = calls.length;
+  assert.equal(await teams.join(RID, {}, () => true), 'https://teams.microsoft.com/l/chat/19%3Ac%40thread.v2/conversations?tenantId=tenant-1');
+  assert.equal(calls.length, before, 'a chat link needs no call');
+  assert.equal(TEAMS_CAPABILITIES.videoCall, true);
+});
+
+test('a channel call card joins the call itself, its starter as organizer', async () => {
+  const channel = '19:ch@thread.tacv2';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/conversations/') && call.url.includes('/messages/1792769688903')) {
+      return { body: { id: '1792769688903', messagetype: 'Event/Call', from: 'https://x/v1/users/ME/contacts/8:orgid:oid-1' } };
+    }
+    return { status: 404, body: {} };
+  });
+  const rooms = new TeamsRooms();
+  rooms.entries.set(channel, { entry: { id: channel, displayName: 'General', groupId: 'group-1' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
+  const teams = teamsCalls(client, rooms, 'tenant-1');
+  assert.equal(
+    await teams.join(`${channel}/1792769688903`, {}, () => true),
+    'https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22tenant-1%22%2C%22Oid%22%3A%22oid-1%22%7D',
+  );
+  const before = calls.length;
+  assert.equal(
+    await teams.start(channel, null, () => true),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/General?groupId=group-1&tenantId=tenant-1',
+  );
+  assert.equal(calls.length, before, 'the entry carries the group id');
+});
+
+test('a channel is renamed through the templates service with its own token', async () => {
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'templates-fixture', expires_in: 3600 } };
+    if (call.url.includes('/fabric/')) return { body: {} };
+    return { status: 404, body: {} };
+  });
+  await client.rename('group-1', 'oid-1', 'tenant-1', 'Ops');
+  const patch = calls.find((c) => c.url.includes('/fabric/'));
+  assert.ok(patch, 'a PATCH to the fabric templates route');
+  assert.equal(patch!.method, 'PATCH');
+  assert.ok(patch!.url.endsWith('/fabric/emea/templates/api/teams/group-1/channels/OID:oid-1@tenant-1?forceSync=false'), patch!.url);
+  assert.equal((patch!.headers as Record<string, string>).authorization, 'Bearer templates-fixture');
+});
+
+test('the Teams provider lists pinned messages but has no saves', async () => {
+  assert.deepEqual([TEAMS_CAPABILITIES.marks, TEAMS_CAPABILITIES.stars], [true, false]);
+  const pin = '{"creatorId":"8:orgid:aaa","pinnedTime":1}';
+  const { client } = fake((call) => call.url.includes('/messages?') ? { body: { messages: [
+    { id: '100', messagetype: 'RichText/Html', content: 'old', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T10:00:00Z', properties: { pinned: pin } },
+    { id: '200', messagetype: 'RichText/Html', content: 'not pinned', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T11:00:00Z' },
+    { id: '300', messagetype: 'RichText/Html', content: 'new', from: '8:orgid:aaa', originalarrivaltime: '2026-10-23T12:00:00Z', properties: { pinned: pin } },
+  ] } } : { status: 404, body: {} });
+  const listed = await teamsPinned(client, new TeamsDirectory(), RID);
+  assert.deepEqual(listed.map((m) => m.id), [`${RID}/300`, `${RID}/100`]);
+});
+
+test('downloadUrl resolves a SharePoint share to the pre-signed Graph download url', async () => {
+  const shareUrl = 'https://contoso.sharepoint.com/sites/x/report.pdf';
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'graph-fixture', expires_in: 3600 } };
+    if (call.url.includes('/shares/u!') && call.url.endsWith('/driveItem')) {
+      return { body: { '@microsoft.graph.downloadUrl': 'https://presigned.example/download' } };
+    }
+    return { status: 404, body: {} };
+  });
+  assert.equal(await client.downloadUrl(shareUrl), 'https://presigned.example/download');
+  const driveItem = calls.find((c) => c.url.includes('/shares/u!'));
+  assert.ok(driveItem, 'the /shares/driveItem endpoint was called');
+  assert.match(String((driveItem!.headers as Record<string, string>).authorization ?? ''), /^Bearer /);
+  // An unresolvable driveItem leaves the url unchanged.
+  const { client: c2 } = fake((call) =>
+    call.url.includes('/oauth2/v2.0/token') ? { body: { access_token: 'g', expires_in: 3600 } } : { body: {} });
+  assert.equal(await c2.downloadUrl(shareUrl), shareUrl);
 });

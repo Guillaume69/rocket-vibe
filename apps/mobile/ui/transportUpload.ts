@@ -107,3 +107,43 @@ export const transportAssetExpo = expoTransportWith('asset');
 
 /** Custom emoji (`emoji-custom.create`), `emoji` field. */
 export const transportEmojiExpo = expoTransportWith('emoji');
+
+/**
+ * A raw binary PUT of the file body, for Microsoft Graph `/content` (Teams
+ * uploads). Unlike the multipart transport, the file name is in the URL, not a
+ * form field, so no named copy is needed; the bytes stream straight from the uri.
+ */
+export const transportBinaryExpo: TransportUpload = async (url, headers, file, onProgress, onCancelable) => {
+  const info = await FileSystem.getInfoAsync(file.uri);
+  if (!info.exists) {
+    throw new Error(`File not found (${file.name}), cache purged?`);
+  }
+  const task = FileSystem.createUploadTask(
+    url,
+    file.uri,
+    {
+      httpMethod: 'PUT',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      mimeType: file.type,
+      headers: { ...headers, 'content-type': file.type },
+    },
+    (progress) => {
+      if (progress.totalBytesExpectedToSend > 0) {
+        onProgress?.(progress.totalBytesSent / progress.totalBytesExpectedToSend);
+      }
+    },
+  );
+  onCancelable?.(() => task.cancelAsync());
+  let result;
+  try {
+    result = await task.uploadAsync();
+  } catch {
+    throw new RestError('Upload: server unreachable.', 0);
+  } finally {
+    reportUploadEnd();
+  }
+  if (result == null) {
+    throw new Error('Upload cancelled.');
+  }
+  return { status: result.status, body: result.body };
+};

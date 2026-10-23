@@ -21,6 +21,7 @@ export type SlackMethod =
   | 'reactions.remove'
   | 'conversations.mark'
   | 'conversations.info'
+  | 'conversations.rename'
   | 'files.getUploadURLExternal'
   | 'files.completeUploadExternal'
   | 'search.messages'

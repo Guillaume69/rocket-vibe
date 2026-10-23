@@ -134,6 +134,18 @@ pub fn open_slack(
     }
 }
 
+/// A Teams conversation's page in a call window that may pass through the
+/// Microsoft sign-in; the browser when the window cannot open.
+#[cfg(not(target_os = "linux"))]
+pub fn open_teams(widget: &impl IsA<gtk::Widget>, url: &str, room: &str, toast: impl Fn(String) + 'static) {
+    let title = crate::i18n::tf("call.window_title", &[("room", room)]);
+    if let Err(e) = rv_native::call_window(url, &title, rv_core::teams::translate::call_allowed) {
+        eprintln!("Teams call window not opened: {e}");
+        crate::cards::open_uri(widget, url);
+        toast(t("call.in_browser").to_owned());
+    }
+}
+
 /// The call at `url`, in its own window; `toast` says so when it goes to the browser instead.
 pub fn open(widget: &impl IsA<gtk::Widget>, url: &str, room: &str, toast: impl Fn(String) + 'static) {
     let (anchor, target) = (widget.clone().upcast::<gtk::Widget>(), url.to_owned());

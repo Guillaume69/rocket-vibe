@@ -1,8 +1,7 @@
-//! A Rocket.Chat room's topic, description, announcement and read-only
-//! flag, edited from its information dialog by those my roles grant
-//! `edit-room`. Save sends only what changed (`rv_core::members::
-//! settings_changes`); the information dialog then reads the room again.
-//! Renaming is left out on purpose: it moves the room's address.
+//! A room's name and, on Rocket.Chat, its topic, description, announcement
+//! and read-only flag, edited from its information dialog: the fields its
+//! server lets me change (`Session::editable_settings`). Save sends only what
+//! changed; the information dialog then reads the room again.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -10,7 +9,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::members::RoomSettings;
+use rv_core::members::{EditableSettings, RoomSettings};
 use rv_core::session::Session;
 
 use super::{centered, column, dialog, label, t};
@@ -48,12 +47,22 @@ pub(super) fn edit(
     session: Arc<Session>,
     rid: String,
     before: RoomSettings,
+    editable: EditableSettings,
     saved: Rc<dyn Fn()>,
 ) -> adw::Dialog {
     let content = column();
-    let topic = text_field(&content, "info.topic", "room-topic", &before.topic);
-    let description = text_field(&content, "info.description", "room-description", &before.description);
-    let announcement = text_field(&content, "info.announcement", "room-announcement", &before.announcement);
+    let name = gtk::Entry::builder().text(&before.name).css_classes(["room-name"]).build();
+    if editable.name {
+        content.append(&label(t("native.room_name"), &["details-section"]));
+        content.append(&name);
+    }
+    let texts = column();
+    let topic = text_field(&texts, "info.topic", "room-topic", &before.topic);
+    let description = text_field(&texts, "info.description", "room-description", &before.description);
+    let announcement = text_field(&texts, "info.announcement", "room-announcement", &before.announcement);
+    if editable.texts {
+        content.append(&texts);
+    }
     let read_only = adw::SwitchRow::builder()
         .title(t("room_settings.read_only"))
         .subtitle(t("room_settings.read_only_hint"))
@@ -66,7 +75,9 @@ pub(super) fn edit(
         .margin_top(8)
         .build();
     flags.append(&read_only);
-    content.append(&flags);
+    if editable.read_only {
+        content.append(&flags);
+    }
     let status = centered("", &["details-sub"]);
     content.append(&status);
     let save = gtk::Button::builder()
@@ -80,9 +91,10 @@ pub(super) fn edit(
     window.add_css_class("room-settings-dialog");
 
     let current = {
-        let (topic, description, announcement, read_only) =
-            (topic.clone(), description.clone(), announcement.clone(), read_only.clone());
+        let (name, topic, description, announcement, read_only) =
+            (name.clone(), topic.clone(), description.clone(), announcement.clone(), read_only.clone());
         Rc::new(move || RoomSettings {
+            name: name.text().to_string(),
             topic: read(&topic),
             description: read(&description),
             announcement: read(&announcement),
@@ -93,8 +105,13 @@ pub(super) fn edit(
     // Save only means something once a field moved.
     let refresh = {
         let (save, current, before, busy) = (save.clone(), current.clone(), before.clone(), busy.clone());
-        Rc::new(move || save.set_sensitive(!busy.get() && current() != before))
+        Rc::new(move || {
+            let after = current();
+            save.set_sensitive(!busy.get() && after != before && !after.name.trim().is_empty())
+        })
     };
+    let r = refresh.clone();
+    name.connect_changed(move |_| r());
     for buffer in [&topic, &description, &announcement] {
         let r = refresh.clone();
         buffer.connect_changed(move |_| r());
@@ -114,7 +131,7 @@ pub(super) fn edit(
     let weak = window.downgrade();
     save.connect_clicked(move |button| {
         let after = current();
-        if busy.get() || after == before {
+        if busy.get() || after == before || after.name.trim().is_empty() {
             return;
         }
         busy.set(true);

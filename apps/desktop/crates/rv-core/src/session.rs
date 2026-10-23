@@ -585,11 +585,25 @@ impl Session {
                 LiveEvent::Event { name, data, broadcast } => match s.backend() {
                     Backend::Slack(_) => s.apply_slack(&name, &data).await,
                     Backend::Teams(teams) => {
-                        let teams = teams.clone();
-                        if let Some(m) = teams.apply_event(&name, &data).await
-                            && let Some(incoming) = s.incoming_message(&m)
-                        {
-                            let _ = s.events.send(SessionEvent::Incoming(Box::new(incoming)));
+                        if let Some((rid, who, on)) = teams.typing_event(&name, &data) {
+                            s.typing.lock().unwrap().apply(&rid, &who, on, Instant::now());
+                            let _ = s.events.send(SessionEvent::Typing(rid.clone()));
+                            if on {
+                                let weak = Arc::downgrade(&s);
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(live::TYPING_EXPIRY + Duration::from_millis(100)).await;
+                                    if let Some(s) = weak.upgrade() {
+                                        let _ = s.events.send(SessionEvent::Typing(rid));
+                                    }
+                                });
+                            }
+                        } else {
+                            let teams = teams.clone();
+                            if let Some(m) = teams.apply_event(&name, &data).await
+                                && let Some(incoming) = s.incoming_message(&m)
+                            {
+                                let _ = s.events.send(SessionEvent::Incoming(Box::new(incoming)));
+                            }
                         }
                     }
                     _ => s.apply_mattermost(&name, &data, &broadcast).await,
@@ -756,7 +770,26 @@ impl Session {
 
     /// Says I am typing in `rid`, where the account's protocol carries it
     /// (Slack's RTM, at most every few seconds); a no-op elsewhere.
-    pub fn set_typing(&self, rid: &str, active: bool) {
+    pub fn set_typing(self: &Arc<Self>, rid: &str, active: bool) {
+        if let Backend::Teams(teams) = self.backend() {
+            {
+                let mut sent = self.typing_sent.lock().unwrap();
+                if !active {
+                    sent.remove(rid);
+                } else {
+                    let now = Instant::now();
+                    if sent.get(rid).is_some_and(|at| now.duration_since(*at) < TYPING_EVERY) {
+                        return;
+                    }
+                    sent.insert(rid.to_owned(), now);
+                }
+            }
+            let (teams, rid) = (teams.clone(), rid.to_owned());
+            tokio::spawn(async move {
+                let _ = teams.set_typing(&rid, active).await;
+            });
+            return;
+        }
         let Transport::Slack(live) = &self.transport else { return };
         let mut sent = self.typing_sent.lock().unwrap();
         if !active {
@@ -904,7 +937,14 @@ impl Session {
                 let Ok(list) = mattermost::actions::statuses(&self.rest, &ids).await else { return };
                 (list, true)
             }
-            Backend::Slack(_) | Backend::Teams(_) => {
+            Backend::Teams(teams) => {
+                let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
+                ids.push(self.info.user_id.clone());
+                ids.sort();
+                ids.dedup();
+                (teams.get_presence(&ids).await, true)
+            }
+            Backend::Slack(_) => {
                 let Transport::Slack(live) = &self.transport else { return };
                 let mut ids: Vec<String> = self.store.rooms().into_iter().filter_map(|r| r.dm_other_uid).collect();
                 ids.push(self.info.user_id.clone());
@@ -963,7 +1003,7 @@ impl Session {
             Backend::Slack(slack) => {
                 slack.room_info(rid).ok_or_else(|| RestError::incomplete("room info: unknown room"))
             }
-            Backend::Teams(_) => Err(crate::slack::not_supported("room info")),
+            Backend::Teams(teams) => teams.room_info(rid).await,
             Backend::RocketChat => rocketchat::actions::room_info(&self.rest, rid).await,
         }
     }
@@ -986,7 +1026,7 @@ impl Session {
             Backend::Slack(slack) => {
                 return slack.profile(key, by_id).await.ok_or_else(|| RestError::incomplete("profile: unknown person"));
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("profile")),
+            Backend::Teams(teams) => return teams.profile(key, by_id).await,
             Backend::RocketChat => rocketchat::actions::profile(&self.rest, key, by_id).await?,
         };
         if let Some(etag) = &profile.avatar_etag {
@@ -999,7 +1039,7 @@ impl Session {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::search(&self.rest, mm, rid, text).await,
             Backend::Slack(slack) => slack.search(rid, text).await,
-            Backend::Teams(_) => Err(crate::slack::not_supported("search")),
+            Backend::Teams(teams) => teams.search(rid, text).await,
             Backend::RocketChat => rocketchat::actions::search(&self.rest, rid, text).await,
         }
     }
@@ -1251,7 +1291,10 @@ impl Session {
         let confirmed = match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::set_activity(&self.rest, &self.info.user_id, chosen).await?,
             Backend::Slack(_) => set_slack_presence(&self.rest, chosen).await?,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("presence")),
+            Backend::Teams(teams) => {
+                teams.set_presence(crate::teams::actions::presence_availability(chosen)).await?;
+                chosen
+            }
             Backend::RocketChat => {
                 let before = self.me().await?;
                 if self.closed.load(Ordering::Acquire) {
@@ -1788,6 +1831,29 @@ impl Session {
 
     /// Whether a message can be forwarded to another room: Rocket.Chat only
     /// (its server builds the quote of a permalink), not Mattermost and kChat.
+    /// The message actions the current provider supports, over the server's
+    /// own rules: Teams has no quotes, channel threads, pins or saves yet.
+    /// Whether the room header offers message search: not Teams yet.
+    pub fn search_available(&self) -> bool {
+        true
+    }
+
+    /// Whether starting a direct conversation is offered: not Teams yet.
+    pub fn direct_messages_available(&self) -> bool {
+        !matches!(self.backend(), Backend::Teams(_))
+    }
+
+    pub fn provider_actions(&self) -> crate::actions::ProviderActions {
+        match self.backend() {
+            Backend::Teams(_) => {
+                crate::actions::ProviderActions { quotes: false, threads: true, pins: true, stars: false }
+            }
+            Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => {
+                crate::actions::ProviderActions::default()
+            }
+        }
+    }
+
     pub fn forwarding_available(&self) -> bool {
         match self.backend() {
             Backend::RocketChat => true,
@@ -1919,7 +1985,7 @@ impl Session {
                 return Ok(());
             }
             Backend::Slack(slack) => return slack.pin(msg_id, true).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Teams(teams) => return teams.set_pinned(msg_id, true).await,
             Backend::RocketChat => {}
         }
         actions::pin(&self.rest, msg_id).await?;
@@ -1934,7 +2000,7 @@ impl Session {
                 return Ok(());
             }
             Backend::Slack(slack) => return slack.pin(msg_id, false).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("pin")),
+            Backend::Teams(teams) => return teams.set_pinned(msg_id, false).await,
             Backend::RocketChat => {}
         }
         actions::unpin(&self.rest, msg_id).await?;
@@ -1990,7 +2056,11 @@ impl Session {
                 let ids = slack.marked(rid, starred).await?;
                 return Ok(self.store.messages_by_id(&ids));
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("saved")),
+            Backend::Teams(_) if starred => return Err(crate::slack::not_supported("saved")),
+            Backend::Teams(teams) => {
+                let ids = teams.pinned(rid).await?;
+                return Ok(self.store.messages_by_id(&ids));
+            }
             Backend::RocketChat => {}
         }
         let docs = actions::marked(&self.rest, rid, starred).await?;
@@ -2110,8 +2180,15 @@ impl Session {
     ) -> Result<(), RestError> {
         let partial = dest.with_extension("part");
         let written = |e: std::io::Error| RestError::incomplete(&format!("{}: {e}", dest.display()));
+        let teams_share =
+            matches!(self.backend(), Backend::Teams(_)) && crate::teams::translate::is_graph_share(path_or_url);
         let result = async {
-            self.rest.download_protected(path_or_url, &partial, progress).await?;
+            if teams_share {
+                let Backend::Teams(teams) = self.backend() else { unreachable!() };
+                teams.download_file(path_or_url, &partial, progress).await?;
+            } else {
+                self.rest.download_protected(path_or_url, &partial, progress).await?;
+            }
             if self.media.encrypted(path_or_url) {
                 let bytes = self.media.open(path_or_url, std::fs::read(&partial).map_err(written)?)?;
                 std::fs::write(&partial, bytes).map_err(written)?;
@@ -2130,7 +2207,7 @@ impl Session {
             Backend::Mattermost(_) => {
                 return mattermost::actions::start_conference(&self.rest, rid).await;
             }
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.call_url(rid, self.teams_tenant()).await,
             Backend::Slack(_) => {
                 let team = self.info.slack.as_ref().map(|a| a.team_id.as_str()).unwrap_or_default();
                 return crate::slack::translate::huddle_url(team, rid)
@@ -2259,10 +2336,15 @@ impl Session {
                 return mattermost::actions::answer_conference(&self.rest, call_id).await;
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.join_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         actions::join_call(&self.rest, call_id).await
+    }
+
+    /// The Teams account's tenant, which the conversation links carry.
+    fn teams_tenant(&self) -> &str {
+        self.info.teams.as_ref().map(|a| a.tenant_id.as_str()).unwrap_or_default()
     }
 
     /// The meeting's link to share, without anyone's token.
@@ -2274,7 +2356,7 @@ impl Session {
                     .map(|url| crate::call::meeting_link(&url));
             }
             Backend::Slack(_) => return slack_call(call_id),
-            Backend::Teams(_) => return Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => return teams.join_url(call_id, self.teams_tenant()).await,
             Backend::RocketChat => {}
         }
         let url = match actions::call_url(&self.rest, call_id).await? {
@@ -2292,7 +2374,7 @@ impl Session {
                 return mm.load_thread(root_id).await;
             }
             Backend::Slack(slack) => return slack.load_thread(root_id).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("thread")),
+            Backend::Teams(teams) => return teams.load_thread(root_id).await,
             Backend::RocketChat => {}
         }
         const PAGE: usize = 100;
@@ -2447,7 +2529,8 @@ impl Session {
     pub fn members_available(&self, rid: &str) -> bool {
         match self.backend() {
             Backend::RocketChat => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
-            Backend::Mattermost(_) | Backend::Slack(_) | Backend::Teams(_) => false,
+            Backend::Teams(_) => matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p")),
+            Backend::Mattermost(_) | Backend::Slack(_) => false,
         }
     }
 
@@ -2468,6 +2551,9 @@ impl Session {
     /// A page of the room's members, owners and moderators first, `filter`
     /// searched by the server; read each time, never stored.
     pub async fn room_members(&self, rid: &str, filter: &str, offset: u32) -> Result<members::MemberPage, RestError> {
+        if let Backend::Teams(teams) = self.backend() {
+            return teams.members(rid).await;
+        }
         self.member_room(rid)?;
         rocketchat::actions::members(&self.rest, rid, filter, offset).await
     }
@@ -2476,7 +2562,8 @@ impl Session {
     /// (`set-moderator`, `set-owner`, `remove-user`); nothing when that
     /// could not be asked.
     pub async fn member_rights(&self, rid: &str) -> members::MemberRights {
-        if !self.members_available(rid) {
+        // Teams exposes the roster read-only: no add, remove or role change.
+        if !self.members_available(rid) || matches!(self.backend(), Backend::Teams(_)) {
             return members::MemberRights::default();
         }
         self.permissions(rid).await.map(|g| members::MemberRights::from_granted(&g)).unwrap_or_default()
@@ -2485,7 +2572,20 @@ impl Session {
     /// Whether my roles grant `edit-room`: the room's texts and read-only flag.
     pub async fn can_edit_room(&self, rid: &str) -> bool {
         self.members_available(rid)
+            && !matches!(self.backend(), Backend::Teams(_))
             && self.permissions(rid).await.is_some_and(|g| g.iter().any(|p| p == members::EDIT_ROOM))
+    }
+
+    /// What the room's settings editor may change here, None when it is not
+    /// offered: Rocket.Chat what `edit-room` grants, Mattermost, kChat and
+    /// Slack a channel's name, Teams a channel's name.
+    pub async fn editable_settings(&self, rid: &str) -> Option<members::EditableSettings> {
+        let channel = matches!(self.store.room_kind(rid).as_deref(), Some("c" | "p"));
+        match self.backend() {
+            Backend::RocketChat => self.can_edit_room(rid).await.then_some(members::EditableSettings::ALL),
+            Backend::Mattermost(_) | Backend::Slack(_) => channel.then_some(members::EditableSettings::NAME),
+            Backend::Teams(teams) => teams.renamable(rid).then_some(members::EditableSettings::NAME),
+        }
     }
 
     /// Gives (`put`) or takes a room role from `user_id`.
@@ -2514,9 +2614,29 @@ impl Session {
         before: &members::RoomSettings,
         after: &members::RoomSettings,
     ) -> Result<bool, RestError> {
-        self.member_room(rid)?;
-        let Some(fields) = members::settings_changes(before, after) else { return Ok(false) };
-        rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+        let name = members::renamed(before, after).map_err(RestError::incomplete)?;
+        match self.backend() {
+            Backend::RocketChat => {
+                self.member_room(rid)?;
+                let Some(fields) = members::settings_changes(before, after) else { return Ok(false) };
+                rocketchat::actions::save_room_settings(&self.rest, rid, fields).await?;
+            }
+            Backend::Mattermost(_) => {
+                let Some(name) = &name else { return Ok(false) };
+                mattermost::actions::rename(&self.rest, rid, name).await?;
+            }
+            Backend::Slack(slack) => {
+                let Some(name) = &name else { return Ok(false) };
+                slack.rename(rid, name).await?;
+            }
+            Backend::Teams(teams) => {
+                let Some(name) = &name else { return Ok(false) };
+                teams.rename(rid, name, self.teams_tenant()).await?;
+            }
+        }
+        if let Some(name) = name {
+            self.store.write(|w| w.set_room_display_name(rid, &name));
+        }
         Ok(true)
     }
 

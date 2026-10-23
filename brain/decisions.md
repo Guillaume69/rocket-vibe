@@ -381,6 +381,17 @@ answer but are invisible to the user in Slack. The app's star therefore maps to
 the other way round. Messages carry no saved flag, so the apps keep the set of saved ids
 from `saved.list`.
 
+## Teams calls are handed to Teams, not carried (2026-10-23)
+
+Carrying a Teams call's audio and video would mean a full WebRTC stack against Microsoft's
+calling service (its `epconv`/`conv` signaling with an SDP offer was captured), a large native
+build for one experimental provider. The user chose to handle it like kChat and Slack: open
+the call in a web view. No captured request gives a per-call join URL, so Join and the call
+button open the conversation's Teams deep link (a channel's with its Graph group id), where the
+running call shows its own Join. Desktop windows off Linux stay on Microsoft's pages, its
+sign-in included; Android hands the link to the system, so the Teams app takes it when
+installed. See [Teams](architecture/teams.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
@@ -451,3 +462,7 @@ from `saved.list`.
 - apps/desktop/crates/rv-core/src/slack/browser_login.rs (`open_signed_in`)
 - apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
 - apps/mobile/providers/slack/saved.ts
+
+## Channels are renamed from their information, address included (2026-10-23)
+
+Renaming was left out of the room settings editor on purpose, because on Rocket.Chat a new name moves the room's address and every link to it. User decision, 2026-10-23: rename wherever the server allows it. The editor now shows a Name field from what each server lets me change (`EditableSettings`): Rocket.Chat with `edit-room` (`roomName`, address included, the server checking it like a new channel's name), Mattermost and kChat a channel's display name (the address stays), Slack a channel's name, Teams a channel's name through its templates service. The apps trim it and refuse an empty one, since Rocket.Chat ignores it silently and Mattermost stores it. See [room info](features/room-info-and-profiles.md) and [Teams](architecture/teams.md).

@@ -11,7 +11,12 @@ import type { Session } from '../../lib/auth.ts';
 export const TEAMS_CLIENT_ID = '1fec8e78-bce4-4aaf-ab1b-5451cc387264';
 const LOGIN = 'https://login.microsoftonline.com';
 const SPACES = 'https://api.spaces.skype.com';
+const PRESENCE = 'https://presence.teams.microsoft.com';
+const SUBSTRATE = 'https://substrate.office.com';
 const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
+const GRAPH = 'https://graph.microsoft.com';
+/** Teams' templates service, which renames a channel (verified 2026-10-23). */
+const TEMPLATES = 'https://templates.teams.microsoft.com';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
 export const TEAMS_ORIGIN = 'https://teams.microsoft.com';
@@ -143,7 +148,7 @@ export function setTeamsCredentialSink(fn: (session: Session) => void): void {
 }
 
 /** The routes authz hands a tenant; only `https` Teams and Trouter hosts are kept. */
-export type TeamsRoutes = { chat: string; aggregator: string; trouter: string; registrar: string; ams: string; middleTier: string };
+export type TeamsRoutes = { chat: string; aggregator: string; trouter: string; registrar: string; ams: string; middleTier: string; presence: string; search: string };
 
 function onHosts(raw: unknown, suffixes: readonly string[]): string | null {
   if (typeof raw !== 'string') return null;
@@ -168,6 +173,8 @@ export function discoverRoutes(body: Record<string, unknown>): TeamsRoutes | nul
     registrar: onHosts(gtms.calling_registrarUrl, TEAMS_HOSTS) ?? '',
     ams: onHosts(gtms.ams, ['.asyncgw.teams.microsoft.com', '.teams.microsoft.com']) ?? '',
     middleTier: onHosts(gtms.middleTier, TEAMS_HOSTS) ?? '',
+    presence: onHosts(gtms.unifiedPresence, TEAMS_HOSTS) ?? '',
+    search: onHosts(gtms.search, ['.asyncgw.teams.microsoft.com', '.teams.microsoft.com']) ?? '',
   };
 }
 
@@ -181,6 +188,10 @@ export class TeamsTokens {
   private aggregatorLease: Lease | null = null;
   private skypeLease: Lease | null = null;
   private spacesLease: Lease | null = null;
+  private presenceLease: Lease | null = null;
+  private substrateLease: Lease | null = null;
+  private graphLease: Lease | null = null;
+  private templatesLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
 
@@ -243,6 +254,45 @@ export class TeamsTokens {
     if (held) return held;
     this.spacesLease = await this.access(SPACES);
     return this.spacesLease.value;
+  }
+
+  /** The presence bearer: the Unified Presence Service wants an AAD token for
+   *  its own scope, not the skypetoken (probed live 2026-10-22). */
+  async presence(): Promise<string> {
+    const held = fresh(this.presenceLease);
+    if (held) return held;
+    this.presenceLease = await this.access(PRESENCE);
+    return this.presenceLease.value;
+  }
+
+  /** The Substrate bearer, for message search. */
+  async substrate(): Promise<string> {
+    const held = fresh(this.substrateLease);
+    if (held) return held;
+    this.substrateLease = await this.access(SUBSTRATE);
+    return this.substrateLease.value;
+  }
+
+  /** The Microsoft Graph bearer, for file download (SharePoint/OneDrive drive
+   *  items). Minted from the same refresh token through the Teams first-party
+   *  client's pre-consent; carries Files.ReadWrite.All but not Chat.*. */
+  async graph(): Promise<string> {
+    const held = fresh(this.graphLease);
+    if (held) return held;
+    this.graphLease = await this.access(GRAPH);
+    return this.graphLease.value;
+  }
+
+  /** The templates bearer, for renaming a channel. */
+  async templates(): Promise<string> {
+    const held = fresh(this.templatesLease);
+    if (held) return held;
+    this.templatesLease = await this.access(TEMPLATES);
+    return this.templatesLease.value;
+  }
+
+  forgetTemplates(): void {
+    this.templatesLease = null;
   }
 
   /** The Skype token and the tenant's routes, from authz. */

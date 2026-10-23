@@ -2,18 +2,12 @@ import RocketVibeCore
 import RocketVibeKit
 import SwiftUI
 
-/// A Rocket.Chat channel's or group's members and settings, in its
-/// information: "N members" opens the list read from the server; with
-/// `edit-room`, the texts and the read-only switch have their editor.
-/// Renaming is left out on purpose: it moves the room's address.
+/// A channel's or group's members, in its information: "N members" opens
+/// the list read from the server.
 struct MembersSection: View {
     let model: RoomModel
     let details: RoomDetails?
-    /// The room was saved: its information is read again.
-    let saved: () -> Void
     @State private var listing = false
-    @State private var editing = false
-    @State private var canEdit = false
 
     var body: some View {
         Section {
@@ -22,21 +16,40 @@ struct MembersSection: View {
             } label: {
                 Label(details?.members.map { L("members.count", count: Int($0)) } ?? L("members.title"), systemImage: "person.2")
             }
-            if canEdit, details != nil {
+        }
+        .modalOverlay(isPresented: $listing, style: .sheet(width: 480, height: 620)) { MembersView(model: model) }
+    }
+}
+
+/// The room's editor, offered with what its server lets me change
+/// (`editableSettings`): Rocket.Chat the name, texts and read-only switch
+/// `edit-room` grants, Mattermost, kChat, Slack and Teams a channel's name.
+struct RoomSettingsSection: View {
+    let model: RoomModel
+    let details: RoomDetails?
+    /// The room was saved: its information is read again.
+    let saved: () -> Void
+    @State private var editing = false
+    @State private var editable: EditableSettings?
+
+    var body: some View {
+        Section {
+            if editable != nil, details != nil {
                 Button(L("room_settings.edit")) { editing = true }
             }
         }
-        .task(id: model.rid) { canEdit = await model.canEditRoom() }
-        .modalOverlay(isPresented: $listing, style: .sheet(width: 480, height: 620)) { MembersView(model: model) }
+        .task(id: model.rid) { editable = await model.editableSettings() }
         .modalOverlay(isPresented: $editing, style: .card) {
-            if let details { RoomSettingsEditor(model: model, before: RoomSettings(details), saved: saved) }
+            if let details, let editable {
+                RoomSettingsEditor(model: model, before: RoomSettings(details), editable: editable, saved: saved)
+            }
         }
     }
 }
 
 extension RoomSettings {
     init(_ details: RoomDetails) {
-        self.init(topic: details.topic ?? "", description: details.description ?? "",
+        self.init(name: details.name, topic: details.topic ?? "", description: details.description ?? "",
                   announcement: details.announcement ?? "", readOnly: details.readOnly)
     }
 }
@@ -192,12 +205,13 @@ struct MembersView: View {
     }
 }
 
-/// Topic, description, announcement and the read-only switch, for those
-/// whose roles grant `edit-room`; Save sends only what changed.
+/// The name, texts and read-only switch the server lets me change; Save
+/// sends only what changed, never an emptied name.
 struct RoomSettingsEditor: View {
     @Environment(\.closeModal) var close
     let model: RoomModel
     let before: RoomSettings
+    let editable: EditableSettings
     let saved: () -> Void
     @State private var draft: RoomSettings?
     @State private var saving = false
@@ -207,13 +221,18 @@ struct RoomSettingsEditor: View {
         let current = draft ?? before
         VStack(alignment: .leading, spacing: 10) {
             Text(L("room_settings.edit")).font(.headline)
-            field(L("info.topic"), \.topic, lines: 1 ... 3).firstModalField()
-            field(L("info.description"), \.description, lines: 2 ... 6)
-            field(L("info.announcement"), \.announcement, lines: 2 ... 6)
-            Toggle(isOn: Binding(get: { current.readOnly },
-                                 set: { var next = draft ?? before; next.readOnly = $0; draft = next })) {
-                Text(L("room_settings.read_only"))
-                Text(L("room_settings.read_only_hint"))
+            if editable.name { field(L("native.room_name"), \.name, lines: 1 ... 1).firstModalField() }
+            if editable.texts {
+                field(L("info.topic"), \.topic, lines: 1 ... 3)
+                field(L("info.description"), \.description, lines: 2 ... 6)
+                field(L("info.announcement"), \.announcement, lines: 2 ... 6)
+            }
+            if editable.readOnly {
+                Toggle(isOn: Binding(get: { current.readOnly },
+                                     set: { var next = draft ?? before; next.readOnly = $0; draft = next })) {
+                    Text(L("room_settings.read_only"))
+                    Text(L("room_settings.read_only_hint"))
+                }
             }
             if let failure { Text(L(failure)).foregroundStyle(Vibe.pink) }
             HStack {
@@ -221,7 +240,7 @@ struct RoomSettingsEditor: View {
                 Button(L("actions.cancel")) { close() }
                 Button(L("settings.save")) { save(current) }
                     .windowShortcut(.defaultAction)
-                    .disabled(saving || current == before)
+                    .disabled(saving || current == before || current.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(20)
@@ -240,7 +259,7 @@ struct RoomSettingsEditor: View {
     }
 
     func save(_ after: RoomSettings) {
-        guard !saving, after != before else { return }
+        guard !saving, after != before, !after.name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         saving = true
         failure = nil
         Task {

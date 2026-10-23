@@ -6,9 +6,9 @@
  */
 
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { ProviderActions, ReadObservation, RoomInformation } from '../../lib/provider.ts';
+import type { EditableSettings, ProviderActions, ReadObservation, RoomInformation, RoomSettingsChange } from '../../lib/provider.ts';
 import type { SlackClient } from './client.ts';
-import { SlackError, compareTimestamp } from './client.ts';
+import { SlackError, compareTimestamp, record } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
 import type { SlackHistory } from './history.ts';
 import type { SlackLive } from './live.ts';
@@ -44,8 +44,34 @@ export class SlackActions implements ProviderActions {
     this.saved = options.saved;
   }
 
-  roomInfo(_rid: string): Promise<RoomInformation> {
-    return unsupported();
+  /** A conversation's name, kind, topic, purpose and member count, read from `conversations.info`. */
+  async roomInfo(rid: string): Promise<RoomInformation> {
+    const c = record((await this.client.call('conversations.info', { channel: rid, include_num_members: true })).channel);
+    const direct = c.is_im === true || c.is_mpim === true;
+    const value = (key: string): string | null => {
+      const v = (c[key] as Doc | undefined)?.value;
+      return typeof v === 'string' && v !== '' ? v : null;
+    };
+    return {
+      id: rid,
+      name: direct ? '' : typeof c.name === 'string' ? c.name : rid,
+      type: direct ? 'd' : c.is_private === true ? 'p' : 'c',
+      topic: value('topic'),
+      description: value('purpose'),
+      announcement: null,
+      members: typeof c.num_members === 'number' ? c.num_members : null,
+      readOnly: false,
+    };
+  }
+
+  /** A channel's name, which Slack checks against its own rules (lower case, no spaces). */
+  async editableSettings(rid: string): Promise<EditableSettings | null> {
+    const info = await this.roomInfo(rid);
+    return info.type === 'd' ? null : { name: true, texts: false, readOnly: false };
+  }
+
+  async saveRoomSettings(rid: string, fields: RoomSettingsChange): Promise<void> {
+    if (fields.name !== undefined) await this.client.call('conversations.rename', { channel: rid, name: fields.name });
   }
 
   async react(rid: string, mid: string, emoji: string, put: boolean): Promise<void> {

@@ -139,11 +139,12 @@ function Call({
     let alive = true;
     void (async () => {
       try {
-        const slack = client.kind === 'slack';
-        if (!slack) await requestCameraMic();
+        // Slack's huddles and Teams' calls run in their own app or the browser.
+        const external = client.kind === 'slack' || client.kind === 'teams';
+        if (!external) await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
         if (!alive) return;
-        if (slack) {
+        if (external) {
           await Linking.openURL(u);
           router.back();
         } else if (originOf(u) === null) {

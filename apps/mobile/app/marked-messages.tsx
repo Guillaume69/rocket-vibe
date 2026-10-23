@@ -53,6 +53,7 @@ export default function MarkedMessagesScreen() {
       c={c}
       client={state.client}
       actions={sync.actions}
+      stars={(sync.capabilities.stars ?? sync.capabilities.marks) !== false}
       rid={rid}
       me={state.session.username}
     />
@@ -63,12 +64,14 @@ function MarkedMessages({
   c,
   client,
   actions,
+  stars,
   rid,
   me,
 }: {
   c: Colors;
   client: RestClient;
   actions: ProviderActions;
+  stars: boolean;
   rid: string;
   me: string;
 }) {
@@ -110,7 +113,7 @@ function MarkedMessages({
     <View style={[styles.full, { backgroundColor: c.background }]}>
       <Stack.Screen options={{ title: t('marked.title') }} />
       <View style={styles.tabs} accessibilityRole="tablist">
-        {(['pinned', 'starred'] as const).map((o) => {
+        {(stars ? (['pinned', 'starred'] as const) : (['pinned'] as const)).map((o) => {
           const active = o === tab;
           return (
             <Tappable

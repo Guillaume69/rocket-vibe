@@ -1652,12 +1652,14 @@ impl ChatPage {
             previous.set_available(false);
         }
         self.wa_error.replace(None);
-        self.new_conversation.set_visible(true);
-        self.search_button.set_visible(true);
+        let dms = session.as_ref().is_none_or(|s| s.direct_messages_available());
+        let search = session.as_ref().is_none_or(|s| s.search_available());
+        self.new_conversation.set_visible(dms);
+        self.search_button.set_visible(search);
         self.marked_button.set_visible(true);
-        self.search_button.set_sensitive(true);
+        self.search_button.set_sensitive(search);
         self.marked_button.set_sensitive(true);
-        self.local_search_button.set_visible(session.is_some());
+        self.local_search_button.set_visible(session.is_some() && search);
         self.set_loading(false);
         if let Some(s) = &session {
             let host = url::Url::parse(&s.info.base_url).ok().and_then(|u| u.host_str().map(str::to_owned));
@@ -3713,6 +3715,16 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
+        #[cfg(not(target_os = "linux"))]
+        if self.session().is_some_and(|s| s.info.teams.is_some()) {
+            let weak = Rc::downgrade(self);
+            crate::call_window::open_teams(&self.split, url, room, move |text| {
+                if let Some(this) = weak.upgrade() {
+                    this.toast(text);
+                }
+            });
+            return;
+        }
         let slack = self.session().filter(|s| s.info.slack.is_some());
         #[cfg(not(target_os = "linux"))]
         if let Some(cookie) = slack.as_ref().and_then(|s| s.huddle_cookie()) {

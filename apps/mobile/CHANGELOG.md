@@ -7,12 +7,25 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+- Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
+
+### Added
+- Rename a channel from its information: on Rocket.Chat with the right to edit the room (its address changes with it), the display name on Mattermost and kChat, and the name on Slack and Microsoft Teams (experimental). An empty name is refused. On Slack, the room information (name, topic, purpose and member count) now opens too.
+- Microsoft Teams (experimental): calls. A call started in a conversation shows as a call card with Join, and once over as the call's length; Join on a channel call opens the call itself, and the call button (or Join on a chat call) the conversation, in the Teams app (or the browser). The app does not carry a Teams call's audio or video itself.
+- Microsoft Teams (experimental): send a file to a channel. It is stored in the channel's SharePoint folder, like the Teams app does, and shows as a downloadable file; no inline image preview yet, and a chat cannot receive files this way.
+- Microsoft Teams (experimental): pin and unpin a channel message, see which messages are pinned, and list a room's pinned messages (among its latest 200) in the pinned panel, which shows no saved tab on Teams.
+- Microsoft Teams (experimental): download a file shared in a conversation.
+- Microsoft Teams (experimental): the room's member list, each person with their role (read-only; Teams offers no add, remove or role change here).
+- Microsoft Teams (experimental): search a room's messages (through Microsoft Search); matches show their text, author and time and open the room. Teams' search index has no per-message id, so it cannot jump to the exact message.
+- Microsoft Teams (experimental): a room information panel showing the conversation's name, kind and topic, and a profile card on tapping an author or a direct conversation showing their name, work email and whether the account is a bot. The room topic, the profile card and presence (who is online, away or busy) are all read from the live service.
+
 ## [0.21.0] - 2026-10-22
 
 ### Added
 
 - Settings > Notifications warns when Android does not let the app show an incoming call over the lock screen (Android 14 and later can withdraw it), and its Allow opens the system setting.
-- Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Microsoft Teams as an experimental server kind, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and opens Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting, marking read, the typing indicator, channel thread replies and presence (who is online, away or busy; setting your own status).
 - Group direct messages on Rocket.Chat, Mattermost and kChat accounts: in New conversation, tick several people (up to seven), remove one by tapping their chip, then Start.
 
 ### Fixed

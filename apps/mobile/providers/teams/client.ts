@@ -15,7 +15,26 @@ export function serviceUrl(base: string, segments: readonly string[], query = ''
   return `${base.replace(/\/+$/, '')}/${path}${query ? `?${query}` : ''}`;
 }
 
+const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** base64url of a string's UTF-8 bytes, no padding (the Graph `/shares` `u!`
+ *  encoding, matching the Rust side's URL_SAFE_NO_PAD). */
+export function base64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i]! << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    const chars = Math.ceil((Math.min(3, bytes.length - i) * 8) / 6);
+    for (let j = 0; j < chars; j++) out += BASE64URL[(n >> (18 - 6 * j)) & 63];
+  }
+  return out;
+}
+
 export type Answer = { status: number; body: Doc };
+
+/** A file stored in a channel's SharePoint folder, as the chat-service
+ *  message's `properties.files` entry needs it. */
+export type TeamsFileRef = { itemId: string; name: string; webUrl: string; site: string; unique: string };
 
 export type TeamsClientOptions = { fetch?: typeof fetch; onRejected?: () => void };
 
@@ -23,6 +42,8 @@ export class TeamsClient {
   readonly tokens: TeamsTokens;
   private readonly options: TeamsClientOptions;
   private readonly fetcher: typeof fetch;
+  /** A channel's SharePoint files folder (Graph drive id, folder item id), cached per room. */
+  private readonly drives = new Map<string, { drive: string; folder: string }>();
 
   constructor(tokens: TeamsTokens, options: TeamsClientOptions = {}) {
     this.tokens = tokens;
@@ -84,6 +105,84 @@ export class TeamsClient {
     }
   }
 
+  /** Presence for a batch of people (UPS getpresence), AAD-bearer auth. */
+  async getPresence(mris: string[]): Promise<Doc[]> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.presence || mris.length === 0) return [];
+    const bearer = await this.tokens.presence();
+    const url = `${routes.presence}/v1/presence/getpresence/`;
+    const answer = await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', mris.map((mri) => ({ mri })));
+    const body = answer.body as unknown;
+    if (Array.isArray(body)) return body as Doc[];
+    const responses = (body as Doc).responses;
+    return Array.isArray(responses) ? (responses as Doc[]) : [];
+  }
+
+  /** Sets my availability (UPS forceavailability), with the presence bearer. */
+  async setPresence(availability: string): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.presence) return;
+    const bearer = await this.tokens.presence();
+    const url = `${routes.presence}/v1/me/forceavailability/`;
+    await this.send(url, ['authorization', `Bearer ${bearer}`], 'PUT', { availability });
+  }
+
+  /** Short profiles (name, title, avatar etag) by MRI, via the middle tier with
+   *  the Spaces bearer. Best effort: returns [] when the route or token is absent. */
+  async profiles(mris: string[]): Promise<Doc[]> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.middleTier || mris.length === 0) return [];
+    const bearer = await this.tokens.spaces();
+    const url = `${routes.middleTier}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true`;
+    const answer = await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', mris);
+    const body = answer.body as unknown;
+    if (Array.isArray(body)) return body as Doc[];
+    const value = (body as Doc).value;
+    return Array.isArray(value) ? (value as Doc[]) : [];
+  }
+
+  /** The chat service's conversation document (topic, members), best effort. */
+  async roomDocument(rid: string): Promise<Doc> {
+    const url = await this.conversation(rid, [], 'view=msnp24Equivalent');
+    return (await this.chat('GET', url)).body;
+  }
+
+  /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */
+  async roster(rid: string): Promise<Doc> {
+    const { routes } = await this.tokens.chat();
+    const url = serviceUrl(`${routes.chat}/v1`, ['threads', rid], 'view=msnp24Equivalent&threadProperties=1');
+    return (await this.chat('GET', url)).body;
+  }
+
+  /** Resolve a Teams shared file's SharePoint/OneDrive url to a directly
+   *  fetchable, pre-signed url through Graph: `GET /shares/u!{base64url}/
+   *  driveItem` carries `@microsoft.graph.downloadUrl`, which needs no auth.
+   *  Returns the input url when the driveItem has no download url. */
+  async downloadUrl(url: string): Promise<string> {
+    const bearer = await this.tokens.graph();
+    const enc = base64Url(url);
+    const answer = await this.send(
+      `https://graph.microsoft.com/v1.0/shares/u!${enc}/driveItem`,
+      ['authorization', `Bearer ${bearer}`],
+      'GET',
+    );
+    const resolved = (answer.body as Doc)['@microsoft.graph.downloadUrl'];
+    return typeof resolved === 'string' && resolved !== '' ? resolved : url;
+  }
+
+  /** Message search through the Substrate query API, with its own bearer. */
+  async search(text: string): Promise<Doc> {
+    const bearer = await this.tokens.substrate();
+    const cvid = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const body = {
+      Cvid: cvid,
+      Scenario: { Name: 'teamsmessages' },
+      EntityRequests: [{ EntityType: 'Message', ContentSources: ['Teams'], Query: { QueryString: text }, Size: 50 }],
+    };
+    const answer = await this.send('https://substrate.office.com/search/api/v2/query', ['authorization', `Bearer ${bearer}`], 'POST', body);
+    return answer.body;
+  }
+
   /** The aggregator's list of chats and teams. */
   async snapshot(): Promise<Doc> {
     const { routes } = await this.tokens.chat();
@@ -99,6 +198,105 @@ export class TeamsClient {
         return this.rejected(again);
       }
     }
+  }
+
+  /** Pins or unpins a channel post through the CSA aggregator (its bearer).
+   *  Channel-scoped: the post lives under its parent team. Mirrors
+   *  `TeamsSync::set_pinned` on the desktop side. */
+  async setPinned(team: string, channel: string, post: string, on: boolean): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    const url = serviceUrl(routes.aggregator, ['api', 'v1', 'teams', team, 'channels', channel, 'posts', post, 'pin']);
+    const method = on ? 'POST' : 'DELETE';
+    try {
+      await this.send(url, ['authorization', `Bearer ${await this.tokens.aggregator()}`], method);
+    } catch (e) {
+      if (!(e instanceof TeamsError) || e.status !== 401) throw e;
+      this.tokens.forgetAggregator();
+      try {
+        await this.send(url, ['authorization', `Bearer ${await this.tokens.aggregator()}`], method);
+      } catch (again) {
+        this.rejected(again);
+      }
+    }
+  }
+
+  /** Renames a channel as Teams' web app does: its templates service under the
+   *  fabric route, addressed by the team's Graph group and the channel's
+   *  Substrate group. Mirrors `TeamsSync::rename` in the desktop core. */
+  async rename(group: string, substrateGroup: string, tenant: string, name: string): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    const base = `${routes.aggregator.replace('/api/csa/', '/fabric/')}/templates`;
+    const url = serviceUrl(base, ['api', 'teams', group, 'channels', `OID:${substrateGroup}@${tenant}`], 'forceSync=false');
+    const body = { displayName: name };
+    try {
+      await this.send(url, ['authorization', `Bearer ${await this.tokens.templates()}`], 'PATCH', body);
+    } catch (e) {
+      if (!(e instanceof TeamsError) || e.status !== 401) throw e;
+      this.tokens.forgetTemplates();
+      try {
+        await this.send(url, ['authorization', `Bearer ${await this.tokens.templates()}`], 'PATCH', body);
+      } catch (again) {
+        this.rejected(again);
+      }
+    }
+  }
+
+  /** A Graph GET with the Graph bearer, as a document. */
+  private async graph(url: string): Promise<Doc> {
+    return (await this.send(url, ['authorization', `Bearer ${await this.tokens.graph()}`], 'GET')).body;
+  }
+
+  /** The Graph group id of the team a channel belongs to, by scanning my joined
+   *  teams for the one whose channels include it. A chat has none. */
+  async parentTeam(channel: string): Promise<string> {
+    const teams = await this.graph('https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id');
+    for (const team of Array.isArray(teams.value) ? (teams.value as Doc[]) : []) {
+      const gid = typeof team.id === 'string' ? team.id : null;
+      if (!gid) continue;
+      const chans = await this.graph(`https://graph.microsoft.com/v1.0/teams/${gid}/channels?$select=id`);
+      if ((Array.isArray(chans.value) ? (chans.value as Doc[]) : []).some((c) => c.id === channel)) return gid;
+    }
+    throw new TeamsError('team_not_found');
+  }
+
+  /** (Graph drive id, folder item id) of a channel's files folder, cached per room. */
+  async channelDrive(rid: string): Promise<{ drive: string; folder: string }> {
+    const hit = this.drives.get(rid);
+    if (hit) return hit;
+    const gid = await this.parentTeam(rid);
+    const ff = await this.graph(
+      `https://graph.microsoft.com/v1.0/teams/${gid}/channels/${rid}/filesFolder?$select=id,parentReference`,
+    );
+    const parent = ff.parentReference as Doc | undefined;
+    const drive = typeof parent?.driveId === 'string' ? parent.driveId : null;
+    const folder = typeof ff.id === 'string' ? ff.id : null;
+    if (!drive || !folder) throw new TeamsError('files_folder');
+    const pair = { drive, folder };
+    this.drives.set(rid, pair);
+    return pair;
+  }
+
+  /** The Graph `/content` upload url for a named file in a channel's folder. */
+  async contentUrl(rid: string, name: string): Promise<string> {
+    const { drive, folder } = await this.channelDrive(rid);
+    return `https://graph.microsoft.com/v1.0/drives/${drive}/items/${folder}:/${encodeURIComponent(name)}:/content`;
+  }
+
+  /** The uploaded file re-read for its SharePoint ids (the message payload needs them). */
+  async fileRef(rid: string, name: string): Promise<TeamsFileRef> {
+    const { drive, folder } = await this.channelDrive(rid);
+    const item = await this.graph(
+      `https://graph.microsoft.com/v1.0/drives/${drive}/items/${folder}:/${encodeURIComponent(name)}?$select=id,name,webUrl,sharepointIds`,
+    );
+    const sp = item.sharepointIds as Doc | undefined;
+    const text = (o: Doc | undefined, k: string): string => (typeof o?.[k] === 'string' ? (o[k] as string) : '');
+    return {
+      itemId: text(item, 'id'),
+      name: text(item, 'name') || name,
+      webUrl: text(item, 'webUrl'),
+      site: text(sp, 'siteUrl'),
+      unique: text(sp, 'listItemUniqueId'),
+    };
   }
 
   /** A backward link is followed only on the chat service's own host. */

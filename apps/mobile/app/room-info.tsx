@@ -140,6 +140,11 @@ function RoomInfoContent({
         if (!native && client.kind === 'rocketchat') {
           void base.update(rooms).set({ readOnly: r.readOnly }).where(and(eq(rooms.rid, rid), ne(rooms.readOnly, r.readOnly))).catch(() => {});
         }
+        // A channel renamed from this sheet: Slack and Teams broadcast nothing
+        // the list would catch, so its row takes the name the server answers.
+        if (!native && r.type !== 'd' && r.name !== '') {
+          void base.update(rooms).set({ displayName: r.name }).where(and(eq(rooms.rid, rid), ne(rooms.displayName, r.name))).catch(() => {});
+        }
       })
       .catch((e: unknown) => {
         // The local database already filled in the essentials: failure only costs

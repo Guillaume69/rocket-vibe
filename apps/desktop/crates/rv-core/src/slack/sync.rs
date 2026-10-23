@@ -415,6 +415,19 @@ impl SlackSync {
         Ok(())
     }
 
+    /// Renames a channel; Slack's name is its address too, its own rules
+    /// (lower case, no spaces) checked by Slack.
+    pub async fn rename(&self, rid: &str, name: &str) -> Result<(), RestError> {
+        let body =
+            self.call("conversations.rename", vec![("channel", rid.to_owned()), ("name", name.to_owned())]).await?;
+        let renamed = body.pointer("/channel/name").and_then(Value::as_str).unwrap_or(name).to_owned();
+        if let Some(c) = self.conversations.lock().unwrap().get_mut(rid) {
+            c["name"] = Value::from(renamed.clone());
+        }
+        self.names.lock().unwrap().insert(rid.to_owned(), renamed);
+        Ok(())
+    }
+
     pub fn channel_name(&self, rid: &str) -> Option<String> {
         self.names.lock().unwrap().get(rid).cloned()
     }

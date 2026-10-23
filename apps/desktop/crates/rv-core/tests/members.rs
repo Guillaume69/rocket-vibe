@@ -219,8 +219,13 @@ async fn rights_come_from_my_global_and_room_roles() {
 async fn settings_send_only_what_changed() {
     let b = bench().await;
     let s = b.session.clone();
-    let before =
-        RoomSettings { topic: "Old".into(), description: "Same".into(), announcement: "Hi".into(), read_only: false };
+    let before = RoomSettings {
+        name: "ops".into(),
+        topic: "Old".into(),
+        description: "Same".into(),
+        announcement: "Hi".into(),
+        read_only: false,
+    };
     let from = b.server.requests().len();
     assert!(!s.save_room_settings("p1", &before, &before.clone()).await.unwrap(), "nothing to send");
     assert!(b.calls(from, "rooms.saveRoomSettings").is_empty());
@@ -230,6 +235,17 @@ async fn settings_send_only_what_changed() {
     let sent = b.calls(from, "rooms.saveRoomSettings");
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].1, json!({"rid": "p1", "roomTopic": "New", "roomAnnouncement": "", "readOnly": true}));
+
+    let from = b.server.requests().len();
+    let renamed = RoomSettings { name: " ops-2 ".into(), ..before.clone() };
+    assert!(s.save_room_settings("p1", &before, &renamed).await.unwrap());
+    assert_eq!(b.calls(from, "rooms.saveRoomSettings")[0].1, json!({"rid": "p1", "roomName": "ops-2"}));
+    let room = s.store.rooms().into_iter().find(|r| r.rid == "p1").unwrap();
+    assert_eq!(room.name, "ops-2");
+    let emptied = RoomSettings { name: "  ".into(), ..before.clone() };
+    let from = b.server.requests().len();
+    assert!(s.save_room_settings("p1", &before, &emptied).await.is_err());
+    assert!(b.calls(from, "rooms.saveRoomSettings").is_empty());
     b.close();
 }
 

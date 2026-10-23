@@ -2134,7 +2134,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "This is the last owner: make someone else owner first.",
     ),
     ("members.offline", "Serveur injoignable, réessayez.", "Server unreachable, try again."),
-    ("room_settings.edit", "Modifier le sujet, la description, l’annonce", "Edit topic, description, announcement"),
+    ("room_settings.edit", "Modifier le salon", "Edit the room"),
     ("room_settings.read_only", "Lecture seule", "Read-only"),
     ("room_settings.read_only_hint", "Seuls ceux qui en ont le droit peuvent écrire.", "Only those allowed can post."),
     ("room_settings.failed", "Le serveur a refusé la modification.", "The server refused the change."),

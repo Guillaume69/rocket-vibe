@@ -97,7 +97,7 @@ import { forgetLoadedRooms } from './loadedRooms.ts';
 import { createOpenRoomsStack } from './openRooms.ts';
 import { encryptLocalFile, hashedName } from './fileEncryption.ts';
 import { deleteIfTemporary } from './temporaryFiles.ts';
-import { transportExpo } from './transportUpload.ts';
+import { transportBinaryExpo, transportExpo } from './transportUpload.ts';
 import { NativeStore } from '../providers/vibez/store.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
 import * as FS from 'expo-file-system/legacy';
@@ -249,7 +249,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         unmountUsage = () => { unmountEmoji(); unmountSearch(); };
         const engine = new SyncEngine(store,provider.translator);
         const outbox = provider.createOutbox(createOutboxStore(raw,writeQueue),async () => {});
-        const files = provider.createUploadQueue(createUploadStore(raw,writeQueue),transportExpo,async()=>{});
+        const files = provider.createUploadQueue(createUploadStore(raw,writeQueue),provider.identity.kind==='teams'?transportBinaryExpo:transportExpo,async()=>{});
         // Passive read models the screens expect; WhatsApp has none of these.
         const e2e = new E2EEngine({client,uid:session.userId,storage:{read:async () => null,save:async () => {},clear:async () => {}}});
         const activity = new ActivityEngine();
@@ -339,7 +339,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const unemojis=mountProviderEmojis(client,provider);
         const unpreviews=mountNativePreviews(client,provider);
         const unfiles=mountNativeFiles(client,provider);
-        const files=provider.createUploadQueue(createUploadStore(raw,writeQueue),transportExpo,async()=>{},{nativeFiles});
+        const files=provider.createUploadQueue(createUploadStore(raw,writeQueue),provider.identity.kind==='teams'?transportBinaryExpo:transportExpo,async()=>{},{nativeFiles});
         runner = chat;
         const engine = new SyncEngine(createStore(raw,writeQueue),provider.translator);
         const outbox = provider.createOutbox(createOutboxStore(raw,writeQueue),async () => {});

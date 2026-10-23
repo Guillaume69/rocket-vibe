@@ -107,9 +107,9 @@ function offered(action: ActionMessage, capabilities: Capabilities): boolean {
     case 'edit': return capabilities.editing !== false;
     case 'delete': return capabilities.deletion !== false;
     case 'pin':
-    case 'unpin':
+    case 'unpin': return capabilities.marks !== false;
     case 'star':
-    case 'unstar': return capabilities.marks !== false;
+    case 'unstar': return (capabilities.stars ?? capabilities.marks) !== false;
     default: return true;
   }
 }

@@ -147,6 +147,22 @@ impl Directory {
         self.names.lock().unwrap().get(mri).cloned()
     }
 
+    /// The MRI known under this display name, only when exactly one person
+    /// carries it: the desktop opens a card by the shown name, not the MRI.
+    pub fn mri_for(&self, name: &str) -> Option<String> {
+        let names = self.names.lock().unwrap();
+        let mut found = None;
+        for (mri, who) in names.iter() {
+            if who == name {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(mri.clone());
+            }
+        }
+        found
+    }
+
     pub fn known(&self, mri: &str) -> bool {
         self.names.lock().unwrap().contains_key(mri)
     }
@@ -317,11 +333,207 @@ fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<St
     }
 }
 
+/// A call event's card: the message it is drawn as, its kind (`videoconf`
+/// running, `videoconf-ended` over), the length in seconds for one over, and
+/// the call id a running card joins with.
+struct CallCard {
+    server: String,
+    ts: Option<i64>,
+    kind: &'static str,
+    seconds: String,
+    call_id: Option<String>,
+}
+
+/// A Teams call (`Event/Call`) as the call message kChat's and Slack's calls
+/// also become. Its start (`callStarted`) is a running call whose call id is
+/// its own message id: Join opens it in Teams' web app, a channel's straight
+/// in the call (`meetup_link`), a chat's on the conversation. Its end
+/// is a separate event, in a channel a reply on the start, carrying each
+/// participant's `<duration>`: it is drawn in the start's place (the start's
+/// id and time, a Teams message id being its arrival time), and being newer it
+/// replaces the running card whichever arrives first. Read from a live
+/// channel call on 2026-10-23; the start's content is never rewritten.
+fn call_card(conversation: &str, raw: &Value, id: &str) -> Option<CallCard> {
+    let content = str_of(raw, "content").unwrap_or_default();
+    let event = tag_value(content, "callEventType").unwrap_or_default();
+    let ended = content.contains("<ended/>") || event.eq_ignore_ascii_case("callEnded");
+    if !ended {
+        return event.eq_ignore_ascii_case("callStarted").then(|| CallCard {
+            server: id.to_owned(),
+            ts: None,
+            kind: "videoconf",
+            seconds: String::new(),
+            call_id: Some(message_id(conversation, id)),
+        });
+    }
+    let longest = content
+        .split("<duration>")
+        .skip(1)
+        .filter_map(|rest| rest.split("</duration>").next()?.trim().parse::<u64>().ok())
+        .max();
+    let start = root_of(raw, id).or_else(|| {
+        str_of(raw, "parentMessageId")
+            .map(str::to_owned)
+            .or_else(|| int_of(raw, "parentMessageId").map(|n| n.to_string()))
+            .filter(|p| p != id && p.bytes().all(|b| b.is_ascii_digit()))
+    });
+    Some(CallCard {
+        ts: start.as_deref().and_then(|s| s.parse().ok()),
+        server: start.unwrap_or_else(|| id.to_owned()),
+        kind: "videoconf-ended",
+        seconds: longest.map(|s| s.to_string()).unwrap_or_default(),
+        call_id: None,
+    })
+}
+
+fn call_message(conversation: &str, raw: &Value, id: &str, directory: &Directory) -> Option<Message> {
+    let card = call_card(conversation, raw, id)?;
+    directory.learn(raw);
+    let at = instant(raw, "originalarrivaltime").or_else(|| instant(raw, "composetime")).or_else(|| id.parse().ok())?;
+    let author = str_of(raw, "from").map(mri_of).unwrap_or_default().to_owned();
+    let thread_id = match card.kind {
+        "videoconf" => root_of(raw, id).map(|root| message_id(conversation, &root)),
+        _ => None,
+    };
+    Some(Message {
+        id: message_id(conversation, &card.server),
+        rid: conversation.to_owned(),
+        text: Some(card.seconds),
+        ts: card.ts.unwrap_or(at),
+        author_name: Some(directory.shown(&author)),
+        author_id: author,
+        system_type: Some(card.kind.to_owned()),
+        thread_id,
+        call_id: card.call_id,
+        updated_at: at.max(int_of(raw, "version").unwrap_or(0)),
+        ..Default::default()
+    })
+}
+
+/// A channel's page in Teams' web app, where its running call shows a Join.
+pub fn channel_link(channel: &str, name: &str, group: &str, tenant: &str) -> String {
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/channel/").expect("Teams link base");
+    url.path_segments_mut().expect("https base").pop_if_empty().extend([channel, name]);
+    url.query_pairs_mut().append_pair("groupId", group).append_pair("tenantId", tenant);
+    url.to_string()
+}
+
+/// A channel call's join page in Teams' web app: the thread, the call's start
+/// message and its organizer, the starter (read from the web app's own call
+/// metadata, 2026-10-23).
+pub fn meetup_link(thread: &str, message: &str, tenant: &str, organizer: &str) -> String {
+    let thread = thread.replace(':', "%3a").replace('@', "%40");
+    let mut url = url::Url::parse(&format!("https://teams.microsoft.com/l/meetup-join/{thread}/{message}"))
+        .expect("Teams link base");
+    let context = format!("{{\"Tid\":{},\"Oid\":{}}}", Value::from(tenant), Value::from(organizer));
+    url.query_pairs_mut().append_pair("context", &context);
+    url.to_string()
+}
+
+/// The AAD object id of an `8:orgid:` MRI.
+pub fn object_id(mri: &str) -> Option<&str> {
+    mri.strip_prefix("8:orgid:").filter(|oid| !oid.is_empty())
+}
+
+/// A chat's page in Teams' web app, where its running call shows a Join.
+pub fn chat_link(chat: &str, tenant: &str) -> String {
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/chat/").expect("Teams link base");
+    url.path_segments_mut().expect("https base").pop_if_empty().extend([chat, "conversations"]);
+    url.query_pairs_mut().append_pair("tenantId", tenant);
+    url.to_string()
+}
+
+/// Where a Teams call window may go: Microsoft's own `https` pages (Teams'
+/// web app, its CDNs and the Microsoft sign-in it passes through) and the
+/// page's blobs. A tenant signing in through its own identity provider leaves
+/// this list, so that sign-in goes to the browser.
+pub fn call_allowed(url: &str, _call_url: &str) -> bool {
+    url == "about:blank"
+        || url == "about:srcdoc"
+        || url.strip_prefix("blob:").is_some_and(microsoft_web)
+        || microsoft_web(url)
+}
+
+fn microsoft_web(link: &str) -> bool {
+    const DOMAINS: [&str; 11] = [
+        "microsoft.com",
+        "cloud.microsoft",
+        "microsoftonline.com",
+        "live.com",
+        "office.com",
+        "office.net",
+        "msauth.net",
+        "msftauth.net",
+        "skype.com",
+        "teams.microsoft.us",
+        "microsoft",
+    ];
+    url::Url::parse(link).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.port().is_none()
+            && url.host_str().is_some_and(|h| DOMAINS.iter().any(|d| h == *d || h.ends_with(&format!(".{d}"))))
+    })
+}
+
 /// One chat service message, or None for a kind the app does not show.
+/// A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
+/// Teams shared files live there; AMS media (call recordings) does not and is
+/// left out, so it is never offered as a download that would fail.
+pub(crate) fn is_graph_share(url: &str) -> bool {
+    url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|h| h.ends_with(".sharepoint.com") || h.ends_with(".sharepoint-df.com") || h == "1drv.ms")
+}
+
+/// File attachments from the chat-service `properties.files` (a JSON string):
+/// each `{title, fileInfo.fileUrl}`. Only files on a SharePoint/OneDrive host
+/// are kept (downloaded through Graph `/shares`), as the renderer's RC shape
+/// `{title, title_link, type: "file", size}`. None when the message has no
+/// such file.
+pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
+    let files = raw.get("properties")?.get("files")?;
+    let parsed = match files {
+        Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
+        other => other.clone(),
+    };
+    let mut out = Vec::new();
+    for f in parsed.as_array()? {
+        let Some(url) =
+            f.pointer("/fileInfo/fileUrl").and_then(Value::as_str).or_else(|| f.get("fileUrl").and_then(Value::as_str))
+        else {
+            continue;
+        };
+        if !is_graph_share(url) {
+            continue;
+        }
+        let name = f
+            .get("title")
+            .or_else(|| f.get("filename"))
+            .or_else(|| f.get("fileName"))
+            .and_then(Value::as_str)
+            .unwrap_or("file");
+        let mut a = json!({ "title": name, "title_link": url, "type": "file" });
+        if let Some(size) = f.pointer("/fileInfo/fileSize").and_then(Value::as_i64).or_else(|| int_of(f, "size")) {
+            a["size"] = json!(size);
+        }
+        out.push(a);
+    }
+    (!out.is_empty()).then(|| Value::Array(out).to_string())
+}
+
 pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option<Message> {
     let id = str_of(raw, "id").map(str::to_owned).or_else(|| int_of(raw, "id").map(|n| n.to_string()))?;
     let kind = str_of(raw, "messagetype").unwrap_or_default();
-    let shown = matches!(kind, "Text" | "RichText/Html" | "RichText") || kind.starts_with("ThreadActivity/");
+    if kind == "Event/Call" {
+        return if deleted(raw) { None } else { call_message(conversation, raw, &id, directory) };
+    }
+    let attachments = file_attachments(raw);
+    let shown = matches!(kind, "Text" | "RichText/Html" | "RichText")
+        || kind.starts_with("ThreadActivity/")
+        || attachments.is_some();
     if !shown || deleted(raw) {
         return None;
     }
@@ -349,8 +561,9 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         system_type: system.map(|(t, _)| t.to_owned()),
         thread_id,
         edited_at,
-        attachments: None,
+        attachments,
         reactions: reactions(raw, directory),
+        pinned: props.get("pinned").is_some_and(|v| !v.is_null()),
         updated_at: edited_at.unwrap_or(at).max(int_of(raw, "version").unwrap_or(0)),
         ..Default::default()
     })
@@ -494,6 +707,52 @@ mod tests {
     use super::*;
 
     #[test]
+    fn graph_shares_are_sharepoint_or_onedrive_hosts() {
+        assert!(is_graph_share("https://contoso.sharepoint.com/sites/x/Shared%20Documents/a.pdf"));
+        assert!(is_graph_share("https://contoso-my.sharepoint.com/personal/u/Documents/a.pdf"));
+        assert!(is_graph_share("https://1drv.ms/x/s!abc"));
+        // AMS call-recording media is not a driveItem: left out.
+        assert!(!is_graph_share("https://as-api.asyncgw.teams.microsoft.com/v1/objects/0-weu-x/views/original"));
+        assert!(!is_graph_share("not a url"));
+    }
+
+    #[test]
+    fn file_attachments_keep_sharepoint_files_in_the_rc_shape() {
+        let raw = json!({
+            "messagetype": "RichText/Media_GenericFile",
+            "properties": { "files": serde_json::to_string(&json!([
+                { "title": "report.pdf", "fileInfo": { "fileUrl": "https://contoso.sharepoint.com/sites/x/report.pdf", "fileSize": 1234 } },
+                { "title": "clip.mp4", "fileInfo": { "fileUrl": "https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original" } }
+            ])).unwrap() }
+        });
+        let json = file_attachments(&raw).expect("one sharepoint file");
+        let parsed: Value = serde_json::from_str(&json).unwrap();
+        let files = parsed.as_array().unwrap();
+        assert_eq!(files.len(), 1, "the AMS media url is left out");
+        assert_eq!(files[0]["title"], json!("report.pdf"));
+        assert_eq!(files[0]["title_link"], json!("https://contoso.sharepoint.com/sites/x/report.pdf"));
+        assert_eq!(files[0]["type"], json!("file"));
+        assert_eq!(files[0]["size"], json!(1234));
+    }
+
+    #[test]
+    fn a_file_only_message_is_shown_through_its_attachment() {
+        let directory = Directory::default();
+        let raw = json!({
+            "id": "1792540504421",
+            "messagetype": "RichText/Media_GenericFile",
+            "from": "8:orgid:aaa",
+            "originalarrivaltime": "2026-10-20T23:55:04.4210000Z",
+            "content": "",
+            "properties": { "files": serde_json::to_string(&json!([
+                { "title": "report.pdf", "fileInfo": { "fileUrl": "https://contoso.sharepoint.com/sites/x/report.pdf" } }
+            ])).unwrap() }
+        });
+        let m = message("19:abc@thread.v2", &raw, &directory).expect("file message is shown");
+        assert!(m.attachments.is_some());
+    }
+
+    #[test]
     fn teams_times_carry_seven_fractional_digits() {
         let raw = json!({"originalarrivaltime": "2026-10-20T23:55:04.4210000Z"});
         assert_eq!(instant(&raw, "originalarrivaltime"), Some(1792540504421));
@@ -553,6 +812,10 @@ mod tests {
         assert_eq!(m.text.as_deref(), Some("hello"));
         assert_eq!((m.author_id.as_str(), m.author_name.as_deref()), ("8:orgid:aaa", Some("Ada")));
         assert_eq!(m.ts, 1792540521726);
+        assert!(!m.pinned);
+        let pinned =
+            raw("1792540521726", json!({"properties": {"pinned": "{\"creatorId\":\"8:orgid:aaa\",\"pinnedTime\":1}"}}));
+        assert!(message("19:c@thread.v2", &pinned, &d).unwrap().pinned);
         let edited = raw(
             "1792540521726",
             json!({"properties": {"edittime": "1792540590172", "emotions": [
@@ -602,6 +865,75 @@ mod tests {
         assert_eq!((m.system_type.as_deref(), m.text.as_deref()), (Some("au"), Some("Bob")));
         for kind in ["Event/Call", "ThreadActivity/MemberJoined", "Control/Typing"] {
             assert!(message("c", &raw("40", json!({"messagetype": kind})), &d).is_none(), "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_call_starts_as_a_join_card_and_its_end_replaces_it() {
+        let d = Directory::default();
+        let channel = "19:ch@thread.tacv2";
+        let start = raw(
+            "1792713340033",
+            json!({"messagetype": "Event/Call",
+                "content": "<partlist alt =\"\"></partlist><callEventType>callStarted</callEventType><callId>c1</callId>",
+                "conversationLink": format!("https://t/conversations/{channel};messageid=1792713340033")}),
+        );
+        let running = message(channel, &start, &d).unwrap();
+        assert_eq!(running.id, format!("{channel}/1792713340033"));
+        assert_eq!(running.system_type.as_deref(), Some("videoconf"));
+        assert_eq!(running.call_id.as_deref(), Some(running.id.as_str()));
+        assert_eq!(running.thread_id, None);
+        let end = raw(
+            "1792713355826",
+            json!({"messagetype": "Event/Call",
+                "content": "<ended/><partlist count=\"2\"><part><duration>76</duration></part><part><duration>40</duration></part></partlist><callEventType>callEnded</callEventType>",
+                "conversationLink": format!("https://t/conversations/{channel};messageid=1792713340033")}),
+        );
+        let over = message(channel, &end, &d).unwrap();
+        assert_eq!(over.id, running.id);
+        assert_eq!(over.ts, 1792713340033);
+        assert_eq!((over.system_type.as_deref(), over.text.as_deref()), (Some("videoconf-ended"), Some("76")));
+        assert_eq!((over.thread_id.clone(), over.call_id.clone()), (None, None));
+        assert!(over.updated_at > running.updated_at);
+        let csa = json!({"messagetype": "Event/Call", "id": "9", "parentMessageId": "5",
+            "originalarrivaltime": "2026-10-22T23:55:55.826Z", "content": "<ended/><callEventType>callEnded</callEventType>"});
+        assert_eq!(message(channel, &csa, &d).unwrap().id, format!("{channel}/5"));
+    }
+
+    #[test]
+    fn call_links_open_the_conversation_and_stay_on_microsoft() {
+        let link = channel_link("19:ch@thread.tacv2", "Général", "g-1", "t-1");
+        assert_eq!(
+            link,
+            "https://teams.microsoft.com/l/channel/19:ch@thread.tacv2/G%C3%A9n%C3%A9ral?groupId=g-1&tenantId=t-1"
+        );
+        assert_eq!(
+            chat_link("19:a_b@unq.gbl.spaces", "t-1"),
+            "https://teams.microsoft.com/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1"
+        );
+        assert_eq!(
+            meetup_link("19:ch@thread.tacv2", "1792769688903", "t-1", "o-1"),
+            "https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D"
+        );
+        assert_eq!(object_id("8:orgid:o-1"), Some("o-1"));
+        assert_eq!(object_id("8:live:bob"), None);
+        for ok in [
+            link.as_str(),
+            "https://teams.cloud.microsoft/v2/",
+            "https://login.microsoftonline.com/common/oauth2/authorize",
+            "https://statics.teams.cdn.office.net/x.js",
+            "about:blank",
+        ] {
+            assert!(call_allowed(ok, ""), "{ok}");
+        }
+        for no in [
+            "http://teams.microsoft.com/",
+            "https://evil.example/",
+            "https://microsoft.com.evil.example/",
+            "https://user@teams.microsoft.com/",
+            "https://idp.contoso.com/saml",
+        ] {
+            assert!(!call_allowed(no, ""), "{no}");
         }
     }
 

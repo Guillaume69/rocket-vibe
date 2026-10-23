@@ -6,6 +6,7 @@
  */
 
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
+import type { MemberPage, RoomMember } from '../../lib/provider.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -118,6 +119,18 @@ export class TeamsDirectory {
 
   shown(mri: string): string {
     return this.names.get(mri) ?? mri;
+  }
+
+  /** The MRI known under this display name, only when exactly one carries it:
+   *  a search hit names its author but gives no MRI. */
+  mriFor(name: string): string | null {
+    let found: string | null = null;
+    for (const [mri, who] of this.names) {
+      if (who !== name) continue;
+      if (found !== null) return null;
+      found = mri;
+    }
+    return found;
   }
 
   learn(raw: unknown): void {
@@ -282,11 +295,123 @@ export function reacted(raw: unknown, key: string, me: string): boolean {
   return emotions(raw).some((e) => str(e, 'key') === key && Array.isArray(e.users) && e.users.some((u) => str(u, 'mri') === me));
 }
 
+/** A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
+ *  Teams shared files live there; AMS media (call recordings) does not, so it
+ *  is never offered as a download that would fail. */
+export function isGraphShare(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host.endsWith('.sharepoint.com') || host.endsWith('.sharepoint-df.com') || host === '1drv.ms';
+  } catch {
+    return false;
+  }
+}
+
+/** File attachments from the chat service `properties.files` (a JSON string):
+ *  each `{title, fileInfo.fileUrl}`. Only SharePoint/OneDrive files are kept
+ *  (downloaded through Graph `/shares`), as the renderer's RC shape. */
+export function fileAttachments(raw: unknown): string | null {
+  const props = (raw as Doc).properties as Doc | undefined;
+  const files = props?.files;
+  let parsed: unknown = files;
+  if (typeof files === 'string') {
+    try { parsed = JSON.parse(files); } catch { return null; }
+  }
+  if (!Array.isArray(parsed)) return null;
+  const out: Doc[] = [];
+  for (const f of parsed as Doc[]) {
+    const info = f?.fileInfo as Doc | undefined;
+    const url = str(info, 'fileUrl') ?? str(f, 'fileUrl');
+    if (!url || !isGraphShare(url)) continue;
+    const name = str(f, 'title') ?? str(f, 'filename') ?? str(f, 'fileName') ?? 'file';
+    const a: Doc = { title: name, title_link: url, type: 'file' };
+    const size = int(info, 'fileSize') ?? int(f, 'size');
+    if (size !== null) a.size = size;
+    out.push(a);
+  }
+  return out.length ? JSON.stringify(out) : null;
+}
+
+/**
+ * A Teams call (`Event/Call`) as the call message kChat's and Slack's calls
+ * also become. Its start (`callStarted`) is a running call whose call id is
+ * its conversation: Join opens the conversation in Teams (`channelLink` /
+ * `chatLink`), where the running call is joined. Its end is a separate event,
+ * in a channel a reply on the start, carrying each participant's
+ * `<duration>`: it is drawn in the start's place (the start's id and time, a
+ * Teams message id being its arrival time), and being newer it replaces the
+ * running card whichever arrives first. Mirrors `call_card` in
+ * `apps/desktop/crates/rv-core/src/teams/translate.rs`.
+ */
+function callMessage(conversation: string, raw: unknown, id: string, directory: TeamsDirectory): LocalMessage | null {
+  const content = str(raw, 'content') ?? '';
+  const event = (tagValue(content, 'callEventType') ?? '').toLowerCase();
+  const ended = content.includes('<ended/>') || event === 'callended';
+  if (!ended && event !== 'callstarted') return null;
+  const at = instant(raw, 'originalarrivaltime') ?? instant(raw, 'composetime') ?? Number(id);
+  if (!Number.isFinite(at)) return null;
+  directory.learn(raw);
+  const author = mriOf(str(raw, 'from') ?? '');
+  const parent = str(raw, 'parentMessageId') ?? (int(raw, 'parentMessageId') !== null ? String(int(raw, 'parentMessageId')) : null);
+  const root = rootOf(raw, id);
+  const start = root ?? (parent && parent !== id && /^\d+$/.test(parent) ? parent : null);
+  const seconds = [...content.matchAll(/<duration>\s*(\d+)\s*<\/duration>/g)].map((m) => Number(m[1]));
+  return {
+    id: messageId(conversation, ended && start ? start : id),
+    rid: conversation,
+    text: ended ? (seconds.length ? String(Math.max(...seconds)) : '') : '',
+    ts: ended && start ? Number(start) : at,
+    authorId: author,
+    authorName: directory.shown(author),
+    systemType: ended ? 'videoconf-ended' : 'videoconf',
+    threadId: !ended && root ? messageId(conversation, root) : null,
+    threadCount: 0,
+    threadLast: null,
+    threadShown: false,
+    editedAt: null,
+    md: null,
+    attachments: null,
+    reactions: null,
+    urls: null,
+    callId: ended ? null : messageId(conversation, id),
+    encryptedRaw: null,
+    pinned: false,
+    starred: null,
+    updatedAt: Math.max(at, int(raw, 'version') ?? 0),
+  };
+}
+
+/** A channel's page in Teams, where its running call shows a Join. */
+export function channelLink(channel: string, name: string, group: string, tenant: string): string {
+  const query = new URLSearchParams({ groupId: group, tenantId: tenant });
+  return `https://teams.microsoft.com/l/channel/${encodeURIComponent(channel)}/${encodeURIComponent(name)}?${query}`;
+}
+
+/** A channel call's join page in Teams: the thread, the call's start message
+ *  and its organizer, the starter. Mirrors `meetup_link` in the desktop core. */
+export function meetupLink(thread: string, message: string, tenant: string, organizer: string): string {
+  const context = new URLSearchParams({ context: JSON.stringify({ Tid: tenant, Oid: organizer }) });
+  return `https://teams.microsoft.com/l/meetup-join/${thread.replaceAll(':', '%3a').replaceAll('@', '%40')}/${message}?${context}`;
+}
+
+/** The AAD object id of an `8:orgid:` MRI. */
+export function objectId(mri: string): string | null {
+  return mri.startsWith('8:orgid:') && mri.length > 8 ? mri.slice(8) : null;
+}
+
+/** A chat's page in Teams, where its running call shows a Join. */
+export function chatLink(chat: string, tenant: string): string {
+  return `https://teams.microsoft.com/l/chat/${encodeURIComponent(chat)}/conversations?${new URLSearchParams({ tenantId: tenant })}`;
+}
+
 /** One chat service message, or null for a kind the app does not show. */
 export function toMessage(conversation: string, raw: unknown, directory: TeamsDirectory): LocalMessage | null {
   const id = str(raw, 'id') ?? (int(raw, 'id') !== null ? String(int(raw, 'id')) : null);
   const kind = str(raw, 'messagetype') ?? '';
-  const shown = kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/');
+  if (kind === 'Event/Call') return id && !deleted(raw) ? callMessage(conversation, raw, id, directory) : null;
+  const attachments = fileAttachments(raw);
+  const shown =
+    kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/') || attachments !== null;
   if (!id || !shown || deleted(raw)) return null;
   directory.learn(raw);
   const activity = system(raw, directory);
@@ -310,15 +435,112 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     threadShown: false,
     editedAt: edited && edited > 0 ? edited : null,
     md: null,
-    attachments: null,
+    attachments,
     reactions: reactions(raw, directory),
     urls: null,
     callId: null,
     encryptedRaw: null,
-    pinned: false,
+    pinned: ((raw as Doc).properties as Doc | null | undefined)?.pinned != null,
     starred: null,
     updatedAt: Math.max(edited && edited > 0 ? edited : ts, int(raw, 'version') ?? 0),
   };
+}
+
+/** A short profile row (middle tier `fetchShortProfile`) as the profile card's
+ *  fields. A missing row still yields the name we already learned from messages,
+ *  so the card shows a name rather than an MRI even when the profile call fails. */
+export function profileFields(mri: string, row: unknown, directory: TeamsDirectory): Record<string, unknown> {
+  const name = str(row, 'displayName') ?? directory.name(mri);
+  if (name) directory.remember(mri, name);
+  const upn = str(row, 'userPrincipalName') ?? str(row, 'email');
+  const title = str(row, 'jobTitle');
+  return {
+    _id: mri,
+    username: upn ?? mri,
+    name: name ?? mri,
+    roles: [],
+    bio: title && title !== '' ? title : null,
+    bot: mri.startsWith('28:'),
+  };
+}
+
+/** The `threadProperties.topic` of a chat-service conversation, when set. The
+ *  live shape (probed 2026-10-22) carries a real topic but no description or
+ *  member count there, so those are left for the members list. */
+export function conversationTopic(doc: unknown): string | null {
+  const props = (doc as { threadProperties?: unknown } | null | undefined)?.threadProperties;
+  const value = str(props, 'topic');
+  return value && value.trim() !== '' ? value : null;
+}
+
+/** Substrate search hits for one room as messages. Keeps only hits whose
+ *  conversation is `rid`. Substrate indexes Teams messages from Exchange, so a
+ *  hit has no chat-service message id (the id is synthetic, prefixed so it never
+ *  collides with a real one) and names the author without an MRI (resolved from
+ *  the directory when known). */
+export function searchHits(body: unknown, rid: string, directory: TeamsDirectory): LocalMessage[] {
+  const sets = (body as { EntitySets?: unknown } | null | undefined)?.EntitySets;
+  const first = Array.isArray(sets) ? (sets[0] as { ResultSets?: unknown } | undefined) : undefined;
+  const resultSets = Array.isArray(first?.ResultSets) ? (first.ResultSets[0] as { Results?: unknown } | undefined) : undefined;
+  const results = resultSets?.Results;
+  if (!Array.isArray(results)) return [];
+  const out: LocalMessage[] = [];
+  for (const hit of results) {
+    const source = (hit as { Source?: unknown } | null | undefined)?.Source;
+    if (!source) continue;
+    if (str(source, 'ClientConversationId') !== rid && str(source, 'ClientThreadId') !== rid) continue;
+    const sent = str(source, 'DateTimeSent');
+    const ts = sent ? Date.parse(sent) : NaN;
+    if (!Number.isFinite(ts)) continue;
+    const email = (source as { From?: { EmailAddress?: unknown } }).From?.EmailAddress;
+    const name = str(email, 'Name');
+    const item = str(source, 'ImmutableId') ?? str(source, 'ItemId') ?? str(source, 'Id') ?? 'hit';
+    out.push({
+      id: `${rid}/search:${item}`,
+      rid,
+      text: str(source, 'Preview'),
+      ts,
+      authorId: (name && directory.mriFor(name)) || '',
+      authorName: name,
+      systemType: null,
+      threadId: null,
+      threadCount: 0,
+      threadLast: null,
+      threadShown: false,
+      editedAt: null,
+      md: null,
+      attachments: null,
+      reactions: null,
+      urls: null,
+      callId: null,
+      encryptedRaw: null,
+      pinned: false,
+      starred: null,
+      updatedAt: ts,
+    });
+  }
+  return out;
+}
+
+/** A threads-service roster as a member page: each row is `{id: <mri>, role}`,
+ *  the name resolved from the directory, optionally filtered by display name.
+ *  Read-only: Teams gives no add/remove/role-change route here. */
+export function rosterPage(body: unknown, directory: TeamsDirectory, filter: string): MemberPage {
+  const rows = (body as { members?: unknown } | null | undefined)?.members;
+  const needle = filter.trim().toLowerCase();
+  const members: RoomMember[] = [];
+  if (Array.isArray(rows)) {
+    for (const m of rows) {
+      const mri = str(m, 'id');
+      if (!mri) continue;
+      const name = directory.name(mri);
+      const username = directory.shown(mri);
+      if (needle && !username.toLowerCase().includes(needle) && !(name ?? '').toLowerCase().includes(needle)) continue;
+      const role = str(m, 'role');
+      members.push({ id: mri, username, name, status: null, avatarEtag: null, roles: role ? [role] : [] });
+    }
+  }
+  return { members, total: members.length };
 }
 
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {

@@ -18,6 +18,17 @@ pub const LOGIN: &str = "https://login.microsoftonline.com";
 pub const SPACES: &str = "https://api.spaces.skype.com";
 pub const AGGREGATOR: &str = "https://chatsvcagg.teams.microsoft.com";
 pub const AUTHZ: &str = "https://teams.microsoft.com/api/authsvc/v1.0/authz";
+/// The presence 401 named `login.microsoftonline.com`, so the Unified Presence
+/// Service wants an AAD bearer for its own scope, not the skypetoken.
+const PRESENCE_SCOPE: &str = "https://presence.teams.microsoft.com";
+/// Message search runs on the Substrate query API with a bearer for its scope.
+const SUBSTRATE: &str = "https://substrate.office.com";
+/// Teams' templates service, which renames a channel (its web app's own
+/// `PATCH .../fabric/<region>/templates/api/teams/...`, verified 2026-10-23).
+const TEMPLATES: &str = "https://templates.teams.microsoft.com";
+/// Microsoft Graph, for what the chat service does not reach: file download
+/// (SharePoint/OneDrive drive items), room-settings edits, pins.
+const GRAPH: &str = "https://graph.microsoft.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
@@ -102,9 +113,15 @@ impl std::fmt::Debug for DeviceCode {
 }
 
 pub async fn device_code() -> Result<DeviceCode, RestError> {
-    let scope = format!("{SPACES}/.default openid profile offline_access");
+    device_code_scope(&format!("{SPACES}/.default openid profile offline_access")).await
+}
+
+/// A device code for an explicit scope string. The normal sign-in uses the
+/// default (`device_code`); a probe can request broader Graph scopes here to
+/// check whether a tenant will consent to them, without changing sign-in.
+pub async fn device_code_scope(scope: &str) -> Result<DeviceCode, RestError> {
     let body =
-        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", &scope)])
+        form(&format!("{LOGIN}/organizations/oauth2/v2.0/devicecode"), &[("client_id", CLIENT_ID), ("scope", scope)])
             .await?;
     let field = |key: &str| body[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
     let verification_uri =
@@ -211,6 +228,605 @@ pub struct Routes {
     pub trouter: String,
     pub registrar: String,
     pub ams: String,
+    pub middle_tier: String,
+    pub presence: String,
+    pub search: String,
+}
+
+/// Status and raw body of a probe response, or the transport error.
+async fn describe(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            // The failing calls answered empty or non-JSON; these headers name the
+            // auth a 401 wants (WWW-Authenticate) and Teams' own error detail.
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let diagnostics = header("x-ms-diagnostics");
+            let text = resp.text().await.unwrap_or_default();
+            let body = match serde_json::from_str::<Value>(&text) {
+                Ok(json) => json,
+                Err(_) if text.is_empty() => Value::Null,
+                Err(_) => Value::String(text.chars().take(2000).collect()),
+            };
+            json!({
+                "status": status,
+                "body": body,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "x_ms_diagnostics": diagnostics,
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// A conversation GET described WITHOUT its message content: status, headers,
+/// the `threadProperties` key names, and the topic and member count only.
+async fn describe_conversation(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let diagnostics = header("x-ms-diagnostics");
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let props = body.get("threadProperties");
+            let keys: Vec<String> =
+                props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            json!({
+                "status": status,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "x_ms_diagnostics": diagnostics,
+                "type": body.get("type"),
+                "thread_property_keys": keys,
+                "topic": props.and_then(|p| p.get("topic")),
+                "membercount": props.and_then(|p| p.get("membercount")),
+                // Where do pins live? Report the doc's top-level and properties
+                // key names (no values) to locate a pinned-messages field.
+                "top_level_keys": body.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                "properties_keys": body
+                    .get("properties")
+                    .and_then(Value::as_object)
+                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// The threads document's `properties` object by STRUCTURE: its key names and
+/// whether the likely room-info fields are present. No values (topic and
+/// description are room metadata, but the probe only needs their presence).
+fn thread_properties_shape(body: &Value) -> Value {
+    let props = body.get("properties");
+    let keys: Vec<String> = props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    let has = |name: &str| props.and_then(|p| p.get(name)).is_some_and(|v| !v.is_null());
+    json!({
+        "property_keys": keys,
+        "has_description": has("description"),
+        "has_topic": has("topic"),
+        "has_spaceThreadTopic": has("spaceThreadTopic"),
+    })
+}
+
+/// The granted delegated scopes from an access token's `scp` claim (scope
+/// names only, not secrets), to tell which Graph calls the token can make.
+fn jwt_scopes(token: &str) -> String {
+    use base64::Engine;
+    let Some(payload) = token.split('.').nth(1) else { return String::new() };
+    let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else { return String::new() };
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("scp").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// GET /me, capturing my object id (needed to pick my own messages for the pin
+/// probe) and reporting status, key names and whether a job title is present.
+/// The id is my own and is not printed.
+async fn describe_me(r: Result<reqwest::Response, reqwest::Error>) -> (String, Value) {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let oid = body.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            (
+                oid,
+                json!({
+                    "status": status,
+                    "top_level_keys": keys,
+                    "has_job_title": body.get("jobTitle").is_some_and(|v| !v.is_null()),
+                }),
+            )
+        }
+        Err(e) => (String::new(), json!({ "error": e.to_string() })),
+    }
+}
+
+/// Verify the Graph file transport end to end. The token carries
+/// `Files.ReadWrite.All`/`Sites.ReadWrite.All` but not `Chat.*`. Upload a tiny
+/// probe file to the user's own OneDrive, download it directly and through
+/// `/shares/u!{base64}` (the path a Teams message's SharePoint url needs), then
+/// delete it. Self-cleaning; statuses and byte presence only, no content.
+async fn probe_graph_features(token: &str, _me_oid: &str) -> Value {
+    let gurl = |path: &str| format!("https://graph.microsoft.com/v1.0{path}");
+    let mut out = serde_json::Map::new();
+
+    let (up_status, item) = match http()
+        .put(gurl("/me/drive/root:/rv-vibe-probe.txt:/content"))
+        .bearer_auth(token)
+        .header("content-type", "text/plain")
+        .body("rv probe")
+        .send()
+        .await
+    {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            (s, r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+        Err(e) => (0, json!({ "error": e.to_string() })),
+    };
+    out.insert("upload_status".into(), json!(up_status));
+    if let Some(id) = item.get("id").and_then(Value::as_str) {
+        let direct = http().get(gurl(&format!("/me/drive/items/{id}/content"))).bearer_auth(token).send().await;
+        out.insert("download_direct".into(), describe_download(direct).await);
+        if let Some(web) = item.get("webUrl").and_then(Value::as_str) {
+            use base64::Engine;
+            let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(web.as_bytes());
+            let shared =
+                http().get(gurl(&format!("/shares/u!{enc}/driveItem/content"))).bearer_auth(token).send().await;
+            out.insert("download_shares".into(), describe_download(shared).await);
+            // The JS-friendly path: driveItem metadata carries a pre-signed
+            // @microsoft.graph.downloadUrl, so mobile needs no redirect
+            // handling. Confirm it is present and downloads without auth.
+            let meta: Value =
+                match http().get(gurl(&format!("/shares/u!{enc}/driveItem"))).bearer_auth(token).send().await {
+                    Ok(r) => r.json().await.unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                };
+            let dl_url = meta.get("@microsoft.graph.downloadUrl").and_then(Value::as_str);
+            out.insert(
+                "driveitem_keys".into(),
+                json!(meta.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default()),
+            );
+            out.insert("download_url_present".into(), json!(dl_url.is_some()));
+            if let Some(u) = dl_url {
+                let plain = http().get(u).send().await;
+                out.insert("download_url_fetch".into(), describe_download(plain).await);
+            }
+        }
+        let del = http().delete(gurl(&format!("/me/drive/items/{id}"))).bearer_auth(token).send().await;
+        out.insert("cleanup_delete_status".into(), json!(del.map(|r| r.status().as_u16()).unwrap_or(0)));
+    }
+
+    // Chat + channel writes, reachable only with Chat.ReadWrite /
+    // ChannelSettings.ReadWrite.All. 403/401 means the token lacks the scope.
+    // Room-settings: PATCH a group chat's topic to its CURRENT value (no-op).
+    // Pins: list, then pin and immediately unpin one message (reversible).
+    let chats: Value = match http().get(gurl("/me/chats?$top=50")).bearer_auth(token).send().await {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            let body = r.json::<Value>().await.unwrap_or(Value::Null);
+            out.insert("chats_status".into(), json!(s));
+            body
+        }
+        Err(e) => {
+            out.insert("chats_status".into(), json!({ "error": e.to_string() }));
+            Value::Null
+        }
+    };
+    let group = chats
+        .get("value")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|c| c.get("chatType").and_then(Value::as_str) == Some("group"));
+    if let Some(chat) = group {
+        let id = chat.get("id").and_then(Value::as_str).unwrap_or_default();
+        let topic = chat.get("topic").and_then(Value::as_str).unwrap_or("");
+        let patch = http()
+            .patch(gurl(&format!("/chats/{id}")))
+            .bearer_auth(token)
+            .json(&json!({ "topic": topic }))
+            .send()
+            .await;
+        out.insert("room_settings_patch_status".into(), json!(patch.map(|r| r.status().as_u16()).unwrap_or(0)));
+        let listed = http().get(gurl(&format!("/chats/{id}/pinnedMessages"))).bearer_auth(token).send().await;
+        out.insert("pins_list_status".into(), json!(listed.map(|r| r.status().as_u16()).unwrap_or(0)));
+        let msgs: Value =
+            match http().get(gurl(&format!("/chats/{id}/messages?$top=5"))).bearer_auth(token).send().await {
+                Ok(r) => r.json().await.unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            };
+        if let Some(mid) = msgs
+            .get("value")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(|m| m.get("id"))
+            .and_then(Value::as_str)
+        {
+            let bind = json!({ "message@odata.bind": gurl(&format!("/chats/{id}/messages/{mid}")) });
+            let (pin_status, pin_body) = match http()
+                .post(gurl(&format!("/chats/{id}/pinnedMessages")))
+                .bearer_auth(token)
+                .json(&bind)
+                .send()
+                .await
+            {
+                Ok(r) => {
+                    let s = r.status().as_u16();
+                    (s, r.json::<Value>().await.unwrap_or(Value::Null))
+                }
+                Err(e) => (0, json!({ "error": e.to_string() })),
+            };
+            out.insert("pins_post_status".into(), json!(pin_status));
+            let pinned = pin_body.get("id").and_then(Value::as_str).unwrap_or(mid);
+            let unpin =
+                http().delete(gurl(&format!("/chats/{id}/pinnedMessages/{pinned}"))).bearer_auth(token).send().await;
+            out.insert("pins_delete_status".into(), json!(unpin.map(|r| r.status().as_u16()).unwrap_or(0)));
+        }
+    }
+    Value::Object(out)
+}
+
+/// Recursively find object keys containing "pin" (case-insensitive), reporting
+/// each one's JSON-pointer path and value SHAPE (type, or an object's sub-key
+/// names, or an array's length) - never scalar values. Capped. Used to learn
+/// the pinned-messages write structure from an already-pinned example.
+fn pin_fields(v: &Value) -> Vec<Value> {
+    fn shape(v: &Value) -> Value {
+        match v {
+            Value::Object(o) => json!({ "type": "object", "keys": o.keys().cloned().collect::<Vec<_>>() }),
+            Value::Array(a) => json!({ "type": "array", "len": a.len() }),
+            Value::String(_) => json!("string"),
+            Value::Number(_) => json!("number"),
+            Value::Bool(_) => json!("bool"),
+            Value::Null => json!("null"),
+        }
+    }
+    fn walk(v: &Value, path: &str, out: &mut Vec<Value>) {
+        if out.len() >= 20 {
+            return;
+        }
+        match v {
+            Value::Object(map) => {
+                for (k, val) in map {
+                    let p = format!("{path}/{k}");
+                    if k.to_ascii_lowercase().contains("pin") {
+                        out.push(json!({ "path": p, "shape": shape(val) }));
+                    }
+                    walk(val, &p, out);
+                }
+            }
+            Value::Array(a) => {
+                for (i, val) in a.iter().enumerate() {
+                    walk(val, &format!("{path}/{i}"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(v, "", &mut out);
+    out
+}
+
+/// A conversation sub-resource url under the chat service, ids kept opaque.
+fn conversation_sub_url(chat: &str, id: &str, tail: &[&str], query: &str) -> Option<url::Url> {
+    let mut u = url::Url::parse(&format!("{chat}/v1/users/ME/conversations")).ok()?;
+    {
+        let mut seg = u.path_segments_mut().ok()?;
+        seg.push(id);
+        for t in tail {
+            seg.push(t);
+        }
+    }
+    if !query.is_empty() {
+        u.set_query(Some(query));
+    }
+    Some(u)
+}
+
+/// A CSA aggregator url: the base plus path segments, ids kept opaque.
+fn csa_url(base: &str, segments: &[&str], query: &str) -> Option<url::Url> {
+    let mut u = url::Url::parse(base).ok()?;
+    {
+        let mut seg = u.path_segments_mut().ok()?;
+        seg.pop_if_empty();
+        for s in segments {
+            seg.push(s);
+        }
+    }
+    if !query.is_empty() {
+        u.set_query(Some(query));
+    }
+    Some(u)
+}
+
+/// GET one url with a bearer, described (status and body even on 4xx).
+async fn get_desc(http: &reqwest::Client, url: Option<url::Url>, bearer: &str) -> Value {
+    match url {
+        Some(u) => describe(http.get(u).header("authorization", bearer).send().await).await,
+        None => json!({ "error": "bad url" }),
+    }
+}
+
+/// GET a Graph url with the bearer; returns (status, body) for a probe to read ids from.
+async fn graph_get(http: &reqwest::Client, bearer: &str, url: &str) -> (u16, Value) {
+    match http.get(url).bearer_auth(bearer).send().await {
+        Ok(r) => {
+            let s = r.status().as_u16();
+            (s, r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+        Err(_) => (0, Value::Null),
+    }
+}
+
+/// The channel's parent team (Graph group id) by scanning joined teams' channels
+/// for the one whose id is the chat-service thread id. Returns (status, group_id).
+async fn graph_parent_team(http: &reqwest::Client, bearer: &str, channel: &str) -> (u16, Option<String>) {
+    let (status, body) = graph_get(http, bearer, "https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id").await;
+    let teams = body.get("value").and_then(Value::as_array).cloned().unwrap_or_default();
+    for team in teams {
+        let Some(gid) = team.get("id").and_then(Value::as_str) else { continue };
+        let url = format!("https://graph.microsoft.com/v1.0/teams/{gid}/channels?$select=id");
+        let (_, chans) = graph_get(http, bearer, &url).await;
+        let found = chans
+            .get("value")
+            .and_then(Value::as_array)
+            .is_some_and(|cs| cs.iter().any(|c| c.get("id").and_then(Value::as_str) == Some(channel)));
+        if found {
+            return (status, Some(gid.to_owned()));
+        }
+    }
+    (status, None)
+}
+
+/// The candidate CSA endpoints for a channel's pinned set, each read and described.
+async fn pinned_reads(http: &reqwest::Client, bearer: &str, csa: &str, team: &str, channel: &str, post: &str) -> Value {
+    let chan = |extra: &[&str]| {
+        let mut s = vec!["api", "v1", "teams", team, "channels", channel];
+        s.extend_from_slice(extra);
+        csa_url(csa, &s, "")
+    };
+    let set = [
+        ("pinnedmessages", chan(&["pinnedmessages"])),
+        ("pinnedMessages", chan(&["pinnedMessages"])),
+        ("posts_pinned", chan(&["posts", "pinned"])),
+        ("channel_entry", chan(&[])),
+        ("post_entry", chan(&["posts", post])),
+    ];
+    let mut m = serde_json::Map::new();
+    for (label, url) in set {
+        m.insert(label.into(), get_desc(http, url, bearer).await);
+    }
+    Value::Object(m)
+}
+
+/// A response described by STRUCTURE only: status, the auth-challenge header
+/// and the top-level key names (or array length). Never any value.
+async fn describe_keys(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let www = resp.headers().get("www-authenticate").and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            json!({
+                "status": status,
+                "www_authenticate": www,
+                "top_level_keys": keys,
+                "array_len": body.as_array().map(|a| a.len()),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// A file download described by TRANSPORT only: status, content-type,
+/// content-length and the auth-challenge header, plus whether any body bytes
+/// came back. Never the url or the bytes themselves.
+async fn describe_download(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+            let www_authenticate = header("www-authenticate");
+            let content_type = header("content-type");
+            let content_length = header("content-length");
+            let bytes = resp.bytes().await.map(|b| b.len()).unwrap_or(0);
+            json!({
+                "status": status,
+                "www_authenticate": www_authenticate,
+                "content_type": content_type,
+                "content_length": content_length,
+                "body_bytes_nonzero": bytes > 0,
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// A members body described WITHOUT identities: the member count and the
+/// member-row key names and top-level keys, plus any error envelope.
+fn member_report(status: u16, www_authenticate: Option<String>, body: &Value) -> Value {
+    let members = body.as_array().or_else(|| body.get("members").and_then(Value::as_array));
+    let member_keys: Vec<String> = members
+        .and_then(|a| a.first())
+        .and_then(Value::as_object)
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
+    let top_level_keys: Vec<String> = body.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+    json!({
+        "status": status,
+        "www_authenticate": www_authenticate,
+        "member_count": members.map(|a| a.len()),
+        "member_keys": member_keys,
+        "top_level_keys": top_level_keys,
+        "error_code": body.get("errorCode"),
+        "message": body.get("message"),
+    })
+}
+
+/// A Substrate search result described by STRUCTURE only: status, the result
+/// total and count, and the field names of the first result and its Source.
+/// No message content, so a matching term can be used to learn the hit shape.
+async fn describe_search_hits(r: Result<reqwest::Response, reqwest::Error>) -> Value {
+    let keys = |v: Option<&Value>| -> Vec<String> {
+        v.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default()
+    };
+    match r {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let result_set = body
+                .get("EntitySets")
+                .and_then(Value::as_array)
+                .and_then(|s| s.first())
+                .and_then(|e| e.get("ResultSets"))
+                .and_then(Value::as_array)
+                .and_then(|r| r.first());
+            let results = result_set.and_then(|rs| rs.get("Results")).and_then(Value::as_array);
+            let first = results.and_then(|r| r.first());
+            let source = first.and_then(|f| f.get("Source"));
+            let kind = |v: Option<&Value>| -> &'static str {
+                match v {
+                    Some(Value::String(s)) if s.starts_with("19:") => "string(19:)",
+                    Some(Value::String(_)) => "string",
+                    Some(Value::Object(_)) => "object",
+                    Some(Value::Array(_)) => "array",
+                    Some(Value::Number(_)) => "number",
+                    Some(Value::Bool(_)) => "bool",
+                    Some(Value::Null) | None => "absent",
+                }
+            };
+            let field = |name: &str| kind(source.and_then(|s| s.get(name)));
+            json!({
+                "status": status,
+                "total": result_set.and_then(|rs| rs.get("Total")),
+                "result_count": results.map(|r| r.len()),
+                "result_keys": keys(first),
+                "source_keys": keys(source),
+                "source_types": {
+                    "ClientThreadId": field("ClientThreadId"),
+                    "ClientConversationId": field("ClientConversationId"),
+                    "ConversationId": field("ConversationId"),
+                    "From": field("From"),
+                    "Sender": field("Sender"),
+                    "Preview": field("Preview"),
+                    "Subject": field("Subject"),
+                    "DateTimeSent": field("DateTimeSent"),
+                },
+                "from_keys": keys(source.and_then(|s| s.get("From"))),
+                "from_email_keys": keys(source.and_then(|s| s.get("From")).and_then(|f| f.get("EmailAddress"))),
+            })
+        }
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+}
+
+/// The first message in a page that carries a file, by shape only: its
+/// messagetype, properties key names, whether `files` is a JSON string, the
+/// file-entry key names and whether the content holds a `<URIObject>`. No
+/// filenames, urls or message text. The second tuple field is the download
+/// candidate url (the `<a href>` or the `uri` attribute), kept out of the
+/// reported value so the probe can test its auth without exposing it.
+fn file_message_shape(body: &Value) -> Option<(Value, Option<String>)> {
+    let files_value = |props: Option<&Value>| -> Option<Value> {
+        props.and_then(|p| p.get("files")).map(|f| match f {
+            Value::String(s) => serde_json::from_str::<Value>(s).unwrap_or(Value::Null),
+            other => other.clone(),
+        })
+    };
+    for m in body.get("messages").and_then(Value::as_array)? {
+        let kind = m.get("messagetype").and_then(Value::as_str).unwrap_or("");
+        // A call recording is a meeting artifact on AMS with its own auth, not a
+        // shared file: skip it so the scan finds an ordinary attachment instead.
+        if kind.contains("CallRecording") {
+            continue;
+        }
+        let props = m.get("properties");
+        let files = files_value(props);
+        let entries = files.as_ref().and_then(Value::as_array);
+        let has_files = entries.is_some_and(|a| !a.is_empty());
+        let content = m.get("content").and_then(Value::as_str).unwrap_or("");
+        let content_uriobject = content.contains("<URIObject");
+        if kind.contains("File") || kind.contains("Media") || has_files || content_uriobject {
+            let prop_keys: Vec<String> =
+                props.and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+            let file_keys: Vec<String> = entries
+                .and_then(|a| a.first())
+                .and_then(Value::as_object)
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+            // URIObject structure: the opening tag's attribute names and the
+            // child element names, so the parser is known without the values.
+            let (attrs, children) = uriobject_structure(content);
+            let report = json!({
+                "messagetype": kind,
+                "properties_keys": prop_keys,
+                "files_is_string": props.and_then(|p| p.get("files")).is_some_and(Value::is_string),
+                "file_count": entries.map(|a| a.len()),
+                "file_keys": file_keys,
+                "content_has_uriobject": content_uriobject,
+                "uriobject_attrs": attrs,
+                "uriobject_children": children,
+            });
+            return Some((report, uriobject_download_url(content)));
+        }
+    }
+    None
+}
+
+/// The download url inside a `<URIObject>`: the first `<a href="…">` (the file
+/// link), else the object's own `uri="…"` attribute. Used only to probe the
+/// download auth; never put into reported output.
+fn uriobject_download_url(content: &str) -> Option<String> {
+    let start = content.find("<URIObject")?;
+    let rest = &content[start..];
+    let body_end = rest.find("</URIObject>").unwrap_or(rest.len());
+    let object = &rest[..body_end];
+    let attr = |src: &str, name: &str| -> Option<String> {
+        let at = src.find(&format!("{name}=\""))?;
+        let after = &src[at + name.len() + 2..];
+        let end = after.find('"')?;
+        Some(after[..end].to_owned())
+    };
+    attr(object, "href").or_else(|| attr(&object[..object.find('>').unwrap_or(object.len())], "uri"))
+}
+
+/// The `<URIObject>`'s opening-tag attribute names and its child element names,
+/// NO attribute or element values (those hold the file name and url).
+fn uriobject_structure(content: &str) -> (Vec<String>, Vec<String>) {
+    let Some(start) = content.find("<URIObject") else { return (Vec::new(), Vec::new()) };
+    let rest = &content[start + "<URIObject".len()..];
+    let open_end = rest.find('>').unwrap_or(rest.len());
+    let attrs: Vec<String> = rest[..open_end]
+        .split_whitespace()
+        .filter_map(|tok| tok.split('=').next())
+        .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .map(str::to_owned)
+        .collect();
+    let body_end = rest.find("</URIObject>").unwrap_or(rest.len());
+    let mut children = Vec::new();
+    let mut scan = &rest[open_end.min(body_end)..body_end];
+    while let Some(lt) = scan.find('<') {
+        scan = &scan[lt + 1..];
+        if scan.starts_with('/') {
+            continue;
+        }
+        let name: String = scan.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+        if !name.is_empty() && !children.contains(&name) {
+            children.push(name);
+        }
+    }
+    (attrs, children)
 }
 
 fn host_ends(raw: &str, suffixes: &[&str]) -> Option<String> {
@@ -236,6 +852,9 @@ impl Routes {
             trouter: get("calling_trouterUrl", &[".trouter.teams.microsoft.com"]).unwrap_or_default(),
             registrar: get("calling_registrarUrl", &teams).unwrap_or_default(),
             ams: get("ams", &[".asyncgw.teams.microsoft.com", ".teams.microsoft.com"]).unwrap_or_default(),
+            middle_tier: get("middleTier", &teams).unwrap_or_default(),
+            presence: get("unifiedPresence", &teams).unwrap_or_default(),
+            search: get("search", &[".asyncgw.teams.microsoft.com", ".teams.microsoft.com"]).unwrap_or_default(),
         })
     }
 }
@@ -254,6 +873,10 @@ impl Lease {
 #[derive(Default)]
 struct Held {
     aggregator: Option<Lease>,
+    presence: Option<Lease>,
+    substrate: Option<Lease>,
+    graph: Option<Lease>,
+    templates: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -278,7 +901,15 @@ impl Tokens {
             value: Zeroizing::new(value.to_owned()),
             until: Instant::now() + Duration::from_secs(1 << 30),
         };
-        let held = Held { aggregator: Some(lease(aggregator)), skype: Some(lease(skype)), routes: Some(routes) };
+        let held = Held {
+            aggregator: Some(lease(aggregator)),
+            presence: None,
+            substrate: None,
+            graph: None,
+            templates: None,
+            skype: Some(lease(skype)),
+            routes: Some(routes),
+        };
         *tokens.held.try_lock().expect("a fresh account") = held;
         Ok(tokens)
     }
@@ -337,6 +968,66 @@ impl Tokens {
         Ok(token)
     }
 
+    /// The Spaces bearer, for the middle tier's profiles.
+    pub async fn spaces(&self) -> Result<Zeroizing<String>, RestError> {
+        Ok(self.access(SPACES).await?.value)
+    }
+
+    /// The presence bearer: the Unified Presence Service refuses the skypetoken
+    /// and wants an AAD token for its own scope (probed live 2026-10-22).
+    pub async fn presence(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.presence.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(PRESENCE_SCOPE).await?;
+        let token = lease.value.clone();
+        held.presence = Some(lease);
+        Ok(token)
+    }
+
+    /// The templates bearer, for renaming a channel.
+    pub async fn templates(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.templates.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(TEMPLATES).await?;
+        let token = lease.value.clone();
+        held.templates = Some(lease);
+        Ok(token)
+    }
+
+    pub async fn forget_templates(&self) {
+        self.held.lock().await.templates = None;
+    }
+
+    /// The Substrate bearer, for message search.
+    pub async fn substrate(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.substrate.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(SUBSTRATE).await?;
+        let token = lease.value.clone();
+        held.substrate = Some(lease);
+        Ok(token)
+    }
+
+    /// The Microsoft Graph bearer, for file download, room-settings edits and
+    /// pins. Minted from the same refresh token: the Teams first-party client is
+    /// broadly pre-consented, so no extra sign-in is needed when it is granted.
+    pub async fn graph(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.graph.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(GRAPH).await?;
+        let token = lease.value.clone();
+        held.graph = Some(lease);
+        Ok(token)
+    }
+
     /// The Skype token and the tenant's routes, from authz.
     pub async fn chat(&self) -> Result<(Zeroizing<String>, Routes), RestError> {
         let mut held = self.held.lock().await;
@@ -367,6 +1058,794 @@ impl Tokens {
         held.skype = Some(lease);
         held.routes = Some(routes.clone());
         Ok((token, routes))
+    }
+
+    /// Read-only: the authz `regionGtms` service map (service URLs only, no
+    /// tokens). For host discovery when extending the provider.
+    pub async fn region_gtms(&self) -> Result<Value, RestError> {
+        let spaces = self.access(SPACES).await?;
+        let response = http()
+            .post(AUTHZ)
+            .bearer_auth(spaces.value.as_str())
+            .header("content-length", "0")
+            .send()
+            .await
+            .map_err(|e| RestError::network(e.to_string()))?;
+        let body: Value = response.json().await.unwrap_or_default();
+        Ok(body.get("regionGtms").cloned().unwrap_or(Value::Null))
+    }
+
+    /// Read-only shape probe for presence, profiles and search. Returns each
+    /// endpoint's URL, status and raw body (own data only; search uses an
+    /// unlikely term), so request/response shapes can be confirmed before use.
+    pub async fn probe_shapes(&self, me: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let bearer = self.aggregator().await.map(|b| b.as_str().to_owned()).unwrap_or_default();
+        let mut out = serde_json::Map::new();
+
+        // Keystone: can the refresh token mint a Microsoft Graph token, and does
+        // Graph accept it? A safe read (GET /v1.0/me), status and key presence
+        // only (no profile values). If this works, files/pins/room-settings are
+        // reachable through Graph without a new sign-in.
+        match self.graph().await {
+            Ok(token) => {
+                out.insert("graph_scopes".into(), json!(jwt_scopes(token.as_str())));
+                let r = http().get("https://graph.microsoft.com/v1.0/me").bearer_auth(token.as_str()).send().await;
+                let (me_oid, me_report) = describe_me(r).await;
+                out.insert("graph_me".into(), me_report);
+                let chats = http()
+                    .get("https://graph.microsoft.com/v1.0/me/chats?$top=1")
+                    .bearer_auth(token.as_str())
+                    .send()
+                    .await;
+                out.insert("graph_chats_status".into(), describe_keys(chats).await);
+                out.insert("graph_features".into(), probe_graph_features(token.as_str(), &me_oid).await);
+            }
+            Err(e) => {
+                out.insert("graph_me".into(), json!({ "token_error": format!("{e:?}") }));
+            }
+        }
+
+        if !routes.presence.is_empty() {
+            let url = format!("{}/v1/presence/getpresence/", routes.presence);
+            out.insert("presence_url".into(), json!(url));
+            let r = http()
+                .post(&url)
+                .header("authentication", format!("skypetoken={}", skype.as_str()))
+                .json(&json!([{ "mri": me }]))
+                .send()
+                .await;
+            out.insert("presence".into(), describe(r).await);
+            // Variant: the 401 wants an AAD bearer, not the skypetoken. Try a
+            // token for the presence scope from the refresh token.
+            match self.access(PRESENCE_SCOPE).await {
+                Ok(lease) => {
+                    let r =
+                        http().post(&url).bearer_auth(lease.value.as_str()).json(&json!([{ "mri": me }])).send().await;
+                    out.insert("presence_bearer".into(), describe(r).await);
+                }
+                Err(e) => {
+                    out.insert("presence_bearer".into(), json!({ "token_error": format!("{e:?}") }));
+                }
+            }
+        }
+        if !routes.middle_tier.is_empty() && !bearer.is_empty() {
+            let url = format!(
+                "{}/beta/users/fetchShortProfile?isMailAddress=false&enableGuest=true&canBeSmtpAddress=false&skypeTeamsInfo=true",
+                routes.middle_tier
+            );
+            out.insert("profile_url".into(), json!(url));
+            let r = http().post(&url).bearer_auth(&bearer).json(&json!([me])).send().await;
+            out.insert("profile".into(), describe(r).await);
+            // Variant: the 204 accepted the call but matched no one. `me` is an
+            // `8:orgid:<oid>` MRI; try the raw oid in case the middle tier keys
+            // on the bare object id instead.
+            let oid = me.strip_prefix("8:orgid:").unwrap_or(me);
+            if oid != me {
+                let r = http().post(&url).bearer_auth(&bearer).json(&json!([oid])).send().await;
+                out.insert("profile_oid".into(), describe(r).await);
+            }
+            // Variant: the aggregator bearer above matched no one; the real code
+            // uses the Spaces bearer (the Teams web client's /api/mt token).
+            if let Ok(spaces) = self.spaces().await {
+                let r = http().post(&url).bearer_auth(spaces.as_str()).json(&json!([me])).send().await;
+                out.insert("profile_spaces".into(), describe(r).await);
+            }
+        }
+        if !routes.search.is_empty() {
+            let url = format!("{}/v2/search", routes.search);
+            out.insert("search_url".into(), json!(url));
+            let r = http()
+                .post(&url)
+                .header("authentication", format!("skypetoken={}", skype.as_str()))
+                .json(&json!({ "query": "rvprobe-zzqx-unlikely", "resultType": "messages", "top": 5 }))
+                .send()
+                .await;
+            out.insert("search".into(), describe(r).await);
+        }
+        // Variant: the asyncgw /msgsearch path 404s. Try the Substrate search
+        // API with its own host and audience. The 400 on the first body wanted
+        // the Teams content source, a correlation id and a scenario.
+        if let Ok(lease) = self.access(SUBSTRATE).await {
+            let url = "https://substrate.office.com/search/api/v2/query";
+            let mut cvid = [0u8; 16];
+            getrandom::fill(&mut cvid).ok();
+            let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+            let body = json!({
+                "Cvid": cvid,
+                "Scenario": { "Name": "teamsmessages" },
+                "EntityRequests": [{
+                    "EntityType": "Message",
+                    "ContentSources": ["Teams"],
+                    "Query": { "QueryString": "rvprobe-zzqx-unlikely" },
+                    "Size": 5,
+                }],
+            });
+            let r = http().post(url).bearer_auth(lease.value.as_str()).json(&body).send().await;
+            out.insert("search_substrate".into(), describe(r).await);
+            // A matching term, to learn the hit shape. Reports only field names
+            // and counts of the results, never the message content.
+            let mut cvid = [0u8; 16];
+            getrandom::fill(&mut cvid).ok();
+            let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+            let hit = json!({
+                "Cvid": cvid,
+                "Scenario": { "Name": "teamsmessages" },
+                "EntityRequests": [{
+                    "EntityType": "Message",
+                    "ContentSources": ["Teams"],
+                    "Query": { "QueryString": "http" },
+                    "Size": 3,
+                }],
+            });
+            let r = http().post(url).bearer_auth(lease.value.as_str()).json(&hit).send().await;
+            out.insert("search_hit_shape".into(), describe_search_hits(r).await);
+        }
+        // Room-info shape: list the user's conversations (chat skypetoken, as
+        // history does), take the first id and GET that conversation. Only its
+        // status, headers, threadProperties keys, topic and membercount are
+        // reported, never message content.
+        if !routes.chat.is_empty() {
+            let list =
+                format!("{}/v1/users/ME/conversations?view=msnp24Equivalent&pageSize=30&startTime=1", routes.chat);
+            let ids: Vec<String> =
+                match http().get(&list).header("authentication", format!("skypetoken={}", skype.as_str())).send().await
+                {
+                    Ok(resp) if resp.status().is_success() => resp
+                        .json::<Value>()
+                        .await
+                        .ok()
+                        .and_then(|b| b.get("conversations").and_then(Value::as_array).cloned())
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|c| c.get("id").and_then(Value::as_str).map(str::to_owned))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+            let thread_url = |id: &str, tail: Option<&str>| -> Option<url::Url> {
+                let mut url = url::Url::parse(&format!("{}/v1/threads", routes.chat)).ok()?;
+                {
+                    let mut seg = url.path_segments_mut().ok()?;
+                    seg.push(id);
+                    if let Some(tail) = tail {
+                        seg.push(tail);
+                    }
+                }
+                url.set_query(Some("view=msnp24Equivalent&threadProperties=1"));
+                Some(url)
+            };
+            if let Some(id) = ids.first() {
+                let conv =
+                    url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok().and_then(|mut u| {
+                        u.path_segments_mut().ok()?.push(id);
+                        u.set_query(Some("view=msnp24Equivalent"));
+                        Some(u)
+                    });
+                if let Some(url) = conv {
+                    let r =
+                        http().get(url).header("authentication", format!("skypetoken={}", skype.as_str())).send().await;
+                    out.insert("conversation".into(), describe_conversation(r).await);
+                }
+            } else {
+                out.insert("conversation".into(), json!({ "note": "no conversation id listed" }));
+            }
+            // The roster lives on the threads service: scan up to 10 threads and
+            // report the first with members, so an empty 1:1 does not hide it.
+            let mut roster = None;
+            let mut fallback = None;
+            let mut thread_props = Value::Null;
+            for id in ids.iter().take(10) {
+                let Some(url) = thread_url(id, None) else { continue };
+                let (status, body) = match http()
+                    .get(url)
+                    .header("authentication", format!("skypetoken={}", skype.as_str()))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => {
+                        let status = resp.status().as_u16();
+                        (status, resp.json::<Value>().await.unwrap_or(Value::Null))
+                    }
+                    Err(_) => continue,
+                };
+                let report = member_report(status, None, &body);
+                if report.get("member_count").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                    thread_props = thread_properties_shape(&body);
+                    roster = Some(report);
+                    break;
+                }
+                if fallback.is_none() {
+                    thread_props = thread_properties_shape(&body);
+                }
+                fallback.get_or_insert(report);
+            }
+            out.insert("thread_roster".into(), roster.or(fallback).unwrap_or(Value::Null));
+            out.insert("thread_properties".into(), thread_props);
+            // Attachment shape: scan recent messages of a few conversations for
+            // the first one carrying a file, reported by messagetype and field
+            // names only (no filenames, urls or message text).
+            let mut files = None;
+            for id in ids.iter().take(12) {
+                let msgs =
+                    url::Url::parse(&format!("{}/v1/users/ME/conversations", routes.chat)).ok().and_then(|mut u| {
+                        {
+                            let mut seg = u.path_segments_mut().ok()?;
+                            seg.push(id);
+                            seg.push("messages");
+                        }
+                        u.set_query(Some("view=msnp24Equivalent&pageSize=50"));
+                        Some(u)
+                    });
+                let Some(url) = msgs else { continue };
+                let body = match http()
+                    .get(url)
+                    .header("authentication", format!("skypetoken={}", skype.as_str()))
+                    .send()
+                    .await
+                {
+                    Ok(resp) if resp.status().is_success() => resp.json::<Value>().await.unwrap_or(Value::Null),
+                    _ => continue,
+                };
+                if let Some(report) = file_message_shape(&body) {
+                    files = Some(report);
+                    break;
+                }
+            }
+            match files {
+                Some((mut report, download)) => {
+                    // Probe the file download with the Skype token: does the AMS
+                    // host accept it? Report only status, content-type and
+                    // whether a body came back. Never the url or any bytes.
+                    if let (Some(url), Value::Object(map)) = (download, &mut report) {
+                        let answer = http()
+                            .get(&url)
+                            .header("authentication", format!("skypetoken={}", skype.as_str()))
+                            .send()
+                            .await;
+                        map.insert("download".into(), describe_download(answer).await);
+                    }
+                    out.insert("file_shape".into(), report);
+                }
+                None => {
+                    out.insert("file_shape".into(), json!({ "note": "no file message found" }));
+                }
+            }
+            // Pins: the `pinnedmessages` property is write-only (GET 405), so its
+            // shape cannot be read directly. Scan conversations for one that
+            // ALREADY has a pin: the conversation doc or a message then carries a
+            // pin field, revealing the structure to write. Read-only; reports the
+            // field path and value shape (pin metadata is ids/times, not text).
+            let skype_header = format!("skypetoken={}", skype.as_str());
+            let mut pin_report = json!({ "note": "no existing pin found in scanned conversations" });
+            'pins: for id in ids.iter().take(20) {
+                if let Some(u) = conversation_sub_url(&routes.chat, id, &[], "view=msnp24Equivalent")
+                    && let Ok(r) = http().get(u).header("authentication", &skype_header).send().await
+                    && r.status().is_success()
+                {
+                    let doc = r.json::<Value>().await.unwrap_or(Value::Null);
+                    let found = pin_fields(&doc);
+                    if !found.is_empty() {
+                        pin_report = json!({ "where": "conversation_doc", "fields": found });
+                        break 'pins;
+                    }
+                }
+                if let Some(u) =
+                    conversation_sub_url(&routes.chat, id, &["messages"], "view=msnp24Equivalent&pageSize=30")
+                    && let Ok(r) = http().get(u).header("authentication", &skype_header).send().await
+                    && r.status().is_success()
+                {
+                    let body = r.json::<Value>().await.unwrap_or(Value::Null);
+                    for m in body.get("messages").and_then(Value::as_array).into_iter().flatten() {
+                        let found = pin_fields(m);
+                        if !found.is_empty() {
+                            pin_report = json!({ "where": "message", "fields": found });
+                            break 'pins;
+                        }
+                    }
+                }
+            }
+            out.insert("pin_discovery".into(), pin_report);
+            // Confirm the write-only pin route on the first id (GET 404/405).
+            if let Some(id) = ids.first() {
+                let mut pins = serde_json::Map::new();
+                for (label, tail, query) in [
+                    ("pinnedmessages", vec!["pinnedmessages"], ""),
+                    ("properties_pinned", vec!["properties"], "name=pinnedmessages"),
+                ] {
+                    let Some(url) = conversation_sub_url(&routes.chat, id, &tail, query) else { continue };
+                    let answer = http().get(url).header("authentication", &skype_header).send().await;
+                    pins.insert(label.into(), describe_keys(answer).await);
+                }
+                out.insert("pins".into(), Value::Object(pins));
+            }
+        }
+        Value::Object(out)
+    }
+
+    /// Pin round-trip probe (the user authorized live writes; self-cleaning).
+    /// On a known channel post: read the CSA aggregator pinned collection before
+    /// and after pinning, read the chat-service message doc once pinned to spot
+    /// any per-message pin marker, then unpin and re-read. Statuses and bodies;
+    /// leaves no standing pin. Throwaway, like `probe_shapes`.
+    pub async fn probe_pin(&self, team: &str, channel: &str, post: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let bearer = match self.aggregator().await {
+            Ok(b) => format!("Bearer {}", b.as_str()),
+            Err(e) => return json!({ "error": format!("aggregator token: {e:?}") }),
+        };
+        let skype_header = format!("skypetoken={}", skype.as_str());
+        let http = http();
+        let csa = routes.aggregator.as_str();
+        let pin_url = csa_url(csa, &["api", "v1", "teams", team, "channels", channel, "posts", post, "pin"], "");
+
+        let before = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+        let pin_post = match pin_url.clone() {
+            Some(u) => {
+                describe(http.post(u).header("authorization", &bearer).header("content-length", "0").send().await).await
+            }
+            None => json!({ "error": "bad url" }),
+        };
+        let after = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+        let message_doc = match conversation_sub_url(
+            &routes.chat,
+            channel,
+            &["messages", post],
+            "view=msnp24Equivalent|supportsMessageProperties",
+        ) {
+            Some(u) => match http.get(u).header("authentication", &skype_header).send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body: Value = resp.json().await.unwrap_or(Value::Null);
+                    json!({
+                        "status": status,
+                        "pin_fields": pin_fields(&body),
+                        "properties_keys": body
+                            .get("properties")
+                            .and_then(Value::as_object)
+                            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                    })
+                }
+                Err(e) => json!({ "error": e.to_string() }),
+            },
+            None => json!({ "error": "bad url" }),
+        };
+        let unpin_delete = match pin_url.clone() {
+            Some(u) => describe(http.delete(u).header("authorization", &bearer).send().await).await,
+            None => json!({ "error": "bad url" }),
+        };
+        let after_unpin = pinned_reads(&http, &bearer, csa, team, channel, post).await;
+
+        json!({
+            "before": before,
+            "pin_post": pin_post,
+            "after": after,
+            "message_doc": message_doc,
+            "unpin_delete": unpin_delete,
+            "after_unpin": after_unpin,
+        })
+    }
+
+    /// File-upload round-trip probe (the user authorized live writes;
+    /// self-cleaning). Uses the Graph token to find the channel's files folder,
+    /// uploads a tiny probe file there, posts a chat-service message carrying it
+    /// as `properties.files` (no asyncgw preview), reads the message back to
+    /// confirm the file survived, then deletes the message and the file. Reports
+    /// each step's status and the key ids/urls, not file content. Throwaway.
+    pub async fn probe_upload(&self, channel: &str) -> Value {
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => return json!({ "error": format!("graph token: {e:?}") }),
+        };
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let token = graph.as_str();
+        let mut out = serde_json::Map::new();
+
+        // 1. The channel's parent team (Graph group id).
+        let (jt_status, group) = graph_parent_team(&http, token, channel).await;
+        out.insert("joined_teams_status".into(), json!(jt_status));
+        out.insert("parent_team_found".into(), json!(group.is_some()));
+        let Some(group) = group else {
+            return Value::Object(out);
+        };
+
+        // 2. The channel's files folder (drive id + folder item id + url).
+        let ff_url = format!(
+            "https://graph.microsoft.com/v1.0/teams/{group}/channels/{channel}/filesFolder?$select=id,name,webUrl,parentReference"
+        );
+        let (ff_status, folder) = graph_get(&http, token, &ff_url).await;
+        out.insert("files_folder_status".into(), json!(ff_status));
+        let drive = folder.pointer("/parentReference/driveId").and_then(Value::as_str).map(str::to_owned);
+        let folder_id = folder.get("id").and_then(Value::as_str).map(str::to_owned);
+        out.insert(
+            "files_folder".into(),
+            json!({ "drive_id_present": drive.is_some(), "folder_url": folder.get("webUrl") }),
+        );
+        let (Some(drive), Some(folder_id)) = (drive, folder_id) else {
+            return Value::Object(out);
+        };
+
+        // 3. Upload a tiny probe file into that folder (simple PUT, small file).
+        let name = "rv-upload-probe.txt";
+        let put = format!("https://graph.microsoft.com/v1.0/drives/{drive}/items/{folder_id}:/{name}:/content");
+        let item = match http
+            .put(&put)
+            .bearer_auth(token)
+            .header("content-type", "text/plain")
+            .body("rv upload probe")
+            .send()
+            .await
+        {
+            Ok(r) => {
+                out.insert("upload_status".into(), json!(r.status().as_u16()));
+                r.json::<Value>().await.unwrap_or(Value::Null)
+            }
+            Err(e) => {
+                out.insert("upload".into(), json!({ "error": e.to_string() }));
+                return Value::Object(out);
+            }
+        };
+        let Some(item_id) = item.get("id").and_then(Value::as_str).map(str::to_owned) else {
+            out.insert("upload_item".into(), json!({ "no_id": true }));
+            return Value::Object(out);
+        };
+
+        // 4. Re-read the item for its SharePoint ids (the file payload needs them).
+        let item_url = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}?$select=id,name,webUrl,size,sharepointIds"
+        );
+        let (_, full) = graph_get(&http, token, &item_url).await;
+        let web_url = full.get("webUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let site = full.pointer("/sharepointIds/siteUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let unique =
+            full.pointer("/sharepointIds/listItemUniqueId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        out.insert(
+            "upload_item".into(),
+            json!({ "web_url_present": !web_url.is_empty(), "site_present": !site.is_empty(), "unique_present": !unique.is_empty() }),
+        );
+
+        // 5. Post a chat-service message carrying the file as properties.files.
+        let files = serde_json::to_string(&json!([{
+            "@type": "http://schema.skype.com/File",
+            "version": 2,
+            "id": unique,
+            "itemid": unique,
+            "fileName": name,
+            "fileType": "txt",
+            "title": name,
+            "type": "txt",
+            "state": "active",
+            "fileInfo": {"fileUrl": web_url, "siteUrl": site, "serverRelativeUrl": "", "itemId": Value::Null, "shareUrl": Value::Null, "shareId": Value::Null},
+            "fileChicletState": {"serviceName": "teams", "state": "active"},
+            "baseUrl": site,
+            "objectUrl": web_url,
+        }]))
+        .unwrap_or_default();
+        let body = json!({
+            "content": "",
+            "messagetype": "RichText/Html",
+            "contenttype": "Text",
+            "clientmessageid": chrono::Utc::now().timestamp_millis().to_string(),
+            "imdisplayname": "rv probe",
+            "properties": {"files": files},
+        });
+        let skype_header = format!("skypetoken={}", skype.as_str());
+        let Some(send_url) = conversation_sub_url(&routes.chat, channel, &["messages"], "") else {
+            return Value::Object(out);
+        };
+        let sent = http.post(send_url).header("authentication", &skype_header).json(&body).send().await;
+        let msg_id = match sent {
+            Ok(r) => {
+                let s = r.status().as_u16();
+                out.insert("send_status".into(), json!(s));
+                let b: Value = r.json().await.unwrap_or(Value::Null);
+                b.get("OriginalArrivalTime").and_then(Value::as_i64).map(|n| n.to_string())
+            }
+            Err(e) => {
+                out.insert("send".into(), json!({ "error": e.to_string() }));
+                None
+            }
+        };
+
+        // 6. Read the message back: did properties.files survive?
+        if let Some(id) = &msg_id
+            && let Some(url) = conversation_sub_url(
+                &routes.chat,
+                channel,
+                &["messages", id],
+                "view=msnp24Equivalent|supportsMessageProperties",
+            )
+        {
+            if let Ok(r) = http.get(url).header("authentication", &skype_header).send().await {
+                let b: Value = r.json().await.unwrap_or(Value::Null);
+                let props = b.get("properties");
+                out.insert(
+                    "message_back".into(),
+                    json!({
+                        "has_files": props.and_then(|p| p.get("files")).is_some(),
+                        "properties_keys": props.and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
+                    }),
+                );
+            }
+            // 7. Cleanup: delete the message.
+            if let Some(del) = conversation_sub_url(&routes.chat, channel, &["messages", id], "") {
+                let r = http.delete(del).header("authentication", &skype_header).send().await;
+                out.insert("message_delete_status".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+            }
+        }
+
+        // 8. Cleanup: delete the uploaded file.
+        let del = format!("https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}");
+        let r = http.delete(&del).bearer_auth(token).send().await;
+        out.insert("file_delete_status".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+
+        Value::Object(out)
+    }
+
+    /// Read-only id hunt: fetches the aggregator's team list (v2, the app's,
+    /// and v3), the CSA channel record, Graph's team and channel records and
+    /// the chat-service thread, and reports every JSON path whose string value
+    /// contains `needle`, with the status of each read. Throwaway.
+    pub async fn probe_find(&self, needle: &str, team: &str, channel: &str, group: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let agg = self.aggregator().await.map(|b| format!("Bearer {}", b.as_str())).unwrap_or_default();
+        let graph = self.graph().await.map(|b| format!("Bearer {}", b.as_str())).unwrap_or_default();
+        let skype = format!("skypetoken={}", skype.as_str());
+        let csa = routes.aggregator.as_str();
+        let reads: Vec<(&str, Option<url::Url>, (&str, &str))> = vec![
+            (
+                "agg_v2_me",
+                csa_url(csa, &["api", "v2", "teams", "users", "me"], "isPrefetch=false&enableMembershipSummary=true"),
+                ("authorization", &agg),
+            ),
+            (
+                "agg_v3_me",
+                csa_url(csa, &["api", "v3", "teams", "users", "me"], "isPrefetch=false&enableMembershipSummary=true"),
+                ("authorization", &agg),
+            ),
+            (
+                "csa_channel",
+                csa_url(csa, &["api", "v1", "teams", team, "channels", channel], ""),
+                ("authorization", &agg),
+            ),
+            (
+                "graph_team",
+                url::Url::parse(&format!("https://graph.microsoft.com/v1.0/teams/{group}")).ok(),
+                ("authorization", &graph),
+            ),
+            (
+                "graph_channel",
+                url::Url::parse(&format!("https://graph.microsoft.com/beta/teams/{group}/channels/{channel}")).ok(),
+                ("authorization", &graph),
+            ),
+            (
+                "thread",
+                url::Url::parse(&format!(
+                    "{}/v1/threads/{channel}?view=msnp24Equivalent&threadProperties=1",
+                    routes.chat
+                ))
+                .ok(),
+                ("authentication", &skype),
+            ),
+        ];
+        fn walk(v: &Value, path: &str, needle: &str, out: &mut Vec<Value>) {
+            match v {
+                Value::String(s) if s.contains(needle) => {
+                    out.push(json!({"path": path, "value": s.chars().take(200).collect::<String>()}))
+                }
+                Value::Object(m) => m.iter().for_each(|(k, x)| walk(x, &format!("{path}/{k}"), needle, out)),
+                Value::Array(a) => a.iter().enumerate().for_each(|(i, x)| walk(x, &format!("{path}/{i}"), needle, out)),
+                _ => {}
+            }
+        }
+        let mut out = serde_json::Map::new();
+        for (label, url, (name, value)) in reads {
+            let Some(url) = url else { continue };
+            let (status, body) = match http.get(url).header(name, value).send().await {
+                Ok(r) => (r.status().as_u16(), r.json::<Value>().await.unwrap_or(Value::Null)),
+                Err(_) => (0, Value::Null),
+            };
+            let mut hits = Vec::new();
+            walk(&body, "", needle, &mut hits);
+            out.insert(label.into(), json!({"status": status, "hits": hits}));
+        }
+        Value::Object(out)
+    }
+
+    /// Channel-settings probe (user-authorized writes, self-restoring) on one
+    /// channel: its `substrateGroupId`, `groupId` and tenant from the
+    /// aggregator list, then a no-op rename (its current name) through the
+    /// `fabric` templates API with each candidate token, and with the one it
+    /// accepts a description change read back through Graph, then restored.
+    pub async fn probe_rename(&self, channel: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let mut out = serde_json::Map::new();
+        let agg = match self.aggregator().await {
+            Ok(b) => format!("Bearer {}", b.as_str()),
+            Err(e) => return json!({ "error": format!("aggregator: {e:?}") }),
+        };
+        let list: Value = match csa_url(&routes.aggregator, &["api", "v2", "teams", "users", "me"], "isPrefetch=false")
+        {
+            Some(u) => match http.get(u).header("authorization", &agg).send().await {
+                Ok(r) => r.json().await.unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+            None => Value::Null,
+        };
+        let mut entry = None;
+        for t in list.get("teams").and_then(Value::as_array).into_iter().flatten() {
+            for c in t.get("channels").and_then(Value::as_array).into_iter().flatten() {
+                if c.get("id").and_then(Value::as_str) == Some(channel) {
+                    entry = Some((c.clone(), t.get("tenantId").and_then(Value::as_str).unwrap_or_default().to_owned()));
+                }
+            }
+        }
+        let Some((c, tenant)) = entry else {
+            out.insert("channel_found".into(), json!(false));
+            return Value::Object(out);
+        };
+        let text = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let (oid, group, name) = (text("substrateGroupId"), text("groupId"), text("displayName"));
+        out.insert("ids".into(), json!({"oid_present": !oid.is_empty(), "group_present": !group.is_empty(), "tenant_present": !tenant.is_empty(), "name": name}));
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => return json!({ "error": format!("graph: {e:?}") }),
+        };
+        let read_back = |http: reqwest::Client, token: String| {
+            let url = format!(
+                "https://graph.microsoft.com/v1.0/teams/{group}/channels/{channel}?$select=displayName,description"
+            );
+            async move {
+                match http.get(url).bearer_auth(token).send().await {
+                    Ok(r) => r.json::<Value>().await.unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                }
+            }
+        };
+        let before = read_back(http.clone(), graph.as_str().to_owned()).await;
+        let description = before.get("description").and_then(Value::as_str).unwrap_or_default().to_owned();
+        out.insert("graph_before".into(), before.clone());
+        let id = format!("OID:{oid}@{tenant}");
+        let base = routes.aggregator.replace("/api/csa/", "/fabric/");
+        let mut candidates: Vec<(String, (&str, String))> = vec![
+            ("skype".to_owned(), ("authentication", format!("skypetoken={}", skype.as_str()))),
+            ("graph".to_owned(), ("authorization", format!("Bearer {}", graph.as_str()))),
+        ];
+        for aud in [
+            "https://templates.teams.microsoft.com",
+            "https://api.spaces.skype.com",
+            "https://chatsvcagg.teams.microsoft.com",
+            "https://teams.microsoft.com",
+            "https://ic3.teams.office.com",
+            "https://substrate.office.com",
+            "https://teams.cloud.microsoft",
+            "https://outlook.office.com",
+        ] {
+            match self.access(aud).await {
+                Ok(lease) => {
+                    candidates.push((aud.to_owned(), ("authorization", format!("Bearer {}", lease.value.as_str()))))
+                }
+                Err(e) => {
+                    out.insert(format!("mint:{aud}"), json!(format!("{} {}", e.status, e.message)));
+                }
+            }
+        }
+        let mut working = None;
+        let mut tries = serde_json::Map::new();
+        let mut challenge = Value::Null;
+        let mut renamed_ok = false;
+        for host_base in [base.clone(), base.replace("teams.microsoft.com", "teams.cloud.microsoft")] {
+            let Some(url) = csa_url(
+                &format!("{host_base}/templates"),
+                &["api", "teams", &group, "channels", &id],
+                "forceSync=false",
+            ) else {
+                continue;
+            };
+            for (label, (name_h, value)) in &candidates {
+                let r = http.patch(url.clone()).header(*name_h, value).json(&json!({"displayName": name})).send().await;
+                let status = r.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                if challenge.is_null()
+                    && status == 401
+                    && let Ok(resp) = r
+                {
+                    let h = |n: &str| resp.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_owned);
+                    let (www, diag) = (h("www-authenticate"), h("x-ms-diagnostics"));
+                    let body = resp.text().await.unwrap_or_default().chars().take(400).collect::<String>();
+                    challenge = json!({"www_authenticate": www, "x_ms_diagnostics": diag, "body": body});
+                }
+                tries.insert(format!("{}:{label}", url.host_str().unwrap_or("?")), json!(status));
+                if label.starts_with("https://templates.") && status != 401 {
+                    let renamed = format!("{name} rv");
+                    let set = http
+                        .patch(url.clone())
+                        .header(*name_h, value)
+                        .json(&json!({"displayName": renamed}))
+                        .send()
+                        .await;
+                    let set_status = set.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                    let set_body = match set {
+                        Ok(r) => r.text().await.unwrap_or_default().chars().take(400).collect::<String>(),
+                        Err(e) => format!("{e}"),
+                    };
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let seen = read_back(http.clone(), graph.as_str().to_owned()).await;
+                    let back =
+                        http.patch(url.clone()).header(*name_h, value).json(&json!({"displayName": name})).send().await;
+                    let back_status = back.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    out.insert(
+                        format!("rename:{}", url.host_str().unwrap_or("?")),
+                        json!({"set": set_status, "set_body": set_body, "seen": seen.get("displayName"),
+                            "restore": back_status,
+                            "after": read_back(http.clone(), graph.as_str().to_owned()).await.get("displayName")}),
+                    );
+                    if (200..300).contains(&set_status) {
+                        renamed_ok = true;
+                        break;
+                    }
+                }
+                if (200..300).contains(&status) {
+                    working = Some((url.clone(), *name_h, value.clone(), label.clone()));
+                    break;
+                }
+            }
+            if working.is_some() || renamed_ok {
+                break;
+            }
+        }
+        out.insert("challenge".into(), challenge);
+        out.insert("noop_rename".into(), Value::Object(tries));
+        let Some((url, name_h, value, label)) = working else { return Value::Object(out) };
+        out.insert("accepted_token".into(), json!(label));
+        let changed = format!("{description} (rv)");
+        let set = http.patch(url.clone()).header(name_h, &value).json(&json!({"description": changed})).send().await;
+        out.insert("description_set_status".into(), json!(set.map(|r| r.status().as_u16()).unwrap_or(0)));
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        out.insert("graph_after_set".into(), read_back(http.clone(), graph.as_str().to_owned()).await);
+        let back = http.patch(url).header(name_h, &value).json(&json!({"description": description})).send().await;
+        out.insert("description_restore_status".into(), json!(back.map(|r| r.status().as_u16()).unwrap_or(0)));
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        out.insert("graph_after_restore".into(), read_back(http, graph.as_str().to_owned()).await);
+        Value::Object(out)
     }
 
     /// Forgets the Skype token after the chat service refused it.

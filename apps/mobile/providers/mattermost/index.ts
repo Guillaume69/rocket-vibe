@@ -42,6 +42,7 @@ export const MATTERMOST_CAPABILITIES: Capabilities = {
   marks: true,
   profile: true,
   roomInfo: true,
+  roomSettings: true,
   roomFavorites: true,
   typing: true,
   presence: true,

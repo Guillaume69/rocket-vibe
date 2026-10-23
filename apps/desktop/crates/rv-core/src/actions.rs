@@ -89,6 +89,26 @@ pub struct ActionContext<'a> {
     pub now: i64,
     /// Still in the outbox (`pending` or `failed`): the server does not have it.
     pub outbox: Option<&'a str>,
+    /// The provider's own message capabilities, so an action it refuses is not
+    /// offered. Rocket.Chat and the other legacy providers set these true; a
+    /// provider without quotes, threads, pins or stars (Teams) clears them.
+    pub provider: ProviderActions,
+}
+
+/// What a legacy provider lets me do with a message, beyond the server's own
+/// rules: a flag false removes the action whatever the settings say.
+#[derive(Clone, Copy, Debug)]
+pub struct ProviderActions {
+    pub quotes: bool,
+    pub threads: bool,
+    pub pins: bool,
+    pub stars: bool,
+}
+
+impl Default for ProviderActions {
+    fn default() -> Self {
+        ProviderActions { quotes: true, threads: true, pins: true, stars: true }
+    }
 }
 
 fn within(ctx: &ActionContext, minutes: i64) -> bool {
@@ -125,10 +145,10 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     // A quote is a card the server builds from the text, which it cannot
     // read in an encrypted room: there, one answers in a thread.
     if !ctx.read_only {
-        if !ctx.encrypted {
+        if !ctx.encrypted && ctx.provider.quotes {
             out.push(Action::Reply);
         }
-        if !ctx.in_thread {
+        if !ctx.in_thread && ctx.provider.threads {
             out.push(Action::ReplyInThread);
         }
     }
@@ -158,10 +178,10 @@ pub fn possible_actions(ctx: &ActionContext) -> Vec<Action> {
     {
         out.push(Action::Delete);
     }
-    if ctx.settings.pinning_allowed && has("pin-message", true) {
+    if ctx.provider.pins && ctx.settings.pinning_allowed && has("pin-message", true) {
         out.push(if ctx.pinned { Action::Unpin } else { Action::Pin });
     }
-    if ctx.settings.starring_allowed {
+    if ctx.provider.stars && ctx.settings.starring_allowed {
         out.push(if ctx.starred { Action::Unstar } else { Action::Star });
     }
     out
@@ -543,7 +563,25 @@ mod tests {
             starred: false,
             now: age_min * 60_000,
             outbox: None,
+            provider: ProviderActions::default(),
         }
+    }
+
+    #[test]
+    fn a_provider_without_quotes_threads_pins_or_stars_offers_none_of_them() {
+        let s = settings();
+        let perms: Vec<String> = Vec::new();
+        let mut c = ctx(&s, &perms, "me", 0);
+        c.permissions = None;
+        c.provider = ProviderActions { quotes: false, threads: false, pins: false, stars: false };
+        let out = possible_actions(&c);
+        assert!(!out.contains(&Action::Reply));
+        assert!(!out.contains(&Action::ReplyInThread));
+        assert!(!out.contains(&Action::Pin));
+        assert!(!out.contains(&Action::Star));
+        // Editing, deletion and reactions a provider keeps are still offered.
+        assert!(out.contains(&Action::React));
+        assert!(out.contains(&Action::Edit));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 
 import { cardActionRoute } from '../../lib/integrationCards.ts';
 import type { LocalMessage } from '../../lib/normalize.ts';
-import type { CardActionAnswer, GroupDmPerson, ProviderActions, RoomFavorite, RoomInformation } from '../../lib/provider.ts';
+import type { CardActionAnswer, EditableSettings, GroupDmPerson, ProviderActions, RoomFavorite, RoomInformation, RoomSettingsChange } from '../../lib/provider.ts';
 import type { MmCategories } from './categories.ts';
 import type { MmClient } from './client.ts';
 import type { MmDirectory } from './directory.ts';
@@ -59,6 +59,16 @@ export class MmActions implements ProviderActions {
       members: typeof stats.member_count === 'number' ? stats.member_count : null,
       readOnly: false,
     };
+  }
+
+  /** A channel's display name; its address (`name`) stays. A DM or group DM has none. */
+  async editableSettings(rid: string): Promise<EditableSettings | null> {
+    const info = await this.roomInfo(rid);
+    return info.type === 'c' || info.type === 'p' ? { name: true, texts: false, readOnly: false } : null;
+  }
+
+  async saveRoomSettings(rid: string, fields: RoomSettingsChange): Promise<void> {
+    if (fields.name !== undefined) await this.client.put(`/channels/${rid}/patch`, { body: { display_name: fields.name } });
   }
 
   async react(_rid: string, mid: string, emoji: string, put: boolean): Promise<void> {

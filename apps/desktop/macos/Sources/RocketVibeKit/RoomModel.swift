@@ -210,10 +210,12 @@ public final class RoomModel {
         guard active, let chat else { return MemberActionResult(list: list, error: "members.action_failed") }
         return await chat.runMemberAction(rid: room.rid, list: list, userId: member.id, action: action)
     }
-    /// Whether my roles grant `edit-room`: the room's texts and read-only switch.
-    public func canEditRoom() async -> Bool {
-        guard supportsMembers, let chat else { return false }
-        return await chat.canEditRoom(rid: room.rid)
+    /// Whether the room's settings editor may be offered: an open room of a legacy account.
+    public var supportsRoomSettings: Bool { active && threadId == nil && !privateMode && chat != nil }
+    /// What the room's settings editor may change here; nil when it is not offered.
+    public func editableSettings() async -> EditableSettings? {
+        guard supportsRoomSettings, let chat else { return nil }
+        return await chat.editableSettings(rid: room.rid)
     }
     /// Saves what changed; nil once saved, else the catalog key of the refusal.
     public func saveRoomSettings(before: RoomSettings, after: RoomSettings) async -> String? {
@@ -243,7 +245,8 @@ public final class RoomModel {
     /// A thread's model: whether I follow it, from the stored root, kept by `reload`.
     public private(set) var followingThread = false
     public var supportsMarks: Bool { chat != nil || (provider.native?.supportedFeatures().contains("pins") == true && provider.native?.supportedFeatures().contains("stars") == true) }
-    public var supportsSearch:Bool { active && (privateMode ? privateReady : (chat != nil || provider.native?.supportedFeatures().contains("search") == true)) }
+    public var supportsStars: Bool { (chat != nil && chat?.isTeams() != true) || provider.native?.supportedFeatures().contains("stars") == true }
+    public var supportsSearch:Bool { active && (privateMode ? privateReady : ((chat != nil && chat?.isTeams() != true) || provider.native?.supportedFeatures().contains("search") == true)) }
     public let searchContext=UUID().uuidString
     public var searchVersion:String { guard active else {return "closed"};return searchContext+":"+(provider.native.map{(try? $0.searchVersion()) ?? "offline"} ?? "rc") }
     public func search(text:String) async throws -> [SearchHit] {

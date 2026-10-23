@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, htmlToMarkdown, messageId, reacted, reactionCode,
+  TeamsDirectory, channelLink, chatLink, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -38,11 +38,47 @@ const raw = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+test('a call starts as a join card and its end replaces it', () => {
+  const d = new TeamsDirectory();
+  const channel = '19:ch@thread.tacv2';
+  const link = `https://t/conversations/${channel};messageid=1792713340033`;
+  const running = toMessage(channel, raw('1792713340033', {
+    messagetype: 'Event/Call', conversationLink: link,
+    content: '<partlist alt =""></partlist><callEventType>callStarted</callEventType><callId>c1</callId>',
+  }), d)!;
+  assert.deepEqual([running.id, running.systemType, running.callId, running.threadId], [`${channel}/1792713340033`, 'videoconf', `${channel}/1792713340033`, null]);
+  const over = toMessage(channel, raw('1792713355826', {
+    messagetype: 'Event/Call', conversationLink: link,
+    content: '<ended/><partlist count="2"><part><duration>76</duration></part><part><duration>40</duration></part></partlist><callEventType>callEnded</callEventType>',
+  }), d)!;
+  assert.deepEqual([over.id, over.ts, over.systemType, over.text, over.callId, over.threadId], [running.id, 1792713340033, 'videoconf-ended', '76', null, null]);
+  assert.ok(over.updatedAt > running.updatedAt);
+  const csa = { id: '9', messagetype: 'Event/Call', parentMessageId: '5', originalarrivaltime: '2026-10-22T23:55:55.826Z', content: '<ended/><callEventType>callEnded</callEventType>' };
+  assert.equal(toMessage(channel, csa, d)!.id, `${channel}/5`);
+  assert.equal(toMessage('c', raw('40', { messagetype: 'Event/Call' }), d), null);
+});
+
+test('call links open the conversation in Teams', () => {
+  assert.equal(
+    channelLink('19:ch@thread.tacv2', 'Général', 'g-1', 't-1'),
+    'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/G%C3%A9n%C3%A9ral?groupId=g-1&tenantId=t-1',
+  );
+  assert.equal(chatLink('19:a_b@unq.gbl.spaces', 't-1'), 'https://teams.microsoft.com/l/chat/19%3Aa_b%40unq.gbl.spaces/conversations?tenantId=t-1');
+  assert.equal(
+    meetupLink('19:ch@thread.tacv2', '1792769688903', 't-1', 'o-1'),
+    'https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D',
+  );
+  assert.deepEqual([objectId('8:orgid:o-1'), objectId('8:live:bob')], ['o-1', null]);
+});
+
 test('messages, edits, reactions and deletions', () => {
   const d = new TeamsDirectory();
   const m = toMessage('19:c@thread.v2', raw('1792540521726'), d)!;
   assert.equal(m.id, '19:c@thread.v2/1792540521726');
   assert.deepEqual([m.text, m.authorId, m.authorName, m.ts], ['hello', '8:orgid:aaa', 'Ada', 1792540521726]);
+  assert.equal(m.pinned, false);
+  const pinned = raw('1792540521726', { properties: { pinned: '{"creatorId":"8:orgid:aaa","pinnedTime":1}' } });
+  assert.equal(toMessage('19:c@thread.v2', pinned, d)!.pinned, true);
   const edited = raw('1792540521726', { properties: { edittime: '1792540590172', emotions: [
     { key: 'like', users: [{ mri: '8:orgid:aaa' }] }, { key: 'heart', users: [] }, { key: '1f525_fire', users: [{ mri: '8:orgid:bbb' }] },
   ] } });
@@ -124,4 +160,79 @@ test('routes keep Teams hosts only; a stored account must look like one Microsof
   const payload = btoa(JSON.stringify({ tid: 't', oid: 'o' })).replace(/=+$/, '');
   assert.equal(idClaims(`h.${payload}.s`)!.oid, 'o');
   assert.equal(idClaims('garbage'), null);
+});
+
+test('a short profile row becomes the card fields; a missing row keeps the learned name', () => {
+  const d = new TeamsDirectory();
+  const mri = '8:orgid:aaaa-bbbb';
+  d.remember(mri, 'Known Name');
+  const full = profileFields(mri, { mri, displayName: 'Ada Lovelace', userPrincipalName: 'ada@contoso.com', jobTitle: 'Engineer' }, d);
+  assert.deepEqual(full, { _id: mri, username: 'ada@contoso.com', name: 'Ada Lovelace', roles: [], bio: 'Engineer', bot: false });
+  const degraded = profileFields(mri, undefined, d);
+  assert.equal(degraded.name, 'Ada Lovelace');
+  assert.equal(degraded.username, mri);
+  assert.equal(degraded.bio, null);
+  const bot = profileFields('28:orgid:app', { displayName: 'Helper' }, d);
+  assert.equal(bot.bot, true);
+});
+
+test('a conversation document yields its topic from threadProperties', () => {
+  assert.equal(conversationTopic({ threadProperties: { topic: 'Launch', rosterVersion: '9' } }), 'Launch');
+  assert.equal(conversationTopic({ threadProperties: { topic: '' } }), null);
+  assert.equal(conversationTopic({}), null);
+});
+
+test('search hits keep the room and map the Substrate source', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:aaaa', 'Ada Lovelace');
+  const body = { EntitySets: [{ ResultSets: [{ Results: [
+    { Source: { ClientConversationId: '19:room@thread.tacv2', ClientThreadId: '19:room@thread.tacv2', Preview: 'found this', DateTimeSent: '2026-10-22T08:01:52Z', ImmutableId: 'AAItem1', From: { EmailAddress: { Name: 'Ada Lovelace' } } } },
+    { Source: { ClientConversationId: '19:other@thread.tacv2', Preview: 'nope', DateTimeSent: '2026-10-22T09:00:00Z', From: { EmailAddress: { Name: 'Someone Else' } } } },
+  ] }] }] };
+  const hits = searchHits(body, '19:room@thread.tacv2', d);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].text, 'found this');
+  assert.equal(hits[0].authorName, 'Ada Lovelace');
+  assert.equal(hits[0].authorId, '8:orgid:aaaa');
+  assert.equal(hits[0].id, '19:room@thread.tacv2/search:AAItem1');
+  assert.ok(hits[0].ts > 0);
+  assert.deepEqual(searchHits({}, '19:room@thread.tacv2', d), []);
+});
+
+test('a roster maps members, resolves names and filters by display name', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:aaaa', 'Ada Lovelace');
+  const body = { members: [{ id: '8:orgid:aaaa', role: 'Admin' }, { id: '8:orgid:bbbb', role: 'User' }] };
+  const page = rosterPage(body, d, '');
+  assert.equal(page.total, 2);
+  assert.equal(page.members[0].username, 'Ada Lovelace');
+  assert.deepEqual(page.members[0].roles, ['Admin']);
+  assert.equal(page.members[1].username, '8:orgid:bbbb');
+  assert.equal(rosterPage(body, d, 'ada').total, 1);
+  assert.deepEqual(rosterPage({}, d, '').members, []);
+});
+
+test('isGraphShare recognises SharePoint and OneDrive hosts only', () => {
+  assert.ok(isGraphShare('https://contoso.sharepoint.com/sites/x/a.pdf'));
+  assert.ok(isGraphShare('https://contoso-my.sharepoint.com/personal/u/a.pdf'));
+  assert.ok(isGraphShare('https://1drv.ms/x/s!abc'));
+  assert.ok(!isGraphShare('https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original'));
+  assert.ok(!isGraphShare('nonsense'));
+});
+
+test('fileAttachments keeps SharePoint files in the RC shape, drops AMS media', () => {
+  const raw = {
+    messagetype: 'RichText/Media_GenericFile',
+    properties: { files: JSON.stringify([
+      { title: 'report.pdf', fileInfo: { fileUrl: 'https://contoso.sharepoint.com/sites/x/report.pdf', fileSize: 1234 } },
+      { title: 'clip.mp4', fileInfo: { fileUrl: 'https://as-api.asyncgw.teams.microsoft.com/v1/objects/0/views/original' } },
+    ]) },
+  };
+  const files = JSON.parse(fileAttachments(raw) ?? '[]') as Record<string, unknown>[];
+  assert.equal(files.length, 1);
+  assert.equal(files[0].title, 'report.pdf');
+  assert.equal(files[0].title_link, 'https://contoso.sharepoint.com/sites/x/report.pdf');
+  assert.equal(files[0].type, 'file');
+  assert.equal(files[0].size, 1234);
+  assert.equal(fileAttachments({ properties: {} }), null);
 });

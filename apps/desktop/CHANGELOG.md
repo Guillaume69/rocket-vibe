@@ -11,12 +11,23 @@ section here.
 
 - WhatsApp on GTK: Ctrl+C copies text selected in a message again after sending a message (the composer, disabled while it sends, left the window with no focus and the copy shortcut never reached the timeline).
 - WhatsApp on GTK: after sending a message, the composer takes the keyboard back, so the next message can be typed without clicking it first.
+- Microsoft Teams: presence (who is online, away or busy, and setting your own status) now works against the live service, which needed a Microsoft sign-in token for the presence service rather than the chat token.
+
+### Added
+- Rename a channel from its information: on Rocket.Chat with the right to edit the room (its address changes with it), the display name on Mattermost and kChat, and the name on Slack and Microsoft Teams (experimental). An empty name is refused.
+- Microsoft Teams (experimental): calls. A call started in a conversation shows as a call card with Join, and once over as the call's length; Join on a channel call opens the call itself, and the call button (or Join on a chat call) the conversation, in Teams' web app in a call window (on Linux an app window of a Chromium browser), after a Microsoft sign-in. The app does not carry a Teams call's audio or video itself.
+- Microsoft Teams (experimental): send a file to a channel. It is stored in the channel's SharePoint folder, like the Teams app does, and shows as a downloadable file; no inline image preview yet, and a chat cannot receive files this way.
+- Microsoft Teams (experimental): pin and unpin a channel message, see which messages are pinned, and list a room's pinned messages (among its latest 200) in the pinned panel, which shows no saved tab on Teams.
+- Microsoft Teams (experimental): download a file shared in a conversation.
+- Microsoft Teams (experimental): the room's member list, each person with their role (read-only; Teams offers no add, remove or role change here).
+- Microsoft Teams (experimental): search a room's messages (through Microsoft Search); matches show their text, author and time and open the room. Teams' search index has no per-message id, so it cannot jump to the exact message.
+- Microsoft Teams (experimental): a room information panel showing the conversation's name, kind and topic, and a profile card on tapping an author or a direct conversation showing their name, work email and whether the account is a bot. The room topic, the profile card and presence (who is online, away or busy) are all read from the live service.
 
 ## [0.24.0] - 2026-10-22
 
 ### Added
 
-- Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting and marking read.
+- Microsoft Teams as an experimental server kind on GTK and macOS, behind the nine-activation unlock: sign in with a Microsoft device code (the app shows the code and a link to Microsoft's page), then chats and channels with their unread state, history, live new messages, edits, reactions and deletions, and sending, editing, deleting, reacting, marking read, the typing indicator, channel thread replies and presence (who is online, away or busy; setting your own status).
 - Group direct messages on Rocket.Chat, Mattermost and kChat accounts: on GTK, tick several people (up to seven) in New message, remove one from its chip, then Start; on macOS, the + menu's New group message does the same.
 
 ### Fixed

@@ -102,7 +102,14 @@ pub fn open_chat(parent: &impl IsA<gtk::Widget>, session: Chat, rid: &str, go: i
         t("marked.pinned"),
         "view-pin-symbolic",
     );
-    tabs.add_titled_with_icon(&page(&session, rid, true, go), Some("starred"), t("marked.starred"), "starred-symbolic");
+    if session.legacy().is_none_or(|s| s.provider_actions().stars) {
+        tabs.add_titled_with_icon(
+            &page(&session, rid, true, go),
+            Some("starred"),
+            t("marked.starred"),
+            "starred-symbolic",
+        );
+    }
     let switcher = adw::ViewSwitcher::builder().stack(&tabs).policy(adw::ViewSwitcherPolicy::Wide).build();
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&switcher));

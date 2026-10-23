@@ -2826,6 +2826,12 @@
       "surface": "/api/v2/query"
     },
     {
+      "file": "apps/desktop/crates/rv-core/src/teams/auth.rs",
+      "line": 1726,
+      "kind": "url",
+      "surface": "/api/csa"
+    },
+    {
       "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
       "line": 454,
       "kind": "url",

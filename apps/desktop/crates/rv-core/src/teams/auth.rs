@@ -1591,6 +1591,210 @@ impl Tokens {
         Value::Object(out)
     }
 
+    /// Read-only id hunt: fetches the aggregator's team list (v2, the app's,
+    /// and v3), the CSA channel record, Graph's team and channel records and
+    /// the chat-service thread, and reports every JSON path whose string value
+    /// contains `needle`, with the status of each read. Throwaway.
+    pub async fn probe_find(&self, needle: &str, team: &str, channel: &str, group: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let agg = self.aggregator().await.map(|b| format!("Bearer {}", b.as_str())).unwrap_or_default();
+        let graph = self.graph().await.map(|b| format!("Bearer {}", b.as_str())).unwrap_or_default();
+        let skype = format!("skypetoken={}", skype.as_str());
+        let csa = routes.aggregator.as_str();
+        let reads: Vec<(&str, Option<url::Url>, (&str, &str))> = vec![
+            (
+                "agg_v2_me",
+                csa_url(csa, &["api", "v2", "teams", "users", "me"], "isPrefetch=false&enableMembershipSummary=true"),
+                ("authorization", &agg),
+            ),
+            (
+                "agg_v3_me",
+                csa_url(csa, &["api", "v3", "teams", "users", "me"], "isPrefetch=false&enableMembershipSummary=true"),
+                ("authorization", &agg),
+            ),
+            (
+                "csa_channel",
+                csa_url(csa, &["api", "v1", "teams", team, "channels", channel], ""),
+                ("authorization", &agg),
+            ),
+            (
+                "graph_team",
+                url::Url::parse(&format!("https://graph.microsoft.com/v1.0/teams/{group}")).ok(),
+                ("authorization", &graph),
+            ),
+            (
+                "graph_channel",
+                url::Url::parse(&format!("https://graph.microsoft.com/beta/teams/{group}/channels/{channel}")).ok(),
+                ("authorization", &graph),
+            ),
+            (
+                "thread",
+                url::Url::parse(&format!(
+                    "{}/v1/threads/{channel}?view=msnp24Equivalent&threadProperties=1",
+                    routes.chat
+                ))
+                .ok(),
+                ("authentication", &skype),
+            ),
+        ];
+        fn walk(v: &Value, path: &str, needle: &str, out: &mut Vec<Value>) {
+            match v {
+                Value::String(s) if s.contains(needle) => {
+                    out.push(json!({"path": path, "value": s.chars().take(200).collect::<String>()}))
+                }
+                Value::Object(m) => m.iter().for_each(|(k, x)| walk(x, &format!("{path}/{k}"), needle, out)),
+                Value::Array(a) => a.iter().enumerate().for_each(|(i, x)| walk(x, &format!("{path}/{i}"), needle, out)),
+                _ => {}
+            }
+        }
+        let mut out = serde_json::Map::new();
+        for (label, url, (name, value)) in reads {
+            let Some(url) = url else { continue };
+            let (status, body) = match http.get(url).header(name, value).send().await {
+                Ok(r) => (r.status().as_u16(), r.json::<Value>().await.unwrap_or(Value::Null)),
+                Err(_) => (0, Value::Null),
+            };
+            let mut hits = Vec::new();
+            walk(&body, "", needle, &mut hits);
+            out.insert(label.into(), json!({"status": status, "hits": hits}));
+        }
+        Value::Object(out)
+    }
+
+    /// Channel-settings probe (user-authorized writes, self-restoring) on one
+    /// channel: its `substrateGroupId`, `groupId` and tenant from the
+    /// aggregator list, then a no-op rename (its current name) through the
+    /// `fabric` templates API with each candidate token, and with the one it
+    /// accepts a description change read back through Graph, then restored.
+    pub async fn probe_rename(&self, channel: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let mut out = serde_json::Map::new();
+        let agg = match self.aggregator().await {
+            Ok(b) => format!("Bearer {}", b.as_str()),
+            Err(e) => return json!({ "error": format!("aggregator: {e:?}") }),
+        };
+        let list: Value = match csa_url(&routes.aggregator, &["api", "v2", "teams", "users", "me"], "isPrefetch=false")
+        {
+            Some(u) => match http.get(u).header("authorization", &agg).send().await {
+                Ok(r) => r.json().await.unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+            None => Value::Null,
+        };
+        let mut entry = None;
+        for t in list.get("teams").and_then(Value::as_array).into_iter().flatten() {
+            for c in t.get("channels").and_then(Value::as_array).into_iter().flatten() {
+                if c.get("id").and_then(Value::as_str) == Some(channel) {
+                    entry = Some((c.clone(), t.get("tenantId").and_then(Value::as_str).unwrap_or_default().to_owned()));
+                }
+            }
+        }
+        let Some((c, tenant)) = entry else {
+            out.insert("channel_found".into(), json!(false));
+            return Value::Object(out);
+        };
+        let text = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or_default().to_owned();
+        let (oid, group, name) = (text("substrateGroupId"), text("groupId"), text("displayName"));
+        out.insert("ids".into(), json!({"oid_present": !oid.is_empty(), "group_present": !group.is_empty(), "tenant_present": !tenant.is_empty(), "name": name}));
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => return json!({ "error": format!("graph: {e:?}") }),
+        };
+        let read_back = |http: reqwest::Client, token: String| {
+            let url = format!(
+                "https://graph.microsoft.com/v1.0/teams/{group}/channels/{channel}?$select=displayName,description"
+            );
+            async move {
+                match http.get(url).bearer_auth(token).send().await {
+                    Ok(r) => r.json::<Value>().await.unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                }
+            }
+        };
+        let before = read_back(http.clone(), graph.as_str().to_owned()).await;
+        let description = before.get("description").and_then(Value::as_str).unwrap_or_default().to_owned();
+        out.insert("graph_before".into(), before.clone());
+        let id = format!("OID:{oid}@{tenant}");
+        let base = routes.aggregator.replace("/api/csa/", "/fabric/");
+        let mut candidates: Vec<(String, (&str, String))> = vec![
+            ("skype".to_owned(), ("authentication", format!("skypetoken={}", skype.as_str()))),
+            ("graph".to_owned(), ("authorization", format!("Bearer {}", graph.as_str()))),
+        ];
+        for aud in [
+            "https://api.spaces.skype.com",
+            "https://chatsvcagg.teams.microsoft.com",
+            "https://teams.microsoft.com",
+            "https://ic3.teams.office.com",
+            "https://substrate.office.com",
+            "https://teams.cloud.microsoft",
+            "https://outlook.office.com",
+        ] {
+            match self.access(aud).await {
+                Ok(lease) => {
+                    candidates.push((aud.to_owned(), ("authorization", format!("Bearer {}", lease.value.as_str()))))
+                }
+                Err(e) => {
+                    out.insert(format!("mint:{aud}"), json!(format!("{} {}", e.status, e.message)));
+                }
+            }
+        }
+        let mut working = None;
+        let mut tries = serde_json::Map::new();
+        let mut challenge = Value::Null;
+        for host_base in [base.clone(), base.replace("teams.microsoft.com", "teams.cloud.microsoft")] {
+            let Some(url) = csa_url(
+                &format!("{host_base}/templates"),
+                &["api", "teams", &group, "channels", &id],
+                "forceSync=false",
+            ) else {
+                continue;
+            };
+            for (label, (name_h, value)) in &candidates {
+                let r = http.patch(url.clone()).header(*name_h, value).json(&json!({"displayName": name})).send().await;
+                let status = r.as_ref().map(|r| r.status().as_u16()).unwrap_or(0);
+                if challenge.is_null()
+                    && status == 401
+                    && let Ok(resp) = r
+                {
+                    let h = |n: &str| resp.headers().get(n).and_then(|v| v.to_str().ok()).map(str::to_owned);
+                    let (www, diag) = (h("www-authenticate"), h("x-ms-diagnostics"));
+                    let body = resp.text().await.unwrap_or_default().chars().take(400).collect::<String>();
+                    challenge = json!({"www_authenticate": www, "x_ms_diagnostics": diag, "body": body});
+                }
+                tries.insert(format!("{}:{label}", url.host_str().unwrap_or("?")), json!(status));
+                if (200..300).contains(&status) {
+                    working = Some((url.clone(), *name_h, value.clone(), label.clone()));
+                    break;
+                }
+            }
+            if working.is_some() {
+                break;
+            }
+        }
+        out.insert("challenge".into(), challenge);
+        out.insert("noop_rename".into(), Value::Object(tries));
+        let Some((url, name_h, value, label)) = working else { return Value::Object(out) };
+        out.insert("accepted_token".into(), json!(label));
+        let changed = format!("{description} (rv)");
+        let set = http.patch(url.clone()).header(name_h, &value).json(&json!({"description": changed})).send().await;
+        out.insert("description_set_status".into(), json!(set.map(|r| r.status().as_u16()).unwrap_or(0)));
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        out.insert("graph_after_set".into(), read_back(http.clone(), graph.as_str().to_owned()).await);
+        let back = http.patch(url).header(name_h, &value).json(&json!({"description": description})).send().await;
+        out.insert("description_restore_status".into(), json!(back.map(|r| r.status().as_u16()).unwrap_or(0)));
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        out.insert("graph_after_restore".into(), read_back(http, graph.as_str().to_owned()).await);
+        Value::Object(out)
+    }
+
     /// Forgets the Skype token after the chat service refused it.
     pub async fn forget_chat(&self) {
         self.held.lock().await.skype = None;

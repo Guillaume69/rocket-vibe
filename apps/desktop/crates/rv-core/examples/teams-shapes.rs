@@ -110,6 +110,32 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // Channel-settings probe: a user-authorized, self-restoring write on the
+    // test channel (no-op rename, then a description change undone).
+    if std::env::var_os("TEAMS_PROBE_RENAME").is_some_and(|v| !v.is_empty()) {
+        let channel = std::env::var("TEAMS_PIN_CHANNEL")
+            .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
+        let shapes = tokens.probe_rename(&channel).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
+    // Read-only id hunt: every field of the reads below whose value contains
+    // TEAMS_PROBE_FIND, with its JSON path.
+    if let Some(needle) = std::env::var_os("TEAMS_PROBE_FIND").and_then(|v| v.into_string().ok()) {
+        let team = std::env::var("TEAMS_PIN_TEAM")
+            .unwrap_or_else(|_| "19:30c22b53ecfc46eeb99d89d5c4429edd@thread.tacv2".to_owned());
+        let channel = std::env::var("TEAMS_PIN_CHANNEL")
+            .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
+        let group =
+            std::env::var("TEAMS_PIN_GROUP").unwrap_or_else(|_| "c08557f5-e913-4f5b-ab1b-3e9a2f7102bd".to_owned());
+        let shapes = tokens.probe_find(&needle, &team, &channel, &group).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // File-upload round-trip probe: a user-authorized live write that uploads a
     // tiny file to the channel's files folder, posts it, reads it back, then
     // deletes both. Channel defaults to the capture's; override TEAMS_PIN_CHANNEL.

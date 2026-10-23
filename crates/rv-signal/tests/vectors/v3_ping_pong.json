@@ -1,0 +1,459 @@
+[
+ {
+  "request": {
+   "op": "party",
+   "name": "alice",
+   "registration_id": 4870,
+   "identity_private": "078218bfa90c93b399cdfeea817eda32af389c7c11fdb87908e86465d9d3b98a",
+   "signed_prekey": {
+    "id": 1,
+    "private": "0b0ef099637216211d5f492cbdd1784d1dc4ab69dfdcd4cef8b9a80e9a7294f3",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "f711c2120e9d11b466d0fd6b62ab21197cb33a9dc2e0381a90026bb83227bbb7b7369e8d78976e87f6af1f561d6e9b0de027f69f2bb7ffccc8914ccd5745d01e"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "8f87501a3deacee9ff5228d62331fe52a912dedb1debc76e067584b02f892cf4"
+    },
+    {
+     "id": 101,
+     "private": "d88753acf1c2973147ec4af8912736b54b4c1b2a4771fe194ba8beed43e8d1ed"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d820",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "055ef4a66399bfd099a3b70fb47a2f88a4cc9672c25787db50cace069bff684023"
+     },
+     {
+      "id": 101,
+      "public": "055cd326d1071f53711972a45e1396a6391d9907ecedbc6fe67784e4e7444b7912"
+     }
+    ],
+    "signed_prekey_public": "05903a36b293355fc39a842bd8b47e0be3475441acefb52db183179adb5ad47c0f",
+    "signed_prekey_signature": "b71b1a6067ccce1a021b67c5c08b539549bfff15bf9b8785f1a6172b74cc3a478626f8408db196132957cb4e23a3875c2640523f571d0c44e0e84b960136698a"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "party",
+   "name": "bob",
+   "registration_id": 14361,
+   "identity_private": "4ee9822450da7575ed762190893809437e1794de72b2674384a863ca3ad5e294",
+   "signed_prekey": {
+    "id": 1,
+    "private": "7af90e6aa92db0933c8dfb464b1195137b8080d0f0db6e7333e095eb964d4081",
+    "timestamp_ms": 1760000000000,
+    "signature_random": "c0f3f9128cb4fe5098fd6487a57f1a5ab01708d6cf046ff9568b9f06bd7595762c6b7b592f8a9974b25444ac56d75583dad2963648ce2d376c1ce75aa94298e8"
+   },
+   "prekeys": [
+    {
+     "id": 100,
+     "private": "d2a60ce33b651a0266461ec753b04d764a072cb3f2c200cf8f6bf14873e2a74d"
+    },
+    {
+     "id": 101,
+     "private": "b8ec34fba2b42c266a89aeb47405879d4e900514ca54f74679a8a47af6113ed2"
+    }
+   ]
+  },
+  "response": {
+   "ok": {
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekeys": [
+     {
+      "id": 100,
+      "public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626"
+     },
+     {
+      "id": 101,
+      "public": "0548f3ba20e35a57c18c3a378785bf46a8de088aef7f29922828d9d6a86e92177a"
+     }
+    ],
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "bundle",
+   "name": "bob",
+   "prekey_id": 100
+  },
+  "response": {
+   "ok": {
+    "device_id": 1,
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekey_id": 100,
+    "prekey_public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626",
+    "registration_id": 14361,
+    "signed_prekey_id": 1,
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "process_bundle",
+   "name": "alice",
+   "peer": "bob",
+   "bundle": {
+    "device_id": 1,
+    "identity_public": "0593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900",
+    "prekey_id": 100,
+    "prekey_public": "059fd1a46333b570b8049150a18fd3534e08155cb99638ac22a6300f749d32b626",
+    "registration_id": 14361,
+    "signed_prekey_id": 1,
+    "signed_prekey_public": "0557b020041beefc09fe0372b3cf8c701defe365eecba308743324ed1dca685a31",
+    "signed_prekey_signature": "07486bd7921ec5664054a604401dc4456bae0bd171819ec6725430ee6af50b8c5eccdcd2540b74f56e673ad58d40c3b4251122b6eff7b2ad7ff691aebb979607"
+   },
+   "base_private": "946d45361f19a025e5e7ea22f3d1dc5ca14884c48220905a9466806da72f8970",
+   "ratchet_private": "ef30c75d6000a884b46d0c5767565ab6f385c41ba232f67da2c2955f387deff5"
+  },
+  "response": {
+   "ok": {}
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652031"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "3308641221053577bdf1bf76d996608b226c8664330159f142d5435c5e5ae2bdceb85eff2d431a21055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8202242330a2105498dd3b269ab7466041601d0be6b6e22a63601af0b94d658a55987de571fbc6b1000180022104ad8cd3a97864859529f943df1ede274a73c6b3298b9c2d12886263001",
+    "type": "prekey"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "prekey",
+   "ciphertext": "3308641221053577bdf1bf76d996608b226c8664330159f142d5435c5e5ae2bdceb85eff2d431a21055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8202242330a2105498dd3b269ab7466041601d0be6b6e22a63601af0b94d658a55987de571fbc6b1000180022104ad8cd3a97864859529f943df1ede274a73c6b3298b9c2d12886263001",
+   "ratchet_private": "d4ddd9aed3612609d76a15be20a802ecb4cde210259bdd9feafd3c106e06c071"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": 100,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652031"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d6573736167652032"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a21058ddaaaaf2aef7fee2a85b50cb6482d152a4083c3d23b2861de03b996939c7c7a100018002210797129b0dc04561b848eaef333460d66ea7d64b9e6fcaf19",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a21058ddaaaaf2aef7fee2a85b50cb6482d152a4083c3d23b2861de03b996939c7c7a100018002210797129b0dc04561b848eaef333460d66ea7d64b9e6fcaf19",
+   "ratchet_private": "b38a18ef89c5ae9e37da017efed15eb63fc2d2e712cc22f1bcf034f45e81a80d"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d6573736167652032"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652033"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a21057b1a779640bbb8df177a37eb29581801e1b11e9d770c1caa4ee6a549fd7e31441000180022103fb43a4419f82275e8a5d175b0fb52e67560ef22e448e6ca",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a21057b1a779640bbb8df177a37eb29581801e1b11e9d770c1caa4ee6a549fd7e31441000180022103fb43a4419f82275e8a5d175b0fb52e67560ef22e448e6ca",
+   "ratchet_private": "a20e294f07b42e75c00e80cdc8a19be83148be03d8d8e99a17da275ce43d0a20"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652033"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d6573736167652034"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a210598e1efeda722c9475e945502ff01ddb9593482f990e35c62357e97d094b31e07100018002210be0262f043b99dde0fa61ef0e97305febc2fa8461ace736e",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a210598e1efeda722c9475e945502ff01ddb9593482f990e35c62357e97d094b31e07100018002210be0262f043b99dde0fa61ef0e97305febc2fa8461ace736e",
+   "ratchet_private": "9e2bb9b33ce2ff9cc1eba0aa922dc5a9c744fd423f344fe1a9956f1b960acce7"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d6573736167652034"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652035"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a210508e3baeb47872b833f13ef13898205479411235db2bf7bdafaabdda2f8c84f0e100018002210bb29013a7b61719a45494696a5d51778d2edf4dbe9ba27a8",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a210508e3baeb47872b833f13ef13898205479411235db2bf7bdafaabdda2f8c84f0e100018002210bb29013a7b61719a45494696a5d51778d2edf4dbe9ba27a8",
+   "ratchet_private": "13cd6c941592407f62777372f3c8db72c0dc57b09b50a419ae9b1554d2095bed"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652035"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d6573736167652036"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a2105673ec111622edc16176ac0d5fefce079f65f35fc87872c4cdc9fae6dba5de135100018002210c7b63629ec0f771881b4f81ba0a2e09aee2cdcae605f37a1",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a2105673ec111622edc16176ac0d5fefce079f65f35fc87872c4cdc9fae6dba5de135100018002210c7b63629ec0f771881b4f81ba0a2e09aee2cdcae605f37a1",
+   "ratchet_private": "d9b721a66018a8e185fafad3d3908e13a7aa4a2656afc6d0e82e024b2f78cc0e"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d6573736167652036"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652037"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a2105535ec558c2382145d71c62a4f2803b0263d228f5a6d971987d3634d4dfbf3d1210001800221078a6db3ebfbd4f4ed061ab8c0533120d97a3ee3af36dcbe1",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105535ec558c2382145d71c62a4f2803b0263d228f5a6d971987d3634d4dfbf3d1210001800221078a6db3ebfbd4f4ed061ab8c0533120d97a3ee3af36dcbe1",
+   "ratchet_private": "f4f9b90584fbd6b73a6f1dc360ae2f1df0991b3e8e89ce525f9120ce048acd07"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652037"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d6573736167652038"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a21058ce1230943e21f32251844ca0ffbdd5b8545a7c9612c4dd88ac35ab79f657f3d100018002210d0c50cb8282e17e2389ef56d32587d8d62606db8bc41234f",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a21058ce1230943e21f32251844ca0ffbdd5b8545a7c9612c4dd88ac35ab79f657f3d100018002210d0c50cb8282e17e2389ef56d32587d8d62606db8bc41234f",
+   "ratchet_private": "52b819d8a1d67020701bfb3bba8e5f040eaac1d3ba29690e6b851bccee00d85c"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d6573736167652038"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "alice",
+   "peer": "bob",
+   "plaintext": "61206d6573736167652039"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a2105702349f617bba64a99a5ff69ba69339580d758069f2513070dc834fe08ec840f1000180022105cfc7e56f2432aeb7c3783b005f838b2f2c1f0aaaede5374",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "bob",
+   "peer": "alice",
+   "type": "whisper",
+   "ciphertext": "330a2105702349f617bba64a99a5ff69ba69339580d758069f2513070dc834fe08ec840f1000180022105cfc7e56f2432aeb7c3783b005f838b2f2c1f0aaaede5374",
+   "ratchet_private": "811f3b530301bda74593a9297a59a52c5c58fce61f3227941db920eedd13ca42"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "61206d6573736167652039"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "encrypt",
+   "name": "bob",
+   "peer": "alice",
+   "plaintext": "62206d657373616765203130"
+  },
+  "response": {
+   "ok": {
+    "ciphertext": "330a21053bc1ebb28ded25c1135b8ee37d2a33f31ee4f56abe5791bae16d816dca66e42c100018002210e6c32b266bddd2caa5a0144ec1b532fb3ebc2a41359841e8",
+    "type": "whisper"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "decrypt",
+   "name": "alice",
+   "peer": "bob",
+   "type": "whisper",
+   "ciphertext": "330a21053bc1ebb28ded25c1135b8ee37d2a33f31ee4f56abe5791bae16d816dca66e42c100018002210e6c32b266bddd2caa5a0144ec1b532fb3ebc2a41359841e8",
+   "ratchet_private": "2c34338d694e8a8a79d97b6c0958bfb07783d41f3a70d53d18a90059734e745a"
+  },
+  "response": {
+   "ok": {
+    "consumed_prekey_id": null,
+    "identity_changed": false,
+    "plaintext": "62206d657373616765203130"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "export_session",
+   "name": "alice",
+   "peer": "bob"
+  },
+  "response": {
+   "ok": {
+    "record": "0a830508031221055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8201a210593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb900222048e2b22029d7c90d7b7c593d91793725f26b9bb7b244f8d7f3ec223f38f1ae052800326b0a210519f355728b9920f0dd9494bc7af67067f50861dff4f1a42216c744ea444d9a4012202834338d694e8a8a79d97b6c0958bfb07783d41f3a70d53d18a90059734e745a1a2408001220744c78b0e1f530198daba6813e9cb5ef872f7fda175e3fdcc08a7eb87ed72cf23a4b0a21058ddaaaaf2aef7fee2a85b50cb6482d152a4083c3d23b2861de03b996939c7c7a12001a2408011220145a56fd4010eca8b9ee557ed9a3230035df40b1d116d541bef7acd884fd247e3a4b0a210598e1efeda722c9475e945502ff01ddb9593482f990e35c62357e97d094b31e0712001a2408011220bfead486771c585c3d6f1cd181ddc023436f59d9eb397369cf97c0dc8252f9e13a4b0a2105673ec111622edc16176ac0d5fefce079f65f35fc87872c4cdc9fae6dba5de13512001a24080112202a6edc6c5e05c221a8953eb73a2502409979cb31d61466c800ab2b1206008e283a4b0a21058ce1230943e21f32251844ca0ffbdd5b8545a7c9612c4dd88ac35ab79f657f3d12001a24080112207e7116182c41295d58575d9456fc5b2ce42f82dc1bbd52e9f478fa68227f53d23a4b0a21053bc1ebb28ded25c1135b8ee37d2a33f31ee4f56abe5791bae16d816dca66e42c12001a2408011220837b6f3f6ac8421c18b992853b39cc69858b4f10cc90c1814cac1b98780b5a525099705886266a21053577bdf1bf76d996608b226c8664330159f142d5435c5e5ae2bdceb85eff2d43a00640"
+   }
+  }
+ },
+ {
+  "request": {
+   "op": "export_session",
+   "name": "bob",
+   "peer": "alice"
+  },
+  "response": {
+   "ok": {
+    "record": "0a8305080312210593f191a64f3e2c22753a9c0550858a06e965cef41c3a6174fe4a711f023cb9001a21055747de33f573a003f990863db9c718b4e51acbb2923bedda9865dcc3e7e6d8202220db1207f2ad183158ea96c34eb5ce55017c8603b5dc454ccbb95ee2c39955b5312800326b0a21053bc1ebb28ded25c1135b8ee37d2a33f31ee4f56abe5791bae16d816dca66e42c1220801f3b530301bda74593a9297a59a52c5c58fce61f3227941db920eedd13ca421a2408011220837b6f3f6ac8421c18b992853b39cc69858b4f10cc90c1814cac1b98780b5a523a4b0a2105498dd3b269ab7466041601d0be6b6e22a63601af0b94d658a55987de571fbc6b12001a240801122019e283b94b48dbc9ccb5668531966201987a845b00ce9a36284b419fe5def97c3a4b0a21057b1a779640bbb8df177a37eb29581801e1b11e9d770c1caa4ee6a549fd7e314412001a240801122051c2fafcfc16e06e5cf3b9184ad6515c9ee8574348ab106fdff04bb1bead7a483a4b0a210508e3baeb47872b833f13ef13898205479411235db2bf7bdafaabdda2f8c84f0e12001a240801122082f62b2dc0fdf63b3cc1edbc04ea50e4f8682f6b3d9b6fee06fd34f8001dbf333a4b0a2105535ec558c2382145d71c62a4f2803b0263d228f5a6d971987d3634d4dfbf3d1212001a24080112200cd7cebb0a2b11e94edf4a1021bb491f70efa4be947b94556d96cc64fea01b213a4b0a2105702349f617bba64a99a5ff69ba69339580d758069f2513070dc834fe08ec840f12001a2408011220af797103fe28c7a7f1a4df2986311295d04060033d6dcdb3dd7839fe0c7b38d85086265899706a21053577bdf1bf76d996608b226c8664330159f142d5435c5e5ae2bdceb85eff2d43a00640"
+   }
+  }
+ }
+]

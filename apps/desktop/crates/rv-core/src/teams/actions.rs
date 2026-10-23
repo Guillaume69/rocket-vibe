@@ -131,6 +131,49 @@ impl TeamsSync {
         Ok(())
     }
 
+    /// Posts a file message to a channel: the uploaded file as `properties.files`
+    /// (the shape the chat service stores and our `file_attachments` reads back),
+    /// an optional caption as the content, with a stable client id for dedup.
+    pub async fn send_file(
+        &self,
+        rid: &str,
+        root: Option<&str>,
+        file: &super::sync::FileRef,
+        caption: Option<&str>,
+        client_id: &str,
+    ) -> Result<(), RestError> {
+        let ext = file.name.rsplit('.').next().filter(|e| *e != file.name).unwrap_or("");
+        let files = serde_json::to_string(&json!([{
+            "@type": "http://schema.skype.com/File",
+            "version": 2,
+            "id": file.unique,
+            "itemid": file.unique,
+            "fileName": file.name,
+            "fileType": ext,
+            "title": file.name,
+            "type": ext,
+            "state": "active",
+            "fileInfo": {"fileUrl": file.web_url, "siteUrl": file.site, "serverRelativeUrl": "", "itemId": null, "shareUrl": null, "shareId": null},
+            "fileChicletState": {"serviceName": "teams", "state": "active"},
+            "baseUrl": file.site,
+            "objectUrl": file.web_url,
+        }]))
+        .unwrap_or_default();
+        let content = caption.filter(|c| !c.is_empty()).map(to_html).unwrap_or_default();
+        let body = json!({
+            "content": content,
+            "messagetype": "RichText/Html",
+            "contenttype": "Text",
+            "clientmessageid": client_id,
+            "imdisplayname": self.directory.shown(self.me()),
+            "properties": {"files": files},
+        });
+        let target = thread_target(rid, root);
+        let url = self.conversation_url(&target, &["messages"], "").await?;
+        self.chat(Method::POST, url, Some(&body)).await?;
+        Ok(())
+    }
+
     /// Moves my read horizon to the room's newest stored message, never back.
     pub async fn mark_read(&self, rid: &str) -> Result<(), RestError> {
         let Some(newest) = self.unmarked_newest(rid) else { return Ok(()) };

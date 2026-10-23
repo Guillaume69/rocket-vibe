@@ -23,6 +23,29 @@ const PREVIEW_LOOKBACK: usize = 20;
 /// An aggregator chat or channel, and the team (id, name) a channel belongs to.
 type Entry = (Value, Option<(String, String)>);
 
+/// A file uploaded to a channel's SharePoint folder, as the chat-service
+/// message's `properties.files` entry needs it.
+pub struct FileRef {
+    pub item_id: String,
+    pub name: String,
+    pub web_url: String,
+    pub site: String,
+    pub unique: String,
+}
+
+/// Percent-encode one URL path segment (RFC 3986 unreserved kept), for a file
+/// name in a Graph path-addressed upload.
+fn encode_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 pub struct TeamsSync {
     store: Arc<Store>,
     tokens: Arc<Tokens>,
@@ -35,6 +58,8 @@ pub struct TeamsSync {
     marked: Mutex<HashMap<String, i64>>,
     /// Each room's aggregator entry and team, to rebuild its row when a message arrives.
     entries: Mutex<HashMap<String, Entry>>,
+    /// A channel's SharePoint files folder (Graph drive id, folder item id), cached per room.
+    drives: Mutex<HashMap<String, (String, String)>>,
 }
 
 impl TeamsSync {
@@ -50,6 +75,7 @@ impl TeamsSync {
             older: Mutex::default(),
             marked: Mutex::default(),
             entries: Mutex::default(),
+            drives: Mutex::default(),
         }
     }
 
@@ -474,6 +500,110 @@ impl TeamsSync {
             first
         };
         stream_response(response, dest, progress).await
+    }
+
+    /// A GET against Microsoft Graph with the Graph bearer, as JSON.
+    async fn graph_json(&self, url: &str) -> Result<Value, RestError> {
+        let token = self.tokens.graph().await?;
+        let r = self
+            .http
+            .get(url)
+            .bearer_auth(token.as_str())
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams graph: {e}")))?;
+        let status = r.status().as_u16();
+        let body: Value = r.json().await.unwrap_or(Value::Null);
+        if status >= 400 {
+            return Err(crate::teams::auth::refusal(&format!("graph_{status}"), status));
+        }
+        Ok(body)
+    }
+
+    /// The Graph group id of the team a channel belongs to, by scanning my
+    /// joined teams for the one whose channels include it. A chat has none.
+    async fn parent_team(&self, channel: &str) -> Result<String, RestError> {
+        let teams = self.graph_json("https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id").await?;
+        for team in teams.get("value").and_then(Value::as_array).into_iter().flatten() {
+            let Some(gid) = team.get("id").and_then(Value::as_str) else { continue };
+            let url = format!("https://graph.microsoft.com/v1.0/teams/{gid}/channels?$select=id");
+            let chans = self.graph_json(&url).await?;
+            let here = chans
+                .get("value")
+                .and_then(Value::as_array)
+                .is_some_and(|cs| cs.iter().any(|c| c.get("id").and_then(Value::as_str) == Some(channel)));
+            if here {
+                return Ok(gid.to_owned());
+            }
+        }
+        Err(crate::teams::auth::refusal("teams_upload_requires_channel", 0))
+    }
+
+    /// (Graph drive id, folder item id) of a channel's SharePoint files folder, cached per room.
+    async fn channel_drive(&self, rid: &str) -> Result<(String, String), RestError> {
+        if let Some(found) = self.drives.lock().unwrap().get(rid).cloned() {
+            return Ok(found);
+        }
+        let group = self.parent_team(rid).await?;
+        let url = format!(
+            "https://graph.microsoft.com/v1.0/teams/{group}/channels/{rid}/filesFolder?$select=id,parentReference"
+        );
+        let folder = self.graph_json(&url).await?;
+        let drive = folder.pointer("/parentReference/driveId").and_then(Value::as_str);
+        let item = folder.get("id").and_then(Value::as_str);
+        let (Some(drive), Some(item)) = (drive, item) else {
+            return Err(crate::teams::auth::refusal("teams_files_folder", 0));
+        };
+        let pair = (drive.to_owned(), item.to_owned());
+        self.drives.lock().unwrap().insert(rid.to_owned(), pair.clone());
+        Ok(pair)
+    }
+
+    /// Uploads `bytes` into a channel's files folder (Graph simple upload), and
+    /// returns the stored file as the chat message needs it.
+    pub async fn upload_file(&self, rid: &str, name: &str, mime: &str, bytes: Vec<u8>) -> Result<FileRef, RestError> {
+        let (drive, folder) = self.channel_drive(rid).await?;
+        let token = self.tokens.graph().await?;
+        let put = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{folder}:/{}:/content",
+            encode_segment(name)
+        );
+        let r = self
+            .http
+            .put(&put)
+            .bearer_auth(token.as_str())
+            .header("content-type", mime)
+            .body(bytes)
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams upload: {e}")))?;
+        let status = r.status().as_u16();
+        let item: Value = r.json().await.unwrap_or(Value::Null);
+        if status >= 400 {
+            return Err(crate::teams::auth::refusal(&format!("graph_upload_{status}"), status));
+        }
+        let item_id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| crate::teams::auth::refusal("teams_upload_no_id", status.max(200)))?;
+        self.file_ref(rid, item_id).await
+    }
+
+    /// The stored file's message fields, re-read for its SharePoint ids.
+    pub async fn file_ref(&self, rid: &str, item_id: &str) -> Result<FileRef, RestError> {
+        let (drive, _) = self.channel_drive(rid).await?;
+        let url = format!(
+            "https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}?$select=id,name,webUrl,sharepointIds"
+        );
+        let item = self.graph_json(&url).await?;
+        let text = |p: &str| item.pointer(p).and_then(Value::as_str).unwrap_or_default().to_owned();
+        Ok(FileRef {
+            item_id: item_id.to_owned(),
+            name: text("/name"),
+            web_url: text("/webUrl"),
+            site: text("/sharepointIds/siteUrl"),
+            unique: text("/sharepointIds/listItemUniqueId"),
+        })
     }
 
     /// The room's roster, from the threads service (`GET /v1/threads/<rid>`);

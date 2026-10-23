@@ -32,12 +32,18 @@ export function base64Url(input: string): string {
 
 export type Answer = { status: number; body: Doc };
 
+/** A file stored in a channel's SharePoint folder, as the chat-service
+ *  message's `properties.files` entry needs it. */
+export type TeamsFileRef = { itemId: string; name: string; webUrl: string; site: string; unique: string };
+
 export type TeamsClientOptions = { fetch?: typeof fetch; onRejected?: () => void };
 
 export class TeamsClient {
   readonly tokens: TeamsTokens;
   private readonly options: TeamsClientOptions;
   private readonly fetcher: typeof fetch;
+  /** A channel's SharePoint files folder (Graph drive id, folder item id), cached per room. */
+  private readonly drives = new Map<string, { drive: string; folder: string }>();
 
   constructor(tokens: TeamsTokens, options: TeamsClientOptions = {}) {
     this.tokens = tokens;
@@ -212,6 +218,64 @@ export class TeamsClient {
         this.rejected(again);
       }
     }
+  }
+
+  /** A Graph GET with the Graph bearer, as a document. */
+  private async graph(url: string): Promise<Doc> {
+    return (await this.send(url, ['authorization', `Bearer ${await this.tokens.graph()}`], 'GET')).body;
+  }
+
+  /** The Graph group id of the team a channel belongs to, by scanning my joined
+   *  teams for the one whose channels include it. A chat has none. */
+  async parentTeam(channel: string): Promise<string> {
+    const teams = await this.graph('https://graph.microsoft.com/v1.0/me/joinedTeams?$select=id');
+    for (const team of Array.isArray(teams.value) ? (teams.value as Doc[]) : []) {
+      const gid = typeof team.id === 'string' ? team.id : null;
+      if (!gid) continue;
+      const chans = await this.graph(`https://graph.microsoft.com/v1.0/teams/${gid}/channels?$select=id`);
+      if ((Array.isArray(chans.value) ? (chans.value as Doc[]) : []).some((c) => c.id === channel)) return gid;
+    }
+    throw new TeamsError('upload_requires_channel');
+  }
+
+  /** (Graph drive id, folder item id) of a channel's files folder, cached per room. */
+  async channelDrive(rid: string): Promise<{ drive: string; folder: string }> {
+    const hit = this.drives.get(rid);
+    if (hit) return hit;
+    const gid = await this.parentTeam(rid);
+    const ff = await this.graph(
+      `https://graph.microsoft.com/v1.0/teams/${gid}/channels/${rid}/filesFolder?$select=id,parentReference`,
+    );
+    const parent = ff.parentReference as Doc | undefined;
+    const drive = typeof parent?.driveId === 'string' ? parent.driveId : null;
+    const folder = typeof ff.id === 'string' ? ff.id : null;
+    if (!drive || !folder) throw new TeamsError('files_folder');
+    const pair = { drive, folder };
+    this.drives.set(rid, pair);
+    return pair;
+  }
+
+  /** The Graph `/content` upload url for a named file in a channel's folder. */
+  async contentUrl(rid: string, name: string): Promise<string> {
+    const { drive, folder } = await this.channelDrive(rid);
+    return `https://graph.microsoft.com/v1.0/drives/${drive}/items/${folder}:/${encodeURIComponent(name)}:/content`;
+  }
+
+  /** The uploaded file re-read for its SharePoint ids (the message payload needs them). */
+  async fileRef(rid: string, name: string): Promise<TeamsFileRef> {
+    const { drive, folder } = await this.channelDrive(rid);
+    const item = await this.graph(
+      `https://graph.microsoft.com/v1.0/drives/${drive}/items/${folder}:/${encodeURIComponent(name)}?$select=id,name,webUrl,sharepointIds`,
+    );
+    const sp = item.sharepointIds as Doc | undefined;
+    const text = (o: Doc | undefined, k: string): string => (typeof o?.[k] === 'string' ? (o[k] as string) : '');
+    return {
+      itemId: text(item, 'id'),
+      name: text(item, 'name') || name,
+      webUrl: text(item, 'webUrl'),
+      site: text(sp, 'siteUrl'),
+      unique: text(sp, 'listItemUniqueId'),
+    };
   }
 
   /** A backward link is followed only on the chat service's own host. */

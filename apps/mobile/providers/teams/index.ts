@@ -17,6 +17,7 @@ import type { RestClient } from '../../lib/rest.ts';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
+import { TeamsUploadQueue } from './uploads.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
@@ -26,7 +27,7 @@ type Doc = Record<string, unknown>;
 export const TEAMS_CAPABILITIES: Capabilities = {
   editing: true,
   deletion: true,
-  files: false,
+  files: true,
   threads: true,
   reactions: true,
   marks: false,
@@ -196,7 +197,8 @@ export function createTeamsProvider(session: Session, rest: RestClient, generate
       ingestLive = async (raw) => { await ingestOne(raw); await ingest(raw); };
       return new TeamsOutbox({ store, client, directory, me: { id: session.userId, username: session.username }, generateId, ingest: ingestLive });
     },
-    createUploadQueue: () => { throw new TeamsError('upload_not_supported'); },
+    createUploadQueue: (store, transport, ingest, hooks) =>
+      new TeamsUploadQueue({ store, client, transport, directory, me: session.userId, generateId, ingest, deleteLocalFile: hooks?.deleteLocalFile }),
     catchUpGlobal: (engine, isDiscarded) => sync.catchUpGlobal(engine, isDiscarded),
     catchUpRoom: (engine, rid, isDiscarded) => sync.catchUpRoom(engine, rid, isDiscarded),
     reconcile: (engine, isDiscarded) => sync.reconcile(engine, isDiscarded),

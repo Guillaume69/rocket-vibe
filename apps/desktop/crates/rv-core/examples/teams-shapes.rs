@@ -12,7 +12,6 @@
 //!     path is yours: keep it OUTSIDE the repo; it holds a live credential;
 //!     delete it to revoke. Unset the variable and nothing is stored.
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use rv_core::session::SessionInfo;
@@ -51,7 +50,11 @@ fn save(path: &Path, info: &SessionInfo) {
         "user_id": info.user_id,
     });
     if fs::write(path, serde_json::to_vec_pretty(&body).unwrap_or_default()).is_ok() {
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+        }
     }
 }
 

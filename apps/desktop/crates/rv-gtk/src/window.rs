@@ -622,6 +622,9 @@ impl AppWindow {
             if this.stack.visible_child_name().as_deref() != Some("chat") || this.window.visible_dialog().is_some() {
                 return glib::Propagation::Proceed;
             }
+            if this.chat.copy_selection(key, state) {
+                return glib::Propagation::Stop;
+            }
             // Ctrl+Shift+A, the Activity view: here, before a text field
             // takes it for "unselect all".
             use gtk::gdk::ModifierType as M;

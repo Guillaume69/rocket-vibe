@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- WhatsApp on GTK: Ctrl+C copies text selected in a message again after sending a message (the composer, disabled while it sends, left the window with no focus and the copy shortcut never reached the timeline).
+
 ## [0.24.0] - 2026-10-22
 
 ### Added

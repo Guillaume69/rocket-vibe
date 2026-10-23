@@ -999,40 +999,6 @@ impl ChatPage {
         });
         keys.add_shortcut(gtk::Shortcut::new(gtk::ShortcutTrigger::parse_string("<Control>k"), Some(switcher)));
         self.split.add_controller(keys);
-        let copy = gtk::EventControllerKey::builder().propagation_phase(gtk::PropagationPhase::Capture).build();
-        let w = weak.clone();
-        copy.connect_key_pressed(move |controller, key, _, state| {
-            let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
-            if !ctrl || !matches!(key, gdk::Key::c | gdk::Key::C | gdk::Key::Insert | gdk::Key::KP_Insert) {
-                return glib::Propagation::Proceed;
-            }
-            let spanned = w.upgrade().and_then(|this| {
-                this.list
-                    .selection_text()
-                    .or_else(|| this.thread.borrow().as_ref().and_then(|t| t.list.selection_text()))
-            });
-            if let Some(text) = spanned {
-                if let Some(display) = gdk::Display::default() {
-                    display.clipboard().set_text(&text);
-                }
-                return glib::Propagation::Stop;
-            }
-            let focus = controller.widget().and_then(|w| w.root()).and_then(|root| root.focus());
-            let editor_selection = focus.as_ref().is_some_and(|f| {
-                f.downcast_ref::<gtk::TextView>().is_some_and(|v| v.buffer().has_selection())
-                    || f.downcast_ref::<gtk::Text>().is_some_and(|t| t.selection_bounds().is_some())
-            });
-            match crate::markdown_view::selected_text().filter(|_| !editor_selection) {
-                Some(text) => {
-                    if let Some(display) = gdk::Display::default() {
-                        display.clipboard().set_text(&text);
-                    }
-                    glib::Propagation::Stop
-                }
-                None => glib::Propagation::Proceed,
-            }
-        });
-        self.split.add_controller(copy);
         let w = weak.clone();
         self.list.connect_event(move |event| {
             if let Some(this) = w.upgrade() {
@@ -2086,6 +2052,32 @@ impl ChatPage {
             thread.list.rebind();
         }
         self.refresh_room_header();
+    }
+
+    /// Ctrl+C or Ctrl+Insert over a selection made in the messages: true
+    /// when it copied one. Called from the window, before any widget: message
+    /// text takes no focus, and the window may have none at all (WhatsApp's
+    /// composer, disabled while it sends, drops it).
+    pub fn copy_selection(&self, key: gdk::Key, state: gdk::ModifierType) -> bool {
+        if !state.contains(gdk::ModifierType::CONTROL_MASK)
+            || !matches!(key, gdk::Key::c | gdk::Key::C | gdk::Key::Insert | gdk::Key::KP_Insert)
+        {
+            return false;
+        }
+        let spanned =
+            self.list.selection_text().or_else(|| self.thread.borrow().as_ref().and_then(|t| t.list.selection_text()));
+        let focus = self.split.root().and_then(|root| root.focus());
+        let editor_selection = focus.as_ref().is_some_and(|f| {
+            f.downcast_ref::<gtk::TextView>().is_some_and(|v| v.buffer().has_selection())
+                || f.downcast_ref::<gtk::Text>().is_some_and(|t| t.selection_bounds().is_some())
+        });
+        let Some(text) = spanned.or_else(|| crate::markdown_view::selected_text().filter(|_| !editor_selection)) else {
+            return false;
+        };
+        if let Some(display) = gdk::Display::default() {
+            display.clipboard().set_text(&text);
+        }
+        true
     }
 
     fn show_own_presence(&self, status: &str) {

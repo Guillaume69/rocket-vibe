@@ -381,6 +381,17 @@ answer but are invisible to the user in Slack. The app's star therefore maps to
 the other way round. Messages carry no saved flag, so the apps keep the set of saved ids
 from `saved.list`.
 
+## Teams calls are handed to Teams, not carried (2026-10-23)
+
+Carrying a Teams call's audio and video would mean a full WebRTC stack against Microsoft's
+calling service (its `epconv`/`conv` signaling with an SDP offer was captured), a large native
+build for one experimental provider. The user chose to handle it like kChat and Slack: open
+the call in a web view. No captured request gives a per-call join URL, so Join and the call
+button open the conversation's Teams deep link (a channel's with its Graph group id), where the
+running call shows its own Join. Desktop windows off Linux stay on Microsoft's pages, its
+sign-in included; Android hands the link to the system, so the Teams app takes it when
+installed. See [Teams](architecture/teams.md).
+
 ## Sources
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`

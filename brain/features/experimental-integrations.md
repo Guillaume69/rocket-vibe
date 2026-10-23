@@ -77,8 +77,11 @@ the FFI's `SlackPreview`/`SlackPairing` objects remain unused by the interfaces.
 The desktops sign in to Slack in a window of the app, Android in its sign-in web view;
 Teams signs in everywhere with a Microsoft device code. Installed Android and macOS
 runtime qualification remains outstanding. Slack still lacks a pasted-session fallback,
-native huddle media, killed-app push and the screens listed above; Teams lacks files,
-threads, pins, saves, search, profiles, presence, room screens, typing, calls and push. See [parity](../parity.md#19-experimental-integrations).
+native huddle media, killed-app push and the screens listed above. Teams lacks the
+pinned-messages list, saves, room-settings editing, chat (non-channel) file upload, native
+call media (calls open the conversation in Teams itself), a thread list and push; its search
+cannot jump to the exact message. See [Teams](../architecture/teams.md) and
+[parity](../parity.md#19-experimental-integrations).
 
 ## Validation
 

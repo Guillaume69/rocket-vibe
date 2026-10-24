@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use crate::Client;
 use wacore::libsignal::protocol::{
-    IdentityKeyPair, KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet,
-    process_prekey_bundle,
+    KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
 };
 use wacore::types::jid::JidExt;
 use wacore_binary::Jid;
@@ -11,12 +10,10 @@ use wacore_binary::Jid;
 pub(crate) async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) -> anyhow::Result<()> {
     let bundle = tokio::task::spawn_blocking(|| -> Result<PreKeyBundle, SignalProtocolError> {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let receiver = IdentityKeyPair::generate(&mut rng);
+        let receiver = KeyPair::generate(&mut rng);
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
-        let signature = receiver
-            .private_key()
-            .sign(&spk.public.serialize(), &mut rng);
+        let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
         PreKeyBundle::new(
             1,
             1u32.into(),
@@ -24,7 +21,7 @@ pub(crate) async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) -> anyho
             1u32.into(),
             spk.public,
             signature,
-            *receiver.identity_key(),
+            receiver.public,
         )
     })
     .await??;

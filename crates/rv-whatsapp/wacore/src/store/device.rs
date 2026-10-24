@@ -1,5 +1,5 @@
 use crate::client_profile::ClientProfile;
-use crate::libsignal::protocol::{IdentityKeyPair, KeyPair};
+use crate::libsignal::protocol::KeyPair;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use std::sync::{Arc, LazyLock};
@@ -579,15 +579,15 @@ impl Device {
         use rand::{Rng, RngExt};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity_key_pair = IdentityKeyPair::generate(&mut rng);
+        let identity_key_pair = KeyPair::generate(&mut rng);
 
         let identity_key = KeyPair {
-            public: *identity_key_pair.public_key(),
-            private: identity_key_pair.private_key().clone(),
+            public: identity_key_pair.public,
+            private: identity_key_pair.private.clone(),
         };
         let signed_pre_key = KeyPair::generate(&mut rng);
         let signature_box = identity_key_pair
-            .private_key()
+            .private
             .sign(&signed_pre_key.public.serialize(), &mut rng);
         let signed_pre_key_signature: [u8; 64] = signature_box
             .as_ref()

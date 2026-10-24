@@ -26,13 +26,12 @@ use wacore_binary::jid::Jid;
 use wacore_binary::marshal::marshal;
 use wacore_binary::node::{Node, NodeContent};
 use wacore_signal::protocol::{
-    CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKey,
-    IdentityKeyPair, IdentityKeyStore, KeyPair, PreKeyBundle, PreKeyId, PreKeyRecord,
-    PreKeySignalMessage, PreKeyStore, ProtocolAddress, SenderKeyRecord, SenderKeyStore,
-    SessionRecord, SessionStore, SignalMessage, SignedPreKeyId, SignedPreKeyRecord,
-    SignedPreKeyStore, Timestamp, UsePQRatchet, create_sender_key_distribution_message,
-    group_decrypt, message_decrypt, message_encrypt, process_prekey_bundle,
-    process_sender_key_distribution_message,
+    CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
+    PreKeyBundle, PreKeyId, PreKeyRecord, PreKeySignalMessage, PreKeyStore, ProtocolAddress,
+    PublicKey, SenderKeyRecord, SenderKeyStore, SessionRecord, SessionStore, SignalMessage,
+    SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp, UsePQRatchet,
+    create_sender_key_distribution_message, group_decrypt, message_decrypt, message_encrypt,
+    process_prekey_bundle, process_sender_key_distribution_message,
 };
 use wacore_signal::store::sender_key_name::SenderKeyName;
 use waproto::whatsapp as wa;
@@ -152,13 +151,13 @@ impl Runtime for BenchRuntime {
 /// would over-count clone work that doesn't happen in production.
 #[derive(Clone)]
 struct MemIdentityStore {
-    key_pair: IdentityKeyPair,
+    key_pair: KeyPair,
     reg_id: u32,
-    identities: std::sync::Arc<std::sync::Mutex<DetHashMap<ProtocolAddress, IdentityKey>>>,
+    identities: std::sync::Arc<std::sync::Mutex<DetHashMap<ProtocolAddress, PublicKey>>>,
 }
 
 impl MemIdentityStore {
-    fn new(key_pair: IdentityKeyPair, reg_id: u32) -> Self {
+    fn new(key_pair: KeyPair, reg_id: u32) -> Self {
         Self {
             key_pair,
             reg_id,
@@ -170,7 +169,7 @@ impl MemIdentityStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityKeyStore for MemIdentityStore {
-    async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+    async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
         Ok(self.key_pair.clone())
     }
     async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -179,7 +178,7 @@ impl IdentityKeyStore for MemIdentityStore {
     async fn save_identity(
         &mut self,
         a: &ProtocolAddress,
-        id: &IdentityKey,
+        id: &PublicKey,
     ) -> SigResult<IdentityChange> {
         let mut guard = self.identities.lock().unwrap();
         let changed = guard.get(a).is_some_and(|e| e != id);
@@ -189,12 +188,12 @@ impl IdentityKeyStore for MemIdentityStore {
     async fn is_trusted_identity(
         &self,
         _: &ProtocolAddress,
-        _: &IdentityKey,
+        _: &PublicKey,
         _: Direction,
     ) -> SigResult<bool> {
         Ok(true)
     }
-    async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+    async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
         Ok(self.identities.lock().unwrap().get(a).cloned())
     }
 }
@@ -297,7 +296,7 @@ struct User {
 impl User {
     fn new(user: &str, server: &str) -> Self {
         let mut rng = bench_rng(seed_of(user));
-        let identity_key_pair = IdentityKeyPair::generate(&mut rng);
+        let identity_key_pair = KeyPair::generate(&mut rng);
         let reg_id = (seed_of(user) as u32) & 0x3FFF;
 
         let pk_id: PreKeyId = 1.into();
@@ -307,7 +306,7 @@ impl User {
         let spk_id: SignedPreKeyId = 1.into();
         let spk_pair = KeyPair::generate(&mut rng);
         let spk_sig = identity_key_pair
-            .private_key()
+            .private
             .sign(&spk_pair.public.serialize(), &mut rng);
         let spk_record =
             SignedPreKeyRecord::new(spk_id, Timestamp::from_epoch_millis(0), &spk_pair, &spk_sig);
@@ -360,7 +359,7 @@ impl User {
             1.into(),
             self.signed_prekey_pair.public,
             self.signed_prekey_sig.clone(),
-            *self.identity.key_pair.identity_key(),
+            self.identity.key_pair.public,
         )
         .unwrap()
     }

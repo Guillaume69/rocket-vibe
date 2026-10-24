@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
 use wacore::libsignal::protocol::{
-    ChainKey, IdentityKey, KeyPair, ProtocolAddress, RootKey, SessionCheckoutStoreResult,
-    SessionRecord, SessionState,
+    ChainKey, KeyPair, ProtocolAddress, RootKey, SessionCheckoutStoreResult, SessionRecord,
+    SessionState,
 };
 use wacore::store::signal_cache::SignalStoreCache;
 use wacore::time::Instant;
@@ -30,8 +30,8 @@ fn remove_db_files(path: &Path) {
 }
 
 fn create_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public);
+    let local = KeyPair::generate(rng).public;
+    let remote = KeyPair::generate(rng).public;
     let base_key = KeyPair::generate(rng).public;
     let mut state = SessionState::new(3, &local, &remote, &RootKey::new([7; 32]), &base_key);
     state.set_sender_chain(&KeyPair::generate(rng), &ChainKey::new([11; 32], 0));

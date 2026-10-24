@@ -7169,7 +7169,7 @@ mod ensure_sessions_concurrency {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SessionRecord};
+    use wacore::libsignal::protocol::{KeyPair, SessionRecord};
     use wacore::types::jid::JidExt;
     use wacore_binary::builder::NodeBuilder;
     use wacore_binary::{Jid, Node};
@@ -7180,7 +7180,7 @@ mod ensure_sessions_concurrency {
     /// response is a legitimate answer for the same address rather than a
     /// different peer wearing the same jid.
     struct PeerKeys {
-        identity: IdentityKeyPair,
+        identity: KeyPair,
         signed: KeyPair,
         signature: Vec<u8>,
     }
@@ -7188,12 +7188,12 @@ mod ensure_sessions_concurrency {
     impl PeerKeys {
         fn generate() -> Self {
             let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-            let identity = IdentityKeyPair::generate(&mut rng);
+            let identity = KeyPair::generate(&mut rng);
             let signed = KeyPair::generate(&mut rng);
             // `process_prekey_bundle` verifies this signature, so a filler byte
             // pattern would fail before the behaviour under test is reached.
             let signature = identity
-                .private_key()
+                .private
                 .sign(&signed.public.serialize(), &mut rng)
                 .to_vec();
             Self {
@@ -7223,7 +7223,7 @@ mod ensure_sessions_concurrency {
                                 .build(),
                             NodeBuilder::new("type").bytes(vec![5]).build(),
                             NodeBuilder::new("identity")
-                                .bytes(self.identity.public_key().raw().to_vec())
+                                .bytes(self.identity.public.raw().to_vec())
                                 .build(),
                             NodeBuilder::new("skey")
                                 .children([

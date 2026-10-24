@@ -2199,7 +2199,7 @@ mod tests {
     #[tokio::test]
     async fn timestampless_rekey_decrypts_and_reaches_group_media() {
         use wacore::libsignal::protocol::{
-            GenericSignedPreKey, IdentityKey, PreKeyBundle, SignedPreKeyStore, UsePQRatchet,
+            GenericSignedPreKey, PreKeyBundle, PublicKey, SignedPreKeyStore, UsePQRatchet,
             process_prekey_bundle,
         };
         use wacore::types::jid::JidExt;
@@ -2224,7 +2224,7 @@ mod tests {
             1u32.into(),
             signed.public_key().unwrap(),
             signed.signature().unwrap(),
-            IdentityKey::new(snapshot.core.identity_key.public_key),
+            snapshot.core.identity_key.public_key,
         )
         .unwrap();
         let mut sender_adapter = sender_client.signal_adapter();

@@ -1782,7 +1782,7 @@ impl Client {
             signed_prekey.id.into(),
             skey_public,
             skey_signature,
-            identity_key.into(),
+            identity_key,
         )?;
 
         let mut adapter = self.signal_adapter();
@@ -2004,7 +2004,7 @@ mod tests {
     use crate::test_utils::MockHttpClient;
     use std::borrow::Cow;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair};
+    use wacore::libsignal::protocol::KeyPair;
     use wacore::types::jid::JidExt as _;
     use wacore_binary::{Jid, JidExt};
     use waproto::whatsapp as wa;
@@ -2178,7 +2178,7 @@ mod tests {
             snapshot.signed_pre_key_id.into(),
             snapshot.signed_pre_key.public,
             snapshot.signed_pre_key_signature.to_vec(),
-            wacore::libsignal::protocol::IdentityKey::new(snapshot.identity_key.public),
+            snapshot.identity_key.public,
         )
         .unwrap();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -3923,11 +3923,11 @@ mod tests {
     /// the empty `<device-identity>` is never read.
     fn retry_key_bundle_children() -> [Node; 2] {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity = IdentityKeyPair::generate(&mut rng);
+        let identity = KeyPair::generate(&mut rng);
         let prekey = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let signature = identity
-            .private_key()
+            .private
             .sign(&signed_prekey.public.serialize(), &mut rng);
 
         [
@@ -3935,7 +3935,7 @@ mod tests {
                 .bytes(4242u32.to_be_bytes().to_vec())
                 .build(),
             wacore::protocol::retry::build_retry_keys_node(
-                identity.identity_key().public_key(),
+                &identity.public,
                 7,
                 &prekey.public,
                 100,
@@ -4831,10 +4831,10 @@ mod tests {
             .into_parts();
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let remote_identity = IdentityKeyPair::generate(&mut rng);
+        let remote_identity = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let signed_prekey_signature = remote_identity
-            .private_key()
+            .private
             .sign(&signed_prekey.public.serialize(), &mut rng);
 
         let regular_requester = Jid::pn_device("559922223333", 1);
@@ -4842,7 +4842,7 @@ mod tests {
             .children([
                 NodeBuilder::new("type").bytes(vec![5]).build(),
                 NodeBuilder::new("identity")
-                    .bytes(remote_identity.identity_key().public_key().raw().to_vec())
+                    .bytes(remote_identity.public.raw().to_vec())
                     .build(),
                 SignedPreKeyNode::new(
                     100,

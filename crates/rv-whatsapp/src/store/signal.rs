@@ -5,9 +5,8 @@ use rand::RngExt;
 use std::sync::{Arc, OnceLock};
 use wacore::libsignal::protocol::error::Result as SignalResult;
 use wacore::libsignal::protocol::{
-    Direction, IdentityChange, IdentityKey, IdentityKeyPair, IdentityKeyStore, PrivateKey,
-    ProtocolAddress, PublicKey, SenderKeyRecord, SenderKeyStore, SessionRecord,
-    SignalProtocolError,
+    Direction, IdentityChange, IdentityKeyStore, KeyPair, PrivateKey, ProtocolAddress, PublicKey,
+    SenderKeyRecord, SenderKeyStore, SessionRecord, SignalProtocolError,
 };
 use wacore::libsignal::store::sender_key_name::SenderKeyName;
 use wacore::libsignal::store::*;
@@ -40,7 +39,7 @@ macro_rules! impl_store_wrapper {
         #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
         impl IdentityKeyStore for $wrapper_ty {
-            async fn get_identity_key_pair(&self) -> SignalResult<IdentityKeyPair> {
+            async fn get_identity_key_pair(&self) -> SignalResult<KeyPair> {
                 self.0.$read_lock().await.get_identity_key_pair().await
             }
 
@@ -51,7 +50,7 @@ macro_rules! impl_store_wrapper {
             async fn save_identity(
                 &mut self,
                 address: &ProtocolAddress,
-                identity_key: &IdentityKey,
+                identity_key: &PublicKey,
             ) -> SignalResult<IdentityChange> {
                 self.0
                     .$write_lock()
@@ -63,7 +62,7 @@ macro_rules! impl_store_wrapper {
             async fn is_trusted_identity(
                 &self,
                 address: &ProtocolAddress,
-                identity_key: &IdentityKey,
+                identity_key: &PublicKey,
                 direction: Direction,
             ) -> SignalResult<bool> {
                 self.0
@@ -76,7 +75,7 @@ macro_rules! impl_store_wrapper {
             async fn get_identity(
                 &self,
                 address: &ProtocolAddress,
-            ) -> SignalResult<Option<IdentityKey>> {
+            ) -> SignalResult<Option<PublicKey>> {
                 self.0.$read_lock().await.get_identity(address).await
             }
         }
@@ -216,8 +215,8 @@ macro_rules! impl_store_wrapper {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityKeyStore for Device {
-    async fn get_identity_key_pair(&self) -> SignalResult<IdentityKeyPair> {
-        Ok(self.identity_key.clone().into())
+    async fn get_identity_key_pair(&self) -> SignalResult<KeyPair> {
+        Ok(self.identity_key.clone())
     }
 
     async fn get_local_registration_id(&self) -> SignalResult<u32> {
@@ -227,10 +226,10 @@ impl IdentityKeyStore for Device {
     async fn save_identity(
         &mut self,
         address: &ProtocolAddress,
-        identity_key: &IdentityKey,
+        identity_key: &PublicKey,
     ) -> SignalResult<IdentityChange> {
         let address_str = address.as_str();
-        let key_bytes = identity_key.public_key().raw();
+        let key_bytes = identity_key.raw();
         let existing_identity_opt = self.get_identity(address).await?;
 
         self.backend
@@ -248,7 +247,7 @@ impl IdentityKeyStore for Device {
     async fn is_trusted_identity(
         &self,
         _address: &ProtocolAddress,
-        _identity_key: &IdentityKey,
+        _identity_key: &PublicKey,
         _direction: Direction,
     ) -> SignalResult<bool> {
         // WA Web: ProtocolStoreUnifiedApi.js — isTrustedIdentity always returns true.
@@ -257,7 +256,7 @@ impl IdentityKeyStore for Device {
         Ok(true)
     }
 
-    async fn get_identity(&self, address: &ProtocolAddress) -> SignalResult<Option<IdentityKey>> {
+    async fn get_identity(&self, address: &ProtocolAddress) -> SignalResult<Option<PublicKey>> {
         let identity_bytes = self
             .backend
             .load_identity(address.as_str())
@@ -267,7 +266,7 @@ impl IdentityKeyStore for Device {
         match identity_bytes {
             Some(bytes) if !bytes.is_empty() => {
                 let public_key = PublicKey::try_from(&bytes[..])?;
-                Ok(Some(IdentityKey::new(public_key)))
+                Ok(Some(public_key))
             }
             _ => Ok(None),
         }
@@ -574,8 +573,8 @@ mod tests {
         use wacore::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
         let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
@@ -697,9 +696,7 @@ mod tests {
         let current = device.signed_pre_key_id;
         let old_id = current + 7; // any non-current id
 
-        let kp = wacore::libsignal::protocol::KeyPair::generate(&mut rand::make_rng::<
-            rand::rngs::StdRng,
-        >());
+        let kp = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
         let record = record_helpers::new_signed_pre_key_record(
             old_id,
             &kp,

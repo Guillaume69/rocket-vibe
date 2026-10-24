@@ -14,8 +14,8 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use rand::SeedableRng;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wacore::libsignal::protocol::{
-    ChainKey, IdentityKey, KeyPair, RootKey, SenderKeyName, SenderKeyRecord, SenderKeyStore,
-    SessionRecord, SessionState, group_decrypt, group_encrypt,
+    ChainKey, KeyPair, RootKey, SenderKeyName, SenderKeyRecord, SenderKeyStore, SessionRecord,
+    SessionState, group_decrypt, group_encrypt,
 };
 use wacore::store::traits::{
     AppSyncStore, DeviceStore, MsgSecretStore, ProtocolStore, SignalStore,
@@ -98,8 +98,8 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
         let remote = KeyPair::generate(&mut rng);
         let mut state = SessionState::new(
             3,
-            &IdentityKey::new(identity.public),
-            &IdentityKey::new(remote.public),
+            &identity.public,
+            &remote.public,
             &RootKey::new([7; 32]),
             &KeyPair::generate(&mut rng).public,
         );
@@ -233,12 +233,7 @@ async fn verify(db: &SqliteDatabase, seeds: &[Seed]) {
                 .unwrap()
                 .unwrap()
                 .as_slice(),
-            state
-                .remote_identity_key()
-                .unwrap()
-                .unwrap()
-                .public_key()
-                .raw()
+            state.remote_identity_key().unwrap().unwrap().raw()
         );
         assert_eq!(state.get_sender_chain_key().unwrap().index(), 4);
         let key = store.get_sync_key(&[1]).await.unwrap().unwrap();

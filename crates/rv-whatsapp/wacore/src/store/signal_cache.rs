@@ -4848,7 +4848,7 @@ mod eviction_tests {
 mod lease_reload_tests {
     use super::*;
     use crate::libsignal::protocol::{
-        ChainKey, IdentityKey, KeyPair, RootKey, SenderKeyStore, SessionState,
+        ChainKey, KeyPair, RootKey, SenderKeyStore, SessionState,
         create_sender_key_distribution_message, group_decrypt, group_encrypt,
         process_sender_key_distribution_message,
     };
@@ -4889,8 +4889,8 @@ mod lease_reload_tests {
 
     pub(super) fn leased_session() -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
         let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
@@ -6162,7 +6162,7 @@ mod pre_wire_gate_tests {
 #[cfg(test)]
 mod cold_read_race_tests {
     use super::*;
-    use crate::libsignal::protocol::{ChainKey, IdentityKey, KeyPair, RootKey, SessionState};
+    use crate::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
     use crate::store::error::Result as StoreResult;
     use bytes::Bytes;
     use std::sync::atomic::AtomicUsize;
@@ -6285,8 +6285,8 @@ mod cold_read_race_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
         let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(
@@ -6733,7 +6733,7 @@ mod cold_read_race_tests {
 mod flush_contention_reproduction_tests {
     use super::*;
     use crate::libsignal::protocol::{
-        ChainKey, IdentityKey, KeyPair, ProtocolAddress, RootKey, SessionRecord, SessionState,
+        ChainKey, KeyPair, ProtocolAddress, RootKey, SessionRecord, SessionState,
     };
     use crate::store::in_memory::InMemoryBackend;
     use crate::store::traits::SignalStore;
@@ -6745,8 +6745,8 @@ mod flush_contention_reproduction_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
         let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(

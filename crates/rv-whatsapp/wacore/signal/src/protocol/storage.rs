@@ -10,7 +10,7 @@ use async_trait::async_trait;
 
 use super::address::ProtocolAddress;
 use super::error::{Result, SignalProtocolError};
-use super::keys::{IdentityKey, IdentityKeyPair};
+use super::keys::{KeyPair, PublicKey};
 use super::prekeys::{PreKeyId, PreKeyRecord, SignedPreKeyId, SignedPreKeyRecord};
 use super::sender_keys::SenderKeyRecord;
 use super::session::SessionRecord;
@@ -97,26 +97,26 @@ pub enum SessionCheckoutStoreResult {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait IdentityKeyStore: ThreadSafe {
-    async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair>;
+    async fn get_identity_key_pair(&self) -> Result<KeyPair>;
     async fn get_local_registration_id(&self) -> Result<u32>;
     async fn save_identity(
         &mut self,
         address: &ProtocolAddress,
-        identity: &IdentityKey,
+        identity: &PublicKey,
     ) -> Result<IdentityChange>;
     async fn is_trusted_identity(
         &self,
         address: &ProtocolAddress,
-        identity: &IdentityKey,
+        identity: &PublicKey,
         direction: Direction,
     ) -> Result<bool>;
-    async fn get_identity(&self, address: &ProtocolAddress) -> Result<Option<IdentityKey>>;
+    async fn get_identity(&self, address: &ProtocolAddress) -> Result<Option<PublicKey>>;
 
     /// A synchronous answer, when the store has one at hand.
     fn try_is_trusted_identity(
         &self,
         _address: &ProtocolAddress,
-        _identity: &IdentityKey,
+        _identity: &PublicKey,
         _direction: Direction,
     ) -> Option<Result<bool>> {
         None
@@ -125,7 +125,7 @@ pub trait IdentityKeyStore: ThreadSafe {
     fn try_save_identity(
         &mut self,
         _address: &ProtocolAddress,
-        _identity: &IdentityKey,
+        _identity: &PublicKey,
     ) -> Option<Result<IdentityChange>> {
         None
     }
@@ -410,7 +410,7 @@ impl Drop for SessionCheckout<'_> {
 pub async fn is_trusted_identity<S: IdentityKeyStore + ?Sized>(
     store: &S,
     address: &ProtocolAddress,
-    identity: &IdentityKey,
+    identity: &PublicKey,
     direction: Direction,
 ) -> Result<bool> {
     match store.try_is_trusted_identity(address, identity, direction) {
@@ -426,7 +426,7 @@ pub async fn is_trusted_identity<S: IdentityKeyStore + ?Sized>(
 pub(crate) async fn save_identity(
     store: &mut dyn IdentityKeyStore,
     address: &ProtocolAddress,
-    identity: &IdentityKey,
+    identity: &PublicKey,
 ) -> Result<IdentityChange> {
     match store.try_save_identity(address, identity) {
         Some(answer) => answer,

@@ -1548,7 +1548,7 @@ mod tests {
     #[tokio::test]
     async fn a_device_that_establishes_counts_nothing() {
         use wacore::iq::prekeys::PreKeyBundleUserNode;
-        use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, PreKeyBundle};
+        use wacore::libsignal::protocol::{KeyPair, PreKeyBundle};
         use wacore::protocol::ProtocolNode;
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
@@ -1561,12 +1561,10 @@ mod tests {
 
         // A bundle whose signed-prekey signature verifies, so X3DH completes.
         let mut rng = rand::make_rng::<StdRng>();
-        let receiver = IdentityKeyPair::generate(&mut rng);
+        let receiver = KeyPair::generate(&mut rng);
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
-        let signature = receiver
-            .private_key()
-            .sign(&spk.public.serialize(), &mut rng);
+        let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
         let bundle = PreKeyBundle::new(
             1,
             0u32.into(),
@@ -1574,7 +1572,7 @@ mod tests {
             1u32.into(),
             spk.public,
             signature,
-            *receiver.identity_key(),
+            receiver.public,
         )
         .expect("build the bundle");
 

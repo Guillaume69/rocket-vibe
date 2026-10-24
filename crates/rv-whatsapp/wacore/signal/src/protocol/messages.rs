@@ -4,7 +4,7 @@ use bytes::Bytes;
 use rand::CryptoRng;
 
 use super::error::{Result, SignalProtocolError};
-use super::keys::{IdentityKey, PrivateKey, PublicKey};
+use super::keys::{PrivateKey, PublicKey};
 use super::prekeys::{PreKeyId, SignedPreKeyId};
 
 pub const CIPHERTEXT_MESSAGE_CURRENT_VERSION: u8 = 3;
@@ -63,14 +63,14 @@ impl SignalMessage {
         counter: u32,
         previous_counter: u32,
         ciphertext: &[u8],
-        sender_identity_key: &IdentityKey,
-        receiver_identity_key: &IdentityKey,
+        sender_identity_key: &PublicKey,
+        receiver_identity_key: &PublicKey,
     ) -> Result<Self> {
         check_version(message_version)?;
         let inner = rv_signal::SignalMessage::new(
             mac_key,
-            sender_identity_key.public_key(),
-            receiver_identity_key.public_key(),
+            sender_identity_key,
+            receiver_identity_key,
             sender_ratchet_key,
             counter,
             previous_counter,
@@ -141,7 +141,7 @@ pub struct PreKeySignalMessage {
     pub(crate) inner: rv_signal::PreKeySignalMessage,
     message: SignalMessage,
     base_key: PublicKey,
-    identity_key: IdentityKey,
+    identity_key: PublicKey,
 }
 
 impl PreKeySignalMessage {
@@ -151,7 +151,7 @@ impl PreKeySignalMessage {
         pre_key_id: Option<PreKeyId>,
         signed_pre_key_id: SignedPreKeyId,
         base_key: PublicKey,
-        identity_key: IdentityKey,
+        identity_key: PublicKey,
         message: SignalMessage,
     ) -> Result<Self> {
         check_version(message_version)?;
@@ -160,7 +160,7 @@ impl PreKeySignalMessage {
             pre_key_id.map(u32::from),
             signed_pre_key_id.into(),
             base_key,
-            *identity_key.public_key(),
+            identity_key,
             message.inner.clone(),
         );
         Ok(Self {
@@ -175,7 +175,7 @@ impl PreKeySignalMessage {
         Self {
             message: SignalMessage::from_inner(inner.message.clone()),
             base_key: inner.base_key,
-            identity_key: IdentityKey::new(inner.identity_key),
+            identity_key: inner.identity_key,
             inner,
         }
     }
@@ -200,7 +200,7 @@ impl PreKeySignalMessage {
         &self.base_key
     }
 
-    pub fn identity_key(&self) -> &IdentityKey {
+    pub fn identity_key(&self) -> &PublicKey {
         &self.identity_key
     }
 

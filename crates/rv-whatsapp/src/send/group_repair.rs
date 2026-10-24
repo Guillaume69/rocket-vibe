@@ -548,15 +548,15 @@ mod tests {
 
     #[tokio::test]
     async fn reregistered_primary_excludes_historical_delta_on_hot_and_cold_saves() {
-        use wacore::libsignal::protocol::{IdentityKeyPair, IdentityKeyStore, ProtocolAddress};
+        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
 
         for cold in [false, true] {
             let client = crate::test_utils::create_test_client().await;
             let mut adapter = client.signal_adapter();
             let primary = ProtocolAddress::new("15550000001", 0.into());
             let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-            let first = *IdentityKeyPair::generate(&mut rng).identity_key();
-            let replacement = *IdentityKeyPair::generate(&mut rng).identity_key();
+            let first = KeyPair::generate(&mut rng).public;
+            let replacement = KeyPair::generate(&mut rng).public;
             adapter
                 .identity_store
                 .save_identity(&primary, &first)
@@ -591,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn same_primary_and_new_companion_keep_historical_delta_eligible() {
-        use wacore::libsignal::protocol::{IdentityKeyPair, IdentityKeyStore};
+        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair};
         use wacore::types::jid::JidExt;
 
         let client = crate::test_utils::create_test_client().await;
@@ -599,7 +599,7 @@ mod tests {
         let primary: Jid = "15550000001@s.whatsapp.net".parse().unwrap();
         let companion = primary.with_device(2);
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let key = *IdentityKeyPair::generate(&mut rng).identity_key();
+        let key = KeyPair::generate(&mut rng).public;
         adapter
             .identity_store
             .save_identity(&primary.to_protocol_address(), &key)
@@ -628,13 +628,13 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_primary_first_observation_does_not_block_a_companion() {
-        use wacore::libsignal::protocol::{IdentityKeyPair, IdentityKeyStore, ProtocolAddress};
+        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
 
         let client = crate::test_utils::create_test_client().await;
         let sent = GroupIdentitySnapshot::capture(&client);
         let mut adapter = client.signal_adapter();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let key = *IdentityKeyPair::generate(&mut rng).identity_key();
+        let key = KeyPair::generate(&mut rng).public;
         for device in [0, 2] {
             adapter
                 .identity_store

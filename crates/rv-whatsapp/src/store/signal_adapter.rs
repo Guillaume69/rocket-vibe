@@ -4,10 +4,9 @@ use crate::store::signal_cache::SignalStoreCache;
 use async_trait::async_trait;
 use std::sync::Arc;
 use wacore::libsignal::protocol::{
-    Direction, IdentityChange, IdentityKey, IdentityKeyPair, IdentityKeyStore, PreKeyId,
-    PreKeyRecord, PreKeyStore, ProtocolAddress, SessionCheckoutKey, SessionCheckoutStoreResult,
-    SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord,
-    SignedPreKeyStore,
+    Direction, IdentityChange, IdentityKeyStore, KeyPair, PreKeyId, PreKeyRecord, PreKeyStore,
+    ProtocolAddress, PublicKey, SessionCheckoutKey, SessionCheckoutStoreResult, SessionRecord,
+    SessionStore, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore,
 };
 
 use wacore::libsignal::store::record_helpers as wacore_record;
@@ -276,7 +275,7 @@ impl IdentityAdapter {
     fn save_identity_cached(
         &self,
         address: &ProtocolAddress,
-        identity: &IdentityKey,
+        identity: &PublicKey,
     ) -> Option<Result<IdentityChange, SignalProtocolError>> {
         let prev = self.0.cache.try_get_identity(address)?;
         let change = match parse_cached_identity(prev) {
@@ -287,7 +286,7 @@ impl IdentityAdapter {
         };
         self.0
             .cache
-            .try_put_identity(address, identity.public_key().raw())
+            .try_put_identity(address, identity.raw())
             .then_some(Ok(change))
     }
 }
@@ -295,7 +294,7 @@ impl IdentityAdapter {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityKeyStore for IdentityAdapter {
-    async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
+    async fn get_identity_key_pair(&self) -> Result<KeyPair, SignalProtocolError> {
         let device = self.0.device();
         IdentityKeyStore::get_identity_key_pair(device.as_ref())
             .await
@@ -315,7 +314,7 @@ impl IdentityKeyStore for IdentityAdapter {
     fn save_identity<'life0, 'life1, 'life2, 'async_trait>(
         &'life0 mut self,
         address: &'life1 ProtocolAddress,
-        identity: &'life2 IdentityKey,
+        identity: &'life2 PublicKey,
     ) -> BoxFut<'async_trait, Result<IdentityChange, SignalProtocolError>>
     where
         'life0: 'async_trait,
@@ -333,10 +332,7 @@ impl IdentityKeyStore for IdentityAdapter {
             // during flush_signal_cache(). This avoids a synchronous backend write
             // on every encrypt/decrypt. is_trusted_identity always returns true
             // (matching WA Web), so the Device-level save is redundant.
-            self.0
-                .cache
-                .put_identity(address, identity.public_key().raw())
-                .await;
+            self.0.cache.put_identity(address, identity.raw()).await;
 
             match existing_identity {
                 None => Ok(IdentityChange::NewOrUnchanged),
@@ -351,7 +347,7 @@ impl IdentityKeyStore for IdentityAdapter {
     fn try_is_trusted_identity(
         &self,
         _address: &ProtocolAddress,
-        _identity: &IdentityKey,
+        _identity: &PublicKey,
         _direction: Direction,
     ) -> Option<Result<bool, SignalProtocolError>> {
         Some(Ok(true))
@@ -360,7 +356,7 @@ impl IdentityKeyStore for IdentityAdapter {
     fn try_save_identity(
         &mut self,
         address: &ProtocolAddress,
-        identity: &IdentityKey,
+        identity: &PublicKey,
     ) -> Option<Result<IdentityChange, SignalProtocolError>> {
         self.save_identity_cached(address, identity)
     }
@@ -368,7 +364,7 @@ impl IdentityKeyStore for IdentityAdapter {
     async fn is_trusted_identity(
         &self,
         _address: &ProtocolAddress,
-        _identity: &IdentityKey,
+        _identity: &PublicKey,
         _direction: Direction,
     ) -> Result<bool, SignalProtocolError> {
         // WAWebProtocolStoreUnifiedApi.isTrustedIdentity always returns true;
@@ -384,7 +380,7 @@ impl IdentityKeyStore for IdentityAdapter {
     fn get_identity<'life0, 'life1, 'async_trait>(
         &'life0 self,
         address: &'life1 ProtocolAddress,
-    ) -> BoxFut<'async_trait, Result<Option<IdentityKey>, SignalProtocolError>>
+    ) -> BoxFut<'async_trait, Result<Option<PublicKey>, SignalProtocolError>>
     where
         'life0: 'async_trait,
         'life1: 'async_trait,
@@ -415,12 +411,12 @@ impl IdentityKeyStore for IdentityAdapter {
 /// bad key and would be reported against them.
 fn parse_cached_identity(
     data: Option<Arc<[u8]>>,
-) -> Result<Option<IdentityKey>, SignalProtocolError> {
+) -> Result<Option<PublicKey>, SignalProtocolError> {
     match data {
         Some(data) if !data.is_empty() => {
-            let public_key = wacore::libsignal::protocol::PublicKey::try_from(&data[..])
-                .map_err(|e| record_read_err(e.into()))?;
-            Ok(Some(IdentityKey::new(public_key)))
+            let public_key =
+                PublicKey::try_from(&data[..]).map_err(|e| record_read_err(e.into()))?;
+            Ok(Some(public_key))
         }
         _ => Ok(None),
     }
@@ -859,13 +855,13 @@ mod tests {
     }
 
     struct BlockingIdentityStore {
-        pair: IdentityKeyPair,
+        pair: KeyPair,
         entered: Arc<async_lock::Barrier>,
     }
 
     #[async_trait]
     impl IdentityKeyStore for BlockingIdentityStore {
-        async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
+        async fn get_identity_key_pair(&self) -> Result<KeyPair, SignalProtocolError> {
             Ok(self.pair.clone())
         }
 
@@ -876,7 +872,7 @@ mod tests {
         async fn save_identity(
             &mut self,
             _address: &ProtocolAddress,
-            _identity: &IdentityKey,
+            _identity: &PublicKey,
         ) -> Result<IdentityChange, SignalProtocolError> {
             Ok(IdentityChange::NewOrUnchanged)
         }
@@ -884,7 +880,7 @@ mod tests {
         async fn is_trusted_identity(
             &self,
             _address: &ProtocolAddress,
-            _identity: &IdentityKey,
+            _identity: &PublicKey,
             _direction: Direction,
         ) -> Result<bool, SignalProtocolError> {
             self.entered.wait().await;
@@ -894,24 +890,24 @@ mod tests {
         async fn get_identity(
             &self,
             _address: &ProtocolAddress,
-        ) -> Result<Option<IdentityKey>, SignalProtocolError> {
+        ) -> Result<Option<PublicKey>, SignalProtocolError> {
             Ok(None)
         }
     }
 
-    fn outbound_session() -> (SessionRecord, IdentityKeyPair) {
+    fn outbound_session() -> (SessionRecord, KeyPair) {
         use wacore::libsignal::protocol::{
             AliceSignalProtocolParameters, KeyPair, UsePQRatchet, initialize_alice_session_record,
         };
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local_identity = IdentityKeyPair::generate(&mut rng);
-        let remote_identity = IdentityKeyPair::generate(&mut rng);
+        let local_identity = KeyPair::generate(&mut rng);
+        let remote_identity = KeyPair::generate(&mut rng);
         let remote_signed_prekey = KeyPair::generate(&mut rng);
         let parameters = AliceSignalProtocolParameters::new(
             local_identity.clone(),
             KeyPair::generate(&mut rng),
-            *remote_identity.identity_key(),
+            remote_identity.public,
             remote_signed_prekey.public,
             remote_signed_prekey.public,
             UsePQRatchet::No,
@@ -1073,13 +1069,13 @@ mod tests {
     /// key → ReplacedExisting (the last two run on the warm-cache fast path).
     #[tokio::test]
     async fn identity_fast_paths_keep_change_semantics() {
-        use wacore::libsignal::protocol::{IdentityKeyPair, IdentityKeyStore as _};
+        use wacore::libsignal::protocol::{IdentityKeyStore as _, KeyPair};
         let mut adapter = test_adapter().await;
         let addr = ProtocolAddress::new("15550003333", 1.into());
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let first = *IdentityKeyPair::generate(&mut rng).identity_key();
-        let second = *IdentityKeyPair::generate(&mut rng).identity_key();
+        let first = KeyPair::generate(&mut rng).public;
+        let second = KeyPair::generate(&mut rng).public;
 
         assert!(
             adapter
@@ -1132,7 +1128,7 @@ mod tests {
 mod hook_alloc_tests {
     use super::*;
     use crate::test_alloc::min_allocs;
-    use wacore::libsignal::protocol::{Direction, IdentityKeyPair};
+    use wacore::libsignal::protocol::{Direction, KeyPair};
     use wacore::store::in_memory::InMemoryBackend;
 
     async fn adapter_for_test() -> SignalProtocolStoreAdapter {
@@ -1145,8 +1141,8 @@ mod hook_alloc_tests {
         SignalProtocolStoreAdapter::new(device.clone(), Arc::new(SignalStoreCache::new()))
     }
 
-    fn some_identity() -> IdentityKey {
-        *IdentityKeyPair::generate(&mut rand::rng()).identity_key()
+    fn some_identity() -> PublicKey {
+        KeyPair::generate(&mut rand::rng()).public
     }
 
     /// `is_trusted_identity` returns an unconditional `Ok(true)`, but

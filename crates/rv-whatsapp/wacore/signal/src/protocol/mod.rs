@@ -25,7 +25,7 @@ pub use group::{
     create_sender_key_distribution_message, group_decrypt, group_decrypt_shared, group_encrypt,
     process_sender_key_distribution_message,
 };
-pub use keys::{IdentityKey, IdentityKeyPair, KeyPair, PrivateKey, PublicKey};
+pub use keys::{KeyPair, PrivateKey, PublicKey};
 pub use messages::{
     CIPHERTEXT_MESSAGE_CURRENT_VERSION, CiphertextMessage, CiphertextMessageType,
     OwnedCiphertextMessage, PreKeySignalMessage, SENDERKEY_MESSAGE_CURRENT_VERSION,

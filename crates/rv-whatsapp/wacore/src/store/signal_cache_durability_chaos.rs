@@ -7,9 +7,9 @@ use anyhow::{Context, ensure};
 use rand::{RngExt, SeedableRng};
 
 use crate::libsignal::protocol::{
-    ChainKey, CiphertextMessageType, IdentityKey, KeyPair, RootKey, SenderKeyMessage,
-    SenderKeyStore, SessionState, SignalProtocolError, create_sender_key_distribution_message,
-    group_decrypt, group_encrypt, process_sender_key_distribution_message,
+    ChainKey, CiphertextMessageType, KeyPair, RootKey, SenderKeyMessage, SenderKeyStore,
+    SessionState, SignalProtocolError, create_sender_key_distribution_message, group_decrypt,
+    group_encrypt, process_sender_key_distribution_message,
 };
 use crate::store::in_memory::InMemoryBackend;
 
@@ -916,8 +916,8 @@ impl SignalStore for GatedSessionRead<'_> {
 }
 
 fn fresh_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public);
+    let local = KeyPair::generate(rng).public;
+    let remote = KeyPair::generate(rng).public;
     let base_key = KeyPair::generate(rng).public;
     let mut root = [0; 32];
     let mut chain = [0; 32];

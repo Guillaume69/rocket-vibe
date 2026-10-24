@@ -8,7 +8,7 @@ use rand::CryptoRng;
 
 use super::address::{DeviceId, ProtocolAddress};
 use super::error::{Result, SignalProtocolError};
-use super::keys::{IdentityKey, KeyPair, PublicKey};
+use super::keys::{KeyPair, PublicKey, local_identity};
 use super::messages::{
     CiphertextMessage, CiphertextMessageType, OwnedCiphertextMessage, PreKeySignalMessage,
     SignalMessage,
@@ -40,7 +40,7 @@ pub struct PreKeyBundle {
     signed_pre_key_id: SignedPreKeyId,
     signed_pre_key_public: PublicKey,
     signed_pre_key_signature: [u8; SIGNED_PRE_KEY_SIGNATURE_LEN],
-    identity_key: IdentityKey,
+    identity_key: PublicKey,
 }
 
 impl PreKeyBundle {
@@ -51,7 +51,7 @@ impl PreKeyBundle {
         signed_pre_key_id: SignedPreKeyId,
         signed_pre_key_public: PublicKey,
         signed_pre_key_signature: impl TryInto<[u8; SIGNED_PRE_KEY_SIGNATURE_LEN]>,
-        identity_key: IdentityKey,
+        identity_key: PublicKey,
     ) -> Result<Self> {
         let signed_pre_key_signature = signed_pre_key_signature.try_into().map_err(|_| {
             SignalProtocolError::InvalidArgument(
@@ -90,14 +90,14 @@ impl PreKeyBundle {
     pub fn signed_pre_key_signature(&self) -> Result<&[u8]> {
         Ok(&self.signed_pre_key_signature)
     }
-    pub fn identity_key(&self) -> Result<&IdentityKey> {
+    pub fn identity_key(&self) -> Result<&PublicKey> {
         Ok(&self.identity_key)
     }
 
     fn inner(&self) -> rv_signal::PreKeyBundle {
         rv_signal::PreKeyBundle {
             registration_id: self.registration_id,
-            identity: *self.identity_key.public_key(),
+            identity: self.identity_key,
             signed_prekey_id: self.signed_pre_key_id.into(),
             signed_prekey: self.signed_pre_key_public,
             signed_prekey_signature: self.signed_pre_key_signature,
@@ -109,7 +109,7 @@ impl PreKeyBundle {
 async fn require_trusted(
     identities: &dyn IdentityKeyStore,
     address: &ProtocolAddress,
-    identity: &IdentityKey,
+    identity: &PublicKey,
     direction: Direction,
 ) -> Result<()> {
     if is_trusted_identity(identities, address, identity, direction).await? {
@@ -310,7 +310,7 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
         };
         let identity = identity_store.get_identity_key_pair().await?;
         let registration_id = identity_store.get_local_registration_id().await?;
-        let local = identity.local(registration_id);
+        let local = local_identity(&identity, registration_id);
         let out = record
             .with_signal(|r| {
                 r.decrypt_prekey(
@@ -353,7 +353,7 @@ pub async fn process_prekey_bundle<R: CryptoRng + ?Sized>(
     .await?;
     let identity = identity_store.get_identity_key_pair().await?;
     let registration_id = identity_store.get_local_registration_id().await?;
-    let local = identity.local(registration_id);
+    let local = local_identity(&identity, registration_id);
     let (checkout, record) = CheckoutGuard::take(session_store, remote_address).await?;
     let mut record = record.unwrap_or_default();
     record
@@ -375,10 +375,10 @@ pub fn initialize_alice_session_record<R: CryptoRng + ?Sized>(
             "the ratchet key must be the signed prekey".to_owned(),
         ));
     }
-    let local = parameters.our_identity_key_pair.local(0);
+    let local = local_identity(&parameters.our_identity_key_pair, 0);
     let bundle = rv_signal::PreKeyBundle {
         registration_id: 0,
-        identity: *parameters.their_identity_key.public_key(),
+        identity: parameters.their_identity_key,
         signed_prekey_id: 0,
         signed_prekey: parameters.their_signed_pre_key,
         signed_prekey_signature: [0; 64],

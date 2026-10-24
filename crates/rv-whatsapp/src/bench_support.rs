@@ -393,13 +393,11 @@ async fn settle_signal_flush_worker(client: &Arc<Client>) {
 /// own companion — encrypted to on every measured send — use
 /// [`establish_acknowledged_session`] instead.
 async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
-    use wacore::libsignal::protocol::{
-        IdentityKeyPair, KeyPair, PreKeyBundle, UsePQRatchet, process_prekey_bundle,
-    };
+    use wacore::libsignal::protocol::{KeyPair, PreKeyBundle, UsePQRatchet, process_prekey_bundle};
     use wacore::types::jid::JidExt;
 
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-    let receiver = IdentityKeyPair::generate(&mut rng);
+    let receiver = KeyPair::generate(&mut rng);
     let spk = KeyPair::generate(&mut rng);
     let opk = KeyPair::generate(&mut rng);
     let signature = receiver
@@ -441,7 +439,7 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
 /// the party that encrypts every measured stanza.
 async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc<Client> {
     use wacore::libsignal::protocol::{
-        CiphertextMessage, IdentityKey, PreKeyBundle, PreKeySignalMessage, SignalMessage,
+        CiphertextMessage, PreKeyBundle, PreKeySignalMessage, PublicKey, SignalMessage,
         UsePQRatchet, message_decrypt, message_encrypt, process_prekey_bundle,
     };
     use wacore::types::jid::JidExt;
@@ -482,7 +480,7 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
         peer_snapshot.signed_pre_key_id.into(),
         peer_snapshot.signed_pre_key.public_key,
         peer_snapshot.signed_pre_key_signature,
-        IdentityKey::new(peer_snapshot.identity_key.public_key),
+        peer_snapshot.identity_key.public_key,
     )
     .expect("companion prekey bundle");
 

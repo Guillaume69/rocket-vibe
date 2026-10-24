@@ -756,7 +756,7 @@ impl PreKeyBundleUserNode {
 
         // Identity key must be 32 bytes (raw key).
         // PublicKey::public_key_bytes() returns the raw 32-byte key without the 0x05 prefix.
-        let identity_key = bundle.identity_key()?.public_key().raw().to_vec();
+        let identity_key = bundle.identity_key()?.raw().to_vec();
 
         let signed_pre_key_id: u32 = bundle.signed_pre_key_id()?.into();
         let signed_pre_key_public = bundle.signed_pre_key_public()?.raw().to_vec();

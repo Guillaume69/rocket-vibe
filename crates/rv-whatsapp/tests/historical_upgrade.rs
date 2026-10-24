@@ -7,7 +7,7 @@
 use std::{path::Path, sync::Arc};
 use wacore::appstate::hash::HashState;
 use wacore::libsignal::protocol::{
-    CiphertextMessage, IdentityKey, PreKeyBundle, ProtocolAddress, SignalMessage, UsePQRatchet,
+    CiphertextMessage, PreKeyBundle, ProtocolAddress, SignalMessage, UsePQRatchet,
     create_sender_key_distribution_message, group_decrypt, group_encrypt, message_decrypt,
     message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
 };
@@ -75,7 +75,7 @@ impl Peer {
             device.signed_pre_key_id.into(),
             device.signed_pre_key.public,
             device.signed_pre_key_signature.to_vec(),
-            IdentityKey::new(device.identity_key.public),
+            device.identity_key.public,
         )
         .unwrap()
     }

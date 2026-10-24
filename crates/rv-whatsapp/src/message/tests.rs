@@ -371,7 +371,7 @@ async fn test_status_broadcast_hosted_family_with_device_id_resolves_to_hosted_l
 
 #[tokio::test]
 async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SignalMessage};
+    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_graceful_fail?mode=memory&cache=shared")
@@ -408,10 +408,8 @@ async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
     // Create a valid but undecryptable SignalMessage
     let dummy_key = [0u8; 32];
     let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
-    let sender_identity_pair =
-        IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-    let receiver_identity_pair =
-        IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let sender_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let receiver_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
         4,
         &dummy_key,
@@ -419,8 +417,8 @@ async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
         0,
         0,
         b"test",
-        sender_identity_pair.identity_key(),
-        receiver_identity_pair.identity_key(),
+        &sender_identity_pair.public,
+        &receiver_identity_pair.public,
     )
     .expect("SignalMessage::new should succeed with valid inputs");
 
@@ -521,7 +519,7 @@ async fn batch_accumulates_undecryptable_and_dispatches_once() {
 /// and includes keys early, instead of producing an unhelpful InvalidMessage error.
 #[tokio::test]
 async fn test_empty_session_record_treated_as_session_not_found() {
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SessionRecord, SignalMessage};
+    use wacore::libsignal::protocol::{KeyPair, SessionRecord, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_empty_session?mode=memory&cache=shared")
@@ -566,8 +564,8 @@ async fn test_empty_session_record_treated_as_session_not_found() {
     // Craft a SignalMessage to trigger decryption
     let dummy_key = [0u8; 32];
     let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
-    let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-    let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
         4,
         &dummy_key,
@@ -575,8 +573,8 @@ async fn test_empty_session_record_treated_as_session_not_found() {
         0,
         0,
         b"test",
-        sender_identity.identity_key(),
-        receiver_identity.identity_key(),
+        &sender_identity.public,
+        &receiver_identity.public,
     )
     .expect("SignalMessage::new should succeed");
 
@@ -628,10 +626,10 @@ async fn test_empty_session_record_treated_as_session_not_found() {
 use async_trait::async_trait;
 use std::collections::HashMap;
 use wacore::libsignal::protocol::{
-    CiphertextMessage, Direction, IdentityChange, IdentityKey, IdentityKeyPair, KeyPair,
-    PreKeyBundle, PreKeyRecord, PreKeyStore as SigPreKeyStore, ProtocolAddress, SenderKeyName,
-    SenderKeyRecord, SenderKeyStore as SigSenderKeyStore, SessionRecord,
-    SessionStore as SigSessionStore, SignedPreKeyStore as SigSignedPreKeyStore, UsePQRatchet,
+    CiphertextMessage, Direction, IdentityChange, KeyPair, PreKeyBundle, PreKeyRecord,
+    PreKeyStore as SigPreKeyStore, ProtocolAddress, PublicKey, SenderKeyName, SenderKeyRecord,
+    SenderKeyStore as SigSenderKeyStore, SessionRecord, SessionStore as SigSessionStore,
+    SignedPreKeyStore as SigSignedPreKeyStore, UsePQRatchet,
     create_sender_key_distribution_message, group_encrypt, message_decrypt_signal, message_encrypt,
     process_prekey_bundle,
 };
@@ -663,14 +661,14 @@ impl SigSessionStore for MemSessionStore {
 
 #[derive(Clone)]
 struct MemIdentityStore {
-    kp: IdentityKeyPair,
+    kp: KeyPair,
     reg_id: u32,
-    known: HashMap<ProtocolAddress, IdentityKey>,
+    known: HashMap<ProtocolAddress, PublicKey>,
 }
 
 #[async_trait]
 impl SigIdentityKeyStore for MemIdentityStore {
-    async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
+    async fn get_identity_key_pair(&self) -> Result<KeyPair, SignalProtocolError> {
         Ok(self.kp.clone())
     }
     async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
@@ -679,7 +677,7 @@ impl SigIdentityKeyStore for MemIdentityStore {
     async fn save_identity(
         &mut self,
         a: &ProtocolAddress,
-        id: &IdentityKey,
+        id: &PublicKey,
     ) -> Result<IdentityChange, SignalProtocolError> {
         let prev = self.known.insert(a.clone(), *id);
         Ok(match prev {
@@ -691,7 +689,7 @@ impl SigIdentityKeyStore for MemIdentityStore {
     async fn is_trusted_identity(
         &self,
         _: &ProtocolAddress,
-        _: &IdentityKey,
+        _: &PublicKey,
         _: Direction,
     ) -> Result<bool, SignalProtocolError> {
         Ok(true)
@@ -699,7 +697,7 @@ impl SigIdentityKeyStore for MemIdentityStore {
     async fn get_identity(
         &self,
         a: &ProtocolAddress,
-    ) -> Result<Option<IdentityKey>, SignalProtocolError> {
+    ) -> Result<Option<PublicKey>, SignalProtocolError> {
         Ok(self.known.get(a).copied())
     }
 }
@@ -738,7 +736,7 @@ struct AlicePeer {
 impl AlicePeer {
     async fn new(jid_str: &str) -> Self {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let kp = IdentityKeyPair::generate(&mut rng);
+        let kp = KeyPair::generate(&mut rng);
         let jid: Jid = jid_str.parse().expect("valid jid");
         let address = jid.to_protocol_address();
         Self {
@@ -911,7 +909,7 @@ async fn bobs_prekey_bundle_with_spk_id(client: &Arc<Client>, spk_id: u32) -> (P
         spk_id.into(),
         spk_pub,
         spk_sig_vec,
-        IdentityKey::new(identity_kp.public),
+        identity_kp.public,
     )
     .expect("bundle");
     (bundle, bob_jid)
@@ -1432,7 +1430,7 @@ async fn test_prod_scenario_pkmsg_archives_old_session_after_badmac() {
 
 #[tokio::test]
 async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SignalMessage};
+    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_skip_skmsg_test?mode=memory&cache=shared")
@@ -1464,10 +1462,8 @@ async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
     // Create msg + skmsg node; msg will fail (no session), so skmsg should be skipped
     let dummy_key = [0u8; 32];
     let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
-    let sender_identity_pair =
-        IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-    let receiver_identity_pair =
-        IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let sender_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let receiver_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
         4,
         &dummy_key,
@@ -1475,8 +1471,8 @@ async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
         0,
         0,
         b"test",
-        sender_identity_pair.identity_key(),
-        receiver_identity_pair.identity_key(),
+        &sender_identity_pair.public,
+        &receiver_identity_pair.public,
     )
     .expect("SignalMessage::new should succeed with valid inputs");
 
@@ -5279,7 +5275,7 @@ const DISPATCH_ANNOUNCEMENT: &str = "Dispatching UndecryptableMessage event.";
 /// which is what keeps the silencing from turning into a dropped failure.
 #[tokio::test]
 async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SignalMessage};
+    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
 
     if log_assertions_delegated_to_child(
         "message::tests::undecryptable_receive_branch_stays_silent_when_batch_dispatched",
@@ -5308,8 +5304,8 @@ async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
     // A well-formed SignalMessage for a session we have never established:
     // parses, then fails to decrypt with SessionNotFound.
     let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
-    let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-    let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
         4,
         &[0u8; 32],
@@ -5317,8 +5313,8 @@ async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
         0,
         0,
         b"test",
-        sender_identity.identity_key(),
-        receiver_identity.identity_key(),
+        &sender_identity.public,
+        &receiver_identity.public,
     )
     .expect("SignalMessage::new should succeed with valid inputs");
     let enc = NodeBuilder::new("enc")
@@ -15003,7 +14999,7 @@ async fn a_session_envelope_that_does_not_parse_reports_malformed_ciphertext() {
 /// device has never had.
 #[tokio::test]
 async fn a_session_enc_with_no_session_reports_no_session() {
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, SignalMessage};
+    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
     let client = create_test_client_for_retry_with_id("enc_fail_nosession").await;
     let (recorder, _leases) = watch_enc_outcomes(&client);
 
@@ -15017,8 +15013,8 @@ async fn a_session_enc_with_no_session_reports_no_session() {
         0,
         0,
         b"test",
-        IdentityKeyPair::generate(&mut rng).identity_key(),
-        IdentityKeyPair::generate(&mut rng).identity_key(),
+        &KeyPair::generate(&mut rng).public,
+        &KeyPair::generate(&mut rng).public,
     )
     .expect("valid inputs");
 
@@ -23110,8 +23106,8 @@ async fn decrypt_failure_ack_recipient(test_id: &str, verdict: Option<bool>) -> 
     })
     .await;
     let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
-    let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-    let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
+    let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
         4,
         &[0u8; 32],
@@ -23119,8 +23115,8 @@ async fn decrypt_failure_ack_recipient(test_id: &str, verdict: Option<bool>) -> 
         0,
         0,
         b"test",
-        sender_identity.identity_key(),
-        receiver_identity.identity_key(),
+        &sender_identity.public,
+        &receiver_identity.public,
     )
     .expect("SignalMessage::new should succeed with valid inputs");
     let node = NodeBuilder::new("message")

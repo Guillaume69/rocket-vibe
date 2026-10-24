@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::client::context::{GroupRoutingInfo, SendContextResolver};
-use crate::libsignal::protocol::{IdentityKeyPair, KeyPair, PreKeyBundle};
+use crate::libsignal::protocol::{KeyPair, PreKeyBundle};
 use crate::types::jid::make_sender_key_name;
 use std::collections::HashMap;
 use wacore_binary::Jid;
@@ -913,7 +913,7 @@ fn test_device_recovery_between_requests() {
 /// Helper function to create a mock PreKeyBundle with valid types
 fn create_mock_bundle() -> PreKeyBundle {
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-    let identity_pair = IdentityKeyPair::generate(&mut rng);
+    let identity_pair = KeyPair::generate(&mut rng);
     let signed_prekey_pair = KeyPair::generate(&mut rng);
     let prekey_pair = KeyPair::generate(&mut rng);
 
@@ -924,7 +924,7 @@ fn create_mock_bundle() -> PreKeyBundle {
         2u32.into(),                             // signed_pre_key_id
         signed_prekey_pair.public,
         vec![0u8; 64],
-        *identity_pair.identity_key(),
+        identity_pair.public,
     )
     .expect("Failed to create PreKeyBundle")
 }
@@ -934,12 +934,10 @@ fn create_mock_bundle() -> PreKeyBundle {
 /// whose zeroed signature deliberately fails X3DH (used to exercise the reject path).
 fn signed_prekey_bundle() -> PreKeyBundle {
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-    let receiver = IdentityKeyPair::generate(&mut rng);
+    let receiver = KeyPair::generate(&mut rng);
     let spk = KeyPair::generate(&mut rng);
     let opk = KeyPair::generate(&mut rng);
-    let sig = receiver
-        .private_key()
-        .sign(&spk.public.serialize(), &mut rng);
+    let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
     PreKeyBundle::new(
         1,
         1u32.into(),
@@ -947,7 +945,7 @@ fn signed_prekey_bundle() -> PreKeyBundle {
         1u32.into(),
         spk.public,
         sig.to_vec(),
-        *receiver.identity_key(),
+        receiver.public,
     )
     .unwrap()
 }
@@ -1595,7 +1593,7 @@ mod metadata {
 mod group_retry {
     use super::*;
     use crate::libsignal::protocol::{
-        Direction, IdentityChange, IdentityKey, IdentityKeyPair, IdentityKeyStore, ProtocolAddress,
+        Direction, IdentityChange, IdentityKeyStore, KeyPair, ProtocolAddress, PublicKey,
         SessionStore, process_prekey_bundle,
     };
     use crate::types::message::AddressingMode;
@@ -1639,16 +1637,16 @@ mod group_retry {
     }
 
     struct MemIdentityStore {
-        pair: IdentityKeyPair,
+        pair: KeyPair,
         reg_id: u32,
-        known: HashMap<ProtocolAddress, IdentityKey>,
+        known: HashMap<ProtocolAddress, PublicKey>,
     }
     #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl IdentityKeyStore for MemIdentityStore {
         async fn get_identity_key_pair(
             &self,
-        ) -> crate::libsignal::protocol::error::Result<IdentityKeyPair> {
+        ) -> crate::libsignal::protocol::error::Result<KeyPair> {
             Ok(self.pair.clone())
         }
         async fn get_local_registration_id(
@@ -1659,7 +1657,7 @@ mod group_retry {
         async fn save_identity(
             &mut self,
             a: &ProtocolAddress,
-            id: &IdentityKey,
+            id: &PublicKey,
         ) -> crate::libsignal::protocol::error::Result<IdentityChange> {
             self.known.insert(a.clone(), *id);
             Ok(IdentityChange::from_changed(false))
@@ -1667,7 +1665,7 @@ mod group_retry {
         async fn is_trusted_identity(
             &self,
             _: &ProtocolAddress,
-            _: &IdentityKey,
+            _: &PublicKey,
             _: Direction,
         ) -> crate::libsignal::protocol::error::Result<bool> {
             Ok(true)
@@ -1675,14 +1673,14 @@ mod group_retry {
         async fn get_identity(
             &self,
             a: &ProtocolAddress,
-        ) -> crate::libsignal::protocol::error::Result<Option<IdentityKey>> {
+        ) -> crate::libsignal::protocol::error::Result<Option<PublicKey>> {
             Ok(self.known.get(a).copied())
         }
     }
 
     async fn setup_session() -> (MemSessionStore, MemIdentityStore, Jid) {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let sender = IdentityKeyPair::generate(&mut rng);
+        let sender = KeyPair::generate(&mut rng);
         let bundle = signed_prekey_bundle();
         let jid: Jid = "559911112222@s.whatsapp.net".parse().unwrap();
         let addr = jid.to_protocol_address();
@@ -2707,7 +2705,7 @@ mod group_retry {
         let mut ss = MemSessionStore::new();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 42,
             known: HashMap::new(),
         };
@@ -3753,9 +3751,9 @@ mod collect_stale_device_users {
 mod mark_full_distribution_list {
     use super::*;
     use crate::libsignal::protocol::{
-        Direction, IdentityChange, IdentityKey, IdentityKeyStore, PreKeyId, PreKeyRecord,
-        PreKeyStore, ProtocolAddress, SenderKeyRecord, SenderKeyStore, SessionStore,
-        SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, UsePQRatchet, process_prekey_bundle,
+        Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
+        ProtocolAddress, PublicKey, SenderKeyRecord, SenderKeyStore, SessionStore, SignedPreKeyId,
+        SignedPreKeyRecord, SignedPreKeyStore, UsePQRatchet, process_prekey_bundle,
     };
     use crate::libsignal::store::sender_key_name::SenderKeyName;
     use crate::runtime::{AbortHandle, Runtime};
@@ -3834,13 +3832,13 @@ mod mark_full_distribution_list {
 
     #[derive(Clone)]
     struct MemIdentityStore {
-        pair: IdentityKeyPair,
+        pair: KeyPair,
         reg_id: u32,
-        known: std::sync::Arc<std::sync::Mutex<HashMap<ProtocolAddress, IdentityKey>>>,
+        known: std::sync::Arc<std::sync::Mutex<HashMap<ProtocolAddress, PublicKey>>>,
     }
     #[async_trait::async_trait]
     impl IdentityKeyStore for MemIdentityStore {
-        async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+        async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
             Ok(self.pair.clone())
         }
         async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -3849,7 +3847,7 @@ mod mark_full_distribution_list {
         async fn save_identity(
             &mut self,
             a: &ProtocolAddress,
-            id: &IdentityKey,
+            id: &PublicKey,
         ) -> SigResult<IdentityChange> {
             self.known.lock().unwrap().insert(a.clone(), *id);
             Ok(IdentityChange::from_changed(false))
@@ -3857,12 +3855,12 @@ mod mark_full_distribution_list {
         async fn is_trusted_identity(
             &self,
             _: &ProtocolAddress,
-            _: &IdentityKey,
+            _: &PublicKey,
             _: Direction,
         ) -> SigResult<bool> {
             Ok(true)
         }
-        async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+        async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
             Ok(self.known.lock().unwrap().get(a).copied())
         }
     }
@@ -4032,7 +4030,7 @@ mod mark_full_distribution_list {
     // returned identity store is the sender's (knows `a` after X3DH).
     async fn established_stores(a: &Jid) -> (MemSessionStore, MemIdentityStore) {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let sender = IdentityKeyPair::generate(&mut rng);
+        let sender = KeyPair::generate(&mut rng);
         let bundle = signed_prekey_bundle();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
@@ -4057,7 +4055,7 @@ mod mark_full_distribution_list {
     /// session, anything else has to go through the resolver's prekey fetch.
     async fn established_stores_for(peers: &[&Jid]) -> (MemSessionStore, MemIdentityStore) {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let sender = IdentityKeyPair::generate(&mut rng);
+        let sender = KeyPair::generate(&mut rng);
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
             pair: sender,
@@ -4192,7 +4190,7 @@ mod mark_full_distribution_list {
         let mut sessions = MemSessionStore::default();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut identities = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -4653,7 +4651,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -4756,7 +4754,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -4837,7 +4835,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -4916,7 +4914,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -4991,7 +4989,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -5081,7 +5079,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut ss = MemSessionStore::default();
         let mut is = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -5129,7 +5127,7 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut sessions = FailingSessionStore;
         let mut identities = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             reg_id: 7,
             known: Default::default(),
         };
@@ -5223,7 +5221,7 @@ mod mark_full_distribution_list {
             // prekey fetch or device-identity node enters the stanza.
             let mut ss = MemSessionStore::default();
             let mut is = MemIdentityStore {
-                pair: IdentityKeyPair::generate(&mut rng),
+                pair: KeyPair::generate(&mut rng),
                 reg_id: 7,
                 known: Default::default(),
             };
@@ -5491,8 +5489,8 @@ mod group_phash_golden {
 mod local_identity_change_on_send {
     use super::*;
     use crate::libsignal::protocol::{
-        Direction, IdentityChange, IdentityKey, IdentityKeyStore, PreKeyId, PreKeyRecord,
-        PreKeyStore, ProtocolAddress, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
+        Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
+        ProtocolAddress, PublicKey, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
         SignedPreKeyRecord, SignedPreKeyStore,
     };
     use crate::runtime::{AbortHandle, Runtime};
@@ -5526,12 +5524,12 @@ mod local_identity_change_on_send {
     /// stub elsewhere), so a pre-seeded stale key surfaces as ReplacedExisting.
     #[derive(Clone)]
     struct MemIdentityStore {
-        pair: IdentityKeyPair,
-        known: HashMap<ProtocolAddress, IdentityKey>,
+        pair: KeyPair,
+        known: HashMap<ProtocolAddress, PublicKey>,
     }
     #[async_trait::async_trait]
     impl IdentityKeyStore for MemIdentityStore {
-        async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+        async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
             Ok(self.pair.clone())
         }
         async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -5540,7 +5538,7 @@ mod local_identity_change_on_send {
         async fn save_identity(
             &mut self,
             a: &ProtocolAddress,
-            id: &IdentityKey,
+            id: &PublicKey,
         ) -> SigResult<IdentityChange> {
             let changed = self.known.get(a).is_some_and(|k| k != id);
             self.known.insert(a.clone(), *id);
@@ -5549,12 +5547,12 @@ mod local_identity_change_on_send {
         async fn is_trusted_identity(
             &self,
             _: &ProtocolAddress,
-            _: &IdentityKey,
+            _: &PublicKey,
             _: Direction,
         ) -> SigResult<bool> {
             Ok(true)
         }
-        async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+        async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
             Ok(self.known.get(a).copied())
         }
     }
@@ -5629,10 +5627,10 @@ mod local_identity_change_on_send {
     /// Prekey bundle with a valid signed-prekey signature (create_mock_bundle's
     /// zeroed signature fails X3DH, so it can't establish a real session).
     fn verifiable_bundle(rng: &mut rand::rngs::StdRng) -> PreKeyBundle {
-        let identity = IdentityKeyPair::generate(rng);
+        let identity = KeyPair::generate(rng);
         let spk = KeyPair::generate(rng);
         let opk = KeyPair::generate(rng);
-        let sig = identity.private_key().sign(&spk.public.serialize(), rng);
+        let sig = identity.private.sign(&spk.public.serialize(), rng);
         PreKeyBundle::new(
             1,
             1u32.into(),
@@ -5640,7 +5638,7 @@ mod local_identity_change_on_send {
             1u32.into(),
             spk.public,
             sig.to_vec(),
-            *identity.identity_key(),
+            identity.public,
         )
         .unwrap()
     }
@@ -5668,7 +5666,7 @@ mod local_identity_change_on_send {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut session_store = MemSessionStore::default();
         let mut identity_store = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             known: HashMap::new(),
         };
         for d in devices {
@@ -5774,7 +5772,7 @@ mod local_identity_change_on_send {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut session_store = MemSessionStore::default();
         let mut identity_store = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             known: HashMap::new(),
         };
         // A row that exists (so `has_session` is true) and carries no usable
@@ -5819,7 +5817,7 @@ mod local_identity_change_on_send {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let mut session_store = MemSessionStore::default();
         let mut identity_store = MemIdentityStore {
-            pair: IdentityKeyPair::generate(&mut rng),
+            pair: KeyPair::generate(&mut rng),
             known: HashMap::new(),
         };
         let mut prekey_store = UnusedPreKeyStore;
@@ -5858,12 +5856,10 @@ mod local_identity_change_on_send {
 
         // Receiver device D with a valid signed bundle.
         let device: Jid = "5511777777777:0@s.whatsapp.net".parse().unwrap();
-        let receiver = IdentityKeyPair::generate(&mut rng);
+        let receiver = KeyPair::generate(&mut rng);
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
-        let sig = receiver
-            .private_key()
-            .sign(&spk.public.serialize(), &mut rng);
+        let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
         let bundle = PreKeyBundle::new(
             1,
             1u32.into(),
@@ -5871,14 +5867,14 @@ mod local_identity_change_on_send {
             1u32.into(),
             spk.public,
             sig.to_vec(),
-            *receiver.identity_key(),
+            receiver.public,
         )
         .unwrap();
 
         // Local stores: no session for D + a STALE identity pre-seeded for D's
         // address, so establishing the session reports ReplacedExisting.
-        let sender = IdentityKeyPair::generate(&mut rng);
-        let stale = *IdentityKeyPair::generate(&mut rng).identity_key();
+        let sender = KeyPair::generate(&mut rng);
+        let stale = KeyPair::generate(&mut rng).public;
         let mut known = HashMap::new();
         known.insert(device.to_protocol_address(), stale);
 
@@ -6804,13 +6800,13 @@ mod local_identity_change_on_send {
         /// See [`SharedSessionStore`].
         #[derive(Clone)]
         struct SharedIdentityStore {
-            pair: IdentityKeyPair,
-            known: std::sync::Arc<std::sync::Mutex<HashMap<ProtocolAddress, IdentityKey>>>,
+            pair: KeyPair,
+            known: std::sync::Arc<std::sync::Mutex<HashMap<ProtocolAddress, PublicKey>>>,
         }
 
         #[async_trait::async_trait]
         impl IdentityKeyStore for SharedIdentityStore {
-            async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+            async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
                 Ok(self.pair.clone())
             }
             async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -6819,7 +6815,7 @@ mod local_identity_change_on_send {
             async fn save_identity(
                 &mut self,
                 a: &ProtocolAddress,
-                id: &IdentityKey,
+                id: &PublicKey,
             ) -> SigResult<IdentityChange> {
                 let mut known = self.known.lock().unwrap();
                 let changed = known.get(a).is_some_and(|k| k != id);
@@ -6829,12 +6825,12 @@ mod local_identity_change_on_send {
             async fn is_trusted_identity(
                 &self,
                 _: &ProtocolAddress,
-                _: &IdentityKey,
+                _: &PublicKey,
                 _: Direction,
             ) -> SigResult<bool> {
                 Ok(true)
             }
-            async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+            async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
                 Ok(self.known.lock().unwrap().get(a).copied())
             }
         }
@@ -6854,7 +6850,7 @@ mod local_identity_change_on_send {
             // it creates it under the LID address.
             let mut session_store = SharedSessionStore::default();
             let mut identity_store = SharedIdentityStore {
-                pair: IdentityKeyPair::generate(&mut rng),
+                pair: KeyPair::generate(&mut rng),
                 known: Default::default(),
             };
             let sessions = session_store.0.clone();
@@ -7006,8 +7002,8 @@ mod local_identity_change_on_send {
 mod warm_group_send_encoding_scale {
     use super::*;
     use crate::libsignal::protocol::{
-        Direction, IdentityChange, IdentityKey, IdentityKeyStore, PreKeyId, PreKeyRecord,
-        PreKeyStore, ProtocolAddress, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
+        Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
+        ProtocolAddress, PublicKey, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
         SignedPreKeyRecord, SignedPreKeyStore,
     };
     use crate::runtime::{AbortHandle, Runtime};
@@ -7045,7 +7041,7 @@ mod warm_group_send_encoding_scale {
     struct UnusedIdentityStore;
     #[async_trait::async_trait]
     impl IdentityKeyStore for UnusedIdentityStore {
-        async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+        async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
             unreachable!()
         }
         async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -7054,19 +7050,19 @@ mod warm_group_send_encoding_scale {
         async fn save_identity(
             &mut self,
             _: &ProtocolAddress,
-            _: &IdentityKey,
+            _: &PublicKey,
         ) -> SigResult<IdentityChange> {
             unreachable!()
         }
         async fn is_trusted_identity(
             &self,
             _: &ProtocolAddress,
-            _: &IdentityKey,
+            _: &PublicKey,
             _: Direction,
         ) -> SigResult<bool> {
             unreachable!()
         }
-        async fn get_identity(&self, _: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+        async fn get_identity(&self, _: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
             unreachable!()
         }
     }

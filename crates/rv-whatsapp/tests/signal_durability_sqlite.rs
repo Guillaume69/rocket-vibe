@@ -6,8 +6,8 @@ use std::process::Command;
 use rand::SeedableRng;
 use wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
 use wacore::libsignal::protocol::{
-    ChainKey, IdentityKey, KeyPair, RootKey, SenderKeyRecord, SenderKeyStore, SessionRecord,
-    SessionState, create_sender_key_distribution_message, group_encrypt,
+    ChainKey, KeyPair, RootKey, SenderKeyRecord, SenderKeyStore, SessionRecord, SessionState,
+    create_sender_key_distribution_message, group_encrypt,
 };
 use wacore::libsignal::store::sender_key_name::SenderKeyName;
 use whatsapp_rust::store::SqliteStore;
@@ -64,8 +64,8 @@ fn group_name() -> SenderKeyName {
 }
 
 fn fresh_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public);
+    let local = KeyPair::generate(rng).public;
+    let remote = KeyPair::generate(rng).public;
     let base_key = KeyPair::generate(rng).public;
     let mut state = SessionState::new(3, &local, &remote, &RootKey::new([7; 32]), &base_key);
     state.set_sender_chain(&KeyPair::generate(rng), &ChainKey::new([11; 32], 0));

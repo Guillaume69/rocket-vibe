@@ -1,4 +1,4 @@
-use crate::libsignal::protocol::{IdentityKey, PreKeyBundle, PreKeyId, PublicKey, SignedPreKeyId};
+use crate::libsignal::protocol::{PreKeyBundle, PreKeyId, PublicKey, SignedPreKeyId};
 use std::collections::HashMap;
 use wacore_binary::CompactString;
 use wacore_binary::Jid;
@@ -316,7 +316,7 @@ impl PreKeyUtils {
                 identity_key_bytes.len()
             )
         })?;
-        let identity_key = IdentityKey::new(PublicKey::try_from(&identity_key_array[..])?);
+        let identity_key = PublicKey::try_from(&identity_key_array[..])?;
 
         let mut pre_key_tuple = None;
         if let Some(pre_key_node) = keys_node.get_optional_child("key")
@@ -466,7 +466,7 @@ impl PreKeyUtils {
 mod tests {
     use super::*;
     use crate::iq::prekeys::PreKeyBundleUserNode;
-    use crate::libsignal::protocol::{IdentityKeyPair, KeyPair};
+    use crate::libsignal::protocol::KeyPair;
     use crate::protocol::ProtocolNode;
 
     use wacore_binary::NodeValue;
@@ -521,7 +521,7 @@ mod tests {
 
     fn create_mock_bundle(device_id: u32) -> PreKeyBundle {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity_pair = IdentityKeyPair::generate(&mut rng);
+        let identity_pair = KeyPair::generate(&mut rng);
         let signed_prekey_pair = KeyPair::generate(&mut rng);
         let prekey_pair = KeyPair::generate(&mut rng);
 
@@ -532,7 +532,7 @@ mod tests {
             2u32.into(),
             signed_prekey_pair.public,
             vec![0u8; 64],
-            *identity_pair.identity_key(),
+            identity_pair.public,
         )
         .expect("Failed to create PreKeyBundle")
     }
@@ -732,7 +732,7 @@ mod tests {
                 2u32.into(),
                 device.public,
                 vec![0; 64],
-                IdentityKey::new(device.public),
+                device.public,
             )
             .unwrap();
             for device_type in test_util::ENCRYPTION_TYPES {

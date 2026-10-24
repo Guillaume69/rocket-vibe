@@ -243,15 +243,21 @@ jobs:
     if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [widgets, core, factors]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
       - name: Install mobile provider dependencies for the integration peer
+        if: matrix.leg != 'widgets'
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
       - name: Install the provider packages' workspace
+        if: matrix.leg != 'widgets'
         run: npm ci --no-audit --no-fund
       - uses: actions/cache/restore@v4
         id: native_desktop_fedora
@@ -272,14 +278,17 @@ jobs:
           cache-from: type=gha,scope=native-fedora-image
           cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-fedora-image,mode=max,ignore-error=true' || '' }}
       - uses: actions/download-artifact@v4
+        if: matrix.leg != 'widgets'
         with:
           name: vibez-native
           path: .cache/vibez-native
       - name: Disposable native server image
+        if: matrix.leg != 'widgets'
         run: |
           chmod +x .cache/vibez-native/vibez
           docker build -t vibez-native-server -f apps/server/docker/Dockerfile.native .cache/vibez-native
       - name: Load cached native check toolchain
+        if: matrix.leg != 'widgets'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -288,7 +297,8 @@ jobs:
           tags: vibez-native-check
           cache-from: type=gha,scope=native-check-image
           cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-check-image,mode=max,ignore-error=true' || '' }}
-      - name: Desktop GTK widget tests and pilot binaries
+      - name: Desktop GTK widget tests
+        if: matrix.leg == 'widgets'
         run: |
           mkdir -p .cache/native-desktop-cargo artifacts
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
@@ -307,18 +317,28 @@ jobs:
               xvfb-run -a -s "-screen 0 1600x1000x24" cargo test --locked -p rocket-vibe-gtk native_login_modes_fit_narrow_windows_and_scroll_to_their_submit -- --ignored --test-threads=1
               GSK_RENDERER=cairo xvfb-run -a cargo test --locked -p rocket-vibe-gtk windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback -- --ignored --test-threads=1
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk control_and_a_digit_name_a_rail_position -- --ignored --test-threads=1
-              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke --example native-reload-peer
               cargo build --locked -p rocket-vibe-gtk
               timeout 30s bash scripts/check-notification-activation.sh
             '
+      - name: Desktop pilot binaries
+        if: matrix.leg != 'widgets'
+        run: |
+          mkdir -p .cache/native-desktop-cargo artifacts
+          docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
+            -e CARGO_INCREMENTAL -e CARGO_PROFILE_DEV_DEBUG \
+            -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
+              cargo build --locked -p rv-core --example native-smoke --example native-files-smoke --example native-reload-peer
+              cargo build --locked -p rocket-vibe-gtk
+            '
       - uses: actions/cache/save@v4
-        if: github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true'
+        if: matrix.leg == 'core' && github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true'
         with:
           path: |
             .cache/native-desktop-cargo
             apps/desktop/target
           key: ${{ steps.native_desktop_fedora.outputs.cache-primary-key }}
       - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
+        if: matrix.leg == 'core'
         run: |
           docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server mobile factor-seed factor-proxy
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop
@@ -327,16 +347,19 @@ jobs:
           test "$(docker inspect -f '{{.State.Running}}' vibez-pilot-mobile-1)" = false
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps session-check
       - name: Existing GTK quote composer, native threads and unavailable cards
+        if: matrix.leg == 'core'
         run: |
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps mobile node scripts/native-quotes-gtk-seed.ts
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps --user nobody desktop bash scripts/native-quotes-smoke.sh
       - name: GTK reload benchmark (a trend, not a gate)
+        if: matrix.leg == 'core'
         run: |
           docker compose -f docker/compose.native-pilot.yml exec -T -e VIBEZ_USER_PASSWORD=native-pilot-test-password server             sh -c 'vibez create-user reload-gtk && vibez create-user reload-peer'
           docker compose -f docker/compose.native-pilot.yml run --rm --no-deps desktop bash scripts/native-reload-smoke.sh
           bash apps/desktop/scripts/native-reload-summary.sh artifacts/native-reload.log | tee -a "$GITHUB_STEP_SUMMARY"
           grep -qE 'native (reload|rooms) #' artifacts/native-reload.log || echo '::warning::the GTK reload benchmark traced no reload'
       - name: Native streamed files and existing GTK attachment controls
+        if: matrix.leg == 'core'
         run: |
           docker compose -f docker/compose.native-files-pilot.yml up -d postgres bootstrap server
           docker compose -f docker/compose.native-files-pilot.yml exec -T server sh /src/apps/server/scripts/seed-test-emoji.sh
@@ -344,16 +367,19 @@ jobs:
           docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps mobile-emojis
           docker compose -f docker/compose.native-files-pilot.yml run --rm --no-deps -e RV_SMOKE_NATIVE_EMOJIS=1 gtk
       - name: Existing GTK security settings and private receipt after restart
+        if: matrix.leg == 'factors'
         run: |
           docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml up -d factor-proxy
           docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-desktop
           docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml run --rm --no-deps security-check
       - name: GTK email OTP login and identity proof across three real processes
+        if: matrix.leg == 'factors'
         run: |
           docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml up -d factor-proxy
           docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-desktop
           docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml run --rm --no-deps otp-check
       - name: GTK and mobile email profile receipts across three processes
+        if: matrix.leg == 'factors'
         run: |
           files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
           docker compose -p vibez-email-settings-gtk $files up -d factor-proxy
@@ -386,7 +412,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: native-desktop-pilot
+          name: native-desktop-pilot-${{ matrix.leg }}
           path: artifacts/native-*
           if-no-files-found: error
 

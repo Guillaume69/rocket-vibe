@@ -1,0 +1,20 @@
+[package]
+name = "rv-whatsapp-engine"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "The WhatsApp engine of rocket-vibe: its JSON protocol over whatsapp-rust"
+
+[dependencies]
+aes-gcm = { workspace = true }
+base64 = { workspace = true, features = ["std"] }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

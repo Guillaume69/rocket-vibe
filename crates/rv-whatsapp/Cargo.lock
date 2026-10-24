@@ -2945,6 +2945,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rv-whatsapp-engine"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "rand 0.10.3",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "sansio"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

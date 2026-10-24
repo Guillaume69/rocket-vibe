@@ -31,6 +31,7 @@ Added for rocket-vibe:
 | `wacore/signal` (`wacore-signal`) | The Signal interface the engine calls (keys, addresses, records, stores, cipher functions, the counter lease and the session checkout), on `crates/rv-signal`. `wacore` re-exports it as `wacore::libsignal`, so the engine's code keeps its paths. Written from the engine's own code and tests, never from the AGPL crate. |
 | `wacore/crypto` (`wacore-crypto`) | The symmetric primitives the AGPL crate used to provide (AES-GCM, AES-CBC, HMAC, SHA-2), on RustCrypto. |
 | `InMemoryBackend::snapshot` / `restore` (`wacore/src/store/in_memory.rs`) | Everything the in-memory backend holds as one serializable value, so the engine keeps its state in memory and only writes it to disk sealed. |
+| `engine` (`rv-whatsapp-engine`) | The engine rocket-vibe runs: the JSON protocol rv-core speaks (the Go helper's, field for field) and the sealed state file, on the client above. |
 | `waproto` codec wrappers | `record_structure_*`, `session_structure_*`, `identity_key_pair_to_vec`, the pinned encoders `wacore-signal` needs (`clippy.toml` routes protobuf encoding through them). |
 
 Otherwise the vendored code changed only where it named the AGPL crate (`wacore_libsignal`

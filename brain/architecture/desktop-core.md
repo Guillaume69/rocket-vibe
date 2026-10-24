@@ -20,29 +20,29 @@ Context: [desktop-app.md](desktop-app.md) for the crate layout, [rocket-chat.md]
 
 | Module | Responsibility |
 |---|---|
-| `slack` | The Slack backend: account and browser sign-in, Web API client methods, store sync, RTM, translation, emoji and directory; see [Slack session](slack-session.md) |
-| `teams` | The Teams server kind: device-code sign-in, aggregator rooms, chat-service history, Trouter live updates, writes; see [Teams architecture](teams.md) |
+| `slack` | The Slack backend: `crates/rv-slack` re-exported (account and browser sign-in, RTM, translation, emoji and directory) plus the store sync here; see [Slack session](slack-session.md) |
+| `teams` | The Teams server kind: `crates/rv-teams` re-exported (device-code sign-in, service calls, Trouter live updates, translation) plus aggregator rooms, chat-service history and writes here; see [Teams architecture](teams.md) |
 | `session` | Login, wiring of every piece, live-event routing, reconnection, every action a UI calls. Each per-server choice, here and in `sync`, `outbox` and `uploads`, is an exhaustive `match` on `SyncEngine::backend()`, `Backend::{RocketChat, Mattermost}`, whose arms call `rocketchat::actions` or `mattermost::actions`: a server forgotten in a new method is a compile error, not a silent call to Rocket.Chat's REST (`tests/session_backends.rs` checks each action's route per backend) |
 | `activity`, `account_mute` | The Activity view's rule over stored rows (`gather`, `merge`, `Supervisor::activity` across accounts; [../features/activity.md](../features/activity.md)), and the rail's per-account mutes in the config dir's `muted-accounts` file shared with SwiftUI ([../features/login-and-servers.md](../features/login-and-servers.md)) |
 | `supervisor` | Every signed-in account kept connected: one `Chat` per account key, the open one and the others in the background, started again with a back-off when a start fails; a background account's events become `AccountNotice`s (`Incoming`, `Call`, `Voice`, `Unread`, `Expired`) while the open account's stay with the UI's listener; notification keys and labels naming a background account. See [login-and-servers](../features/login-and-servers.md#desktop) |
 | `provider` | `Chat { Legacy(Session), Native(NativeSession) }`: one account whichever server it speaks to, with the operations both sessions offer (so far the spotlight, the marked messages, a person's profile and a room's search) and `legacy()` / `native()` for the rest; errors as `RestError`. `Chat::events()` is one event stream per account, `ChatEvent::{Changed, Reload, Incoming, Session}`: Rocket.Chat, Mattermost and kChat say which rooms changed, the Vibez session `Rooms` for a live batch (its rooms, and those whose quote cards cite its messages: `StoreChange::Rooms` from `native/store.rs`) and `Reload` for everything else (its notifications already filtered by `notification_current`). GTK's spotlight, marked, profile and search dialogs hold it instead of their own two-variant enums (the search adds a third case of its own, an encrypted room's search on the device) |
 | `rocketchat` | Rocket.Chat's REST calls behind `Session`'s actions (`rocketchat::actions`), the counterpart of `mattermost::actions`; the message actions the display rules share (react, edit, pin...) stay in `actions` |
 | `mattermost` | A Mattermost or kChat account behind the same `Session`: sign-in, sync, socket (WebSocket or Pusher), actions; see [mattermost-and-kchat](../features/mattermost-and-kchat.md#desktop) |
-| `rest` | REST client: auth headers, 401 discrimination, 2FA challenges, 429 back-off, timeouts, uploads/downloads |
+| `rest` | REST client (from `crates/rv-provider`): auth headers, 401 discrimination, 2FA challenges, 429 back-off, timeouts, uploads/downloads |
 | `ddp` | Listen-only DDP actor: connect, `login` resume, ref-counted subscriptions, liveness probe |
 | `store` | SQLite schema, migrations, `_updatedAt`-arbitrated upserts, cursors, outbox and upload rows, drafts |
 | `sync` | Stream events and REST pages into the store: global catch-up, per-room catch-up, history paging |
 | `context` | A window of old history around one message, read from the server and never stored, paged both ways without a hole; see [../features/room-view.md](../features/room-view.md) |
 | `outbox` | Optimistic send with a client `_id`, replay-safe delivery check |
 | `uploads` | Two-step upload queue with persisted `fileId` and Rocket.Chat confirm-attempt guard, delivery checks, offline retry, discard |
-| `normalize` | Rocket.Chat documents to local rows; every document-shape quirk lives here |
-| `live` | What is only streamed: typing, presence, private notes |
+| `normalize` | Rocket.Chat documents to local rows (from `crates/rv-provider`); every document-shape quirk lives here |
+| `live` | What is only streamed: typing, presence, private notes (from `crates/rv-provider`) |
 | `e2e` | Encrypted rooms (`rc.v1`/`rc.v2`): key unlock, room keys, message and file crypto; see [e2ee.md](e2ee.md) |
 | `media` | Avatar paths with etags, protected URLs (`rc_uid`/`rc_token`), the in-memory media cache |
 | `markdown`, `parse`, `runs` | Message bodies: server `md` tree (or a local parse of the text) to blocks of Pango markup, and to styled runs |
 | `timeline`, `diff` | Author grouping, day separators, "new messages" marker; list refreshes as splices |
 | `rooms` | Room-list sections, unread counts, badge, spotlight results |
-| `actions`, `commands`, `completion`, `compose`, `emoji`, `content` | Message actions and permissions, slash commands, `@`/`:` completion, formatting toolbar, emoji table (with `rc_reaction`, the code Rocket.Chat's `chat.react` accepts for a glyph, from the fourth column of `data/emojis.tsv`), attachments and link cards |
+| `actions`, `commands`, `completion`, `compose`, `emoji`, `content` | Message actions and permissions, slash commands, `@`/`:` completion, formatting toolbar, emoji table (`crates/rv-provider`, with `rc_reaction`, the code Rocket.Chat's `chat.react` accepts for a glyph, from the fourth column of its `data/emojis.tsv`), attachments and link cards |
 | `voice` | The `rv-voice` sidecar's controller (`VoiceController`): one process per voice connection, its snapshot and change notifications; see [voice](#voice) |
 | `native/receipts.rs` | Read receipts: the pure rule (my latest root message, its readers, "Seen" / "Seen by"), `NativeSession::read_receipt` from the live cache and `timeline`, the grouped main timeline with its line; see [read-receipts](../features/read-receipts.md) |
 | `native/voice.rs` | `NativeSession`'s voice: join, leave, rings, each room's participants and the rings from the live cache; see [voice](#voice) |
@@ -170,21 +170,21 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 
 ## Sources
 
-- apps/desktop/crates/rv-core/src/slack/
-- apps/desktop/crates/rv-core/src/teams/
+- apps/desktop/crates/rv-core/src/slack/ (with crates/rv-slack/)
+- apps/desktop/crates/rv-core/src/teams/ (with crates/rv-teams/)
 
 - apps/desktop/crates/rv-core/Cargo.toml
 - apps/desktop/crates/rv-core/src/lib.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/supervisor.rs
-- apps/desktop/crates/rv-core/src/rest.rs
+- crates/rv-provider/src/rest.rs
 - apps/desktop/crates/rv-core/src/ddp.rs
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-core/src/sync.rs
 - apps/desktop/crates/rv-core/src/outbox.rs
 - apps/desktop/crates/rv-core/src/uploads.rs
-- apps/desktop/crates/rv-core/src/normalize.rs
-- apps/desktop/crates/rv-core/src/live.rs
+- crates/rv-provider/src/normalize.rs
+- crates/rv-provider/src/live.rs
 - apps/desktop/crates/rv-core/src/media.rs
 - apps/desktop/crates/rv-core/src/notify.rs
 - apps/desktop/crates/rv-core/src/markdown.rs
@@ -205,8 +205,8 @@ Unit tests sit next to the code; integration tests in `crates/rv-core/tests/` (`
 - apps/desktop/crates/rv-voice-protocol/src/lib.rs
 - apps/desktop/crates/rv-core/src/emoji_usage.rs
 - apps/desktop/crates/rv-core/src/reminders.rs
-- apps/desktop/crates/rv-core/src/emoji.rs
-- apps/desktop/crates/rv-core/data/emojis.tsv
+- crates/rv-provider/src/emoji.rs
+- crates/rv-provider/data/emojis.tsv
 - apps/desktop/scripts/generate-emojis.mjs
 - apps/desktop/crates/rv-core/src/admin.rs
 - apps/desktop/crates/rv-core/src/server_icon.rs

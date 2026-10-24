@@ -113,7 +113,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Ephemeral post | A Mattermost or kChat post "visible only to you" (`ephemeral_message`: a command's answer, a reminder's confirmation), never stored; the apps show it as the private note above the composer. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 | Card button | An integration card's `actions[]` button (Mattermost and kChat), pressed through `POST /posts/<post>/actions/<action>` with the `cookie` an ephemeral post's button carries. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 
-## Slack (`apps/mobile/providers/slack/`, `apps/desktop/crates/rv-core/src/slack/`)
+## Slack (`apps/mobile/providers/slack/`, `crates/rv-slack/`, `apps/desktop/crates/rv-core/src/slack/`)
 
 | Term | Meaning | More |
 |---|---|---|
@@ -319,7 +319,7 @@ The code had French names until the English rename. These are the only French wo
 
 - apps/mobile/providers/teams/auth.ts
 - apps/mobile/providers/teams/trouter.ts
-- apps/desktop/crates/rv-core/src/teams/
+- crates/rv-teams/src/
 
 - `CLAUDE.md`
 - `ROADMAP.md`
@@ -359,4 +359,4 @@ The code had French names until the English rename. These are the only French wo
 - `brain/features/social.md`
 - scripts/slack/session.mjs
 - apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack/handoff.rs
+- crates/rv-slack/src/handoff.rs

@@ -7,7 +7,7 @@ What both clients rely on from Rocket.Chat 8.5 (the target `chat.barrut.me` and 
 DDP method calls are deprecated since 8.0 and announced for removal in 9.0. Both clients therefore send every action over REST and use the WebSocket only to receive. The one DDP method still called is `login` (with `{resume: authToken}`, the same token REST got from `POST /api/v1/login`), because a `sub` without an authenticated socket gets `nosub: not-allowed`, even on a public channel.
 
 - Mobile: `RestClient` in `apps/mobile/lib/rest.ts`, `ClientDdp` in `apps/mobile/lib/ddp.ts`. See [mobile-transport.md](mobile-transport.md).
-- Desktop: `RestClient` in `apps/desktop/crates/rv-core/src/rest.rs`, the DDP actor in `apps/desktop/crates/rv-core/src/ddp.rs`. See [desktop-core.md](desktop-core.md).
+- Desktop: `RestClient` in `crates/rv-provider/src/rest.rs`, the DDP actor in `apps/desktop/crates/rv-core/src/ddp.rs`. See [desktop-core.md](desktop-core.md).
 
 Both DDP clients are written from the DDP spec. `@rocket.chat/ddp-client` ships without a `license` field and with an Enterprise Edition `LICENSE`, so its code is never copied.
 
@@ -66,7 +66,7 @@ Mobile code reaches Rocket.Chat only through the `Provider` facade (`apps/mobile
 
 ## Status codes and the response envelope
 
-- **A 401 means "not authenticated" and nothing else** on 8.5. Missing permission is 403, excluded or unknown room is 400, a 2FA challenge is 400 (`totp-required`, `totp-invalid`). Both clients have one predicate allowed to trigger an automatic logout: `isTokenRejected` (`apps/mobile/lib/rest.ts`) and `is_token_rejected` (`apps/desktop/crates/rv-core/src/rest.rs`). It requires status 401, not a 2FA error, and a body that carries the Rocket.Chat envelope (`success` boolean, `status: 'error'`, or `errorType`), because a proxy or captive portal also answers 401.
+- **A 401 means "not authenticated" and nothing else** on 8.5. Missing permission is 403, excluded or unknown room is 400, a 2FA challenge is 400 (`totp-required`, `totp-invalid`). Both clients have one predicate allowed to trigger an automatic logout: `isTokenRejected` (`apps/mobile/lib/rest.ts`) and `is_token_rejected` (`crates/rv-provider/src/rest.rs`). It requires status 401, not a 2FA error, and a body that carries the Rocket.Chat envelope (`success` boolean, `status: 'error'`, or `errorType`), because a proxy or captive portal also answers 401.
 - **`/api/v1/login` maps every failure to 401.** Calls that carry no auth headers (login, session resume, which sends the token in the body) are flagged anonymous and never fire the token-rejected hook. The mobile resume check applies `isTokenRejected` itself (`apps/mobile/ui/session.tsx`).
 - The hook passes the token **actually sent**, captured before the request. A late 401 for a token that has since been replaced is ignored by the subscriber, so it cannot wipe a fresh session.
 - 2FA arrives two ways: `{error: 'totp-required'}` on `/login`, `{errorType: 'totp-required'}` elsewhere. The method expected is in `details.method`; for `password` the code is the SHA-256 of the password.
@@ -127,11 +127,11 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - apps/mobile/lib/pushToken.ts
 - apps/mobile/ui/session.tsx
 - apps/mobile/plugins/with-fcm-deeplink.js
-- apps/desktop/crates/rv-core/src/rest.rs
+- crates/rv-provider/src/rest.rs
 - apps/desktop/crates/rv-core/src/ddp.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/sync.rs
-- apps/desktop/crates/rv-core/src/live.rs
+- crates/rv-provider/src/live.rs
 - apps/desktop/crates/rv-core/src/outbox.rs
 - apps/desktop/crates/rv-core/src/uploads.rs
 - apps/desktop/crates/rv-core/src/server.rs

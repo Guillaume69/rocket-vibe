@@ -1,0 +1,12 @@
+[[profile.default.overrides]]
+filter = '''
+  test(=groups::tests::observed_archive::observed_history_keeps_real_mls_documents_after_cache_forgetting_and_pages_beyond_sixty_four)
+  | test(=groups::tests::journal_tests::archive_projection_reopens_old_pages_and_thread_root_after_cache_eviction)
+  | test(=groups::tests::journal_tests::registry_drops_the_oldest_released_identities_and_still_refuses_their_replay)
+  | test(=groups::tests::history_backup_tests::a_device_backs_up_continuously_and_a_new_device_imports_with_the_key_alone)
+  | test(=groups::tests::journal_tests::hot_cache_evicts_indexed_bodies_so_reception_and_quote_sources_continue_past_it)
+  | test(=groups::tests::history_tests::a_new_device_of_the_account_recovers_the_shared_journal_history)
+  | test(=groups::tests::history_tests::the_new_devices_conversation_continues_into_recovered_history)
+  | test(=groups::tests::application_messages::bounded_cache_releases_confirmed_plaintext_without_reusing_an_operation_or_skipping_a_ratchet)
+'''
+priority = 100

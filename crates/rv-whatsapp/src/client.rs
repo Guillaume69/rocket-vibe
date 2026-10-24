@@ -1381,7 +1381,7 @@ pub enum SignalMaintenanceError {
     Iq(#[from] crate::request::IqError),
     /// A Signal primitive failed (e.g. signing the new signed pre-key).
     #[error("{0}")]
-    Signal(#[from] wacore::libsignal::protocol::SignalProtocolError),
+    Signal(#[from] wacore::signal::protocol::SignalProtocolError),
     /// The inbound drain batch could not be committed, so the Signal cache was
     /// left unflushed on purpose and the server redelivers those messages.
     #[error(

@@ -3,14 +3,13 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 use rand::RngExt;
 use std::sync::{Arc, OnceLock};
-use wacore::libsignal::protocol::error::Result as SignalResult;
-use wacore::libsignal::protocol::{
-    Direction, IdentityChange, IdentityKey, IdentityKeyPair, IdentityKeyStore, PrivateKey,
-    ProtocolAddress, PublicKey, SenderKeyRecord, SenderKeyStore, SessionRecord,
-    SignalProtocolError,
+use wacore::signal::protocol::error::Result as SignalResult;
+use wacore::signal::protocol::{
+    Direction, IdentityChange, IdentityKeyStore, KeyPair, PrivateKey, ProtocolAddress, PublicKey,
+    SenderKeyRecord, SenderKeyStore, SessionRecord, SignalProtocolError,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
-use wacore::libsignal::store::*;
+use wacore::signal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::*;
 use waproto::whatsapp::{PreKeyRecordStructure, SignedPreKeyRecordStructure};
 
 type StoreError = Box<dyn std::error::Error + Send + Sync>;
@@ -40,7 +39,7 @@ macro_rules! impl_store_wrapper {
         #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
         #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
         impl IdentityKeyStore for $wrapper_ty {
-            async fn get_identity_key_pair(&self) -> SignalResult<IdentityKeyPair> {
+            async fn get_identity_key_pair(&self) -> SignalResult<KeyPair> {
                 self.0.$read_lock().await.get_identity_key_pair().await
             }
 
@@ -51,7 +50,7 @@ macro_rules! impl_store_wrapper {
             async fn save_identity(
                 &mut self,
                 address: &ProtocolAddress,
-                identity_key: &IdentityKey,
+                identity_key: &PublicKey,
             ) -> SignalResult<IdentityChange> {
                 self.0
                     .$write_lock()
@@ -63,7 +62,7 @@ macro_rules! impl_store_wrapper {
             async fn is_trusted_identity(
                 &self,
                 address: &ProtocolAddress,
-                identity_key: &IdentityKey,
+                identity_key: &PublicKey,
                 direction: Direction,
             ) -> SignalResult<bool> {
                 self.0
@@ -76,7 +75,7 @@ macro_rules! impl_store_wrapper {
             async fn get_identity(
                 &self,
                 address: &ProtocolAddress,
-            ) -> SignalResult<Option<IdentityKey>> {
+            ) -> SignalResult<Option<PublicKey>> {
                 self.0.$read_lock().await.get_identity(address).await
             }
         }
@@ -216,8 +215,8 @@ macro_rules! impl_store_wrapper {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityKeyStore for Device {
-    async fn get_identity_key_pair(&self) -> SignalResult<IdentityKeyPair> {
-        Ok(self.identity_key.clone().into())
+    async fn get_identity_key_pair(&self) -> SignalResult<KeyPair> {
+        Ok(self.identity_key.clone())
     }
 
     async fn get_local_registration_id(&self) -> SignalResult<u32> {
@@ -227,19 +226,14 @@ impl IdentityKeyStore for Device {
     async fn save_identity(
         &mut self,
         address: &ProtocolAddress,
-        identity_key: &IdentityKey,
+        identity_key: &PublicKey,
     ) -> SignalResult<IdentityChange> {
         let address_str = address.as_str();
-        let key_bytes = identity_key.public_key().public_key_bytes();
+        let key_bytes = identity_key.raw();
         let existing_identity_opt = self.get_identity(address).await?;
 
         self.backend
-            .put_identity(
-                address_str,
-                key_bytes.try_into().map_err(|_| {
-                    SignalProtocolError::InvalidArgument("Invalid key length".into())
-                })?,
-            )
+            .put_identity(address_str, *key_bytes)
             .await
             .map_err(|e| SignalProtocolError::BackendError("backend put_identity", Box::new(e)))?;
 
@@ -253,7 +247,7 @@ impl IdentityKeyStore for Device {
     async fn is_trusted_identity(
         &self,
         _address: &ProtocolAddress,
-        _identity_key: &IdentityKey,
+        _identity_key: &PublicKey,
         _direction: Direction,
     ) -> SignalResult<bool> {
         // WA Web: ProtocolStoreUnifiedApi.js — isTrustedIdentity always returns true.
@@ -262,7 +256,7 @@ impl IdentityKeyStore for Device {
         Ok(true)
     }
 
-    async fn get_identity(&self, address: &ProtocolAddress) -> SignalResult<Option<IdentityKey>> {
+    async fn get_identity(&self, address: &ProtocolAddress) -> SignalResult<Option<PublicKey>> {
         let identity_bytes = self
             .backend
             .load_identity(address.as_str())
@@ -271,8 +265,8 @@ impl IdentityKeyStore for Device {
 
         match identity_bytes {
             Some(bytes) if !bytes.is_empty() => {
-                let public_key = PublicKey::from_djb_public_key_bytes(&bytes)?;
-                Ok(Some(IdentityKey::new(public_key)))
+                let public_key = PublicKey::try_from(&bytes[..])?;
+                Ok(Some(public_key))
             }
             _ => Ok(None),
         }
@@ -286,8 +280,8 @@ impl PreKeyStore for Device {
         &self,
         prekey_id: u32,
     ) -> Result<Option<PreKeyRecordStructure>, StoreError> {
-        use wacore::libsignal::protocol::KeyPair;
-        use wacore::libsignal::store::record_helpers::new_pre_key_record;
+        use wacore::signal::protocol::KeyPair;
+        use wacore::signal::store::record_helpers::new_pre_key_record;
 
         match self.backend.load_prekey(prekey_id).await {
             Ok(Some(bytes)) => {
@@ -298,10 +292,8 @@ impl PreKeyStore for Device {
 
                 // Fallback: old format stored just the private key bytes (32 bytes)
                 // Reconstruct the full record by deriving the public key
-                if let Ok(private_key) = PrivateKey::deserialize(&bytes)
-                    && let Ok(public_key) = private_key.public_key()
-                {
-                    let key_pair = KeyPair::new(public_key, private_key);
+                if let Ok(private_key) = PrivateKey::deserialize(&bytes) {
+                    let key_pair = KeyPair::from_private(private_key);
                     let record = new_pre_key_record(prekey_id, &key_pair);
                     return Ok(Some(record));
                 }
@@ -578,12 +570,12 @@ mod tests {
     }
 
     fn leased_session() -> SessionRecord {
-        use wacore::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
+        use wacore::signal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
         let mut record = SessionRecord::new(state);
@@ -628,13 +620,13 @@ mod tests {
         let recovered = SessionRecord::deserialize(&durable).expect("recovery reload");
         assert_eq!(
             session_chain_index(&recovered),
-            wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 
     #[tokio::test]
     async fn direct_sender_key_store_preserves_clean_reloads_and_recovery_ceiling() {
-        use wacore::libsignal::protocol::{
+        use wacore::signal::protocol::{
             create_sender_key_distribution_message, group_decrypt, group_encrypt,
             process_sender_key_distribution_message,
         };
@@ -656,7 +648,7 @@ mod tests {
             let message = group_encrypt(&mut sender, &name, b"payload", &mut rng)
                 .await
                 .expect("group encrypt");
-            assert_eq!(message.iteration(), expected_iteration);
+            assert_eq!(message.iteration, expected_iteration);
             last = Some(message);
         }
 
@@ -673,7 +665,7 @@ mod tests {
         let same_process = group_encrypt(&mut replacement, &name, b"same-process", &mut rng)
             .await
             .expect("encrypt after same-process replacement");
-        assert_eq!(same_process.iteration(), 33);
+        assert_eq!(same_process.iteration, 33);
 
         let durable = sender_backend
             .get_sender_key(name.cache_key())
@@ -683,12 +675,11 @@ mod tests {
         let recovered = SenderKeyRecord::deserialize(&durable).expect("recovery reload");
         assert_eq!(
             recovered
-                .sender_key_state()
+                .state()
                 .expect("sender-key state")
-                .sender_chain_key()
-                .expect("sender chain")
-                .iteration(),
-            wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+                .chain_key()
+                .index,
+            wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 
@@ -704,9 +695,7 @@ mod tests {
         let current = device.signed_pre_key_id;
         let old_id = current + 7; // any non-current id
 
-        let kp = wacore::libsignal::protocol::KeyPair::generate(&mut rand::make_rng::<
-            rand::rngs::StdRng,
-        >());
+        let kp = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
         let record = record_helpers::new_signed_pre_key_record(
             old_id,
             &kp,
@@ -725,7 +714,7 @@ mod tests {
         assert_eq!(loaded.id, Some(old_id));
         assert_eq!(
             loaded.public_key.as_deref(),
-            Some(kp.public_key.public_key_bytes())
+            Some(kp.public.raw().as_slice())
         );
 
         // A truly-unknown id still returns None.

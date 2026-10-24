@@ -70,9 +70,15 @@ fn key_pair_from(public: Option<&[u8]>, private: Option<&[u8]>) -> Result<KeyPai
     let public = if public.len() == 33 {
         PublicKey::deserialize(public)?
     } else {
-        PublicKey::from_djb_public_key_bytes(public)?
+        let raw: [u8; 32] = public
+            .try_into()
+            .map_err(|_| SignalProtocolError::BadKeyLength(public.len()))?;
+        PublicKey::from_raw(raw)
     };
-    Ok(KeyPair::new(public, PrivateKey::deserialize(private)?))
+    Ok(KeyPair {
+        public,
+        private: PrivateKey::deserialize(private)?,
+    })
 }
 
 #[derive(Clone, Debug)]
@@ -82,8 +88,8 @@ impl PreKeyRecord {
     pub fn new(id: PreKeyId, key: &KeyPair) -> Self {
         let mut s = wa::PreKeyRecordStructure::default();
         s.id = Some(id.0);
-        s.public_key = Some(key.public_key.public_key_bytes().to_vec());
-        s.private_key = Some(key.private_key.serialize().to_vec());
+        s.public_key = Some(key.public.raw().to_vec());
+        s.private_key = Some(key.private.serialize().to_vec());
         Self(s)
     }
 
@@ -117,11 +123,11 @@ impl PreKeyRecord {
     }
 
     pub fn public_key(&self) -> Result<PublicKey> {
-        Ok(self.key_pair()?.public_key)
+        Ok(self.key_pair()?.public)
     }
 
     pub fn private_key(&self) -> Result<PrivateKey> {
-        Ok(self.key_pair()?.private_key)
+        Ok(self.key_pair()?.private)
     }
 }
 
@@ -154,7 +160,7 @@ pub struct SignedPreKeyRecord(wa::SignedPreKeyRecordStructure);
 
 impl SignedPreKeyRecord {
     pub fn private_key(&self) -> Result<PrivateKey> {
-        Ok(self.key_pair()?.private_key)
+        Ok(self.key_pair()?.private)
     }
 }
 
@@ -162,8 +168,8 @@ impl GenericSignedPreKey for SignedPreKeyRecord {
     fn new(id: SignedPreKeyId, timestamp: Timestamp, key_pair: &KeyPair, signature: &[u8]) -> Self {
         let mut s = wa::SignedPreKeyRecordStructure::default();
         s.id = Some(id.0);
-        s.public_key = Some(key_pair.public_key.public_key_bytes().to_vec());
-        s.private_key = Some(key_pair.private_key.serialize().to_vec());
+        s.public_key = Some(key_pair.public.raw().to_vec());
+        s.private_key = Some(key_pair.private.serialize().to_vec());
         s.signature = Some(signature.to_vec());
         s.timestamp = Some(timestamp.0);
         Self(s)
@@ -199,7 +205,7 @@ impl GenericSignedPreKey for SignedPreKeyRecord {
     }
 
     fn public_key(&self) -> Result<PublicKey> {
-        Ok(self.key_pair()?.public_key)
+        Ok(self.key_pair()?.public)
     }
 
     fn serialize(&self) -> Result<Vec<u8>> {

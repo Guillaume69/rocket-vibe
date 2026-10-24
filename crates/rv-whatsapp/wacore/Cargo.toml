@@ -98,7 +98,8 @@ wacore-appstate = { workspace = true }
 wacore-binary = { workspace = true, features = ["serde"] }
 zeroize = { workspace = true }
 wacore-derive = { workspace = true }
-wacore-signal = { workspace = true }
+wacore-crypto = { workspace = true }
+rv-signal = { workspace = true }
 wacore-noise = { workspace = true }
 waproto = { workspace = true }
 zerocopy = { workspace = true, optional = true }

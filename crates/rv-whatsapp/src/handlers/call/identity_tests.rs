@@ -520,15 +520,15 @@ async fn identity_is_available_inside_the_call_event_callback() {
 #[tokio::test]
 async fn session_migration_finishes_before_offer_event_dispatch() {
     use futures::FutureExt;
-    use wacore::libsignal::protocol::{SessionRecord, SessionState};
+    use wacore::signal::protocol::{SessionRecord, SessionState};
     use wacore::types::events::EventHandler;
     use wacore::types::jid::JidExt;
     use waproto::whatsapp::SessionStructure;
 
     struct CheckMigrationAtDispatch {
         client: std::sync::Weak<Client>,
-        pn_addr: wacore::libsignal::protocol::ProtocolAddress,
-        lid_addr: wacore::libsignal::protocol::ProtocolAddress,
+        pn_addr: wacore::signal::protocol::ProtocolAddress,
+        lid_addr: wacore::signal::protocol::ProtocolAddress,
     }
 
     impl EventHandler for CheckMigrationAtDispatch {

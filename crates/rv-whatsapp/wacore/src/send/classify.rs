@@ -6,10 +6,10 @@ use super::*;
 pub fn extract_ciphertext(msg: CiphertextMessage) -> Option<(&'static str, bool, Box<[u8]>)> {
     match msg {
         CiphertextMessage::SignalMessage(m) => {
-            Some((stanza::ENC_TYPE_MSG, false, m.into_serialized()))
+            Some((stanza::ENC_TYPE_MSG, false, m.serialized().into()))
         }
         CiphertextMessage::PreKeySignalMessage(m) => {
-            Some((stanza::ENC_TYPE_PKMSG, true, m.into_serialized()))
+            Some((stanza::ENC_TYPE_PKMSG, true, m.serialized().into()))
         }
         _ => None,
     }

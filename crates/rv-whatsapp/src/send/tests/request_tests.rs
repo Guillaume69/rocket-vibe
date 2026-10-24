@@ -14,11 +14,11 @@ async fn secret_poll_edit_selects_poll_crypto_and_wire_kind() {
 
 async fn assert_secret_creation_edit_wire(is_event: bool) {
     use wa::message::secret_encrypted_message::SecretEncType;
-    use wacore::libsignal::protocol::{
+    use wacore::secret_enc_addon::ModificationType;
+    use wacore::signal::protocol::{
         SenderKeyName, create_sender_key_distribution_message, group_decrypt,
         process_sender_key_distribution_message,
     };
-    use wacore::secret_enc_addon::ModificationType;
 
     for fixture in [
         GroupSendFixture::new().await,
@@ -620,11 +620,11 @@ async fn edit_request_moves_content_and_distinguishes_target_from_operation() {
 
 #[tokio::test]
 async fn secret_edit_keeps_original_creator_across_actual_group_addressing_modes() {
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         create_sender_key_distribution_message, group_decrypt,
         process_sender_key_distribution_message,
     };
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     // Two synthetic views of the same account/group model a later routing
     // namespace without rewriting the original creation's cryptographic input.
     let original_view = GroupSendFixture::new().await;

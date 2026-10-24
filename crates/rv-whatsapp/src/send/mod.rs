@@ -9,8 +9,8 @@ use crate::client::Client;
 use crate::types::message::EditAttribute;
 use anyhow::anyhow;
 use log::debug;
-use wacore::libsignal::protocol::SignalProtocolError;
 use wacore::send::{RecipientFanout, StanzaType};
+use wacore::signal::protocol::SignalProtocolError;
 use wacore::types::jid::JidExt;
 use wacore::types::message::AddressingMode;
 #[cfg(test)]
@@ -1794,7 +1794,7 @@ impl Client {
         let distribution_guard = self.group_distribution_lock(&to).await;
 
         let force_skdm = {
-            use wacore::libsignal::store::sender_key_name::SenderKeyName;
+            use wacore::signal::store::sender_key_name::SenderKeyName;
             // Sender key name tracks the addressing mode of the group stanza.
             // Since status now uses LID addressing (see send_status_message
             // header), the key is stored under own_lid, matching the address
@@ -2381,7 +2381,7 @@ impl Client {
                     "phash mismatch: clear_sender_key_devices failed: {e} — \
                      deleting own sender key as fallback to force redistribution"
                 );
-                use wacore::libsignal::store::sender_key_name::SenderKeyName;
+                use wacore::signal::store::sender_key_name::SenderKeyName;
                 use wacore::types::jid::JidExt;
                 let snapshot = self.persistence_manager.get_device_snapshot();
                 for own in snapshot.lid.iter().chain(snapshot.pn.iter()) {
@@ -3266,7 +3266,7 @@ impl Client {
             // the record without deleting anything, so a false positive (a
             // concurrent send already rotating/recreating) costs only the
             // re-check under the lock below.
-            use wacore::libsignal::store::sender_key_name::SenderKeyName;
+            use wacore::signal::store::sender_key_name::SenderKeyName;
             let sender_address = own_sending_jid.to_protocol_address();
             let sender_key_name = SenderKeyName::from_parts(&to_str, sender_address.as_str());
             // WA Web posts SenderKeyExpired with `PERIODIC_ROTATION` after
@@ -3283,9 +3283,8 @@ impl Client {
                 // the record: borrow the current state instead of `*_mut().cloned()`.
                 let needs_rotation = record
                     .as_ref()
-                    .and_then(|r| r.sender_key_state().ok())
-                    .and_then(|state| state.sender_chain_key())
-                    .map(|ck| ck.iteration())
+                    .and_then(|r| r.state())
+                    .map(|state| state.chain_key().index)
                     .is_some_and(|iter| iter >= SENDER_KEY_ROTATION_THRESHOLD);
                 Ok::<(bool, bool), anyhow::Error>((key_exists, needs_rotation))
             };
@@ -8667,9 +8666,8 @@ mod tests {
     }
 
     async fn seed_peer_send_state(client: &Arc<Client>, peer: &Jid) {
-        use wacore::libsignal::protocol::{
-            IdentityKeyPair, KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet,
-            process_prekey_bundle,
+        use wacore::signal::protocol::{
+            KeyPair, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
         };
 
         client
@@ -8680,21 +8678,18 @@ mod tests {
         let bundle =
             tokio::task::spawn_blocking(|| -> Result<PreKeyBundle, SignalProtocolError> {
                 let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-                let receiver = IdentityKeyPair::generate(&mut rng);
+                let receiver = KeyPair::generate(&mut rng);
                 let spk = KeyPair::generate(&mut rng);
                 let opk = KeyPair::generate(&mut rng);
-                let sig = receiver
-                    .private_key()
-                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
+                let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
 
-                PreKeyBundle::new(
+                wacore::signal::protocol::prekey_bundle(
                     1,
+                    Some((1u32.into(), opk.public)),
                     1u32.into(),
-                    Some((1u32.into(), opk.public_key)),
-                    1u32.into(),
-                    spk.public_key,
+                    spk.public,
                     sig,
-                    *receiver.identity_key(),
+                    receiver.public,
                 )
             })
             .await
@@ -8709,7 +8704,6 @@ mod tests {
             &mut adapter.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .expect("peer session");
@@ -8839,9 +8833,8 @@ mod tests {
         client: &Arc<Client>,
         peer_lid: Jid,
     ) -> (Jid, Jid) {
-        use wacore::libsignal::protocol::{
-            IdentityKeyPair, KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet,
-            process_prekey_bundle,
+        use wacore::signal::protocol::{
+            KeyPair, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
         };
 
         // A LID-addressed DM requires the device's own PN and LID to be known.
@@ -8907,20 +8900,17 @@ mod tests {
         let bundle =
             tokio::task::spawn_blocking(|| -> Result<PreKeyBundle, SignalProtocolError> {
                 let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-                let receiver = IdentityKeyPair::generate(&mut rng);
+                let receiver = KeyPair::generate(&mut rng);
                 let spk = KeyPair::generate(&mut rng);
                 let opk = KeyPair::generate(&mut rng);
-                let sig = receiver
-                    .private_key()
-                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
-                PreKeyBundle::new(
+                let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
+                wacore::signal::protocol::prekey_bundle(
                     1,
+                    Some((1u32.into(), opk.public)),
                     1u32.into(),
-                    Some((1u32.into(), opk.public_key)),
-                    1u32.into(),
-                    spk.public_key,
+                    spk.public,
                     sig,
-                    *receiver.identity_key(),
+                    receiver.public,
                 )
             })
             .await
@@ -8935,7 +8925,6 @@ mod tests {
                 &mut adapter.identity_store,
                 &bundle,
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .expect("peer lid session");
@@ -10012,9 +10001,9 @@ mod tests {
 
     #[tokio::test]
     async fn group_repairs_each_original_id_only_to_missed_devices() {
-        use wacore::libsignal::protocol::{
-            CiphertextMessage, GenericSignedPreKey, IdentityKey, PreKeyBundle, PreKeySignalMessage,
-            SignalMessage, SignedPreKeyStore, UsePQRatchet, message_decrypt, process_prekey_bundle,
+        use wacore::signal::protocol::{
+            CiphertextMessage, GenericSignedPreKey, SignedPreKeyStore, message_decrypt,
+            process_prekey_bundle,
         };
         use wacore::store::traits::{DeviceInfo, DeviceListRecord};
         let fixture = GroupSendFixture::new().await;
@@ -10051,14 +10040,13 @@ mod tests {
             .get_signed_pre_key(1.into())
             .await
             .unwrap();
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             receiver_device.core.registration_id,
-            u32::from(missed.device).into(),
             None,
             1.into(),
             signed_key.public_key().unwrap(),
             signed_key.signature().unwrap(),
-            IdentityKey::new(receiver_device.core.identity_key.public_key),
+            receiver_device.core.identity_key.public,
         )
         .unwrap();
         let mut sender_stores = fixture.client.signal_adapter();
@@ -10069,7 +10057,6 @@ mod tests {
             &mut sender_stores.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -10098,7 +10085,7 @@ mod tests {
         *refresh.lock().await = Some(true);
         let before = fixture.transport.sent_count();
         let device = fixture.client.persistence_manager.get_device_snapshot();
-        let key_name = wacore::libsignal::store::sender_key_name::SenderKeyName::from_parts(
+        let key_name = wacore::signal::store::sender_key_name::SenderKeyName::from_parts(
             &fixture.group.to_string(),
             fixture.own_sending.to_protocol_address().as_str(),
         );
@@ -10160,10 +10147,14 @@ mod tests {
                 .unwrap();
             let ciphertext = match encrypted.attrs().optional_string("type").as_deref() {
                 Some("pkmsg") => CiphertextMessage::PreKeySignalMessage(
-                    PreKeySignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                    wacore::signal::protocol::prekey_signal_message(
+                        encrypted.content_bytes().unwrap(),
+                    )
+                    .unwrap(),
                 ),
                 Some("msg") => CiphertextMessage::SignalMessage(
-                    SignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                    wacore::signal::protocol::signal_message(encrypted.content_bytes().unwrap())
+                        .unwrap(),
                 ),
                 other => panic!("unexpected direct encryption type {other:?}"),
             };
@@ -10175,7 +10166,6 @@ mod tests {
                 &mut receiver_stores.pre_key_store,
                 &receiver_stores.signed_pre_key_store,
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .unwrap()

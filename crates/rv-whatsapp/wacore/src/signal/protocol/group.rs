@@ -8,7 +8,7 @@ use super::error::{Result, SignalProtocolError};
 use super::messages::{CiphertextMessageType, SenderKeyDistributionMessage, SenderKeyMessage};
 use super::sender_keys::SenderKeyRecord;
 use super::storage::SenderKeyStore;
-use crate::store::sender_key_name::SenderKeyName;
+use crate::signal::store::sender_key_name::SenderKeyName;
 
 fn group_error(e: rv_signal::Error) -> SignalProtocolError {
     match e {
@@ -35,7 +35,7 @@ pub async fn create_sender_key_distribution_message<R: CryptoRng + ?Sized>(
     sender_key_store
         .store_sender_key(sender_key_name, record)
         .await?;
-    Ok(SenderKeyDistributionMessage::from_inner(distribution))
+    Ok(distribution)
 }
 
 pub async fn process_sender_key_distribution_message(
@@ -49,7 +49,7 @@ pub async fn process_sender_key_distribution_message(
         .unwrap_or_default();
     record
         .with_signal(|r| {
-            r.process(&skdm.inner);
+            r.process(skdm);
             Ok(())
         })?
         .map_err(group_error)?;
@@ -74,10 +74,10 @@ pub async fn group_encrypt<S: SenderKeyStore + ?Sized, R: CryptoRng + ?Sized>(
             ))
         })?;
     let iteration = record
-        .sender_key_state()?
-        .sender_chain_key()
+        .state()
         .ok_or(SignalProtocolError::InvalidSenderKeySession)?
-        .iteration();
+        .chain_key()
+        .index;
     record.reserve_iterations(iteration);
     let bytes = record
         .with_signal(|r| r.encrypt(plaintext, csprng))?
@@ -85,7 +85,7 @@ pub async fn group_encrypt<S: SenderKeyStore + ?Sized, R: CryptoRng + ?Sized>(
     sender_key_store
         .store_sender_key(sender_key_name, record)
         .await?;
-    SenderKeyMessage::try_from(bytes.as_slice())
+    super::messages::sender_key_message(bytes.as_slice())
 }
 
 pub async fn group_decrypt(
@@ -94,7 +94,7 @@ pub async fn group_decrypt(
     sender_key_name: &SenderKeyName,
 ) -> Result<Vec<u8>> {
     // A message that does not parse is malformed whatever the store holds.
-    SenderKeyMessage::try_from(skm_bytes)?;
+    super::messages::sender_key_message(skm_bytes)?;
     let mut record: SenderKeyRecord = sender_key_store
         .load_sender_key(sender_key_name)
         .await?

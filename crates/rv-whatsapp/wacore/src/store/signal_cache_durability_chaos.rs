@@ -6,10 +6,10 @@ use std::time::Duration;
 use anyhow::{Context, ensure};
 use rand::{RngExt, SeedableRng};
 
-use crate::libsignal::protocol::{
-    ChainKey, CiphertextMessageType, IdentityKey, KeyPair, RootKey, SenderKeyMessage,
-    SenderKeyStore, SessionState, SignalProtocolError, create_sender_key_distribution_message,
-    group_decrypt, group_encrypt, process_sender_key_distribution_message,
+use crate::signal::protocol::{
+    ChainKey, CiphertextMessageType, KeyPair, RootKey, SenderKeyMessage, SenderKeyStore,
+    SessionState, SignalProtocolError, create_sender_key_distribution_message, group_decrypt,
+    group_encrypt, process_sender_key_distribution_message,
 };
 use crate::store::in_memory::InMemoryBackend;
 
@@ -32,7 +32,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
         &mut self,
         name: &SenderKeyName,
         record: SenderKeyRecord,
-    ) -> crate::libsignal::protocol::error::Result<()> {
+    ) -> crate::signal::protocol::error::Result<()> {
         self.cache.put_sender_key(name, record).await;
         Ok(())
     }
@@ -40,7 +40,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     async fn load_sender_key(
         &self,
         name: &SenderKeyName,
-    ) -> crate::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+    ) -> crate::signal::protocol::error::Result<Option<SenderKeyRecord>> {
         Ok(self
             .cache
             .get_sender_key(name, self.backend)
@@ -371,8 +371,8 @@ impl ChaosHarness {
             ensure!(
                 self.published_group.insert(fingerprint),
                 "group key/IV was published twice at chain {} iteration {}",
-                message.chain_id(),
-                message.iteration()
+                message.chain_id,
+                message.iteration
             );
             self.pending_group.push_back(message);
             if self.pending_group.len() > 64 {
@@ -916,9 +916,9 @@ impl SignalStore for GatedSessionRead<'_> {
 }
 
 fn fresh_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let base_key = KeyPair::generate(rng).public_key;
+    let local = KeyPair::generate(rng).public;
+    let remote = KeyPair::generate(rng).public;
+    let base_key = KeyPair::generate(rng).public;
     let mut root = [0; 32];
     let mut chain = [0; 32];
     rng.fill(&mut root);
@@ -938,31 +938,17 @@ fn dm_chain_index(record: &SessionRecord) -> Result<u32> {
 }
 
 fn group_position(record: &SenderKeyRecord) -> Result<(u32, u32)> {
-    let state = record
-        .sender_key_state()
-        .map_err(|_| anyhow::anyhow!("group sender-key state missing"))?;
-    Ok((
-        state.chain_id(),
-        state
-            .sender_chain_key()
-            .context("group sender chain missing")?
-            .iteration(),
-    ))
+    let state = record.state().context("group sender-key state missing")?;
+    Ok((state.chain_id(), state.chain_key().index))
 }
 
 fn group_key_fingerprint(record: &SenderKeyRecord) -> Result<KeyIvFingerprint> {
-    let message_key = record
-        .sender_key_state()
-        .map_err(|_| anyhow::anyhow!("group sender-key state missing"))?
-        .sender_chain_key()
-        .context("group sender chain missing")?
-        .sender_message_key();
-    let cipher_key: [u8; 32] = message_key
-        .cipher_key()
-        .try_into()
-        .context("group cipher key length")?;
-    let iv: [u8; 16] = message_key.iv().try_into().context("group IV length")?;
-    Ok((cipher_key, iv))
+    let keys = record
+        .state()
+        .context("group sender-key state missing")?
+        .chain_key()
+        .group_keys();
+    Ok((keys.cipher_key, keys.iv))
 }
 
 fn incarnation(seed: u64, generation: u64) -> StoreIncarnation {

@@ -78,9 +78,11 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 
 ## `rv-whatsapp`: the WhatsApp engine
 
-[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) at `d73c3cc1`, MIT parts only, vendored in place of the Go engine on whatsmeow (deleted 2026-10-24, on both apps) and later reshaped to the apps' architecture; `VENDOR.md` lists what was left out, what was added and why ([decisions.md](../decisions.md)). It keeps upstream's layout: the client (`src/`), the sans-IO core (`wacore`), the binary node codec, the Noise transport, the protobuf schema (`waproto`), SQLite storage, a Tokio transport and an HTTP client. Five crates are ours:
+[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) at `d73c3cc1`, MIT parts only, vendored in place of the Go engine on whatsmeow (deleted 2026-10-24, on both apps) and later reshaped to the apps' architecture; `VENDOR.md` lists what was left out, what was added and why ([decisions.md](../decisions.md)). It keeps upstream's layout: the client (`src/`), the sans-IO core (`wacore`), the binary node codec, the Noise transport, the protobuf schema (`waproto`), SQLite storage, a Tokio transport and an HTTP client. Four crates and one module are ours:
 
-- **`wacore-signal`** is the Signal interface the engine calls, on `rv-signal` (re-exported as `wacore::libsignal`, the path the engine's code uses). Records are kept as WhatsApp's protobuf structures (a partial one is valid until it encrypts) and become `rv-signal` records for each operation. It carries two storage contracts of the engine's write-back cache:
+- **`wacore::signal`** (`wacore/src/signal/`) is the engine's Signal layer on `rv-signal`, whose own types the engine uses directly (keys, `SignalMessage` and the other wire messages, `PreKeyBundle`, sender key states and chain keys). What the module adds is the engine's storage:
+  - **sessions stay WhatsApp's protobuf `SessionStructure`** (in a `RecordStructure`) and become an `rv-signal` session for each encrypt or decrypt: the engine's tests store partial sessions (no identity, no root key) that must load, which `rv-signal`'s `SessionState` refuses;
+  - **a sender key record wraps `rv_signal::SenderKeyRecord`**, written back as the same protobuf structure (a round-trip test pins it); an operation runs on a copy, kept only on success;
   - **the counter lease**: a sending chain reserves its counters 64 at a time before one goes on the wire, and the raised lease must be stored first (`has_pending_reservation`, `is_wire_gated`); a record reloaded by the store instance that wrote it (same incarnation) is exact, any other reload moves the chain to the reserved ceiling, refused past 2,000. A record with no lease is stored as the bare `RecordStructure`;
   - **the session checkout**: an encrypt or decrypt takes the session out of the cache and works on a copy; success hands the new record back, failure or a dropped call (an aborted task) hands the original back unchanged.
 - **`wacore-crypto`**: AES-GCM (the transport, in place), AES-CBC (in place), HMAC and SHA-2.
@@ -88,7 +90,7 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 - **`rv-whatsapp-engine`** (`engine/`): the engine the apps run. It speaks rv-core's JSON protocol, the Go helper's frame for frame, over a whatsapp-rust client built with the in-memory backend (no SQLite linked: the default features are off). Its own projection keeps what the client is shown (messages, reactions, contacts and names, photos, unread counts), since whatsapp-rust has no message or contact store. The backend's snapshot (`InMemoryBackend::snapshot`, our addition) and the projection are sealed together into one file (`vault.rs`, AES-256-GCM, written through a temporary file under an exclusive lock), flushed from the client's write-behind caches first. rv-core links it and runs it in process (its path dependency is why the root workspace excludes `crates/rv-whatsapp`: cargo would otherwise inherit its manifests' fields from the root); `desktop-whatsapp.yml` writes the licence notice the desktop packages carry.
 - **`rv-whatsapp-android`** (`android/`): the engine as `librv_whatsapp.so`, exporting `rvwa_open`, `rvwa_connect`, `rvwa_handle` and `rvwa_close` for the Android module's JNA, built by `modules/whatsapp/build-android.mjs`.
 
-Upstream's test suite runs as is: 5,449 tests.
+Upstream's test suite runs, adapted only where it named the AGPL crate's types: 5,479 tests with ours.
 
 ## `rv-provider`, `rv-slack`, `rv-teams`: the provider clients
 

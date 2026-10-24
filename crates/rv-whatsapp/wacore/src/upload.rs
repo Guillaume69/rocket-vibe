@@ -1,5 +1,5 @@
 use crate::download::{DownloadUtils, MediaType};
-use crate::libsignal::crypto::{CryptographicHash, CryptographicMac};
+use wacore_crypto::{CryptographicHash, CryptographicMac};
 use aes::Aes256;
 use aes::cipher::{Block, BlockModeEncrypt, KeyIvInit};
 use anyhow::Result;

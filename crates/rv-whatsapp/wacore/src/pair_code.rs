@@ -23,8 +23,7 @@ use crate::companion_reg::{
     CompanionWebClientType, companion_platform_display, companion_platform_display_raw,
     companion_web_client_type_for_props,
 };
-use crate::libsignal::crypto::{CryptoProviderError, aes_256_gcm_encrypt};
-use crate::libsignal::protocol::{CurveError, KeyPair, PublicKey};
+use crate::signal::protocol::{KeyPair, PublicKey};
 use crate::time::Instant;
 use aes::cipher::{KeyIvInit, StreamCipher};
 use ctr::Ctr128BE;
@@ -34,6 +33,7 @@ use sha2::Sha256;
 use wacore_binary::SERVER_JID;
 use wacore_binary::builder::NodeBuilder;
 use wacore_binary::{Node, NodeContentRef, NodeRef};
+use wacore_crypto::{CryptoProviderError, aes_256_gcm_encrypt};
 use waproto::whatsapp as wa;
 
 // Type aliases
@@ -557,20 +557,20 @@ impl PairCodeUtils {
         primary_identity_pub: &[u8; 32],
         identity_key: &KeyPair,
     ) -> Result<(Vec<u8>, [u8; 32]), PairCodeError> {
-        let primary_eph_pub = PublicKey::from_djb_public_key_bytes(primary_ephemeral_pub)
+        let primary_eph_pub = PublicKey::try_from(&primary_ephemeral_pub[..])
             .map_err(PairCodeError::InvalidPrimaryEphemeralKey)?;
 
-        let primary_id_pub = PublicKey::from_djb_public_key_bytes(primary_identity_pub)
+        let primary_id_pub = PublicKey::try_from(&primary_identity_pub[..])
             .map_err(PairCodeError::InvalidPrimaryIdentityKey)?;
 
         let ephemeral_shared = ephemeral_keypair
-            .private_key
-            .calculate_agreement(&primary_eph_pub)
+            .private
+            .agree(&primary_eph_pub)
             .map_err(PairCodeError::EphemeralKeyAgreement)?;
 
         let identity_shared = identity_key
-            .private_key
-            .calculate_agreement(&primary_id_pub)
+            .private
+            .agree(&primary_id_pub)
             .map_err(PairCodeError::IdentityKeyAgreement)?;
 
         // Generate random bytes for ADV secret derivation
@@ -590,7 +590,7 @@ impl PairCodeUtils {
 
         // Prepare bundle: companion_identity_pub (32) + primary_identity_pub (32) + random_bytes (32) = 96 bytes
         let mut bundle = Vec::with_capacity(96);
-        bundle.extend_from_slice(identity_key.public_key.public_key_bytes());
+        bundle.extend_from_slice(identity_key.public.raw());
         bundle.extend_from_slice(primary_identity_pub);
         bundle.extend_from_slice(&random_bytes);
 
@@ -812,16 +812,16 @@ pub enum PairCodeError {
     InvalidWrappedData { expected: usize, got: usize },
 
     #[error("primary device sent an invalid ephemeral public key")]
-    InvalidPrimaryEphemeralKey(#[source] CurveError),
+    InvalidPrimaryEphemeralKey(#[source] rv_signal::Error),
 
     #[error("primary device sent an invalid identity public key")]
-    InvalidPrimaryIdentityKey(#[source] CurveError),
+    InvalidPrimaryIdentityKey(#[source] rv_signal::Error),
 
     #[error("ephemeral key agreement failed")]
-    EphemeralKeyAgreement(#[source] CurveError),
+    EphemeralKeyAgreement(#[source] rv_signal::Error),
 
     #[error("identity key agreement failed")]
-    IdentityKeyAgreement(#[source] CurveError),
+    IdentityKeyAgreement(#[source] rv_signal::Error),
 
     #[error("HKDF expand failed for adv_secret")]
     AdvSecretKeyDerivation,
@@ -1445,12 +1445,12 @@ mod tests {
 
     #[test]
     fn invalid_primary_ephemeral_key_preserves_curve_source() {
-        let err = PairCodeError::InvalidPrimaryEphemeralKey(CurveError::NoKeyTypeIdentifier);
+        let err = PairCodeError::InvalidPrimaryEphemeralKey(rv_signal::Error::BadKeyLength(0));
         let src = std::error::Error::source(&err).expect("source preserved");
         let curve = src
-            .downcast_ref::<CurveError>()
-            .expect("downcasts to CurveError");
-        assert!(matches!(curve, CurveError::NoKeyTypeIdentifier));
+            .downcast_ref::<rv_signal::Error>()
+            .expect("downcasts to rv_signal::Error");
+        assert!(matches!(curve, rv_signal::Error::BadKeyLength(0)));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::libsignal::crypto::{
+use wacore_crypto::{
     DecryptionError as AesCbcDecryptionError, Error as CryptoError, aes_256_cbc_decrypt_in_place,
     hmac_sha256_two_part,
 };
@@ -1644,7 +1644,7 @@ mod tests {
         media_key: &[u8],
         media_type: MediaType,
     ) -> Vec<u8> {
-        use crate::libsignal::crypto::{CryptographicMac, aes_256_cbc_encrypt_into};
+        use wacore_crypto::{CryptographicMac, aes_256_cbc_encrypt_into};
 
         let (iv, cipher_key, mac_key) =
             DownloadUtils::get_media_keys(media_key, media_type).unwrap();

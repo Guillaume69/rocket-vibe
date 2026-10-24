@@ -6,6 +6,7 @@ use super::messages::CiphertextMessageType;
 use wacore_crypto::CryptoProviderError;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CurveError {
     #[error("no key type identifier")]
     NoKeyTypeIdentifier,
@@ -26,6 +27,7 @@ pub struct InvalidSessionError(pub &'static str);
 pub struct InvalidSenderKeySessionError(pub &'static str);
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SignalProtocolError {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
@@ -121,6 +123,23 @@ impl From<CurveError> for SignalProtocolError {
             CurveError::BadKeyLength(n) => Self::BadKeyLength(n),
             CurveError::AgreementFailed => Self::KeyAgreementFailed(CryptoProviderError::BadInput),
         }
+    }
+}
+
+impl From<rv_signal::Error> for CurveError {
+    fn from(e: rv_signal::Error) -> Self {
+        match e {
+            rv_signal::Error::BadKeyType(t) => Self::BadKeyType(t),
+            rv_signal::Error::BadKeyLength(0) => Self::NoKeyTypeIdentifier,
+            rv_signal::Error::BadKeyLength(n) => Self::BadKeyLength(n),
+            _ => Self::AgreementFailed,
+        }
+    }
+}
+
+impl From<rv_signal::Error> for SignalProtocolError {
+    fn from(e: rv_signal::Error) -> Self {
+        Self::from_signal(e, CiphertextMessageType::Whisper)
     }
 }
 

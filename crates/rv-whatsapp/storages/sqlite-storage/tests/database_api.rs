@@ -147,11 +147,11 @@ async fn shared_accounts_and_selected_administration() {
         a.load_identity("15550000001.1").await.unwrap(),
         b.load_identity("15550000001.1").await.unwrap()
     );
-    let old_identity = b.load().await.unwrap().unwrap().identity_key.public_key;
+    let old_identity = b.load().await.unwrap().unwrap().identity_key.public;
     let reset = db.reset_device(b_id).await.unwrap();
     assert_eq!(reset.device_id(), b_id);
     assert_ne!(
-        reset.load().await.unwrap().unwrap().identity_key.public_key,
+        reset.load().await.unwrap().unwrap().identity_key.public,
         old_identity
     );
     assert!(reset.get_session("15550000001.1").await.unwrap().is_none());
@@ -270,8 +270,8 @@ async fn file_close_reopen_preserves_accounts_and_adapter_rows() {
     let b_id = b.device_id();
     a.put_session("15550000001.1", b"first").await.unwrap();
     b.put_session("15550000001.1", b"second").await.unwrap();
-    let a_identity = a.load().await.unwrap().unwrap().identity_key.public_key;
-    let b_identity = b.load().await.unwrap().unwrap().identity_key.public_key;
+    let a_identity = a.load().await.unwrap().unwrap().identity_key.public;
+    let b_identity = b.load().await.unwrap().unwrap().identity_key.public;
     let shared = db.shared();
     shared.run(|conn| {
         diesel::sql_query("CREATE TABLE external_adapter (device_id INTEGER PRIMARY KEY REFERENCES device(id) ON DELETE CASCADE, value TEXT NOT NULL)")
@@ -302,11 +302,11 @@ async fn file_close_reopen_preserves_accounts_and_adapter_rows() {
         b"second".as_slice()
     );
     assert_eq!(
-        a.load().await.unwrap().unwrap().identity_key.public_key,
+        a.load().await.unwrap().unwrap().identity_key.public,
         a_identity
     );
     assert_eq!(
-        b.load().await.unwrap().unwrap().identity_key.public_key,
+        b.load().await.unwrap().unwrap().identity_key.public,
         b_identity
     );
     let listed = db.list_devices().await.unwrap();

@@ -28,15 +28,15 @@
 //!   The handoff only proves ADV-secret continuity for a re-link (suppresses the
 //!   verification-code UX); it does NOT replace the WebAuthn assertion.
 
-use crate::libsignal::crypto::aes_256_gcm_encrypt;
-use crate::libsignal::protocol::{CurveError, KeyPair, PublicKey};
 use crate::pair_code::PairCodeUtils;
+use crate::signal::protocol::{KeyPair, PublicKey};
 use buffa::Enumeration;
 #[cfg(test)]
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit as _, Mac};
 use rand::RngExt;
 use sha2::{Digest, Sha256};
+use wacore_crypto::aes_256_gcm_encrypt;
 use waproto::whatsapp as wa;
 
 /// HKDF `info` for the pairing-handoff HMAC key (RE: "shortcake-passkey-handoff-v1").
@@ -50,9 +50,9 @@ const VERIFICATION_CODE_BYTES: usize = 5;
 #[non_exhaustive]
 pub enum ShortcakeError {
     #[error("invalid primary public key: {0}")]
-    InvalidPrimaryKey(CurveError),
+    InvalidPrimaryKey(rv_signal::Error),
     #[error("X25519 agreement failed: {0}")]
-    KeyAgreement(CurveError),
+    KeyAgreement(rv_signal::Error),
     #[error("HKDF expand failed for {0}")]
     Hkdf(&'static str),
     #[error("AES-256-GCM encryption failed")]
@@ -212,11 +212,11 @@ impl ShortcakeUtils {
         device_type: wa::device_props::PlatformType,
         ref_str: &str,
     ) -> Result<[u8; 32], ShortcakeError> {
-        let primary = PublicKey::from_djb_public_key_bytes(primary_public_key)
+        let primary = PublicKey::try_from(&primary_public_key[..])
             .map_err(ShortcakeError::InvalidPrimaryKey)?;
         let shared = companion_keypair
-            .private_key
-            .calculate_agreement(&primary)
+            .private
+            .agree(&primary)
             .map_err(ShortcakeError::KeyAgreement)?;
         Self::derive_encryption_key_from_shared_secret(&shared, device_type, ref_str)
     }
@@ -530,7 +530,7 @@ mod tests {
     // companion's PairingRequest, and the handoff proof verifies.
     #[test]
     fn full_handshake_interops_with_a_simulated_primary() {
-        use crate::libsignal::crypto::aes_256_gcm_decrypt;
+        use wacore_crypto::aes_256_gcm_decrypt;
 
         let device_type = wa::device_props::PlatformType::CHROME;
         let pairing_ref = "REF-XYZ";
@@ -540,11 +540,7 @@ mod tests {
         // companion: ephemeral identity + commitment + prologue + handoff proof
         let companion_kp = ShortcakeUtils::generate_companion_ephemeral_keypair();
         let companion_nonce = ShortcakeUtils::generate_companion_nonce();
-        let companion_pub: [u8; 32] = companion_kp
-            .public_key
-            .public_key_bytes()
-            .try_into()
-            .unwrap();
+        let companion_pub: [u8; 32] = *companion_kp.public.raw();
         let identity = ShortcakeUtils::build_companion_ephemeral_identity(
             &companion_pub,
             device_type,
@@ -558,7 +554,7 @@ mod tests {
 
         // primary: its own ephemeral identity, sent back as <primary_ephemeral_identity>
         let primary_kp = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-        let primary_pub: [u8; 32] = primary_kp.public_key.public_key_bytes().try_into().unwrap();
+        let primary_pub: [u8; 32] = *primary_kp.public.raw();
         let primary_nonce = [0x33u8; 32];
         let primary_wire = {
             let mut proto = wa::PrimaryEphemeralIdentity::default();
@@ -600,8 +596,8 @@ mod tests {
         )
         .unwrap();
         let primary_shared = primary_kp
-            .private_key
-            .calculate_agreement(&PublicKey::from_djb_public_key_bytes(&companion_pub).unwrap())
+            .private
+            .agree(&PublicKey::try_from(&companion_pub[..]).unwrap())
             .unwrap();
         let primary_key = ShortcakeUtils::derive_encryption_key_from_shared_secret(
             &primary_shared,

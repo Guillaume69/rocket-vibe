@@ -3,14 +3,13 @@
 //! Encryption, decryption, session management, and participant node creation.
 
 use thiserror::Error;
-use wacore::libsignal::protocol::{
-    CiphertextMessage, DecryptionResult, IdentityChange, PreKeyBundle, PreKeySignalMessage,
-    PublicKey, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyDistributionMessage, SenderKeyStore,
-    SignalMessage, SignalProtocolError, UsePQRatchet, message_decrypt, message_encrypt,
-    process_sender_key_distribution_message,
-};
 use wacore::message_processing::EncType;
 use wacore::messages::MessageUtils;
+use wacore::signal::protocol::{
+    CiphertextMessage, DecryptionResult, IdentityChange, PreKeyBundle, PublicKey,
+    SenderKeyDistributionMessage, SenderKeyStore, SignalProtocolError, message_decrypt,
+    message_encrypt, process_sender_key_distribution_message,
+};
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore_binary::Jid;
 use wacore_binary::Node;
@@ -114,7 +113,7 @@ fn decode_sender_key_distribution(
             bytes.len()
         )));
     }
-    match SenderKeyDistributionMessage::try_from(bytes) {
+    match wacore::signal::protocol::sender_key_distribution_message(bytes) {
         Ok(message) => Ok(message),
         Err(primary_error) => {
             let fallback = waproto::codec::sender_key_distribution_message_decode(bytes)
@@ -144,19 +143,17 @@ fn decode_sender_key_distribution(
                         value.len()
                     ))
                 })?;
-            let signing_key =
-                PublicKey::from_djb_public_key_bytes(&signing_key).map_err(|error| {
-                    SignalError::InvalidInput(format!(
-                        "sender-key distribution signing_key is invalid: {error}"
-                    ))
-                })?;
+            let signing_key = PublicKey::try_from(&signing_key[..]).map_err(|error| {
+                SignalError::InvalidInput(format!(
+                    "sender-key distribution signing_key is invalid: {error}"
+                ))
+            })?;
             Ok(SenderKeyDistributionMessage::new(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
                 id,
                 iteration,
                 chain_key,
                 signing_key,
-            )?)
+            ))
         }
     }
 }
@@ -242,7 +239,6 @@ impl<'a> Signal<'a> {
             &mut adapter.pre_key_store,
             &adapter.signed_pre_key_store,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await?;
 
@@ -470,12 +466,12 @@ impl<'a> Signal<'a> {
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, SignalError> {
         let parsed = match enc_type {
-            EncType::PreKeyMessage => {
-                CiphertextMessage::PreKeySignalMessage(PreKeySignalMessage::try_from(ciphertext)?)
-            }
-            EncType::Message => {
-                CiphertextMessage::SignalMessage(SignalMessage::try_from(ciphertext)?)
-            }
+            EncType::PreKeyMessage => CiphertextMessage::PreKeySignalMessage(
+                wacore::signal::protocol::prekey_signal_message(ciphertext)?,
+            ),
+            EncType::Message => CiphertextMessage::SignalMessage(
+                wacore::signal::protocol::signal_message(ciphertext)?,
+            ),
             EncType::SenderKey => {
                 return Err(SignalError::Unsupported(
                     "use decrypt_group_message for sender-key messages".into(),
@@ -588,7 +584,7 @@ impl<'a> Signal<'a> {
                 .await;
         }
 
-        Ok((skdm_bytes, ciphertext.into_serialized().into_vec()))
+        Ok((skdm_bytes, ciphertext.serialized().to_vec()))
     }
 
     /// Decrypt a group (sender-key) message.
@@ -611,7 +607,7 @@ impl<'a> Signal<'a> {
         let _chain_guard = chain_lock.lock().await;
 
         let plaintext =
-            wacore::libsignal::protocol::group_decrypt(ciphertext, &mut store, &sender_key_name)
+            wacore::signal::protocol::group_decrypt(ciphertext, &mut store, &sender_key_name)
                 .await?;
 
         drop(_chain_guard);
@@ -751,25 +747,23 @@ mod tests {
         (client, backend)
     }
 
-    fn peer_prekey_bundle(registration_id: u32, device_id: u32) -> PreKeyBundle {
-        use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair};
+    fn peer_prekey_bundle(registration_id: u32, _device_id: u32) -> PreKeyBundle {
+        use wacore::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity = IdentityKeyPair::generate(&mut rng);
+        let identity = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let prekey = KeyPair::generate(&mut rng);
         let signature = identity
-            .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature");
-        PreKeyBundle::new(
+            .private
+            .sign(&signed_prekey.public.serialize(), &mut rng);
+        wacore::signal::protocol::prekey_bundle(
             registration_id,
-            device_id.into(),
-            Some((7u32.into(), prekey.public_key)),
+            Some((7u32.into(), prekey.public)),
             9u32.into(),
-            signed_prekey.public_key,
+            signed_prekey.public,
             signature,
-            *identity.identity_key(),
+            identity.public,
         )
         .expect("prekey bundle")
     }
@@ -1203,7 +1197,7 @@ mod tests {
 
     #[tokio::test]
     async fn group_encrypt_flushes_only_at_sender_key_lease_boundaries() {
-        use wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
+        use wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
 
         let (client, backend) = memory_client().await;
         let group = Jid::new("120363000000000000", Server::Group);
@@ -1352,7 +1346,7 @@ mod tests {
     /// [`decode_sender_key_distribution`], which nothing covered before.
     #[tokio::test]
     async fn unframed_sender_key_distribution_is_still_accepted() {
-        use wacore::libsignal::protocol::KeyPair;
+        use wacore::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let signing = KeyPair::generate(&mut rng);
@@ -1363,11 +1357,11 @@ mod tests {
         unframed.extend_from_slice(&[0x1A, 32]);
         unframed.extend_from_slice(&[0x11; 32]);
         unframed.extend_from_slice(&[0x22, 32]);
-        unframed.extend_from_slice(signing.public_key.public_key_bytes());
+        unframed.extend_from_slice(signing.public.raw());
 
         assert!(
             matches!(
-                SenderKeyDistributionMessage::try_from(&unframed[..]),
+                wacore::signal::protocol::sender_key_distribution_message(&unframed[..]),
                 Err(SignalProtocolError::LegacyCiphertextVersion(0))
             ),
             "the primary reads the leading protobuf tag as a version, which is \
@@ -1376,9 +1370,9 @@ mod tests {
 
         let decoded = decode_sender_key_distribution(&unframed)
             .expect("the unframed encoding must keep decoding");
-        assert_eq!(decoded.chain_id(), 7);
-        assert_eq!(decoded.chain_key(), &[0x11u8; 32]);
-        assert_eq!(decoded.signing_key(), &signing.public_key);
+        assert_eq!(decoded.chain_id, 7);
+        assert_eq!(decoded.chain_key, [0x11u8; 32]);
+        assert_eq!(decoded.signing_key, signing.public);
     }
 
     /// The shortest byte string either accepted encoding can produce: the
@@ -1403,9 +1397,9 @@ mod tests {
         assert_eq!(bytes.len(), MIN_SENDER_KEY_DISTRIBUTION_LEN);
 
         let decoded = decode_sender_key_distribution(&bytes).expect("shortest unframed encoding");
-        assert_eq!(decoded.chain_id(), 0);
-        assert_eq!(decoded.iteration(), 0);
-        assert_eq!(decoded.chain_key(), &[7u8; 32]);
+        assert_eq!(decoded.chain_id, 0);
+        assert_eq!(decoded.iteration, 0);
+        assert_eq!(decoded.chain_key, [7u8; 32]);
     }
 
     #[tokio::test]
@@ -1427,26 +1421,20 @@ mod tests {
     /// The framed encoding keeps working through the primary, unchanged.
     #[tokio::test]
     async fn framed_sender_key_distribution_decodes_through_the_primary() {
-        use wacore::libsignal::protocol::KeyPair;
+        use wacore::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let signing = KeyPair::generate(&mut rng);
-        let framed = SenderKeyDistributionMessage::new(
-            SENDERKEY_MESSAGE_CURRENT_VERSION,
-            7,
-            0,
-            [0x11; 32],
-            signing.public_key,
-        )
-        .expect("distribution")
-        .into_serialized();
+        let framed = SenderKeyDistributionMessage::new(7, 0, [0x11; 32], signing.public)
+            .serialized()
+            .to_vec();
 
         assert!(
-            SenderKeyDistributionMessage::try_from(&framed[..]).is_ok(),
+            wacore::signal::protocol::sender_key_distribution_message(&framed[..]).is_ok(),
             "the framed shape must decode through the primary, not by falling back"
         );
         let decoded = decode_sender_key_distribution(&framed).expect("framed distribution");
-        assert_eq!(decoded.chain_id(), 7);
-        assert_eq!(decoded.signing_key(), &signing.public_key);
+        assert_eq!(decoded.chain_id, 7);
+        assert_eq!(decoded.signing_key, signing.public);
     }
 }

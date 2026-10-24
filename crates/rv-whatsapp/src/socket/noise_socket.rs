@@ -1,6 +1,6 @@
 pub use crate::transport::Transport;
 pub use wacore::handshake::{NoiseCipher, NoiseError};
-pub use wacore::libsignal::crypto::GcmInPlaceBuffer;
+pub use wacore_crypto::GcmInPlaceBuffer;
 pub use wacore::runtime::Runtime;
 pub use wacore::socket::error::*;
 pub use wacore::socket::noise_socket::*;

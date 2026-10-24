@@ -840,10 +840,8 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
     use wacore::client::context::GroupRoutingInfo;
-    use wacore::libsignal::protocol::{
-        KeyPair, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord,
-    };
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::{KeyPair, SenderKeyRecord};
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     use wacore::types::message::AddressingMode;
     for (shutdown_only, fail_response) in
@@ -896,16 +894,15 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
             let mut rng = rand::make_rng::<rand::rngs::StdRng>();
             let key_pair = KeyPair::generate(&mut rng);
             let mut record = SenderKeyRecord::new_empty();
-            record
-                .add_sender_key_state(
-                    SENDERKEY_MESSAGE_CURRENT_VERSION,
-                    7,
-                    0,
-                    &[9; 32],
-                    key_pair.public_key,
-                    Some(key_pair.private_key),
-                )
-                .unwrap();
+            record.add_state(
+                7,
+                rv_signal::ChainKey {
+                    index: 0,
+                    key: [9; 32],
+                },
+                key_pair.public,
+                Some(key_pair.private),
+            );
             raw.put_sender_key(name.cache_key(), &record.serialize().unwrap())
                 .await
                 .unwrap();
@@ -1050,8 +1047,8 @@ async fn captured_generation_is_preserved_when_success_retires_it_without_shutdo
 
 #[tokio::test]
 async fn admitted_key_retirement_does_not_wait_for_the_offline_message_permit() {
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     let (client, _) = create_iq_test_client().await;
     let own: Jid = "888000888000888:3@lid".parse().unwrap();
@@ -1095,8 +1092,8 @@ async fn admitted_key_retirement_does_not_wait_for_the_offline_message_permit() 
 async fn sender_key_storage_error_withholds_group_events_and_ack() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     let (mut probe, _) = ProbeBackend::new();
     let raw = probe.backend.clone();
@@ -1194,8 +1191,8 @@ async fn failed_key_delete_preserves_remove_retry_admission() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
 
     let (mut probe, _) = ProbeBackend::new();

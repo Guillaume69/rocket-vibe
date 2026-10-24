@@ -4,12 +4,12 @@ use std::path::Path;
 use std::process::Command;
 
 use rand::SeedableRng;
-use wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
-use wacore::libsignal::protocol::{
-    ChainKey, IdentityKey, KeyPair, RootKey, SenderKeyRecord, SenderKeyStore, SessionRecord,
-    SessionState, create_sender_key_distribution_message, group_encrypt,
+use wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
+use wacore::signal::protocol::{
+    ChainKey, KeyPair, RootKey, SenderKeyRecord, SenderKeyStore, SessionRecord, SessionState,
+    create_sender_key_distribution_message, group_encrypt,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use whatsapp_rust::store::SqliteStore;
 use whatsapp_rust::store::signal_cache::SignalStoreCache;
 
@@ -32,7 +32,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
         &mut self,
         name: &SenderKeyName,
         record: SenderKeyRecord,
-    ) -> wacore::libsignal::protocol::error::Result<()> {
+    ) -> wacore::signal::protocol::error::Result<()> {
         self.cache.put_sender_key(name, record).await;
         Ok(())
     }
@@ -40,13 +40,13 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     async fn load_sender_key(
         &self,
         name: &SenderKeyName,
-    ) -> wacore::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+    ) -> wacore::signal::protocol::error::Result<Option<SenderKeyRecord>> {
         Ok(self
             .cache
             .get_sender_key(name, self.backend)
             .await
             .map_err(|error| {
-                wacore::libsignal::protocol::SignalProtocolError::BackendError(
+                wacore::signal::protocol::SignalProtocolError::BackendError(
                     "SQLite durability test",
                     error.into(),
                 )
@@ -55,8 +55,8 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     }
 }
 
-fn dm_address() -> wacore::libsignal::protocol::ProtocolAddress {
-    wacore::libsignal::protocol::ProtocolAddress::new("15550008001", 1.into())
+fn dm_address() -> wacore::signal::protocol::ProtocolAddress {
+    wacore::signal::protocol::ProtocolAddress::new("15550008001", 1.into())
 }
 
 fn group_name() -> SenderKeyName {
@@ -64,9 +64,9 @@ fn group_name() -> SenderKeyName {
 }
 
 fn fresh_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let base_key = KeyPair::generate(rng).public_key;
+    let local = KeyPair::generate(rng).public;
+    let remote = KeyPair::generate(rng).public;
+    let base_key = KeyPair::generate(rng).public;
     let mut state = SessionState::new(3, &local, &remote, &RootKey::new([7; 32]), &base_key);
     state.set_sender_chain(&KeyPair::generate(rng), &ChainKey::new([11; 32], 0));
     SessionRecord::new(state)
@@ -113,7 +113,7 @@ async fn crash_child(database: &str) -> ! {
     let first = group_encrypt(&mut sender, &name, b"first", &mut rng)
         .await
         .expect("first group encrypt");
-    assert_eq!(first.iteration(), 0);
+    assert_eq!(first.iteration, 0);
 
     cache.flush(&store).await.expect("durable lease flush");
     assert!(!cache.needs_pre_wire_flush().await);
@@ -131,7 +131,7 @@ async fn crash_child(database: &str) -> ! {
         let message = group_encrypt(&mut sender, &name, b"unflushed", &mut rng)
             .await
             .expect("group encrypt");
-        assert_eq!(message.iteration(), expected);
+        assert_eq!(message.iteration, expected);
     }
 
     crash_now()
@@ -181,7 +181,7 @@ async fn verify_recovery(database: &str) {
     let recovered_group = group_encrypt(&mut sender, &name, b"recovered", &mut rng)
         .await
         .expect("group recovery encrypt");
-    assert_eq!(recovered_group.iteration(), SENDER_CHAIN_RESERVATION_BATCH);
+    assert_eq!(recovered_group.iteration, SENDER_CHAIN_RESERVATION_BATCH);
     assert!(cache.needs_pre_wire_flush().await);
     cache.flush(&store).await.expect("recovery lease flush");
     assert!(!cache.needs_pre_wire_flush().await);
@@ -197,7 +197,7 @@ async fn verify_recovery(database: &str) {
     let exact_group = group_encrypt(&mut sender, &name, b"exact", &mut rng)
         .await
         .expect("clean group reload");
-    assert_eq!(exact_group.iteration(), SENDER_CHAIN_RESERVATION_BATCH + 1);
+    assert_eq!(exact_group.iteration, SENDER_CHAIN_RESERVATION_BATCH + 1);
     assert!(!cache.needs_pre_wire_flush().await);
 }
 

@@ -912,7 +912,7 @@ impl Client {
     ///
     /// Triggered from both the inbound decrypt path and the outbound
     /// session-establishment paths when `save_identity` reports
-    /// [`IdentityChange::ReplacedExisting`](wacore::libsignal::protocol::IdentityChange),
+    /// [`IdentityChange::ReplacedExisting`](wacore::signal::protocol::IdentityChange),
     /// mirroring WA Web `saveIdentity` -> `handleNewIdentity`. Gating
     /// (primary-device, skip-self) lives in [`handle_local_identity_change`].
     ///
@@ -2376,7 +2376,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_sessions_covers_standard_and_hosted_user_namespaces() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
 
         let client = create_test_client().await;
         let lid = "100000000000001";
@@ -3467,8 +3467,8 @@ mod tests {
     #[tokio::test]
     async fn participant_remove_rotates_sender_key_when_any_had_key() {
         use std::str::FromStr;
-        use wacore::libsignal::protocol::SenderKeyRecord;
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -3528,8 +3528,8 @@ mod tests {
     #[tokio::test]
     async fn participant_remove_skips_rotation_when_none_had_key() {
         use std::str::FromStr;
-        use wacore::libsignal::protocol::SenderKeyRecord;
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -3573,10 +3573,8 @@ mod tests {
 
     #[tokio::test]
     async fn rotation_waits_for_in_flight_sender_key_advance() {
-        use wacore::libsignal::protocol::{
-            KeyPair, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord, group_encrypt,
-        };
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::{KeyPair, SenderKeyRecord, group_encrypt};
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -3594,16 +3592,15 @@ mod tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let key_pair = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
-                7,
-                0,
-                &[9; 32],
-                key_pair.public_key,
-                Some(key_pair.private_key),
-            )
-            .unwrap();
+        record.add_state(
+            7,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [9; 32],
+            },
+            key_pair.public,
+            Some(key_pair.private),
+        );
         client.signal_cache.put_sender_key(&name, record).await;
 
         let chain_lock = client.signal_cache.sender_key_lock(&name).await;
@@ -3661,8 +3658,8 @@ mod tests {
 
     #[tokio::test]
     async fn participant_rotation_audit_waits_for_group_distribution_guard() {
-        use wacore::libsignal::protocol::SenderKeyRecord;
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;

@@ -6,10 +6,10 @@ use rand::rngs::StdRng;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use wacore::libsignal::protocol::{
-    IdentityChange, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
+use wacore::signal::protocol::{
+    IdentityChange, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
 };
-use wacore::libsignal::store::SessionStore;
+use wacore::signal::store::SessionStore;
 use wacore::stats::UnkeyableDevice;
 use wacore::types::jid::JidExt;
 use wacore_binary::Jid;
@@ -278,7 +278,6 @@ impl Client {
             &mut adapter.identity_store,
             bundle,
             rng,
-            UsePQRatchet::No,
         )
         .await?;
 
@@ -1548,8 +1547,8 @@ mod tests {
     #[tokio::test]
     async fn a_device_that_establishes_counts_nothing() {
         use wacore::iq::prekeys::PreKeyBundleUserNode;
-        use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair, PreKeyBundle};
         use wacore::protocol::ProtocolNode;
+        use wacore::signal::protocol::KeyPair;
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
         assert_eq!(
@@ -1561,21 +1560,17 @@ mod tests {
 
         // A bundle whose signed-prekey signature verifies, so X3DH completes.
         let mut rng = rand::make_rng::<StdRng>();
-        let receiver = IdentityKeyPair::generate(&mut rng);
+        let receiver = KeyPair::generate(&mut rng);
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
-        let signature = receiver
-            .private_key()
-            .calculate_signature(&spk.public_key.serialize(), &mut rng)
-            .expect("sign the signed prekey");
-        let bundle = PreKeyBundle::new(
+        let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
+        let bundle = wacore::signal::protocol::prekey_bundle(
             1,
-            0u32.into(),
-            Some((1u32.into(), opk.public_key)),
+            Some((1u32.into(), opk.public)),
             1u32.into(),
-            spk.public_key,
+            spk.public,
             signature,
-            *receiver.identity_key(),
+            receiver.public,
         )
         .expect("build the bundle");
 

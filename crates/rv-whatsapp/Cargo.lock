@@ -4499,6 +4499,7 @@ dependencies = [
  "portable-atomic",
  "rand 0.10.3",
  "ruzstd",
+ "rv-signal",
  "serde",
  "serde-big-array",
  "serde_json",
@@ -4514,9 +4515,9 @@ dependencies = [
  "wacore",
  "wacore-appstate",
  "wacore-binary",
+ "wacore-crypto",
  "wacore-derive",
  "wacore-noise",
- "wacore-signal",
  "waproto",
  "zerocopy",
  "zeroize",
@@ -4596,31 +4597,12 @@ dependencies = [
  "hkdf",
  "log",
  "rand 0.10.3",
+ "rv-signal",
  "sha2",
  "thiserror 2.0.21",
  "wacore-binary",
- "wacore-signal",
- "waproto",
-]
-
-[[package]]
-name = "wacore-signal"
-version = "0.7.0"
-dependencies = [
- "async-lock",
- "async-trait",
- "buffa",
- "bytes",
- "chrono",
- "log",
- "portable-atomic",
- "rand 0.10.3",
- "rv-signal",
- "thiserror 2.0.21",
- "tokio",
  "wacore-crypto",
  "waproto",
- "zeroize",
 ]
 
 [[package]]
@@ -4816,6 +4798,7 @@ dependencies = [
  "rtc-dtls",
  "rtc-sctp",
  "rtc-shared",
+ "rv-signal",
  "scopeguard",
  "send_wrapper",
  "serde",
@@ -4830,6 +4813,7 @@ dependencies = [
  "uuid",
  "wacore",
  "wacore-binary",
+ "wacore-crypto",
  "wacore-noise",
  "waproto",
  "whatsapp-rust-sqlite-storage",

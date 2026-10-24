@@ -19,7 +19,7 @@ mod tests {
     use wacore::appstate::processor::AppStateMutationMAC;
     use wacore::appstate_sync::AppStateMutationPersistence;
     use wacore::appstate_sync::RecoveryOutcome;
-    use wacore::libsignal::crypto::aes_256_cbc_encrypt_into;
+    use wacore_crypto::aes_256_cbc_encrypt_into;
     use wacore::store::error::Result as StoreResult;
     use wacore::store::traits::{
         AppStateSyncKey, AppSyncStore, DeviceListRecord, DeviceStore, LidPnMappingEntry,

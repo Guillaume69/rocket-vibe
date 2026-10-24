@@ -6,12 +6,12 @@
 
 use std::{path::Path, sync::Arc};
 use wacore::appstate::hash::HashState;
-use wacore::libsignal::protocol::{
-    CiphertextMessage, IdentityKey, PreKeyBundle, ProtocolAddress, SignalMessage, UsePQRatchet,
-    create_sender_key_distribution_message, group_decrypt, group_encrypt, message_decrypt,
-    message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
+use wacore::signal::protocol::{
+    CiphertextMessage, PreKeyBundle, ProtocolAddress, create_sender_key_distribution_message,
+    group_decrypt, group_encrypt, message_decrypt, message_encrypt, process_prekey_bundle,
+    process_sender_key_distribution_message,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use wacore::store::traits::{AppStateSyncKey, AppSyncStore, DeviceStore, ProtocolStore};
 use whatsapp_rust::store::{
     SqliteStore, commands::DeviceCommand, persistence_manager::PersistenceManager,
@@ -68,14 +68,13 @@ impl Peer {
 
     fn bundle(&self) -> PreKeyBundle {
         let device = self.manager.get_device_snapshot();
-        PreKeyBundle::new(
+        wacore::signal::protocol::prekey_bundle(
             device.registration_id,
-            1.into(),
             None,
             device.signed_pre_key_id.into(),
-            device.signed_pre_key.public_key,
+            device.signed_pre_key.public,
             device.signed_pre_key_signature.to_vec(),
-            IdentityKey::new(device.identity_key.public_key),
+            device.identity_key.public,
         )
         .unwrap()
     }
@@ -100,7 +99,6 @@ impl Peer {
             &mut self.signal.pre_key_store,
             &self.signal.signed_pre_key_store,
             &mut rand::make_rng::<rand::rngs::StdRng>(),
-            UsePQRatchet::No,
         )
         .await
         .unwrap()
@@ -191,7 +189,6 @@ async fn produce(dir: &Path) {
         &mut alice.signal.identity_store,
         &bob.bundle(),
         &mut rand::make_rng::<rand::rngs::StdRng>(),
-        UsePQRatchet::No,
     )
     .await
     .unwrap();
@@ -362,7 +359,7 @@ async fn consume(dir: &Path) {
             );
         }
         let delayed = CiphertextMessage::SignalMessage(
-            SignalMessage::try_from(
+            wacore::signal::protocol::signal_message(
                 std::fs::read(dir.join("dm-skipped.bin"))
                     .unwrap()
                     .as_slice(),
@@ -409,8 +406,7 @@ async fn consume(dir: &Path) {
         .await
         .unwrap();
         assert!(
-            fresh.iteration()
-                >= wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
+            fresh.iteration >= wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
             "the historical sender lease must survive upgrade and restart"
         );
         assert_eq!(

@@ -1,5 +1,5 @@
 use crate::handshake::{NoiseCipher, NoiseError};
-use crate::libsignal::crypto::GcmInPlaceBuffer;
+use wacore_crypto::GcmInPlaceBuffer;
 use crate::net::Transport;
 use crate::runtime::{AbortHandle, Runtime};
 use crate::socket::error::{EncryptSendError, Result, SocketError};
@@ -510,7 +510,7 @@ impl NoiseSocket {
             if out_buf.len() - base != body_len {
                 out_buf.truncate(before);
                 return Err(EncryptSendError::crypto(NoiseError::Encrypt(
-                    crate::libsignal::crypto::CryptoProviderError::BackendFailed,
+                    wacore_crypto::CryptoProviderError::BackendFailed,
                 )));
             }
             *write_counter = counter + 1;

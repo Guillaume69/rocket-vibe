@@ -9,10 +9,10 @@ use async_lock::Mutex;
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use rand::RngExt;
 
-use crate::libsignal::protocol::{
+use crate::signal::protocol::{
     ProtocolAddress, SenderKeyRecord, SessionCheckoutKey, SessionCheckoutStoreResult, SessionRecord,
 };
-use crate::libsignal::store::sender_key_name::SenderKeyName;
+use crate::signal::store::sender_key_name::SenderKeyName;
 use crate::store::traits::SignalStore;
 
 type StoreIncarnation = [u8; 16];
@@ -2470,7 +2470,7 @@ impl SignalStoreCache {
 #[cfg(test)]
 mod sender_key_lock_tests {
     use super::*;
-    use crate::libsignal::store::sender_key_name::SenderKeyName;
+    use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::store::error::Result as StoreResult;
     use bytes::Bytes;
 
@@ -2691,26 +2691,25 @@ mod sender_key_lock_tests {
     }
 
     fn sender_key_record_with_chain(chain_id: u32) -> SenderKeyRecord {
-        use crate::libsignal::protocol::KeyPair;
+        use crate::signal::protocol::KeyPair;
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(
-                3,
-                chain_id,
-                0,
-                &[7u8; 32],
-                kp.public_key,
-                Some(kp.private_key),
-            )
-            .expect("valid sender key state");
+        record.add_state(
+            chain_id,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7u8; 32],
+            },
+            kp.public,
+            Some(kp.private),
+        );
         record
     }
 
     fn chain_id_of(record: &SenderKeyRecord) -> u32 {
         record
-            .sender_key_state()
+            .state()
             .expect("record must carry a state")
             .chain_id()
     }
@@ -4190,7 +4189,7 @@ mod consumed_prekey_atomicity_tests {
     #[tokio::test]
     async fn prekey_behind_an_unreadable_session_row_survives_flush() {
         use super::lease_reload_tests::leased_session;
-        use crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD;
+        use crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD;
 
         let backend = InMemoryBackend::new();
         let addr = seed(&backend).await;
@@ -4688,7 +4687,7 @@ mod eviction_tests {
         assert_eq!(candidates.keys.len(), 4);
         assert!(EvictionCandidates::new(0).consider(&Arc::from("unused"), true));
     }
-    use crate::libsignal::protocol::{DeviceId, ProtocolAddress};
+    use crate::signal::protocol::{DeviceId, ProtocolAddress};
     use crate::store::in_memory::InMemoryBackend;
 
     fn addr(i: usize) -> ProtocolAddress {
@@ -4854,8 +4853,8 @@ mod eviction_tests {
 #[cfg(test)]
 mod lease_reload_tests {
     use super::*;
-    use crate::libsignal::protocol::{
-        ChainKey, IdentityKey, KeyPair, RootKey, SenderKeyStore, SessionState,
+    use crate::signal::protocol::{
+        ChainKey, KeyPair, RootKey, SenderKeyStore, SessionState,
         create_sender_key_distribution_message, group_decrypt, group_encrypt,
         process_sender_key_distribution_message,
     };
@@ -4872,7 +4871,7 @@ mod lease_reload_tests {
             &mut self,
             name: &SenderKeyName,
             record: SenderKeyRecord,
-        ) -> crate::libsignal::protocol::error::Result<()> {
+        ) -> crate::signal::protocol::error::Result<()> {
             self.cache.put_sender_key(name, record).await;
             Ok(())
         }
@@ -4880,7 +4879,7 @@ mod lease_reload_tests {
         async fn load_sender_key(
             &self,
             name: &SenderKeyName,
-        ) -> crate::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+        ) -> crate::signal::protocol::error::Result<Option<SenderKeyRecord>> {
             Ok(self
                 .cache
                 .get_sender_key(name, self.backend)
@@ -4896,9 +4895,9 @@ mod lease_reload_tests {
 
     pub(super) fn leased_session() -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
         let mut record = SessionRecord::new(state);
@@ -4979,7 +4978,7 @@ mod lease_reload_tests {
             .expect("session");
         assert_eq!(
             session_chain_index(&recovered),
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 
@@ -5001,7 +5000,7 @@ mod lease_reload_tests {
 
         let mut stranded = leased_session();
         stranded.reserve_sender_chain_counters(
-            crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
+            crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
         );
         assert_eq!(session_chain_index(&stranded), 0);
         cache.put_session(&address, stranded).await;
@@ -5058,7 +5057,7 @@ mod lease_reload_tests {
 
         let mut stranded = leased_session();
         stranded.reserve_sender_chain_counters(
-            crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
+            crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
         );
         cache.put_session(&address, stranded).await;
         cache.flush(&backend).await.expect("flush");
@@ -5147,7 +5146,7 @@ mod lease_reload_tests {
             .expect("session");
         assert_eq!(
             session_chain_index(&recovered),
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
 
         cache.put_session(&address, checked_out).await;
@@ -5189,7 +5188,7 @@ mod lease_reload_tests {
             let message = group_encrypt(&mut sender, &name, b"payload", &mut rng)
                 .await
                 .expect("group encrypt");
-            assert_eq!(message.iteration(), expected_iteration);
+            assert_eq!(message.iteration, expected_iteration);
             last = Some(message);
             sender_cache.flush(&sender_backend).await.expect("flush");
             sender_cache.clear_after_flush().await;
@@ -5218,7 +5217,7 @@ mod lease_reload_tests {
         let first = group_encrypt(&mut store, &name, b"first", &mut rng)
             .await
             .expect("first send");
-        assert_eq!(first.iteration(), 0);
+        assert_eq!(first.iteration, 0);
         cache.flush(&backend).await.expect("flush");
         assert!(
             cache
@@ -5233,7 +5232,7 @@ mod lease_reload_tests {
         let second = group_encrypt(&mut store, &name, b"second", &mut rng)
             .await
             .expect("send after eviction");
-        assert_eq!(second.iteration(), 1);
+        assert_eq!(second.iteration, 1);
     }
 
     #[tokio::test]
@@ -5256,13 +5255,13 @@ mod lease_reload_tests {
         let first = group_encrypt(&mut store, &name, b"first", &mut rng)
             .await
             .expect("first send");
-        assert_eq!(first.iteration(), 0);
+        assert_eq!(first.iteration, 0);
         cache.flush(&backend).await.expect("flush");
 
         let unflushed = group_encrypt(&mut store, &name, b"unflushed", &mut rng)
             .await
             .expect("unflushed send");
-        assert_eq!(unflushed.iteration(), 1);
+        assert_eq!(unflushed.iteration, 1);
         cache.clear_after_flush().await;
 
         {
@@ -5275,7 +5274,7 @@ mod lease_reload_tests {
         let resumed = group_encrypt(&mut store, &name, b"resumed", &mut rng)
             .await
             .expect("resident send");
-        assert_eq!(resumed.iteration(), 2);
+        assert_eq!(resumed.iteration, 2);
 
         let replacement = SignalStoreCache::with_max_entries_and_incarnation(
             DEFAULT_MAX_CACHE_ENTRIES,
@@ -5289,8 +5288,8 @@ mod lease_reload_tests {
             .await
             .expect("recovery send");
         assert_eq!(
-            recovered.iteration(),
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            recovered.iteration,
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
 
         cache.flush(&backend).await.expect("retry flush");
@@ -5298,7 +5297,7 @@ mod lease_reload_tests {
         let exact = group_encrypt(&mut store, &name, b"exact", &mut rng)
             .await
             .expect("exact reload");
-        assert_eq!(exact.iteration(), 3);
+        assert_eq!(exact.iteration, 3);
     }
 }
 
@@ -5307,7 +5306,7 @@ mod pre_wire_gate_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use crate::libsignal::store::sender_key_name::SenderKeyName;
+    use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::store::in_memory::InMemoryBackend;
     use async_lock::Barrier;
 
@@ -6169,7 +6168,7 @@ mod pre_wire_gate_tests {
 #[cfg(test)]
 mod cold_read_race_tests {
     use super::*;
-    use crate::libsignal::protocol::{ChainKey, IdentityKey, KeyPair, RootKey, SessionState};
+    use crate::signal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
     use crate::store::error::Result as StoreResult;
     use bytes::Bytes;
     use std::sync::atomic::AtomicUsize;
@@ -6292,9 +6291,9 @@ mod cold_read_race_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(
             &KeyPair::generate(&mut rng),
@@ -6739,8 +6738,8 @@ mod cold_read_race_tests {
 #[cfg(test)]
 mod flush_contention_reproduction_tests {
     use super::*;
-    use crate::libsignal::protocol::{
-        ChainKey, IdentityKey, KeyPair, ProtocolAddress, RootKey, SessionRecord, SessionState,
+    use crate::signal::protocol::{
+        ChainKey, KeyPair, ProtocolAddress, RootKey, SessionRecord, SessionState,
     };
     use crate::store::in_memory::InMemoryBackend;
     use crate::store::traits::SignalStore;
@@ -6752,9 +6751,9 @@ mod flush_contention_reproduction_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(
             &KeyPair::generate(&mut rng),

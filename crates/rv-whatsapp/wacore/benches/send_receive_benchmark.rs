@@ -19,25 +19,24 @@ use wacore::send::{
     DmStanzaRequest, GroupStanzaRequest, ResolvedDmDevices, SenderKeyDistributionPolicy,
     SignalStores, prepare_dm_stanza, prepare_group_stanza, prepare_peer_stanza,
 };
+use wacore::signal::protocol::{
+    CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
+    PreKeyBundle, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
+    SenderKeyStore, SessionRecord, SessionStore, SignedPreKeyId, SignedPreKeyRecord,
+    SignedPreKeyStore, Timestamp, create_sender_key_distribution_message, group_decrypt,
+    message_decrypt, message_encrypt, process_prekey_bundle,
+    process_sender_key_distribution_message,
+};
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore::types::message::AddressingMode;
 use wacore_binary::JidExt as _;
 use wacore_binary::jid::Jid;
 use wacore_binary::marshal::marshal;
 use wacore_binary::node::{Node, NodeContent};
-use wacore_signal::protocol::{
-    CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKey,
-    IdentityKeyPair, IdentityKeyStore, KeyPair, PreKeyBundle, PreKeyId, PreKeyRecord,
-    PreKeySignalMessage, PreKeyStore, ProtocolAddress, SenderKeyRecord, SenderKeyStore,
-    SessionRecord, SessionStore, SignalMessage, SignedPreKeyId, SignedPreKeyRecord,
-    SignedPreKeyStore, Timestamp, UsePQRatchet, create_sender_key_distribution_message,
-    group_decrypt, message_decrypt, message_encrypt, process_prekey_bundle,
-    process_sender_key_distribution_message,
-};
-use wacore_signal::store::sender_key_name::SenderKeyName;
 use waproto::whatsapp as wa;
 
-type SigResult<T> = wacore_signal::protocol::error::Result<T>;
+type SigResult<T> = wacore::signal::protocol::error::Result<T>;
 
 fn main() {
     divan::main();
@@ -152,13 +151,13 @@ impl Runtime for BenchRuntime {
 /// would over-count clone work that doesn't happen in production.
 #[derive(Clone)]
 struct MemIdentityStore {
-    key_pair: IdentityKeyPair,
+    key_pair: KeyPair,
     reg_id: u32,
-    identities: std::sync::Arc<std::sync::Mutex<DetHashMap<ProtocolAddress, IdentityKey>>>,
+    identities: std::sync::Arc<std::sync::Mutex<DetHashMap<ProtocolAddress, PublicKey>>>,
 }
 
 impl MemIdentityStore {
-    fn new(key_pair: IdentityKeyPair, reg_id: u32) -> Self {
+    fn new(key_pair: KeyPair, reg_id: u32) -> Self {
         Self {
             key_pair,
             reg_id,
@@ -170,7 +169,7 @@ impl MemIdentityStore {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl IdentityKeyStore for MemIdentityStore {
-    async fn get_identity_key_pair(&self) -> SigResult<IdentityKeyPair> {
+    async fn get_identity_key_pair(&self) -> SigResult<KeyPair> {
         Ok(self.key_pair.clone())
     }
     async fn get_local_registration_id(&self) -> SigResult<u32> {
@@ -179,7 +178,7 @@ impl IdentityKeyStore for MemIdentityStore {
     async fn save_identity(
         &mut self,
         a: &ProtocolAddress,
-        id: &IdentityKey,
+        id: &PublicKey,
     ) -> SigResult<IdentityChange> {
         let mut guard = self.identities.lock().unwrap();
         let changed = guard.get(a).is_some_and(|e| e != id);
@@ -189,12 +188,12 @@ impl IdentityKeyStore for MemIdentityStore {
     async fn is_trusted_identity(
         &self,
         _: &ProtocolAddress,
-        _: &IdentityKey,
+        _: &PublicKey,
         _: Direction,
     ) -> SigResult<bool> {
         Ok(true)
     }
-    async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<IdentityKey>> {
+    async fn get_identity(&self, a: &ProtocolAddress) -> SigResult<Option<PublicKey>> {
         Ok(self.identities.lock().unwrap().get(a).cloned())
     }
 }
@@ -208,7 +207,7 @@ impl PreKeyStore for MemPreKeyStore {
         self.0
             .get(&id)
             .cloned()
-            .ok_or(wacore_signal::protocol::SignalProtocolError::InvalidPreKeyId)
+            .ok_or(wacore::signal::protocol::SignalProtocolError::InvalidPreKeyId)
     }
     async fn save_pre_key(&mut self, id: PreKeyId, r: &PreKeyRecord) -> SigResult<()> {
         self.0.insert(id, r.clone());
@@ -229,7 +228,7 @@ impl SignedPreKeyStore for MemSignedPreKeyStore {
         self.0
             .get(&id)
             .cloned()
-            .ok_or(wacore_signal::protocol::SignalProtocolError::InvalidSignedPreKeyId)
+            .ok_or(wacore::signal::protocol::SignalProtocolError::InvalidSignedPreKeyId)
     }
     async fn save_signed_pre_key(
         &mut self,
@@ -297,7 +296,7 @@ struct User {
 impl User {
     fn new(user: &str, server: &str) -> Self {
         let mut rng = bench_rng(seed_of(user));
-        let identity_key_pair = IdentityKeyPair::generate(&mut rng);
+        let identity_key_pair = KeyPair::generate(&mut rng);
         let reg_id = (seed_of(user) as u32) & 0x3FFF;
 
         let pk_id: PreKeyId = 1.into();
@@ -307,9 +306,8 @@ impl User {
         let spk_id: SignedPreKeyId = 1.into();
         let spk_pair = KeyPair::generate(&mut rng);
         let spk_sig = identity_key_pair
-            .private_key()
-            .calculate_signature(&spk_pair.public_key.serialize(), &mut rng)
-            .unwrap();
+            .private
+            .sign(&spk_pair.public.serialize(), &mut rng);
         let spk_record =
             SignedPreKeyRecord::new(spk_id, Timestamp::from_epoch_millis(0), &spk_pair, &spk_sig);
 
@@ -354,14 +352,13 @@ impl User {
     }
 
     fn prekey_bundle(&self) -> PreKeyBundle {
-        PreKeyBundle::new(
+        wacore::signal::protocol::prekey_bundle(
             self.identity.reg_id,
+            Some((1.into(), self.prekey_pair.public)),
             1.into(),
-            Some((1.into(), self.prekey_pair.public_key)),
-            1.into(),
-            self.signed_prekey_pair.public_key,
+            self.signed_prekey_pair.public,
             self.signed_prekey_sig.clone(),
-            *self.identity.key_pair.identity_key(),
+            self.identity.key_pair.public,
         )
         .unwrap()
     }
@@ -377,7 +374,6 @@ fn establish_session(sender: &mut User, receiver: &User) {
             &mut sender.identity,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -395,7 +391,7 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             .await
             .unwrap();
         let ct_msg = CiphertextMessage::PreKeySignalMessage(
-            PreKeySignalMessage::try_from(ct.serialize()).unwrap(),
+            wacore::signal::protocol::prekey_signal_message(ct.serialize()).unwrap(),
         );
         let mut rng = bench_rng(0xBE_5EED + 2);
         message_decrypt(
@@ -406,7 +402,6 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             &mut b.prekeys,
             &b.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -416,8 +411,9 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
         let ct_back = message_encrypt(b"ack", &a.address, &mut b.sessions, &mut b.identity)
             .await
             .unwrap();
-        let ct_back_msg =
-            CiphertextMessage::SignalMessage(SignalMessage::try_from(ct_back.serialize()).unwrap());
+        let ct_back_msg = CiphertextMessage::SignalMessage(
+            wacore::signal::protocol::signal_message(ct_back.serialize()).unwrap(),
+        );
         message_decrypt(
             &ct_back_msg,
             &b.address,
@@ -426,7 +422,6 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             &mut a.prekeys,
             &a.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -536,10 +531,12 @@ fn decrypt_dm(
     futures::executor::block_on(async {
         let parsed = if enc_type == "pkmsg" {
             CiphertextMessage::PreKeySignalMessage(
-                PreKeySignalMessage::try_from(ciphertext).unwrap(),
+                wacore::signal::protocol::prekey_signal_message(ciphertext).unwrap(),
             )
         } else {
-            CiphertextMessage::SignalMessage(SignalMessage::try_from(ciphertext).unwrap())
+            CiphertextMessage::SignalMessage(
+                wacore::signal::protocol::signal_message(ciphertext).unwrap(),
+            )
         };
         let mut rng = bench_rng(0xBE_5EED + 3);
         let decrypted = message_decrypt(
@@ -550,7 +547,6 @@ fn decrypt_dm(
             &mut receiver.prekeys,
             &receiver.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();

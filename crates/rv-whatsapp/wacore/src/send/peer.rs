@@ -13,8 +13,8 @@ pub async fn prepare_peer_stanza<S, I>(
     account: Option<&wa::ADVSignedDeviceIdentity>,
 ) -> Result<Node>
 where
-    S: crate::libsignal::protocol::SessionStore,
-    I: crate::libsignal::protocol::IdentityKeyStore,
+    S: crate::signal::protocol::SessionStore,
+    I: crate::signal::protocol::IdentityKeyStore,
 {
     let options = peer_message_options_from_message(message);
     prepare_peer_stanza_with_options(
@@ -43,8 +43,8 @@ pub async fn prepare_peer_stanza_with_options<S, I>(
     options: PeerMessageOptions,
 ) -> Result<Node>
 where
-    S: crate::libsignal::protocol::SessionStore,
-    I: crate::libsignal::protocol::IdentityKeyStore,
+    S: crate::signal::protocol::SessionStore,
+    I: crate::signal::protocol::IdentityKeyStore,
 {
     let plaintext = MessageUtils::encode_and_pad(message);
 

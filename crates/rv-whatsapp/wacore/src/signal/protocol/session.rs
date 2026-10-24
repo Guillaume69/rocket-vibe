@@ -14,7 +14,7 @@ use waproto::whatsapp as wa;
 use super::consts::{MAX_RESERVATION_FAST_FORWARD, SENDER_CHAIN_RESERVATION_BATCH};
 use super::envelope;
 use super::error::{InvalidSessionError, Result, SignalProtocolError};
-use super::keys::{IdentityKey, KeyPair, PublicKey};
+use super::keys::{KeyPair, PublicKey};
 use super::prekeys::{PreKeyId, SignedPreKeyId};
 
 #[derive(Clone, Debug)]
@@ -137,17 +137,17 @@ fn chain_key_field(
 impl SessionState {
     pub fn new(
         version: u8,
-        our_identity: &IdentityKey,
-        their_identity: &IdentityKey,
+        our_identity: &PublicKey,
+        their_identity: &PublicKey,
         root_key: &RootKey,
         alice_base_key: &PublicKey,
     ) -> Self {
         let mut s = wa::SessionStructure::default();
         s.session_version = Some(u32::from(version));
-        s.local_identity_public = Some(our_identity.serialize().into_vec());
-        s.remote_identity_public = Some(their_identity.serialize().into_vec());
+        s.local_identity_public = Some(our_identity.serialize().to_vec());
+        s.remote_identity_public = Some(their_identity.serialize().to_vec());
         s.root_key = Some(root_key.0.to_vec());
-        s.alice_base_key = Some(alice_base_key.serialize().into_vec());
+        s.alice_base_key = Some(alice_base_key.serialize().to_vec());
         Self(s)
     }
 
@@ -165,17 +165,17 @@ impl SessionState {
 
     pub fn remote_identity_key(
         &self,
-    ) -> std::result::Result<Option<IdentityKey>, InvalidSessionError> {
+    ) -> std::result::Result<Option<PublicKey>, InvalidSessionError> {
         match self.0.remote_identity_public.as_deref() {
             None | Some([]) => Ok(None),
-            Some(bytes) => IdentityKey::decode(bytes)
+            Some(bytes) => PublicKey::deserialize(bytes)
                 .map(Some)
                 .map_err(|_| InvalidSessionError("bad remote identity key")),
         }
     }
 
-    pub fn local_identity_key(&self) -> std::result::Result<IdentityKey, InvalidSessionError> {
-        IdentityKey::decode(self.0.local_identity_public.as_deref().unwrap_or_default())
+    pub fn local_identity_key(&self) -> std::result::Result<PublicKey, InvalidSessionError> {
+        PublicKey::deserialize(self.0.local_identity_public.as_deref().unwrap_or_default())
             .map_err(|_| InvalidSessionError("bad local identity key"))
     }
 
@@ -197,8 +197,8 @@ impl SessionState {
 
     pub fn set_sender_chain(&mut self, sender: &KeyPair, next_chain_key: &ChainKey) {
         let mut chain = Chain::default();
-        chain.sender_ratchet_key = Some(sender.public_key.serialize().into_vec());
-        chain.sender_ratchet_key_private = Some(sender.private_key.serialize().to_vec());
+        chain.sender_ratchet_key = Some(sender.public.serialize().to_vec());
+        chain.sender_ratchet_key_private = Some(sender.private.serialize().to_vec());
         chain.chain_key = chain_key_field(next_chain_key);
         self.0.sender_chain = buffa::MessageField::some(chain);
     }
@@ -502,23 +502,11 @@ impl SessionRecord {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UsePQRatchet {
-    No,
-    Yes,
-}
-
-impl From<bool> for UsePQRatchet {
-    fn from(value: bool) -> Self {
-        if value { Self::Yes } else { Self::No }
-    }
-}
-
 /// An initiator's view of X3DH.
 pub struct AliceSignalProtocolParameters {
-    pub(crate) our_identity_key_pair: super::keys::IdentityKeyPair,
+    pub(crate) our_identity_key_pair: KeyPair,
     pub(crate) our_base_key_pair: KeyPair,
-    pub(crate) their_identity_key: IdentityKey,
+    pub(crate) their_identity_key: PublicKey,
     pub(crate) their_signed_pre_key: PublicKey,
     pub(crate) their_one_time_pre_key: Option<PublicKey>,
     pub(crate) their_ratchet_key: PublicKey,
@@ -526,12 +514,11 @@ pub struct AliceSignalProtocolParameters {
 
 impl AliceSignalProtocolParameters {
     pub fn new(
-        our_identity_key_pair: super::keys::IdentityKeyPair,
+        our_identity_key_pair: KeyPair,
         our_base_key_pair: KeyPair,
-        their_identity_key: IdentityKey,
+        their_identity_key: PublicKey,
         their_signed_pre_key: PublicKey,
         their_ratchet_key: PublicKey,
-        _use_pq_ratchet: UsePQRatchet,
     ) -> Self {
         Self {
             our_identity_key_pair,
@@ -554,9 +541,9 @@ mod tests {
 
     fn leased(index: u32) -> SessionRecord {
         let mut rng = rand::rng();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base = KeyPair::generate(&mut rng).public_key;
+        let local = KeyPair::generate(&mut rng).public;
+        let remote = KeyPair::generate(&mut rng).public;
+        let base = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], index));
         SessionRecord::new(state)

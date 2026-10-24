@@ -462,10 +462,10 @@ pub async fn pkmsg_would_be_emitted<S>(
     signal_address: &ProtocolAddress,
 ) -> Result<bool>
 where
-    S: crate::libsignal::protocol::SessionStore,
+    S: crate::signal::protocol::SessionStore,
 {
     let loaded =
-        crate::libsignal::protocol::SessionCheckout::load(session_store, signal_address).await?;
+        crate::signal::protocol::SessionCheckout::load(session_store, signal_address).await?;
     // Conservative read: treat any failure to interrogate the session as
     // "would be pkmsg" so the caller bails. Silently treating Err as false
     // would let message_encrypt run with a corrupt session and potentially
@@ -585,8 +585,8 @@ pub async fn prepare_pairwise_retry_stanza<S, I>(
     request: PairwiseRetryRequest<'_>,
 ) -> Result<Node>
 where
-    S: crate::libsignal::protocol::SessionStore,
-    I: crate::libsignal::protocol::IdentityKeyStore,
+    S: crate::signal::protocol::SessionStore,
+    I: crate::signal::protocol::IdentityKeyStore,
 {
     let PairwiseRetryRequest {
         destination,

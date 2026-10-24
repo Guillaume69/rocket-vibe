@@ -1,4 +1,4 @@
-use crate::libsignal::protocol::PreKeyBundle;
+use crate::signal::protocol::PreKeyBundle;
 use crate::types::message::AddressingMode;
 use async_trait::async_trait;
 use std::collections::HashMap;

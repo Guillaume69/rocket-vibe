@@ -8,9 +8,9 @@ use wacore::types::message::MessageCategory;
 
 use std::sync::Arc;
 use wacore::iq::prekeys::{OneTimePreKeyNode, SignedPreKeyNode};
-use wacore::libsignal::protocol::{PreKeyBundle, PublicKey};
 use wacore::protocol::ProtocolNode;
 use wacore::protocol::retry::{MAX_RETRY_COUNT, MIN_RETRY_FOR_BASE_KEY_CHECK};
+use wacore::signal::protocol::PublicKey;
 use wacore::types::jid::JidExt;
 use wacore_binary::JidExt as _;
 #[cfg(test)]
@@ -884,7 +884,7 @@ impl Client {
                 };
 
                 for own_jid in jids_to_delete {
-                    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+                    use wacore::signal::store::sender_key_name::SenderKeyName;
                     let sk_name = SenderKeyName::from_parts(
                         &group_jid,
                         own_jid.to_protocol_address().as_str(),
@@ -1445,7 +1445,7 @@ impl Client {
     /// since the flush has to happen after the guard is released.
     async fn reconcile_under_session_lock(
         &self,
-        signal_address: &wacore::libsignal::protocol::ProtocolAddress,
+        signal_address: &wacore::signal::protocol::ProtocolAddress,
         message_id: &str,
         retry_count: u8,
         node: &NodeRef<'_>,
@@ -1713,7 +1713,7 @@ impl Client {
             .get_optional_child("identity")
             .and_then(get_bytes_content_ref)
             .ok_or_else(|| anyhow::anyhow!("Missing identity key in retry receipt"))?;
-        let identity_key = PublicKey::from_djb_public_key_bytes(identity_bytes)?;
+        let identity_key = PublicKey::try_from(identity_bytes)?;
 
         // Companion devices ADV-bind the fetched identity via <device-identity>;
         // reject a present-but-invalid one so a relay can't swap in a forged key.
@@ -1755,7 +1755,7 @@ impl Client {
         // Extract prekey (optional in some cases).
         let prekey_data = if let Some(key_ref) = keys_node.get_optional_child("key") {
             let prekey_node = OneTimePreKeyNode::try_from_node_ref(key_ref)?;
-            let prekey_public = PublicKey::from_djb_public_key_bytes(&prekey_node.public_bytes)?;
+            let prekey_public = PublicKey::try_from(&prekey_node.public_bytes[..])?;
             Some((prekey_node.id.into(), prekey_public))
         } else {
             None
@@ -1767,7 +1767,7 @@ impl Client {
             .ok_or_else(|| anyhow::anyhow!("Missing signed prekey in retry receipt"))?;
 
         let signed_prekey = SignedPreKeyNode::try_from_node_ref(skey_ref)?;
-        let skey_public = PublicKey::from_djb_public_key_bytes(&signed_prekey.public_bytes)?;
+        let skey_public = PublicKey::try_from(&signed_prekey.public_bytes[..])?;
         let skey_signature: [u8; 64] = signed_prekey
             .signature
             .as_slice()
@@ -1775,14 +1775,13 @@ impl Client {
             .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
 
         // Build and process the prekey bundle.
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             registration_id,
-            u32::from(requester_jid.device).into(),
             prekey_data,
             signed_prekey.id.into(),
             skey_public,
             skey_signature,
-            identity_key.into(),
+            identity_key,
         )?;
 
         let mut adapter = self.signal_adapter();
@@ -1899,11 +1898,11 @@ impl Client {
             drop(prekey_guard);
 
             Some(wacore::protocol::retry::build_retry_keys_node(
-                &device_snapshot.identity_key.public_key,
+                &device_snapshot.identity_key.public,
                 new_prekey_id,
                 &new_prekey_public,
                 device_snapshot.signed_pre_key_id,
-                &device_snapshot.signed_pre_key.public_key,
+                &device_snapshot.signed_pre_key.public,
                 device_snapshot.signed_pre_key_signature.to_vec(),
                 device_identity_bytes,
             ))
@@ -2004,7 +2003,7 @@ mod tests {
     use crate::test_utils::MockHttpClient;
     use std::borrow::Cow;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{IdentityKeyPair, KeyPair};
+    use wacore::signal::protocol::KeyPair;
     use wacore::types::jid::JidExt as _;
     use wacore_binary::{Jid, JidExt};
     use waproto::whatsapp as wa;
@@ -2045,10 +2044,10 @@ mod tests {
 
     async fn seed_retry_lease(
         client: &Client,
-        address: &wacore::libsignal::protocol::ProtocolAddress,
+        address: &wacore::signal::protocol::ProtocolAddress,
         durable: bool,
     ) {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
 
         let mut record = SessionRecord::new_fresh();
         record.reserve_sender_chain_counters(0);
@@ -2144,9 +2143,8 @@ mod tests {
     #[tokio::test]
     async fn retry_metadata_reaches_transport_and_matches_decrypted_payload() {
         use crate::store::commands::DeviceCommand;
-        use wacore::libsignal::protocol::{
-            PreKeyBundle, PreKeySignalMessage, SessionStore, SignalMessage, UsePQRatchet,
-            message_decrypt_prekey, message_decrypt_signal, process_prekey_bundle,
+        use wacore::signal::protocol::{
+            SessionStore, message_decrypt_prekey, message_decrypt_signal, process_prekey_bundle,
         };
 
         let client = retry_repair_client("retry_metadata_sender").await;
@@ -2171,14 +2169,13 @@ mod tests {
             .await;
         let (prekey_id, prekey) = receiver.get_or_gen_single_pre_key().await.unwrap();
         let snapshot = receiver.persistence_manager.get_device_snapshot();
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             snapshot.registration_id,
-            1u32.into(),
             Some((prekey_id.into(), prekey)),
             snapshot.signed_pre_key_id.into(),
-            snapshot.signed_pre_key.public_key,
+            snapshot.signed_pre_key.public,
             snapshot.signed_pre_key_signature.to_vec(),
-            wacore::libsignal::protocol::IdentityKey::new(snapshot.identity_key.public_key),
+            snapshot.identity_key.public,
         )
         .unwrap();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -2189,7 +2186,6 @@ mod tests {
             &mut adapter.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -2279,7 +2275,7 @@ mod tests {
             let address = sender.to_protocol_address();
             let plaintext = if automatic {
                 message_decrypt_signal(
-                    &SignalMessage::try_from(bytes).unwrap(),
+                    &wacore::signal::protocol::signal_message(bytes).unwrap(),
                     &address,
                     &mut adapter.session_store,
                     &mut adapter.identity_store,
@@ -2290,14 +2286,13 @@ mod tests {
                 .plaintext
             } else {
                 message_decrypt_prekey(
-                    &PreKeySignalMessage::try_from(bytes).unwrap(),
+                    &wacore::signal::protocol::prekey_signal_message(bytes).unwrap(),
                     &address,
                     &mut adapter.session_store,
                     &mut adapter.identity_store,
                     &mut adapter.pre_key_store,
                     &adapter.signed_pre_key_store,
                     &mut rng,
-                    UsePQRatchet::No,
                 )
                 .await
                 .unwrap()
@@ -2958,7 +2953,7 @@ mod tests {
     // Produces a parseable SessionRecord so peek_session succeeds and
     // alice_base_key/remote_registration_id return meaningful values.
     fn valid_serialized_session(remote_regid: u32, base_key: Vec<u8>) -> Vec<u8> {
-        use wacore::libsignal::protocol::{SessionRecord, SessionState};
+        use wacore::signal::protocol::{SessionRecord, SessionState};
         use waproto::whatsapp::SessionStructure;
 
         let state = SessionState::from_session_structure({
@@ -3923,24 +3918,23 @@ mod tests {
     /// the empty `<device-identity>` is never read.
     fn retry_key_bundle_children() -> [Node; 2] {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity = IdentityKeyPair::generate(&mut rng);
+        let identity = KeyPair::generate(&mut rng);
         let prekey = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let signature = identity
-            .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature");
+            .private
+            .sign(&signed_prekey.public.serialize(), &mut rng);
 
         [
             NodeBuilder::new("registration")
                 .bytes(4242u32.to_be_bytes().to_vec())
                 .build(),
             wacore::protocol::retry::build_retry_keys_node(
-                identity.identity_key().public_key(),
+                &identity.public,
                 7,
-                &prekey.public_key,
+                &prekey.public,
                 100,
-                &signed_prekey.public_key,
+                &signed_prekey.public,
                 signature.to_vec(),
                 Vec::new(),
             ),
@@ -3985,7 +3979,7 @@ mod tests {
     /// the lock is held is the one the decision is made against.
     #[tokio::test]
     async fn reconcile_reads_the_session_under_the_lock_it_deletes_with() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
 
         let client = retry_repair_client("retry_repair_reconcile_lock").await;
         let peer = Jid::lid_device("100000000000123".to_string(), 5);
@@ -4385,7 +4379,7 @@ mod tests {
     /// succeeds again, so that member is back in the next send.
     #[tokio::test]
     async fn skdm_encrypts_again_after_a_cache_missed_bundle_repair() {
-        use wacore::libsignal::protocol::{CiphertextMessageType, message_encrypt};
+        use wacore::signal::protocol::{CiphertextMessageType, message_encrypt};
 
         let client = retry_repair_client("retry_repair_skdm_encrypt").await;
         let group: Jid = "120363021033254957@g.us".parse().unwrap();
@@ -4499,8 +4493,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_participant_rotation_is_durable_before_throttled_return() {
-        use wacore::libsignal::protocol::{SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord};
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore_binary::builder::NodeBuilder;
 
         let backend = crate::test_utils::create_test_backend().await;
@@ -4534,16 +4528,15 @@ mod tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let key_pair = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
-                9,
-                0,
-                &[7; 32],
-                key_pair.public_key,
-                Some(key_pair.private_key),
-            )
-            .unwrap();
+        record.add_state(
+            9,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7; 32],
+            },
+            key_pair.public,
+            Some(key_pair.private),
+        );
         client
             .signal_cache
             .put_sender_key(&sender_key_name, record)
@@ -4703,12 +4696,11 @@ mod tests {
         let device = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let one_time_prekey = KeyPair::generate(&mut rng);
-        let identity = device.public_key.public_key_bytes();
-        let account_key = account.public_key.public_key_bytes();
+        let identity = device.public.raw();
+        let account_key = account.public.raw();
         let prekey_signature = device
-            .private_key
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .unwrap();
+            .private
+            .sign(&signed_prekey.public.serialize(), &mut rng);
         for (jid, hosted_device) in test_util::device_cases() {
             for device_type in test_util::ENCRYPTION_TYPES {
                 let details = {
@@ -4747,14 +4739,11 @@ mod tests {
                                 NodeBuilder::new("identity")
                                     .bytes(identity.to_vec())
                                     .build(),
-                                OneTimePreKeyNode::new(
-                                    1,
-                                    one_time_prekey.public_key.public_key_bytes().to_vec(),
-                                )
-                                .into_node(),
+                                OneTimePreKeyNode::new(1, one_time_prekey.public.raw().to_vec())
+                                    .into_node(),
                                 SignedPreKeyNode::new(
                                     2,
-                                    signed_prekey.public_key.public_key_bytes().to_vec(),
+                                    signed_prekey.public.raw().to_vec(),
                                     prekey_signature.to_vec(),
                                 )
                                 .into_node(),
@@ -4836,29 +4825,22 @@ mod tests {
             .into_parts();
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let remote_identity = IdentityKeyPair::generate(&mut rng);
+        let remote_identity = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let signed_prekey_signature = remote_identity
-            .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature should be valid");
+            .private
+            .sign(&signed_prekey.public.serialize(), &mut rng);
 
         let regular_requester = Jid::pn_device("559922223333", 1);
         let keys = NodeBuilder::new("keys")
             .children([
                 NodeBuilder::new("type").bytes(vec![5]).build(),
                 NodeBuilder::new("identity")
-                    .bytes(
-                        remote_identity
-                            .identity_key()
-                            .public_key()
-                            .public_key_bytes()
-                            .to_vec(),
-                    )
+                    .bytes(remote_identity.public.raw().to_vec())
                     .build(),
                 SignedPreKeyNode::new(
                     100,
-                    signed_prekey.public_key.public_key_bytes().to_vec(),
+                    signed_prekey.public.raw().to_vec(),
                     signed_prekey_signature.to_vec(),
                 )
                 .into_node(),

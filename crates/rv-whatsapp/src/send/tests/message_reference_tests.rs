@@ -590,11 +590,11 @@ async fn missing_newsletter_ids_and_invalid_chat_operations_send_nothing() {
 
 #[tokio::test]
 async fn group_reference_operations_encrypt_operation_specific_keys() {
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         create_sender_key_distribution_message, group_decrypt,
         process_sender_key_distribution_message,
     };
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     for fixture in [
         GroupSendFixture::new().await,
         GroupSendFixture::new_lid(2).await,
@@ -857,11 +857,11 @@ async fn review_raw_newsletter_reaction_preserves_status_delegation() {
 
 #[tokio::test]
 async fn review_own_group_send_reference_keys_encrypt_original_author() {
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         create_sender_key_distribution_message, group_decrypt,
         process_sender_key_distribution_message,
     };
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     for fixture in [
         GroupSendFixture::new().await,
         GroupSendFixture::new_lid(2).await,

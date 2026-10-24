@@ -5,7 +5,7 @@ pub use wacore::store::signal_cache::SignalStoreCache;
 mod tests {
     use super::*;
     use futures::FutureExt;
-    use wacore::libsignal::protocol::ProtocolAddress;
+    use wacore::signal::protocol::ProtocolAddress;
     use wacore::store::in_memory::InMemoryBackend;
     use wacore::store::traits::SignalStore;
 

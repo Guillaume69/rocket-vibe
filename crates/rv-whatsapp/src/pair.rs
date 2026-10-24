@@ -7,7 +7,7 @@ use log::{error, info, warn};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use wacore::companion_reg::companion_web_client_type_for_props;
-use wacore::libsignal::protocol::KeyPair;
+use wacore::signal::protocol::KeyPair;
 use wacore_binary::NodeRef;
 use wacore_binary::{Jid, SERVER_JID};
 
@@ -608,23 +608,14 @@ mod tests {
             proto_value
         }
         .encode_to_vec();
-        let signature = account
-            .private_key
-            .calculate_signature(
-                &[
-                    &[6, 0][..],
-                    &details,
-                    device.identity_key.public_key.public_key_bytes(),
-                ]
-                .concat(),
-                &mut rng,
-            )
-            .unwrap();
+        let signature = account.private.sign(
+            &[&[6, 0][..], &details, device.identity_key.public.raw()].concat(),
+            &mut rng,
+        );
         let identity = waproto::codec::adv_signed_device_identity_to_vec(&{
             let mut proto_value = wa::ADVSignedDeviceIdentity::default();
             proto_value.details = Some(details);
-            proto_value.account_signature_key =
-                Some(account.public_key.public_key_bytes().to_vec());
+            proto_value.account_signature_key = Some(account.public.raw().to_vec());
             proto_value.account_signature = Some(signature.to_vec());
             proto_value
         });

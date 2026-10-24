@@ -94,7 +94,7 @@ pub fn decrypt_poll_vote(
     stanza_id: &str,
     voter_jid: &str,
 ) -> Result<Vec<Vec<u8>>> {
-    use crate::libsignal::crypto::aes_256_gcm_decrypt;
+    use wacore_crypto::aes_256_gcm_decrypt;
 
     let nonce: &[u8; GCM_IV_SIZE] = iv
         .try_into()

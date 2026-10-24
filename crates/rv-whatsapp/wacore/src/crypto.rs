@@ -3,7 +3,7 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-use crate::libsignal::protocol::{CurveError, KeyPair, PrivateKey};
+use crate::signal::protocol::{KeyPair, PrivateKey};
 
 const HKDF_SHA256_MAX_OUTPUT_LENGTH: usize = 255 * 32;
 
@@ -264,11 +264,8 @@ pub fn generate_curve_key_pair() -> KeyPair {
 }
 
 /// Uses the same secure random policy as key generation for randomized signatures.
-pub fn calculate_curve_signature(
-    private_key: &PrivateKey,
-    message: &[u8],
-) -> Result<[u8; 64], CurveError> {
-    private_key.calculate_signature(message, &mut rand::make_rng::<rand::rngs::StdRng>())
+pub fn calculate_curve_signature(private_key: &PrivateKey, message: &[u8]) -> [u8; 64] {
+    private_key.sign(message, &mut rand::make_rng::<rand::rngs::StdRng>())
 }
 
 #[cfg(test)]
@@ -378,8 +375,8 @@ mod tests {
     #[test]
     fn generated_keys_sign_with_the_shared_signal_implementation() {
         let pair = generate_curve_key_pair();
-        let signature = calculate_curve_signature(&pair.private_key, b"message").unwrap();
-        assert!(pair.public_key.verify_signature(b"message", &signature));
-        assert!(!pair.public_key.verify_signature(b"tampered", &signature));
+        let signature = calculate_curve_signature(&pair.private, b"message");
+        assert!(pair.public.verify(b"message", &signature));
+        assert!(!pair.public.verify(b"tampered", &signature));
     }
 }

@@ -1,6 +1,6 @@
 //! Synthetic ADV fixtures shared by unit and downstream integration tests.
 
-use crate::libsignal::protocol::KeyPair;
+use crate::signal::protocol::KeyPair;
 use wacore_binary::{Jid, Server};
 use waproto::whatsapp::{self as wa, ADVEncryptionType};
 
@@ -51,23 +51,19 @@ pub fn signed_identity(
     include_account_key: bool,
 ) -> wa::ADVSignedDeviceIdentity {
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-    let identity = device.public_key.public_key_bytes();
-    let account_key = account.public_key.public_key_bytes();
-    let account_signature = account
-        .private_key
-        .calculate_signature(
-            &[account_prefix.as_slice(), details, identity].concat(),
-            &mut rng,
-        )
-        .expect("synthetic account signature");
+    let identity = device.public.raw();
+    let account_key = account.public.raw();
+    let account_signature = account.private.sign(
+        &[account_prefix.as_slice(), details, identity].concat(),
+        &mut rng,
+    );
     let device_signature = device_prefix.map(|prefix| {
         device
-            .private_key
-            .calculate_signature(
+            .private
+            .sign(
                 &[prefix.as_slice(), details, identity, account_key].concat(),
                 &mut rng,
             )
-            .expect("synthetic device signature")
             .to_vec()
     });
     {

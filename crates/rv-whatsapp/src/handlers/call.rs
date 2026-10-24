@@ -2198,9 +2198,8 @@ mod tests {
     #[cfg(feature = "voip-engine-wacore")]
     #[tokio::test]
     async fn timestampless_rekey_decrypts_and_reaches_group_media() {
-        use wacore::libsignal::protocol::{
-            GenericSignedPreKey, IdentityKey, PreKeyBundle, SignedPreKeyStore, UsePQRatchet,
-            process_prekey_bundle,
+        use wacore::signal::protocol::{
+            GenericSignedPreKey, SignedPreKeyStore, process_prekey_bundle,
         };
         use wacore::types::jid::JidExt;
         use wacore::voip_control::{CallSession, control::GroupControl};
@@ -2217,14 +2216,13 @@ mod tests {
             .get_signed_pre_key(1.into())
             .await
             .expect("receiver signed prekey");
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             snapshot.core.registration_id,
-            2u32.into(),
             None,
             1u32.into(),
             signed.public_key().unwrap(),
             signed.signature().unwrap(),
-            IdentityKey::new(snapshot.core.identity_key.public_key),
+            snapshot.core.identity_key.public,
         )
         .unwrap();
         let mut sender_adapter = sender_client.signal_adapter();
@@ -2234,7 +2232,6 @@ mod tests {
             &mut sender_adapter.identity_store,
             &bundle,
             &mut rand::make_rng::<rand::rngs::StdRng>(),
-            UsePQRatchet::No,
         )
         .await
         .unwrap();

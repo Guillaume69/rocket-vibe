@@ -1,5 +1,5 @@
 use crate::client_profile::ClientProfile;
-use crate::libsignal::protocol::{IdentityKeyPair, KeyPair};
+use crate::signal::protocol::KeyPair;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use std::sync::{Arc, LazyLock};
@@ -92,7 +92,7 @@ pub mod status_privacy_serde {
 
 pub mod key_pair_serde {
     use super::KeyPair;
-    use crate::libsignal::protocol::{PrivateKey, PublicKey};
+    use crate::signal::protocol::{PrivateKey, PublicKey};
     use serde::{self, Deserializer, Serializer};
 
     pub fn serialize<S>(key_pair: &KeyPair, serializer: S) -> Result<S::Ok, S::Error>
@@ -100,11 +100,11 @@ pub mod key_pair_serde {
         S: Serializer,
     {
         let bytes: Vec<u8> = key_pair
-            .private_key
+            .private
             .serialize()
             .iter()
             .copied()
-            .chain(key_pair.public_key.public_key_bytes().iter().copied())
+            .chain(key_pair.public.raw().iter().copied())
             .collect();
         serializer.serialize_bytes(&bytes)
     }
@@ -121,9 +121,12 @@ pub mod key_pair_serde {
         // serde's error model has no source-chain preservation.
         let private_key = PrivateKey::deserialize(&bytes[0..32])
             .map_err(|e| serde::de::Error::custom(e.to_string()))?;
-        let public_key = PublicKey::from_djb_public_key_bytes(&bytes[32..64])
+        let public_key = PublicKey::try_from(&bytes[32..64])
             .map_err(|e| serde::de::Error::custom(e.to_string()))?;
-        Ok(KeyPair::new(public_key, private_key))
+        Ok(KeyPair {
+            public: public_key,
+            private: private_key,
+        })
     }
 }
 
@@ -576,17 +579,16 @@ impl Device {
         use rand::{Rng, RngExt};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity_key_pair = IdentityKeyPair::generate(&mut rng);
+        let identity_key_pair = KeyPair::generate(&mut rng);
 
-        let identity_key: KeyPair = KeyPair::new(
-            *identity_key_pair.public_key(),
-            identity_key_pair.private_key().clone(),
-        );
+        let identity_key = KeyPair {
+            public: identity_key_pair.public,
+            private: identity_key_pair.private.clone(),
+        };
         let signed_pre_key = KeyPair::generate(&mut rng);
         let signature_box = identity_key_pair
-            .private_key()
-            .calculate_signature(&signed_pre_key.public_key.serialize(), &mut rng)
-            .expect("signing with valid Ed25519 key should succeed");
+            .private
+            .sign(&signed_pre_key.public.serialize(), &mut rng);
         let signed_pre_key_signature: [u8; 64] = signature_box
             .as_ref()
             .try_into()
@@ -731,9 +733,9 @@ impl Device {
             let mut proto = wa::client_payload::DevicePairingRegistrationData::default();
             proto.e_regid = Some(self.registration_id.to_be_bytes().to_vec());
             proto.e_keytype = Some(vec![5]);
-            proto.e_ident = Some(self.identity_key.public_key.public_key_bytes().to_vec());
+            proto.e_ident = Some(self.identity_key.public.raw().to_vec());
             proto.e_skey_id = Some(self.signed_pre_key_id.to_be_bytes()[1..].to_vec());
-            proto.e_skey_val = Some(self.signed_pre_key.public_key.public_key_bytes().to_vec());
+            proto.e_skey_val = Some(self.signed_pre_key.public.raw().to_vec());
             proto.e_skey_sig = Some(self.signed_pre_key_signature.to_vec());
             proto.build_hash = Some(build_hash.to_vec());
             proto.device_props = Some(device_props_bytes);
@@ -779,12 +781,12 @@ mod tests {
         let restored: Device = serde_json::from_str(&json).expect("deserialize should succeed");
         assert_eq!(device.registration_id, restored.registration_id);
         assert_eq!(
-            device.noise_key.public_key.public_key_bytes(),
-            restored.noise_key.public_key.public_key_bytes()
+            device.noise_key.public.raw(),
+            restored.noise_key.public.raw()
         );
         assert_eq!(
-            device.identity_key.public_key.public_key_bytes(),
-            restored.identity_key.public_key.public_key_bytes()
+            device.identity_key.public.raw(),
+            restored.identity_key.public.raw()
         );
     }
 

@@ -2679,7 +2679,7 @@ mod tests {
     /// so we can tell which side of a migration won by parsing the surviving
     /// session, not by raw-byte comparison.
     fn tagged_session_blob(remote_regid: u32) -> Vec<u8> {
-        use wacore::libsignal::protocol::{SessionRecord, SessionState};
+        use wacore::signal::protocol::{SessionRecord, SessionState};
         use waproto::whatsapp::SessionStructure;
 
         let state = SessionState::from_session_structure({
@@ -2712,7 +2712,7 @@ mod tests {
     /// fresh stub forever. Reg-id tags identify which side won.
     #[tokio::test]
     async fn migration_preserves_working_session_when_both_namespaces_present() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
         use wacore::types::jid::JidExt as _;
 
         let client: Arc<Client> = create_test_client().await;
@@ -2796,7 +2796,7 @@ mod tests {
 
     #[tokio::test]
     async fn lid_discovery_migrates_standard_and_hosted_signal_namespaces() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
         use wacore::types::jid::JidExt as _;
 
         let client: Arc<Client> = create_test_client().await;
@@ -2914,7 +2914,7 @@ mod tests {
             .signal_cache
             .put_session(
                 &pn_addr,
-                wacore::libsignal::protocol::SessionRecord::deserialize(&tagged_session_blob(
+                wacore::signal::protocol::SessionRecord::deserialize(&tagged_session_blob(
                     0xDEAD_BEEF,
                 ))
                 .expect("seed PN blob deserializes"),
@@ -3001,7 +3001,7 @@ mod tests {
     /// every redelivered copy of an undecryptable message.
     #[tokio::test]
     async fn migration_reports_whether_anything_moved() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
         use wacore::types::jid::JidExt as _;
 
         let client: Arc<Client> = create_test_client().await;
@@ -3143,7 +3143,7 @@ mod tests {
 
     #[tokio::test]
     async fn lid_discovery_retries_pending_migration_flush() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
         use wacore::types::jid::JidExt as _;
 
         let backend = Arc::new(InMemoryBackend::new());

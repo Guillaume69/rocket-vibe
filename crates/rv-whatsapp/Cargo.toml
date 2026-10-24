@@ -33,7 +33,6 @@ members = [
     "wacore/crypto",
     "wacore/derive",
     "wacore/noise",
-    "wacore/signal",
     "waproto",
 ]
 default-members = [
@@ -49,7 +48,6 @@ default-members = [
     "wacore/crypto",
     "wacore/derive",
     "wacore/noise",
-    "wacore/signal",
     "waproto",
 ]
 
@@ -154,7 +152,6 @@ wacore-binary = { path = "./wacore/binary", default-features = false, version = 
 wacore-derive = { path = "./wacore/derive", version = "0.7.0" }
 rv-signal = { path = "../rv-signal" }
 wacore-crypto = { path = "./wacore/crypto", version = "0.7.0" }
-wacore-signal = { path = "./wacore/signal", version = "0.7.0" }
 wacore-noise = { path = "./wacore/noise", version = "0.7.0" }
 waproto = { path = "./waproto", version = "0.7.0" }
 yoke = { version = "0.8", features = ["derive"] }
@@ -311,6 +308,8 @@ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"], optiona
 tracing = { workspace = true, optional = true }
 wacore = { workspace = true }
 wacore-binary = { workspace = true }
+wacore-crypto = { workspace = true }
+rv-signal = { workspace = true }
 wacore-noise = { path = "./wacore/noise", version = "0.7.0", optional = true }
 waproto = { workspace = true }
 zeroize = { workspace = true }

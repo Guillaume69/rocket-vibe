@@ -633,8 +633,8 @@ mod tests {
     /// through it.
     #[tokio::test]
     async fn companion_reg_refresh_waits_for_a_pending_pair_success() {
-        use wacore::libsignal::protocol::KeyPair;
         use wacore::pair_code::PairCodeState;
+        use wacore::signal::protocol::KeyPair;
 
         let client = create_test_client().await;
         let expired = wacore::time::Instant::ZERO;
@@ -668,8 +668,8 @@ mod tests {
     /// server asked to retire for the code's whole validity window.
     #[tokio::test]
     async fn a_merely_displayed_code_does_not_defer_the_rotation() {
-        use wacore::libsignal::protocol::KeyPair;
         use wacore::pair_code::PairCodeState;
+        use wacore::signal::protocol::KeyPair;
 
         let client = create_test_client().await;
         *client.pair_code_state.lock().await = PairCodeState::WaitingForPhoneConfirmation {
@@ -1367,7 +1367,7 @@ mod tests {
     /// redistributes — and clear the stale has_key tracking for the old number.
     #[tokio::test]
     async fn test_group_modify_rotates_sender_key() {
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -1396,7 +1396,7 @@ mod tests {
             .signal_cache
             .put_sender_key(
                 &sk_name,
-                wacore::libsignal::protocol::SenderKeyRecord::new_empty(),
+                wacore::signal::protocol::SenderKeyRecord::new_empty(),
             )
             .await;
 
@@ -1632,7 +1632,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_identity_change_deletes_primary_session() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -1673,7 +1673,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_identity_change_rotates_status_sender_key() {
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
         let client = create_test_client().await;
@@ -1690,7 +1690,7 @@ mod tests {
         // Pre-populate a sender key for status@broadcast
         let sk_name =
             SenderKeyName::from_parts("status@broadcast", own_jid.to_protocol_address().as_str());
-        let sk_record = wacore::libsignal::protocol::SenderKeyRecord::new_empty();
+        let sk_record = wacore::signal::protocol::SenderKeyRecord::new_empty();
         client
             .signal_cache
             .put_sender_key(&sk_name, sk_record)
@@ -1798,7 +1798,7 @@ mod tests {
             .signal_cache
             .put_session(
                 &companion_addr,
-                wacore::libsignal::protocol::SessionRecord::new_fresh(),
+                wacore::signal::protocol::SessionRecord::new_fresh(),
             )
             .await;
 

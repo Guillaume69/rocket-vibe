@@ -117,7 +117,7 @@ impl EncryptSendError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::libsignal::crypto::CryptoProviderError;
+    use wacore_crypto::CryptoProviderError;
 
     #[test]
     fn cipher_preserves_noise_source_through_socket_error() {

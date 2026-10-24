@@ -23,8 +23,8 @@ use log::warn;
 use rand::RngExt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use wacore::libsignal::protocol::KeyPair;
 use wacore::shortcake::ShortcakeUtils;
+use wacore::signal::protocol::KeyPair;
 use wacore::stanza::wire_tags::NotificationType;
 use wacore::sync_marker::MaybeSendSync;
 use wacore_binary::builder::NodeBuilder;
@@ -662,7 +662,7 @@ mod tests {
     use buffa::Message as _;
     use std::sync::Mutex;
     use std::time::Duration;
-    use wacore::libsignal::protocol::PublicKey;
+    use wacore::signal::protocol::PublicKey;
     use wacore::stanza::wire_tags::NotificationType;
     use waproto::whatsapp as wa;
 
@@ -869,7 +869,7 @@ mod tests {
         let epr = wa::EncryptedPairingRequest::decode_from_slice(wrapped.as_slice()).unwrap();
         let iv: [u8; 12] = epr.iv.unwrap().as_slice().try_into().unwrap();
         let mut plaintext = Vec::new();
-        wacore::libsignal::crypto::aes_256_gcm_decrypt(
+        wacore_crypto::aes_256_gcm_decrypt(
             &key,
             &iv,
             b"",

@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use wacore_binary::{Jid, JidExt};
 use waproto::whatsapp::ADVEncryptionType;
 
-use crate::libsignal::protocol::PublicKey;
+use crate::signal::protocol::PublicKey;
 use crate::store::traits::DeviceInfo;
 
 const ADV_PREFIX_LEN: usize = 2;
@@ -48,7 +48,7 @@ impl AccountSignatureMessage {
         identity: &PublicKey,
         device_type: Option<ADVEncryptionType>,
     ) -> Self {
-        let identity = identity.public_key_bytes();
+        let identity = identity.raw();
         let mut message =
             AdvSigBuffer::with_capacity(ADV_PREFIX_LEN + details.len() + identity.len());
         message.extend_from_slice(account_signature_prefix(device_type));
@@ -66,7 +66,7 @@ impl AccountSignatureMessage {
         account_key: &PublicKey,
         kind: DeviceSignatureKind,
     ) -> AdvSigBuffer {
-        let account_key = account_key.public_key_bytes();
+        let account_key = account_key.raw();
         let mut message = AdvSigBuffer::with_capacity(self.0.len() + account_key.len());
         message.extend_from_slice(&self.0);
         message[..ADV_PREFIX_LEN].copy_from_slice(match kind {
@@ -144,15 +144,17 @@ pub fn validate_adv_with_identity_key(
         },
     };
     let (Ok(account_pub), Ok(device_pub)) = (
-        PublicKey::from_djb_public_key_bytes(account_key),
-        PublicKey::from_djb_public_key_bytes(fetched_identity_key),
+        PublicKey::try_from(account_key),
+        PublicKey::try_from(&fetched_identity_key[..]),
     ) else {
         return AdvValidation::Invalid;
     };
 
     let account_msg =
         AccountSignatureMessage::new(details, &device_pub, identity_details.device_type);
-    if !account_pub.verify_signature(account_msg.as_bytes(), account_sig) {
+    if !<&[u8; 64]>::try_from(&account_sig[..])
+        .is_ok_and(|sig| account_pub.verify(account_msg.as_bytes(), sig))
+    {
         return AdvValidation::Invalid;
     }
 
@@ -162,7 +164,8 @@ pub fn validate_adv_with_identity_key(
         DeviceSignatureKind::Companion
     };
     let device_msg = account_msg.for_device(&account_pub, kind);
-    let verified = device_pub.verify_signature(&device_msg, device_sig);
+    let verified =
+        <&[u8; 64]>::try_from(&device_sig[..]).is_ok_and(|sig| device_pub.verify(&device_msg, sig));
 
     if verified {
         AdvValidation::Valid
@@ -387,7 +390,7 @@ mod tests {
         assert_eq!(decoded.valid_indexes, vec![3, 5, 7]);
     }
 
-    use crate::libsignal::protocol::KeyPair;
+    use crate::signal::protocol::KeyPair;
 
     /// Build a signed device-identity. When `include_account_key` is false the
     /// `account_signature_key` field is omitted (the trimmed shape the real
@@ -439,7 +442,7 @@ mod tests {
     }
 
     fn id32(kp: &KeyPair) -> [u8; 32] {
-        kp.public_key.public_key_bytes().try_into().unwrap()
+        *kp.public.raw()
     }
 
     #[test]
@@ -452,18 +455,17 @@ mod tests {
         let mut signed = waproto::codec::adv_signed_device_identity_decode(&bytes).unwrap();
         signed.device_signature = Some(
             device
-                .private_key
-                .calculate_signature(
+                .private
+                .sign(
                     &[
                         &[6, 1],
                         details.as_slice(),
-                        device.public_key.public_key_bytes(),
-                        account.public_key.public_key_bytes(),
+                        device.public.raw(),
+                        account.public.raw(),
                     ]
                     .concat(),
                     &mut rng,
                 )
-                .unwrap()
                 .to_vec(),
         );
         assert_eq!(
@@ -701,7 +703,7 @@ mod tests {
         let no_dev_sig = {
             let mut proto_ = waproto::whatsapp::ADVSignedDeviceIdentity::default();
             proto_.details = Some(b"\x18\x01".to_vec());
-            proto_.account_signature_key = Some(account.public_key.public_key_bytes().to_vec());
+            proto_.account_signature_key = Some(account.public.raw().to_vec());
             proto_.account_signature = Some(vec![0u8; 64]);
             proto_.device_signature = None;
             proto_

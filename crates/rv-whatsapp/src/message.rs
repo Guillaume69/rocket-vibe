@@ -5,21 +5,20 @@ use crate::types::message::MessageInfo;
 use log::{debug, warn};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use wacore::libsignal::crypto::DecryptionError;
-use wacore::libsignal::protocol::SenderKeyStore;
-use wacore::libsignal::protocol::group_decrypt_shared;
-use wacore::libsignal::protocol::{
-    CiphertextMessage, DecryptionResult, IdentityChange, OwnedCiphertextMessage,
-    PreKeySignalMessage, SignalMessage, SignalProtocolError, UsePQRatchet, message_decrypt,
-    message_decrypt_owned,
-};
 use wacore::message_processing::EncType;
 use wacore::protocol::nack::NackReason;
+use wacore::signal::protocol::SenderKeyStore;
+use wacore::signal::protocol::group_decrypt_shared;
+use wacore::signal::protocol::{
+    CiphertextMessage, DecryptionResult, IdentityChange, OwnedCiphertextMessage,
+    SignalProtocolError, message_decrypt, message_decrypt_owned,
+};
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore_binary::Jid;
 use wacore_binary::JidExt as _;
 use wacore_binary::node::ValueRef;
 use wacore_binary::{NodeRef, OwnedNodeRef};
+use wacore_crypto::DecryptionError;
 use waproto::whatsapp::{self as wa};
 
 use wacore::protocol::retry::MAX_RETRY_COUNT as MAX_DECRYPT_RETRIES;

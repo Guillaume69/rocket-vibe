@@ -17,7 +17,7 @@
 
 use anyhow::{Result, anyhow};
 
-use crate::libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
+use wacore_crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 
 const GCM_IV_SIZE: usize = 12;
 const GCM_TAG_SIZE: usize = 16;

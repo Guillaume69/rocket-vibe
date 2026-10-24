@@ -362,7 +362,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | endpoint | chat.getMessage |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:20](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L20) | url | /api/authsvc/v1.0/authz |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:1173](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L1173) | url | /api/v2/query |
-| [apps/desktop/crates/rv-core/src/teams/auth.rs:1747](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L1747) | url | /api/csa |
+| [apps/desktop/crates/rv-core/src/teams/auth.rs:2128](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L2128) | url | /api/csa |
 | [apps/desktop/crates/rv-core/src/teams/sync.rs:455](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L455) | url | /api/v2/query |
 | [apps/desktop/crates/rv-core/src/teams/sync.rs:601](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L601) | url | /api/csa |
 | [apps/desktop/crates/rv-core/src/uploads.rs:95](../../apps/desktop/crates/rv-core/src/uploads.rs#L95) | resource | /file-upload/{…}/{…} |

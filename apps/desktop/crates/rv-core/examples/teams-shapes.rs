@@ -139,6 +139,27 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // The share step of a chat's file, self-cleaning, on the test channel
+    // unless TEAMS_SHARE_CONVERSATION names another conversation.
+    if std::env::var_os("TEAMS_PROBE_SHARE").is_some_and(|v| !v.is_empty()) {
+        let conversation = std::env::var("TEAMS_SHARE_CONVERSATION")
+            .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
+        let shapes = tokens.probe_share(&conversation).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
+    // Image object and chat-file probe, self-cleaning, on a conversation that
+    // notifies nobody (Notes to self unless TEAMS_IMAGE_CONVERSATION says otherwise).
+    if std::env::var_os("TEAMS_PROBE_IMAGES").is_some_and(|v| !v.is_empty()) {
+        let conversation = std::env::var("TEAMS_IMAGE_CONVERSATION").unwrap_or_else(|_| "48:notes".to_owned());
+        let shapes = tokens.probe_images(&conversation).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // File-upload round-trip probe: a user-authorized live write that uploads a
     // tiny file to the channel's files folder, posts it, reads it back, then
     // deletes both. Channel defaults to the capture's; override TEAMS_PIN_CHANNEL.

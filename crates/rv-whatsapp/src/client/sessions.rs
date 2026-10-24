@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use wacore::signal::protocol::{
-    IdentityChange, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
+    IdentityChange, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
 };
 use wacore::signal::store::SessionStore;
 use wacore::stats::UnkeyableDevice;
@@ -278,7 +278,6 @@ impl Client {
             &mut adapter.identity_store,
             bundle,
             rng,
-            UsePQRatchet::No,
         )
         .await?;
 

@@ -1689,7 +1689,6 @@ mod group_retry {
             &mut is,
             &bundle,
             &mut rand::make_rng::<rand::rngs::StdRng>(),
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -3747,7 +3746,7 @@ mod mark_full_distribution_list {
     use crate::signal::protocol::{
         Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
         ProtocolAddress, PublicKey, SenderKeyRecord, SenderKeyStore, SessionStore, SignedPreKeyId,
-        SignedPreKeyRecord, SignedPreKeyStore, UsePQRatchet, process_prekey_bundle,
+        SignedPreKeyRecord, SignedPreKeyStore, process_prekey_bundle,
     };
     use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::types::jid::JidExt;
@@ -4039,7 +4038,6 @@ mod mark_full_distribution_list {
             &mut is,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -4064,7 +4062,6 @@ mod mark_full_distribution_list {
                 &mut is,
                 &signed_prekey_bundle(),
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .unwrap();
@@ -5222,16 +5219,9 @@ mod mark_full_distribution_list {
             };
             for companion in &own_companions {
                 let addr = companion.to_protocol_address();
-                process_prekey_bundle(
-                    &addr,
-                    &mut ss,
-                    &mut is,
-                    &signed_prekey_bundle(),
-                    &mut rng,
-                    UsePQRatchet::No,
-                )
-                .await
-                .expect("establish the companion session");
+                process_prekey_bundle(&addr, &mut ss, &mut is, &signed_prekey_bundle(), &mut rng)
+                    .await
+                    .expect("establish the companion session");
                 // `process_prekey_bundle` alone leaves the session holding a
                 // pending pre-key, so its next encryption is still a `pkmsg`
                 // first contact. The steady state this fixture models is the
@@ -5670,7 +5660,6 @@ mod local_identity_change_on_send {
                 &mut identity_store,
                 &verifiable_bundle(&mut rng),
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .expect("session established");

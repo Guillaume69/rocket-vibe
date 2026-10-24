@@ -94,7 +94,6 @@ async fn decrypt_session_message(
                 &mut adapter.pre_key_store,
                 &adapter.signed_pre_key_store,
                 rng,
-                UsePQRatchet::No,
             )
             .await
         }
@@ -107,7 +106,6 @@ async fn decrypt_session_message(
                 &mut adapter.pre_key_store,
                 &adapter.signed_pre_key_store,
                 rng,
-                UsePQRatchet::No,
             )
             .await
         }

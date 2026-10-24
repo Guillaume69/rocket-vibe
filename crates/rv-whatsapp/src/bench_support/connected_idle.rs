@@ -701,14 +701,14 @@ impl Wire {
                     .map_err(|_| anyhow::anyhow!("ephemeral length"))?;
                 let identity = KeyPair::generate(&mut rand::rng());
                 let ephemeral = KeyPair::generate(&mut rand::rng());
-                let identity_pub: [u8; 32] = identity.public_key.public_key_bytes().try_into()?;
-                let ephemeral_pub = ephemeral.public_key.public_key_bytes();
+                let identity_pub: [u8; 32] = *identity.public.raw();
+                let ephemeral_pub = ephemeral.public.raw();
                 let mut noise = NoiseHandshake::new(NOISE_PATTERN_XX, &WA_CONN_HEADER)?;
                 noise.authenticate(&peer);
                 noise.authenticate(ephemeral_pub);
-                noise.mix_shared_secret(ephemeral.private_key.serialize(), &peer)?;
+                noise.mix_shared_secret(&ephemeral.private.serialize(), &peer)?;
                 let encrypted_static = noise.encrypt(&identity_pub)?;
-                noise.mix_shared_secret(identity.private_key.serialize(), &peer)?;
+                noise.mix_shared_secret(&identity.private.serialize(), &peer)?;
                 let payload = noise.encrypt(&wacore_noise::test_util::build_cert_chain_bytes(
                     &identity_pub,
                 ))?;
@@ -745,7 +745,7 @@ impl Wire {
                     .decrypt(&finish.r#static.context("client static")?)?
                     .try_into()
                     .map_err(|_| anyhow::anyhow!("client static length"))?;
-                noise.mix_shared_secret(ephemeral.private_key.serialize(), &peer)?;
+                noise.mix_shared_secret(&ephemeral.private.serialize(), &peer)?;
                 let _payload = noise.decrypt(&finish.payload.context("client payload")?)?;
                 let (read, write) = noise.finish()?;
                 *state = State::Established {

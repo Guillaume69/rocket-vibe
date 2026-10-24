@@ -1031,7 +1031,6 @@ pub async fn ensure_sessions_for_devices_resolved(
                             &mut *identity_store,
                             bundle,
                             &mut rng,
-                            UsePQRatchet::No,
                         )
                         .await
                         {

@@ -7,7 +7,7 @@ use crate::reporting_token::{
 use crate::runtime::{AbortHandle, Runtime};
 use crate::signal::protocol::{
     CiphertextMessage, IdentityChange, ProtocolAddress, SenderKeyMessage, SenderKeyStore,
-    UsePQRatchet, message_encrypt, process_prekey_bundle,
+    message_encrypt, process_prekey_bundle,
 };
 use crate::signal::store::sender_key_name::SenderKeyName;
 use crate::types::jid::JidExt;

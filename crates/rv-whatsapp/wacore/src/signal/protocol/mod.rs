@@ -37,7 +37,7 @@ pub use prekeys::{
 pub use sender_keys::{SenderChainKey, SenderKeyRecord, SenderKeyState};
 pub use session::{
     AliceSignalProtocolParameters, ChainKey, MessageKeyGenerator, MessageKeys, RootKey,
-    SessionRecord, SessionState, UnacknowledgedPreKeyMessageItems, UsePQRatchet,
+    SessionRecord, SessionState, UnacknowledgedPreKeyMessageItems,
 };
 pub use storage::{
     Direction, IdentityChange, IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionCheckout,

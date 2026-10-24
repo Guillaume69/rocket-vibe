@@ -8667,7 +8667,7 @@ mod tests {
 
     async fn seed_peer_send_state(client: &Arc<Client>, peer: &Jid) {
         use wacore::signal::protocol::{
-            KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
+            KeyPair, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
         };
 
         client
@@ -8704,7 +8704,6 @@ mod tests {
             &mut adapter.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .expect("peer session");
@@ -8835,7 +8834,7 @@ mod tests {
         peer_lid: Jid,
     ) -> (Jid, Jid) {
         use wacore::signal::protocol::{
-            KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
+            KeyPair, PreKeyBundle, SignalProtocolError, process_prekey_bundle,
         };
 
         // A LID-addressed DM requires the device's own PN and LID to be known.
@@ -8926,7 +8925,6 @@ mod tests {
                 &mut adapter.identity_store,
                 &bundle,
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .expect("peer lid session");
@@ -10004,8 +10002,8 @@ mod tests {
     #[tokio::test]
     async fn group_repairs_each_original_id_only_to_missed_devices() {
         use wacore::signal::protocol::{
-            CiphertextMessage, GenericSignedPreKey, SignedPreKeyStore, UsePQRatchet,
-            message_decrypt, process_prekey_bundle,
+            CiphertextMessage, GenericSignedPreKey, SignedPreKeyStore, message_decrypt,
+            process_prekey_bundle,
         };
         use wacore::store::traits::{DeviceInfo, DeviceListRecord};
         let fixture = GroupSendFixture::new().await;
@@ -10059,7 +10057,6 @@ mod tests {
             &mut sender_stores.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -10169,7 +10166,6 @@ mod tests {
                 &mut receiver_stores.pre_key_store,
                 &receiver_stores.signed_pre_key_store,
                 &mut rng,
-                UsePQRatchet::No,
             )
             .await
             .unwrap()

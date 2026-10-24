@@ -7,8 +7,8 @@ use wacore::message_processing::EncType;
 use wacore::messages::MessageUtils;
 use wacore::signal::protocol::{
     CiphertextMessage, DecryptionResult, IdentityChange, PreKeyBundle, PublicKey,
-    SenderKeyDistributionMessage, SenderKeyStore, SignalProtocolError, UsePQRatchet,
-    message_decrypt, message_encrypt, process_sender_key_distribution_message,
+    SenderKeyDistributionMessage, SenderKeyStore, SignalProtocolError, message_decrypt,
+    message_encrypt, process_sender_key_distribution_message,
 };
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore_binary::Jid;
@@ -239,7 +239,6 @@ impl<'a> Signal<'a> {
             &mut adapter.pre_key_store,
             &adapter.signed_pre_key_store,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await?;
 

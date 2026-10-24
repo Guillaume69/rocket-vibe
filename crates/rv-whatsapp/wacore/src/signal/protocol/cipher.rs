@@ -14,7 +14,7 @@ use super::messages::{
     SignalMessage,
 };
 use super::prekeys::{GenericSignedPreKey, PreKeyId, SignedPreKeyId};
-use super::session::{AliceSignalProtocolParameters, SessionRecord, UsePQRatchet};
+use super::session::{AliceSignalProtocolParameters, SessionRecord};
 use super::storage::{
     CheckoutGuard, Direction, IdentityChange, IdentityKeyStore, PreKeyStore, SessionStore,
     SignedPreKeyStore, is_trusted_identity, save_identity,
@@ -122,7 +122,6 @@ pub async fn message_decrypt<R: CryptoRng + ?Sized>(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     csprng: &mut R,
-    use_pq_ratchet: UsePQRatchet,
 ) -> Result<DecryptionResult> {
     match ciphertext {
         CiphertextMessage::SignalMessage(m) => {
@@ -137,7 +136,6 @@ pub async fn message_decrypt<R: CryptoRng + ?Sized>(
                 pre_key_store,
                 signed_pre_key_store,
                 csprng,
-                use_pq_ratchet,
             )
             .await
         }
@@ -158,7 +156,6 @@ pub async fn message_decrypt_owned<R: CryptoRng + ?Sized>(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     csprng: &mut R,
-    use_pq_ratchet: UsePQRatchet,
 ) -> Result<DecryptionResult> {
     let message = ciphertext
         .get()
@@ -172,7 +169,6 @@ pub async fn message_decrypt_owned<R: CryptoRng + ?Sized>(
         pre_key_store,
         signed_pre_key_store,
         csprng,
-        use_pq_ratchet,
     )
     .await
 }
@@ -226,7 +222,6 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
     pre_key_store: &mut dyn PreKeyStore,
     signed_pre_key_store: &dyn SignedPreKeyStore,
     csprng: &mut R,
-    _use_pq_ratchet: UsePQRatchet,
 ) -> Result<DecryptionResult> {
     let (checkout, record) = CheckoutGuard::take(session_store, remote_address).await?;
     let mut record = record.unwrap_or_default();
@@ -292,7 +287,6 @@ pub async fn process_prekey_bundle<R: CryptoRng + ?Sized>(
     identity_store: &mut dyn IdentityKeyStore,
     bundle: &PreKeyBundle,
     csprng: &mut R,
-    _use_pq_ratchet: UsePQRatchet,
 ) -> Result<IdentityChange> {
     require_trusted(
         identity_store,

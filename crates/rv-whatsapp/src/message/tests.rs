@@ -626,9 +626,8 @@ use wacore::signal::protocol::{
     CiphertextMessage, Direction, IdentityChange, KeyPair, PreKeyBundle, PreKeyRecord,
     PreKeyStore as SigPreKeyStore, ProtocolAddress, PublicKey, SenderKeyName, SenderKeyRecord,
     SenderKeyStore as SigSenderKeyStore, SessionRecord, SessionStore as SigSessionStore,
-    SignedPreKeyStore as SigSignedPreKeyStore, UsePQRatchet,
-    create_sender_key_distribution_message, group_encrypt, message_decrypt_signal, message_encrypt,
-    process_prekey_bundle,
+    SignedPreKeyStore as SigSignedPreKeyStore, create_sender_key_distribution_message,
+    group_encrypt, message_decrypt_signal, message_encrypt, process_prekey_bundle,
 };
 use wacore::signal::protocol::{IdentityKeyStore as SigIdentityKeyStore, SignalProtocolError};
 
@@ -757,7 +756,6 @@ impl AlicePeer {
             &mut self.identity,
             bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .expect("process bob bundle");

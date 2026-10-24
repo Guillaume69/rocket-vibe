@@ -7,9 +7,9 @@
 use std::{path::Path, sync::Arc};
 use wacore::appstate::hash::HashState;
 use wacore::signal::protocol::{
-    CiphertextMessage, PreKeyBundle, ProtocolAddress, UsePQRatchet,
-    create_sender_key_distribution_message, group_decrypt, group_encrypt, message_decrypt,
-    message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
+    CiphertextMessage, PreKeyBundle, ProtocolAddress, create_sender_key_distribution_message,
+    group_decrypt, group_encrypt, message_decrypt, message_encrypt, process_prekey_bundle,
+    process_sender_key_distribution_message,
 };
 use wacore::signal::store::sender_key_name::SenderKeyName;
 use wacore::store::traits::{AppStateSyncKey, AppSyncStore, DeviceStore, ProtocolStore};
@@ -99,7 +99,6 @@ impl Peer {
             &mut self.signal.pre_key_store,
             &self.signal.signed_pre_key_store,
             &mut rand::make_rng::<rand::rngs::StdRng>(),
-            UsePQRatchet::No,
         )
         .await
         .unwrap()
@@ -190,7 +189,6 @@ async fn produce(dir: &Path) {
         &mut alice.signal.identity_store,
         &bob.bundle(),
         &mut rand::make_rng::<rand::rngs::StdRng>(),
-        UsePQRatchet::No,
     )
     .await
     .unwrap();

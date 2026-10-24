@@ -502,18 +502,6 @@ impl SessionRecord {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UsePQRatchet {
-    No,
-    Yes,
-}
-
-impl From<bool> for UsePQRatchet {
-    fn from(value: bool) -> Self {
-        if value { Self::Yes } else { Self::No }
-    }
-}
-
 /// An initiator's view of X3DH.
 pub struct AliceSignalProtocolParameters {
     pub(crate) our_identity_key_pair: KeyPair,
@@ -531,7 +519,6 @@ impl AliceSignalProtocolParameters {
         their_identity_key: PublicKey,
         their_signed_pre_key: PublicKey,
         their_ratchet_key: PublicKey,
-        _use_pq_ratchet: UsePQRatchet,
     ) -> Self {
         Self {
             our_identity_key_pair,

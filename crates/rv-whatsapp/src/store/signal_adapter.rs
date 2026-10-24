@@ -896,7 +896,7 @@ mod tests {
 
     fn outbound_session() -> (SessionRecord, KeyPair) {
         use wacore::signal::protocol::{
-            AliceSignalProtocolParameters, KeyPair, UsePQRatchet, initialize_alice_session_record,
+            AliceSignalProtocolParameters, KeyPair, initialize_alice_session_record,
         };
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -909,7 +909,6 @@ mod tests {
             remote_identity.public,
             remote_signed_prekey.public,
             remote_signed_prekey.public,
-            UsePQRatchet::No,
         );
         (
             initialize_alice_session_record(&parameters, &mut rng).expect("valid session"),

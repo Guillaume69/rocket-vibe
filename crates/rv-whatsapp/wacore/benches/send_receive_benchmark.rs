@@ -23,8 +23,8 @@ use wacore::signal::protocol::{
     CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
     PreKeyBundle, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
     SenderKeyStore, SessionRecord, SessionStore, SignedPreKeyId, SignedPreKeyRecord,
-    SignedPreKeyStore, Timestamp, UsePQRatchet, create_sender_key_distribution_message,
-    group_decrypt, message_decrypt, message_encrypt, process_prekey_bundle,
+    SignedPreKeyStore, Timestamp, create_sender_key_distribution_message, group_decrypt,
+    message_decrypt, message_encrypt, process_prekey_bundle,
     process_sender_key_distribution_message,
 };
 use wacore::signal::store::sender_key_name::SenderKeyName;
@@ -374,7 +374,6 @@ fn establish_session(sender: &mut User, receiver: &User) {
             &mut sender.identity,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -403,7 +402,6 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             &mut b.prekeys,
             &b.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -424,7 +422,6 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             &mut a.prekeys,
             &a.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -550,7 +547,6 @@ fn decrypt_dm(
             &mut receiver.prekeys,
             &receiver.signed_prekeys,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();

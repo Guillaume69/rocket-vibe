@@ -393,24 +393,21 @@ async fn settle_signal_flush_worker(client: &Arc<Client>) {
 /// own companion — encrypted to on every measured send — use
 /// [`establish_acknowledged_session`] instead.
 async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
-    use wacore::signal::protocol::{KeyPair, PreKeyBundle, UsePQRatchet, process_prekey_bundle};
+    use wacore::signal::protocol::{KeyPair, process_prekey_bundle};
     use wacore::types::jid::JidExt;
 
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
     let receiver = KeyPair::generate(&mut rng);
     let spk = KeyPair::generate(&mut rng);
     let opk = KeyPair::generate(&mut rng);
-    let signature = receiver
-        .private_key()
-        .calculate_signature(&spk.public_key.serialize(), &mut rng)
-        .expect("signature");
+    let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
     let bundle = wacore::signal::protocol::prekey_bundle(
         1,
-        Some((1u32.into(), opk.public_key)),
+        Some((1u32.into(), opk.public)),
         1u32.into(),
-        spk.public_key,
+        spk.public,
         signature,
-        *receiver.identity_key(),
+        receiver.public,
     )
     .expect("prekey bundle");
 
@@ -421,7 +418,6 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
         &mut adapter.identity_store,
         &bundle,
         &mut rng,
-        UsePQRatchet::No,
     )
     .await
     .expect("peer session");
@@ -438,8 +434,7 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
 /// the party that encrypts every measured stanza.
 async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc<Client> {
     use wacore::signal::protocol::{
-        CiphertextMessage, PreKeyBundle, PreKeySignalMessage, PublicKey, SignalMessage,
-        UsePQRatchet, message_decrypt, message_encrypt, process_prekey_bundle,
+        CiphertextMessage, message_decrypt, message_encrypt, process_prekey_bundle,
     };
     use wacore::types::jid::JidExt;
 
@@ -476,9 +471,9 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
         peer_snapshot.registration_id,
         None,
         peer_snapshot.signed_pre_key_id.into(),
-        peer_snapshot.signed_pre_key.public_key,
+        peer_snapshot.signed_pre_key.public,
         peer_snapshot.signed_pre_key_signature,
-        peer_snapshot.identity_key.public_key,
+        peer_snapshot.identity_key.public,
     )
     .expect("companion prekey bundle");
 
@@ -490,7 +485,6 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
         &mut adapter.identity_store,
         &bundle,
         &mut rng,
-        UsePQRatchet::No,
     )
     .await
     .expect("companion session");
@@ -516,7 +510,6 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
         &mut peer_adapter.pre_key_store,
         &peer_adapter.signed_pre_key_store,
         &mut rng,
-        UsePQRatchet::No,
     )
     .await
     .expect("companion decrypts our first message");
@@ -540,7 +533,6 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
         &mut adapter.pre_key_store,
         &adapter.signed_pre_key_store,
         &mut rng,
-        UsePQRatchet::No,
     )
     .await
     .expect("we decrypt the companion's reply");

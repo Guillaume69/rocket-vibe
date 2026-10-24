@@ -2199,8 +2199,7 @@ mod tests {
     #[tokio::test]
     async fn timestampless_rekey_decrypts_and_reaches_group_media() {
         use wacore::signal::protocol::{
-            GenericSignedPreKey, PreKeyBundle, PublicKey, SignedPreKeyStore, UsePQRatchet,
-            process_prekey_bundle,
+            GenericSignedPreKey, SignedPreKeyStore, process_prekey_bundle,
         };
         use wacore::types::jid::JidExt;
         use wacore::voip_control::{CallSession, control::GroupControl};
@@ -2223,7 +2222,7 @@ mod tests {
             1u32.into(),
             signed.public_key().unwrap(),
             signed.signature().unwrap(),
-            snapshot.core.identity_key.public_key,
+            snapshot.core.identity_key.public,
         )
         .unwrap();
         let mut sender_adapter = sender_client.signal_adapter();
@@ -2233,7 +2232,6 @@ mod tests {
             &mut sender_adapter.identity_store,
             &bundle,
             &mut rand::make_rng::<rand::rngs::StdRng>(),
-            UsePQRatchet::No,
         )
         .await
         .unwrap();

@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use crate::Client;
-use wacore::signal::protocol::{
-    KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
-};
+use wacore::signal::protocol::{KeyPair, PreKeyBundle, SignalProtocolError, process_prekey_bundle};
 use wacore::types::jid::JidExt;
 use wacore_binary::Jid;
 
@@ -32,7 +30,6 @@ pub(crate) async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) -> anyho
         &mut adapter.identity_store,
         &bundle,
         &mut rng,
-        UsePQRatchet::No,
     )
     .await?;
     Ok(())

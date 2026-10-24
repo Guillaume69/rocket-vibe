@@ -11,7 +11,7 @@ use wacore::signal::protocol::SenderKeyStore;
 use wacore::signal::protocol::group_decrypt_shared;
 use wacore::signal::protocol::{
     CiphertextMessage, DecryptionResult, IdentityChange, OwnedCiphertextMessage,
-    SignalProtocolError, UsePQRatchet, message_decrypt, message_decrypt_owned,
+    SignalProtocolError, message_decrypt, message_decrypt_owned,
 };
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore_binary::Jid;

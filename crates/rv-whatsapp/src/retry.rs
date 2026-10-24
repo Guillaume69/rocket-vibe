@@ -2144,8 +2144,7 @@ mod tests {
     async fn retry_metadata_reaches_transport_and_matches_decrypted_payload() {
         use crate::store::commands::DeviceCommand;
         use wacore::signal::protocol::{
-            SessionStore, UsePQRatchet, message_decrypt_prekey, message_decrypt_signal,
-            process_prekey_bundle,
+            SessionStore, message_decrypt_prekey, message_decrypt_signal, process_prekey_bundle,
         };
 
         let client = retry_repair_client("retry_metadata_sender").await;
@@ -2187,7 +2186,6 @@ mod tests {
             &mut adapter.identity_store,
             &bundle,
             &mut rng,
-            UsePQRatchet::No,
         )
         .await
         .unwrap();
@@ -2295,7 +2293,6 @@ mod tests {
                     &mut adapter.pre_key_store,
                     &adapter.signed_pre_key_store,
                     &mut rng,
-                    UsePQRatchet::No,
                 )
                 .await
                 .unwrap()

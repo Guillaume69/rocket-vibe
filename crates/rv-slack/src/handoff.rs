@@ -1,5 +1,5 @@
 //! One-use encrypted handoff from the dedicated official-browser bridge. No durable secrets.
-use crate::slack::{Error, validate_credentials};
+use crate::{Error, validate_credentials};
 use aws_lc_rs::aead::{AES_256_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 use aws_lc_rs::{
     agreement::{self, PrivateKey, UnparsedPublicKey, X25519},
@@ -163,7 +163,7 @@ impl Drop for Pairing {
 mod tests {
     use super::*;
     fn fixture() -> serde_json::Value {
-        serde_json::from_str(include_str!("../../../../../../docs/protocol/fixtures/slack-handoff.json")).unwrap()
+        serde_json::from_str(include_str!("../../../docs/protocol/fixtures/slack-handoff.json")).unwrap()
     }
     fn pair(f: &serde_json::Value) -> Pairing {
         Pairing {

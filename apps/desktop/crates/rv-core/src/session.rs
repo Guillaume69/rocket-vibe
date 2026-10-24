@@ -411,7 +411,7 @@ impl Session {
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
         let rest = match (&info.slack, flavor) {
             _ if teams.is_some() => RestClient::teams(base.clone()),
-            (Some(account), _) => crate::slack::account::client(&info, account),
+            (Some(account), _) => crate::slack::client(&info, account),
             (None, Some(flavor)) => mattermost::client(base.clone(), Some(flavor)),
             (None, None) => RestClient::new(base.clone()),
         };

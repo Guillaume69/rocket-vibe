@@ -143,7 +143,9 @@ impl Client {
         team_id: String,
     ) -> Result<Arc<Chat>, RvError> {
         let login = attempt.login.clone();
-        let info = on_tokio(async move { login.take(&team_id).await.map_err(error) }).await?;
+        let info =
+            on_tokio(async move { login.take(&team_id).await.map(rv_core::session::SessionInfo::from).map_err(error) })
+                .await?;
         attempt.login.cancel();
         self.keep_slack(info).await
     }

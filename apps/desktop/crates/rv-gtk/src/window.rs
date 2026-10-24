@@ -1112,7 +1112,8 @@ impl AppWindow {
         self.login.set_busy(true);
         let this = self.clone();
         glib::spawn_future_local(async move {
-            let result = on_tokio(async move { attempt.take(&team_id).await }).await;
+            let result =
+                on_tokio(async move { attempt.take(&team_id).await.map(rv_core::session::SessionInfo::from) }).await;
             if !this.login_is_current(generation) {
                 return;
             }

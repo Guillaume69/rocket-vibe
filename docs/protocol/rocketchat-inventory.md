@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-704 production files scanned; 756 occurrences.
+705 production files scanned; 756 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -312,12 +312,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:2393](../../apps/desktop/crates/rv-core/src/session.rs#L2393) | endpoint | chat.getThreadMessages |
 | [apps/desktop/crates/rv-core/src/session.rs:2760](../../apps/desktop/crates/rv-core/src/session.rs#L2760) | call:POST | "users.setPresence" |
 | [apps/desktop/crates/rv-core/src/session.rs:2760](../../apps/desktop/crates/rv-core/src/session.rs#L2760) | endpoint | users.setPresence |
-| [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
-| [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | call:POST | "users.info" |
-| [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | endpoint | users.info |
-| [apps/desktop/crates/rv-core/src/slack/directory.rs:138](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L138) | call:POST | "bots.info" |
-| [apps/desktop/crates/rv-core/src/slack/live.rs:137](../../apps/desktop/crates/rv-core/src/slack/live.rs#L137) | call:POST | "rtm.connect" |
-| [apps/desktop/crates/rv-core/src/slack/mod.rs:302](../../apps/desktop/crates/rv-core/src/slack/mod.rs#L302) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/sync.rs:150](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L150) | call:POST | method |
 | [apps/desktop/crates/rv-core/src/slack/sync.rs:164](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L164) | endpoint | users.conversations |
 | [apps/desktop/crates/rv-core/src/slack/sync.rs:166](../../apps/desktop/crates/rv-core/src/slack/sync.rs#L166) | endpoint | users.conversations |
@@ -765,3 +759,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-provider/src/rest/slack.rs:35](../../crates/rv-provider/src/rest/slack.rs#L35) | endpoint | users.getPresence |
 | [crates/rv-provider/src/rest/slack.rs:36](../../crates/rv-provider/src/rest/slack.rs#L36) | endpoint | users.setPresence |
 | [crates/rv-provider/src/rest/slack.rs:37](../../crates/rv-provider/src/rest/slack.rs#L37) | endpoint | users.profile.set |
+| [crates/rv-slack/src/account.rs:99](../../crates/rv-slack/src/account.rs#L99) | call:POST | "auth.test" |
+| [crates/rv-slack/src/directory.rs:116](../../crates/rv-slack/src/directory.rs#L116) | call:POST | "users.info" |
+| [crates/rv-slack/src/directory.rs:116](../../crates/rv-slack/src/directory.rs#L116) | endpoint | users.info |
+| [crates/rv-slack/src/directory.rs:138](../../crates/rv-slack/src/directory.rs#L138) | call:POST | "bots.info" |
+| [crates/rv-slack/src/lib.rs:301](../../crates/rv-slack/src/lib.rs#L301) | endpoint | users.conversations |
+| [crates/rv-slack/src/live.rs:137](../../crates/rv-slack/src/live.rs#L137) | call:POST | "rtm.connect" |

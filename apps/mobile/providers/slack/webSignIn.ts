@@ -3,7 +3,7 @@
  * shows Slack's own pages, stops on the desktop handoff (`/ssb/`) or the web
  * client, and the session's `d` cookie is read from the web view's store. The
  * workspace's boot page, fetched with that cookie, carries its `xoxc` token,
- * which `auth.test` then proves. Mirrors `rv-core/src/slack/browser_login.rs`.
+ * which `auth.test` then proves. Mirrors `crates/rv-slack/src/browser_login.rs`.
  */
 
 import type { Session } from '../../lib/auth.ts';

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::rest::{CallOptions, RestClient};
+use rv_provider::rest::{CallOptions, RestClient};
 
 const CONCURRENCY: usize = 4;
 

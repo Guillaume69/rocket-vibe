@@ -481,3 +481,12 @@ User decision, 2026-10-23: since WhatsApp, Slack and Teams are reached through p
 
 Teams' object store (asyncgw), where its web app puts the preview image it attaches to a file, creates an object only for a `User-Agent` it recognises as one of Microsoft's own clients: an honest `RocketVibe/<version> (<os>)` is refused (400, probed live 2026-10-24) and only the web app's own agent string passes. The apps do not present themselves as Microsoft's client to get past it: it misrepresents them to the service and puts the account at risk. Files they send show as file cards without a thumbnail in Teams; images others send do show, since reading the store only needs the skype token. See [Teams](architecture/teams.md).
 
+
+## CI caches are saved from master only (2026-10-24)
+
+The repository held 13 GB of Actions cache against GitHub's 10 GB cap, so all but three entries were evicted and most Rust jobs compiled from scratch on every push. Three things filled it: keys ending in the commit sha, so every run saved a new multi-gigabyte entry; branch runs saving copies no other branch can restore (a run reads its own ref's caches and the default branch's); and tag runs saving release builds no later tag can read. So caches are saved from `master` only, keyed on what they hold (toolchain, lockfiles, Docker toolchain image), and release-only jobs cache nothing. A branch that changes a lockfile builds its new dependencies cold until it lands. See [operations](operations.md).
+
+Sources:
+- .github/workflows/native-server.yml
+- .github/workflows/desktop.yml
+- .github/workflows/web-client.yml

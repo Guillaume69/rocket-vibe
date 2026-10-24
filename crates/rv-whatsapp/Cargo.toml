@@ -22,6 +22,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 members = [
     ".",
     "engine",
+    "android",
     "http_clients/ureq-client",
     "storages/sqlite-storage",
     "tests/e2e",
@@ -38,6 +39,7 @@ members = [
 default-members = [
     ".",
     "engine",
+    "android",
     "http_clients/ureq-client",
     "storages/sqlite-storage",
     "transports/tokio-transport",

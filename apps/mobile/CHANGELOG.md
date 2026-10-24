@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Changed
+
+- WhatsApp (experimental): the WhatsApp engine is rewritten in Rust on whatsapp-rust, the same as the desktop's, in place of the Go engine on whatsmeow. Existing WhatsApp accounts must be linked again once: the new engine cannot read the old one's saved state. The linked device is named Rocket Vibe on the phone, and Settings > App > Open-source licences lists the Rust crates it is built from.
+
 ## [0.23.0] - 2026-10-24
 
 ### Added

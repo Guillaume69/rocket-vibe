@@ -38,7 +38,7 @@ class WhatsAppModule : Module() {
     AsyncFunction("handle") { state: String, command: String -> WhatsAppEngines.handle(state, command) }
     AsyncFunction("stop") { state: String -> WhatsAppEngines.stop(state) }
     AsyncFunction("forget") { state: String -> coded { WhatsAppEngines.forget(context, state) } }
-    // The licence notice of the engine's Go modules, generated at build time; null in a build without it.
+    // The licence notice of the engine's Rust crates, generated at build time; null in a build without it.
     AsyncFunction("licenses") {
       runCatching { context.assets.open("rv-whatsapp-licenses.txt").bufferedReader().use { it.readText() } }.getOrNull()
     }

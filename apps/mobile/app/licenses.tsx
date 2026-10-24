@@ -18,8 +18,8 @@ function blocks(notice: string): Block[] {
 }
 
 /**
- * The open-source licences the app owes its users: the WhatsApp engine's Go
- * modules, whatsmeow (MPL-2.0) first, as generated with the build
+ * The open-source licences the app owes its users: the WhatsApp engine's Rust
+ * crates, whatsapp-rust (MIT) named first, as generated with the build
  * (`modules/whatsapp/build-android.mjs`). One block per file, rendered as a
  * list: the whole notice is about 100 KB of text.
  */

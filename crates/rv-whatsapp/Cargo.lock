@@ -3440,6 +3440,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rv-whatsapp-android"
+version = "0.1.0"
+dependencies = [
+ "rv-whatsapp-engine",
+]
+
+[[package]]
 name = "rv-whatsapp-engine"
 version = "0.1.0"
 dependencies = [

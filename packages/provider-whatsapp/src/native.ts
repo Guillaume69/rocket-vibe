@@ -1,6 +1,6 @@
 /**
- * The WhatsApp engine (apps/desktop/whatsapp, the desktop helper's own Go
- * code) run in-process by Kotlin, one per account state. Commands and frames
+ * The WhatsApp engine (crates/rv-whatsapp, the one the desktop runs) run
+ * in-process by Kotlin, one per account state. Commands and frames
  * are the desktop helper's JSON wire objects (brain/features/whatsapp.md).
  * The engine outlives JS reloads and account switches: only stop, logout and
  * forget end it. Its storage key never reaches JS.
@@ -20,7 +20,7 @@ export type WhatsAppNative = {
   forget(state: string): Promise<void>;
   /** A recorded note (`file://` m4a) written as a WhatsApp voice note (Opus in Ogg) at `output`; false when this device cannot (before Android 10). */
   toVoiceNote(input: string, output: string): Promise<boolean>;
-  /** The licence notice of the engine's Go modules (whatsmeow, MPL-2.0, first); null when the build has none. */
+  /** The licence notice of the engine's Rust crates (whatsapp-rust, MIT, first); null when the build has none. */
   licenses(): Promise<string | null>;
   /** Whether the account receives with the app closed (a foreground service). */
   background(state: string): boolean;

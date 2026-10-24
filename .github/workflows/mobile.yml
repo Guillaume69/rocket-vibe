@@ -13,7 +13,9 @@ on:
       - 'package-lock.json'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   pull_request:
@@ -24,7 +26,9 @@ on:
       - 'package-lock.json'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
       - 'scripts/version.mjs'
       - '.github/workflows/mobile.yml'
   workflow_dispatch:
@@ -92,15 +96,11 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # The Rust crypto and the WhatsApp engine (crates/rv-whatsapp), built
+      # into the module libraries by their build-android.mjs.
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           targets: aarch64-linux-android
-      # The WhatsApp engine (apps/desktop/whatsapp), built into librv_whatsapp.so
-      # by modules/whatsapp/build-android.mjs.
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/desktop/whatsapp/go.mod
-          cache-dependency-path: apps/desktop/whatsapp/go.sum
       - name: Android SDK pieces the RN 0.86 template requires
         working-directory: /
         run: >

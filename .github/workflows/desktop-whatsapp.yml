@@ -1,8 +1,7 @@
 # The licence notice of the crates the WhatsApp engine (crates/rv-whatsapp/engine,
 # on whatsapp-rust) links into the desktop app, per platform:
 # rv-whatsapp-licenses-{linux,windows,macos}.txt in the rv-whatsapp-licenses
-# artifact. Called by desktop.yml when it packages. The Go engine
-# (apps/desktop/whatsapp) is Android's until its Rust library: its checks stay here.
+# artifact. Called by desktop.yml when it packages.
 name: desktop-whatsapp
 
 on:
@@ -14,7 +13,6 @@ on:
       - 'crates/rv-signal/**'
       - 'crates/rv-link-preview/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
       - '.github/workflows/desktop-whatsapp.yml'
   pull_request:
     paths:
@@ -22,7 +20,6 @@ on:
       - 'crates/rv-signal/**'
       - 'crates/rv-link-preview/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
       - '.github/workflows/desktop-whatsapp.yml'
   workflow_dispatch:
 
@@ -52,21 +49,3 @@ jobs:
         with:
           name: rv-whatsapp-licenses
           path: crates/rv-whatsapp/out/*
-
-  # The Go engine, built into Android's librv_whatsapp.so by mobile.yml.
-  go-engine:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: apps/desktop/whatsapp
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/desktop/whatsapp/go.mod
-          cache-dependency-path: apps/desktop/whatsapp/go.sum
-      - name: Format, vet, tests
-        run: |
-          test -z "$(gofmt -l .)"
-          go vet -tags sqlite_unlock_notify ./...
-          go test -race -tags sqlite_unlock_notify ./...

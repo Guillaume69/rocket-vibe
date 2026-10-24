@@ -104,6 +104,53 @@ fn disk_reopen_private_rows_and_scope_integrity() {
 }
 
 #[test]
+fn an_unchanged_row_is_shared_but_any_other_row_is_decrypted_and_checked_again() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("account.sqlite");
+    let mut first = create(&path);
+    let (_, marker) = first
+        .transact(|_, records| {
+            records.insert("value".into(), vec![1]);
+            Ok(())
+        })
+        .unwrap();
+    protect(&mut first, marker);
+    assert_eq!(first.inspect(|_, r| Ok(r["value"].clone())), Ok(vec![1]));
+    let mut second = Vault::open(&path, scope(), key(), marker).unwrap();
+    let (_, next) = second
+        .transact(|_, records| {
+            records.insert("value".into(), vec![2]);
+            Ok(())
+        })
+        .unwrap();
+    protect(&mut second, next);
+    assert_eq!(first.inspect(|_, _| Ok(())), Err(Error::Stale));
+    let third = Vault::open(&path, scope(), key(), next).unwrap();
+    assert_eq!(third.inspect(|_, r| Ok(r["value"].clone())), Ok(vec![2]));
+    let row = read(&third.db).unwrap();
+    let mut changed = row.ciphertext.clone();
+    changed[0] ^= 1;
+    third
+        .db
+        .execute("UPDATE state SET ciphertext=?", [&changed])
+        .unwrap();
+    let forged = checkpoint(&scope(), &read(&third.db).unwrap()).unwrap();
+    assert!(matches!(
+        Vault::open(&path, scope(), key(), forged),
+        Err(Error::Integrity)
+    ));
+    third
+        .db
+        .execute("UPDATE state SET ciphertext=?", [&row.ciphertext])
+        .unwrap();
+    assert!(matches!(
+        Vault::open(&path, scope(), Key::from_keystore([8; 32]), next),
+        Err(Error::Integrity)
+    ));
+    assert_eq!(third.inspect(|_, r| Ok(r["value"].clone())), Ok(vec![2]));
+}
+
+#[test]
 fn checkpoint_gate_sql_failure_and_stale_writer_preserve_original_state() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("account.sqlite");

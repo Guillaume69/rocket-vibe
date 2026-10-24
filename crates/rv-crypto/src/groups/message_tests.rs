@@ -1041,3 +1041,21 @@ fn bounded_cache_releases_confirmed_plaintext_without_reusing_an_operation_or_sk
         65
     );
 }
+
+#[test]
+fn a_verified_submission_is_verified_again_at_another_time_or_with_other_bytes() {
+    let (alice, _, _) = incoming_commits::fixture(false);
+    let original = alice
+        .coordinator()
+        .prepare_message(&observation(&alice), &message("verified-again"), NOW)
+        .unwrap();
+    let device = original.verified(NOW).unwrap().certificate.device;
+    assert!(original.verified(NOW).is_ok());
+    assert!(original.verified(device.expires_at).is_err());
+    assert!(original.verified(device.issued_at - 1).is_err());
+    assert!(original.checked_at(device.issued_at - 1, true).is_err());
+    let mut changed = original.clone();
+    *changed.ciphertext.last_mut().unwrap() ^= 1;
+    assert!(changed.verified(NOW).is_err());
+    assert!(original.verified(NOW).is_ok());
+}

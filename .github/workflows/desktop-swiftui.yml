@@ -35,14 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            apps/desktop/target
-            apps/desktop/macos/.build
-          key: desktop-swiftui-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
-          restore-keys: desktop-swiftui-
+          workspaces: apps/desktop -> target
+          cache-directories: apps/desktop/macos/.build
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - id: version
         working-directory: .
         run: |
@@ -88,13 +85,12 @@ jobs:
         with:
           name: rv-voice-macos-arm64
           path: apps/desktop/dist/voice
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         if: ${{ !inputs.voice-artifact }}
         with:
-          path: |
-            ~/.cargo/registry
-            apps/desktop/voice/target
-          key: voice-macos-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+          key: voice
+          workspaces: apps/desktop/voice -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Voice sidecar
         if: ${{ !inputs.voice-artifact }}
         working-directory: apps/desktop/voice

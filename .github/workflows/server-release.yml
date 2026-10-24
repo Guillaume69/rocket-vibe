@@ -19,6 +19,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 jobs:
   verify:
     runs-on: ubuntu-24.04
@@ -55,16 +59,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: server-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            server-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+          shared-key: vibez
+          workspaces: |
+            . -> target
+            crates/rv-crypto -> ../../target
+          save-if: false
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund

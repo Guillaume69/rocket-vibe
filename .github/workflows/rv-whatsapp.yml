@@ -21,6 +21,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -32,14 +36,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            crates/rv-whatsapp/target
-          key: rv-whatsapp-${{ runner.os }}-${{ hashFiles('crates/rv-whatsapp/Cargo.lock') }}
-          restore-keys: rv-whatsapp-${{ runner.os }}-
+          workspaces: crates/rv-whatsapp -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       # Upstream's own files keep upstream's (nightly) formatting: only the
       # crates written here are held to rustfmt (VENDOR.md).
       - run: cargo fmt -p wacore-signal -p wacore-crypto -p wacore-appstate --check

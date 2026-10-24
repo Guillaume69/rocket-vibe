@@ -18,9 +18,18 @@ pub const MAX_MESSAGE_KEYS: usize = 2000;
 
 const INFO_GROUP: &[u8] = b"WhisperGroup";
 
-struct GroupKeys {
-    iv: [u8; 16],
-    cipher_key: [u8; 32],
+/// A group message's keys.
+#[derive(Clone, Debug)]
+pub struct GroupKeys {
+    pub iv: [u8; 16],
+    pub cipher_key: [u8; 32],
+}
+
+impl ChainKey {
+    /// The keys of the group message at this sender chain position.
+    pub fn group_keys(&self) -> GroupKeys {
+        GroupKeys::derive(&self.message_seed())
+    }
 }
 
 impl GroupKeys {

@@ -67,7 +67,8 @@ impl ChainKey {
         }
     }
 
-    fn message_keys(&self) -> MessageKeys {
+    /// The keys of the message at this chain position.
+    pub fn message_keys(&self) -> MessageKeys {
         MessageKeys::derive(&self.message_seed(), self.index)
     }
 }
@@ -397,6 +398,10 @@ impl SessionRecord {
         Self { current, previous }
     }
 
+    pub fn into_states(self) -> (Option<SessionState>, Vec<SessionState>) {
+        (self.current, self.previous)
+    }
+
     pub fn current(&self) -> Option<&SessionState> {
         self.current.as_ref()
     }
@@ -457,6 +462,19 @@ impl SessionRecord {
         ) {
             return Err(Error::BadSignature);
         }
+        self.initiate_unverified(local, bundle, base, rng)
+    }
+
+    /// `initiate_with_base_key` without checking the bundle's signature: for
+    /// tests that build a session from bare keys.
+    #[doc(hidden)]
+    pub fn initiate_unverified<R: CryptoRng + ?Sized>(
+        &mut self,
+        local: &LocalIdentity,
+        bundle: &PreKeyBundle,
+        base: KeyPair,
+        rng: &mut R,
+    ) -> Result<()> {
         let mut dhs = vec![
             local.identity.private.agree(&bundle.signed_prekey)?,
             base.private.agree(&bundle.identity)?,

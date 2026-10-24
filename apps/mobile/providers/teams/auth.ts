@@ -38,7 +38,7 @@ export class TeamsError extends Error {
   }
 }
 
-export type TeamsOptions = { fetch?: typeof fetch };
+export type TeamsOptions = { fetch?: typeof fetch; onSkype?: (skype: string, routes: TeamsRoutes) => void };
 
 function guid(s: unknown): s is string {
   return typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
@@ -194,11 +194,13 @@ export class TeamsTokens {
   private templatesLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
+  private readonly onSkype: TeamsOptions['onSkype'];
 
   constructor(session: Session, options: TeamsOptions = {}) {
     if (session.kind !== 'teams' || !session.teamsTenantId || !session.teamsRefresh) throw new TeamsError('not_teams');
     this.session = session;
     this.fetcher = options.fetch ?? fetch;
+    this.onSkype = options.onSkype;
   }
 
   /** Tokens already held, for a test server: they never refresh. */
@@ -314,6 +316,7 @@ export class TeamsTokens {
     const seconds = typeof tokens.expiresIn === 'number' ? tokens.expiresIn : 3600;
     this.skypeLease = { value: tokens.skypeToken, until: Date.now() + seconds * 1000 };
     this.routesHeld = routes;
+    this.onSkype?.(tokens.skypeToken, routes);
     return { skype: tokens.skypeToken, routes };
   }
 

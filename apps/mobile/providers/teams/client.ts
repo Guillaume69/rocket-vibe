@@ -36,7 +36,10 @@ export type Answer = { status: number; body: Doc };
  *  message's `properties.files` entry needs it. */
 export type TeamsFileRef = { itemId: string; name: string; webUrl: string; site: string; unique: string };
 
-export type TeamsClientOptions = { fetch?: typeof fetch; onRejected?: () => void };
+export type TeamsClientOptions = { fetch?: typeof fetch; onRejected?: () => void; me?: string; isChat?: (rid: string) => boolean };
+
+/** The OneDrive folder Teams keeps a chat's files in. */
+const CHAT_FILES = 'Microsoft Teams Chat Files';
 
 export class TeamsClient {
   readonly tokens: TeamsTokens;
@@ -263,6 +266,11 @@ export class TeamsClient {
   async channelDrive(rid: string): Promise<{ drive: string; folder: string }> {
     const hit = this.drives.get(rid);
     if (hit) return hit;
+    if (this.options.isChat?.(rid)) {
+      const pair = await this.chatFilesFolder();
+      this.drives.set(rid, pair);
+      return pair;
+    }
     const gid = await this.parentTeam(rid);
     const ff = await this.graph(
       `https://graph.microsoft.com/v1.0/teams/${gid}/channels/${rid}/filesFolder?$select=id,parentReference`,
@@ -276,7 +284,42 @@ export class TeamsClient {
     return pair;
   }
 
-  /** The Graph `/content` upload url for a named file in a channel's folder. */
+  /** My OneDrive's `Microsoft Teams Chat Files` folder, where Teams' own
+   *  clients keep a chat's files; made when it does not exist yet. */
+  private async chatFilesFolder(): Promise<{ drive: string; folder: string }> {
+    const pair = (d: Doc): { drive: string; folder: string } | null => {
+      const drive = (d.parentReference as Doc | undefined)?.driveId;
+      return typeof drive === 'string' && typeof d.id === 'string' ? { drive, folder: d.id } : null;
+    };
+    const path = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(CHAT_FILES)}?$select=id,parentReference`;
+    const found = await this.graph(path).then(pair, () => null);
+    if (found) return found;
+    const header: [string, string] = ['authorization', `Bearer ${await this.tokens.graph()}`];
+    const body = { name: CHAT_FILES, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' };
+    const made = await this.send('https://graph.microsoft.com/v1.0/me/drive/root/children', header, 'POST', body)
+      .then((a) => pair(a.body), (e: unknown) => (e instanceof TeamsError && e.status === 409 ? null : Promise.reject(e)));
+    const result = made ?? pair(await this.graph(path));
+    if (!result) throw new TeamsError('chat_files');
+    return result;
+  }
+
+  /** Grants a chat's other members read on a file in my OneDrive, as Teams'
+   *  clients do, without Microsoft's invitation mail (`driveItem/invite`,
+   *  verified live 2026-10-24). Mirrors `TeamsSync::share_with_chat`. */
+  private async shareWithChat(rid: string, drive: string, itemId: string): Promise<void> {
+    const roster = await this.roster(rid);
+    const recipients = (Array.isArray(roster.members) ? (roster.members as Doc[]) : [])
+      .map((m) => (typeof m.id === 'string' ? m.id : ''))
+      .filter((mri) => mri.startsWith('8:orgid:') && mri !== this.options.me)
+      .map((mri) => ({ objectId: mri.slice('8:orgid:'.length) }));
+    if (recipients.length === 0) return;
+    const header: [string, string] = ['authorization', `Bearer ${await this.tokens.graph()}`];
+    await this.send(`https://graph.microsoft.com/v1.0/drives/${drive}/items/${itemId}/invite`, header, 'POST', {
+      requireSignIn: true, sendInvitation: false, roles: ['read'], recipients,
+    });
+  }
+
+  /** The Graph `/content` upload url for a named file in a room's folder. */
   async contentUrl(rid: string, name: string): Promise<string> {
     const { drive, folder } = await this.channelDrive(rid);
     return `https://graph.microsoft.com/v1.0/drives/${drive}/items/${folder}:/${encodeURIComponent(name)}:/content`;
@@ -290,6 +333,7 @@ export class TeamsClient {
     );
     const sp = item.sharepointIds as Doc | undefined;
     const text = (o: Doc | undefined, k: string): string => (typeof o?.[k] === 'string' ? (o[k] as string) : '');
+    if (this.options.isChat?.(rid) && text(item, 'id')) await this.shareWithChat(rid, drive, text(item, 'id'));
     return {
       itemId: text(item, 'id'),
       name: text(item, 'name') || name,

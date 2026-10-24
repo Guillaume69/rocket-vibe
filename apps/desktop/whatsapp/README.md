@@ -1,4 +1,6 @@
-# WhatsApp helper
+# WhatsApp helper (Go engine, Android)
+
+**The desktop no longer ships this helper.** Its `rv-whatsapp` is the Rust engine in `crates/rv-whatsapp/engine` (same JSON-lines protocol, built by `apps/desktop/scripts/build-whatsapp.sh` and `desktop-whatsapp.yml`). This Go engine stays as Android's, built into `librv_whatsapp.so` by `apps/mobile/modules/whatsapp/build-android.mjs`, until Android binds the Rust one; `desktop-whatsapp.yml` still runs its gofmt, vet and race tests. The sections below describe it as it was used on the desktop.
 
 Status: experimental, on `claude/whatsapp-feasibility` (continuing `codex/whatsapp-feasibility`). A WhatsApp account is an account of the GTK app; this is the local helper behind it. Read [the handoff](../../../docs/WHATSAPP_HANDOFF.md) before extending it.
 

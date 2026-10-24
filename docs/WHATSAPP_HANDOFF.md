@@ -102,12 +102,18 @@ See `apps/desktop/whatsapp/README.md` for the helper's build. On this Windows ma
 - Not yet checked live: notifications in the background, unlinking, attachments shown and sent (run 38279855876 onwards), typing, upstream failure scenarios.
 - macOS GTK runtime, SwiftUI, Android: absent. Web: `n/a`.
 
+2026-10-24, on `feature/whatsapp-engine`: the desktop helper is now the Rust engine (`crates/rv-whatsapp/engine`, binary `rv-whatsapp`), the protocol unchanged.
+
+- `cargo test -p rv-whatsapp-engine` (Rust 1.97.1) passes: the protocol's frames and commands, the sealed state (its key only, held once, the Go state refused, revoked for good), the projection (settled messages kept, interrupted sends uncertain and kept through pruning, reactions never back in time, edits and deletions, receipts forward only and delivery only in groups, a LID conversation moved to its number, unread counts, stale photos, names), the message content helpers, image previews, and the device driven offline (`tests/device.rs`). Clippy `-D warnings` is clean.
+- The binary, run against WhatsApp's servers with a new state: `loaded`, `connecting`, then a QR; `stop` seals the state (mode 0600, header `RVWA2`); a reopen with the same key shows the same device keys in the QR, a wrong key answers `connector_start_failed`, and a Go state is set aside for a new link.
+- Not yet checked live: linking, messages, sends and every account action with the Rust helper. An account linked with the Go helper links again.
+
 Update this record with actual commands and evidence, never with intended results.
 
 ## Live test on Windows
 
 1. `gh workflow run desktop.yml --ref claude/whatsapp-feasibility` (one dispatch at a time: a second cancels the first), then `gh run download <id> -n desktop-windows` and unzip the portable zip under `D:\RocketVibe\artifacts\`.
-2. Build the helper of the same commit (`git archive <sha> apps/desktop/whatsapp`, then `TARGET_OS=windows PROFILE=release apps/desktop/scripts/build-whatsapp.sh` or the same cross-build in a scratch copy) and put `rv-whatsapp.exe` in the package's `bin\`, next to `rocket-vibe-gtk.exe`. A helper and an app of different commits mostly work (unknown frames are skipped) but say nothing about either.
+2. Build the helper of the same commit (`TARGET_OS=windows PROFILE=release apps/desktop/scripts/build-whatsapp.sh` on a checkout of it, or take `rv-whatsapp-windows-x86_64` from the same run) and put `rv-whatsapp.exe` in the package's `bin\`, next to `rocket-vibe-gtk.exe`. A helper and an app of different commits mostly work (unknown frames are skipped) but say nothing about either.
 3. Launch `bin\rocket-vibe-gtk.exe`. A device linked by an earlier pilot build is adopted at startup as an account; otherwise Connect WhatsApp on the sign-in page (or the rail's +, then the sign-in page) shows the QR. The key goes to Windows Credential Manager (service `me.barrut.RocketVibe`, entry `whatsapp-storage-v1|<state>`, or `whatsapp-pilot-storage-v1` for the adopted one), the sealed state to `%LOCALAPPDATA%\rocket-vibe-rs\whatsapp\<state>\` (`whatsapp-pilot\` for the adopted one).
 4. To start over: the account menu's Unlink WhatsApp (or remove the device on the phone). Deleting the state alone leaves the device linked on the phone's side.
 

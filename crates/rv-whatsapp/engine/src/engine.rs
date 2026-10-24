@@ -73,8 +73,7 @@ pub(crate) struct Engine {
 
 /// The device's frames and commands, from the transport's side.
 pub struct Device {
-    engine: Arc<Engine>,
-    runtime: Option<tokio::runtime::Runtime>,
+    live: Option<(Arc<Engine>, tokio::runtime::Runtime)>,
 }
 
 impl Device {
@@ -141,15 +140,14 @@ impl Device {
         let opened = Arc::clone(&engine);
         runtime.block_on(async move { opened.start(outgoing_rx, events_rx).await });
         Ok(Self {
-            engine,
-            runtime: Some(runtime),
+            live: Some((engine, runtime)),
         })
     }
 
     /// Reaches WhatsApp: the account's frames when linked, a QR otherwise.
     pub fn connect(&self) {
-        if let Some(runtime) = &self.runtime {
-            let engine = Arc::clone(&self.engine);
+        if let Some((engine, runtime)) = &self.live {
+            let engine = Arc::clone(engine);
             runtime.spawn(async move { engine.connect().await });
         }
     }
@@ -157,36 +155,40 @@ impl Device {
     /// Runs one command line; false once the engine ended (a stop, a logout),
     /// after which only `close` is left.
     pub fn handle(&self, line: &str) -> bool {
-        let Some(runtime) = &self.runtime else {
+        let Some((engine, runtime)) = &self.live else {
             return false;
         };
         let Ok(cmd) = serde_json::from_str::<Command>(line) else {
-            self.engine.fail("invalid_command");
+            engine.fail("invalid_command");
             return true;
         };
-        let engine = Arc::clone(&self.engine);
+        let engine = Arc::clone(engine);
         runtime.block_on(async move { engine.handle(cmd).await })
     }
 
     /// Ends the engine's work without waiting, safe from inside a `Sink`.
     pub fn cancel(&self) {
-        self.engine.cancelled.send_replace(true);
+        if let Some((engine, _)) = &self.live {
+            engine.cancelled.send_replace(true);
+        }
     }
 
     /// Checkpoints the state and releases it and its lock; idempotent.
     pub fn close(&mut self) {
-        let Some(runtime) = self.runtime.take() else {
+        let Some((engine, runtime)) = self.live.take() else {
             return;
         };
-        let engine = Arc::clone(&self.engine);
+        let closing = Arc::clone(&engine);
         runtime.block_on(async move {
-            engine.cancelled.send_replace(true);
-            engine.disconnect().await;
-            if !engine.stopped.load(Ordering::SeqCst) {
-                let _ = engine.checkpoint().await;
+            closing.cancelled.send_replace(true);
+            closing.disconnect().await;
+            if !closing.stopped.load(Ordering::SeqCst) {
+                let _ = closing.checkpoint().await;
             }
         });
+        // The tasks go with the runtime, and the last of the engine with them: its lock too.
         runtime.shutdown_timeout(Duration::from_secs(5));
+        drop(engine);
     }
 }
 

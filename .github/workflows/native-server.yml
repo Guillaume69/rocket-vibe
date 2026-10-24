@@ -275,9 +275,9 @@ jobs:
           path: |
             .cache/native-desktop-cargo
             apps/desktop/target
-          key: native-desktop-fedora-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock') }}
+          key: native-desktop-fedora-v2-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: |
-            native-desktop-fedora-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-
+            native-desktop-fedora-v2-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-
       - uses: docker/setup-buildx-action@v4
       - name: Load cached Fedora toolchain
         uses: docker/build-push-action@v7
@@ -331,6 +331,7 @@ jobs:
               timeout 30s bash scripts/check-notification-activation.sh
             '
       - name: Desktop pilot binaries
+        id: pilot_binaries
         if: matrix.leg != 'widgets'
         run: |
           mkdir -p .cache/native-desktop-cargo artifacts
@@ -340,13 +341,6 @@ jobs:
               cargo build --locked -p rv-core --example native-smoke --example native-files-smoke --example native-reload-peer
               cargo build --locked -p rocket-vibe-gtk
             '
-      - uses: actions/cache/save@v4
-        if: matrix.leg == 'core' && github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true'
-        with:
-          path: |
-            .cache/native-desktop-cargo
-            apps/desktop/target
-          key: ${{ steps.native_desktop_fedora.outputs.cache-primary-key }}
       - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
         if: matrix.leg == 'core'
         run: |
@@ -425,6 +419,16 @@ jobs:
           name: native-desktop-pilot-${{ matrix.leg }}
           path: artifacts/native-*
           if-no-files-found: error
+      - name: Keep only dependency artifacts in the build cache
+        if: "!cancelled() && matrix.leg == 'core' && github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true' && steps.pilot_binaries.outcome == 'success'"
+        run: node scripts/prune-cargo-cache.mjs apps/desktop/Cargo.lock apps/desktop/target .cache/native-desktop-cargo
+      - uses: actions/cache/save@v4
+        if: "!cancelled() && matrix.leg == 'core' && github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true' && steps.pilot_binaries.outcome == 'success'"
+        with:
+          path: |
+            .cache/native-desktop-cargo
+            apps/desktop/target
+          key: ${{ steps.native_desktop_fedora.outputs.cache-primary-key }}
 
   native-desktop-core-windows:
     needs: scope
@@ -459,9 +463,9 @@ jobs:
           path: |
             .cache/native-swift-cargo
             apps/desktop/target/swift-linux
-          key: native-swift-rust-v3-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
+          key: native-swift-rust-v4-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
           restore-keys: |
-            native-swift-rust-v3-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-
+            native-swift-rust-v4-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-
       - uses: actions/cache/restore@v4
         id: native_swift_objects
         with:
@@ -496,6 +500,7 @@ jobs:
           cache-from: type=gha,scope=native-check-image
           cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-check-image,mode=max,ignore-error=true' || '' }}
       - name: Generate actual bindings and test shared view models
+        id: swift_build
         run: |
           mkdir -p .cache/native-swift-cargo artifacts
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-swift-cargo:/cargo" \
@@ -510,13 +515,6 @@ jobs:
               swift build --scratch-path .build/linux
               swift test --scratch-path .build/linux
             '
-      - uses: actions/cache/save@v4
-        if: github.ref == 'refs/heads/master' && steps.native_swift_rust.outputs.cache-hit != 'true'
-        with:
-          path: |
-            .cache/native-swift-cargo
-            apps/desktop/target/swift-linux
-          key: ${{ steps.native_swift_rust.outputs.cache-primary-key }}
       - uses: actions/cache/save@v4
         if: github.ref == 'refs/heads/master' && steps.native_swift_objects.outputs.cache-hit != 'true'
         with:
@@ -573,3 +571,13 @@ jobs:
         with:
           name: native-swift-pilot
           path: artifacts/native-swift-*
+      - name: Keep only dependency artifacts in the Rust cache
+        if: "!cancelled() && github.ref == 'refs/heads/master' && steps.native_swift_rust.outputs.cache-hit != 'true' && steps.swift_build.outcome == 'success'"
+        run: node scripts/prune-cargo-cache.mjs apps/desktop/Cargo.lock apps/desktop/target/swift-linux .cache/native-swift-cargo
+      - uses: actions/cache/save@v4
+        if: "!cancelled() && github.ref == 'refs/heads/master' && steps.native_swift_rust.outputs.cache-hit != 'true' && steps.swift_build.outcome == 'success'"
+        with:
+          path: |
+            .cache/native-swift-cargo
+            apps/desktop/target/swift-linux
+          key: ${{ steps.native_swift_rust.outputs.cache-primary-key }}

@@ -24,7 +24,7 @@
 use anyhow::{Result, anyhow};
 use smallvec::SmallVec;
 
-use crate::libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
+use wacore_crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 
 const GCM_IV_SIZE: usize = 12;
 const GCM_TAG_SIZE: usize = 16;
@@ -347,7 +347,7 @@ mod tests {
         // just an unused field. Bypass derive (which would also change with
         // modification_type) and hand-roll an encrypt with one AAD shape, then
         // try to decrypt with the other under the same key.
-        use crate::libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
+        use wacore_crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 
         let secret = [0x33u8; 32];
         let pv_ctx = ctx(ModificationType::PollVote, "stanza", "p@s", "s@s");

@@ -869,7 +869,7 @@ mod tests {
         let epr = wa::EncryptedPairingRequest::decode_from_slice(wrapped.as_slice()).unwrap();
         let iv: [u8; 12] = epr.iv.unwrap().as_slice().try_into().unwrap();
         let mut plaintext = Vec::new();
-        wacore::libsignal::crypto::aes_256_gcm_decrypt(
+        wacore_crypto::aes_256_gcm_decrypt(
             &key,
             &iv,
             b"",

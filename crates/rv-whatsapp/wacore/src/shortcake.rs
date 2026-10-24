@@ -28,7 +28,7 @@
 //!   The handoff only proves ADV-secret continuity for a re-link (suppresses the
 //!   verification-code UX); it does NOT replace the WebAuthn assertion.
 
-use crate::libsignal::crypto::aes_256_gcm_encrypt;
+use wacore_crypto::aes_256_gcm_encrypt;
 use crate::libsignal::protocol::{CurveError, KeyPair, PublicKey};
 use crate::pair_code::PairCodeUtils;
 use buffa::Enumeration;
@@ -530,7 +530,7 @@ mod tests {
     // companion's PairingRequest, and the handoff proof verifies.
     #[test]
     fn full_handshake_interops_with_a_simulated_primary() {
-        use crate::libsignal::crypto::aes_256_gcm_decrypt;
+        use wacore_crypto::aes_256_gcm_decrypt;
 
         let device_type = wa::device_props::PlatformType::CHROME;
         let pairing_ref = "REF-XYZ";

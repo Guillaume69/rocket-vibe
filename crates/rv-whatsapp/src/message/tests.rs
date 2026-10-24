@@ -16094,7 +16094,7 @@ fn a_stored_bot_secret_that_will_not_derive_is_storage_not_a_missing_secret() {
 /// against the peer is the same mistake as counting a failed disk read.
 #[test]
 fn a_local_key_agreement_failure_is_not_the_peers() {
-    use wacore::libsignal::crypto::CryptoProviderError;
+    use wacore_crypto::CryptoProviderError;
     use wacore::libsignal::protocol::SignalProtocolError;
 
     assert_eq!(

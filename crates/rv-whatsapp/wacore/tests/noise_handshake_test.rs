@@ -1,8 +1,8 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 use wacore::handshake::NoiseHandshake;
-use wacore::libsignal::crypto::CryptographicHash;
-use wacore::libsignal::crypto::aes_256_gcm_decrypt;
+use wacore_crypto::CryptographicHash;
+use wacore_crypto::aes_256_gcm_decrypt;
 use wacore::libsignal::protocol::{PrivateKey, PublicKey};
 use wacore::noise::generate_iv;
 use wacore_binary::consts::{NOISE_PATTERN_XX, WA_CONN_HEADER};

@@ -3,7 +3,7 @@ use crate::adv::{
     DeviceSignatureKind,
 };
 use crate::companion_reg::CompanionWebClientType;
-use crate::libsignal::crypto::aes_256_gcm_encrypt;
+use wacore_crypto::aes_256_gcm_encrypt;
 use crate::libsignal::protocol::{KeyPair, PublicKey};
 use base64::Engine as _;
 use base64::prelude::*;

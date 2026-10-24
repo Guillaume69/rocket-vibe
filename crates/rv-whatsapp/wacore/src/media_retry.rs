@@ -10,7 +10,7 @@
 //! Reference: WAWebCryptoMediaRetry, WAWebSendServerErrorReceiptJob,
 //! WAWebHandleMediaRetryNotification.
 
-use crate::libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
+use wacore_crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 use anyhow::{Result, anyhow};
 use buffa::MessageView;
 use rand::Rng;

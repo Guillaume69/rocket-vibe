@@ -4514,6 +4514,7 @@ dependencies = [
  "wacore",
  "wacore-appstate",
  "wacore-binary",
+ "wacore-crypto",
  "wacore-derive",
  "wacore-noise",
  "wacore-signal",
@@ -4599,6 +4600,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.21",
  "wacore-binary",
+ "wacore-crypto",
  "wacore-signal",
  "waproto",
 ]
@@ -4830,6 +4832,7 @@ dependencies = [
  "uuid",
  "wacore",
  "wacore-binary",
+ "wacore-crypto",
  "wacore-noise",
  "waproto",
  "whatsapp-rust-sqlite-storage",

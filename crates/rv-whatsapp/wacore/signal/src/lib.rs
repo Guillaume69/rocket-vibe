@@ -9,8 +9,5 @@
 //! (`brain/decisions.md`, "WhatsApp in Rust"). The aim is to shrink it as the
 //! engine moves onto `rv-signal` directly.
 
-pub mod crypto {
-    pub use wacore_crypto::*;
-}
 pub mod protocol;
 pub mod store;

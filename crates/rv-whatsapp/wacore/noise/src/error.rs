@@ -1,5 +1,5 @@
 use thiserror::Error;
-use wacore_signal::crypto::CryptoProviderError;
+use wacore_crypto::CryptoProviderError;
 
 /// Errors that can occur during Noise protocol operations.
 #[derive(Debug, Error)]

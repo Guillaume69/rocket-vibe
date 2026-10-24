@@ -215,8 +215,31 @@ jobs:
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
 
-  native-desktop:
+  server-binary:
     needs: scope
+    if: needs.scope.outputs.clients == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: vibez
+          workspaces: |
+            . -> target
+            crates/rv-crypto -> ../../target
+          save-if: false
+      - run: cargo build --locked -p vibez --config 'profile.dev.package.argon2.opt-level=3' --config 'profile.dev.package.blake2.opt-level=3'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibez-native
+          path: target/debug/vibez
+          retention-days: 1
+
+  native-desktop:
+    needs: [scope, server-binary]
     if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -247,16 +270,15 @@ jobs:
           load: true
           tags: rocket-vibe-rs-build
           cache-from: type=gha,scope=native-fedora-image
-          cache-to: type=gha,scope=native-fedora-image,mode=max,ignore-error=true
-      - name: Load cached disposable native server
-        uses: docker/build-push-action@v7
+          cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-fedora-image,mode=max,ignore-error=true' || '' }}
+      - uses: actions/download-artifact@v4
         with:
-          context: .
-          file: apps/server/Dockerfile
-          load: true
-          tags: vibez-native-server
-          cache-from: type=gha,scope=native-server-image
-          cache-to: type=gha,scope=native-server-image,mode=max,ignore-error=true
+          name: vibez-native
+          path: .cache/vibez-native
+      - name: Disposable native server image
+        run: |
+          chmod +x .cache/vibez-native/vibez
+          docker build -t vibez-native-server -f apps/server/docker/Dockerfile.native .cache/vibez-native
       - name: Load cached native check toolchain
         uses: docker/build-push-action@v7
         with:
@@ -265,7 +287,7 @@ jobs:
           load: true
           tags: vibez-native-check
           cache-from: type=gha,scope=native-check-image
-          cache-to: type=gha,scope=native-check-image,mode=max,ignore-error=true
+          cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-check-image,mode=max,ignore-error=true' || '' }}
       - name: Desktop GTK widget tests and pilot binaries
         run: |
           mkdir -p .cache/native-desktop-cargo artifacts
@@ -344,17 +366,17 @@ jobs:
         if: always()
         run: |
           docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-files-pilot.log
-          docker compose -f docker/compose.native-files-pilot.yml down -v
+          docker compose -f docker/compose.native-files-pilot.yml down -v -t 0
           docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-pilot.log
-          docker compose -f docker/compose.native-pilot.yml down -v
+          docker compose -f docker/compose.native-pilot.yml down -v -t 0
           docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-security-pilot.log
-          docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
+          docker compose -p vibez-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v -t 0
           docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml logs --no-color > artifacts/native-email-otp-pilot.log
-          docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml down -v
+          docker compose -p vibez-gtk-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml down -v -t 0
           files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
           for project in vibez-email-settings-gtk vibez-email-settings-mobile; do
             docker compose -p "$project" $files logs --no-color > "artifacts/native-$project.log"
-            docker compose -p "$project" $files down -v
+            docker compose -p "$project" $files down -v -t 0
           done
           # Docker's Rust compiler creates owner-only incremental lock files.
           # Return generated caches to the runner before actions/cache archives them.
@@ -389,7 +411,7 @@ jobs:
           cargo test --locked -p rv-native
 
   native-swift-models:
-    needs: scope
+    needs: [scope, server-binary]
     if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -419,16 +441,15 @@ jobs:
           load: true
           tags: rocket-vibe-swift
           cache-from: type=gha,scope=native-swift-image
-          cache-to: type=gha,scope=native-swift-image,mode=max,ignore-error=true
-      - name: Load cached disposable native server
-        uses: docker/build-push-action@v7
+          cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-swift-image,mode=max,ignore-error=true' || '' }}
+      - uses: actions/download-artifact@v4
         with:
-          context: .
-          file: apps/server/Dockerfile
-          load: true
-          tags: vibez-native-server
-          cache-from: type=gha,scope=native-server-image
-          cache-to: type=gha,scope=native-server-image,mode=max,ignore-error=true
+          name: vibez-native
+          path: .cache/vibez-native
+      - name: Disposable native server image
+        run: |
+          chmod +x .cache/vibez-native/vibez
+          docker build -t vibez-native-server -f apps/server/docker/Dockerfile.native .cache/vibez-native
       - name: Load cached native check toolchain
         uses: docker/build-push-action@v7
         with:
@@ -437,7 +458,7 @@ jobs:
           load: true
           tags: vibez-native-check
           cache-from: type=gha,scope=native-check-image
-          cache-to: type=gha,scope=native-check-image,mode=max,ignore-error=true
+          cache-to: ${{ github.ref == 'refs/heads/master' && 'type=gha,scope=native-check-image,mode=max,ignore-error=true' || '' }}
       - name: Generate actual bindings and test shared view models
         run: |
           mkdir -p .cache/native-swift-cargo artifacts
@@ -497,15 +518,15 @@ jobs:
         run: |
           docker compose -f docker/compose.native-pilot.yml logs --no-color > artifacts/native-swift-pilot.log
           docker compose -f docker/compose.native-files-pilot.yml logs --no-color > artifacts/native-swift-files-pilot.log
-          docker compose -f docker/compose.native-files-pilot.yml down -v
-          docker compose -f docker/compose.native-pilot.yml down -v
+          docker compose -f docker/compose.native-files-pilot.yml down -v -t 0
+          docker compose -f docker/compose.native-pilot.yml down -v -t 0
           docker compose -p vibez-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml logs --no-color > artifacts/native-swift-security-pilot.log
-          docker compose -p vibez-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v
+          docker compose -p vibez-swift-security-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml down -v -t 0
           docker compose -p vibez-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml logs --no-color > artifacts/native-swift-email-otp-pilot.log
-          docker compose -p vibez-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml down -v
+          docker compose -p vibez-swift-email-otp-pilot -f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml down -v -t 0
           files='-f docker/compose.native-pilot.yml -f docker/compose.native-security-pilot.yml -f docker/compose.native-email-otp-pilot.yml -f docker/compose.native-swift-email-otp-pilot.yml -f docker/compose.native-email-settings-pilot.yml'
           docker compose -p vibez-email-settings-swift $files logs --no-color > artifacts/native-swift-email-settings.log
-          docker compose -p vibez-email-settings-swift $files down -v
+          docker compose -p vibez-email-settings-swift $files down -v -t 0
           # Swift's Docker compiler creates private ModuleCache/index directories.
           # Let the runner save its generated build cache after successful tests.
           for path in .cache/native-swift-cargo apps/desktop/target/swift-linux apps/desktop/macos/.build/linux; do

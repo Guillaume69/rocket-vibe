@@ -100,7 +100,7 @@ Runtime files: config in `~/.config/rocket-vibe-rs`, data in `~/.local/share/roc
 
 Each workflow runs only when its app's files, `scripts/version.mjs` or the workflow itself change. A push or PR only checks; packages are built on a release tag or a manual `workflow_dispatch`.
 
-Build caches are saved from `master` only and restored everywhere: a branch or tag can read its own caches and the default branch's, nothing else, and the repository's 10 GB of Actions cache evicts the oldest entries first ([decisions](decisions.md)). Rust caches go through `Swatinem/rust-cache` (keyed on the toolchain and lockfiles, workspace crates pruned), the ones built inside Docker through `actions/cache/restore` and `save`; CI builds with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. Release-only jobs (packages on a tag) cache nothing.
+Build caches are saved from `master` only and restored everywhere: a branch or tag can read its own caches and the default branch's, nothing else, and the repository's 10 GB of Actions cache evicts the oldest entries first ([decisions](decisions.md)). Rust caches go through `Swatinem/rust-cache` (keyed on the toolchain and lockfiles, workspace crates pruned), the ones built inside Docker through `actions/cache/restore` and `save`, and Docker layers (`docker/build-push-action`'s `cache-to`) from `master` too. The server's debug build shares one cache (`shared-key: vibez`), which only the gate's `verify` job saves; CI builds with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. Release-only jobs (packages on a tag) cache nothing.
 
 | Workflow | Triggers | Always | Tag or dispatch only |
 |---|---|---|---|
@@ -111,8 +111,8 @@ Build caches are saved from `master` only and restored everywhere: a branch or t
 | `server-image.yml` | dispatch only, input `tag` (`vibez-vX.Y.Z`) and `latest` | | Builds `apps/server/Dockerfile` at that tag and pushes `ghcr.io/guillaume69/vibez:X.Y.Z` (and `latest`) with the workflow token: backfills or republishes a version the release flow did not push |
 | `web-client.yml` | pushes to all branches matching source paths, PRs, dispatch | `assets`: format, Node tests, build and committed assets; `server`: the `vibez` debug binary; `browser` (two shards, `e2ee` and the rest): isolated PostgreSQL/SMTP/LiveKit and the browser suites. The server's fmt, clippy and tests are `native-server.yml`'s | Nothing: the web client ships inside the server binary, released by `server-release.yml` |
 | `desktop-voice.yml` | pushes to every branch touching `apps/desktop/voice`, `rv-voice-protocol` or itself; PRs; `workflow_call` (from `desktop.yml` when it packages); dispatch | Builds the `rv-voice` sidecar on Linux, Windows and macOS and uploads it | |
-| `native-server.yml` | pushes to every branch touching the server, the web client's `dist` (embedded in the server), `crates/`, the mobile or desktop app, `docs/protocol` or the native Compose files; PRs; dispatch | The `rv-crypto` matrix and its HTTP bench; when a client may be affected (`scope`), the server gate (`apps/server/scripts/check.sh`), the Android bundle export, the GTK widget tests and the mobile, GTK and Swift pilots against a native server, `rv-core` and `rv-native` on Windows. It leaves the mobile typecheck and tests to `mobile.yml` and the desktop fmt, clippy and workspace tests to `desktop.yml` | |
-| `native-crypto-android.yml` | pushes to every branch touching `crates/rv-crypto*`, `rv-protocol` or the mobile crypto module; PRs; dispatch | The native crypto library on Android with the keystore | |
+| `native-server.yml` | pushes to every branch touching the server, the web client's `dist` (embedded in the server), `crates/`, the mobile or desktop app, `docs/protocol` or the native Compose files; PRs; dispatch | The `rv-crypto` matrix and its HTTP bench; when a client may be affected (`scope`), the server gate (`apps/server/scripts/check.sh`), the Android bundle export, the GTK widget tests and the mobile, GTK and Swift pilots against a native server (`server-binary` builds it once, in debug with Argon2 optimised, and each pilot job wraps it in `apps/server/docker/Dockerfile.native`), `rv-core` and `rv-native` on Windows. It leaves the mobile typecheck and tests to `mobile.yml` and the desktop fmt, clippy and workspace tests to `desktop.yml` | |
+| `native-crypto-android.yml` | pushes to every branch touching `crates/rv-crypto*`, `rv-protocol` or the mobile crypto module; PRs; dispatch | The native crypto library on Android with the keystore, the instrumentation built for the emulator's x86_64 only and the arm64 library compiled in a parallel job (`android-arm64`) | |
 | `cargo-locks.yml` | pushes to every branch touching a `Cargo.toml`, a `Cargo.lock`, the script or itself; PRs; dispatch | `node scripts/cargo-locks.mjs`: every lock agrees on each crate line | |
 
 Path filters do not apply to tag pushes, so a release tag always builds. Maestro and the desktop e2e scripts need a live server and do not run in CI.
@@ -169,6 +169,7 @@ The mobile Android job fails loudly without its two secrets. Without the Apple s
 - `.github/workflows/web-client.yml`
 - `.github/workflows/server-release.yml`
 - `.github/workflows/server-image.yml`
+- `apps/server/docker/Dockerfile.native`
 - `apps/mobile/package.json`
 - `apps/mobile/app.json`
 - `apps/mobile/.gitignore`

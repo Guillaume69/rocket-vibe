@@ -6,6 +6,7 @@ COPY apps/web/dist apps/web/dist
 COPY crates/rv-protocol crates/rv-protocol
 COPY crates/rv-client crates/rv-client
 COPY crates/rv-crypto-public crates/rv-crypto-public
+COPY crates/rv-link-preview crates/rv-link-preview
 RUN cargo build --locked --release --manifest-path apps/server/Cargo.toml
 
 FROM debian:bookworm-slim

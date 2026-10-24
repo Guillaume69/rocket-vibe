@@ -444,3 +444,17 @@ async fn expiry_while_waiting_for_journal_rolls_back_all_publication(pool: PgPoo
             .unwrap();
     assert_eq!(count, 1);
 }
+
+#[test]
+fn uses_message_structure_for_bounded_deduplicated_links() {
+    let source = "`https://code.example/a`\n\n> https://quoted.example/a\n\n![alt](https://image.example/a.png)\n\nhttps://first.example/a#one [label](https://second.example/b) https://first.example/a#one\n\nhttps://third.example/c https://fourth.example/d";
+    assert_eq!(
+        links(source),
+        [
+            "https://first.example/a#one",
+            "https://second.example/b",
+            "https://third.example/c"
+        ]
+    );
+    assert!(links("https://127.1/private [bad](file:///tmp/a)").is_empty());
+}

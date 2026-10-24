@@ -2,7 +2,7 @@
 //! fresh DNS check and a new client pinned to the complete validated answer.
 //! References: OWASP SSRF Prevention Cheat Sheet and IANA special registries.
 use reqwest::{Client, Url, header, redirect::Policy};
-use rv_protocol::link_previews::{MAX_PREVIEWS, MAX_URL_BYTES, PreviewKind};
+use rv_protocol::link_previews::{MAX_URL_BYTES, PreviewKind};
 use scraper::{Html, Selector};
 use std::{
     io::Cursor,
@@ -16,21 +16,21 @@ const REQUEST_TIME: Duration = Duration::from_secs(8);
 const TOTAL_TIME: Duration = Duration::from_secs(24);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Failure {
+pub enum Failure {
     Blocked,
     Unsupported,
     TooLarge,
     Network,
 }
 impl Failure {
-    pub(super) fn retry(self) -> bool {
+    pub fn retry(self) -> bool {
         self == Self::Network
     }
 }
 type Result<T> = std::result::Result<T, Failure>;
 
 #[derive(Debug)]
-pub(super) struct Collected {
+pub struct Collected {
     pub kind: PreviewKind,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -38,7 +38,7 @@ pub(super) struct Collected {
     pub image: Option<NormalizedImage>,
 }
 #[derive(Debug)]
-pub(super) struct NormalizedImage {
+pub struct NormalizedImage {
     pub bytes: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -54,7 +54,7 @@ struct Resource {
 /// Conservative public-unicast policy: rejects special IPv4 assignments,
 /// transition/mapped IPv6, documentation and unallocated IPv6 space too.
 /// Some globally reachable special-purpose anycast assignments are excluded.
-pub(crate) fn public_address(ip: IpAddr) -> bool {
+pub fn public_address(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [a, b, c, _] = ip.octets();
@@ -79,7 +79,7 @@ pub(crate) fn public_address(ip: IpAddr) -> bool {
     }
 }
 
-pub(super) fn web_url(raw: &str) -> Result<Url> {
+pub fn web_url(raw: &str) -> Result<Url> {
     if raw.len() > MAX_URL_BYTES || raw.chars().any(char::is_control) {
         return Err(Failure::Blocked);
     }
@@ -272,35 +272,6 @@ async fn read_resource(
     })
 }
 
-pub(super) fn links(source: &str) -> Vec<String> {
-    use rv_protocol::markdown::Node;
-    fn collect(nodes: &[Node], out: &mut Vec<String>) {
-        for node in nodes {
-            if out.len() == MAX_PREVIEWS {
-                break;
-            }
-            match node {
-                Node::Link { href, .. } => {
-                    if web_url(href).is_ok() && !out.contains(href) {
-                        out.push(href.clone());
-                    }
-                }
-                Node::Paragraph { children }
-                | Node::Bold { children }
-                | Node::Italic { children }
-                | Node::Strike { children }
-                | Node::Heading { children, .. }
-                | Node::List { children, .. }
-                | Node::ListItem { children, .. } => collect(children, out),
-                _ => (), // Do not unfurl quoted text, code, or inline images.
-            }
-        }
-    }
-    let mut out = Vec::new();
-    collect(&rv_protocol::markdown::parse(source).nodes, &mut out);
-    out
-}
-
 fn bounded_text(raw: &str, max: usize) -> Option<String> {
     let value = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     let value: String = value
@@ -466,7 +437,7 @@ async fn collect_inner(url: &str) -> Result<Collected> {
         image,
     })
 }
-pub(super) async fn collect(url: &str) -> Result<Collected> {
+pub async fn collect(url: &str) -> Result<Collected> {
     tokio::time::timeout(TOTAL_TIME, collect_inner(url))
         .await
         .map_err(|_| Failure::Network)?

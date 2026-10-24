@@ -1,6 +1,5 @@
 //! Durable bounded unfurl jobs. Network and image work is outside every SQL
 //! transaction. Publication checks the lease, content lifetime and data epoch.
-mod network;
 use crate::{
     App, auth,
     delivery::{ReadProof, Scope},
@@ -9,9 +8,10 @@ use crate::{
 };
 use axum::{http::header, response::Response};
 pub(crate) use network::public_address;
+use rv_link_preview as network;
 use rv_protocol::{
     Change,
-    link_previews::{LinkPreview, PreviewImage},
+    link_previews::{LinkPreview, MAX_PREVIEWS, PreviewImage},
 };
 use sqlx::{Postgres, Transaction, types::Json};
 
@@ -40,7 +40,7 @@ pub(crate) async fn enqueue(
         .bind(message)
         .execute(&mut **tx)
         .await?;
-    for (slot, url) in network::links(text).into_iter().enumerate() {
+    for (slot, url) in links(text).into_iter().enumerate() {
         sqlx::query("INSERT INTO link_preview_jobs(message_id,slot,token,data_epoch,url) SELECT $1,$2,$3,data_epoch,$4 FROM instance WHERE singleton")
             .bind(message).bind(slot as i16).bind(&token).bind(url).execute(&mut **tx).await?;
     }
@@ -271,6 +271,35 @@ pub(crate) async fn image_response(
         .headers_mut()
         .insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
     Ok(response)
+}
+
+fn links(source: &str) -> Vec<String> {
+    use rv_protocol::markdown::Node;
+    fn collect(nodes: &[Node], out: &mut Vec<String>) {
+        for node in nodes {
+            if out.len() == MAX_PREVIEWS {
+                break;
+            }
+            match node {
+                Node::Link { href, .. } => {
+                    if network::web_url(href).is_ok() && !out.contains(href) {
+                        out.push(href.clone());
+                    }
+                }
+                Node::Paragraph { children }
+                | Node::Bold { children }
+                | Node::Italic { children }
+                | Node::Strike { children }
+                | Node::Heading { children, .. }
+                | Node::List { children, .. }
+                | Node::ListItem { children, .. } => collect(children, out),
+                _ => (), // Do not unfurl quoted text, code, or inline images.
+            }
+        }
+    }
+    let mut out = Vec::new();
+    collect(&rv_protocol::markdown::parse(source).nodes, &mut out);
+    out
 }
 
 #[cfg(test)]

@@ -205,7 +205,7 @@ export function mergeXMeta(server: XPostMeta | null, fromX: XPostMeta | null): X
  * (probed 2026-10-14): `ogTitle` "<name> (@<handle>) on X", `ogDescription`
  * the text, `ogImage` the first picture, a video's first image, or for a
  * post without media the author's photo, told apart by its path. A Vibez
- * server drops that photo (`apps/server/src/link_previews/network.rs`) and
+ * server drops that photo (`crates/rv-link-preview/src/lib.rs`) and
  * keeps the rest as a private PNG.
  */
 export function xPostMetas(urlsJson: string | null | undefined, native?: (message:string,image:string)=>string|null): Map<string, XPostMeta> {

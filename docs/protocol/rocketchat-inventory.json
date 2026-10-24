@@ -7,7 +7,8 @@
     "apps/mobile/providers/rocketchat",
     "apps/mobile/plugins",
     "apps/desktop/crates",
-    "apps/desktop/macos/Sources"
+    "apps/desktop/macos/Sources",
+    "crates/rv-provider"
   ],
   "scanned": [
     "apps/desktop/crates/rv-core/examples/export-native-rendering.rs",
@@ -36,14 +37,12 @@
     "apps/desktop/crates/rv-core/src/ddp.rs",
     "apps/desktop/crates/rv-core/src/diff.rs",
     "apps/desktop/crates/rv-core/src/e2e.rs",
-    "apps/desktop/crates/rv-core/src/emoji.rs",
     "apps/desktop/crates/rv-core/src/emoji_usage.rs",
     "apps/desktop/crates/rv-core/src/i18n.rs",
     "apps/desktop/crates/rv-core/src/info.rs",
     "apps/desktop/crates/rv-core/src/last_room.rs",
     "apps/desktop/crates/rv-core/src/lib.rs",
     "apps/desktop/crates/rv-core/src/links.rs",
-    "apps/desktop/crates/rv-core/src/live.rs",
     "apps/desktop/crates/rv-core/src/markdown.rs",
     "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
     "apps/desktop/crates/rv-core/src/mattermost/categories.rs",
@@ -118,14 +117,12 @@
     "apps/desktop/crates/rv-core/src/native/store/threads/tests.rs",
     "apps/desktop/crates/rv-core/src/native/voice.rs",
     "apps/desktop/crates/rv-core/src/native/workflows.rs",
-    "apps/desktop/crates/rv-core/src/normalize.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
     "apps/desktop/crates/rv-core/src/outbox.rs",
     "apps/desktop/crates/rv-core/src/parse.rs",
     "apps/desktop/crates/rv-core/src/player.rs",
     "apps/desktop/crates/rv-core/src/provider.rs",
     "apps/desktop/crates/rv-core/src/reminders.rs",
-    "apps/desktop/crates/rv-core/src/rest.rs",
     "apps/desktop/crates/rv-core/src/rocketchat/actions.rs",
     "apps/desktop/crates/rv-core/src/rocketchat/mod.rs",
     "apps/desktop/crates/rv-core/src/rooms.rs",
@@ -135,7 +132,6 @@
     "apps/desktop/crates/rv-core/src/server_rail.rs",
     "apps/desktop/crates/rv-core/src/session.rs",
     "apps/desktop/crates/rv-core/src/slack/account.rs",
-    "apps/desktop/crates/rv-core/src/slack/api.rs",
     "apps/desktop/crates/rv-core/src/slack/browser_login.rs",
     "apps/desktop/crates/rv-core/src/slack/directory.rs",
     "apps/desktop/crates/rv-core/src/slack/emojis.rs",
@@ -157,7 +153,6 @@
     "apps/desktop/crates/rv-core/src/teams/sync.rs",
     "apps/desktop/crates/rv-core/src/teams/translate.rs",
     "apps/desktop/crates/rv-core/src/timeline.rs",
-    "apps/desktop/crates/rv-core/src/tls.rs",
     "apps/desktop/crates/rv-core/src/update.rs",
     "apps/desktop/crates/rv-core/src/uploads.rs",
     "apps/desktop/crates/rv-core/src/voice.rs",
@@ -710,7 +705,16 @@
     "apps/mobile/ui/voice.tsx",
     "apps/mobile/ui/workflows.tsx",
     "apps/mobile/ui/workflowsModel.ts",
-    "apps/mobile/ui/xPostCard.tsx"
+    "apps/mobile/ui/xPostCard.tsx",
+    "crates/rv-provider/src/emoji.rs",
+    "crates/rv-provider/src/lib.rs",
+    "crates/rv-provider/src/live.rs",
+    "crates/rv-provider/src/normalize.rs",
+    "crates/rv-provider/src/rest.rs",
+    "crates/rv-provider/src/rest/slack.rs",
+    "crates/rv-provider/src/socket.rs",
+    "crates/rv-provider/src/text.rs",
+    "crates/rv-provider/src/tls.rs"
   ],
   "entries": [
     {
@@ -1140,12 +1144,6 @@
       "surface": "\"emoji-custom.delete\""
     },
     {
-      "file": "apps/desktop/crates/rv-core/src/emoji.rs",
-      "line": 168,
-      "kind": "resource",
-      "surface": "/emoji-custom/{…}.{…}"
-    },
-    {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
       "line": 693,
       "kind": "endpoint",
@@ -1486,12 +1484,6 @@
       "line": 2086,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/live.rs",
-      "line": 8,
-      "kind": "stream",
-      "surface": "stream-notify-logged"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/actions.rs",
@@ -1843,7 +1835,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/socket.rs",
-      "line": 83,
+      "line": 63,
       "kind": "url",
       "surface": "/api/v4/websocket"
     },
@@ -1963,31 +1955,31 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 209,
+      "line": 189,
       "kind": "resource",
       "surface": "/avatar/"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 218,
+      "line": 198,
+      "kind": "url",
+      "surface": "/api/v4/users/{…}/image"
+    },
+    {
+      "file": "apps/desktop/crates/rv-core/src/media.rs",
+      "line": 199,
       "kind": "url",
       "surface": "/api/v4/users/{…}/image"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
       "line": 219,
-      "kind": "url",
-      "surface": "/api/v4/users/{…}/image"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 239,
       "kind": "resource",
       "surface": "/avatar/"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 300,
+      "line": 280,
       "kind": "call:FETCH_PROTECTED",
       "surface": "&path).await?;"
     },
@@ -2056,18 +2048,6 @@
       "line": 516,
       "kind": "endpoint",
       "surface": "chat.getMessage"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 473,
-      "kind": "url",
-      "surface": "/api/v1"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/rest.rs",
-      "line": 474,
-      "kind": "url",
-      "surface": "/api/v4"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/rocketchat/actions.rs",
@@ -2560,54 +2540,6 @@
       "line": 78,
       "kind": "call:POST",
       "surface": "\"auth.test\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 14,
-      "kind": "endpoint",
-      "surface": "users.conversations"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 18,
-      "kind": "endpoint",
-      "surface": "users.info"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 21,
-      "kind": "endpoint",
-      "surface": "chat.postMessage"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 22,
-      "kind": "endpoint",
-      "surface": "chat.update"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 23,
-      "kind": "endpoint",
-      "surface": "chat.delete"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 35,
-      "kind": "endpoint",
-      "surface": "users.getPresence"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 36,
-      "kind": "endpoint",
-      "surface": "users.setPresence"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/api.rs",
-      "line": 37,
-      "kind": "endpoint",
-      "surface": "users.profile.set"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/slack/directory.rs",
@@ -5248,6 +5180,78 @@
       "line": 410,
       "kind": "endpoint",
       "surface": "users.setPreferences"
+    },
+    {
+      "file": "crates/rv-provider/src/emoji.rs",
+      "line": 168,
+      "kind": "resource",
+      "surface": "/emoji-custom/{…}.{…}"
+    },
+    {
+      "file": "crates/rv-provider/src/live.rs",
+      "line": 8,
+      "kind": "stream",
+      "surface": "stream-notify-logged"
+    },
+    {
+      "file": "crates/rv-provider/src/rest.rs",
+      "line": 498,
+      "kind": "url",
+      "surface": "/api/v1"
+    },
+    {
+      "file": "crates/rv-provider/src/rest.rs",
+      "line": 499,
+      "kind": "url",
+      "surface": "/api/v4"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 14,
+      "kind": "endpoint",
+      "surface": "users.conversations"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 18,
+      "kind": "endpoint",
+      "surface": "users.info"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 21,
+      "kind": "endpoint",
+      "surface": "chat.postMessage"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 22,
+      "kind": "endpoint",
+      "surface": "chat.update"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 23,
+      "kind": "endpoint",
+      "surface": "chat.delete"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 35,
+      "kind": "endpoint",
+      "surface": "users.getPresence"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 36,
+      "kind": "endpoint",
+      "surface": "users.setPresence"
+    },
+    {
+      "file": "crates/rv-provider/src/rest/slack.rs",
+      "line": 37,
+      "kind": "endpoint",
+      "surface": "users.profile.set"
     }
   ]
 }

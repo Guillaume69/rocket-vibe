@@ -30,7 +30,7 @@ export default defineConfig({
         ),
         fileURLToPath(new URL("../../assets/sounds/", import.meta.url)),
         fileURLToPath(
-          new URL("../desktop/crates/rv-core/data/", import.meta.url),
+          new URL("../../crates/rv-provider/data/", import.meta.url),
         ),
       ],
     },

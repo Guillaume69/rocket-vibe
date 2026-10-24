@@ -32,7 +32,7 @@ const GRAPH: &str = "https://graph.microsoft.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
-pub const SESSION_REJECTED: &str = "teams-session-rejected";
+pub use rv_provider::rest::TEAMS_SESSION_REJECTED as SESSION_REJECTED;
 const MARGIN: Duration = Duration::from_secs(300);
 
 /// What a Teams account keeps beside its id, in the same secret record.

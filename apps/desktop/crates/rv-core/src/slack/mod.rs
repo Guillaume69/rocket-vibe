@@ -1,7 +1,7 @@
 //! Slack in session mode: the transient read preview (`Reader`) and the
 //! saved, read-only account kind (`account`, `sync`).
 pub mod account;
-pub mod api;
+pub use rv_provider::rest::slack as api;
 pub mod browser_login;
 pub mod directory;
 pub mod emojis;

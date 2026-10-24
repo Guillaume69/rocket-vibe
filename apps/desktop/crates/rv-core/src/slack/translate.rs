@@ -46,14 +46,7 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 /// as it does the API.
 pub const FILES: &str = "https://files.slack.com";
 
-/// An `https` link on Slack's file host, the only one a session's cookie goes to.
-pub fn file_host(url: &url::Url) -> bool {
-    url.scheme() == "https"
-        && url.port().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.host_str() == Some("files.slack.com")
-}
+pub use rv_provider::rest::slack::file_host;
 
 fn file_link<'a>(file: &'a Value, key: &str) -> Option<&'a str> {
     str_of(file, key).filter(|link| link.starts_with(&format!("{FILES}/")))

@@ -12,7 +12,7 @@ const staged = process.env.RV_INVENTORY_ROOT;
 const root = staged ? `${resolve(staged)}/` : repo;
 const require = createRequire(new URL('../apps/mobile/package.json', import.meta.url));
 const ts = require('typescript');
-const scopes = ['apps/mobile/app', 'apps/mobile/lib', 'apps/mobile/ui', 'apps/mobile/providers/rocketchat', 'apps/mobile/plugins', 'apps/desktop/crates', 'apps/desktop/macos/Sources'];
+const scopes = ['apps/mobile/app', 'apps/mobile/lib', 'apps/mobile/ui', 'apps/mobile/providers/rocketchat', 'apps/mobile/plugins', 'apps/desktop/crates', 'apps/desktop/macos/Sources', 'crates/rv-provider'];
 // Generated/ignored bindings can exist locally and be absent in a clean checkout.
 // Include new non-ignored source files too so regeneration works before staging;
 // from the index, only what is staged.

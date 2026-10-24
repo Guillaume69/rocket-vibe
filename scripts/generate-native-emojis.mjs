@@ -1,7 +1,7 @@
 // Derive aliases from the desktop's emoji-toolkit table (MIT JSON, no artwork).
 // First code for a glyph matches rv-core::emoji and avoids duplicate reactions.
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
-const source=new URL('../apps/desktop/crates/rv-core/data/emojis.tsv',import.meta.url);
+const source=new URL('../crates/rv-provider/data/emojis.tsv',import.meta.url);
 const destination=new URL('../crates/rv-protocol/data/emoji-aliases.json',import.meta.url);
 const glyphs=new Map(); const aliases=new Map();
 for (const row of readFileSync(source,'utf8').trim().split(/\r?\n/)) {

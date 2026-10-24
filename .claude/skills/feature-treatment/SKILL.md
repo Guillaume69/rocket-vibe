@@ -35,7 +35,7 @@ The review diff, without the generated files:
 ```bash
 git diff master...HEAD -- . ':(exclude)apps/mobile/package-lock.json' \
   ':(exclude)apps/desktop/Cargo.lock' ':(exclude)apps/mobile/db/migrations/meta/*' \
-  ':(exclude)apps/desktop/crates/rv-core/data/emojis.tsv'
+  ':(exclude)crates/rv-provider/data/emojis.tsv'
 ```
 
 Spawn **independent finder subagents in parallel** (one message, several Agent

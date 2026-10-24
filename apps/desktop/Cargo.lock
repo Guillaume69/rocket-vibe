@@ -4291,6 +4291,7 @@ dependencies = [
  "rv-crypto",
  "rv-crypto-public",
  "rv-protocol",
+ "rv-provider",
  "rv-voice-protocol",
  "serde",
  "serde_json",
@@ -4385,6 +4386,23 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "rv-provider"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fastrand",
+ "futures-util",
+ "reqwest 0.13.5",
+ "rustls",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

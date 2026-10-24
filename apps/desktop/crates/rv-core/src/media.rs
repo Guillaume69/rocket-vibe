@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use url::Url;
 
-use crate::rest::{Credentials, RestClient, RestError};
+pub use crate::rest::protected_url;
+use crate::rest::{RestClient, RestError};
 use crate::store::RoomRow;
 
 /// Account-scoped disk/media keys. Tuple serialization avoids delimiter
@@ -72,26 +72,6 @@ pub fn room_avatar_path(r: &RoomRow) -> Option<String> {
         ("d", None) => None,
         _ => Some(avatar_path(AvatarTarget::Room(&r.rid), r.avatar_etag.as_deref())),
     }
-}
-
-/// The token only ever goes to OUR server. An attachment URL comes from a
-/// message field, so ultimately from anyone: `chat.sendMessage` accepts
-/// arbitrary `attachments`, and an absolute link to a third-party host would
-/// otherwise leave with our credentials on it. Off-origin, the URL stays bare:
-/// a protected file then fails to load, which is the right failure.
-pub fn protected_url(base: &Url, credentials: Option<&Credentials>, path_or_url: &str) -> Option<Url> {
-    let mut url = if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
-        Url::parse(path_or_url).ok()?
-    } else {
-        // Concatenated, not joined: a server under a sub-path already puts it in its file paths.
-        Url::parse(&format!("{}{path_or_url}", base.as_str().trim_end_matches('/'))).ok()?
-    };
-    if let Some(c) = credentials
-        && url.origin() == base.origin()
-    {
-        url.query_pairs_mut().append_pair("rc_uid", &c.user_id).append_pair("rc_token", &c.auth_token);
-    }
-    Some(url)
 }
 
 /// The etag of a photo that was removed: the URL must still change, or the
@@ -357,30 +337,12 @@ mod tests {
         assert_ne!(filename, attachment_cache_name("/file-upload/other", "../..\\secret.pdf"));
     }
 
-    fn creds() -> Credentials {
-        Credentials { auth_token: "tok".into(), user_id: "uid".into() }
-    }
-
     #[test]
     fn avatar_paths() {
         assert_eq!(avatar_path(AvatarTarget::User("bob"), None), "/avatar/bob");
         assert_eq!(avatar_path(AvatarTarget::User("jean pierre"), Some("e1")), "/avatar/jean%20pierre?etag=e1");
         assert_eq!(avatar_path(AvatarTarget::Uid("U1"), Some("")), "/avatar/uid/U1");
         assert_eq!(avatar_path(AvatarTarget::Room("R1"), None), "/avatar/room/R1");
-    }
-
-    #[test]
-    fn token_only_goes_to_our_origin() {
-        let base: Url = "https://chat.example.com".parse().unwrap();
-        let ours = protected_url(&base, Some(&creds()), "/file-upload/f/a.png").unwrap();
-        assert_eq!(ours.as_str(), "https://chat.example.com/file-upload/f/a.png?rc_uid=uid&rc_token=tok");
-        let with_query = protected_url(&base, Some(&creds()), "/avatar/bob?etag=e1").unwrap();
-        assert_eq!(with_query.as_str(), "https://chat.example.com/avatar/bob?etag=e1&rc_uid=uid&rc_token=tok");
-        let theirs = protected_url(&base, Some(&creds()), "https://evil.example.org/x.png").unwrap();
-        assert_eq!(theirs.as_str(), "https://evil.example.org/x.png");
-        let other_port = protected_url(&base, Some(&creds()), "https://chat.example.com:8443/x.png").unwrap();
-        assert!(other_port.query().is_none());
-        assert!(protected_url(&base, None, "/x.png").unwrap().query().is_none());
     }
 
     #[test]

@@ -47,6 +47,15 @@ pub const NOT_SUPPORTED: &str = "not-supported";
 pub const RESPONSE_CAP: usize = 2_000_000;
 const REJECTIONS: [&str; 5] = ["not_authed", "invalid_auth", "token_expired", "token_revoked", "account_inactive"];
 
+/// An `https` link on Slack's file host, the only one a session's cookie goes to.
+pub fn file_host(url: &url::Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.host_str() == Some("files.slack.com")
+}
+
 pub fn not_supported(what: &str) -> RestError {
     RestError { error: Some(NOT_SUPPORTED.to_owned()), ..RestError::incomplete(&format!("{what}: not on this server")) }
 }

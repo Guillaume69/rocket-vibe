@@ -132,6 +132,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 }
 
 fn main() -> glib::ExitCode {
+    rv_core::identify();
     crashlog::install();
     logs::install();
     #[cfg(target_os = "macos")]

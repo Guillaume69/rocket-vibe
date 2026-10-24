@@ -18,6 +18,9 @@ GoogleService-Info.plist
 /crates/rv-crypto-mobile/target/
 /crates/rv-signal/target/
 /crates/rv-whatsapp/target/
+/crates/rv-provider/target/
+/crates/rv-slack/target/
+/crates/rv-teams/target/
 /crates/rv-crypto-web/target/
 /artifacts/
 /.cache/

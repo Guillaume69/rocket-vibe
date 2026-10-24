@@ -198,7 +198,7 @@ pub fn to_message(raw: &Value) -> Option<Message> {
         discussion_count: integer(raw.get("dcount")),
         discussion_last: raw.get("dlm").and_then(to_epoch),
         alias: string(raw.get("alias")),
-        alias_avatar: string(raw.get("avatar")).filter(|url| crate::content::is_web_link(url)),
+        alias_avatar: string(raw.get("avatar")).filter(|url| crate::text::is_web_link(url)),
         author_bot: raw.get("bot").is_some_and(Value::is_object),
         updated_at: raw.get("_updatedAt").and_then(to_epoch).unwrap_or(ts),
         system_type,

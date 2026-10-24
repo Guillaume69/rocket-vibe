@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-701 production files scanned; 756 occurrences.
+704 production files scanned; 756 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -80,7 +80,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/admin.rs:1361](../../apps/desktop/crates/rv-core/src/admin.rs#L1361) | call:POST | "chat.reportMessage" |
 | [apps/desktop/crates/rv-core/src/admin.rs:1366](../../apps/desktop/crates/rv-core/src/admin.rs#L1366) | call:POST | "moderation.reportUser" |
 | [apps/desktop/crates/rv-core/src/admin.rs:1394](../../apps/desktop/crates/rv-core/src/admin.rs#L1394) | call:POST | "emoji-custom.delete" |
-| [apps/desktop/crates/rv-core/src/emoji.rs:168](../../apps/desktop/crates/rv-core/src/emoji.rs#L168) | resource | /emoji-custom/{…}.{…} |
 | [apps/desktop/crates/rv-core/src/i18n.rs:693](../../apps/desktop/crates/rv-core/src/i18n.rs#L693) | endpoint | rooms.edit |
 | [apps/desktop/crates/rv-core/src/i18n.rs:694](../../apps/desktop/crates/rv-core/src/i18n.rs#L694) | endpoint | rooms.members |
 | [apps/desktop/crates/rv-core/src/i18n.rs:695](../../apps/desktop/crates/rv-core/src/i18n.rs#L695) | endpoint | rooms.more |
@@ -138,7 +137,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/i18n.rs:1986](../../apps/desktop/crates/rv-core/src/i18n.rs#L1986) | endpoint | e2e.locked |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1987](../../apps/desktop/crates/rv-core/src/i18n.rs#L1987) | endpoint | e2e.unlocked |
 | [apps/desktop/crates/rv-core/src/i18n.rs:2086](../../apps/desktop/crates/rv-core/src/i18n.rs#L2086) | endpoint | rooms.quoted_message |
-| [apps/desktop/crates/rv-core/src/live.rs:8](../../apps/desktop/crates/rv-core/src/live.rs#L8) | stream | stream-notify-logged |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:32](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L32) | call:POST | "reactions" |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:34](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L34) | call:DELETE | &format!("users/{…}/posts/{…}/reactions/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:40](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L40) | call:PUT | &format!("channels/{…}/patch") |
@@ -197,7 +195,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:144](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L144) | call:GET | "users/me/servers" |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:228](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L228) | call:GET | path, options).await?.as_array().cloned().unwrap_or_default(); |
 | [apps/desktop/crates/rv-core/src/mattermost/pusher.rs:102](../../apps/desktop/crates/rv-core/src/mattermost/pusher.rs#L102) | call:GET | "config/client", config), rest.get("users/me" |
-| [apps/desktop/crates/rv-core/src/mattermost/socket.rs:83](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L83) | url | /api/v4/websocket |
+| [apps/desktop/crates/rv-core/src/mattermost/socket.rs:63](../../apps/desktop/crates/rv-core/src/mattermost/socket.rs#L63) | url | /api/v4/websocket |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:177](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L177) | call:GET | &format!("posts/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:208](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L208) | call:GET | "users/me/preferences" |
 | [apps/desktop/crates/rv-core/src/mattermost/sync.rs:209](../../apps/desktop/crates/rv-core/src/mattermost/sync.rs#L209) | call:GET | "config/client" |
@@ -217,11 +215,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:42](../../apps/desktop/crates/rv-core/src/media.rs#L42) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:43](../../apps/desktop/crates/rv-core/src/media.rs#L43) | resource | /avatar/uid/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:44](../../apps/desktop/crates/rv-core/src/media.rs#L44) | resource | /avatar/room/{…} |
-| [apps/desktop/crates/rv-core/src/media.rs:209](../../apps/desktop/crates/rv-core/src/media.rs#L209) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:218](../../apps/desktop/crates/rv-core/src/media.rs#L218) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:219](../../apps/desktop/crates/rv-core/src/media.rs#L219) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:239](../../apps/desktop/crates/rv-core/src/media.rs#L239) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:300](../../apps/desktop/crates/rv-core/src/media.rs#L300) | call:FETCH_PROTECTED | &path).await?; |
+| [apps/desktop/crates/rv-core/src/media.rs:189](../../apps/desktop/crates/rv-core/src/media.rs#L189) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:198](../../apps/desktop/crates/rv-core/src/media.rs#L198) | url | /api/v4/users/{…}/image |
+| [apps/desktop/crates/rv-core/src/media.rs:199](../../apps/desktop/crates/rv-core/src/media.rs#L199) | url | /api/v4/users/{…}/image |
+| [apps/desktop/crates/rv-core/src/media.rs:219](../../apps/desktop/crates/rv-core/src/media.rs#L219) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:280](../../apps/desktop/crates/rv-core/src/media.rs#L280) | call:FETCH_PROTECTED | &path).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:163](../../apps/desktop/crates/rv-core/src/outbox.rs#L163) | call:POST | "chat.sendMessage" |
@@ -233,8 +231,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/outbox.rs:475](../../apps/desktop/crates/rv-core/src/outbox.rs#L475) | call:GET | &format!("channels/{…}/posts", entry.rid), options).await { |
 | [apps/desktop/crates/rv-core/src/outbox.rs:516](../../apps/desktop/crates/rv-core/src/outbox.rs#L516) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/outbox.rs:516](../../apps/desktop/crates/rv-core/src/outbox.rs#L516) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/rest.rs:473](../../apps/desktop/crates/rv-core/src/rest.rs#L473) | url | /api/v1 |
-| [apps/desktop/crates/rv-core/src/rest.rs:474](../../apps/desktop/crates/rv-core/src/rest.rs#L474) | url | /api/v4 |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | call:GET | "users.presence" |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:19](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L19) | endpoint | users.presence |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:24](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L24) | call:GET | "video-conference.capabilities" |
@@ -317,14 +313,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:2760](../../apps/desktop/crates/rv-core/src/session.rs#L2760) | call:POST | "users.setPresence" |
 | [apps/desktop/crates/rv-core/src/session.rs:2760](../../apps/desktop/crates/rv-core/src/session.rs#L2760) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/slack/account.rs:78](../../apps/desktop/crates/rv-core/src/slack/account.rs#L78) | call:POST | "auth.test" |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:14](../../apps/desktop/crates/rv-core/src/slack/api.rs#L14) | endpoint | users.conversations |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:18](../../apps/desktop/crates/rv-core/src/slack/api.rs#L18) | endpoint | users.info |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:21](../../apps/desktop/crates/rv-core/src/slack/api.rs#L21) | endpoint | chat.postMessage |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:22](../../apps/desktop/crates/rv-core/src/slack/api.rs#L22) | endpoint | chat.update |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:23](../../apps/desktop/crates/rv-core/src/slack/api.rs#L23) | endpoint | chat.delete |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:35](../../apps/desktop/crates/rv-core/src/slack/api.rs#L35) | endpoint | users.getPresence |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:36](../../apps/desktop/crates/rv-core/src/slack/api.rs#L36) | endpoint | users.setPresence |
-| [apps/desktop/crates/rv-core/src/slack/api.rs:37](../../apps/desktop/crates/rv-core/src/slack/api.rs#L37) | endpoint | users.profile.set |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | call:POST | "users.info" |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:116](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L116) | endpoint | users.info |
 | [apps/desktop/crates/rv-core/src/slack/directory.rs:138](../../apps/desktop/crates/rv-core/src/slack/directory.rs#L138) | call:POST | "bots.info" |
@@ -765,3 +753,15 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/settingsSections.tsx:381](../../apps/mobile/ui/settingsSections.tsx#L381) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | call:POST | 'users.setPreferences' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | endpoint | users.setPreferences |
+| [crates/rv-provider/src/emoji.rs:168](../../crates/rv-provider/src/emoji.rs#L168) | resource | /emoji-custom/{…}.{…} |
+| [crates/rv-provider/src/live.rs:8](../../crates/rv-provider/src/live.rs#L8) | stream | stream-notify-logged |
+| [crates/rv-provider/src/rest.rs:498](../../crates/rv-provider/src/rest.rs#L498) | url | /api/v1 |
+| [crates/rv-provider/src/rest.rs:499](../../crates/rv-provider/src/rest.rs#L499) | url | /api/v4 |
+| [crates/rv-provider/src/rest/slack.rs:14](../../crates/rv-provider/src/rest/slack.rs#L14) | endpoint | users.conversations |
+| [crates/rv-provider/src/rest/slack.rs:18](../../crates/rv-provider/src/rest/slack.rs#L18) | endpoint | users.info |
+| [crates/rv-provider/src/rest/slack.rs:21](../../crates/rv-provider/src/rest/slack.rs#L21) | endpoint | chat.postMessage |
+| [crates/rv-provider/src/rest/slack.rs:22](../../crates/rv-provider/src/rest/slack.rs#L22) | endpoint | chat.update |
+| [crates/rv-provider/src/rest/slack.rs:23](../../crates/rv-provider/src/rest/slack.rs#L23) | endpoint | chat.delete |
+| [crates/rv-provider/src/rest/slack.rs:35](../../crates/rv-provider/src/rest/slack.rs#L35) | endpoint | users.getPresence |
+| [crates/rv-provider/src/rest/slack.rs:36](../../crates/rv-provider/src/rest/slack.rs#L36) | endpoint | users.setPresence |
+| [crates/rv-provider/src/rest/slack.rs:37](../../crates/rv-provider/src/rest/slack.rs#L37) | endpoint | users.profile.set |

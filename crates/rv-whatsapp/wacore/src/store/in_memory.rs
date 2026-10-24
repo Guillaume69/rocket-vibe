@@ -420,6 +420,149 @@ impl InMemoryBackend {
     }
 }
 
+/// Everything an [`InMemoryBackend`] holds, as plain lists: what a caller
+/// keeps (sealed) across restarts. Added for rocket-vibe, which keeps its
+/// WhatsApp state in memory and only writes it to disk encrypted.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+pub struct InMemorySnapshot {
+    pub version: u32,
+    identities: Vec<(String, [u8; 32])>,
+    sessions: Vec<(String, Vec<u8>)>,
+    prekeys: Vec<(u32, Vec<u8>)>,
+    signed_prekeys: Vec<(u32, Vec<u8>)>,
+    sender_keys: Vec<(String, Vec<u8>)>,
+    sync_keys: Vec<(Vec<u8>, AppStateSyncKey)>,
+    latest_sync_key_id: Option<Vec<u8>>,
+    versions: Vec<(String, HashState)>,
+    mutation_macs: Vec<(String, Vec<u8>, Vec<u8>)>,
+    sender_key_devices: Vec<(String, Vec<(String, bool)>)>,
+    lid_mappings: Vec<(String, LidPnMappingEntry)>,
+    pn_to_lid: Vec<(String, String)>,
+    base_keys: Vec<(String, String, Vec<u8>, i64)>,
+    device_lists: Vec<(String, DeviceListRecord)>,
+    group_metadata: Vec<(String, Vec<u8>)>,
+    tc_tokens: Vec<(String, TcTokenEntry)>,
+    sent_messages: Vec<(String, String, Vec<u8>, i64)>,
+    pending_inbound: Vec<(String, String, String, Vec<u8>, i64)>,
+    msg_secrets: Vec<(String, String, String, MessageSecretBytes, i64, i64)>,
+    device: Option<Device>,
+    next_device_id: i32,
+}
+
+const SNAPSHOT_VERSION: u32 = 1;
+
+impl InMemoryBackend {
+    /// A copy of everything stored, consistent at one instant.
+    pub async fn snapshot(&self) -> InMemorySnapshot {
+        let s = self.state.lock().await;
+        InMemorySnapshot {
+            version: SNAPSHOT_VERSION,
+            identities: s.identities.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            sessions: s.sessions.iter().map(|(k, v)| (k.clone(), v.to_vec())).collect(),
+            prekeys: s.prekeys.iter().map(|(k, v)| (*k, v.record.to_vec())).collect(),
+            signed_prekeys: s.signed_prekeys.iter().map(|(k, v)| (*k, v.clone())).collect(),
+            sender_keys: s.sender_keys.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            sync_keys: s.sync_keys.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            latest_sync_key_id: s.latest_sync_key_id.clone(),
+            versions: s.versions.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            mutation_macs: s
+                .mutation_macs
+                .iter()
+                .map(|(k, v)| (k.collection.to_string(), k.index_mac.to_vec(), v.to_vec()))
+                .collect(),
+            sender_key_devices: s
+                .sender_key_devices
+                .iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|(d, b)| (d.clone(), *b)).collect()))
+                .collect(),
+            lid_mappings: s.lid_mappings.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            pn_to_lid: s.pn_to_lid.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            base_keys: s
+                .base_keys
+                .iter()
+                .map(|(k, (key, ts))| (k.address.clone(), k.message_id.clone(), key.clone(), *ts))
+                .collect(),
+            device_lists: s.device_lists.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            group_metadata: s.group_metadata.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            tc_tokens: s.tc_tokens.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+            sent_messages: s
+                .sent_messages
+                .iter()
+                .map(|((a, b), v)| (a.clone(), b.clone(), v.payload.clone(), v.timestamp))
+                .collect(),
+            pending_inbound: s
+                .pending_inbound
+                .iter()
+                .map(|((a, b, c), v)| (a.clone(), b.clone(), c.clone(), v.bytes.clone(), v.inserted_at))
+                .collect(),
+            msg_secrets: s
+                .msg_secrets
+                .iter()
+                .map(|(k, (secret, a, b))| {
+                    (k.chat.to_string(), k.sender.to_string(), k.msg_id.to_string(), *secret, *a, *b)
+                })
+                .collect(),
+            device: s.device.clone(),
+            next_device_id: self.next_device_id.load(Ordering::Relaxed),
+        }
+    }
+
+    /// A backend holding what `snapshot` copied.
+    pub fn restore(snapshot: InMemorySnapshot) -> Self {
+        let backend = Self::new();
+        backend.next_device_id.store(snapshot.next_device_id.max(1), Ordering::Relaxed);
+        let mut s = InMemoryState {
+            identities: snapshot.identities.into_iter().collect(),
+            sessions: snapshot.sessions.into_iter().map(|(k, v)| (k, Bytes::from(v))).collect(),
+            prekeys: snapshot
+                .prekeys
+                .into_iter()
+                .map(|(k, v)| (k, PreKeyEntry { record: Bytes::from(v) }))
+                .collect(),
+            signed_prekeys: snapshot.signed_prekeys.into_iter().collect(),
+            sender_keys: snapshot.sender_keys.into_iter().collect(),
+            sync_keys: snapshot.sync_keys.into_iter().collect(),
+            latest_sync_key_id: snapshot.latest_sync_key_id,
+            versions: snapshot.versions.into_iter().collect(),
+            sender_key_devices: snapshot
+                .sender_key_devices
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect(),
+            lid_mappings: snapshot.lid_mappings.into_iter().collect(),
+            pn_to_lid: snapshot.pn_to_lid.into_iter().collect(),
+            device_lists: snapshot.device_lists.into_iter().map(|(k, v)| (Arc::from(k), v)).collect(),
+            group_metadata: snapshot.group_metadata.into_iter().collect(),
+            tc_tokens: snapshot.tc_tokens.into_iter().collect(),
+            device: snapshot.device,
+            ..InMemoryState::default()
+        };
+        for (collection, index_mac, value) in snapshot.mutation_macs {
+            s.mutation_macs.insert(
+                MutationMacKey { collection: collection.into_boxed_str(), index_mac: index_mac.into_boxed_slice() },
+                value.into_boxed_slice(),
+            );
+        }
+        for (address, message_id, key, ts) in snapshot.base_keys {
+            s.base_keys.insert(BaseKeyKey { address, message_id }, (key, ts));
+        }
+        for (a, b, payload, timestamp) in snapshot.sent_messages {
+            s.sent_messages.insert((a, b), SentMessageEntry { payload, timestamp });
+        }
+        for (a, b, c, bytes, inserted_at) in snapshot.pending_inbound {
+            s.pending_inbound.insert((a, b, c), PendingInboundEntry { bytes, inserted_at, revision: None });
+        }
+        for (chat, sender, msg_id, secret, x, y) in snapshot.msg_secrets {
+            s.msg_secrets.insert(
+                MsgSecretKey { chat: Arc::from(chat), sender: Arc::from(sender), msg_id: Arc::from(msg_id) },
+                (secret, x, y),
+            );
+        }
+        *backend.state.try_lock().expect("a new backend is not shared yet") = s;
+        backend
+    }
+}
+
 impl Default for InMemoryBackend {
     fn default() -> Self {
         Self::new()
@@ -1902,6 +2045,31 @@ fn hb_table_bytes<K, V, S>(map: &HbHashMap<K, V, S>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_snapshot_restores_what_was_stored() {
+        let backend = InMemoryBackend::new();
+        backend.put_identity("a.0", [7; 32]).await.unwrap();
+        backend.put_session("a.0", b"session").await.unwrap();
+        backend
+            .put_lid_mapping(&LidPnMappingEntry {
+                lid: "100".into(),
+                phone_number: "33600".into(),
+                created_at: 1,
+                updated_at: 2,
+                learning_source: "usync".into(),
+            })
+            .await
+            .unwrap();
+        DeviceStore::save(&backend, &Device::new()).await.unwrap();
+
+        let encoded = serde_json::to_vec(&backend.snapshot().await).unwrap();
+        let restored = InMemoryBackend::restore(serde_json::from_slice(&encoded).unwrap());
+
+        assert_eq!(restored.load_identity("a.0").await.unwrap(), Some([7; 32]));
+        assert_eq!(restored.get_session("a.0").await.unwrap().as_deref(), Some(&b"session"[..]));
+        assert_eq!(restored.get_lid_mapping("100").await.unwrap().unwrap().phone_number, "33600");
+        assert!(DeviceStore::load(&restored).await.unwrap().is_some());
+    }
     use super::*;
 
     fn is_backend<T: Backend>() {}

@@ -26,7 +26,7 @@ The providers take the session's token refusal as a `TokenRejection` (`{onTokenR
 
 ## Tooling
 
-- **Metro** watches `packages/` and the root `node_modules` and also resolves from the root `node_modules` (`apps/mobile/metro.config.js`).
+- **Metro** watches `packages/` and the root `node_modules` and also resolves from the root `node_modules` (`apps/mobile/metro.config.js`). `app.json` turns Expo's on-demand filesystem off (`experiments.onDemandFilesystem: false`): when exporting (`expo export`, the release build's `export:embed`) it drops every watch folder outside the app and reads only files under the server root, `apps/mobile`, so the packages were "not found". A checkout whose `node_modules` is a link to another one escapes that scope and hides the failure; a clean clone shows it.
 - **`tsc`**: `apps/mobile/tsconfig.json` includes `../../packages/*/src/**/*.ts`, so `npx tsc --noEmit` in `apps/mobile` checks the packages and their tests.
 - **Tests**: each package's `npm test` runs `node --test "src/**/*.test.ts"`; `npm test` at the root runs them all. The app's `npm test` no longer covers them.
 - **Lint**: ESLint runs from `apps/mobile` and does not reach `packages/`. Node's type stripping still refuses an `enum` or a parameter property, which fails the package's tests.

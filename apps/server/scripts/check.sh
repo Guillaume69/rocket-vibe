@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
-cargo fmt --all -- --check
-cargo clippy --locked --workspace --all-targets -- -D warnings
+shard=${RV_CHECK_SHARD:-}
+first=true
+partition=()
+if [ -n "$shard" ]; then
+  command -v cargo-nextest > /dev/null || { echo 'RV_CHECK_SHARD needs cargo-nextest' >&2; exit 1; }
+  partition=(--partition "hash:$shard")
+  [ "${shard%%/*}" = 1 ] || first=false
+fi
+if $first; then
+  cargo fmt --all -- --check
+  cargo clippy --locked --workspace --all-targets -- -D warnings
+fi
 if command -v cargo-nextest > /dev/null; then
-  cargo nextest run --locked --workspace --no-tests=pass
+  cargo nextest run --locked --workspace --no-tests=pass "${partition[@]}"
+  $first || exit 0
   cargo test --locked --workspace --doc
 else
   cargo test --locked --workspace

@@ -105,6 +105,9 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
+      - name: Leave the vault tests' fsyncs out of Defender's real-time scan
+        if: runner.os == 'Windows'
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
@@ -173,6 +176,10 @@ jobs:
     needs: scope
     if: needs.scope.outputs.clients == 'true'
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/2', '2/2']
     services:
       postgres:
         image: postgres:18-alpine
@@ -186,6 +193,7 @@ jobs:
           --health-interval 2s --health-timeout 3s --health-retries 30
     env:
       DATABASE_URL: postgres://vibez:native-ci-disposable-password@localhost/vibez
+      RV_CHECK_SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1
@@ -200,7 +208,7 @@ jobs:
           workspaces: |
             . -> target
             crates/rv-crypto -> ../../target
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          save-if: ${{ github.ref == 'refs/heads/master' && matrix.shard == '1/2' }}
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
@@ -212,6 +220,7 @@ jobs:
       - run: bash apps/server/scripts/check.sh
       # The mobile typecheck and tests are mobile.yml's, on every branch.
       - name: Export Android JavaScript bundle
+        if: matrix.shard == '1/2'
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
 

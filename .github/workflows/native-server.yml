@@ -220,7 +220,7 @@ jobs:
       - run: bash apps/server/scripts/check.sh
       # The mobile typecheck and tests are mobile.yml's, on every branch.
       - name: Export Android JavaScript bundle
-        if: matrix.shard == '1/2'
+        if: matrix.shard == '2/2'
         working-directory: apps/mobile
         run: npx expo export --platform android --output-dir ../../artifacts/native-mobile-android
 

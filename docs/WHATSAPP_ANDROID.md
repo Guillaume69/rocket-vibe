@@ -1,6 +1,6 @@
 # WhatsApp on Android: design
 
-Status: design, nothing built yet (2026-10-12). The desktop account it follows is described in `brain/features/whatsapp.md`; the protocol facts and the verification record are in `docs/WHATSAPP_HANDOFF.md`. This page decides how the Android app gets the same account, and in what order.
+Status: built (see `brain/features/whatsapp.md`, `## Mobile`). Since 2026-10-24 the engine is the desktop's Rust one (`crates/rv-whatsapp`, as `librv_whatsapp.so` from `crates/rv-whatsapp/android`), not the Go engine on whatsmeow this design reused: the layers and the order below stand, the Go paths are history. Design written 2026-10-12. The desktop account it follows is described in `brain/features/whatsapp.md`; the protocol facts and the verification record are in `docs/WHATSAPP_HANDOFF.md`. This page decides how the Android app gets the same account, and in what order.
 
 ## Goal
 
@@ -89,10 +89,10 @@ WhatsApp sends no push to a linked device: without a live connection nothing arr
 
 ## Sources
 
-- apps/desktop/whatsapp/engine/engine.go
-- apps/desktop/whatsapp/engine/pairing.go
-- apps/desktop/whatsapp/engine/store.go
-- apps/desktop/whatsapp/engine/media.go
+- crates/rv-whatsapp/engine/src/engine.rs
+- crates/rv-whatsapp/engine/src/actions.rs
+- crates/rv-whatsapp/android/src/lib.rs
+- apps/mobile/modules/whatsapp/build-android.mjs
 - apps/desktop/crates/rv-core/src/whatsapp.rs
 - apps/desktop/crates/rv-gtk/src/whatsapp_link.rs
 - packages/provider-api/src/provider.ts

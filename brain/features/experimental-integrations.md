@@ -67,8 +67,8 @@ response bytes, sanitizes transport/API errors and preserves Retry-After. See
 
 GTK embeds experimental_preview.rs under the login hero: it owns the unlock flag
 (<config>/rocket-vibe-rs/experimental-providers, shared by the desktop interfaces) and
-its hide button. login.rs adds the gated kinds (`show_experimental_kinds`: WhatsApp
-when the helper is installed, Slack, Teams) while the panel is visible and removes them
+its hide button. login.rs adds the gated kinds (`show_experimental_kinds`: WhatsApp,
+Slack, Teams) while the panel is visible and removes them
 when it hides; the kinds are found by label, not position. SwiftUI's LoginView shows the
 hide link and lists Slack and Teams only while unlocked. rv-core's Slack `Reader` and
 the FFI's `SlackPreview`/`SlackPairing` objects remain unused by the interfaces.

@@ -30,10 +30,10 @@ WebAssembly ([encryption qualification](docs/WEB_E2EE.md)).
 
 Rust shared by the server and the apps (native protocol, client, MLS engine and its bridges)
 lives in [`crates/`](crates) ([`brain/architecture/shared-crates.md`](brain/architecture/shared-crates.md)).
-WhatsApp runs on [whatsmeow](https://github.com/tulir/whatsmeow), through our fork
-[`boubou666/whatsmeow`](https://github.com/boubou666/whatsmeow): a helper process beside the
-desktop app ([`apps/desktop/whatsapp`](apps/desktop/whatsapp/README.md)), the same Go engine
-inside the Android app ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
+WhatsApp runs on [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust), vendored in
+[`crates/rv-whatsapp`](crates/rv-whatsapp) with our own Signal implementation
+([`crates/rv-signal`](crates/rv-signal)): inside the desktop app, and inside the Android app as a
+native library ([`docs/WHATSAPP_ANDROID.md`](docs/WHATSAPP_ANDROID.md)).
 
 ## Where to read
 
@@ -74,7 +74,7 @@ checks (typecheck, lint, tests; fmt, clippy and tests for the Rust); packages ar
 release tag, or by hand through `workflow_dispatch`.
 
 - **`mobile`**: typecheck, lint, tests, then a release Android APK (`expo prebuild` + Gradle
-  on the runner, never EAS), the Rust crypto and the Go WhatsApp engine built for each ABI. It
+  on the runner, never EAS), the Rust crypto and the WhatsApp engine built for each ABI. It
   reads `google-services.json` from the `GOOGLE_SERVICES_JSON` secret.
 - **`native-crypto-android`**: the Android crypto module against a real Keystore, on an emulator.
 - **`desktop`**: Linux (the same Fedora as the local build: fmt, clippy, all tests, an archive;
@@ -87,9 +87,9 @@ release tag, or by hand through `workflow_dispatch`.
   API key (`APPLE_API_KEY_P8`, `_KEY_ID`, `_ISSUER_ID`); without them, CI signs ad hoc and macOS
   asks "Open Anyway" on first launch. The originals live in `~/.config/rocket-vibe/apple/`,
   **back them up**: the certificate's private key cannot be recovered.
-- **`desktop-voice`** and **`desktop-whatsapp`**: the voice and WhatsApp helpers for the three
-  desktop platforms, with the WhatsApp helper's licence notice; `desktop` calls both when it
-  packages and puts them beside the app's executable.
+- **`desktop-voice`**: the voice helper for the three desktop platforms; `desktop` calls it when
+  it packages and puts it beside the app's executable. **`desktop-whatsapp`**: the licence notice
+  of the crates the WhatsApp engine links into the app, which every desktop package carries.
 - **`desktop-swiftui`**: the SwiftUI app for macOS, called by `desktop` on a tag or a
   `workflow_dispatch` (its release takes the DMG from it), and on its own when the app changes.
 - **`notification-cards`**: the desktop's own notification cards on Windows.
@@ -121,7 +121,6 @@ Personal project, under active development. Main branch: **`master`**.
 
 WhatsApp support is experimental and is not a Meta product: WhatsApp may restrict an account
 that uses a third-party client. The apps ship the licences of the code they include: the
-desktop's Linux archive, Windows packages and macOS app carry `rv-whatsapp-licenses.txt` beside the
-WhatsApp helper (the AppImage does not yet), and the Android
-app lists them under Settings > App > Open-source licences (whatsmeow is under the Mozilla
-Public License 2.0).
+desktop's Linux archive, Windows packages and macOS app carry `rv-whatsapp-licenses.txt` (the
+AppImage does not yet), and the Android app lists them under Settings > App > Open-source
+licences.

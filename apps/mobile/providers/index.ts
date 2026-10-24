@@ -11,7 +11,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
 import { createVibezProvider } from './vibez/index.ts';
-import { createSlackProvider } from './slack/index.ts';
+import { createSlackProvider } from '@rocket-vibe/provider-slack';
 import { createTeamsProvider } from './teams/index.ts';
 import type { NativeStore } from './vibez/store.ts';
 

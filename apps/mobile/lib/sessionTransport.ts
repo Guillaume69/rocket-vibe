@@ -4,8 +4,8 @@ import { checkIdentity, resumeNative, transportFor } from '../providers/vibez/au
 import { NativeError } from '../providers/vibez/transport.ts';
 import { MmError } from '../providers/mattermost/client.ts';
 import { logoutMattermost, resumeMattermost } from '../providers/mattermost/auth.ts';
-import { SlackError } from '../providers/slack/client.ts';
-import { resumeSlack } from '../providers/slack/auth.ts';
+import { SlackError } from '@rocket-vibe/provider-slack/client';
+import { resumeSlack } from '@rocket-vibe/provider-slack/auth';
 import { TeamsError, resumeTeams } from '../providers/teams/auth.ts';
 
 export function clientForSession(session: Session, revoke: (token: string) => void): RestClient {

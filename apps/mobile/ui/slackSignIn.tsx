@@ -1,4 +1,4 @@
-import { SlackError } from '../providers/slack/client.ts';
+import { SlackError } from '@rocket-vibe/provider-slack/client';
 import type { TranslateFn } from './messages.ts';
 
 export function slackFailure(error: unknown, t: TranslateFn): string {

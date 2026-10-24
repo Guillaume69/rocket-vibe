@@ -6,7 +6,7 @@ import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, t
 import { slackFailure } from '../ui/slackSignIn.tsx';
 import { SignInWebView } from '../ui/signInWebView.tsx';
 import { WebCookies } from '../modules/web-cookies/index.ts';
-import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, slackUserAgent, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
+import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, slackUserAgent, isSlackWebPage, signInFromWeb } from '@rocket-vibe/provider-slack/webSignIn';
 import * as Crypto from 'expo-crypto';
 import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

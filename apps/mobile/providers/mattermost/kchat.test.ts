@@ -7,6 +7,7 @@ import type { Listener } from '../../lib/provider.ts';
 import { RestClient } from '../../lib/rest.ts';
 import { kchatServers, loginMattermost, MmMfaRequired } from './auth.ts';
 import { MmClient, MmError } from './client.ts';
+import { isKchatSignInPage } from './kchatOAuth.ts';
 import { createMattermostProvider } from './index.ts';
 import { mattermostSidebarSettings } from './sidebarSettings.ts';
 import { pendingPostId } from './outbox.ts';
@@ -228,4 +229,9 @@ describe('Conversation list settings', () => {
     await settings.write({ dmLimit: 10 });
     assert.deepEqual(server.calls.at(-1)?.body, [{ user_id: 'u-me', category: 'sidebar_settings', name: 'limit_visible_dms_gms', value: '10' }]);
   });
+});
+
+test('the kChat sign-in web view shows Infomaniak pages only', () => {
+  assert.ok(isKchatSignInPage('https://login.infomaniak.com/authorize'));
+  assert.ok(!isKchatSignInPage('https://infomaniak.com.evil.example/'));
 });

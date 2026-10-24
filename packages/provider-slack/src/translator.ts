@@ -1,0 +1,499 @@
+/**
+ * Slack documents to the app's neutral rows. A message's id is
+ * `<channel>:<ts>` with `ts` Slack's exact decimal string; milliseconds are
+ * for display and order only. Slack's messages do not carry their channel:
+ * every reader stamps it on as `channel` before translating.
+ */
+
+import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
+import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
+import type { Translation, Translator } from '@rocket-vibe/provider-api/provider';
+import { isTimestamp, timestampMs } from './client.ts';
+import type { SlackDirectory } from './directory.ts';
+import { reactionCode, replaceSlackEmojis } from './emojis.ts';
+
+/** The live envelopes `SlackLive` produces and this translator decodes. */
+export const SLACK_MESSAGE = 'slack:message';
+export const SLACK_MESSAGE_DELETED = 'slack:message-deleted';
+export const SLACK_ROOM = 'slack:room';
+export const SLACK_SUBSCRIPTION = 'slack:subscription';
+export const SLACK_AVATAR = 'slack:avatar';
+export const SLACK_QUIET = 'slack:quiet';
+/** A message saved for later or no longer (`{id, on}`): only its `starred` column moves. */
+export const SLACK_STARRED = 'slack:starred';
+
+type Doc = Record<string, unknown>;
+
+/** A conversation and, when read, its `client.counts` entry and newest message (`null`: none). */
+export type SlackRoomDoc = { channel: Doc; counts?: Doc | null; lastMessage?: Doc | null };
+export type SlackSubscriptionDoc = { channel: Doc; counts: Doc | null };
+
+const SYSTEM: Record<string, { type: string; param: (raw: Doc, author: string | null) => string }> = {
+  channel_join: { type: 'uj', param: (_r, a) => a ?? '' },
+  group_join: { type: 'uj', param: (_r, a) => a ?? '' },
+  channel_leave: { type: 'ul', param: (_r, a) => a ?? '' },
+  group_leave: { type: 'ul', param: (_r, a) => a ?? '' },
+  channel_topic: { type: 'room_changed_topic', param: (r) => str(r.topic) ?? '' },
+  group_topic: { type: 'room_changed_topic', param: (r) => str(r.topic) ?? '' },
+  channel_purpose: { type: 'room_changed_description', param: (r) => str(r.purpose) ?? '' },
+  group_purpose: { type: 'room_changed_description', param: (r) => str(r.purpose) ?? '' },
+};
+/** Never shown: Slack's own edit and deletion envelopes, and removed messages. */
+const SKIPPED = new Set(['tombstone', 'message_deleted', 'message_changed', 'message_replied']);
+
+export function messageId(channel: string, ts: string): string {
+  return `${channel}:${ts}`;
+}
+
+/** `<channel>:<ts>` back into its parts, or null when it is not a Slack id. */
+export function parseMessageId(id: string): { channel: string; ts: string } | null {
+  const at = id.indexOf(':');
+  if (at <= 0) return null;
+  const channel = id.slice(0, at), ts = id.slice(at + 1);
+  return /^[CDG][A-Z0-9]+$/.test(channel) && isTimestamp(ts) ? { channel, ts } : null;
+}
+
+export function roomType(channel: Doc): 'c' | 'p' | 'd' {
+  return channel.is_im === true || channel.is_mpim === true ? 'd' : channel.is_private === true ? 'p' : 'c';
+}
+
+/** The usernames a group DM's name lists (`mpdm-a--b--c-1`). */
+export function mpimUsernames(name: string): string[] {
+  const match = /^mpdm-(.+)-\d+$/.exec(name);
+  return match === null ? [] : match[1]!.split('--').filter((n) => n !== '');
+}
+
+export type Resolver = {
+  username(id: string): string | null;
+  roomName(id: string): string | null;
+};
+
+/**
+ * Slack's mrkdwn into the app's markdown. Code spans and blocks are left as
+ * they are; everything else has its mentions, links, bold and strike
+ * rewritten. Slack's three HTML entities are decoded last, code included.
+ */
+export function mrkdwnToMarkdown(input: string, resolve: Resolver): string {
+  const parts = input.split(/(```[\s\S]*?```|`[^`\n]+`)/);
+  return unescape(parts.map((part, i) => (i % 2 === 1 ? part : replaceSlackEmojis(prose(part, resolve)))).join(''));
+}
+
+function prose(text: string, resolve: Resolver): string {
+  const tokens: string[] = [];
+  const held = text.replace(/<([^<>\n]+)>/g, (_m, inner: string) => {
+    tokens.push(reference(inner, resolve));
+    return `${tokens.length - 1}`;
+  });
+  const formatted = held
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, '$1**$2**')
+    .replace(/(^|[^\w~])~(?=\S)([^~\n]*?\S)~(?![\w~])/g, '$1~~$2~~');
+  return formatted.replace(/(\d+)/g, (_m, n: string) => tokens[Number(n)]!);
+}
+
+function reference(inner: string, resolve: Resolver): string {
+  const bar = inner.indexOf('|');
+  const target = bar < 0 ? inner : inner.slice(0, bar);
+  const label = bar < 0 ? null : inner.slice(bar + 1);
+  if (target.startsWith('@')) {
+    const id = target.slice(1);
+    return `@${resolve.username(id) ?? label?.replace(/^@/, '') ?? id}`;
+  }
+  if (target.startsWith('#')) {
+    const id = target.slice(1);
+    return `#${label || resolve.roomName(id) || id}`;
+  }
+  if (target.startsWith('!')) {
+    const command = target.slice(1);
+    if (command === 'here') return '@here';
+    if (command === 'channel' || command === 'everyone') return '@all';
+    if (command.startsWith('subteam^')) return `@${(label ?? command.slice(8)).replace(/^@/, '')}`;
+    return label ?? command;
+  }
+  const url = target.replace(/\)/g, '%29');
+  return label === null || label === '' ? url : `[${label.replace(/[[\]]/g, '\\$&')}](${url})`;
+}
+
+/**
+ * The app's markdown into Slack's mrkdwn, for what is sent. Code spans and
+ * blocks keep their text; known `@usernames` become `<@id>` and `@all` /
+ * `@here` Slack's broadcasts. Slack's three entities are escaped first, code
+ * included, so a typed `<` never opens a Slack reference.
+ */
+export function markdownToMrkdwn(input: string, idOf: (username: string) => string | null): string {
+  const parts = input.split(/(```[\s\S]*?```|`[^`\n]+`)/);
+  return parts.map((part, i) => (i % 2 === 1 ? escapeEntities(part) : outgoing(part, idOf))).join('');
+}
+
+function escapeEntities(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function outgoing(text: string, idOf: (username: string) => string | null): string {
+  const tokens: string[] = [];
+  const hold = (value: string) => {
+    tokens.push(value);
+    return `\u0000${tokens.length - 1}\u0000`;
+  };
+  return escapeEntities(text)
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label: string, url: string) => hold(`<${url}|${label.replace(/\|/g, '/')}>`))
+    .replace(/(^|[^\w@])@([\w.-]+)/g, (m, before: string, raw: string) => {
+      const name = raw.replace(/[.-]+$/, ''), tail = raw.slice(name.length);
+      if (name === '') return m;
+      if (name === 'all' || name === 'channel' || name === 'everyone') return before + hold('<!channel>') + tail;
+      if (name === 'here') return before + hold('<!here>') + tail;
+      const id = idOf(name);
+      return id === null ? m : before + hold(`<@${id}>`) + tail;
+    })
+    .replace(/\*\*(?=\S)([^*\n]*?\S)\*\*/g, (_m, inner: string) => `\u0001${inner}\u0001`)
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?![\w*])/g, '$1_$2_')
+    .replace(/\u0001/g, '*')
+    .replace(/~~(?=\S)([^~\n]*?\S)~~/g, '~$1~')
+    .replace(/\u0000(\d+)\u0000/g, (_m, n: string) => tokens[Number(n)]!);
+}
+
+function unescape(text: string): string {
+  return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+
+/**
+ * A huddle's message (`huddle_thread`) as the call message kChat's calls also
+ * become: running, a `videoconf` whose call id is the huddle's Slack page
+ * (huddles have no API to join: the call opens it in the browser); over, a
+ * `videoconf-ended` carrying its length in seconds, when known. The end
+ * arrives as an edit of the same message.
+ */
+export function huddleCall(raw: Doc, channel: string): { type: string; param: string; callId: string | null } | null {
+  if (raw.subtype !== 'huddle_thread') return null;
+  const room = record(raw.room) ?? {};
+  const seconds = (key: string): number | null => {
+    const value = typeof room[key] === 'string' ? Number(room[key]) : room[key];
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  };
+  const start = seconds('date_start'), end = seconds('date_end');
+  if (room.has_ended === true || end !== null) {
+    return { type: 'videoconf-ended', param: start !== null && end !== null && end >= start ? String(end - start) : '', callId: null };
+  }
+  const team = str(raw.team);
+  return { type: 'videoconf', param: '', callId: team === null ? null : huddleUrl(team, channel) };
+}
+
+/**
+ * The page of Slack's web app that starts or joins a room's huddle in the
+ * browser itself. The `huddle/<team>/<channel>` link Slack gives only offers
+ * to launch its desktop app.
+ */
+export function huddleUrl(team: string, channel: string): string | null {
+  if (!/^T[A-Z0-9]+$/.test(team) || !/^[A-Z0-9]+$/.test(channel)) return null;
+  return `https://app.slack.com/client/${team}/${channel}?open=start_huddle`;
+}
+
+/** A huddle's page as `huddleUrl` builds it, a stored `huddle/` link included; any other Slack page as is, anything else refused. */
+export function huddlePage(link: string): string | null {
+  if (!slackWeb(link)) return null;
+  const parts = new URL(link).pathname.split('/').filter((p) => p !== '');
+  return parts.length === 3 && parts[0] === 'huddle' ? huddleUrl(parts[1]!, parts[2]!) : link;
+}
+
+/** An `https` page of Slack's own web app, the only kind a huddle opens. */
+export function slackWeb(link: string): boolean {
+  try {
+    const url = new URL(link);
+    // React Native's URL polyfill keeps a backslash in the host, which browsers read as a slash.
+    return !link.includes('\\') && url.protocol === 'https:' && !url.username && !url.password && !url.port
+      && /^([a-z0-9-]+\.)*slack\.com$/.test(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export class SlackTranslator implements Translator {
+  private readonly directory: SlackDirectory;
+  private readonly myId: string;
+  private readonly resolver: Resolver;
+  /** The messages I saved for later, kept by `SlackSaved`: Slack's messages do not say it. */
+  private readonly saved: ReadonlySet<string>;
+
+  constructor(directory: SlackDirectory, myId: string, roomNames: ReadonlyMap<string, string> = new Map(), saved: ReadonlySet<string> = new Set()) {
+    this.directory = directory;
+    this.myId = myId;
+    this.saved = saved;
+    this.resolver = { username: (id) => directory.username(id), roomName: (id) => roomNames.get(id) ?? null };
+  }
+
+  translateEvent(event: DdpEvent): Translation {
+    const doc = record(event.args[0]);
+    switch (event.collection) {
+      case SLACK_MESSAGE: {
+        const message = doc === null ? null : this.toMessage(doc);
+        return message === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message', doc: message } };
+      }
+      case SLACK_MESSAGE_DELETED: {
+        const channel = str(doc?.channel);
+        const ts = doc?.ts;
+        return channel === null || !isTimestamp(ts) ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message-deleted', id: messageId(channel, ts) } };
+      }
+      case SLACK_ROOM: {
+        const room = doc === null ? null : this.toRoom(doc);
+        return room === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'room', doc: room } };
+      }
+      case SLACK_SUBSCRIPTION: {
+        const subscription = doc === null ? null : this.toSubscription(doc);
+        return subscription === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'subscription', doc: subscription } };
+      }
+      case SLACK_AVATAR: {
+        const username = str(doc?.username);
+        const etag = str(doc?.etag);
+        return username === null || etag === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'avatar', username, rid: null, etag } };
+      }
+      case SLACK_STARRED: {
+        const id = str(doc?.id);
+        return id === null ? { kind: 'ignore' } : { kind: 'change', change: { type: 'message-starred', id, starred: this.starredColumn(doc?.on === true) } };
+      }
+      case SLACK_QUIET:
+        return { kind: 'silence' };
+      default:
+        return { kind: 'ignore' };
+    }
+  }
+
+  toMessage(raw: Doc): LocalMessage | null {
+    const channel = str(raw.channel);
+    const ts = raw.ts;
+    if (channel === null || !isTimestamp(ts)) return null;
+    const subtype = str(raw.subtype) ?? '';
+    if (raw.hidden === true || SKIPPED.has(subtype)) return null;
+    const ms = timestampMs(ts);
+    const userId = str(raw.user);
+    const botId = str(raw.bot_id);
+    const authorId = userId ?? botId ?? '';
+    const authorName = userId !== null
+      ? (this.directory.username(userId) ?? str(record(raw.user_profile)?.name) ?? userId)
+      : (botId !== null ? this.directory.bot(botId) : null) ?? str(raw.username) ?? botId;
+    const system = SYSTEM[subtype];
+    const huddle = huddleCall(raw, channel);
+    const threadTs = isTimestamp(raw.thread_ts) ? raw.thread_ts : null;
+    const reply = threadTs !== null && threadTs !== ts;
+    const editedTs = record(raw.edited)?.ts;
+    const editedAt = isTimestamp(editedTs) ? timestampMs(editedTs) : null;
+    const id = messageId(channel, ts);
+    return {
+      id,
+      rid: channel,
+      text: huddle !== null ? huddle.param : system !== undefined ? system.param(raw, authorName) : this.body(raw),
+      ts: ms,
+      authorId,
+      authorName,
+      systemType: huddle?.type ?? system?.type ?? null,
+      threadId: reply ? messageId(channel, threadTs) : null,
+      threadCount: reply ? 0 : num(raw.reply_count),
+      threadLast: !reply && isTimestamp(raw.latest_reply) ? timestampMs(raw.latest_reply) : null,
+      threadShown: reply && subtype === 'thread_broadcast',
+      editedAt,
+      md: null,
+      attachments: joinAttachments(slackFiles(raw.files), cards(raw.attachments)),
+      reactions: this.reactions(raw.reactions),
+      urls: null,
+      callId: huddle?.callId ?? null,
+      encryptedRaw: null,
+      pinned: Array.isArray(raw.pinned_to) && raw.pinned_to.includes(channel),
+      starred: this.starredColumn(this.saved.has(id)),
+      updatedAt: editedAt ?? ms,
+    };
+  }
+
+  toRoom(raw: Doc): LocalRoom | null {
+    const doc = raw as SlackRoomDoc;
+    const channel = record(doc.channel);
+    const rid = str(channel?.id);
+    if (channel === null || rid === null) return null;
+    const type = roomType(channel);
+    const other = channel.is_im === true ? str(channel.user) : null;
+    const otherName = other === null ? null : this.directory.username(other);
+    const last = record(doc.lastMessage);
+    const lastMessage = last === null ? null : this.toMessage({ ...last, channel: rid });
+    const latest = latestMs(doc.counts);
+    const updated = typeof channel.updated === 'number' && channel.updated > 0 ? channel.updated : num(channel.created) * 1000;
+    return {
+      rid,
+      type,
+      name: other !== null ? (otherName ?? other) : str(channel.name),
+      displayName: this.label(channel, other),
+      encrypted: false,
+      readOnly: false,
+      dmOtherUid: other,
+      dmOtherUsername: otherName,
+      lastMessage: lastMessage?.systemType === null ? (lastMessage.text || firstTitle(lastMessage.attachments)) : null,
+      lastMessageType: lastMessage?.systemType ?? null,
+      lastMessageTs: Math.max(lastMessage?.ts ?? 0, latest ?? 0) || null,
+      keepPreview: doc.lastMessage === undefined,
+      avatarEtag: null,
+      updatedAt: Math.max(updated, latest ?? 0, lastMessage?.ts ?? 0),
+    };
+  }
+
+  toSubscription(raw: Doc): LocalSubscription | null {
+    const doc = raw as SlackSubscriptionDoc;
+    const channel = record(doc.channel);
+    const rid = str(channel?.id);
+    if (channel === null || rid === null) return null;
+    const counts = record(doc.counts);
+    const mentions = num(counts?.mention_count);
+    const alert = counts?.has_unreads === true;
+    const lastSeen = isTimestamp(counts?.last_read) ? timestampMs(counts.last_read) : 0;
+    return {
+      rid,
+      subId: rid,
+      unread: alert ? Math.max(1, mentions) : 0,
+      mentions,
+      groupMentions: 0,
+      alert,
+      open: true,
+      favorite: false,
+      lastSeen: lastSeen > 0 ? lastSeen : null,
+      e2eKey: null,
+      e2eKeyId: null,
+      roles: null,
+      groupId: null,
+      groupName: null,
+      groupRank: null,
+      updatedAt: Math.max(lastSeen, latestMs(counts) ?? 0),
+    };
+  }
+
+  /** A save is mine alone: the column holds my id or nothing. */
+  private starredColumn(on: boolean): string | null {
+    return on ? JSON.stringify([this.myId]) : null;
+  }
+
+  private label(channel: Doc, other: string | null): string | null {
+    if (other !== null) return this.directory.displayName(other) ?? other;
+    const name = str(channel.name);
+    if (channel.is_mpim !== true || name === null) return name;
+    const me = this.directory.username(this.myId);
+    const people = mpimUsernames(name).filter((u) => u !== me).map((u) => this.directory.nameOfUsername(u) ?? u);
+    return people.length > 0 ? people.join(', ') : name;
+  }
+
+  private body(raw: Doc): string {
+    return mrkdwnToMarkdown(str(raw.text) ?? '', this.resolver);
+  }
+
+  private reactions(raw: unknown): string | null {
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    const grouped: Record<string, { usernames: string[] }> = {};
+    for (const item of raw) {
+      const reaction = record(item);
+      const name = str(reaction?.name);
+      if (reaction === null || name === null || !Array.isArray(reaction.users)) continue;
+      const users = reaction.users.flatMap((id) => (typeof id === 'string' ? [this.directory.username(id) ?? id] : []));
+      if (users.length === 0) continue;
+      // Two Slack names of one glyph (`+1`, `thumbsup`) are one chip.
+      const key = `:${reactionCode(name)}:`;
+      grouped[key] = { usernames: [...(grouped[key]?.usernames ?? []), ...users] };
+    }
+    return Object.keys(grouped).length === 0 ? null : JSON.stringify(grouped);
+  }
+
+  /** Every person a batch of messages names, and every bot: what `SlackDirectory.ensure` needs first. */
+  static people(messages: readonly Doc[]): { users: string[]; bots: string[] } {
+    const users = new Set<string>(), bots = new Set<string>();
+    for (const m of messages) {
+      if (typeof m.user === 'string') users.add(m.user);
+      if (typeof m.bot_id === 'string' && typeof m.user !== 'string') bots.add(m.bot_id);
+      if (typeof m.text === 'string') for (const match of m.text.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/g)) users.add(match[1]!);
+      if (Array.isArray(m.reactions)) {
+        for (const r of m.reactions) {
+          const list = record(r)?.users;
+          if (Array.isArray(list)) for (const id of list) if (typeof id === 'string') users.add(id);
+        }
+      }
+    }
+    return { users: [...users], bots: [...bots] };
+  }
+}
+
+function latestMs(counts: unknown): number | null {
+  const latest = record(counts)?.latest;
+  return isTimestamp(latest) ? timestampMs(latest) : null;
+}
+
+/** Where Slack serves files to a session: its `d` cookie authenticates them, as it does the API. */
+export const SLACK_FILES = 'https://files.slack.com';
+
+const fileLink = (value: unknown): string | null => {
+  const link = str(value);
+  return link !== null && link.startsWith(`${SLACK_FILES}/`) ? link : null;
+};
+
+/**
+ * A message's files, in the attachment shape Rocket.Chat's files already
+ * render: images from their largest thumbnail, video and audio played from
+ * the file itself. Deleted files and files of other services are left out.
+ */
+export function slackFiles(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.flatMap((item) => {
+    const file = record(item);
+    const link = fileLink(file?.url_private);
+    if (file === null || link === null || file.mode === 'tombstone' || file.mode === 'hidden_by_limit' || file.mode === 'external') return [];
+    const mime = str(file.mimetype) ?? 'application/octet-stream';
+    const size = num(file.size);
+    const a: Doc = { title: str(file.name) ?? str(file.title) ?? str(file.id) ?? 'file', title_link: fileLink(file.url_private_download) ?? link, type: 'file', size };
+    if (mime.startsWith('image/')) {
+      a.image_url = fileLink(file.thumb_720) ?? fileLink(file.thumb_480) ?? fileLink(file.thumb_360) ?? link;
+      a.image_type = mime;
+      a.image_size = size;
+      const width = num(file.original_w), height = num(file.original_h);
+      if (width > 0 && height > 0) a.image_dimensions = { width, height };
+    } else if (mime.startsWith('video/')) {
+      a.video_url = link;
+      a.video_type = mime;
+      a.video_size = size;
+    } else if (mime.startsWith('audio/')) {
+      a.audio_url = link;
+      a.audio_type = mime;
+      a.audio_size = size;
+    }
+    return [a];
+  });
+  return out.length === 0 ? null : JSON.stringify(out);
+}
+
+function joinAttachments(files: string | null, legacy: string | null): string | null {
+  if (files === null || legacy === null) return files ?? legacy;
+  return JSON.stringify([...(JSON.parse(files) as unknown[]), ...(JSON.parse(legacy) as unknown[])]);
+}
+
+function firstTitle(attachments: string | null): string | null {
+  if (attachments === null) return null;
+  const first = (JSON.parse(attachments) as Doc[])[0];
+  return str(first?.title) ?? str(first?.text);
+}
+
+/** Legacy message attachments, in the card shape Rocket.Chat's attachments already render. */
+function cards(raw: unknown): string | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.flatMap((item) => {
+    const a = record(item);
+    if (a === null) return [];
+    const card: Doc = {};
+    for (const key of ['author_name', 'title', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
+    if (typeof a.title_link === 'string' && a.title_link.startsWith('https://')) card.title_link = a.title_link;
+    const text = str(a.text) ?? str(a.pretext) ?? str(a.fallback);
+    if (text !== null) card.text = text;
+    return Object.keys(card).length > 0 ? [card] : [];
+  });
+  return out.length === 0 ? null : JSON.stringify(out);
+}
+
+function record(value: unknown): Doc | null {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Doc) : null;
+}
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function num(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}

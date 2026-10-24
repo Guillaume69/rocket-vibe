@@ -32,3 +32,6 @@ export type Session = {
   teamsTenantId?: string;
   teamsRefresh?: string;
 };
+
+/** Where a provider reports that the server refused the session's token. */
+export type TokenRejection = { onTokenRejected: ((token: string) => void) | null };

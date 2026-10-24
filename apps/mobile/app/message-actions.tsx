@@ -20,7 +20,7 @@ import { dismissible } from '../ui/alerts.ts';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
-import { slackReactable } from '../providers/slack/emojis.ts';
+import { slackReactable } from '@rocket-vibe/provider-slack/emojis';
 import { nativeReactions } from '../providers/vibez/store.ts';
 import { NativeError } from '../providers/vibez/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
@@ -375,7 +375,7 @@ export default function MessageActionsScreen() {
   }, []);
   // Rocket.Chat and Slack react only with the codes of their own lists: a
   // glyph with no code there is left out of the quick row and the picker
-  // (`lib/rocketchatReactions.ts`, `providers/slack/emojis.ts`); Vibez takes
+  // (`lib/rocketchatReactions.ts`, `@rocket-vibe/provider-slack/emojis`); Vibez takes
   // every standard emoji.
   const onSlack = client?.kind === 'slack';
   const onRocketChat = client?.kind !== 'vibez' && !onSlack;

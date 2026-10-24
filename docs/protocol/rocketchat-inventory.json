@@ -11,7 +11,7 @@
     "crates/rv-provider",
     "crates/rv-slack",
     "crates/rv-teams",
-    "packages"
+    "packages/provider-api"
   ],
   "scanned": [
     "apps/desktop/crates/rv-core/examples/export-native-rendering.rs",
@@ -523,7 +523,6 @@
     "apps/mobile/lib/serverKind.ts",
     "apps/mobile/lib/sessionStore.ts",
     "apps/mobile/lib/sessionTransport.ts",
-    "apps/mobile/lib/slackAvatars.ts",
     "apps/mobile/lib/storageKeys.ts",
     "apps/mobile/lib/storedRecords.ts",
     "apps/mobile/lib/streamingFile.ts",
@@ -735,6 +734,7 @@
     "packages/provider-api/src/rows.ts",
     "packages/provider-api/src/session.ts",
     "packages/provider-api/src/sync.ts",
+    "packages/provider-api/src/testing.ts",
     "packages/provider-api/src/typing.ts",
     "packages/provider-api/src/uploads.ts"
   ],

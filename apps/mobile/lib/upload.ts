@@ -19,7 +19,7 @@ import type { RestClient } from './rest.ts';
 import {nativeAvatarUri} from './nativeAvatars.ts';
 import {nativeFileUri} from './nativeFiles.ts';
 import { photoUri } from './whatsappFiles.ts';
-import { slackAvatar } from './slackAvatars.ts';
+import { slackAvatar } from '@rocket-vibe/provider-slack/avatars';
 import type { FileToSend, TransportUpload } from '@rocket-vibe/provider-api/uploads';
 export type { FileToSend, TransportUpload } from '@rocket-vibe/provider-api/uploads';
 

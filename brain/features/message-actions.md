@@ -81,7 +81,7 @@ Same rule set in all three apps, delete confirmation included, except on unsent 
 - apps/mobile/app/message-actions.tsx
 - apps/mobile/app/marked-messages.tsx
 - apps/mobile/providers/rocketchat/actions.ts
-- apps/mobile/lib/provider.ts
+- packages/provider-api/src/provider.ts
 - apps/mobile/lib/marks.ts
 - apps/mobile/lib/reactions.ts
 - apps/mobile/app/reactions.tsx

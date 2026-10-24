@@ -17,7 +17,7 @@ How `:shortcode:` emoji become glyphs, how the server's custom emoji become imag
 
 Both tables come from `emoji-toolkit` 10.0.0 (JoyPixels' JSON, MIT; no artwork is used, the system font draws the glyphs), the source Rocket.Chat takes its shortnames from: **6222 shortcodes**, including tone variants and alternate names, and 8 picker categories in JoyPixels order (people, nature, food, activity, travel, objects, symbols, flags). Both generators are deterministic.
 
-- **Mobile:** `apps/mobile/scripts/generate-emojis.mjs` (`npm run emojis:generate`, `emoji-toolkit` is a dev dependency) writes `lib/emojis.generated.ts`: one JSON **string** of hexadecimal code points, parsed on first use. A string costs less than 6222 object properties built at module load, and ASCII code points let Hermes store one byte per character instead of two (124 KB saved). `lib/emojis.ts` exposes `unicodeOfShortcode` (code to glyph, `null` for "not an emoji"), `codesEmojiStandard` (frozen list for completion) and `emojisByCategory` (1918 base codes for the picker).
+- **Mobile:** `apps/mobile/scripts/generate-emojis.mjs` (`npm run emojis:generate`, `emoji-toolkit` is a dev dependency) writes `packages/provider-api/src/emojis.generated.ts`: one JSON **string** of hexadecimal code points, parsed on first use. A string costs less than 6222 object properties built at module load, and ASCII code points let Hermes store one byte per character instead of two (124 KB saved). `packages/provider-api/src/emojis.ts` exposes `unicodeOfShortcode` (code to glyph, `null` for "not an emoji"), `codesEmojiStandard` (frozen list for completion) and `emojisByCategory` (1918 base codes for the picker).
 - **Desktop:** `apps/desktop/scripts/generate-emojis.mjs` writes `crates/rv-provider/data/emojis.tsv` (shortcode, dash-separated code points, category or `-` for tone variants and aliases, then `+` when Rocket.Chat's `chat.react` accepts the code, `-` otherwise), embedded with `include_str!` in `crates/rv-provider/src/emoji.rs` and indexed once (`OnceLock`): `unicode`, `shortcode` (glyph back to code, with or without the variation selector), `category`, `complete`, `replace_shortcodes` (plain text such as previews) and `at` (the longest known emoji under a position, for hover cards).
 
 ## Mobile
@@ -64,8 +64,8 @@ The message menus of the three apps show the 5 emoji I react with most on this a
 - apps/web/src/conversation-parity.css
 - apps/web/tests/emoji-completion.mjs
 
-- apps/mobile/lib/emojis.ts
-- apps/mobile/lib/emojis.generated.ts
+- packages/provider-api/src/emojis.ts
+- packages/provider-api/src/emojis.generated.ts
 - apps/mobile/lib/customEmojis.ts
 - apps/mobile/lib/emojiCompletion.ts
 - apps/mobile/lib/markdown.ts

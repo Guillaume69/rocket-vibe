@@ -34,7 +34,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 
 - **Native components by default, in three tiers.** Tier 0 is pure React Native primitives; tier 1 is native bindings that expose an OS capability without imposing a look (`react-native-screens`, safe area, `expo-image`, gesture handler, haptics); tier 2 is a short list of argued exceptions: `@shopify/flash-list` (native view recycling for thousands of messages), `react-native-keyboard-controller` (frame-synced composer, since `KeyboardAvoidingView` is poor on Android), `@rocket.chat/message-parser` (MIT, pure JS, no UI), `react-native-webview` (calls only). Any new UI dependency is justified in its commit against `ROADMAP.md` §4.2. See [stack](stack.md), [mobile-app](architecture/mobile-app.md).
 - **Banned outright:** UI kits (NativeBase, Tamagui, gluestack, RN Paper), `react-native-markdown-display`, `react-native-render-html`, `@gorhom/bottom-sheet` (a JS reimplementation of a component the platform has). Bottom sheets are native, `presentation: 'formSheet'` from `react-native-screens` through expo-router. Markdown is rendered from the server's AST into nested `<Text>` (`apps/mobile/ui/markdown.tsx`).
-- **One WebView, bounded: the call screen.** The native Jitsi SDK targets RN ~0.79 and bundles `react-native-webrtc`, a fragile bet against RN 0.86. `apps/mobile/app/call/[callId].tsx` is the only route with a WebView, locked on the origin the server designated (`apps/mobile/lib/origin.ts`), because the app holds camera and microphone during the call and Android cannot arbitrate those per origin. Video link previews stay native cards (`apps/mobile/ui/embedCard.tsx`). See [calls](features/calls.md).
+- **One WebView, bounded: the call screen.** The native Jitsi SDK targets RN ~0.79 and bundles `react-native-webrtc`, a fragile bet against RN 0.86. `apps/mobile/app/call/[callId].tsx` is the only route with a WebView, locked on the origin the server designated (`packages/provider-api/src/origin.ts`), because the app holds camera and microphone during the call and Android cannot arbitrate those per origin. Video link previews stay native cards (`apps/mobile/ui/embedCard.tsx`). See [calls](features/calls.md).
 - **No EAS, ever, for Android.** Builds are `expo prebuild` + `./gradlew`, locally and on CI. See [operations](operations.md).
 - **Continuous Native Generation.** `android/` and `ios/` are gitignored; every native customisation is a config plugin in `apps/mobile/plugins/` or a local module in `apps/mobile/modules/`, because SDK 57's `expo prebuild` wipes and regenerates by default. A native change needs a dev-client rebuild, not a Metro reload. See [mobile-native](architecture/mobile-native.md).
 - **Native modules over pure-JS polyfills for heavy work.** E2EE goes through `react-native-quick-crypto` (Nitro, OpenSSL, `node:crypto` API): `apps/mobile/lib/e2e/crypto.ts` imports `crypto`/`buffer`, `apps/mobile/metro.config.js` aliases them to quick-crypto on device, and the same imports resolve to `node:crypto` under Node tests. `expo-crypto` has no RSA. Since tests never run quick-crypto itself, `apps/mobile/lib/e2e/surfaceQuickCrypto.ts` pins the API surface by types. See [e2ee](architecture/e2ee.md).
@@ -299,7 +299,7 @@ The project's own server, until then "the RocketVibe server" (`rv-server`, image
 
 The rename is complete rather than cosmetic: binary and crate `vibez`, image `ghcr.io/guillaume69/vibez`, discovery at `/.well-known/vibez` with product `vibez`, `VIBEZ_*` settings, the stored account kind `vibez` in every app, and every E2EE domain-separation string `vibez-*-v1`. No Vibez instance ran in the wild, so no alias is kept: accounts saved under the old kind are added again by hand, signatures and sealed stores made under the old domains stop verifying (a server's E2EE state starts over), and a browser starts from an empty store. The mobile app's own keystore and WhatsApp aliases are the app's, not the server's, and keep their names. See [operations](operations.md) and [architecture/server.md](architecture/server.md).
 
-Sources: scripts/version.mjs; scripts/changelog.mjs; .github/workflows/server-release.yml; apps/server/CHANGELOG.md; apps/server/src/http.rs; apps/mobile/lib/provider.ts.
+Sources: scripts/version.mjs; scripts/changelog.mjs; .github/workflows/server-release.yml; apps/server/CHANGELOG.md; apps/server/src/http.rs; packages/provider-api/src/provider.ts.
 
 ## X posts: server metadata, and X itself on Rocket.Chat only (2026-10-14)
 
@@ -396,7 +396,7 @@ installed. See [Teams](architecture/teams.md).
 
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
 - `apps/desktop/crates/rv-native/src/windows_notification.rs`
-- apps/mobile/providers/teams/auth.ts
+- packages/provider-teams/src/auth.ts
 - crates/rv-teams/src/auth.rs
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
@@ -457,11 +457,11 @@ installed. See [Teams](architecture/teams.md).
 - `apps/desktop/whatsapp/engine/vault.go`
 - scripts/slack-browser-signin.mjs
 - scripts/slack/session.mjs
-- apps/mobile/providers/slack/handoff.ts
+- packages/provider-slack/src/handoff.ts
 - crates/rv-slack/src/handoff.rs
 - crates/rv-slack/src/browser_login.rs (`open_signed_in`)
 - apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
-- apps/mobile/providers/slack/saved.ts
+- packages/provider-slack/src/saved.ts
 - crates/rv-provider/src/lib.rs (`set_version`)
 - apps/desktop/crates/rv-core/src/slack/mod.rs
 - apps/desktop/crates/rv-core/src/teams/mod.rs
@@ -481,6 +481,10 @@ The desktop switched first as a drop-in (2026-10-24): `rv-whatsapp-engine` is a 
 ## Slack and Teams leave rv-core for crates of their own (2026-10-24)
 
 Following the one-crate-per-provider decision above, the code that speaks to Slack and Teams moved below rv-core: `crates/rv-slack` and `crates/rv-teams`, on `crates/rv-provider` for what they share with rv-core (the REST client and its dialects, the live socket's frames, normalized types, presence, emoji, TLS). The line is the wire: sign-in, requests, the live connection and translation go down; what writes the store (`slack::sync`, `teams::sync`, `teams::actions`), the outbox and the sessions stay. Each crate answers its own `Session`, and rv-core converts it to its `SessionInfo`, so the crates know nothing of rv-core's other account kinds. rv-core re-exports the moved modules under their old paths, so the GTK and Swift apps did not move. Each crate is its own workspace and lock, like the WhatsApp ones, so it builds and tests alone (`providers.yml`). The user agent kept its app version: a library cannot read the app's, so `rv_core::identify()` hands it down at start. Many Teams calls still live in `TeamsSync` beside its store writes; they move down next.
+
+## Mobile Slack and Teams leave the app for npm packages (2026-10-24)
+
+The mobile half of the one-package-per-provider decision: Slack's and Teams' providers moved out of `apps/mobile/providers/` into `packages/provider-slack` and `packages/provider-teams`, over `packages/provider-api` for the contract they code against, in a root npm workspace. `apps/mobile` is not a member of that workspace: hoisting the whole Expo app into the root would move every native dependency's path the Gradle build and autolinking read, for no gain, so the app keeps its own lockfile and resolves the packages through the root `node_modules`. The packages ship TypeScript source, read as is by Metro, `tsc` and Node, like the app's own `lib/`: no build step to forget. The app's old paths re-export what moved, so no screen changed, and `lib/provider.ts` extends the contract with what only the app's own servers offer instead of the contract naming Vibez or the admin screens. WhatsApp stays in the app until its runner stops going through Vibez's native one. See [provider packages](architecture/provider-packages.md).
 
 ## Canaries watch the private protocols (2026-10-23)
 

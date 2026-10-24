@@ -258,5 +258,5 @@ the main matrix. No installed-client notification flow was tested here.
 ## Sources
 
 - `docs/protocol/SLACK_SESSION.md`, `docs/protocol/slack-session-evidence.json`
-- `apps/mobile/lib/provider.ts`, `apps/mobile/lib/normalize.ts`, `apps/desktop/crates/rv-core/src/native.rs`
+- `packages/provider-api/src/provider.ts`, `apps/mobile/lib/normalize.ts`, `apps/desktop/crates/rv-core/src/native.rs`
 - Pinned external sources linked in the main protocol document.

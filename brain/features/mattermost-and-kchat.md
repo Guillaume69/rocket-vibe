@@ -40,7 +40,7 @@ Posts read as the official apps show them (both apps, 2026-10-17; `docs/MATTERMO
 
 ### Server kinds
 
-`ProviderKind` gains `mattermost` and `kchat` (`lib/provider.ts`); both build
+`ProviderKind` gains `mattermost` and `kchat` (`packages/provider-api/src/provider.ts`); both build
 `createMattermostProvider` (`providers/mattermost/index.ts`). The login screen's
 kind picker offers them; in `auto`, `lib/serverKind.ts` takes a host under
 `kchat.infomaniak.com` as kChat, then after the Vibez discovery fails,
@@ -76,7 +76,7 @@ Rocket.Chat call fails cleanly instead of hitting the wrong server.
   is `POST /users/logout` on Mattermost, nothing on kChat (the token is the
   account's).
 
-Mobile session exit removes media bearers, username mappings and session-owned protected copies, with late download fencing (`lib/mediaAuth.ts`, `lib/authorizedMediaCache.ts`). Infomaniak's official mobile app calls `POST /users/logout` with a device id on all stored teams; that is not evidence that the account-wide OAuth token is revoked. Automatic token revocation remains unqualified. Personal tokens can be revoked in Infomaniak Manager. See `docs/MATTERMOST.md` section 3.4.
+Mobile session exit removes media bearers, username mappings and session-owned protected copies, with late download fencing (`packages/provider-api/src/mediaAuth.ts`, `lib/authorizedMediaCache.ts`). Infomaniak's official mobile app calls `POST /users/logout` with a device id on all stored teams; that is not evidence that the account-wide OAuth token is revoked. Automatic token revocation remains unqualified. Personal tokens can be revoked in Infomaniak Manager. See `docs/MATTERMOST.md` section 3.4.
 
 ### Real time
 
@@ -225,8 +225,8 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 ### Media
 
 Mattermost and kChat refuse a token in the URL, and the app keeps no cookie
-session (see Sign-in). `lib/mediaAuth.ts` holds the session's bearer per origin
-(`lib/origin.ts#originOf`, since React Native's `URL.origin` is empty). React
+session (see Sign-in). `packages/provider-api/src/mediaAuth.ts` holds the session's bearer per origin
+(`packages/provider-api/src/origin.ts#originOf`, since React Native's `URL.origin` is empty). React
 Native's `<Image>` drops `source.headers` on Android under the New Architecture
 (the request reaches the server with no token), so images go through
 `ui/authorizedImage.ts#useAuthorizedUri`: the bytes are downloaded once by
@@ -406,7 +406,7 @@ another request, which must be caught, refused and close the window.
 - `apps/desktop/macos/Sources/RocketVibe/LoginView.swift`, `apps/desktop/macos/Sources/RocketVibe/SignInWindow.swift`, `apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift`
 - `apps/desktop/crates/rv-core/examples/mattermost-smoke.rs`
 - `apps/mobile/providers/mattermost/`
-- `apps/mobile/lib/provider.ts`, `apps/mobile/providers/index.ts`
-- `apps/mobile/lib/serverKind.ts`, `apps/mobile/lib/sessionTransport.ts`, `apps/mobile/lib/mediaAuth.ts`
+- `packages/provider-api/src/provider.ts`, `apps/mobile/providers/index.ts`
+- `apps/mobile/lib/serverKind.ts`, `apps/mobile/lib/sessionTransport.ts`, `packages/provider-api/src/mediaAuth.ts`
 - `apps/mobile/app/login.tsx`, `apps/mobile/app/+native-intent.tsx`, `apps/mobile/app.json`
 - `apps/mobile/ui/sync.tsx`

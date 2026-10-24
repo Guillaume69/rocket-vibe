@@ -10,6 +10,8 @@ apps/desktop/    Rust workspace (rv-core, rv-gtk, rv-native, rv-ffi, rv-voice-pr
                  the voice sidecar workspace in voice/, the SwiftUI app in macos/
 apps/web/        React browser client for the Vibez server, embedded in its binary
 apps/server/     The Vibez server: Rust, Axum, PostgreSQL
+packages/        npm workspace of the mobile provider code: provider-api, provider-slack,
+                 provider-teams (TypeScript source, read as is)
 crates/          Shared Rust: rv-protocol, rv-client, rv-crypto, rv-crypto-public,
                  rv-crypto-mobile, rv-crypto-web, rv-voice-mobile
 Cargo.toml       Root workspace: the server, rv-protocol, rv-client, rv-crypto-public
@@ -57,7 +59,7 @@ An Expo SDK 57 app on React Native 0.86 (New Architecture), Android first, iOS p
 |---|---|
 | `app/` | expo-router routes: `index.tsx` (room list), `login.tsx`, `room/[rid].tsx`, `thread/[id].tsx`, `call/[callId].tsx` (Jitsi call, the one WebView), search, settings, profiles, share target. |
 | `ui/` | Components, theme, i18n catalog (`messages.ts`), and the React glue that owns the session and the sync engine (`session.tsx`, `sync.tsx`). |
-| `providers/` | "Providers": `createProvider` picks the chat backend by `session.kind`: `rocketchat/`, `mattermost/` (Mattermost and kChat) and `vibez/` (the Vibez server, with its generated protocol types and the crypto bridge). Each translates its server's wire format into neutral sync changes (`SyncChange`). The contract is `lib/provider.ts`. |
+| `providers/` | "Providers": `createProvider` picks the chat backend by `session.kind`: `rocketchat/`, `mattermost/` (Mattermost and kChat) and `vibez/` (the Vibez server, with its generated protocol types and the crypto bridge). Each translates its server's wire format into neutral sync changes (`SyncChange`). The contract is `packages/provider-api/src/provider.ts`. |
 | `lib/` | Platform-free core: DDP client (`ddp.ts`), REST client (`rest.ts`), auth, sync engine (`sync.ts`, `SyncEngine`), catch-up (`catchUp.ts`), reconnection, send queue (`outbox.ts`), uploads, markdown, E2EE (`lib/e2e/`). Loadable by plain Node, which is how it is tested. |
 | `db/` | SQLite schema (Drizzle), the SQL of every upsert (`upserts.ts`), the `Store` implementation (`store.ts`) and its serialised write queue (`writeQueue.ts`), migrations. |
 | `plugins/`, `modules/` | Config plugins that shape the generated `android/`/`ios/` projects, and local Expo native modules. |
@@ -119,8 +121,8 @@ The Vibez server: one Rust binary (Axum, tokio, PostgreSQL through SQLx) that is
 - `apps/mobile/ui/sync.tsx`
 - `apps/mobile/ui/session.tsx`
 - `apps/mobile/providers/index.ts`
-- `apps/mobile/lib/provider.ts`
-- `apps/mobile/lib/sync.ts`
+- `packages/provider-api/src/provider.ts`
+- `packages/provider-api/src/sync.ts`
 - `apps/mobile/lib/testStore.ts`
 - `apps/mobile/db/store.ts`
 - `apps/mobile/eslint.config.js`

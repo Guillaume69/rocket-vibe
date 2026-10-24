@@ -24,7 +24,7 @@ db/             schema, connection, write queue, SQL upserts, stores
 
 ## The provider facade (`providers/`)
 
-`lib/provider.ts` defines the neutral contract (`Provider`, `Listener`, `Translator`, `ProviderActions`, `Capabilities`, `SyncChange`). The sync core (`lib/sync.ts`, `SyncEngine`) only applies neutral `SyncChange` values; each driver translates its own wire format into them. `providers/index.ts#createProvider` switches exhaustively on `session.kind` (type `ProviderKind`: `rocketchat`, `vibez`, `mattermost`, `kchat`, `whatsapp`), so adding a member without a driver breaks compilation. `providers/rocketchat/index.ts` assembles the Rocket.Chat driver from the DDP client (the `Listener`), `translator.ts` (stream events and REST documents to neutral rows), `actions.ts` (message actions over `RestClient`) and `history.ts` (`loadHistory`, `loadThread`). Two optional members carry the server administration and reports (`Provider.admin`, a `ProviderAdmin`, and `Provider.reports`, a `ProviderReports`, both from `lib/admin.ts`), offered with `capabilities.administration` and `capabilities.reports`: `providers/rocketchat/admin.ts` and `providers/vibez/admin.ts` map each server to the neutral model, so the `app/admin/` screens never name an endpoint ([../features/administration.md](../features/administration.md)). `providers/mattermost/` serves both `mattermost` and `kchat` through the same generic path as Rocket.Chat (`SyncEngine`, outbox, upload queue), with its own WebSocket or Pusher listener; Vibez has its own branch in `ui/sync.tsx`. The non-Rocket.Chat kinds get a `RestClient` answering 501 (`lib/sessionTransport.ts`) and the server-specific extras in `ui/sync.tsx` (push token, presence load, custom emoji, E2EE resume) are gated by `capabilities` or a provider hook (`loadPresence`, `listCustomEmojis`). See [mattermost-and-kchat](../features/mattermost-and-kchat.md). Sessions stored before `kind` existed are read back as `rocketchat` by `normalizeProviderKind`.
+`packages/provider-api/src/provider.ts` defines the neutral contract (`Provider`, `Listener`, `Translator`, `ProviderActions`, `Capabilities`, `SyncChange`), which `lib/provider.ts` re-exports and extends with the members only the app's own servers offer ([provider-packages.md](provider-packages.md)). The sync core (`packages/provider-api/src/sync.ts`, `SyncEngine`) only applies neutral `SyncChange` values; each driver translates its own wire format into them. `providers/index.ts#createProvider` switches exhaustively on `session.kind` (type `ProviderKind`: `rocketchat`, `vibez`, `mattermost`, `kchat`, `whatsapp`, `slack`, `teams`), so adding a member without a driver breaks compilation. The Slack and Teams drivers come from the `@rocket-vibe/provider-slack` and `@rocket-vibe/provider-teams` packages; the others live in `providers/`. `providers/rocketchat/index.ts` assembles the Rocket.Chat driver from the DDP client (the `Listener`), `translator.ts` (stream events and REST documents to neutral rows), `actions.ts` (message actions over `RestClient`) and `history.ts` (`loadHistory`, `loadThread`). Two optional members of the app's extension carry the server administration and reports (`Provider.admin`, a `ProviderAdmin`, and `Provider.reports`, a `ProviderReports`, both from `lib/admin.ts`), offered with `capabilities.administration` and `capabilities.reports`: `providers/rocketchat/admin.ts` and `providers/vibez/admin.ts` map each server to the neutral model, so the `app/admin/` screens never name an endpoint ([../features/administration.md](../features/administration.md)). `providers/mattermost/` serves both `mattermost` and `kchat` through the same generic path as Rocket.Chat (`SyncEngine`, outbox, upload queue), with its own WebSocket or Pusher listener; Vibez has its own branch in `ui/sync.tsx`. The non-Rocket.Chat kinds get a `RestClient` answering 501 (`lib/sessionTransport.ts`) and the server-specific extras in `ui/sync.tsx` (push token, presence load, custom emoji, E2EE resume) are gated by `capabilities` or a provider hook (`loadPresence`, `listCustomEmojis`). See [mattermost-and-kchat](../features/mattermost-and-kchat.md). Sessions stored before `kind` existed are read back as `rocketchat` by `normalizeProviderKind`.
 
 ## Routes (`app/`)
 
@@ -97,7 +97,7 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/assets/icons/README.md
 - apps/mobile/ui/slackSignIn.tsx
 - apps/mobile/ui/signInWebView.tsx
-- apps/mobile/providers/teams/
+- packages/provider-teams/
 
 - apps/mobile/app/_layout.tsx
 - apps/mobile/app/index.tsx
@@ -115,7 +115,7 @@ From `ROADMAP.md` §4.2 and `CLAUDE.md`: RN primitives first; level-1 native bin
 - apps/mobile/lib/admin.ts
 - apps/mobile/app/settings/index.tsx
 - apps/mobile/app/admin/index.tsx
-- apps/mobile/lib/provider.ts
+- packages/provider-api/src/provider.ts
 - apps/mobile/lib/sessionStore.ts
 - apps/mobile/ui/session.tsx
 - apps/mobile/ui/sync.tsx

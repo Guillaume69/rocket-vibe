@@ -631,10 +631,10 @@ inspected selectors. Do not mistake those comments for an implementation.
 
 | Layer | Existing source seam | Required Slack increment (P) |
 |---|---|---|
-| Mobile account/session | `apps/mobile/lib/provider.ts`, `lib/auth.ts`, `lib/providerError.ts` | Add explicit `slack` kind, team identity and vault credential reference. Unknown persisted kinds must not fall back to RC. |
+| Mobile account/session | `packages/provider-api/src/provider.ts`, `lib/auth.ts`, `lib/providerError.ts` | Add explicit `slack` kind, team identity and vault credential reference. Unknown persisted kinds must not fall back to RC. |
 | Mobile construction | `apps/mobile/providers/index.ts`, `ui/sync.tsx` | Separate Slack HTTP/listener/client construction; current `RestClient` parameter is RC-shaped. |
-| Mobile driver | `apps/mobile/providers/rocketchat/`, `providers/vibez/` as patterns | New `providers/slack/`: auth, transport, listener, translation, history, actions, outbox, files, reads. No Slack fields added to RC wire requests. |
-| Shared mobile projection | `apps/mobile/lib/normalize.ts`, `lib/provider.ts`, `db/schema.ts` | Exact-ts IDs/cursors/order/version and tombstones; normalized native presentation, `threadTemplate: 'tmid'` only as local adapter output. |
+| Mobile driver | `apps/mobile/providers/rocketchat/`, `providers/vibez/` as patterns | New `packages/provider-slack/`: auth, transport, listener, translation, history, actions, outbox, files, reads. No Slack fields added to RC wire requests. |
+| Shared mobile projection | `apps/mobile/lib/normalize.ts`, `packages/provider-api/src/provider.ts`, `db/schema.ts` | Exact-ts IDs/cursors/order/version and tombstones; normalized native presentation, `threadTemplate: 'tmid'` only as local adapter output. |
 | Mobile secondary features | `lib/providerProfiles.ts`, `lib/providerEmojis.ts`, `lib/providerCalls.ts`, `ui/sync.tsx` | Route reads/typing/presence/media through provider; existing RC guards alone will hide Slack until adapted. |
 | Desktop identity / dispatch | `apps/desktop/crates/rv-core/src/native.rs` (`ServerKind`), `session.rs`, `account.rs` | Explicit Slack kind and SlackSession; dispatch before RC/native login/probe; do not put Slack in the native RocketVibe protocol. |
 | Desktop transport / state | `rv-core/src/store.rs`, `outbox.rs`, `native/` as separate-driver pattern | New `rv-core/src/slack/` with typed methods, Cookie upgrade, exact-key SQLite state and durable intents. |
@@ -700,7 +700,7 @@ Fedora container scripts. Documentation alone needs no app build/version bump.
 
 Local sources, relative to the repository root:
 
-- `apps/mobile/lib/provider.ts`, `apps/mobile/lib/auth.ts`, `apps/mobile/lib/normalize.ts`, `apps/mobile/lib/providerError.ts`
+- `packages/provider-api/src/provider.ts`, `apps/mobile/lib/auth.ts`, `apps/mobile/lib/normalize.ts`, `apps/mobile/lib/providerError.ts`
 - `apps/mobile/providers/index.ts`, `apps/mobile/providers/rocketchat/index.ts`, `apps/mobile/providers/vibez/index.ts`
 - `apps/mobile/lib/providerProfiles.ts`, `apps/mobile/lib/providerEmojis.ts`, `apps/mobile/lib/providerCalls.ts`, `apps/mobile/ui/sync.tsx`, `apps/mobile/db/schema.ts`
 - `apps/desktop/crates/rv-core/src/native.rs`, `apps/desktop/crates/rv-core/src/session.rs`, `apps/desktop/crates/rv-core/src/account.rs`, `apps/desktop/crates/rv-core/src/store.rs`, `apps/desktop/crates/rv-core/src/outbox.rs`

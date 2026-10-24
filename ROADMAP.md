@@ -156,7 +156,7 @@ This is what we will use for the action sheet on a message, the emoji picker and
 > Architecture bet against our RN 0.86. `apps/mobile/app/call/[callId].tsx` therefore loads the URL returned
 > by `video-conference.join` (JWT included) in a full-screen WebView. The bounds, and they are not
 > negotiable: **a single route**; **origin locked** to the one the server designated
-> (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives from `apps/mobile/lib/origin.ts`),
+> (`originWhitelist` + `onShouldStartLoadWithRequest`, primitives from `packages/provider-api/src/origin.ts`),
 > because the app holds the camera and microphone during the call and Android cannot arbitrate those
 > permissions per origin, so navigation is the only lock. Everywhere else, the ban holds:
 > inline playback of video links, for example, stays a native card (`apps/mobile/ui/embedCard.tsx`).

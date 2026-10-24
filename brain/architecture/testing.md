@@ -6,7 +6,7 @@ How each app and the server are tested: fast unit and integration suites that ru
 
 ### Unit tests (`npm test`)
 
-`npm test` runs Node's built-in runner on `lib/**/*.test.ts`, `db/**/*.test.ts`, `ui/**/*.test.ts`, `providers/**/*.test.ts` and `plugins/**/*.test.mjs`. There is no Jest and no transpiler: Node 24 strips TypeScript types itself, which is why:
+`npm test` runs Node's built-in runner on `lib/**/*.test.ts`, `db/**/*.test.ts`, `ui/**/*.test.ts`, `providers/**/*.test.ts` and `plugins/**/*.test.mjs`; the provider packages' tests run from the repository root with `npm test` (each package's `src/**/*.test.ts`, [provider-packages.md](provider-packages.md)). There is no Jest and no transpiler: Node 24 strips TypeScript types itself, which is why:
 
 - imports carry their `.ts` extension (`allowImportingTsExtensions` in `tsconfig.json`);
 - `lib/` and `db/` must avoid syntax that emits code (`enum`, constructor parameter properties); `apps/mobile/eslint.config.js` turns both into lint errors, because a single one stops Node from loading the module and silently takes its tests with it;
@@ -87,7 +87,7 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 
 | App | On a push to any branch and PRs |
 |---|---|
-| Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test` |
+| Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test`, the root `npm test` of `packages/` |
 | Desktop | version, `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (Fedora 44) |
 | SwiftUI | build, `swift test`, `rv-rooms`, packaging and launch, on every branch including `master` when `macos/` or `rv-ffi` changes |
 | Web | version, format, build and committed assets, `npm test`, the browser suites |

@@ -83,7 +83,7 @@ Notable column rules:
 
 ## Stores (`db/store.ts`)
 
-Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `lib/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`, `createEmojiUsageStore` (`read`, and `record`, which stores `canonicalEmojiCode` of the code (aliases merged at write time), ignores anything that is not a shortcode and prunes in the same queued job; mounted per session through `ui/emojiUsage.ts`), `createReminderStore` (`list` soonest first, `save`, `markScheduled` and `remove` for one due time, `cancel`, `clear`; mounted per session through `ui/reminders.ts`). Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
+Factories over one connection and its queue: `createStore` (the sync engine's `Store`, from `packages/provider-api/src/sync.ts`), `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`, `createEmojiUsageStore` (`read`, and `record`, which stores `canonicalEmojiCode` of the code (aliases merged at write time), ignores anything that is not a shortcode and prunes in the same queued job; mounted per session through `ui/emojiUsage.ts`), `createReminderStore` (`list` soonest first, `save`, `markScheduled` and `remove` for one due time, `cancel`, `clear`; mounted per session through `ui/reminders.ts`). Each write goes through the queue; reads (`readCursor`, `lastMessageUpdatedAt`) skip it. `transaction(fn)` wraps a batch in one queued `withTransactionAsync`: one commit means one change event for live queries instead of one per row.
 
 Side effects baked into writes:
 
@@ -134,4 +134,4 @@ Side effects baked into writes:
 - apps/mobile/metro.config.js
 - apps/mobile/babel.config.js
 - apps/mobile/ui/sync.tsx
-- apps/mobile/lib/sync.ts
+- packages/provider-api/src/sync.ts

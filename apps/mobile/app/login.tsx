@@ -2,7 +2,7 @@ import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
 import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
-import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, type DeviceCode } from '../providers/teams/auth.ts';
+import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, type DeviceCode } from '@rocket-vibe/provider-teams/auth';
 import { slackFailure } from '../ui/slackSignIn.tsx';
 import { SignInWebView } from '../ui/signInWebView.tsx';
 import { WebCookies } from '../modules/web-cookies/index.ts';

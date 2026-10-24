@@ -578,8 +578,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/permissions.ts:28](../../apps/mobile/lib/permissions.ts#L28) | call:GET | 'me' |
 | [apps/mobile/lib/presence.ts:168](../../apps/mobile/lib/presence.ts#L168) | call:GET | 'users.presence' |
 | [apps/mobile/lib/presence.ts:168](../../apps/mobile/lib/presence.ts#L168) | endpoint | users.presence |
-| [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | call:GET | 'users.info' |
-| [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | endpoint | users.info |
+| [apps/mobile/lib/profilePreload.ts:73](../../apps/mobile/lib/profilePreload.ts#L73) | call:GET | 'users.info' |
+| [apps/mobile/lib/profilePreload.ts:73](../../apps/mobile/lib/profilePreload.ts#L73) | endpoint | users.info |
 | [apps/mobile/lib/pushToken.ts:33](../../apps/mobile/lib/pushToken.ts#L33) | call:POST | 'push.token' |
 | [apps/mobile/lib/pushToken.ts:33](../../apps/mobile/lib/pushToken.ts#L33) | endpoint | push.token |
 | [apps/mobile/lib/pushToken.ts:38](../../apps/mobile/lib/pushToken.ts#L38) | call:DELETE | 'push.token' |

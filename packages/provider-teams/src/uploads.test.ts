@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Session } from '../../lib/auth.ts';
-import type { TransportUpload } from '../../lib/upload.ts';
-import type { UploadRow, UploadStore } from '../../lib/uploadQueue.ts';
+import type { Session } from '@rocket-vibe/provider-api/session';
+import type { TransportUpload, UploadRow, UploadStore } from '@rocket-vibe/provider-api/uploads';
 import { TeamsTokens, type TeamsRoutes } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsDirectory } from './translate.ts';

@@ -6,7 +6,7 @@ import { MmError } from '../providers/mattermost/client.ts';
 import { logoutMattermost, resumeMattermost } from '../providers/mattermost/auth.ts';
 import { SlackError } from '@rocket-vibe/provider-slack/client';
 import { resumeSlack } from '@rocket-vibe/provider-slack/auth';
-import { TeamsError, resumeTeams } from '../providers/teams/auth.ts';
+import { TeamsError, resumeTeams } from '@rocket-vibe/provider-teams/auth';
 
 export function clientForSession(session: Session, revoke: (token: string) => void): RestClient {
   // Legacy screens retain URL/account metadata, but cannot issue RC requests to another server.

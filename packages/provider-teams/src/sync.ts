@@ -7,10 +7,10 @@
  * `apps/desktop/crates/rv-core/src/teams/sync.rs`.
  */
 
-import type { DdpEvent } from '../../lib/ddp.ts';
-import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
-import type { Translation, Translator } from '../../lib/provider.ts';
-import type { SyncEngine } from '../../lib/sync.ts';
+import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
+import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
+import type { Translation, Translator } from '@rocket-vibe/provider-api/provider';
+import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {

@@ -21,7 +21,7 @@ import { forgetCollapsedSections } from './collapsedSections.ts';
 import { forgetLastRoom, requestLastRoom } from './lastRoomStore.ts';
 import { forgetReminders } from './reminders.ts';
 import { forgetAuthorizedMedia } from './authorizedMedia.ts';
-import { setTeamsCredentialSink } from '../providers/teams/auth.ts';
+import { setTeamsCredentialSink } from '@rocket-vibe/provider-teams/auth';
 import {
   addPendingLogout,
   clearE2EPrivateKey,

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import type { Session } from '../../lib/auth.ts';
-import type { LocalMessage } from '../../lib/normalize.ts';
-import type { OutboxRow, OutboxStore } from '../../lib/outbox.ts';
-import type { SyncEngine } from '../../lib/sync.ts';
+import type { Session } from '@rocket-vibe/provider-api/session';
+import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
+import type { OutboxRow, OutboxStore } from '@rocket-vibe/provider-api/outbox';
+import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsTokens, type TeamsRoutes } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox, clientMessageId } from './outbox.ts';

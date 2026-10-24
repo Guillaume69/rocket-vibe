@@ -4155,13 +4155,13 @@
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 75,
+      "line": 73,
       "kind": "call:GET",
       "surface": "'users.info'"
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 75,
+      "line": 73,
       "kind": "endpoint",
       "surface": "users.info"
     },

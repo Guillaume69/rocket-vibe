@@ -8,9 +8,9 @@
  * `apps/desktop/crates/rv-core/src/teams/actions.rs`.
  */
 
-import type { LocalMessage } from '../../lib/normalize.ts';
-import type { OutboxRow, OutboxStore } from '../../lib/outbox.ts';
-import type { Ingest, Outbox } from '../../lib/provider.ts';
+import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
+import type { OutboxRow, OutboxStore } from '@rocket-vibe/provider-api/outbox';
+import type { Ingest, Outbox } from '@rocket-vibe/provider-api/provider';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import { TeamsDirectory, int, mriOf, reactionKey, splitId, str } from './translate.ts';

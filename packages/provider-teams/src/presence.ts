@@ -4,7 +4,7 @@
  * `forceavailability` sets mine. Availability maps onto the app's four states.
  */
 
-import type { PresenceStatus } from '../../lib/presence.ts';
+import type { PresenceStatus } from '@rocket-vibe/provider-api/presence';
 import type { TeamsClient } from './client.ts';
 import { str } from './translate.ts';
 

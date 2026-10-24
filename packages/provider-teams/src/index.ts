@@ -6,15 +6,14 @@
  * pinned/saved panel and saves are still to come, and the capabilities hide them.
  */
 
-import type { DdpEvent } from '../../lib/ddp.ts';
-import { setDownloadResolver } from '../../lib/downloadResolver.ts';
-import { setMediaLease } from '../../lib/mediaAuth.ts';
-import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
+import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
+import { setDownloadResolver } from '@rocket-vibe/provider-api/downloadResolver';
+import { setMediaLease } from '@rocket-vibe/provider-api/mediaAuth';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
-import type { Session } from '../../lib/auth.ts';
-import type { LocalMessage } from '../../lib/normalize.ts';
-import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomSettingsChange } from '../../lib/provider.ts';
-import type { RestClient } from '../../lib/rest.ts';
+import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
+import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
+import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
@@ -76,7 +75,7 @@ export type TeamsProviderOptions = { fetch?: typeof fetch; listener?: Listener }
 
 const refuse = (what: string) => () => Promise.reject(new TeamsError(`${what}_not_supported`));
 
-export function createTeamsProvider(session: Session, rest: RestClient, generateId: () => string, options: TeamsProviderOptions = {}): Provider {
+export function createTeamsProvider(session: Session, rest: TokenRejection, generateId: () => string, options: TeamsProviderOptions = {}): Provider {
   // Images on Teams' object store answer to the skype token in asyncgw's own
   // form; the lease follows every renewal of that token.
   const tokens = new TeamsTokens(session, {

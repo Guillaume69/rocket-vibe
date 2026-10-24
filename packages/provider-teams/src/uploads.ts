@@ -10,9 +10,8 @@
  * team here. Mirrors `post_teams` in `apps/desktop/crates/rv-core/src/uploads.rs`.
  */
 
-import type { FileOutbox, Ingest } from '../../lib/provider.ts';
-import type { FileToSend, TransportUpload } from '../../lib/upload.ts';
-import type { UploadRow, UploadStore } from '../../lib/uploadQueue.ts';
+import type { FileOutbox, Ingest } from '@rocket-vibe/provider-api/provider';
+import type { FileToSend, TransportUpload, UploadRow, UploadStore } from '@rocket-vibe/provider-api/uploads';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient, TeamsFileRef } from './client.ts';
 import { clientMessageId, threadTarget, toHtml } from './outbox.ts';

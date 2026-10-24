@@ -7,8 +7,8 @@
  * `crates/rv-teams/src/live.rs` and `frames.rs`.
  */
 
-import type { DdpEvent, DdpState, WebSocketLike } from '../../lib/ddp.ts';
-import type { Listener } from '../../lib/provider.ts';
+import type { DdpEvent, DdpState, WebSocketLike } from '@rocket-vibe/provider-api/ddp';
+import type { Listener } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, type TeamsTokens } from './auth.ts';
 
 type Doc = Record<string, unknown>;

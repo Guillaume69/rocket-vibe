@@ -5,7 +5,7 @@
  * Mirrors `crates/rv-teams/src/auth.rs`.
  */
 
-import type { Session } from '../../lib/auth.ts';
+import type { Session } from '@rocket-vibe/provider-api/session';
 
 /** The Teams desktop and mobile app: a public client, so a device code completes. */
 export const TEAMS_CLIENT_ID = '1fec8e78-bce4-4aaf-ab1b-5451cc387264';

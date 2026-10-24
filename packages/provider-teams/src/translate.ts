@@ -5,8 +5,8 @@
  * `crates/rv-teams/src/translate.rs`.
  */
 
-import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
-import type { MemberPage, RoomMember } from '../../lib/provider.ts';
+import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
+import type { MemberPage, RoomMember } from '@rocket-vibe/provider-api/provider';
 
 type Doc = Record<string, unknown>;
 

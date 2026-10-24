@@ -9,7 +9,7 @@
  * and `join_url` in `apps/desktop/crates/rv-core/src/teams/sync.rs`.
  */
 
-import type { NativeCalls } from '../../lib/call.ts';
+import type { NativeCalls } from '@rocket-vibe/provider-api/calls';
 import type { TeamsClient } from './client.ts';
 import type { TeamsRooms } from './sync.ts';
 import { channelLink, chatLink, meetupLink, mriOf, objectId, splitId, str } from './translate.ts';

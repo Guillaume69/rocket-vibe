@@ -2,7 +2,7 @@
  * A Teams account: signed in with a Microsoft device code as the Teams
  * desktop app's public client, kept by its refresh token, which Microsoft
  * rotates on every refresh. Access and Skype tokens live in memory only.
- * Mirrors `apps/desktop/crates/rv-core/src/teams/auth.rs`.
+ * Mirrors `crates/rv-teams/src/auth.rs`.
  */
 
 import type { Session } from '../../lib/auth.ts';

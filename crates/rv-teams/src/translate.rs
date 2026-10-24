@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
 
-use crate::normalize::{Message, Room, Subscription};
+use rv_provider::normalize::{Message, Room, Subscription};
 
 /// A message id: the conversation and the server id, which is only unique within it.
 pub fn message_id(conversation: &str, id: &str) -> String {
@@ -260,7 +260,7 @@ pub fn html_to_markdown(html: &str) -> String {
             ("a", false) => {
                 link = attribute(tag, "href")
                     .filter(|h| h.starts_with("https://") || h.starts_with("http://"))
-                    .map(crate::content::decode_entities);
+                    .map(rv_provider::text::decode_entities);
                 link_text_start = out.len();
             }
             ("a", true) => {
@@ -278,7 +278,7 @@ pub fn html_to_markdown(html: &str) -> String {
             ("img", _) => {
                 let emoji = attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Emoji"));
                 if let Some(alt) = attribute(tag, "alt").filter(|_| emoji) {
-                    out.push_str(&crate::content::decode_entities(alt));
+                    out.push_str(&rv_provider::text::decode_entities(alt));
                 }
             }
             _ => {}
@@ -294,7 +294,7 @@ pub fn html_to_markdown(html: &str) -> String {
 }
 
 fn push_text(out: &mut String, text: &str, pre: bool) {
-    let decoded = crate::content::decode_entities(text);
+    let decoded = rv_provider::text::decode_entities(text);
     if pre {
         out.push_str(&decoded);
     } else {
@@ -308,7 +308,7 @@ pub fn body_text(raw: &Value) -> String {
     let content = str_of(raw, "content").unwrap_or_default();
     let html = str_of(raw, "messagetype").is_some_and(|t| t.starts_with("RichText"))
         || str_of(raw, "contenttype").is_some_and(|t| t.eq_ignore_ascii_case("html"));
-    if html { html_to_markdown(content) } else { crate::content::decode_entities(content).trim().to_owned() }
+    if html { html_to_markdown(content) } else { rv_provider::text::decode_entities(content).trim().to_owned() }
 }
 
 pub fn deleted(raw: &Value) -> bool {
@@ -328,7 +328,9 @@ fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<St
     match kind {
         "AddMember" => Some(("au", target())),
         "DeleteMember" => Some(("ru", target())),
-        "TopicUpdate" => Some(("room_changed_topic", tag_value(content, "value").map(crate::content::decode_entities))),
+        "TopicUpdate" => {
+            Some(("room_changed_topic", tag_value(content, "value").map(rv_provider::text::decode_entities)))
+        }
         _ => None,
     }
 }
@@ -481,7 +483,7 @@ fn microsoft_web(link: &str) -> bool {
 /// A url Graph can resolve through `/shares`: a SharePoint or OneDrive host.
 /// Teams shared files live there; AMS media (call recordings) does not and is
 /// left out, so it is never offered as a download that would fail.
-pub(crate) fn is_graph_share(url: &str) -> bool {
+pub fn is_graph_share(url: &str) -> bool {
     url::Url::parse(url)
         .ok()
         .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
@@ -531,7 +533,7 @@ fn inline_images(content: &str) -> Vec<Value> {
         if attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Emoji")) {
             continue;
         }
-        let Some(src) = attribute(tag, "src").map(crate::content::decode_entities) else { continue };
+        let Some(src) = attribute(tag, "src").map(rv_provider::text::decode_entities) else { continue };
         if is_teams_image(&src) {
             let size = |name: &str| attribute(tag, name).and_then(|v| v.trim_end_matches("px").parse::<i64>().ok());
             out.push(image_attachment(&src, None, size("width"), size("height")));
@@ -543,7 +545,7 @@ fn inline_images(content: &str) -> Vec<Value> {
 /// A message's attachments in the renderer's Rocket.Chat shape: images pasted
 /// into it, then its shared files, each with its preview image when Teams
 /// keeps one on its object store.
-pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
+pub fn file_attachments(raw: &Value) -> Option<String> {
     let mut out = inline_images(str_of(raw, "content").unwrap_or_default());
     let parsed = match raw.get("properties").and_then(|p| p.get("files")) {
         Some(Value::String(s)) => serde_json::from_str::<Value>(s).unwrap_or(Value::Null),

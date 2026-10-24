@@ -988,7 +988,7 @@ impl AppWindow {
             let waited = code.clone();
             let watched = stop.clone();
             let info = on_tokio(async move {
-                rv_core::teams::auth::approved(&waited, || watched.load(std::sync::atomic::Ordering::Acquire)).await
+                rv_core::teams::approved(&waited, || watched.load(std::sync::atomic::Ordering::Acquire)).await
             })
             .await;
             if !this.login_is_current(generation) || stop.load(std::sync::atomic::Ordering::Acquire) {

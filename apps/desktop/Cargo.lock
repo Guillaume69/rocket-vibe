@@ -4293,6 +4293,7 @@ dependencies = [
  "rv-protocol",
  "rv-provider",
  "rv-slack",
+ "rv-teams",
  "rv-voice-protocol",
  "serde",
  "serde_json",
@@ -4421,6 +4422,23 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "rv-teams"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "getrandom 0.3.4",
+ "reqwest 0.13.5",
+ "rv-provider",
+ "serde_json",
  "tokio",
  "tokio-tungstenite",
  "url",

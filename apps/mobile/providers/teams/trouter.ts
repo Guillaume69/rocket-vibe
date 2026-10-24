@@ -4,7 +4,7 @@
  * then registers the endpoint so every conversation's chat events arrive:
  * nothing is subscribed per room. Each pushed request is answered and
  * acknowledged, or Trouter delivers it again. Mirrors
- * `apps/desktop/crates/rv-core/src/teams/live.rs` and `frames.rs`.
+ * `crates/rv-teams/src/live.rs` and `frames.rs`.
  */
 
 import type { DdpEvent, DdpState, WebSocketLike } from '../../lib/ddp.ts';

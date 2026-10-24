@@ -48,7 +48,7 @@ fn sync(server: &FakeHttp) -> (Arc<Store>, TeamsSync) {
         aggregator: format!("{base}/api/csa/emea"),
         ..Default::default()
     };
-    let tokens = Tokens::preset(&info(), routes, "skype-x", "agg-y").unwrap();
+    let tokens = Tokens::preset(&rv_core::teams::session(&info()).unwrap(), routes, "skype-x", "agg-y");
     let store = Arc::new(Store::in_memory().unwrap());
     (store.clone(), TeamsSync::new(store, tokens, ME, "Me"))
 }

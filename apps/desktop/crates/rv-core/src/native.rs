@@ -289,7 +289,7 @@ impl SessionInfo {
                 });
             }
             Some(Value::String(kind)) if kind == "slack" => return crate::slack::from_secret(value),
-            Some(Value::String(kind)) if kind == "teams" => return crate::teams::auth::from_secret(value),
+            Some(Value::String(kind)) if kind == "teams" => return crate::teams::from_secret(value),
             None => (None, None),
             Some(Value::String(kind)) if kind == "rocketchat" => (None, None),
             Some(Value::String(kind)) if kind == "vibez" => (

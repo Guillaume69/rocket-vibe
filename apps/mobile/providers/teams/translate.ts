@@ -2,7 +2,7 @@
  * Teams into the store's rows: the aggregator's chats and channels as rooms
  * and read states, the chat service's messages (HTML) as the markdown the
  * renderer reads, emotions as reactions. Mirrors
- * `apps/desktop/crates/rv-core/src/teams/translate.rs`.
+ * `crates/rv-teams/src/translate.rs`.
  */
 
 import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
@@ -386,7 +386,7 @@ export function fileAttachments(raw: unknown): string | null {
  * `<duration>`: it is drawn in the start's place (the start's id and time, a
  * Teams message id being its arrival time), and being newer it replaces the
  * running card whichever arrives first. Mirrors `call_card` in
- * `apps/desktop/crates/rv-core/src/teams/translate.rs`.
+ * `crates/rv-teams/src/translate.rs`.
  */
 function callMessage(conversation: string, raw: unknown, id: string, directory: TeamsDirectory): LocalMessage | null {
   const content = str(raw, 'content') ?? '';

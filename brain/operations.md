@@ -100,7 +100,7 @@ Runtime files: config in `~/.config/rocket-vibe-rs`, data in `~/.local/share/roc
 
 Each workflow runs only when its app's files, `scripts/version.mjs` or the workflow itself change. A push or PR only checks; packages are built on a release tag or a manual `workflow_dispatch`.
 
-Build caches are saved from `master` only and restored everywhere: a branch or tag can read its own caches and the default branch's, nothing else, and the repository's 10 GB of Actions cache evicts the oldest entries first ([decisions](decisions.md)). Rust caches go through `Swatinem/rust-cache` (keyed on the toolchain and lockfiles, workspace crates pruned), the ones built inside Docker through `actions/cache/restore` and `save`, and Docker layers (`docker/build-push-action`'s `cache-to`) from `master` too. The server's debug build shares one cache (`shared-key: vibez`), which only the gate's `verify` job saves; CI builds with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. Release-only jobs (packages on a tag) cache nothing.
+Build caches are saved from `master` only and restored everywhere: a branch or tag can read its own caches and the default branch's, nothing else, and the repository's 10 GB of Actions cache evicts the oldest entries first ([decisions](decisions.md)). Rust caches go through `Swatinem/rust-cache` (keyed on the toolchain and lockfiles, workspace crates pruned), the ones built inside Docker through `actions/cache/restore` and `save`, pruned first to their dependency artifacts (`scripts/prune-cargo-cache.mjs`: the repository's own crates, binaries and unpacked sources come back on every run) and saved once the job's build is done, and Docker layers (`docker/build-push-action`'s `cache-to`) from `master` too. The server's debug build shares one cache (`shared-key: vibez`), which only the gate's `verify` job saves; CI builds with `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_DEV_DEBUG=line-tables-only`. Release-only jobs (packages on a tag) cache nothing.
 
 | Workflow | Triggers | Always | Tag or dispatch only |
 |---|---|---|---|
@@ -170,6 +170,7 @@ The mobile Android job fails loudly without its two secrets. Without the Apple s
 - `.github/workflows/server-release.yml`
 - `.github/workflows/server-image.yml`
 - `apps/server/docker/Dockerfile.native`
+- `scripts/prune-cargo-cache.mjs`
 - `apps/mobile/package.json`
 - `apps/mobile/app.json`
 - `apps/mobile/.gitignore`

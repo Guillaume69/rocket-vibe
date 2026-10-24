@@ -117,7 +117,7 @@ Two consequences worth knowing on desktop: a room created between the reconcilia
 - apps/desktop/crates/rv-core/src/sync.rs
 - apps/desktop/crates/rv-core/src/outbox.rs
 - apps/desktop/crates/rv-core/src/uploads.rs
-- apps/desktop/crates/rv-core/src/live.rs
+- crates/rv-provider/src/live.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs
 - apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift

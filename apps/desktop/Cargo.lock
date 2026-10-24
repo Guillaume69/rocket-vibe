@@ -4291,6 +4291,9 @@ dependencies = [
  "rv-crypto",
  "rv-crypto-public",
  "rv-protocol",
+ "rv-provider",
+ "rv-slack",
+ "rv-teams",
  "rv-voice-protocol",
  "serde",
  "serde_json",
@@ -4385,6 +4388,61 @@ dependencies = [
  "serde",
  "serde_json",
  "url",
+]
+
+[[package]]
+name = "rv-provider"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "fastrand",
+ "futures-util",
+ "reqwest 0.13.5",
+ "rustls",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "rv-slack"
+version = "0.1.0"
+dependencies = [
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "getrandom 0.3.4",
+ "reqwest 0.13.5",
+ "rv-provider",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "rv-teams"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "futures-util",
+ "getrandom 0.3.4",
+ "reqwest 0.13.5",
+ "rv-provider",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "zeroize",
 ]
 
 [[package]]

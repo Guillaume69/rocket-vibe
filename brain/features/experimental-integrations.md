@@ -58,9 +58,10 @@ six-decimal strings; conversion to seconds occurs only for a displayed date.
 
 ## Desktop
 
-rv-core/src/slack/ is the full Slack backend for GTK and SwiftUI (account, sync, RTM,
-browser sign-in; its pairing handoff, `Reader` and `login_paired` are no longer reached by
-either interface); its REST client disables redirects except for public media, bounds
+crates/rv-slack (account, RTM, browser sign-in, translation) with rv-core/src/slack/
+(sync into the store) is the full Slack backend for GTK and SwiftUI; its pairing
+handoff, `Reader` and `login_paired` are no longer reached by either interface. Its REST
+client (rv-provider's, `Api::Slack`) disables redirects except for public media, bounds
 response bytes, sanitizes transport/API errors and preserves Retry-After. See
 [Slack architecture](../architecture/slack-session.md).
 
@@ -169,7 +170,7 @@ Teams reactions and mark read written back. See [Teams architecture](../architec
 ## Sources
 
 - apps/mobile/providers/teams/auth.ts
-- apps/desktop/crates/rv-core/src/teams/auth.rs
+- crates/rv-teams/src/auth.rs
 
 - apps/mobile/lib/experimentalUnlock.ts
 - apps/mobile/ui/experimentalProviders.ts
@@ -182,8 +183,8 @@ Teams reactions and mark read written back. See [Teams architecture](../architec
 - apps/mobile/providers/slack/emojis.ts
 - apps/mobile/providers/slack/client.ts
 - apps/mobile/providers/slack/client.test.ts
-- apps/desktop/crates/rv-core/src/slack/mod.rs
-- apps/desktop/crates/rv-core/src/slack/browser_login.rs
+- crates/rv-slack/src/lib.rs
+- crates/rv-slack/src/browser_login.rs
 - apps/desktop/crates/rv-gtk/src/login.rs
 - apps/desktop/crates/rv-gtk/src/experimental_preview.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`)
@@ -198,6 +199,6 @@ Teams reactions and mark read written back. See [Teams architecture](../architec
 - scripts/slack/server.mjs
 - apps/mobile/providers/slack/handoff.ts
 - apps/mobile/providers/slack/handoff.test.ts
-- apps/desktop/crates/rv-core/src/slack/handoff.rs
+- crates/rv-slack/src/handoff.rs
 - docs/protocol/fixtures/slack-handoff.json
 - docs/SLACK_PREVIEW.md

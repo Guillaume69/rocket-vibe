@@ -152,6 +152,7 @@ impl Client {
     /// `home`: where GLib would put its user directories, for sessions shared with the GTK app.
     #[uniffi::constructor]
     pub fn new(home: String) -> Arc<Self> {
+        rv_core::identify();
         let dirs = Arc::new(Dirs::glib(std::path::Path::new(&home)));
         teams::keep_rotated_tokens(dirs.clone());
         // Sign-outs an earlier run could not tell the server about.

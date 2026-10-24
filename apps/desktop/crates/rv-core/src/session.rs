@@ -403,15 +403,10 @@ impl Session {
         let base: Url = info.base_url.parse().expect("stored base URL");
         let store = Arc::new(Store::open(db_path)?);
         let flavor = info.mattermost;
-        let teams = info
-            .teams
-            .as_ref()
-            .map(|_| crate::teams::auth::Tokens::new(&info))
-            .transpose()
-            .map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let teams = crate::teams::session(&info).map(|session| crate::teams::auth::Tokens::new(&session));
         let rest = match (&info.slack, flavor) {
             _ if teams.is_some() => RestClient::teams(base.clone()),
-            (Some(account), _) => crate::slack::account::client(&info, account),
+            (Some(account), _) => crate::slack::client(&info, account),
             (None, Some(flavor)) => mattermost::client(base.clone(), Some(flavor)),
             (None, None) => RestClient::new(base.clone()),
         };

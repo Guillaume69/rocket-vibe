@@ -18,13 +18,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum State {
-    Closed,
-    Connecting,
-    Connected,
-    Authenticated,
-}
+pub use rv_provider::socket::State;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DdpEvent {

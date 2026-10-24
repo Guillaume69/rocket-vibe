@@ -10,11 +10,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rv_core::mattermost::socket::LiveEvent;
-use rv_core::session::SessionInfo;
 use rv_core::store::Store;
 use rv_core::teams::auth::{Tokens, set_credential_sink};
 use rv_core::teams::sync::TeamsSync;
-use rv_core::teams::{self, TeamsAccount};
+use rv_core::teams::{self, Session, TeamsAccount};
 use serde_json::Value;
 use zeroize::Zeroizing;
 
@@ -32,21 +31,16 @@ async fn main() {
     let (tid, oid, name) = (field("tid"), field("oid"), field("name"));
     let user_id = format!("8:orgid:{oid}");
 
-    let info = SessionInfo {
-        base_url: teams::auth::ORIGIN.to_owned(),
+    let info = Session {
         user_id: user_id.clone(),
         username: name.clone(),
-        auth_token: String::new(),
-        native: None,
-        mattermost: None,
-        slack: None,
-        teams: Some(TeamsAccount { tenant_id: tid, refresh: Zeroizing::new(field("refresh_token")) }),
+        account: TeamsAccount { tenant_id: tid, refresh: Zeroizing::new(field("refresh_token")) },
     };
 
     // Persist the rotated refresh token so the next run still signs in.
     let sink_path = path.clone();
-    set_credential_sink(move |info: &SessionInfo| {
-        let Some(account) = info.teams.as_ref() else { return };
+    set_credential_sink(move |info: &Session| {
+        let account = &info.account;
         let Ok(text) = std::fs::read_to_string(&sink_path) else { return };
         let Ok(mut doc) = serde_json::from_str::<Value>(&text) else { return };
         doc["refresh_token"] = Value::String(account.refresh.as_str().to_owned());
@@ -63,7 +57,7 @@ async fn main() {
         println!("[sink] refresh token rotated and saved");
     });
 
-    let tokens = Tokens::new(&info).expect("Tokens");
+    let tokens = Tokens::new(&info);
     let store = Arc::new(Store::in_memory().expect("store"));
     let sync = TeamsSync::new(store.clone(), tokens.clone(), &user_id, &name);
 

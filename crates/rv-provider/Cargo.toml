@@ -1,0 +1,28 @@
+[package]
+name = "rv-provider"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+result_large_err = "allow"
+
+[dependencies]
+chrono = "0.4.45"
+fastrand = "2.5.0"
+futures-util = "0.3.34"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "multipart", "stream"] }
+rustls = { version = "0.23.45", default-features = false, features = ["aws_lc_rs"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
+url = "2.5.8"
+zeroize = "1"

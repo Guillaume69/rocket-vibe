@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Generates crates/rv-core/data/emojis.tsv from emoji-toolkit's JSON (MIT; its
-// artwork is not used), the source Rocket.Chat takes its shortnames from.
+// Generates the repository's crates/rv-provider/data/emojis.tsv from
+// emoji-toolkit's JSON (MIT; its artwork is not used), the source Rocket.Chat
+// takes its shortnames from.
 //   node scripts/generate-emojis.mjs [path/to/emoji-toolkit]
 // Rows: shortcode <TAB> code points (hex, dash-separated) <TAB> picker category
 // ("-" for tone variants and aliases) <TAB> "+" when Rocket.Chat's chat.react
@@ -34,7 +35,7 @@ for (const [hex, e] of entries) {
 const lines = [...rows].map(
   ([code, [points, category]]) => `${code}\t${points}\t${category}\t${accepted.has(code) ? '+' : '-'}`,
 );
-writeFileSync(join(root, 'crates/rv-core/data/emojis.tsv'), lines.join('\n') + '\n');
+writeFileSync(join(root, '..', '..', 'crates', 'rv-provider', 'data', 'emojis.tsv'), lines.join('\n') + '\n');
 const picker = lines.filter((l) => l.split('\t')[2] !== '-').length;
 const reacting = [...rows.keys()].filter((code) => accepted.has(code)).length;
 console.log(

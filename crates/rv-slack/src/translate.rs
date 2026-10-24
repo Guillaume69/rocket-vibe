@@ -7,7 +7,7 @@ use serde_json::{Map, Value, json};
 
 use super::directory::Directory;
 use super::exact_timestamp;
-use crate::normalize::{Message, Room, Subscription};
+use rv_provider::normalize::{Message, Room, Subscription};
 
 /// `<channel>:<ts>`, `ts` being Slack's exact decimal string.
 pub fn message_id(channel: &str, ts: &str) -> String {
@@ -46,14 +46,7 @@ fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 /// as it does the API.
 pub const FILES: &str = "https://files.slack.com";
 
-/// An `https` link on Slack's file host, the only one a session's cookie goes to.
-pub fn file_host(url: &url::Url) -> bool {
-    url.scheme() == "https"
-        && url.port().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && url.host_str() == Some("files.slack.com")
-}
+pub use rv_provider::rest::slack::file_host;
 
 fn file_link<'a>(file: &'a Value, key: &str) -> Option<&'a str> {
     str_of(file, key).filter(|link| link.starts_with(&format!("{FILES}/")))
@@ -758,7 +751,7 @@ mod tests {
         assert_eq!(client_msg_id("é€😀"), "ea94271b-fa1a-4248-91ff-07fb275a64b5");
         assert_ne!(client_msg_id("local2"), id);
     }
-    use crate::slack::directory::User;
+    use crate::directory::User;
 
     fn directory() -> Directory {
         let directory = Directory::default();
@@ -838,7 +831,7 @@ mod tests {
         assert_eq!((root.edited_at, root.updated_at), (Some(1_700_000_010_000), 1_700_000_010_000));
         assert_eq!(root.author_name.as_deref(), Some("alice"));
         let reactions: Value = serde_json::from_str(root.reactions.as_deref().unwrap()).unwrap();
-        let code = crate::emoji::shortcode("\u{1F44D}").unwrap();
+        let code = rv_provider::emoji::shortcode("\u{1F44D}").unwrap();
         assert_eq!(
             reactions,
             json!({format!(":{code}:"): {"usernames": ["alice", "bob"]}}),

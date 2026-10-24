@@ -15,8 +15,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use super::auth::Tokens;
 use super::frames::{self, Frame};
-use crate::ddp::State;
-use crate::mattermost::socket::{LiveEvent, Sink, Stream};
+use rv_provider::socket::State;
+use rv_provider::socket::{LiveEvent, Sink, Stream};
 
 const HANDSHAKE: Duration = Duration::from_secs(15);
 /// Trouter's heartbeat is 70 s: three missed are a dead socket.
@@ -114,7 +114,7 @@ impl Actor {
     }
 
     async fn connect(&self) -> Option<Socket> {
-        crate::tls::ensure_provider();
+        rv_provider::tls::ensure_provider();
         let (skype, routes) = self.tokens.chat().await.ok()?;
         let base = trouter_url(&routes.trouter)?;
         let epid = endpoint_id()?;

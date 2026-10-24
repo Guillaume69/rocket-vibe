@@ -132,6 +132,7 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 }
 
 fn main() -> glib::ExitCode {
+    rv_core::identify();
     crashlog::install();
     logs::install();
     #[cfg(target_os = "macos")]
@@ -145,7 +146,7 @@ fn main() -> glib::ExitCode {
     i18n::init();
     spell::start();
     // Microsoft rotates a Teams account's refresh token: the newest one goes back to the keyring.
-    rv_core::teams::auth::set_credential_sink(|info| {
+    rv_core::teams::set_credential_sink(|info| {
         let info = info.clone();
         runtime().spawn(async move { secrets::save(&info).await });
     });

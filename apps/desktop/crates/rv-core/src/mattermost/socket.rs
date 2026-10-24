@@ -8,40 +8,20 @@
 
 use std::time::Duration;
 
-use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
-use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use crate::ddp::State;
 use crate::rest::RestClient;
+pub use rv_provider::socket::{LiveEvent, Sink, Stream, next_json, send};
 
 const HANDSHAKE: Duration = Duration::from_secs(15);
 const HEARTBEAT: Duration = Duration::from_secs(30);
 /// Two heartbeats without a single frame back: the socket is dead.
 const SILENCE_MAX: Duration = Duration::from_secs(75);
-
-pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
-pub(crate) type Sink = SplitSink<Socket, WsMessage>;
-pub(crate) type Stream = SplitStream<Socket>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum LiveEvent {
-    State(State),
-    Authenticated,
-    /// The connection dropped without `close()` being asked.
-    Lost,
-    Event {
-        name: String,
-        data: Value,
-        broadcast: Value,
-    },
-}
 
 #[derive(Clone)]
 pub enum Dialect {
@@ -104,25 +84,6 @@ struct Actor {
     token: String,
     events: mpsc::UnboundedSender<LiveEvent>,
     seq: u64,
-}
-
-pub(crate) async fn send(sink: &mut Sink, message: &Value) -> bool {
-    sink.send(WsMessage::text(message.to_string())).await.is_ok()
-}
-
-/// The next text frame as JSON, or None when the socket ends.
-pub(crate) async fn next_json(stream: &mut Stream) -> Option<Value> {
-    while let Some(frame) = stream.next().await {
-        match frame.ok()? {
-            WsMessage::Text(text) => match serde_json::from_str(text.as_str()) {
-                Ok(v) => return Some(v),
-                Err(_) => continue,
-            },
-            WsMessage::Close(_) => return None,
-            _ => continue,
-        }
-    }
-    None
 }
 
 impl Actor {

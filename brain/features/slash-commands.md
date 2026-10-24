@@ -93,7 +93,7 @@ Present in both apps (mobile 0.5.0, desktop 0.6.0 for GTK and SwiftUI), same rul
 - apps/mobile/providers/rocketchat/index.ts
 - apps/mobile/CHANGELOG.md
 - apps/desktop/crates/rv-core/src/commands.rs
-- apps/desktop/crates/rv-core/src/live.rs
+- crates/rv-provider/src/live.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/actions.rs
 - apps/desktop/crates/rv-gtk/src/composer.rs

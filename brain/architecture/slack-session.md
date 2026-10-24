@@ -120,7 +120,7 @@ elsewhere also bounds later marks here (`SlackSync::marked`, `SlackLive.marks`),
 `mpim_joined` on Android) or a message from a room off the list makes it listed live: the
 desktop reruns `catch_up_global` (once per unlisted room), Android reads it with
 `conversations.info` (a room it cannot read is not asked again). A failed `client.counts`
-keeps the previous counts rather than clearing the badges. Mobile: `providers/slack/rtm.ts`, `live.ts`; desktop: `rv-core/src/slack/live.rs`
+keeps the previous counts rather than clearing the badges. Mobile: `providers/slack/rtm.ts`, `live.ts`; desktop: `crates/rv-slack/src/live.rs`
 and `SlackSync::apply_event`. The desktop status button also runs a REST catch-up on
 Slack, so an account whose socket cannot come up still refreshes. Presence is on in
 both apps (see "Pins, saved messages, search and presence").
@@ -147,7 +147,7 @@ session. Edit, delete, react and mark read call `chat.update`,
 `chat.delete`, `reactions.add`/`reactions.remove` (`already_reacted`/`no_reaction`
 settle) and `conversations.mark`, the last never backwards and up to the newest `ts`
 known; the RTM echo rewrites the rows. The desktop account's method allowlist
-(`rv-core/src/slack/api.rs`) admits exactly the read and write methods used.
+(`crates/rv-provider/src/rest/slack.rs`) admits exactly the read and write methods used.
 
 ## People, emoji and huddles
 
@@ -159,7 +159,7 @@ sign-in and reads my profile like anyone else's (`Directory::ensure` treats a st
 as known only once read). Slack names standard emoji after iamcal's emoji-datasource,
 not the app's emoji-toolkit names, and writes a skin tone as a second code
 (`:+1::skin-tone-3:`): `scripts/generate-slack-emojis.mjs` turns emoji-datasource 16.0.0
-into one table per app (`rv-core/data/slack-emojis.tsv`,
+into one table per app (`crates/rv-slack/data/slack-emojis.tsv`,
 `apps/mobile/lib/emojis.slack.generated.ts`). Message text gets the glyphs (outside
 code); a reaction key is the app's own shortcode for the same glyph, so chips and the
 picker work, and a reaction sent goes back to Slack's name (`slack/emojis.rs`,
@@ -278,8 +278,8 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 ## Sources
 
 - apps/mobile/providers/slack/ (`handoff.ts`, `auth.ts`, `client.ts`, `catchUp.ts`, `history.ts`, `translator.ts`, `rtm.ts`, `live.ts`, `outbox.ts`, `actions.ts`, `emojis.ts`, `directory.ts`, `calls.ts`, `uploads.ts`, `search.ts`, `saved.ts`, `activity.ts`, `index.ts`), apps/mobile/ui/slackSignIn.tsx, apps/mobile/providers/slack/webSignIn.ts, apps/mobile/ui/signInWebView.tsx, apps/mobile/lib/mediaAuth.ts, apps/mobile/app/call/[callId].tsx, apps/mobile/lib/emojis.slack.generated.ts
-- scripts/generate-slack-emojis.mjs, apps/desktop/crates/rv-core/data/slack-emojis.tsv, apps/desktop/crates/rv-core/src/slack/emojis.rs
-- apps/desktop/crates/rv-core/src/slack/ (`account.rs`, `api.rs`, `browser_login.rs`, `directory.rs`, `sync.rs`, `translate.rs`, `live.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `open_huddle_window`), apps/desktop/crates/rv-core/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`, `already_posted`), apps/desktop/crates/rv-core/src/media.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
+- scripts/generate-slack-emojis.mjs, crates/rv-slack/data/slack-emojis.tsv, crates/rv-slack/src/emojis.rs
+- crates/rv-slack/src/ (`account.rs`, `browser_login.rs`, `directory.rs`, `translate.rs`, `live.rs`), crates/rv-provider/src/rest/slack.rs, apps/desktop/crates/rv-core/src/slack/ (`mod.rs`, `sync.rs`), apps/desktop/crates/rv-core/src/outbox.rs (`pass_slack`), apps/desktop/crates/rv-core/src/session.rs (`apply_slack`, `set_typing`, `start_call`, `open_huddle_window`), crates/rv-provider/src/rest.rs (`file_request`, `upload_external`), apps/desktop/crates/rv-core/src/uploads.rs (`post_slack`, `already_posted`), apps/desktop/crates/rv-core/src/media.rs, apps/desktop/crates/rv-gtk/src/chat.rs (`open_call`), apps/desktop/macos/Sources/RocketVibe/CallWindow.swift
 - apps/desktop/crates/rv-ffi/src/slack.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/macos/Sources/RocketVibeKit/LoginModel.swift, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 
@@ -289,5 +289,5 @@ Current platform debt is recorded in [parity](../parity.md#19-experimental-integ
 - `apps/desktop/crates/rv-ffi/src/`, `apps/desktop/macos/Sources/RocketVibeKit/`
 
 - scripts/slack-browser-signin.mjs, scripts/slack/browser.mjs, scripts/slack/session.mjs
-- apps/desktop/crates/rv-core/src/slack/handoff.rs
+- crates/rv-slack/src/handoff.rs
 - docs/SLACK_PREVIEW.md

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const TABLE: &str = include_str!("../../data/slack-emojis.tsv");
+const TABLE: &str = include_str!("../data/slack-emojis.tsv");
 const TONE: &str = "::skin-tone-";
 
 struct Slack {
@@ -106,7 +106,7 @@ pub fn replace(text: &str) -> String {
 /// A Slack reaction name as the app's reaction code: its own shortcode for
 /// the same glyph, else the name itself (a custom emoji).
 pub fn reaction_code(name: &str) -> String {
-    glyph_of(name).and_then(|g| crate::emoji::shortcode(&g)).map_or_else(|| name.to_owned(), str::to_owned)
+    glyph_of(name).and_then(|g| rv_provider::emoji::shortcode(&g)).map_or_else(|| name.to_owned(), str::to_owned)
 }
 
 /// The app's reaction code as Slack's name (`name` or `name::skin-tone-N`),
@@ -116,7 +116,7 @@ pub fn slack_name(code: &str) -> String {
     if slack().by_name.contains_key(code) {
         return code.to_owned();
     }
-    let found = crate::emoji::unicode(code).and_then(|g| slack().by_glyph.get(&bare(g)));
+    let found = rv_provider::emoji::unicode(code).and_then(|g| slack().by_glyph.get(&bare(g)));
     match found {
         Some((name, Some(tone))) => format!("{name}{TONE}{tone}"),
         Some((name, None)) => (*name).to_owned(),
@@ -141,10 +141,10 @@ mod tests {
     #[test]
     fn reactions_go_both_ways_through_the_app_codes() {
         let thumbs = reaction_code("+1");
-        assert_eq!(crate::emoji::unicode(&thumbs), Some("\u{1F44D}"), "{thumbs}");
+        assert_eq!(rv_provider::emoji::unicode(&thumbs), Some("\u{1F44D}"), "{thumbs}");
         assert_eq!(glyph_of(&slack_name(&thumbs)).as_deref(), Some("\u{1F44D}"), "back to a Slack name of 👍");
         let toned = reaction_code("+1::skin-tone-3");
-        assert_eq!(crate::emoji::unicode(&toned), Some("\u{1F44D}\u{1F3FC}"));
+        assert_eq!(rv_provider::emoji::unicode(&toned), Some("\u{1F44D}\u{1F3FC}"));
         assert_eq!(glyph_of(&slack_name(&toned)).as_deref(), Some("\u{1F44D}\u{1F3FC}"));
         assert!(slack_name(&toned).ends_with("::skin-tone-3"));
         assert_eq!(reaction_code("issou"), "issou");

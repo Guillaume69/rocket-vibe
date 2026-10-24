@@ -3,7 +3,7 @@
 //! (`Api::Mattermost`): bearer token, its own error envelope, and the media
 //! authenticated by header since that server refuses a token in the URL.
 //! `Api::Slack` posts forms to Slack's `/api/<method>`, with the `d` cookie
-//! beside the bearer, and only for the methods `crate::slack::METHODS` lists.
+//! beside the bearer, and only for the methods `slack::METHODS` lists.
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -11,6 +11,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use url::Url;
+
+pub mod slack;
 
 pub const TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RATE_LIMIT_RETRIES: u32 = 3;
@@ -21,6 +23,9 @@ const NETWORK_RETRY_DELAY: Duration = Duration::from_millis(400);
 const RATE_LIMIT_JITTER_MS: u64 = 500;
 /// Below this a reset value is a count of seconds, not an instant (2001 in epoch ms).
 const EPOCH_MS_FLOOR: i64 = 1_000_000_000_000;
+
+/// `RestError::error_type` of a Teams refusal that ends the session.
+pub const TEAMS_SESSION_REJECTED: &str = "teams-session-rejected";
 
 const TWO_FACTOR_METHODS: [&str; 3] = ["totp", "email", "password"];
 
@@ -63,7 +68,7 @@ pub struct RestError {
 }
 
 impl RestError {
-    pub(crate) fn network(message: String) -> Self {
+    pub fn network(message: String) -> Self {
         RestError {
             status: 0,
             message,
@@ -104,8 +109,8 @@ pub fn is_token_rejected(e: &RestError) -> bool {
     e.two_factor.is_none()
         && e.understood
         && (e.status == 401
-            || e.error_type.as_deref() == Some(crate::slack::SESSION_REJECTED)
-            || e.error_type.as_deref() == Some(crate::teams::SESSION_REJECTED))
+            || e.error_type.as_deref() == Some(slack::SESSION_REJECTED)
+            || e.error_type.as_deref() == Some(TEAMS_SESSION_REJECTED))
 }
 
 /// Which server's REST dialect the client speaks.
@@ -140,6 +145,26 @@ impl CallOptions {
     pub fn body(body: Value) -> Self {
         CallOptions { body: Some(body), ..Default::default() }
     }
+}
+
+/// The token only ever goes to OUR server. An attachment URL comes from a
+/// message field, so ultimately from anyone: `chat.sendMessage` accepts
+/// arbitrary `attachments`, and an absolute link to a third-party host would
+/// otherwise leave with our credentials on it. Off-origin, the URL stays bare:
+/// a protected file then fails to load, which is the right failure.
+pub fn protected_url(base: &Url, credentials: Option<&Credentials>, path_or_url: &str) -> Option<Url> {
+    let mut url = if path_or_url.starts_with("http://") || path_or_url.starts_with("https://") {
+        Url::parse(path_or_url).ok()?
+    } else {
+        // Concatenated, not joined: a server under a sub-path already puts it in its file paths.
+        Url::parse(&format!("{}{path_or_url}", base.as_str().trim_end_matches('/'))).ok()?
+    };
+    if let Some(c) = credentials
+        && url.origin() == base.origin()
+    {
+        url.query_pairs_mut().append_pair("rc_uid", &c.user_id).append_pair("rc_token", &c.auth_token);
+    }
+    Some(url)
 }
 
 #[derive(Clone)]
@@ -192,13 +217,13 @@ impl RestClient {
         let http = reqwest::Client::builder()
             .timeout(TIMEOUT)
             .redirect(redirects)
-            .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+            .user_agent(crate::user_agent())
             .build()
             .expect("HTTP client");
         let public = reqwest::Client::builder()
             .timeout(TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(5))
-            .user_agent(concat!("rocket-vibe-desktop/", env!("CARGO_PKG_VERSION")))
+            .user_agent(crate::user_agent())
             .build()
             .expect("HTTP client");
         let (token_rejected, _) = broadcast::channel(8);
@@ -244,14 +269,14 @@ impl RestClient {
     fn file_url(&self, path_or_url: &str) -> Option<Url> {
         let credentials = self.credentials();
         let in_query = credentials.as_ref().filter(|_| self.api == Api::RocketChat);
-        crate::media::protected_url(&self.base, in_query, path_or_url)
+        protected_url(&self.base, in_query, path_or_url)
     }
 
     /// The bearer goes with our own server's files only (Slack's: its file
     /// host): attachment URLs come from message fields, so from anyone.
     fn file_request(&self, url: Url) -> reqwest::RequestBuilder {
         let same_origin = url.origin() == self.base.origin();
-        let slack_files = crate::slack::translate::file_host(&url);
+        let slack_files = slack::file_host(&url);
         let request = match self.api {
             Api::Slack if !slack_files && !same_origin => self.public.get(url),
             Api::Teams => self.public.get(url),
@@ -309,7 +334,7 @@ impl RestClient {
         progress: impl Fn(u64, u64) + Send + Sync + 'static,
     ) -> Result<Value, RestError> {
         if matches!(self.api, Api::Slack | Api::Teams) {
-            return Err(crate::slack::not_supported(path));
+            return Err(slack::not_supported(path));
         }
         const CHUNK: usize = 64 * 1024;
         let total = bytes.len() as u64;
@@ -486,7 +511,7 @@ impl RestClient {
             return self.call_slack(path, &options).await;
         }
         if self.api == Api::Teams {
-            return Err(crate::slack::not_supported(path));
+            return Err(slack::not_supported(path));
         }
         let mut rate_limit_attempt = 0;
         let mut network_attempt = 0;
@@ -553,16 +578,16 @@ impl RestClient {
         match self.api {
             Api::RocketChat => interpret(path, status, text),
             Api::Mattermost => interpret_mattermost(path, status, text, self.plain_errors),
-            Api::Slack => crate::slack::interpret(path, status, text.as_bytes(), None),
-            Api::Teams => Err(crate::slack::not_supported(path)),
+            Api::Slack => slack::interpret(path, status, text.as_bytes(), None),
+            Api::Teams => Err(slack::not_supported(path)),
         }
     }
 
     /// Every Slack method is a form POST; arrays and objects of `body` travel
     /// as JSON strings. One retry after a rate limit, at most 30 s later.
     async fn call_slack(&self, method: &str, options: &CallOptions) -> Result<Value, RestError> {
-        if !crate::slack::METHODS.contains(&method) {
-            return Err(crate::slack::not_supported(method));
+        if !slack::METHODS.contains(&method) {
+            return Err(slack::not_supported(method));
         }
         let mut form = options.params.clone();
         if let Some(Value::Object(fields)) = &options.body {
@@ -598,14 +623,14 @@ impl RestClient {
             let lost = || RestError::network(format!("{method}: connection lost while reading."));
             let mut bytes = Vec::new();
             while let Some(chunk) = response.chunk().await.map_err(|_| lost())? {
-                if bytes.len() + chunk.len() > crate::slack::RESPONSE_CAP {
+                if bytes.len() + chunk.len() > slack::RESPONSE_CAP {
                     return Err(RestError::incomplete(&format!("{method}: response too large.")));
                 }
                 bytes.extend_from_slice(&chunk);
             }
-            let result = crate::slack::interpret(method, status, &bytes, retry_after);
+            let result = slack::interpret(method, status, &bytes, retry_after);
             if let Err(e) = &result
-                && e.error.as_deref() == Some(crate::slack::RATE_LIMITED)
+                && e.error.as_deref() == Some(slack::RATE_LIMITED)
                 && !rate_limited
             {
                 rate_limited = true;
@@ -630,7 +655,7 @@ impl RestClient {
 /// `{id, message, status_code}`; that envelope is what makes a 401 believable.
 /// kChat (`plain`) answers `{message}` alone, a revoked token included
 /// (`401 {"message": "Unauthorized"}`, probed).
-pub(crate) fn interpret_mattermost(path: &str, status: u16, text: &str, plain: bool) -> Result<Value, RestError> {
+pub fn interpret_mattermost(path: &str, status: u16, text: &str, plain: bool) -> Result<Value, RestError> {
     let http_ok = (200..300).contains(&status);
     if text.trim().is_empty() && http_ok {
         return Ok(json!({}));
@@ -757,4 +782,27 @@ fn interpret(path: &str, status: u16, text: &str) -> Result<Value, RestError> {
         });
     }
     Ok(json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn creds() -> Credentials {
+        Credentials { auth_token: "tok".into(), user_id: "uid".into() }
+    }
+
+    #[test]
+    fn token_only_goes_to_our_origin() {
+        let base: Url = "https://chat.example.com".parse().unwrap();
+        let ours = protected_url(&base, Some(&creds()), "/file-upload/f/a.png").unwrap();
+        assert_eq!(ours.as_str(), "https://chat.example.com/file-upload/f/a.png?rc_uid=uid&rc_token=tok");
+        let with_query = protected_url(&base, Some(&creds()), "/avatar/bob?etag=e1").unwrap();
+        assert_eq!(with_query.as_str(), "https://chat.example.com/avatar/bob?etag=e1&rc_uid=uid&rc_token=tok");
+        let theirs = protected_url(&base, Some(&creds()), "https://evil.example.org/x.png").unwrap();
+        assert_eq!(theirs.as_str(), "https://evil.example.org/x.png");
+        let other_port = protected_url(&base, Some(&creds()), "https://chat.example.com:8443/x.png").unwrap();
+        assert!(other_port.query().is_none());
+        assert!(protected_url(&base, None, "/x.png").unwrap().query().is_none());
+    }
 }

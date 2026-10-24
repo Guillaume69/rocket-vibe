@@ -13,6 +13,9 @@ on:
       - 'crates/rv-crypto/**'
       - 'crates/rv-crypto-public/**'
       - 'crates/rv-protocol/**'
+      - 'crates/rv-provider/**'
+      - 'crates/rv-slack/**'
+      - 'crates/rv-teams/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   pull_request:
@@ -23,6 +26,9 @@ on:
       - 'crates/rv-crypto/**'
       - 'crates/rv-crypto-public/**'
       - 'crates/rv-protocol/**'
+      - 'crates/rv-provider/**'
+      - 'crates/rv-slack/**'
+      - 'crates/rv-teams/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:

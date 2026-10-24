@@ -131,7 +131,7 @@ Both apps have persisted queues, local file lookup, retries and validation. Desk
 - apps/desktop/crates/rv-core/tests/uploads.rs
 - apps/desktop/crates/rv-core/src/uploads.rs
 - apps/desktop/crates/rv-core/src/store.rs
-- apps/desktop/crates/rv-core/src/rest.rs
+- crates/rv-provider/src/rest.rs
 - apps/desktop/crates/rv-core/src/media.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/attach.rs

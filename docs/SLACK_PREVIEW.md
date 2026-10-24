@@ -51,5 +51,5 @@ tokens, cookies, pairing responses, workspace or member identifiers, or message 
 
 - scripts/slack-browser-signin.mjs, scripts/slack/browser.mjs, scripts/slack/session.mjs, scripts/slack/server.mjs
 - apps/mobile/ui/slackSignIn.tsx, apps/mobile/providers/slack/handoff.ts, apps/mobile/providers/slack/auth.ts, apps/mobile/providers/slack/index.ts (`SLACK_CAPABILITIES`)
-- apps/desktop/crates/rv-core/src/slack/browser_login.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
+- crates/rv-slack/src/browser_login.rs, apps/desktop/crates/rv-gtk/src/login.rs, apps/desktop/macos/Sources/RocketVibe/LoginView.swift
 - [Provider handoff](protocol/SLACK_SESSION.md)

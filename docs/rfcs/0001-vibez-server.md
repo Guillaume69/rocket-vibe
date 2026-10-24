@@ -733,7 +733,7 @@ must remain concrete, tested and reviewed with the operator concerned.
 - [Mobile outbox](../../apps/mobile/lib/outbox.ts), [session storage](../../apps/mobile/lib/sessionStore.ts).
 - [Mobile crypto](../../apps/mobile/lib/e2e/crypto.ts), [key orchestration](../../apps/mobile/lib/e2e/engine.ts).
 - [Rust core dependencies](../../apps/desktop/crates/rv-core/Cargo.toml),
-  [current Rocket.Chat models](../../apps/desktop/crates/rv-core/src/normalize.rs).
+  [current Rocket.Chat models](../../crates/rv-provider/src/normalize.rs).
 - [Parity tracker](../../brain/parity.md),
   [SwiftUI variant](../../apps/desktop/docs/MACOS-SWIFTUI.md).
 - [Mobile changelog](../../apps/mobile/CHANGELOG.md), [desktop changelog](../../apps/desktop/CHANGELOG.md).

@@ -8,8 +8,7 @@ use zeroize::Zeroizing;
 use super::api::ORIGIN;
 use super::handoff::BrowserSession;
 use super::{identity, validate_credentials};
-use crate::rest::{CallOptions, Credentials, RestClient, RestError};
-use crate::session::SessionInfo;
+use rv_provider::rest::{CallOptions, Credentials, RestClient, RestError};
 
 /// What a Slack account keeps beside its token, in the same secret record.
 #[derive(Clone, PartialEq, Eq)]
@@ -22,6 +21,28 @@ pub struct SlackAccount {
 impl std::fmt::Debug for SlackAccount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SlackAccount").field("team_id", &self.team_id).field("cookie", &"[redacted]").finish()
+    }
+}
+
+/// A signed-in account: who it is, its token and what Slack keeps beside it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Session {
+    pub base_url: String,
+    pub user_id: String,
+    pub username: String,
+    pub auth_token: String,
+    pub account: SlackAccount,
+}
+
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("base_url", &self.base_url)
+            .field("user_id", &self.user_id)
+            .field("username", &self.username)
+            .field("auth_token", &"[redacted]")
+            .field("account", &self.account)
+            .finish()
     }
 }
 
@@ -51,15 +72,15 @@ fn workspace(url: &Url) -> bool {
 }
 
 /// The REST client of a signed-in account.
-pub fn client(info: &SessionInfo, account: &SlackAccount) -> RestClient {
-    let rest = RestClient::slack(api_base(&info.base_url), account.cookie.clone());
-    rest.set_credentials(Some(Credentials { auth_token: info.auth_token.clone(), user_id: info.user_id.clone() }));
+pub fn client(base_url: &str, credentials: Credentials, account: &SlackAccount) -> RestClient {
+    let rest = RestClient::slack(api_base(base_url), account.cookie.clone());
+    rest.set_credentials(Some(credentials));
     rest
 }
 
 /// Checks the session with `auth.test` on slack.com; `expected` is the team
 /// and user a pairing announced.
-pub async fn login(token: &str, cookie: &str, expected: Option<(&str, &str)>) -> Result<SessionInfo, RestError> {
+pub async fn login(token: &str, cookie: &str, expected: Option<(&str, &str)>) -> Result<Session, RestError> {
     login_at(&ORIGIN.parse().expect("Slack API origin"), token, cookie, expected).await
 }
 
@@ -69,40 +90,37 @@ pub async fn login_at(
     token: &str,
     cookie: &str,
     expected: Option<(&str, &str)>,
-) -> Result<SessionInfo, RestError> {
+) -> Result<Session, RestError> {
     let (token, cookie) = (Zeroizing::new(token.trim().to_owned()), Zeroizing::new(cookie.trim().to_owned()));
     validate_credentials(&token, &cookie).map_err(|e| refusal(e.code))?;
-    crate::tls::ensure_provider();
+    rv_provider::tls::ensure_provider();
     let rest = RestClient::slack(api.clone(), cookie.clone());
     rest.set_credentials(Some(Credentials { auth_token: token.to_string(), user_id: String::new() }));
     let who = identity(&rest.post("auth.test", CallOptions::default()).await?).map_err(|e| refusal(e.code))?;
     if expected.is_some_and(|(team, user)| team != who.team_id || user != who.user_id) {
         return Err(refusal("identity_mismatch"));
     }
-    Ok(SessionInfo {
+    Ok(Session {
         base_url: who.origin,
         user_id: who.user_id,
         username: who.user,
         auth_token: token.to_string(),
-        native: None,
-        mattermost: None,
-        slack: Some(SlackAccount { team_id: who.team_id, cookie }),
-        teams: None,
+        account: SlackAccount { team_id: who.team_id, cookie },
     })
 }
 
 /// The session a browser pairing handed over, for the account it named.
-pub async fn login_paired(session: &BrowserSession) -> Result<SessionInfo, RestError> {
+pub async fn login_paired(session: &BrowserSession) -> Result<Session, RestError> {
     login(&session.token, &session.cookie, Some((&session.team_id, &session.user_id))).await
 }
 
-pub(crate) fn write_secret(account: &SlackAccount, secret: &mut Value) {
+pub fn write_secret(account: &SlackAccount, secret: &mut Value) {
     secret["slackTeamId"] = json!(account.team_id);
     secret["slackCookie"] = json!(account.cookie.as_str());
 }
 
 /// A saved Slack account, refused unless every field is one Slack could have given.
-pub(crate) fn from_secret(value: &Value) -> Option<SessionInfo> {
+pub fn from_secret(value: &Value) -> Option<Session> {
     let field = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
     let base_url = field("baseUrl")?;
     let parsed = Url::parse(&base_url).ok()?;
@@ -116,15 +134,12 @@ pub(crate) fn from_secret(value: &Value) -> Option<SessionInfo> {
     if !super::id(&team_id, b"T") || !super::id(&user_id, b"UW") {
         return None;
     }
-    Some(SessionInfo {
+    Some(Session {
         base_url,
         username: field("username").unwrap_or_else(|| user_id.clone()),
         user_id,
         auth_token,
-        native: None,
-        mattermost: None,
-        slack: Some(SlackAccount { team_id, cookie }),
-        teams: None,
+        account: SlackAccount { team_id, cookie },
     })
 }
 

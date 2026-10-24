@@ -17,8 +17,9 @@ The root `Cargo.toml` is a resolver-3 workspace of `apps/server`, `crates/rv-pro
 | `crates/rv-voice-mobile` | A small JNI `cdylib` for Android, built apart like `rv-crypto-mobile`. |
 | `crates/rv-signal` | WhatsApp's Signal protocol, written clean room; checked by its own CI job (`rv-signal.yml`). |
 | `crates/rv-whatsapp` | The vendored WhatsApp engine (whatsapp-rust), a workspace of its own as upstream laid it out; checked by `rv-whatsapp.yml`. |
+| `crates/rv-provider`, `crates/rv-slack`, `crates/rv-teams` | The desktop's provider clients, below rv-core; one workspace each, checked by `providers.yml` (fmt, clippy, tests), and by the desktop's own build through rv-core. |
 
-Nine workspaces mean nine `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
+Twelve workspaces mean twelve `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
 
 ## Who uses what
 
@@ -34,6 +35,8 @@ Nine workspaces mean nine `Cargo.lock`. Within one semver-compatible line (`1.x`
 | `rv-signal` | | through `rv-whatsapp` | not yet | |
 | `rv-whatsapp` | | the `rv-whatsapp` helper process (`rv-whatsapp-engine`), not linked in process yet | not yet (Android still binds the Go engine) | |
 | `rv-link-preview` | yes (link previews) | through the `rv-whatsapp` helper | | |
+| `rv-provider` | | `rv-core`, which re-exports its modules under the old paths (`rv_core::rest`, `live`, `normalize`, `emoji`, `tls`) | | the emoji table (`data/emojis.tsv`, read by `src/emoji.ts`) |
+| `rv-slack`, `rv-teams` | | `rv-core` (`rv_core::slack`, `rv_core::teams` re-export them) | | |
 
 Cargo unifies features across a workspace: the three desktop crates all get `rv-crypto`'s `native-http` and `system-keystore` once any of them asks.
 
@@ -86,6 +89,14 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 
 Upstream's test suite runs as is: 5,449 tests.
 
+## `rv-provider`, `rv-slack`, `rv-teams`: the provider clients
+
+What talks to Slack and Teams moved out of rv-core so that the protocol code stands alone: tested, and later reusable, without the desktop's store, sessions or UI. A provider crate is the wire client (sign-in, requests, the live connection, translation into rv-provider's normalized types); rv-core keeps what writes its store (`slack::sync`, `teams::sync` and `teams::actions`), the outbox and the sessions.
+
+- **`rv-provider`** holds what both providers and rv-core share: `rest` (`RestClient` with its four dialects; Slack's method allowlist and envelope live in `rest/slack.rs`, and `protected_url`), `socket` (`State`, `LiveEvent`, the websocket halves, `send` and `next_json`), `normalize`, `live` (presence and typing), `emoji` with its table, `text` (`decode_entities`, `is_web_link`) and `tls`. Its user agent names the app's version, which `rv_core::identify()` sets first thing in the GTK and Swift apps (`rocket-vibe-desktop/<version>` as before).
+- **`rv-slack`**: token, browser and paired sign-in (`account`, `browser_login`, `handoff`), the directory, RTM (`live`), emoji names and `translate`. A login answers its own `Session`; `rv_core::slack` re-exports the crate and adds `login`, `login_at`, `login_paired`, `from_secret` and `client` over rv-core's `SessionInfo`.
+- **`rv-teams`**: device-code sign-in and its `Tokens` (`auth`, holding rv-teams' `Session`), `client`, the Trouter feed (`live`, `frames`) and `translate`, plus the sign-in-only probes (`examples/teams-shapes.rs`, `teams-authz.rs`). `rv_core::teams` adds `session`, `approved`, `from_secret` and `set_credential_sink` over `SessionInfo`. Many Teams calls still sit in rv-core's `TeamsSync` beside its store writes; moving them down is the next cut.
+
 ## The bridges
 
 - **`rv-crypto-mobile`**: a UniFFI (`=0.32.2`) facade for Kotlin, package `com.rocketvibe.crypto.engine`: a `CryptoInstallation` object, a `ProtectedKeystore` interface the app implements over Android's keystore, and modules for conversations, groups, history, identity, peers and recovery. `apps/mobile/modules/crypto-native/android/build.gradle` runs `build-android.mjs` before every build: `cargo rustc --release` for arm64-v8a and x86_64 (API 24, 16 KiB pages), then `mobile-bindgen` generates the Kotlin bindings into `android/build/generated/`, never committed. Tested by `--lib` in the crypto matrix, by Android instrumentation on an API 36 emulator (`native-crypto-android.yml`), and by the JS tests of `apps/mobile/providers/vibez/crypto*.test.ts`. See [mobile-native.md](mobile-native.md).
@@ -134,6 +145,13 @@ Upstream's test suite runs as is: 5,449 tests.
 - `crates/rv-whatsapp/engine/src/engine.rs`
 - `crates/rv-whatsapp/engine/src/vault.rs`
 - `crates/rv-link-preview/src/lib.rs`
+- `crates/rv-provider/src/lib.rs`
+- `crates/rv-provider/src/rest.rs`
+- `crates/rv-slack/src/lib.rs`
+- `crates/rv-teams/src/lib.rs`
+- `apps/desktop/crates/rv-core/src/slack/mod.rs`
+- `apps/desktop/crates/rv-core/src/teams/mod.rs`
+- `.github/workflows/providers.yml`
 - `.github/workflows/desktop-whatsapp.yml`
 - `crates/rv-whatsapp/wacore/signal/src/protocol/session.rs`
 - `crates/rv-whatsapp/wacore/signal/src/protocol/storage.rs`

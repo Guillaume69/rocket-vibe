@@ -17,9 +17,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use url::Url;
 use zeroize::Zeroizing;
 
-use crate::ddp::State;
-use crate::mattermost::socket::{LiveEvent, Sink, Stream, next_json, send};
-use crate::rest::{CallOptions, RestClient};
+use rv_provider::rest::{CallOptions, RestClient};
+use rv_provider::socket::State;
+use rv_provider::socket::{LiveEvent, Sink, Stream, next_json, send};
 
 const HANDSHAKE: Duration = Duration::from_secs(15);
 const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -74,7 +74,7 @@ pub fn spawn(
 
 /// Slack's message servers: a `wss` URL on one of its own hosts, nothing else
 /// may carry the cookie.
-pub(crate) fn rtm_url(raw: &str) -> Option<Url> {
+pub fn rtm_url(raw: &str) -> Option<Url> {
     let url = Url::parse(raw).ok()?;
     let host = url.host_str()?;
     let slack = host == "slack.com"
@@ -132,7 +132,7 @@ impl Actor {
     }
 
     async fn connect(&mut self) -> Option<(Sink, Stream)> {
-        crate::tls::ensure_provider();
+        rv_provider::tls::ensure_provider();
         let params = vec![("batch_presence_aware", "1".to_owned()), ("presence_sub", "true".to_owned())];
         let body = self.rest.post("rtm.connect", CallOptions::params(params)).await.ok()?;
         let team = body.get("team").and_then(|t| t.get("id")).and_then(Value::as_str);

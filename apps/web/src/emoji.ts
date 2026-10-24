@@ -1,4 +1,4 @@
-import table from "../../desktop/crates/rv-core/data/emojis.tsv?raw";
+import table from "../../../crates/rv-provider/data/emojis.tsv?raw";
 import aliasesData from "../../../crates/rv-protocol/data/emoji-aliases.json";
 const aliases: Record<string, string> = aliasesData;
 export const glyphs = new Map<string, string>(),

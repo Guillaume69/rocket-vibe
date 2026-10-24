@@ -40,8 +40,7 @@ impl Client {
     pub async fn teams_approved(&self, sign_in: Arc<TeamsSignIn>) -> Result<Arc<Chat>, RvError> {
         let (code, stop) = (sign_in.code.clone(), sign_in.stop.clone());
         let info =
-            on_tokio(async move { rv_core::teams::auth::approved(&code, || stop.load(Ordering::Acquire)).await })
-                .await?;
+            on_tokio(async move { rv_core::teams::approved(&code, || stop.load(Ordering::Acquire)).await }).await?;
         let (dirs, saved) = (self.dirs.clone(), info.clone());
         blocking(move || accounts::save(&dirs, &saved, None)).await.map_err(RvError::local)?;
         self.start(info)
@@ -50,7 +49,7 @@ impl Client {
 
 /// Saves a Teams account's rotated refresh token; set once, when the client starts.
 pub(crate) fn keep_rotated_tokens(dirs: Arc<accounts::Dirs>) {
-    rv_core::teams::auth::set_credential_sink(move |info| {
+    rv_core::teams::set_credential_sink(move |info| {
         let (dirs, info) = (dirs.clone(), info.clone());
         std::thread::spawn(move || {
             if let Err(e) = accounts::save(&dirs, &info, None) {

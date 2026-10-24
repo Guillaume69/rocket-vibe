@@ -127,8 +127,9 @@ resumes it; ui/session.tsx registers the credential sink.
 
 ## Desktop
 
-rv-core/src/teams/: `auth.rs`, `client.rs`, `translate.rs`, `sync.rs`, `actions.rs`,
-`frames.rs`, `live.rs` (the Trouter actor behind the shared `LiveEvent` feed), wired as
+crates/rv-teams/src/: `auth.rs`, `client.rs`, `translate.rs`, `frames.rs`, `live.rs` (the
+Trouter actor behind the shared `LiveEvent` feed); rv-core/src/teams/: `sync.rs` and
+`actions.rs`, which write the store, and the conversion of rv-teams' `Session`, wired as
 `Backend::Teams` in session.rs and `ServerKind::Teams`. GTK login.rs shows the code and
 Microsoft's link (`show_teams_code`) and waits with Cancel (window.rs
 `start_teams_login`); rv-ffi teams.rs exposes `TeamsSignIn` to SwiftUI's LoginModel and
@@ -147,6 +148,7 @@ cards are left out of Teams accounts (`info.teams`, `is_teams`).
 - apps/mobile/providers/teams/provider.test.ts
 - apps/mobile/app/login.tsx
 - apps/mobile/lib/sessionTransport.ts
+- crates/rv-teams/src/
 - apps/desktop/crates/rv-core/src/teams/
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-gtk/src/login.rs

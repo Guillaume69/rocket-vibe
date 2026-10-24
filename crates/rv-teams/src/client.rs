@@ -6,7 +6,7 @@ use reqwest::Method;
 use serde_json::Value;
 
 use super::auth::refusal;
-use crate::rest::RestError;
+use rv_provider::rest::RestError;
 
 /// A path under a service base, its opaque segments (conversation ids) percent-encoded.
 pub fn service_url(base: &str, segments: &[&str], query: &str) -> Result<url::Url, RestError> {
@@ -25,7 +25,7 @@ pub struct Answer {
 }
 
 pub fn http() -> reqwest::Client {
-    crate::tls::ensure_provider();
+    rv_provider::tls::ensure_provider();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))

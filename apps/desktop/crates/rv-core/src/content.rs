@@ -4,6 +4,7 @@
 use serde_json::{Map, Value};
 
 use crate::media::{ImageAttachment, image_attachments};
+pub use rv_provider::text::{decode_entities, is_web_link};
 
 /// Nesting the server keeps with `Message_QuoteChainLimit` at its default.
 pub const QUOTE_DEPTH: usize = 2;
@@ -155,25 +156,6 @@ fn list(json: Option<&str>) -> Vec<Value> {
 
 fn text(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(decode_entities).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())
-}
-
-pub fn decode_entities(s: &str) -> String {
-    if !s.contains('&') {
-        return s.to_owned();
-    }
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#039;", "'")
-        .replace("&#39;", "'")
-        .replace("&#x27;", "'")
-        .replace("&#X27;", "'")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-}
-
-pub fn is_web_link(url: &str) -> bool {
-    url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host().is_some())
 }
 
 fn is_quote(a: &Value) -> bool {

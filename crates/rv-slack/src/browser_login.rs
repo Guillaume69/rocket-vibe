@@ -1,5 +1,4 @@
 use super::{Error, account, id as valid_id, validate_credentials};
-use crate::session::SessionInfo;
 use futures_util::{
     SinkExt, StreamExt,
     stream::{SplitSink, SplitStream},
@@ -121,7 +120,7 @@ impl BrowserLogin {
         self.inner.cancel.send_replace(true);
     }
 
-    pub async fn take(&self, team_id: &str) -> Result<SessionInfo, Error> {
+    pub async fn take(&self, team_id: &str) -> Result<account::Session, Error> {
         let candidate = self
             .inner
             .credentials
@@ -578,10 +577,7 @@ impl Browser {
                                 }
                                 checked.insert(fingerprint, Instant::now());
                                 if let Ok(mut info) = account::login(&candidate.token, &cookie, None).await {
-                                    let Some(account) = info.slack.take() else {
-                                        info.auth_token.zeroize();
-                                        continue;
-                                    };
+                                    let account = info.account;
                                     let token = Zeroizing::new(std::mem::take(&mut info.auth_token));
                                     if account.team_id != candidate.team_id {
                                         continue;
@@ -647,10 +643,7 @@ async fn derive_from(inner: &Arc<Inner>, result: &Value, handoff_hosts: &[String
     for host in workspace_hosts(&hosts).into_iter().take(20) {
         let Some(token) = boot_token(&host, &cookie).await else { continue };
         if let Ok(mut info) = account::login(&token, &cookie, None).await {
-            let Some(account) = info.slack.take() else {
-                info.auth_token.zeroize();
-                continue;
-            };
+            let account = info.account;
             let label = host.strip_suffix(".slack.com").unwrap_or(&host).to_owned();
             let credential = Credential {
                 team_id: account.team_id,
@@ -738,7 +731,7 @@ fn workspace_hosts(hosts: &[String]) -> Vec<String> {
 /// Slack serves that page with a 403, token and all, so the status is not
 /// read; a signed-out page has no token.
 async fn boot_token(host: &str, cookie: &str) -> Option<Zeroizing<String>> {
-    crate::tls::ensure_provider();
+    rv_provider::tls::ensure_provider();
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(20))

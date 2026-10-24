@@ -82,7 +82,7 @@ All commands run from `apps/desktop/`.
 | `scripts/package-windows.sh <version>` | In an MSYS2 UCRT64 shell after a release build: a self-contained folder and zip (DLLs, GStreamer plugins, schemas, icons, `WebView2Loader.dll`). The Inno Setup script is `data/windows/rocket-vibe.iss`. |
 | `scripts/package-macos.sh <version>` | On macOS with Homebrew: `rocket-vibe.app` with its libraries rewritten by dylibbundler (fails if anything still points into Homebrew), signed with `MACOS_SIGN_IDENTITY` or ad hoc, in a DMG. |
 | `scripts/install.sh` | End-user Linux install, no root: downloads the newest `desktop-v*` release's AppImage to `~/.local/bin/rocket-vibe.AppImage`, adds a launcher entry, icons and the link handler; `--uninstall` removes them but keeps accounts and messages in `~/.config/rocket-vibe-rs` and `~/.local/share/rocket-vibe-rs`. |
-| `node scripts/generate-emojis.mjs [emoji-toolkit dir]` | Regenerates `crates/rv-core/data/emojis.tsv`. |
+| `node scripts/generate-emojis.mjs [emoji-toolkit dir]` | Regenerates `crates/rv-provider/data/emojis.tsv`. |
 
 For constrained Windows Docker worktree builds, build.sh passes through
 CARGO_BUILD_JOBS (2 when unset) and the optional CARGO_INCREMENTAL. CARGO_BUILD_JOBS=1

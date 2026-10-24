@@ -128,7 +128,7 @@ The non-obvious choices behind rocket-vibe and why they were made, grouped by ar
 - **Ctrl (Cmd) with +, - and 0 zooms the text, and 0 left the rail** (user request, 2026-10-17). In a browser Ctrl + 0 resets the zoom, and people try it there first; a tenth account is rare, so the rail's shortcuts stop at the ninth (`server_rail::shortcut_slot`). The steps are a browser's (67 to 200 %), kept in one `zoom` file GTK and SwiftUI share, and only the text scales. Android leaves it to the system font scale, the web app to the browser. See [settings](features/settings.md#text-zoom-desktop).
 - **Switching to an account reopens its last room; the desktop's back and forward cross accounts** (2026-10-17). An empty room pane (desktop) or the bare list (Android) after a switch made every switch two clicks. The room is kept per account on the device, never on the server, and yields to a link, a notification or a room opened meanwhile. The history of opened rooms used to be wiped by a switch, so back never reached the other server's room; it now names each entry's account and switches back to it. Android keeps its system back stack and does not reopen at a cold start. See [login-and-servers](features/login-and-servers.md#coming-back-to-an-account).
 - **Ctrl+K is the room switcher; the link moved to Ctrl+Shift+K** (user decision, 2026-10-10). Rocket.Chat's, Mattermost's, Slack's and Element's clients all open their room switcher on Ctrl+K, so the GTK composer gave its link shortcut up rather than taking another key for the switcher ([room-switcher](features/room-switcher.md)). SwiftUI uses Cmd+K, a menu command. The web followed (user decision, same day): its Ctrl+K opened New conversation, which stays on the "+" menu.
-- **The rustls provider is chosen explicitly** (`rv-core/src/tls.rs`): two are compiled in (ring through rv-client's reqwest 0.12, aws-lc-rs through ours), and rustls then panics a `wss://` connection instead of guessing, which silently kept every HTTPS server's live connection down.
+- **The rustls provider is chosen explicitly** (`crates/rv-provider/src/tls.rs`): two are compiled in (ring through rv-client's reqwest 0.12, aws-lc-rs through ours), and rustls then panics a `wss://` connection instead of guessing, which silently kept every HTTPS server's live connection down.
 
 ## Voice
 
@@ -397,7 +397,7 @@ installed. See [Teams](architecture/teams.md).
 - `apps/desktop/crates/rv-gtk/src/notifier/custom.rs`
 - `apps/desktop/crates/rv-native/src/windows_notification.rs`
 - apps/mobile/providers/teams/auth.ts
-- apps/desktop/crates/rv-core/src/teams/auth.rs
+- crates/rv-teams/src/auth.rs
 
 - `docs/protocol/E2EE_AMENDMENTS.md`
 - `docs/protocol/E2EE_FILES.md`
@@ -458,10 +458,13 @@ installed. See [Teams](architecture/teams.md).
 - scripts/slack-browser-signin.mjs
 - scripts/slack/session.mjs
 - apps/mobile/providers/slack/handoff.ts
-- apps/desktop/crates/rv-core/src/slack/handoff.rs
-- apps/desktop/crates/rv-core/src/slack/browser_login.rs (`open_signed_in`)
+- crates/rv-slack/src/handoff.rs
+- crates/rv-slack/src/browser_login.rs (`open_signed_in`)
 - apps/desktop/crates/rv-core/src/slack/sync.rs (`saved`)
 - apps/mobile/providers/slack/saved.ts
+- crates/rv-provider/src/lib.rs (`set_version`)
+- apps/desktop/crates/rv-core/src/slack/mod.rs
+- apps/desktop/crates/rv-core/src/teams/mod.rs
 
 ## Channels are renamed from their information, address included (2026-10-23)
 
@@ -474,6 +477,10 @@ User decision, 2026-10-23: WhatsApp moves off the Go helper (whatsmeow) to a Rus
 The engine was written against its Signal crate's interface (about 2,000 call sites in 80 files, a 7,000-line session cache built on counter leases and checkouts). User decision, 2026-10-24: keep the engine as it is and give it that interface on `rv-signal` (`wacore-signal`, written from the engine's own code and tests), rather than rewrite its callers at once. Upstream's tests then stay meaningful, its fixes still apply, and the move onto `rv-signal`'s own interface happens piece by piece with the suite green.
 
 The desktop switched first as a drop-in (2026-10-24): `rv-whatsapp-engine` is a helper process speaking the Go helper's JSON lines frame for frame, so rv-core, the GTK app and their tests did not move, and running it in process comes later. Its state is new (whatsapp-rust's in-memory backend and the engine's projection, sealed as one file) and the Go helper's sealed SQLite cannot be read, so an existing account links again once; rv-core already shows that as an expired account. My own link previews are now fetched by the Vibez server's collector, moved unchanged into `crates/rv-link-preview` so both share one guard against reaching the local network (stricter than the Go fetcher's: ports 80 and 443 only, DNS pinned on every redirect). whatsapp-rust sends a group read receipt even when my privacy setting sends none, as WhatsApp's own apps do; the Go engine sent `read-self` there. Android keeps the Go engine until it binds the Rust one.
+
+## Slack and Teams leave rv-core for crates of their own (2026-10-24)
+
+Following the one-crate-per-provider decision above, the code that speaks to Slack and Teams moved below rv-core: `crates/rv-slack` and `crates/rv-teams`, on `crates/rv-provider` for what they share with rv-core (the REST client and its dialects, the live socket's frames, normalized types, presence, emoji, TLS). The line is the wire: sign-in, requests, the live connection and translation go down; what writes the store (`slack::sync`, `teams::sync`, `teams::actions`), the outbox and the sessions stay. Each crate answers its own `Session`, and rv-core converts it to its `SessionInfo`, so the crates know nothing of rv-core's other account kinds. rv-core re-exports the moved modules under their old paths, so the GTK and Swift apps did not move. Each crate is its own workspace and lock, like the WhatsApp ones, so it builds and tests alone (`providers.yml`). The user agent kept its app version: a library cannot read the app's, so `rv_core::identify()` hands it down at start. Many Teams calls still live in `TeamsSync` beside its store writes; they move down next.
 
 ## Canaries watch the private protocols (2026-10-23)
 

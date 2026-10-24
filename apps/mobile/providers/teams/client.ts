@@ -2,7 +2,7 @@
  * Calls to a tenant's Teams services, each with its own credential: the chat
  * service with the Skype token, the aggregator with its bearer. A refused
  * token is renewed once before the call fails; only then does a 401 end the
- * session. Mirrors `apps/desktop/crates/rv-core/src/teams/client.rs`.
+ * session. Mirrors `crates/rv-teams/src/client.rs`.
  */
 
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';

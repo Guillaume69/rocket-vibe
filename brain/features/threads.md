@@ -95,7 +95,7 @@ Thread view, live replies and thread composer in all four. Thread list, followin
 - apps/desktop/crates/rv-gtk/src/thread.rs
 - apps/desktop/crates/rv-gtk/src/threads.rs
 - apps/desktop/crates/rv-core/src/actions.rs
-- apps/desktop/crates/rv-core/src/normalize.rs
+- crates/rv-provider/src/normalize.rs
 - apps/desktop/crates/rv-ffi/src/people.rs
 - apps/desktop/macos/Sources/RocketVibe/Details.swift
 - apps/desktop/crates/rv-gtk/src/chat.rs

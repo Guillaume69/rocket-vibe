@@ -129,7 +129,7 @@ Mobile keeps a labelled, 44-point server button in the home header. Settings mov
 - apps/mobile/db/migrate.ts
 - apps/desktop/crates/rv-core/src/server.rs
 - apps/desktop/crates/rv-core/src/session.rs
-- apps/desktop/crates/rv-core/src/rest.rs
+- crates/rv-provider/src/rest.rs
 - apps/desktop/crates/rv-gtk/src/login.rs
 - apps/desktop/crates/rv-gtk/src/window.rs
 - apps/desktop/crates/rv-gtk/src/secrets.rs

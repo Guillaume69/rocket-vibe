@@ -51,7 +51,7 @@ The native-origin browser schedules observed root reads after each rendered upda
 - apps/mobile/lib/integrationCards.ts
 - apps/mobile/db/migrations/0033_message_author_alias.sql
 - apps/mobile/ui/identityStore.ts
-- apps/desktop/crates/rv-core/src/normalize.rs
+- crates/rv-provider/src/normalize.rs
 - apps/desktop/crates/rv-core/src/store.rs
 - apps/desktop/crates/rv-ffi/src/model.rs
 - apps/desktop/crates/rv-ffi/src/markup.rs
@@ -92,7 +92,7 @@ The native-origin browser schedules observed root reads after each rendered upda
 - apps/desktop/crates/rv-core/src/parse.rs
 - apps/desktop/crates/rv-core/src/content.rs
 - apps/desktop/crates/rv-core/src/i18n.rs
-- apps/desktop/crates/rv-core/src/live.rs
+- crates/rv-provider/src/live.rs
 - apps/desktop/crates/rv-core/src/session.rs
 - apps/desktop/crates/rv-core/src/sync.rs
 - apps/desktop/crates/rv-gtk/src/chat.rs

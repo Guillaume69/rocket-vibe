@@ -75,7 +75,7 @@ A Cargo workspace (`resolver = "3"`, edition 2024, licence MIT) of five crates (
 | `aws-lc-rs` | 1.18.1 | E2EE crypto. |
 | `sha2` 0.11, `base64` 0.22, `serde_json` 1.0.151, `chrono` 0.4.45, `url` 2.5.8, `thiserror` 2, `gif` 0.13, `fastrand` 2.5, `futures-util` 0.3 | | |
 
-`crates/rv-core/data/emojis.tsv` is the emoji table, generated from emoji-toolkit by `scripts/generate-emojis.mjs`.
+`crates/rv-provider/data/emojis.tsv` is the emoji table, generated from emoji-toolkit by `scripts/generate-emojis.mjs`.
 
 ### rv-gtk (binary `rocket-vibe-gtk`, package `rocket-vibe-gtk`)
 

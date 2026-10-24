@@ -8,8 +8,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
-use crate::rest::RestError;
-use crate::session::SessionInfo;
+use rv_provider::rest::RestError;
 
 /// The Teams desktop and mobile app: a public client, so a device code completes
 /// (the web client `5e3ce6c0-…` is confidential and answers `AADSTS7000218`).
@@ -32,7 +31,7 @@ const GRAPH: &str = "https://graph.microsoft.com";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
-pub const SESSION_REJECTED: &str = "teams-session-rejected";
+pub use rv_provider::rest::TEAMS_SESSION_REJECTED as SESSION_REJECTED;
 const MARGIN: Duration = Duration::from_secs(300);
 
 /// What a Teams account keeps beside its id, in the same secret record.
@@ -48,7 +47,15 @@ impl std::fmt::Debug for TeamsAccount {
     }
 }
 
-pub(crate) fn refusal(code: &str, status: u16) -> RestError {
+/// A signed-in account: who it is and what keeps it signed in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Session {
+    pub user_id: String,
+    pub username: String,
+    pub account: TeamsAccount,
+}
+
+pub fn refusal(code: &str, status: u16) -> RestError {
     RestError {
         status,
         error: Some(code.to_owned()),
@@ -58,7 +65,7 @@ pub(crate) fn refusal(code: &str, status: u16) -> RestError {
 }
 
 fn http() -> reqwest::Client {
-    crate::tls::ensure_provider();
+    rv_provider::tls::ensure_provider();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
@@ -136,7 +143,7 @@ pub async fn device_code_scope(scope: &str) -> Result<DeviceCode, RestError> {
 }
 
 /// Waits until the code is approved, refused or expired; `cancelled` ends it early.
-pub async fn approved(code: &DeviceCode, cancelled: impl Fn() -> bool) -> Result<SessionInfo, RestError> {
+pub async fn approved(code: &DeviceCode, cancelled: impl Fn() -> bool) -> Result<Session, RestError> {
     let deadline = Instant::now() + Duration::from_secs(code.expires_in);
     let mut interval = code.interval;
     while Instant::now() < deadline {
@@ -165,7 +172,7 @@ pub async fn approved(code: &DeviceCode, cancelled: impl Fn() -> bool) -> Result
     Err(refusal("expired", 0))
 }
 
-async fn signed_in(body: &Value) -> Result<SessionInfo, RestError> {
+async fn signed_in(body: &Value) -> Result<Session, RestError> {
     let refresh = Zeroizing::new(body["refresh_token"].as_str().unwrap_or_default().to_owned());
     let claims = body["id_token"].as_str().and_then(claims).ok_or_else(|| refusal("id_token", 200))?;
     let text = |key: &str| claims[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
@@ -173,50 +180,40 @@ async fn signed_in(body: &Value) -> Result<SessionInfo, RestError> {
     if refresh.is_empty() || !guid(&tenant_id) || !guid(&object_id) {
         return Err(refusal("id_token", 200));
     }
-    let info = SessionInfo {
-        base_url: ORIGIN.to_owned(),
+    let info = Session {
         user_id: format!("8:orgid:{object_id}"),
         username: text("name").or_else(|| text("preferred_username")).unwrap_or_else(|| object_id.clone()),
-        auth_token: String::new(),
-        native: None,
-        mattermost: None,
-        slack: None,
-        teams: Some(TeamsAccount { tenant_id, refresh }),
+        account: TeamsAccount { tenant_id, refresh },
     };
-    Tokens::new(&info)?.chat().await?;
+    Tokens::new(&info).chat().await?;
     Ok(info)
 }
 
-pub(crate) fn write_secret(account: &TeamsAccount, secret: &mut Value) {
+pub fn write_secret(account: &TeamsAccount, secret: &mut Value) {
     secret["teamsTenantId"] = json!(account.tenant_id);
     secret["teamsRefresh"] = json!(account.refresh.as_str());
 }
 
 /// A saved Teams account, refused unless every field is one Microsoft could have given.
-pub(crate) fn from_secret(value: &Value) -> Option<SessionInfo> {
+pub fn from_secret(value: &Value) -> Option<Session> {
     let field = |key: &str| value[key].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
     let user_id = field("userId")?;
     let tenant_id = field("teamsTenantId")?;
     if field("baseUrl")? != ORIGIN || !guid(&tenant_id) || !user_id.strip_prefix("8:orgid:").is_some_and(guid) {
         return None;
     }
-    Some(SessionInfo {
-        base_url: ORIGIN.to_owned(),
+    Some(Session {
         username: field("username").unwrap_or_else(|| user_id.clone()),
         user_id,
-        auth_token: String::new(),
-        native: None,
-        mattermost: None,
-        slack: None,
-        teams: Some(TeamsAccount { tenant_id, refresh: Zeroizing::new(field("teamsRefresh")?) }),
+        account: TeamsAccount { tenant_id, refresh: Zeroizing::new(field("teamsRefresh")?) },
     })
 }
 
-type Sink = Box<dyn Fn(&SessionInfo) + Send + Sync>;
+type Sink = Box<dyn Fn(&Session) + Send + Sync>;
 static SINK: OnceLock<Sink> = OnceLock::new();
 
 /// Where a rotated refresh token is saved: the app's keychain, set once at start.
-pub fn set_credential_sink(sink: impl Fn(&SessionInfo) + Send + Sync + 'static) {
+pub fn set_credential_sink(sink: impl Fn(&Session) + Send + Sync + 'static) {
     let _ = SINK.set(Box::new(sink));
 }
 
@@ -884,19 +881,18 @@ struct Held {
 /// An account's live tokens: refreshed from the refresh token when they near
 /// their end, the rotated refresh token saved through the sink.
 pub struct Tokens {
-    info: Mutex<SessionInfo>,
+    info: Mutex<Session>,
     held: tokio::sync::Mutex<Held>,
 }
 
 impl Tokens {
-    pub fn new(info: &SessionInfo) -> Result<Arc<Self>, RestError> {
-        info.teams.as_ref().ok_or_else(|| refusal("not_teams", 0))?;
-        Ok(Arc::new(Tokens { info: Mutex::new(info.clone()), held: tokio::sync::Mutex::default() }))
+    pub fn new(info: &Session) -> Arc<Self> {
+        Arc::new(Tokens { info: Mutex::new(info.clone()), held: tokio::sync::Mutex::default() })
     }
 
     /// Tokens already held, for a test server: they never refresh.
-    pub fn preset(info: &SessionInfo, routes: Routes, skype: &str, aggregator: &str) -> Result<Arc<Self>, RestError> {
-        let tokens = Self::new(info)?;
+    pub fn preset(info: &Session, routes: Routes, skype: &str, aggregator: &str) -> Arc<Self> {
+        let tokens = Self::new(info);
         let lease = |value: &str| Lease {
             value: Zeroizing::new(value.to_owned()),
             until: Instant::now() + Duration::from_secs(1 << 30),
@@ -911,18 +907,17 @@ impl Tokens {
             routes: Some(routes),
         };
         *tokens.held.try_lock().expect("a fresh account") = held;
-        Ok(tokens)
+        tokens
     }
 
-    pub fn info(&self) -> SessionInfo {
+    pub fn info(&self) -> Session {
         self.info.lock().unwrap().clone()
     }
 
     async fn access(&self, audience: &str) -> Result<Lease, RestError> {
         let (tenant, refresh) = {
             let info = self.info.lock().unwrap();
-            let account = info.teams.as_ref().expect("Teams account");
-            (account.tenant_id.clone(), account.refresh.clone())
+            (info.account.tenant_id.clone(), info.account.refresh.clone())
         };
         let scope = format!("{audience}/.default openid profile offline_access");
         let body = form(
@@ -945,7 +940,7 @@ impl Tokens {
         if let Some(rotated) = body["refresh_token"].as_str().filter(|t| !t.is_empty() && **t != **refresh) {
             let saved = {
                 let mut info = self.info.lock().unwrap();
-                info.teams.as_mut().expect("Teams account").refresh = Zeroizing::new(rotated.to_owned());
+                info.account.refresh = Zeroizing::new(rotated.to_owned());
                 info.clone()
             };
             if let Some(sink) = SINK.get() {
@@ -1665,7 +1660,7 @@ impl Tokens {
             .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
         let mut tries = serde_json::Map::new();
         let mut chosen = None;
-        let own_agent = format!("RocketVibe/{} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS);
+        let own_agent = format!("RocketVibe/{} ({})", rv_provider::version(), std::env::consts::OS);
         out.insert("user_agent".into(), json!(own_agent));
         'found: for (target, client_headers) in [(conversation, true), (channel.as_str(), true)] {
             let create = json!({
@@ -2281,7 +2276,7 @@ mod tests {
         });
         write_secret(&account, &mut secret);
         let info = from_secret(&secret).unwrap();
-        assert_eq!(info.teams.as_ref(), Some(&account));
+        assert_eq!(info.account, account);
         assert_eq!(info.username, "Ada");
         for (key, bad) in [("baseUrl", "https://evil.example"), ("userId", "8:orgid:nope"), ("teamsTenantId", "x")] {
             let mut s = secret.clone();

@@ -18,26 +18,26 @@ pub mod context;
 pub mod ddp;
 pub mod diff;
 pub mod e2e;
-pub mod emoji;
+pub use rv_provider::emoji;
 pub mod emoji_usage;
 pub mod i18n;
 pub mod info;
 pub mod last_room;
 pub mod links;
-pub mod live;
+pub use rv_provider::live;
 pub mod markdown;
 pub mod mattermost;
 pub mod media;
 pub mod members;
 pub mod native;
-pub mod normalize;
+pub use rv_provider::normalize;
 pub mod notify;
 pub mod outbox;
 pub mod parse;
 pub mod player;
 pub mod provider;
 pub mod reminders;
-pub mod rest;
+pub use rv_provider::rest;
 pub mod rocketchat;
 pub mod rooms;
 pub mod runs;
@@ -52,7 +52,7 @@ pub mod supervisor;
 pub mod sync;
 pub mod teams;
 pub mod timeline;
-pub mod tls;
+pub use rv_provider::tls;
 pub mod update;
 pub mod uploads;
 pub mod voice;
@@ -61,3 +61,8 @@ pub mod whatsapp;
 pub mod whatsapp_session;
 pub mod x_syndication;
 pub mod zoom;
+
+/// Names this build in the requests the providers send; the app calls it first.
+pub fn identify() {
+    rv_provider::set_version(env!("CARGO_PKG_VERSION"));
+}

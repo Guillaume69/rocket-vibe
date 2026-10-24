@@ -4,7 +4,7 @@
  * into the glyphs; a reaction goes by the app's own shortcode for the same
  * glyph, and back to Slack's name when sent. A name Slack does not list (a
  * custom emoji) goes through unchanged. The desktop does the same
- * (`rv-core/src/slack/emojis.rs`) from the same generated table.
+ * (`crates/rv-slack/src/emojis.rs`) from the same generated table.
  */
 
 import { shortcodeOfUnicode, unicodeOfShortcode } from '../../lib/emojis.ts';

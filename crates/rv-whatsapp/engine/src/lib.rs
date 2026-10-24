@@ -4,6 +4,7 @@
 mod actions;
 mod avatars;
 pub mod content;
+pub mod diagnostics;
 mod engine;
 pub mod images;
 pub mod projection;

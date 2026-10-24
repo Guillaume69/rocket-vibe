@@ -1,4 +1,4 @@
-use rv_core::whatsapp::{Connector, storage_key};
+use rv_core::whatsapp::{Connector, Runner, storage_key};
 use std::path::Path;
 use std::time::Duration;
 
@@ -14,10 +14,22 @@ async fn until(c: &Connector, condition: impl Fn(&rv_core::whatsapp::Snapshot) -
     .await
     .expect("connector state");
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn the_engine_runs_in_process_and_seals_its_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    let c = Connector::start(&Runner::InProcess, &state, storage_key().unwrap()).await.unwrap();
+    until(&c, |s| s.loaded).await;
+    c.stop();
+    until(&c, |s| s.exited).await;
+    let sealed = std::fs::read(&state).expect("sealed state");
+    assert!(sealed.starts_with(b"RVWA2"), "a sealed state file");
+}
+
 #[tokio::test]
 async fn native_connector_links_sends_and_revokes_without_a_server() {
     let c = Connector::start(
-        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        &Runner::Helper(Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")).to_owned()),
         Path::new("synthetic"),
         storage_key().unwrap(),
     )
@@ -47,7 +59,7 @@ async fn native_connector_links_sends_and_revokes_without_a_server() {
 #[tokio::test]
 async fn stopping_reaps_the_child() {
     let c = Connector::start(
-        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        &Runner::Helper(Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")).to_owned()),
         Path::new("synthetic"),
         storage_key().unwrap(),
     )
@@ -71,7 +83,7 @@ async fn stopping_reaps_the_child() {
 #[tokio::test]
 async fn a_refused_send_names_its_id_and_keeps_the_connection() {
     let c = Connector::start(
-        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        &Runner::Helper(Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")).to_owned()),
         Path::new("synthetic"),
         storage_key().unwrap(),
     )
@@ -91,7 +103,7 @@ async fn a_refused_send_names_its_id_and_keeps_the_connection() {
 #[tokio::test]
 async fn a_phone_number_gets_a_pairing_code_and_a_bad_one_leaves_the_qr() {
     let c = Connector::start(
-        Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")),
+        &Runner::Helper(Path::new(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")).to_owned()),
         Path::new("synthetic"),
         storage_key().unwrap(),
     )
@@ -109,7 +121,7 @@ async fn a_phone_number_gets_a_pairing_code_and_a_bad_one_leaves_the_qr() {
 }
 
 mod session {
-    use rv_core::whatsapp::{account_info, state_location, storage_key};
+    use rv_core::whatsapp::{Runner, account_info, state_location, storage_key};
     use rv_core::whatsapp_session::{KeySource, Notice, WaSession};
     use std::sync::Arc;
     use std::time::Duration;
@@ -139,7 +151,7 @@ mod session {
         let (path, _) = state_location(data.path(), "t1");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "paired").unwrap();
-        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let program = Runner::Helper(std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")));
         let info = account_info("t1", "33600000000@s.whatsapp.net", "Moi-même");
         let s = WaSession::start(info, program, data.path().into(), keys());
         let mut notices = s.notices();
@@ -195,7 +207,7 @@ mod session {
     #[tokio::test]
     async fn a_state_gone_ends_the_account() {
         let data = tempfile::tempdir().unwrap();
-        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let program = Runner::Helper(std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")));
         let s = WaSession::start(account_info("gone", "1@s.whatsapp.net", ""), program, data.path().into(), keys());
         let mut notices = s.notices();
         let expired = tokio::time::timeout(Duration::from_secs(6), async {
@@ -215,7 +227,7 @@ mod session {
         let (path, _) = state_location(data.path(), "t2");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "paired").unwrap();
-        let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar"));
+        let program = Runner::Helper(std::path::PathBuf::from(env!("CARGO_BIN_EXE_fake-whatsapp-sidecar")));
         let s =
             WaSession::start(account_info("t2", "33600000000@s.whatsapp.net", ""), program, data.path().into(), keys());
         until(&s, "connected", |s| s.snapshot().state == "connected").await;

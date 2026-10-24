@@ -19,19 +19,9 @@ if [ ! -f "$voice" ]; then
   echo "warning: no voice sidecar at $voice, the bundle will not offer voice" >&2
   voice=
 fi
-# The WhatsApp helper comes prebuilt (whatsapp/README.md, desktop-whatsapp.yml):
-# $RV_WHATSAPP, else dist/whatsapp/rv-whatsapp, with its licence notice beside
-# it; without it the bundle offers no WhatsApp, a failure when
-# RV_WHATSAPP_REQUIRED=1 (CI).
-whatsapp=${RV_WHATSAPP:-dist/whatsapp/rv-whatsapp}
-if [ ! -f "$whatsapp" ]; then
-  if [ "${RV_WHATSAPP_REQUIRED:-}" = 1 ]; then
-    echo "no WhatsApp helper at $whatsapp" >&2
-    exit 1
-  fi
-  echo "warning: no WhatsApp helper at $whatsapp, the bundle will not offer WhatsApp" >&2
-  whatsapp=
-fi
+# The licences of the crates the WhatsApp engine links into the app
+# (desktop-whatsapp.yml), when given.
+notice=${RV_WHATSAPP_LICENSES:-dist/whatsapp/rv-whatsapp-licenses-macos.txt}
 brew=$(brew --prefix)
 app=dist/rocket-vibe.app
 contents=$app/Contents
@@ -43,10 +33,7 @@ sed "s/@VERSION@/$version/g" data/macos/Info.plist > "$contents/Info.plist"
 cp target/release/rocket-vibe-gtk "$contents/MacOS/"
 # System frameworks only (no Homebrew): artifacts lose the executable bit.
 if [ -n "$voice" ]; then install -m 755 "$voice" "$contents/MacOS/rv-voice"; fi
-if [ -n "$whatsapp" ]; then
-  install -m 755 "$whatsapp" "$contents/MacOS/rv-whatsapp"
-  cp "$(dirname "$whatsapp")/rv-whatsapp-licenses.txt" "$res/" 2>/dev/null || true
-fi
+if [ -f "$notice" ]; then cp "$notice" "$res/rv-whatsapp-licenses.txt"; fi
 scanner="$brew/libexec/gstreamer-1.0/gst-plugin-scanner"
 if [ -f "$scanner" ]; then cp "$scanner" "$contents/MacOS/"; fi
 
@@ -108,7 +95,7 @@ sign=(codesign --force --sign "$identity")
 if [ "$identity" != - ]; then sign+=(--options runtime --timestamp); fi
 machos | grep -v "^$contents/MacOS/" | while IFS= read -r file; do "${sign[@]}" "$file"; done
 # rv-voice opens the microphone: the same entitlements (audio input) as the app.
-for program in "$contents/MacOS/gst-plugin-scanner" "$contents/MacOS/rv-voice" "$contents/MacOS/rv-whatsapp" "$contents/MacOS/rocket-vibe-gtk"; do
+for program in "$contents/MacOS/gst-plugin-scanner" "$contents/MacOS/rv-voice" "$contents/MacOS/rocket-vibe-gtk"; do
   if [ -f "$program" ]; then "${sign[@]}" --entitlements data/macos/entitlements.plist "$program"; fi
 done
 "${sign[@]}" --entitlements data/macos/entitlements.plist "$app"

@@ -16,6 +16,7 @@ test = false
 doc = false
 
 [dependencies]
+rv-whatsapp-engine = { path = "../../../../crates/rv-whatsapp/engine" }
 aws-lc-rs = "1.18.1"
 base64 = "0.22.1"
 chrono = "0.4.45"

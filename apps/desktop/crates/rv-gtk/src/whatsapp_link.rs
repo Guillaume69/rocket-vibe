@@ -22,7 +22,7 @@ fn data_dir() -> std::path::PathBuf {
 /// and it is saved. Closing the dialog (Cancel, Escape, a click outside)
 /// stops the attempt and erases its state.
 pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static) {
-    let Some(helper) = crate::window::whatsapp_helper() else { return };
+    let runner = whatsapp::Runner::from_env();
     let dialog = adw::Dialog::builder().title(t("wa.link_title")).content_width(420).build();
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -145,7 +145,7 @@ pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static
         let (path, entry) = whatsapp::state_location(&data_dir(), &state);
         let started = on_tokio(async move {
             let key = crate::secrets::whatsapp_key(&entry, false).await?;
-            Connector::start(&helper, &path, key).await
+            Connector::start(&runner, &path, key).await
         })
         .await;
         let started = match started {
@@ -221,7 +221,7 @@ pub fn open(parent: &impl IsA<gtk::Widget>, done: impl Fn(SessionInfo) + 'static
 /// or it cannot start now (another app holds it, its key is missing): the
 /// next launch tries again and nothing is deleted.
 pub async fn adopt_pilot(accounts: &[SessionInfo]) -> Option<SessionInfo> {
-    let helper = crate::window::whatsapp_helper()?;
+    let runner = whatsapp::Runner::from_env();
     if accounts.iter().any(|a| whatsapp::state_id(&a.base_url) == Some(whatsapp::PILOT_STATE)) {
         return None;
     }
@@ -231,7 +231,7 @@ pub async fn adopt_pilot(accounts: &[SessionInfo]) -> Option<SessionInfo> {
     }
     on_tokio(async move {
         let key = crate::secrets::whatsapp_key(&entry, true).await.ok()?;
-        let connector = Connector::start(&helper, &path, key).await.ok()?;
+        let connector = Connector::start(&runner, &path, key).await.ok()?;
         let mut changes = connector.subscribe();
         let account = tokio::time::timeout(Duration::from_secs(20), async {
             loop {

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# The licences of every crate the rv-whatsapp helper is built from, for one
-# target: the notice shipped beside rv-whatsapp in packages.
+# The licences of every crate the WhatsApp engine is built from, for one
+# target: the notice the desktop packages ship.
 #   engine/licenses.sh [target triple] > rv-whatsapp-licenses.txt
 set -euo pipefail
 cd "$(dirname "$0")/.."
 target=${1:-$(rustc -vV | sed -n 's/^host: //p')}
-echo "rv-whatsapp is built from these Rust crates; their licences follow."
+echo "The WhatsApp engine in RocketVibe is built from these Rust crates; their licences follow."
 echo "whatsapp-rust and its wacore crates come from https://github.com/oxidezap/whatsapp-rust"
 echo "(MIT), vendored with changes in crates/rv-whatsapp of https://github.com/Guillaume69/rocket-vibe."
 used=$(cargo tree --locked -p rv-whatsapp-engine -e normal,build --target "$target" --prefix none -f '{p}' |

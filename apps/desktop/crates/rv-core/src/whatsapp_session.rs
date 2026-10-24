@@ -17,7 +17,7 @@ use crate::notify::Incoming;
 use crate::session::{Connection, SessionInfo};
 use crate::store::RoomRow;
 use crate::timeline::Display;
-use crate::whatsapp::{self, Connector, Snapshot, WireMessage};
+use crate::whatsapp::{self, Connector, Runner, Snapshot, WireMessage};
 
 /// Fetches (or makes, when no state exists yet) the key of a keychain entry.
 pub type KeySource =
@@ -98,7 +98,7 @@ pub struct WaSession {
 impl WaSession {
     /// Starts the account's helper in the background; returns at once. Must
     /// run inside a tokio runtime.
-    pub fn start(info: SessionInfo, program: PathBuf, data_dir: PathBuf, keys: KeySource) -> Arc<Self> {
+    pub fn start(info: SessionInfo, runner: Runner, data_dir: PathBuf, keys: KeySource) -> Arc<Self> {
         let state = whatsapp::state_id(&info.base_url).unwrap_or_default().to_owned();
         let this = Arc::new(Self {
             info,
@@ -109,7 +109,7 @@ impl WaSession {
             notices: broadcast::channel(64).0,
             closed: AtomicBool::new(false),
         });
-        tokio::spawn(run(Arc::downgrade(&this), program, data_dir, keys));
+        tokio::spawn(run(Arc::downgrade(&this), runner, data_dir, keys));
         this
     }
     fn local(&self) -> std::sync::MutexGuard<'_, Local> {
@@ -519,7 +519,7 @@ fn wa_id(id: &str) -> &str {
 }
 
 /// Keeps the helper running until the account closes or the link ends.
-async fn run(weak: Weak<WaSession>, program: PathBuf, data_dir: PathBuf, keys: KeySource) {
+async fn run(weak: Weak<WaSession>, runner: Runner, data_dir: PathBuf, keys: KeySource) {
     let mut backoff = Duration::from_secs(2);
     loop {
         let Some(this) = weak.upgrade() else { return };
@@ -539,7 +539,7 @@ async fn run(weak: Weak<WaSession>, program: PathBuf, data_dir: PathBuf, keys: K
                     return;
                 }
                 match keys(entry, true).await {
-                    Ok(key) => Connector::start(&program, &path, key).await,
+                    Ok(key) => Connector::start(&runner, &path, key).await,
                     Err(e) => Err(e),
                 }
             }

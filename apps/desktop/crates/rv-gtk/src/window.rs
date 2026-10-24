@@ -152,10 +152,9 @@ fn database_path(info: &SessionInfo) -> PathBuf {
 /// unlock their encrypted rooms with the key the keychain kept.
 fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
     if rv_core::whatsapp::is_whatsapp(info) {
-        let helper = whatsapp_helper().ok_or("whatsapp_helper_missing")?;
         let session = rv_core::whatsapp_session::WaSession::start(
             info.clone(),
-            helper,
+            rv_core::whatsapp::Runner::from_env(),
             data_dir(),
             crate::secrets::whatsapp_keys(),
         );
@@ -179,12 +178,6 @@ fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
         }
     });
     Ok(session.into())
-}
-
-/// The WhatsApp helper beside the app, or the one `RV_WHATSAPP_HELPER` names
-/// (the synthetic peer of the smoke tests).
-pub(crate) fn whatsapp_helper() -> Option<PathBuf> {
-    std::env::var_os("RV_WHATSAPP_HELPER").map(PathBuf::from).filter(|p| p.is_file()).or_else(rv_core::whatsapp::locate)
 }
 
 fn describe(e: &RestError, asking_code: bool, recovering: bool) -> String {

@@ -22,7 +22,8 @@ docker run --rm -u "$build_user" -v "$repo:/workspace" -v rv-cargo:/cargo "${tar
   -e PROFILE="$profile" -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-2}" -e CARGO_INCREMENTAL \
   -e CARGO_PROFILE_DEV_DEBUG -e CARGO_PROFILE_TEST_DEBUG "$image" bash -c '
   set -euo pipefail
-  cargo fmt --all -- --check
+  # Workspace members only: the vendored WhatsApp engine it links keeps the upstream formatting.
+  cargo fmt -- --check
   cargo clippy --workspace --all-targets --profile "$PROFILE" -- -D warnings
   cargo test --workspace --profile "$PROFILE"
   cargo build --workspace --profile "$PROFILE"

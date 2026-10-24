@@ -11,7 +11,7 @@ mod sender_keys;
 mod session;
 mod storage;
 
-pub use crate::store::sender_key_name::SenderKeyName;
+pub use crate::signal::store::sender_key_name::SenderKeyName;
 pub use address::{AddressBuf, DeviceId, ProtocolAddress};
 pub use cipher::{
     DecryptionResult, PreKeyBundle, SIGNED_PRE_KEY_SIGNATURE_LEN, initialize_alice_session_record,

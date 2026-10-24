@@ -6,7 +6,7 @@
 //! # Structure
 //!
 //! - `NoiseState` - Generic Noise XX protocol state machine
-//! - `NoiseHandshake` - WhatsApp-specific wrapper with libsignal DH
+//! - `NoiseHandshake` - WhatsApp-specific wrapper with rv-signal DH
 //! - `HandshakeUtils` - WhatsApp protocol message building/parsing
 //!
 //! # Example (Generic)

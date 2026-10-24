@@ -99,7 +99,6 @@ wacore-binary = { workspace = true, features = ["serde"] }
 zeroize = { workspace = true }
 wacore-derive = { workspace = true }
 wacore-crypto = { workspace = true }
-wacore-signal = { workspace = true }
 rv-signal = { workspace = true }
 wacore-noise = { workspace = true }
 waproto = { workspace = true }

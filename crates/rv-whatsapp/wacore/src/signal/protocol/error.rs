@@ -6,6 +6,7 @@ use super::messages::CiphertextMessageType;
 use wacore_crypto::CryptoProviderError;
 
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CurveError {
     #[error("no key type identifier")]
     NoKeyTypeIdentifier,
@@ -26,6 +27,7 @@ pub struct InvalidSessionError(pub &'static str);
 pub struct InvalidSenderKeySessionError(pub &'static str);
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SignalProtocolError {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),

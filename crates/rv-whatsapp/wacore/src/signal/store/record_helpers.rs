@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use waproto::whatsapp as wa;
 
-use crate::protocol::{
+use crate::signal::protocol::{
     GenericSignedPreKey, KeyPair, PreKeyRecord, SignalProtocolError, SignedPreKeyRecord,
 };
 

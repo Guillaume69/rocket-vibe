@@ -7,7 +7,7 @@ pub mod sender_key_name;
 use async_trait::async_trait;
 use waproto::whatsapp as wa;
 
-use crate::protocol::{ProtocolAddress, SessionRecord};
+use crate::signal::protocol::{ProtocolAddress, SessionRecord};
 
 pub type StoreError = Box<dyn std::error::Error + Send + Sync>;
 

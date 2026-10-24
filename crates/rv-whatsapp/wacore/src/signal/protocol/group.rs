@@ -8,7 +8,7 @@ use super::error::{Result, SignalProtocolError};
 use super::messages::{CiphertextMessageType, SenderKeyDistributionMessage, SenderKeyMessage};
 use super::sender_keys::SenderKeyRecord;
 use super::storage::SenderKeyStore;
-use crate::store::sender_key_name::SenderKeyName;
+use crate::signal::store::sender_key_name::SenderKeyName;
 
 fn group_error(e: rv_signal::Error) -> SignalProtocolError {
     match e {

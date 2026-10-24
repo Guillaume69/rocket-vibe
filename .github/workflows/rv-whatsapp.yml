@@ -46,6 +46,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/master' }}
       # Upstream's own files keep upstream's (nightly) formatting: only the
       # crates written here are held to rustfmt (VENDOR.md).
-      - run: cargo fmt -p wacore-signal -p wacore-crypto -p wacore-appstate -p rv-whatsapp-engine -p rv-whatsapp-android --check
+      - run: cargo fmt -p wacore-crypto -p wacore-appstate -p rv-whatsapp-engine -p rv-whatsapp-android --check
+      # The engine's Signal layer, ours inside wacore, whose other modules keep upstream's formatting.
+      - run: rustfmt --edition 2024 --check wacore/src/signal/mod.rs
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked

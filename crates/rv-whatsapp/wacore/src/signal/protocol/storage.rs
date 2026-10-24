@@ -14,7 +14,7 @@ use super::keys::{KeyPair, PublicKey};
 use super::prekeys::{PreKeyId, PreKeyRecord, SignedPreKeyId, SignedPreKeyRecord};
 use super::sender_keys::SenderKeyRecord;
 use super::session::SessionRecord;
-use crate::store::sender_key_name::SenderKeyName;
+use crate::signal::store::sender_key_name::SenderKeyName;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait ThreadSafe: Send + Sync {}

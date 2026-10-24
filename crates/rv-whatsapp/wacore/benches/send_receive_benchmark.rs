@@ -25,7 +25,7 @@ use wacore_binary::JidExt as _;
 use wacore_binary::jid::Jid;
 use wacore_binary::marshal::marshal;
 use wacore_binary::node::{Node, NodeContent};
-use wacore_signal::protocol::{
+use wacore::signal::protocol::{
     CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
     PreKeyBundle, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
     SenderKeyStore, SessionRecord, SessionStore, SignedPreKeyId, SignedPreKeyRecord,
@@ -33,10 +33,10 @@ use wacore_signal::protocol::{
     group_decrypt, message_decrypt, message_encrypt, process_prekey_bundle,
     process_sender_key_distribution_message,
 };
-use wacore_signal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use waproto::whatsapp as wa;
 
-type SigResult<T> = wacore_signal::protocol::error::Result<T>;
+type SigResult<T> = wacore::signal::protocol::error::Result<T>;
 
 fn main() {
     divan::main();
@@ -207,7 +207,7 @@ impl PreKeyStore for MemPreKeyStore {
         self.0
             .get(&id)
             .cloned()
-            .ok_or(wacore_signal::protocol::SignalProtocolError::InvalidPreKeyId)
+            .ok_or(wacore::signal::protocol::SignalProtocolError::InvalidPreKeyId)
     }
     async fn save_pre_key(&mut self, id: PreKeyId, r: &PreKeyRecord) -> SigResult<()> {
         self.0.insert(id, r.clone());
@@ -228,7 +228,7 @@ impl SignedPreKeyStore for MemSignedPreKeyStore {
         self.0
             .get(&id)
             .cloned()
-            .ok_or(wacore_signal::protocol::SignalProtocolError::InvalidSignedPreKeyId)
+            .ok_or(wacore::signal::protocol::SignalProtocolError::InvalidSignedPreKeyId)
     }
     async fn save_signed_pre_key(
         &mut self,

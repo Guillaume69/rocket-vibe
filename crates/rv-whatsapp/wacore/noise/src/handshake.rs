@@ -1,7 +1,7 @@
 use crate::error::NoiseError;
 use crate::state::{NoiseCipher, NoiseState};
 use thiserror::Error;
-use wacore_signal::protocol::{KeyPair, PrivateKey, PublicKey};
+use rv_signal::{KeyPair, PrivateKey, PublicKey};
 use waproto::whatsapp::{self as wa, HandshakeMessage};
 
 const WA_CERT_ISSUER_SERIAL: i64 = 0;
@@ -346,10 +346,10 @@ impl HandshakeUtils {
     }
 }
 
-/// A WhatsApp-specific Noise handshake wrapper that uses libsignal for DH operations.
+/// A WhatsApp-specific Noise handshake wrapper that uses rv-signal for DH operations.
 ///
 /// This wraps the generic `NoiseState` and provides the `mix_shared_secret` method
-/// that computes DH using libsignal's curve25519 implementation.
+/// that computes DH using rv-signal's curve25519 implementation.
 pub struct NoiseHandshake {
     inner: NoiseState,
 }
@@ -403,9 +403,9 @@ impl NoiseHandshake {
         self.inner.mix_key(data).map_err(Into::into)
     }
 
-    /// Computes a DH shared secret using libsignal and mixes it into the cipher state.
+    /// Computes a DH shared secret using rv-signal and mixes it into the cipher state.
     ///
-    /// This is a convenience method for WhatsApp handshakes that uses libsignal's
+    /// This is a convenience method for WhatsApp handshakes that uses rv-signal's
     /// curve25519 implementation for key agreement.
     pub fn mix_shared_secret(&mut self, priv_key_bytes: &[u8], pub_key_bytes: &[u8]) -> Result<()> {
         let our_private_key = PrivateKey::deserialize(priv_key_bytes)

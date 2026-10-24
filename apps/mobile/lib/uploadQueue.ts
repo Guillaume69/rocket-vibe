@@ -23,7 +23,9 @@ import {
   type TransportUpload,
 } from './upload.ts';
 import type { UploadRow, UploadStore, EncryptedFile, UploadEncryption } from '@rocket-vibe/provider-api/uploads';
-export type { UploadRow, UploadStore, EncryptedFile, UploadEncryption } from '@rocket-vibe/provider-api/uploads';
+export type { UploadRow, UploadStore, EncryptedFile, UploadEncryption, DetailValidation } from '@rocket-vibe/provider-api/uploads';
+import { ValidationError } from '@rocket-vibe/provider-api/uploads';
+export { ValidationError } from '@rocket-vibe/provider-api/uploads';
 
 export type UploadRules = {
   maxSize: number | null;
@@ -110,33 +112,6 @@ export async function readUploadRules(client: RestClient): Promise<UploadRules> 
  * scope where "in flight here" makes sense.
  */
 const IN_FLIGHT_HERE = new Set<string>();
-
-/**
- * A validation refusal carries DATA (code + parameters), not a sentence: this
- * module is pure and tested under Node, it embeds no language. The wording
- * happens at the display point (`validationMessage`, ui/fileValidation.ts).
- */
-export type DetailValidation =
-  | { code: 'size'; maxMb: string }
-  | { code: 'type'; type: string }
-  | { code: 'encrypted' };
-
-export class ValidationError extends Error {
-  readonly detail: DetailValidation;
-
-  constructor(detail: DetailValidation) {
-    // `message` is a diagnostic (logs), never the displayed string.
-    super(
-      detail.code === 'size'
-        ? `size > ${detail.maxMb} MB`
-        : detail.code === 'type'
-          ? `type ${detail.type} refused`
-          : 'encrypted files disabled',
-    );
-    this.name = 'ValidationError';
-    this.detail = detail;
-  }
-}
 
 /** `image/*` in the whitelist accepts `image/png`, etc. */
 export function validateFile(

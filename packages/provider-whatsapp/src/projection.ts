@@ -7,10 +7,10 @@
  * one transaction per burst. Mirrors `rv-core/src/whatsapp.rs` (`Snapshot`).
  */
 
-import { shortcodeOfUnicode } from '../../lib/emojis.ts';
-import { filePath, photoVersion } from '../../lib/whatsappFiles.ts';
-import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
-import type { Store } from '../../lib/sync.ts';
+import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
+import { filePath, photoVersion } from './paths.ts';
+import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
+import type { Store } from '@rocket-vibe/provider-api/sync';
 import { FATAL_ERRORS, fallbackName, isGroup, type WaFrame, type WaMessage } from './frames.ts';
 
 /** The words the rows need, in the reader's language. */

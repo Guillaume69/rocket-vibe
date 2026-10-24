@@ -22,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Notifications from 'expo-notifications';
 import { VoiceNative } from '../modules/voice/index.ts';
 import { WhatsApp } from '../modules/whatsapp/index.ts';
-import { whatsappState } from '../providers/whatsapp/index.ts';
+import { whatsappState } from '@rocket-vibe/provider-whatsapp';
 import { ActivityIndicator, AppState, Platform, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { readMyProfile } from '../lib/myProfile.ts';

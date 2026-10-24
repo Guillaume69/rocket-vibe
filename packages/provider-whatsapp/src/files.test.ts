@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { UploadRow, UploadStore } from '../../lib/uploadQueue.ts';
+import type { UploadRow, UploadStore } from '@rocket-vibe/provider-api/uploads';
 import { WhatsAppFiles } from './files.ts';
 
 function memoryStore() {

@@ -536,6 +536,7 @@
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/lib/whatsappFiles.ts",
+    "apps/mobile/lib/whatsappUnlink.ts",
     "apps/mobile/lib/xPosts.ts",
     "apps/mobile/lib/xSyndication.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
@@ -710,6 +711,7 @@
     "crates/rv-slack/src/handoff.rs",
     "crates/rv-slack/src/lib.rs",
     "crates/rv-slack/src/live.rs",
+    "crates/rv-slack/src/service.rs",
     "crates/rv-slack/src/translate.rs",
     "crates/rv-teams/examples/teams-authz.rs",
     "crates/rv-teams/examples/teams-shapes.rs",
@@ -718,6 +720,7 @@
     "crates/rv-teams/src/frames.rs",
     "crates/rv-teams/src/lib.rs",
     "crates/rv-teams/src/live.rs",
+    "crates/rv-teams/src/service.rs",
     "crates/rv-teams/src/translate.rs",
     "packages/provider-api/src/calls.ts",
     "packages/provider-api/src/cards.ts",
@@ -2558,36 +2561,6 @@
       "surface": "users.setPresence"
     },
     {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 150,
-      "kind": "call:POST",
-      "surface": "method"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 164,
-      "kind": "endpoint",
-      "surface": "users.conversations"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 166,
-      "kind": "endpoint",
-      "surface": "users.conversations"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 682,
-      "kind": "endpoint",
-      "surface": "chat.update"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 693,
-      "kind": "endpoint",
-      "surface": "chat.delete"
-    },
-    {
       "file": "apps/desktop/crates/rv-core/src/social.rs",
       "line": 37,
       "kind": "call:GET",
@@ -2736,18 +2709,6 @@
       "line": 451,
       "kind": "endpoint",
       "surface": "chat.getMessage"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
-      "line": 493,
-      "kind": "url",
-      "surface": "/api/v2/query"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
-      "line": 639,
-      "kind": "url",
-      "surface": "/api/csa"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
@@ -4275,27 +4236,21 @@
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 83,
+      "line": 85,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 83,
+      "line": 85,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 454,
+      "line": 429,
       "kind": "resource",
       "surface": "/file-upload/{…}/{…}"
-    },
-    {
-      "file": "apps/mobile/lib/whatsappFiles.ts",
-      "line": 80,
-      "kind": "url",
-      "surface": "/api/v1/files/{…}"
     },
     {
       "file": "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
@@ -5217,7 +5172,7 @@
     },
     {
       "file": "crates/rv-slack/src/lib.rs",
-      "line": 301,
+      "line": 302,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
@@ -5226,6 +5181,36 @@
       "line": 137,
       "kind": "call:POST",
       "surface": "\"rtm.connect\""
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 64,
+      "kind": "call:POST",
+      "surface": "method"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 115,
+      "kind": "endpoint",
+      "surface": "users.conversations"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 117,
+      "kind": "endpoint",
+      "surface": "users.conversations"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 251,
+      "kind": "endpoint",
+      "surface": "chat.update"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 261,
+      "kind": "endpoint",
+      "surface": "chat.delete"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
@@ -5242,6 +5227,18 @@
     {
       "file": "crates/rv-teams/src/auth.rs",
       "line": 2123,
+      "kind": "url",
+      "surface": "/api/csa"
+    },
+    {
+      "file": "crates/rv-teams/src/service.rs",
+      "line": 268,
+      "kind": "url",
+      "surface": "/api/v2/query"
+    },
+    {
+      "file": "crates/rv-teams/src/service.rs",
+      "line": 371,
       "kind": "url",
       "surface": "/api/csa"
     },

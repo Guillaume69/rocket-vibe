@@ -7,16 +7,15 @@
  * ours. Mirrors `rv-core/src/whatsapp_session.rs`.
  */
 
-import type { Session } from '../../lib/auth.ts';
-import { unicodeOfShortcode } from '../../lib/emojis.ts';
-import type { Capabilities, FileOutbox, Listener, Provider } from '../../lib/provider.ts';
+import type { Session } from '@rocket-vibe/provider-api/session';
+import { unicodeOfShortcode } from '@rocket-vibe/provider-api/emojis';
+import type { Capabilities, FileOutbox, Listener, Provider } from '@rocket-vibe/provider-api/provider';
 import { WhatsAppFiles, type FilePreparer } from './files.ts';
-import { describeProviderError } from '../../lib/providerError.ts';
-import type { Store } from '../../lib/sync.ts';
-import type { WhatsAppNative } from '../../modules/whatsapp/index.ts';
+import type { Store } from '@rocket-vibe/provider-api/sync';
+import type { WhatsAppNative } from './native.ts';
 import { fallbackName, parseFrame, type WaFrame } from './frames.ts';
-import type { DdpEvent } from '../../lib/ddp.ts';
-import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
+import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
 import { WhatsAppProjection, type WaLabels } from './projection.ts';
 
 export type { FilePreparer, PreparedFile } from './files.ts';
@@ -203,6 +202,7 @@ export function createWhatsAppProvider(
   native: WhatsAppNative,
   labels: WaLabels,
   random: () => Uint8Array,
+  describeError: Provider['describeError'],
   writePhoto?: PhotoWriter,
   prepareFile?: FilePreparer,
 ): Provider & { whatsapp: WhatsAppAccount } {
@@ -233,7 +233,7 @@ export function createWhatsAppProvider(
   return {
     whatsapp: account,
     identity: { kind: 'whatsapp', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
-    describeError: describeProviderError,
+    describeError,
     capabilities: WHATSAPP_CAPABILITIES,
     listener,
     translator: { translateEvent: () => ({ kind: 'silence' }), toMessage: () => null, toRoom: () => null, toSubscription: () => null },

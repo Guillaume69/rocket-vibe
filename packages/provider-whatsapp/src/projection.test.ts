@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/normalize.ts';
-import type { StoreWrites } from '../../lib/sync.ts';
+import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
+import type { StoreWrites } from '@rocket-vibe/provider-api/sync';
 import { parseFrame, type WaFrame, type WaMessage } from './frames.ts';
 import { WhatsAppProjection } from './projection.ts';
-import { filePath, photoVersion } from '../../lib/whatsappFiles.ts';
+import { filePath, photoVersion } from './paths.ts';
 
 function fakeStore(known: string[] = []) {
   const rooms = new Map<string, LocalRoom>();

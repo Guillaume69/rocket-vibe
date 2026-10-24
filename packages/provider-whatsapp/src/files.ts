@@ -6,9 +6,9 @@
  * refusal names the upload, which then waits for Retry.
  */
 
-import type { FileOutbox } from '../../lib/provider.ts';
-import type { FileToSend } from '../../lib/upload.ts';
-import { ValidationError, type UploadRow, type UploadStore } from '../../lib/uploadQueue.ts';
+import type { FileOutbox } from '@rocket-vibe/provider-api/provider';
+import type { FileToSend } from '@rocket-vibe/provider-api/uploads';
+import { ValidationError, type UploadRow, type UploadStore } from '@rocket-vibe/provider-api/uploads';
 
 /** A file to send, made readable by the engine: a plain path, its type, its name, whether it is a voice note. */
 export type PreparedFile = { path: string; mime: string; name: string; voice: boolean };

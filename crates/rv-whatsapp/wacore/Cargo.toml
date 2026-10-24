@@ -98,7 +98,7 @@ wacore-appstate = { workspace = true }
 wacore-binary = { workspace = true, features = ["serde"] }
 zeroize = { workspace = true }
 wacore-derive = { workspace = true }
-rv-signal = { workspace = true }
+wacore-signal = { workspace = true }
 wacore-noise = { workspace = true }
 waproto = { workspace = true }
 zerocopy = { workspace = true, optional = true }
@@ -161,10 +161,6 @@ harness = false
 
 [[bench]]
 name = "appstate_sync_benchmark"
-harness = false
-
-[[bench]]
-name = "sender_key_derivation_benchmark"
 harness = false
 
 [[bench]]

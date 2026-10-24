@@ -22,7 +22,7 @@ pub use wacore_noise::framing;
 pub mod handshake;
 pub mod history_sync;
 pub mod ib;
-pub use wacore_libsignal as libsignal;
+pub use wacore_signal as libsignal;
 pub mod comment;
 pub mod event;
 pub mod media_retry;

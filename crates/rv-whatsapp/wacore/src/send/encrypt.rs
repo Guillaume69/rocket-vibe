@@ -644,7 +644,7 @@ async fn has_session_or_report(
     resolver: &dyn SendContextResolver,
     devices: &[Jid],
 ) -> Result<bool> {
-    match wacore_libsignal::protocol::has_session(session_store, addr).await {
+    match crate::libsignal::protocol::has_session(session_store, addr).await {
         Ok(present) => Ok(present),
         Err(error) => {
             resolver.on_unkeyable_devices(UnkeyableDevice::SessionLookup, devices.len() as u64);

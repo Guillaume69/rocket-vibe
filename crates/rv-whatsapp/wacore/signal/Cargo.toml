@@ -1,0 +1,28 @@
+[package]
+name = "wacore-signal"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+license = "MIT"
+description = "The Signal store and cipher interface the WhatsApp engine calls, on rv-signal"
+
+[dependencies]
+async-lock = { workspace = true }
+async-trait = { workspace = true }
+buffa = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+log = { workspace = true }
+portable-atomic = { workspace = true }
+rand = { workspace = true }
+rv-signal = { workspace = true }
+thiserror = { workspace = true }
+wacore-crypto = { workspace = true }
+waproto = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

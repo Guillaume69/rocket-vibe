@@ -10,13 +10,13 @@
 //! Reference: WAWebCryptoMediaRetry, WAWebSendServerErrorReceiptJob,
 //! WAWebHandleMediaRetryNotification.
 
+use crate::libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 use anyhow::{Result, anyhow};
 use buffa::MessageView;
 use rand::Rng;
 use wacore_binary::Jid;
 use wacore_binary::builder::NodeBuilder;
 use wacore_binary::{Node, NodeContentRef, NodeRef};
-use wacore_libsignal::crypto::{aes_256_gcm_decrypt, aes_256_gcm_encrypt};
 use waproto::whatsapp as wa;
 
 const MEDIA_RETRY_HKDF_INFO: &str = "WhatsApp Media Retry Notification";

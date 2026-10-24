@@ -3773,7 +3773,7 @@ fn client_size_pins_runtime_cache_config_saving() {
     // table (32 inline bytes on this target); its count remains one pointer.
     // Every size-varying attachment is measured in this same build and stacked
     // on top, so only an unaccounted layout move trips the assert.
-    let mut expected = 4288
+    let mut expected = 4072
         + size_of::<subsystem::Subsystems>()
         + size_of::<crate::handlers::call::pending_offers::PendingOffers>()
         + size_of::<Arc<std::sync::Mutex<crate::retry::HistoryPayloadRegistry>>>()

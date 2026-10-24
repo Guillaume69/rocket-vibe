@@ -545,6 +545,38 @@ pub mod codec {
     }
 
     #[inline(never)]
+    pub fn record_structure_decode(
+        bytes: &[u8],
+    ) -> Result<whatsapp::RecordStructure, buffa::DecodeError> {
+        whatsapp::RecordStructure::decode_from_slice(bytes)
+    }
+
+    #[inline(never)]
+    pub fn record_structure_to_vec(record: &whatsapp::RecordStructure) -> Vec<u8> {
+        record.encode_to_vec()
+    }
+
+    #[inline(never)]
+    pub fn session_structure_to_vec(session: &whatsapp::SessionStructure) -> Vec<u8> {
+        session.encode_to_vec()
+    }
+
+    /// Append the session's length prefix and encoding to `out`: one field of
+    /// a `RecordStructure`, written without building the record.
+    #[inline(never)]
+    pub fn session_structure_encode_length_delimited(
+        session: &whatsapp::SessionStructure,
+        out: &mut Vec<u8>,
+    ) {
+        session.encode_length_delimited(out);
+    }
+
+    #[inline(never)]
+    pub fn identity_key_pair_to_vec(pair: &whatsapp::IdentityKeyPairStructure) -> Vec<u8> {
+        pair.encode_to_vec()
+    }
+
+    #[inline(never)]
     pub fn sender_key_record_decode(
         bytes: &[u8],
     ) -> Result<whatsapp::SenderKeyRecordStructure, buffa::DecodeError> {

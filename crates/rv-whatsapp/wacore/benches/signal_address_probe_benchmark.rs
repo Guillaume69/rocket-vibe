@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use wacore::store::SignalStoreCache;
 use wacore::types::jid::JidExt;
 use wacore_binary::jid::{Jid, Server};
-use wacore_libsignal::protocol::ProtocolAddress;
+use wacore_signal::protocol::ProtocolAddress;
 
 fn main() {
     divan::main();

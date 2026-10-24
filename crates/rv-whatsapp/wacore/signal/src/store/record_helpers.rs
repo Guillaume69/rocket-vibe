@@ -10,8 +10,8 @@ use crate::protocol::{
 pub fn new_pre_key_record(id: u32, key_pair: &KeyPair) -> wa::PreKeyRecordStructure {
     let mut s = wa::PreKeyRecordStructure::default();
     s.id = Some(id);
-    s.public_key = Some(key_pair.public_key.public_key_bytes().to_vec());
-    s.private_key = Some(key_pair.private_key.serialize().to_vec());
+    s.public_key = Some(key_pair.public.raw().to_vec());
+    s.private_key = Some(key_pair.private.serialize().to_vec());
     s
 }
 
@@ -28,8 +28,8 @@ pub fn new_signed_pre_key_record(
 ) -> wa::SignedPreKeyRecordStructure {
     let mut s = wa::SignedPreKeyRecordStructure::default();
     s.id = Some(id);
-    s.public_key = Some(key_pair.public_key.public_key_bytes().to_vec());
-    s.private_key = Some(key_pair.private_key.serialize().to_vec());
+    s.public_key = Some(key_pair.public.raw().to_vec());
+    s.private_key = Some(key_pair.private.serialize().to_vec());
     s.signature = Some(signature.to_vec());
     s.timestamp = Some(timestamp.timestamp_millis().max(0) as u64);
     s

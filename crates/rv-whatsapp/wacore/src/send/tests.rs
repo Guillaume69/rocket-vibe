@@ -918,11 +918,11 @@ fn create_mock_bundle() -> PreKeyBundle {
     let prekey_pair = KeyPair::generate(&mut rng);
 
     PreKeyBundle::new(
-        1,                                           // registration_id
-        1u32.into(),                                 // device_id
-        Some((1u32.into(), prekey_pair.public_key)), // pre_key
-        2u32.into(),                                 // signed_pre_key_id
-        signed_prekey_pair.public_key,
+        1,                                       // registration_id
+        1u32.into(),                             // device_id
+        Some((1u32.into(), prekey_pair.public)), // pre_key
+        2u32.into(),                             // signed_pre_key_id
+        signed_prekey_pair.public,
         vec![0u8; 64],
         *identity_pair.identity_key(),
     )
@@ -939,14 +939,13 @@ fn signed_prekey_bundle() -> PreKeyBundle {
     let opk = KeyPair::generate(&mut rng);
     let sig = receiver
         .private_key()
-        .calculate_signature(&spk.public_key.serialize(), &mut rng)
-        .unwrap();
+        .sign(&spk.public.serialize(), &mut rng);
     PreKeyBundle::new(
         1,
         1u32.into(),
-        Some((1u32.into(), opk.public_key)),
+        Some((1u32.into(), opk.public)),
         1u32.into(),
-        spk.public_key,
+        spk.public,
         sig.to_vec(),
         *receiver.identity_key(),
     )
@@ -3927,7 +3926,7 @@ mod mark_full_distribution_list {
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
         record
-            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public_key, Some(kp.private_key))
+            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public, Some(kp.private))
             .expect("valid sender key state");
 
         let mut sks = MemSenderKeyStore::default();
@@ -5633,16 +5632,13 @@ mod local_identity_change_on_send {
         let identity = IdentityKeyPair::generate(rng);
         let spk = KeyPair::generate(rng);
         let opk = KeyPair::generate(rng);
-        let sig = identity
-            .private_key()
-            .calculate_signature(&spk.public_key.serialize(), rng)
-            .unwrap();
+        let sig = identity.private_key().sign(&spk.public.serialize(), rng);
         PreKeyBundle::new(
             1,
             1u32.into(),
-            Some((1u32.into(), opk.public_key)),
+            Some((1u32.into(), opk.public)),
             1u32.into(),
-            spk.public_key,
+            spk.public,
             sig.to_vec(),
             *identity.identity_key(),
         )
@@ -5867,14 +5863,13 @@ mod local_identity_change_on_send {
         let opk = KeyPair::generate(&mut rng);
         let sig = receiver
             .private_key()
-            .calculate_signature(&spk.public_key.serialize(), &mut rng)
-            .unwrap();
+            .sign(&spk.public.serialize(), &mut rng);
         let bundle = PreKeyBundle::new(
             1,
             1u32.into(),
-            Some((1u32.into(), opk.public_key)),
+            Some((1u32.into(), opk.public)),
             1u32.into(),
-            spk.public_key,
+            spk.public,
             sig.to_vec(),
             *receiver.identity_key(),
         )
@@ -7181,7 +7176,7 @@ mod warm_group_send_encoding_scale {
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
         record
-            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public_key, Some(kp.private_key))
+            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public, Some(kp.private))
             .expect("valid sender key state");
         let name = make_sender_key_name(&group, &own.to_protocol_address());
         let mut sender_keys = MemSenderKeyStore::default();

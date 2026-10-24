@@ -155,7 +155,7 @@ impl SenderKeyRecord {
         let signing = s.sender_signing_key.get_or_insert_default();
         signing.public = Some(bytes::Bytes::copy_from_slice(&signature_key.serialize()));
         signing.private =
-            signature_private_key.map(|k| bytes::Bytes::copy_from_slice(k.serialize()));
+            signature_private_key.map(|k| bytes::Bytes::copy_from_slice(&k.serialize()));
         let mut state = SenderKeyState(s);
         state.set_chain(iteration, seed);
         self.states.insert(0, state);

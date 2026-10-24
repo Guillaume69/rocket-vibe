@@ -377,7 +377,7 @@ impl Client {
                 let record = wacore::libsignal::store::record_helpers::prekey_structure_to_record(
                     structure,
                 )?;
-                return Ok((id, record.key_pair()?.public_key));
+                return Ok((id, record.key_pair()?.public));
             }
             log::warn!(
                 "prekey window [{}, {}) fully consumed; generating fresh",
@@ -418,7 +418,7 @@ impl Client {
             .flush()
             .await
             .context("failed to flush prekey watermarks")?;
-        Ok((id, key_pair.public_key))
+        Ok((id, key_pair.public))
     }
 
     /// WA Web `markKeyAsUploaded`: exclude a retry-distributed one-time prekey
@@ -553,7 +553,7 @@ impl Client {
                     let start = buf.len();
                     encode_pre_key_record_to(pre_key_id, &key_pair, &mut buf);
                     offsets.push((pre_key_id, start..buf.len()));
-                    pubkeys.push((pre_key_id, key_pair.public_key));
+                    pubkeys.push((pre_key_id, key_pair.public));
                 }
                 let shared = bytes::Bytes::from(buf);
                 let encoded_batch: Vec<(u32, bytes::Bytes)> = offsets
@@ -640,7 +640,7 @@ impl Client {
                         let raw = s
                             .public_key
                             .ok_or_else(|| anyhow::anyhow!("record missing public key"))?;
-                        PublicKey::from_djb_public_key_bytes(&raw).map_err(anyhow::Error::from)
+                        PublicKey::try_from(&raw[..]).map_err(anyhow::Error::from)
                     });
                 match public_key {
                     Ok(public_key) => pairs.push((*id, public_key)),
@@ -664,9 +664,9 @@ impl Client {
 
         let spec = PreKeyUploadSpec::new(
             device_snapshot.registration_id,
-            device_snapshot.identity_key.public_key,
+            device_snapshot.identity_key.public,
             device_snapshot.signed_pre_key_id,
-            device_snapshot.signed_pre_key.public_key,
+            device_snapshot.signed_pre_key.public,
             device_snapshot.signed_pre_key_signature.to_vec(),
             pre_key_pairs,
         );
@@ -921,8 +921,8 @@ impl Client {
 
         // Compute local SHA-1 digest over the same material as WA Web's validateLocalKeyBundle:
         // identity_pub_key + signed_prekey_pub + signed_prekey_signature + (for each prekey ID: load 32-byte pubkey)
-        let identity_bytes = device_snapshot.identity_key.public_key.public_key_bytes();
-        let skey_pub_bytes = device_snapshot.signed_pre_key.public_key.public_key_bytes();
+        let identity_bytes = device_snapshot.identity_key.public.raw();
+        let skey_pub_bytes = device_snapshot.signed_pre_key.public.raw();
         let skey_sig_bytes = &device_snapshot.signed_pre_key_signature;
 
         let backend = self
@@ -1371,7 +1371,7 @@ mod window_tests {
         let mut publics = std::collections::HashMap::new();
         for id in 10u32..13 {
             let kp = KeyPair::generate(&mut rng);
-            publics.insert(id, kp.public_key);
+            publics.insert(id, kp.public);
             backend(&client)
                 .store_prekey(id, &new_pre_key_record(id, &kp).encode_to_vec(), false)
                 .await
@@ -1478,10 +1478,8 @@ mod window_tests {
         let structure =
             waproto::whatsapp::PreKeyRecordStructure::decode_from_slice(&after[0].1[..])
                 .expect("decode structure");
-        let reloaded = PublicKey::from_djb_public_key_bytes(
-            structure.public_key.as_deref().expect("public key"),
-        )
-        .expect("pub");
+        let reloaded =
+            PublicKey::try_from(structure.public_key.as_deref().expect("public key")).expect("pub");
         assert_eq!(
             reloaded.serialize(),
             retry_pk.serialize(),

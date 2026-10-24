@@ -69,10 +69,9 @@ fn verify_cert_step(
     }
     let signature = signature
         .ok_or_else(|| HandshakeError::CertVerification(format!("Missing {label} signature")))?;
-    let pk = PublicKey::from_djb_public_key_bytes(issuer_key).map_err(|_| {
-        HandshakeError::CertVerification(format!("Invalid {label} issuer key (not Djb/Curve25519)"))
-    })?;
-    if pk.verify_signature(details, signature) {
+    let pk = PublicKey::from_raw(*issuer_key);
+    let verified = <&[u8; 64]>::try_from(signature.as_slice()).is_ok_and(|s| pk.verify(details, s));
+    if verified {
         Ok(())
     } else {
         Err(HandshakeError::CertVerification(format!(
@@ -411,11 +410,11 @@ impl NoiseHandshake {
     pub fn mix_shared_secret(&mut self, priv_key_bytes: &[u8], pub_key_bytes: &[u8]) -> Result<()> {
         let our_private_key = PrivateKey::deserialize(priv_key_bytes)
             .map_err(|e| HandshakeError::Crypto(e.to_string()))?;
-        let their_public_key = PublicKey::from_djb_public_key_bytes(pub_key_bytes)
+        let their_public_key = PublicKey::try_from(pub_key_bytes)
             .map_err(|e| HandshakeError::Crypto(e.to_string()))?;
 
         let shared_secret = our_private_key
-            .calculate_agreement(&their_public_key)
+            .agree(&their_public_key)
             .map_err(|e| HandshakeError::Crypto(e.to_string()))?;
 
         self.mix_into_key(&shared_secret)
@@ -510,7 +509,7 @@ impl XxHandshakeState {
     ) -> Result<Self> {
         let ephemeral_kp = KeyPair::generate(&mut rand::rng());
         let mut noise = NoiseHandshake::new(wacore_binary::consts::NOISE_PATTERN_XX, prologue)?;
-        noise.authenticate(ephemeral_kp.public_key.public_key_bytes());
+        noise.authenticate(ephemeral_kp.public.raw());
 
         Ok(Self {
             noise,
@@ -523,8 +522,7 @@ impl XxHandshakeState {
     }
 
     pub fn build_client_hello(&self) -> Result<Vec<u8>> {
-        let client_hello =
-            HandshakeUtils::build_client_hello(self.ephemeral_kp.public_key.public_key_bytes());
+        let client_hello = HandshakeUtils::build_client_hello(self.ephemeral_kp.public.raw());
         Ok(waproto::codec::handshake_message_to_vec(&client_hello))
     }
 
@@ -597,14 +595,14 @@ fn process_xx_server_hello_into(
     cert_chain_out: &mut Option<ChainAcceptance>,
 ) -> Result<Vec<u8>> {
     noise.authenticate(&server_ephemeral);
-    noise.mix_shared_secret(ephemeral_kp.private_key.serialize(), &server_ephemeral)?;
+    noise.mix_shared_secret(&ephemeral_kp.private.serialize(), &server_ephemeral)?;
 
     let static_decrypted = noise.decrypt(server_static_ciphertext)?;
     let static_decrypted_arr: [u8; 32] = static_decrypted
         .try_into()
         .map_err(|_| HandshakeError::InvalidKeyLength)?;
 
-    noise.mix_shared_secret(ephemeral_kp.private_key.serialize(), &static_decrypted_arr)?;
+    noise.mix_shared_secret(&ephemeral_kp.private.serialize(), &static_decrypted_arr)?;
 
     let cert_decrypted = noise.decrypt(certificate_ciphertext)?;
 
@@ -618,9 +616,9 @@ fn process_xx_server_hello_into(
     // and nothing else.
     *cert_chain_out = Some(chain);
 
-    let encrypted_pubkey = noise.encrypt(static_kp.public_key.public_key_bytes())?;
+    let encrypted_pubkey = noise.encrypt(static_kp.public.raw())?;
 
-    noise.mix_shared_secret(static_kp.private_key.serialize(), &server_ephemeral)?;
+    noise.mix_shared_secret(&static_kp.private.serialize(), &server_ephemeral)?;
 
     let encrypted_payload = noise.encrypt(payload)?;
 
@@ -680,25 +678,21 @@ impl IkHandshakeState {
         self.noise.authenticate(&self.server_static_pub);
 
         // -> e
-        let ephemeral_pub_bytes = self.ephemeral_kp.public_key.public_key_bytes().to_vec();
+        let ephemeral_pub_bytes = self.ephemeral_kp.public.raw().to_vec();
         self.noise.authenticate(&ephemeral_pub_bytes);
 
         // es: DH(e_priv, server_static_pub)
         self.noise.mix_shared_secret(
-            self.ephemeral_kp.private_key.serialize(),
+            &self.ephemeral_kp.private.serialize(),
             &self.server_static_pub,
         )?;
 
         // -> s (encrypted)
-        let encrypted_static = self
-            .noise
-            .encrypt(self.static_kp.public_key.public_key_bytes())?;
+        let encrypted_static = self.noise.encrypt(self.static_kp.public.raw())?;
 
         // ss: DH(s_priv, server_static_pub)
-        self.noise.mix_shared_secret(
-            self.static_kp.private_key.serialize(),
-            &self.server_static_pub,
-        )?;
+        self.noise
+            .mix_shared_secret(&self.static_kp.private.serialize(), &self.server_static_pub)?;
 
         // 0-RTT payload (encrypted)
         let encrypted_payload = self.noise.encrypt(&self.payload)?;
@@ -740,9 +734,9 @@ impl IkHandshakeState {
         // <- e
         noise.authenticate(&server_ephemeral);
         // ee
-        noise.mix_shared_secret(self.ephemeral_kp.private_key.serialize(), &server_ephemeral)?;
+        noise.mix_shared_secret(&self.ephemeral_kp.private.serialize(), &server_ephemeral)?;
         // se
-        noise.mix_shared_secret(self.static_kp.private_key.serialize(), &server_ephemeral)?;
+        noise.mix_shared_secret(&self.static_kp.private.serialize(), &server_ephemeral)?;
 
         // Decrypting the cert payload also authenticates the transcript via
         // AEAD. If the server is impersonating with a stale static the AEAD
@@ -793,7 +787,7 @@ impl XxFallbackHandshakeState {
             NoiseHandshake::new(wacore_binary::consts::NOISE_PATTERN_XXFALLBACK, prologue)?;
         // Reuse the ephemeral that was already sent in the IK ClientHello —
         // its public bytes go into the XXfallback transcript here.
-        noise.authenticate(inputs.ephemeral_kp.public_key.public_key_bytes());
+        noise.authenticate(inputs.ephemeral_kp.public.raw());
 
         Ok(Self {
             noise,
@@ -853,7 +847,7 @@ mod tests {
     impl TestResponder {
         fn new() -> (Self, [u8; 32]) {
             let kp = KeyPair::generate(&mut rand::rng());
-            let server_static_pub: [u8; 32] = kp.public_key.public_key_bytes().try_into().unwrap();
+            let server_static_pub: [u8; 32] = *kp.public.raw();
             let cert_chain_bytes = crate::test_util::build_cert_chain_bytes(&server_static_pub);
             (
                 Self {
@@ -865,11 +859,7 @@ mod tests {
         }
 
         fn server_static_pub(&self) -> [u8; 32] {
-            self.identity_kp
-                .public_key
-                .public_key_bytes()
-                .try_into()
-                .expect("X25519 pub key is always 32 bytes")
+            *self.identity_kp.public.raw()
         }
     }
 
@@ -890,21 +880,18 @@ mod tests {
         noise.authenticate(&client_eph_pub);
 
         let server_eph = KeyPair::generate(&mut rand::rng());
-        let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+        let server_eph_pub: [u8; 32] = *server_eph.public.raw();
         noise.authenticate(&server_eph_pub);
 
         noise
-            .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+            .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
             .expect("ee");
 
         let server_static_pub = responder.server_static_pub();
         let encrypted_static = noise.encrypt(&server_static_pub).expect("enc static");
 
         noise
-            .mix_shared_secret(
-                responder.identity_kp.private_key.serialize(),
-                &client_eph_pub,
-            )
+            .mix_shared_secret(&responder.identity_kp.private.serialize(), &client_eph_pub)
             .expect("es");
 
         let encrypted_payload = noise
@@ -938,7 +925,7 @@ mod tests {
 
         // se: DH(server_eph_priv, client_static_pub)
         noise
-            .mix_shared_secret(server_eph.private_key.serialize(), &client_static_arr)
+            .mix_shared_secret(&server_eph.private.serialize(), &client_static_arr)
             .expect("se");
 
         let _payload_pt = noise.decrypt(&cf.payload.unwrap()).expect("dec payload");
@@ -972,10 +959,7 @@ mod tests {
         noise.authenticate(&client_eph_pub);
         // es: DH(s_priv_resp, e_pub_init)
         noise
-            .mix_shared_secret(
-                responder.identity_kp.private_key.serialize(),
-                &client_eph_pub,
-            )
+            .mix_shared_secret(&responder.identity_kp.private.serialize(), &client_eph_pub)
             .unwrap();
         // -> s (decrypt client static)
         let client_static = noise.decrypt(&encrypted_static).unwrap();
@@ -983,7 +967,7 @@ mod tests {
         // ss: DH(s_priv_resp, s_pub_init)
         noise
             .mix_shared_secret(
-                responder.identity_kp.private_key.serialize(),
+                &responder.identity_kp.private.serialize(),
                 &client_static_arr,
             )
             .unwrap();
@@ -992,15 +976,15 @@ mod tests {
 
         // Now build ServerHello (<- e, ee, se, payload).
         let server_eph = KeyPair::generate(&mut rand::rng());
-        let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+        let server_eph_pub: [u8; 32] = *server_eph.public.raw();
         noise.authenticate(&server_eph_pub);
         // ee
         noise
-            .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+            .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
             .unwrap();
         // se: DH(e_priv_resp, s_pub_init)
         noise
-            .mix_shared_secret(server_eph.private_key.serialize(), &client_static_arr)
+            .mix_shared_secret(&server_eph.private.serialize(), &client_static_arr)
             .unwrap();
         let encrypted_cert = noise.encrypt(&responder.cert_chain_bytes).unwrap();
 
@@ -1040,20 +1024,17 @@ mod tests {
         noise.authenticate(&client_eph_pub);
 
         let server_eph = KeyPair::generate(&mut rand::rng());
-        let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+        let server_eph_pub: [u8; 32] = *server_eph.public.raw();
         noise.authenticate(&server_eph_pub);
         noise
-            .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+            .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
             .unwrap();
 
         let server_static_pub = responder.server_static_pub();
         let encrypted_static = noise.encrypt(&server_static_pub).unwrap();
 
         noise
-            .mix_shared_secret(
-                responder.identity_kp.private_key.serialize(),
-                &client_eph_pub,
-            )
+            .mix_shared_secret(&responder.identity_kp.private.serialize(), &client_eph_pub)
             .unwrap();
 
         let encrypted_cert = noise.encrypt(&responder.cert_chain_bytes).unwrap();

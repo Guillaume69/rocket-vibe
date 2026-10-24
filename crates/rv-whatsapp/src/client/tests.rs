@@ -1787,8 +1787,8 @@ async fn cleanup_connection_state_does_not_burn_a_clean_sender_key_lease() {
             12345,
             0,
             &[0x42; 32],
-            signing_key.public_key,
-            Some(signing_key.private_key),
+            signing_key.public,
+            Some(signing_key.private),
         )
         .expect("sender key state");
     record.reserve_iterations(0);
@@ -7194,8 +7194,7 @@ mod ensure_sessions_concurrency {
             // pattern would fail before the behaviour under test is reached.
             let signature = identity
                 .private_key()
-                .calculate_signature(&signed.public_key.serialize(), &mut rng)
-                .expect("signature over the signed prekey")
+                .sign(&signed.public.serialize(), &mut rng)
                 .to_vec();
             Self {
                 identity,
@@ -7224,13 +7223,13 @@ mod ensure_sessions_concurrency {
                                 .build(),
                             NodeBuilder::new("type").bytes(vec![5]).build(),
                             NodeBuilder::new("identity")
-                                .bytes(self.identity.public_key().public_key_bytes().to_vec())
+                                .bytes(self.identity.public_key().raw().to_vec())
                                 .build(),
                             NodeBuilder::new("skey")
                                 .children([
                                     NodeBuilder::new("id").bytes(id_bytes(1)).build(),
                                     NodeBuilder::new("value")
-                                        .bytes(self.signed.public_key.public_key_bytes().to_vec())
+                                        .bytes(self.signed.public.raw().to_vec())
                                         .build(),
                                     NodeBuilder::new("signature")
                                         .bytes(self.signature.clone())
@@ -7241,7 +7240,7 @@ mod ensure_sessions_concurrency {
                                 .children([
                                     NodeBuilder::new("id").bytes(id_bytes(one_time_id)).build(),
                                     NodeBuilder::new("value")
-                                        .bytes(one_time.public_key.public_key_bytes().to_vec())
+                                        .bytes(one_time.public.raw().to_vec())
                                         .build(),
                                 ])
                                 .build(),

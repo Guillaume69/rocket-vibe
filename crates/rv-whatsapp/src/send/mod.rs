@@ -8685,14 +8685,14 @@ mod tests {
                 let opk = KeyPair::generate(&mut rng);
                 let sig = receiver
                     .private_key()
-                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
+                    .sign(&spk.public.serialize(), &mut rng);
 
                 PreKeyBundle::new(
                     1,
                     1u32.into(),
-                    Some((1u32.into(), opk.public_key)),
+                    Some((1u32.into(), opk.public)),
                     1u32.into(),
-                    spk.public_key,
+                    spk.public,
                     sig,
                     *receiver.identity_key(),
                 )
@@ -8912,13 +8912,13 @@ mod tests {
                 let opk = KeyPair::generate(&mut rng);
                 let sig = receiver
                     .private_key()
-                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
+                    .sign(&spk.public.serialize(), &mut rng);
                 PreKeyBundle::new(
                     1,
                     1u32.into(),
-                    Some((1u32.into(), opk.public_key)),
+                    Some((1u32.into(), opk.public)),
                     1u32.into(),
-                    spk.public_key,
+                    spk.public,
                     sig,
                     *receiver.identity_key(),
                 )
@@ -10058,7 +10058,7 @@ mod tests {
             1.into(),
             signed_key.public_key().unwrap(),
             signed_key.signature().unwrap(),
-            IdentityKey::new(receiver_device.core.identity_key.public_key),
+            IdentityKey::new(receiver_device.core.identity_key.public),
         )
         .unwrap();
         let mut sender_stores = fixture.client.signal_adapter();

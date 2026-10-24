@@ -1566,14 +1566,13 @@ mod tests {
         let opk = KeyPair::generate(&mut rng);
         let signature = receiver
             .private_key()
-            .calculate_signature(&spk.public_key.serialize(), &mut rng)
-            .expect("sign the signed prekey");
+            .sign(&spk.public.serialize(), &mut rng);
         let bundle = PreKeyBundle::new(
             1,
             0u32.into(),
-            Some((1u32.into(), opk.public_key)),
+            Some((1u32.into(), opk.public)),
             1u32.into(),
-            spk.public_key,
+            spk.public,
             signature,
             *receiver.identity_key(),
         )

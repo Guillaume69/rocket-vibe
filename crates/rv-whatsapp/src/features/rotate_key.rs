@@ -169,7 +169,7 @@ impl Client {
                 let s = waproto::codec::signed_pre_key_record_decode(&bytes).map_err(|e| {
                     SignalMaintenanceError::CorruptKey(format!("staged record decode: {e}"))
                 })?;
-                let public = PublicKey::from_djb_public_key_bytes(s.public_key.as_deref().ok_or(
+                let public = PublicKey::try_from(s.public_key.as_deref().ok_or(
                     SignalMaintenanceError::CorruptKey("staged record missing public".to_string()),
                 )?)
                 .map_err(|e| {
@@ -192,7 +192,7 @@ impl Client {
                             "staged signature must be 64 bytes".to_string(),
                         )
                     })?;
-                (KeyPair::new(public, private), signature)
+                (KeyPair { public, private }, signature)
             }
             None => {
                 let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -201,9 +201,8 @@ impl Client {
                 // serialized (not raw) public bytes, matching Device::new().
                 let signature: [u8; 64] = snapshot
                     .identity_key
-                    .private_key
-                    .calculate_signature(&kp.public_key.serialize(), &mut rng)
-                    .map_err(|e| SignalMaintenanceError::Signal(e.into()))?
+                    .private
+                    .sign(&kp.public.serialize(), &mut rng)
                     .as_ref()
                     .try_into()
                     // Not CorruptKey: nothing was read back from storage here, so
@@ -252,7 +251,7 @@ impl Client {
         let upload_result = self
             .execute(RotateSignedPreKeySpec::new(
                 new_id,
-                new_kp.public_key,
+                new_kp.public,
                 signature.to_vec(),
             ))
             .await;
@@ -902,7 +901,7 @@ mod tests {
             .expect("the promoted id resolves");
         assert_eq!(
             current.public_key().expect("public"),
-            after.signed_pre_key.public_key,
+            after.signed_pre_key.public,
             "the advertised key must be the one we hold the private half of"
         );
         assert!(

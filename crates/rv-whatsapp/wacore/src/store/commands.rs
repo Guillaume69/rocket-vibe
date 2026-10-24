@@ -346,11 +346,11 @@ mod tests {
         use crate::libsignal::protocol::KeyPair;
 
         let mut device = Device::new();
-        let old_kp_bytes = device.signed_pre_key.public_key.public_key_bytes().to_vec();
+        let old_kp_bytes = device.signed_pre_key.public.raw().to_vec();
         let old_id = device.signed_pre_key_id;
 
         let new_kp = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-        let new_pub = new_kp.public_key.public_key_bytes().to_vec();
+        let new_pub = new_kp.public.raw().to_vec();
         let sig = [7u8; 64];
 
         apply_command_to_device(
@@ -363,14 +363,8 @@ mod tests {
             },
         );
 
-        assert_ne!(
-            device.signed_pre_key.public_key.public_key_bytes().to_vec(),
-            old_kp_bytes
-        );
-        assert_eq!(
-            device.signed_pre_key.public_key.public_key_bytes(),
-            &new_pub[..]
-        );
+        assert_ne!(device.signed_pre_key.public.raw().to_vec(), old_kp_bytes);
+        assert_eq!(device.signed_pre_key.public.raw(), &new_pub[..]);
         assert_eq!(device.signed_pre_key_id, old_id + 1);
         assert_eq!(device.signed_pre_key_signature, sig);
         assert_eq!(device.last_signed_pre_key_rotation_ms, 1_234);
@@ -379,7 +373,7 @@ mod tests {
     #[test]
     fn set_rotation_baseline_leaves_key_untouched() {
         let mut device = Device::new();
-        let key_before = device.signed_pre_key.public_key.public_key_bytes().to_vec();
+        let key_before = device.signed_pre_key.public.raw().to_vec();
         let id_before = device.signed_pre_key_id;
         let sig_before = device.signed_pre_key_signature;
 
@@ -389,10 +383,7 @@ mod tests {
         );
 
         assert_eq!(device.last_signed_pre_key_rotation_ms, 9_999);
-        assert_eq!(
-            device.signed_pre_key.public_key.public_key_bytes().to_vec(),
-            key_before
-        );
+        assert_eq!(device.signed_pre_key.public.raw().to_vec(), key_before);
         assert_eq!(device.signed_pre_key_id, id_before);
         assert_eq!(device.signed_pre_key_signature, sig_before);
     }

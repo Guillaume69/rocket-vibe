@@ -124,6 +124,23 @@ impl From<CurveError> for SignalProtocolError {
     }
 }
 
+impl From<rv_signal::Error> for CurveError {
+    fn from(e: rv_signal::Error) -> Self {
+        match e {
+            rv_signal::Error::BadKeyType(t) => Self::BadKeyType(t),
+            rv_signal::Error::BadKeyLength(0) => Self::NoKeyTypeIdentifier,
+            rv_signal::Error::BadKeyLength(n) => Self::BadKeyLength(n),
+            _ => Self::AgreementFailed,
+        }
+    }
+}
+
+impl From<rv_signal::Error> for SignalProtocolError {
+    fn from(e: rv_signal::Error) -> Self {
+        Self::from_signal(e, CiphertextMessageType::Whisper)
+    }
+}
+
 impl From<InvalidSessionError> for SignalProtocolError {
     fn from(e: InvalidSessionError) -> Self {
         Self::InvalidSessionStructure(e.0)

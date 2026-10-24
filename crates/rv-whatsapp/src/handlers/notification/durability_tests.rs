@@ -902,8 +902,8 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
                     7,
                     0,
                     &[9; 32],
-                    key_pair.public_key,
-                    Some(key_pair.private_key),
+                    key_pair.public,
+                    Some(key_pair.private),
                 )
                 .unwrap();
             raw.put_sender_key(name.cache_key(), &record.serialize().unwrap())

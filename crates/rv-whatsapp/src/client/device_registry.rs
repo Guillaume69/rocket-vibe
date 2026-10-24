@@ -3600,8 +3600,8 @@ mod tests {
                 7,
                 0,
                 &[9; 32],
-                key_pair.public_key,
-                Some(key_pair.private_key),
+                key_pair.public,
+                Some(key_pair.private),
             )
             .unwrap();
         client.signal_cache.put_sender_key(&name, record).await;

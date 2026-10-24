@@ -69,9 +69,9 @@ impl SignalMessage {
         check_version(message_version)?;
         let inner = rv_signal::SignalMessage::new(
             mac_key,
-            sender_identity_key.public_key().inner(),
-            receiver_identity_key.public_key().inner(),
-            *sender_ratchet_key.inner(),
+            sender_identity_key.public_key(),
+            receiver_identity_key.public_key(),
+            sender_ratchet_key,
             counter,
             previous_counter,
             ciphertext.to_vec(),
@@ -83,7 +83,7 @@ impl SignalMessage {
     }
 
     pub(crate) fn from_inner(inner: rv_signal::SignalMessage) -> Self {
-        let ratchet_key = PublicKey::from_inner(inner.ratchet_key);
+        let ratchet_key = inner.ratchet_key;
         Self { inner, ratchet_key }
     }
 
@@ -159,8 +159,8 @@ impl PreKeySignalMessage {
             registration_id,
             pre_key_id.map(u32::from),
             signed_pre_key_id.into(),
-            *base_key.inner(),
-            *identity_key.public_key().inner(),
+            base_key,
+            *identity_key.public_key(),
             message.inner.clone(),
         );
         Ok(Self {
@@ -174,8 +174,8 @@ impl PreKeySignalMessage {
     pub(crate) fn from_inner(inner: rv_signal::PreKeySignalMessage) -> Self {
         Self {
             message: SignalMessage::from_inner(inner.message.clone()),
-            base_key: PublicKey::from_inner(inner.base_key),
-            identity_key: IdentityKey::new(PublicKey::from_inner(inner.identity_key)),
+            base_key: inner.base_key,
+            identity_key: IdentityKey::new(inner.identity_key),
             inner,
         }
     }
@@ -257,7 +257,7 @@ impl SenderKeyMessage {
                 chain_id,
                 iteration,
                 ciphertext.into_vec(),
-                &signature_key.inner(),
+                signature_key,
                 csprng,
             ),
         })
@@ -280,7 +280,7 @@ impl SenderKeyMessage {
     }
 
     pub fn verify_signature(&self, signature_key: &PublicKey) -> Result<bool> {
-        Ok(self.inner.verify_signature(signature_key.inner()))
+        Ok(self.inner.verify_signature(signature_key))
     }
 
     pub fn serialized(&self) -> &[u8] {
@@ -332,13 +332,13 @@ impl SenderKeyDistributionMessage {
                 chain_id,
                 iteration,
                 chain_key,
-                *signing_key.inner(),
+                signing_key,
             ),
         ))
     }
 
     pub(crate) fn from_inner(inner: rv_signal::SenderKeyDistributionMessage) -> Self {
-        let signing_key = PublicKey::from_inner(inner.signing_key);
+        let signing_key = inner.signing_key;
         Self { inner, signing_key }
     }
 

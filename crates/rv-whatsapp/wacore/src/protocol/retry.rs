@@ -200,12 +200,12 @@ pub fn build_retry_keys_node(
         .children([
             NodeBuilder::new("type").bytes(vec![5u8]).build(),
             NodeBuilder::new("identity")
-                .bytes(identity_pub.public_key_bytes().to_vec())
+                .bytes(identity_pub.raw().to_vec())
                 .build(),
-            OneTimePreKeyNode::new(prekey_id, prekey_pub.public_key_bytes().to_vec()).into_node(),
+            OneTimePreKeyNode::new(prekey_id, prekey_pub.raw().to_vec()).into_node(),
             SignedPreKeyNode::new(
                 signed_prekey_id,
-                signed_prekey_pub.public_key_bytes().to_vec(),
+                signed_prekey_pub.raw().to_vec(),
                 signed_prekey_signature,
             )
             .into_node(),
@@ -453,11 +453,11 @@ mod tests {
         let signed_prekey = KeyPair::generate(&mut rng);
 
         let keys = build_retry_keys_node(
-            &identity.public_key,
+            &identity.public,
             201,
-            &prekey.public_key,
+            &prekey.public,
             100,
-            &signed_prekey.public_key,
+            &signed_prekey.public,
             vec![7u8; 64],
             vec![9u8; 16],
         );
@@ -465,10 +465,7 @@ mod tests {
         let key_node = keys.get_optional_child("key").expect("<key> child present");
         let parsed_prekey =
             OneTimePreKeyNode::try_from_node(key_node).expect("one-time prekey should parse");
-        assert_eq!(
-            parsed_prekey.public_bytes.as_slice(),
-            prekey.public_key.public_key_bytes()
-        );
+        assert_eq!(parsed_prekey.public_bytes.as_slice(), prekey.public.raw());
 
         let skey_node = keys
             .get_optional_child("skey")
@@ -477,7 +474,7 @@ mod tests {
             SignedPreKeyNode::try_from_node(skey_node).expect("signed prekey should parse");
         assert_eq!(
             parsed_skey.public_bytes.as_slice(),
-            signed_prekey.public_key.public_key_bytes()
+            signed_prekey.public.raw()
         );
     }
 

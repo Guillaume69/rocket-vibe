@@ -358,21 +358,12 @@ impl Client {
 
         // Get device state for noise key
         let device_snapshot = self.persistence_manager.get_device_snapshot();
-        let noise_static_pub: [u8; 32] = device_snapshot
-            .noise_key
-            .public_key
-            .public_key_bytes()
-            .try_into()
-            .expect("noise key is 32 bytes");
+        let noise_static_pub: [u8; 32] = *device_snapshot.noise_key.public.raw();
 
         // Derive key and encrypt ephemeral pub (expensive PBKDF2 operation)
         // Run in spawn_blocking to avoid stalling the async runtime
         let code_clone = code.clone();
-        let ephemeral_pub: [u8; 32] = ephemeral_keypair
-            .public_key
-            .public_key_bytes()
-            .try_into()
-            .expect("ephemeral key is 32 bytes");
+        let ephemeral_pub: [u8; 32] = *ephemeral_keypair.public.raw();
 
         let wrapped_ephemeral = wacore::runtime::blocking(&*self.runtime, move || {
             PairCodeUtils::encrypt_ephemeral_pub(&ephemeral_pub, &code_clone)
@@ -888,12 +879,7 @@ async fn run_stage_two(
         return;
     }
     let req_id = client.generate_request_id();
-    let identity_pub: [u8; 32] = device_snapshot
-        .identity_key
-        .public_key
-        .public_key_bytes()
-        .try_into()
-        .expect("identity key is 32 bytes");
+    let identity_pub: [u8; 32] = *device_snapshot.identity_key.public.raw();
 
     let iq = PairCodeUtils::build_companion_finish_iq(
         &phone_jid,
@@ -1549,10 +1535,9 @@ mod tests {
 
     #[test]
     fn pair_error_paircode_walks_to_curve_error() {
-        use wacore::libsignal::protocol::CurveError;
-        // Wrap a wacore PairCodeError that itself carries a CurveError source.
+        // Wrap a wacore PairCodeError that itself carries an rv_signal::Error source.
         let pe: PairError =
-            PairCodeError::EphemeralKeyAgreement(CurveError::NoKeyTypeIdentifier).into();
+            PairCodeError::EphemeralKeyAgreement(rv_signal::Error::BadKeyLength(0)).into();
         assert_eq!(pe.to_string(), "ephemeral key agreement failed");
         // Hop 1 is the PairCodeError itself: the wrapper no longer erases it.
         let src = std::error::Error::source(&pe).expect("source preserved");
@@ -1562,9 +1547,9 @@ mod tests {
         assert!(matches!(pce, PairCodeError::EphemeralKeyAgreement(_)));
         let curve = std::error::Error::source(pce)
             .expect("inner source preserved")
-            .downcast_ref::<CurveError>()
-            .expect("downcasts to CurveError");
-        assert!(matches!(curve, CurveError::NoKeyTypeIdentifier));
+            .downcast_ref::<rv_signal::Error>()
+            .expect("downcasts to rv_signal::Error");
+        assert!(matches!(curve, rv_signal::Error::BadKeyLength(0)));
     }
 
     // ── Stage-2 notification handling (WA Web parity guards) ─────────────────

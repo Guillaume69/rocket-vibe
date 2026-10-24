@@ -316,15 +316,14 @@ impl PreKeyUtils {
                 identity_key_bytes.len()
             )
         })?;
-        let identity_key =
-            IdentityKey::new(PublicKey::from_djb_public_key_bytes(&identity_key_array)?);
+        let identity_key = IdentityKey::new(PublicKey::try_from(&identity_key_array[..])?);
 
         let mut pre_key_tuple = None;
         if let Some(pre_key_node) = keys_node.get_optional_child("key")
             && let Some((id, key_bytes)) = Self::node_to_pre_key_ref(pre_key_node)?
         {
             let pre_key_id: PreKeyId = id.into();
-            let pre_key_public = PublicKey::from_djb_public_key_bytes(&key_bytes)?;
+            let pre_key_public = PublicKey::try_from(&key_bytes[..])?;
             pre_key_tuple = Some((pre_key_id, pre_key_public));
         }
 
@@ -335,8 +334,7 @@ impl PreKeyUtils {
             Self::node_to_signed_pre_key_ref(signed_pre_key_node)?;
 
         let signed_pre_key_id: SignedPreKeyId = signed_pre_key_id_u32.into();
-        let signed_pre_key_public =
-            PublicKey::from_djb_public_key_bytes(&signed_pre_key_public_bytes)?;
+        let signed_pre_key_public = PublicKey::try_from(&signed_pre_key_public_bytes[..])?;
 
         let bundle = PreKeyBundle::new(
             registration_id,
@@ -530,9 +528,9 @@ mod tests {
         PreKeyBundle::new(
             1,
             device_id.into(),
-            Some((1u32.into(), prekey_pair.public_key)),
+            Some((1u32.into(), prekey_pair.public)),
             2u32.into(),
-            signed_prekey_pair.public_key,
+            signed_prekey_pair.public,
             vec![0u8; 64],
             *identity_pair.identity_key(),
         )
@@ -725,16 +723,16 @@ mod tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let account = KeyPair::generate(&mut rng);
         let device = KeyPair::generate(&mut rng);
-        let account_key = account.public_key.public_key_bytes();
+        let account_key = account.public.raw();
         for (jid, hosted_device) in test_util::device_cases() {
             let bundle = PreKeyBundle::new(
                 1,
                 u32::from(jid.device).into(),
-                Some((1u32.into(), device.public_key)),
+                Some((1u32.into(), device.public)),
                 2u32.into(),
-                device.public_key,
+                device.public,
                 vec![0; 64],
-                IdentityKey::new(device.public_key),
+                IdentityKey::new(device.public),
             )
             .unwrap();
             for device_type in test_util::ENCRYPTION_TYPES {
@@ -771,8 +769,7 @@ mod tests {
                         let response = NodeBuilder::new("iq")
                             .children([NodeBuilder::new("list").children([user]).build()])
                             .build();
-                        let fallbacks =
-                            HashMap::from([(jid.clone(), account_key.try_into().unwrap())]);
+                        let fallbacks = HashMap::from([(jid.clone(), *account_key)]);
                         let outcome = PreKeyUtils::parse_prekeys_response(
                             &response.as_node_ref(),
                             &fallbacks,
@@ -834,20 +831,18 @@ mod tests {
     fn trimmed_device_identity(account: &KeyPair, device: &KeyPair, details: &[u8]) -> Vec<u8> {
         use buffa::Message;
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let identity = device.public_key.public_key_bytes();
-        let account_key = account.public_key.public_key_bytes();
+        let identity = device.public.raw();
+        let account_key = account.public.raw();
         let account_sig = account
-            .private_key
-            .calculate_signature(&[&[6u8, 0][..], details, identity].concat(), &mut rng)
-            .unwrap()
+            .private
+            .sign(&[&[6u8, 0][..], details, identity].concat(), &mut rng)
             .to_vec();
         let device_sig = device
-            .private_key
-            .calculate_signature(
+            .private
+            .sign(
                 &[&[6u8, 1][..], details, identity, account_key].concat(),
                 &mut rng,
             )
-            .unwrap()
             .to_vec();
         {
             let mut proto_ = waproto::whatsapp::ADVSignedDeviceIdentity::default();

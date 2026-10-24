@@ -65,11 +65,7 @@ impl Drop for Fixture {
 
 fn keypair_bytes(pair: &KeyPair) -> Vec<u8> {
     // The v0.7.0 device writer stored private || unprefixed public bytes.
-    [
-        pair.private_key.serialize(),
-        pair.public_key.public_key_bytes(),
-    ]
-    .concat()
+    [pair.private.serialize(), *pair.public.raw()].concat()
 }
 
 struct Seed {
@@ -102,10 +98,10 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
         let remote = KeyPair::generate(&mut rng);
         let mut state = SessionState::new(
             3,
-            &IdentityKey::new(identity.public_key),
-            &IdentityKey::new(remote.public_key),
+            &IdentityKey::new(identity.public),
+            &IdentityKey::new(remote.public),
             &RootKey::new([7; 32]),
-            &KeyPair::generate(&mut rng).public_key,
+            &KeyPair::generate(&mut rng).public,
         );
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([11; 32], 4));
         let session = SessionRecord::new(state).serialize().unwrap();
@@ -117,8 +113,8 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
                 17,
                 0,
                 &[0x33; 32],
-                signing.public_key,
-                (device_id == 1).then(|| signing.private_key.clone()),
+                signing.public,
+                (device_id == 1).then(|| signing.private.clone()),
             )
             .unwrap();
         diesel::sql_query("INSERT INTO sender_keys (address, record, device_id) VALUES (?, ?, ?)")
@@ -135,7 +131,7 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
             .bind::<Binary, _>(vec![marker + 10; 32]).execute(&mut conn).unwrap();
         diesel::sql_query("INSERT INTO identities (address, key, device_id) VALUES (?, ?, ?)")
             .bind::<Text, _>(SIGNAL_ADDRESS)
-            .bind::<Binary, _>(remote.public_key.public_key_bytes())
+            .bind::<Binary, _>(remote.public.raw())
             .bind::<Integer, _>(device_id)
             .execute(&mut conn)
             .unwrap();
@@ -242,7 +238,7 @@ async fn verify(db: &SqliteDatabase, seeds: &[Seed]) {
                 .unwrap()
                 .unwrap()
                 .public_key()
-                .public_key_bytes()
+                .raw()
         );
         assert_eq!(state.get_sender_chain_key().unwrap().index(), 4);
         let key = store.get_sync_key(&[1]).await.unwrap().unwrap();

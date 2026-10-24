@@ -287,7 +287,7 @@ impl IdentityAdapter {
         };
         self.0
             .cache
-            .try_put_identity(address, identity.public_key().public_key_bytes())
+            .try_put_identity(address, identity.public_key().raw())
             .then_some(Ok(change))
     }
 }
@@ -335,7 +335,7 @@ impl IdentityKeyStore for IdentityAdapter {
             // (matching WA Web), so the Device-level save is redundant.
             self.0
                 .cache
-                .put_identity(address, identity.public_key().public_key_bytes())
+                .put_identity(address, identity.public_key().raw())
                 .await;
 
             match existing_identity {
@@ -418,9 +418,8 @@ fn parse_cached_identity(
 ) -> Result<Option<IdentityKey>, SignalProtocolError> {
     match data {
         Some(data) if !data.is_empty() => {
-            let public_key =
-                wacore::libsignal::protocol::PublicKey::from_djb_public_key_bytes(&data)
-                    .map_err(|e| record_read_err(e.into()))?;
+            let public_key = wacore::libsignal::protocol::PublicKey::try_from(&data[..])
+                .map_err(|e| record_read_err(e.into()))?;
             Ok(Some(IdentityKey::new(public_key)))
         }
         _ => Ok(None),
@@ -913,8 +912,8 @@ mod tests {
             local_identity.clone(),
             KeyPair::generate(&mut rng),
             *remote_identity.identity_key(),
-            remote_signed_prekey.public_key,
-            remote_signed_prekey.public_key,
+            remote_signed_prekey.public,
+            remote_signed_prekey.public,
             UsePQRatchet::No,
         );
         (

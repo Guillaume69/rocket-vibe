@@ -97,11 +97,11 @@ impl PreKeyBundle {
     fn inner(&self) -> rv_signal::PreKeyBundle {
         rv_signal::PreKeyBundle {
             registration_id: self.registration_id,
-            identity: *self.identity_key.public_key().inner(),
+            identity: *self.identity_key.public_key(),
             signed_prekey_id: self.signed_pre_key_id.into(),
-            signed_prekey: *self.signed_pre_key_public.inner(),
+            signed_prekey: self.signed_pre_key_public,
             signed_prekey_signature: self.signed_pre_key_signature,
-            prekey: self.pre_key.map(|(id, key)| (u32::from(id), *key.inner())),
+            prekey: self.pre_key.map(|(id, key)| (u32::from(id), key)),
         }
     }
 }
@@ -306,7 +306,7 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
                 Some(id) => Some(pre_key_store.get_pre_key(id).await?.key_pair()?),
                 None => None,
             };
-            (Some(signed.inner()), one_time.map(|k| k.inner()))
+            (Some(signed), one_time)
         };
         let identity = identity_store.get_identity_key_pair().await?;
         let registration_id = identity_store.get_local_registration_id().await?;
@@ -378,16 +378,16 @@ pub fn initialize_alice_session_record<R: CryptoRng + ?Sized>(
     let local = parameters.our_identity_key_pair.local(0);
     let bundle = rv_signal::PreKeyBundle {
         registration_id: 0,
-        identity: *parameters.their_identity_key.public_key().inner(),
+        identity: *parameters.their_identity_key.public_key(),
         signed_prekey_id: 0,
-        signed_prekey: *parameters.their_signed_pre_key.inner(),
+        signed_prekey: parameters.their_signed_pre_key,
         signed_prekey_signature: [0; 64],
-        prekey: parameters.their_one_time_pre_key.map(|k| (0, *k.inner())),
+        prekey: parameters.their_one_time_pre_key.map(|k| (0, k)),
     };
     let base: KeyPair = parameters.our_base_key_pair.clone();
     let mut record = SessionRecord::new_fresh();
     record
-        .with_signal(|r| r.initiate_unverified(&local, &bundle, base.inner(), csprng))?
+        .with_signal(|r| r.initiate_unverified(&local, &bundle, base, csprng))?
         .map_err(|e| SignalProtocolError::from_signal(e, CiphertextMessageType::PreKey))?;
     Ok(record)
 }

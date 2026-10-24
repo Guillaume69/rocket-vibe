@@ -321,8 +321,8 @@ fn missing_device(error: StoreError, device_id: i32) -> StoreError {
 /// output to [`SqliteStore::serialize_keypair`] (which delegates here).
 fn serialize_keypair(key_pair: &KeyPair) -> Result<Vec<u8>> {
     let mut bytes = Vec::with_capacity(64);
-    bytes.extend_from_slice(key_pair.private_key.serialize());
-    bytes.extend_from_slice(key_pair.public_key.public_key_bytes());
+    bytes.extend_from_slice(&key_pair.private.serialize());
+    bytes.extend_from_slice(key_pair.public.raw());
     Ok(bytes)
 }
 
@@ -1679,10 +1679,13 @@ impl SqliteStore {
 
         let private_key = PrivateKey::deserialize(&bytes[0..32])
             .map_err(|e| StoreError::Serialization(Box::new(e)))?;
-        let public_key = PublicKey::from_djb_public_key_bytes(&bytes[32..64])
+        let public_key = PublicKey::try_from(&bytes[32..64])
             .map_err(|e| StoreError::Serialization(Box::new(e)))?;
 
-        Ok(KeyPair::new(public_key, private_key))
+        Ok(KeyPair {
+            public: public_key,
+            private: private_key,
+        })
     }
 
     async fn save_device_data_for_device(

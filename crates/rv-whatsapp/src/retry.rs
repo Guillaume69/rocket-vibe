@@ -1713,7 +1713,7 @@ impl Client {
             .get_optional_child("identity")
             .and_then(get_bytes_content_ref)
             .ok_or_else(|| anyhow::anyhow!("Missing identity key in retry receipt"))?;
-        let identity_key = PublicKey::from_djb_public_key_bytes(identity_bytes)?;
+        let identity_key = PublicKey::try_from(identity_bytes)?;
 
         // Companion devices ADV-bind the fetched identity via <device-identity>;
         // reject a present-but-invalid one so a relay can't swap in a forged key.
@@ -1755,7 +1755,7 @@ impl Client {
         // Extract prekey (optional in some cases).
         let prekey_data = if let Some(key_ref) = keys_node.get_optional_child("key") {
             let prekey_node = OneTimePreKeyNode::try_from_node_ref(key_ref)?;
-            let prekey_public = PublicKey::from_djb_public_key_bytes(&prekey_node.public_bytes)?;
+            let prekey_public = PublicKey::try_from(&prekey_node.public_bytes[..])?;
             Some((prekey_node.id.into(), prekey_public))
         } else {
             None
@@ -1767,7 +1767,7 @@ impl Client {
             .ok_or_else(|| anyhow::anyhow!("Missing signed prekey in retry receipt"))?;
 
         let signed_prekey = SignedPreKeyNode::try_from_node_ref(skey_ref)?;
-        let skey_public = PublicKey::from_djb_public_key_bytes(&signed_prekey.public_bytes)?;
+        let skey_public = PublicKey::try_from(&signed_prekey.public_bytes[..])?;
         let skey_signature: [u8; 64] = signed_prekey
             .signature
             .as_slice()
@@ -1899,11 +1899,11 @@ impl Client {
             drop(prekey_guard);
 
             Some(wacore::protocol::retry::build_retry_keys_node(
-                &device_snapshot.identity_key.public_key,
+                &device_snapshot.identity_key.public,
                 new_prekey_id,
                 &new_prekey_public,
                 device_snapshot.signed_pre_key_id,
-                &device_snapshot.signed_pre_key.public_key,
+                &device_snapshot.signed_pre_key.public,
                 device_snapshot.signed_pre_key_signature.to_vec(),
                 device_identity_bytes,
             ))
@@ -2176,9 +2176,9 @@ mod tests {
             1u32.into(),
             Some((prekey_id.into(), prekey)),
             snapshot.signed_pre_key_id.into(),
-            snapshot.signed_pre_key.public_key,
+            snapshot.signed_pre_key.public,
             snapshot.signed_pre_key_signature.to_vec(),
-            wacore::libsignal::protocol::IdentityKey::new(snapshot.identity_key.public_key),
+            wacore::libsignal::protocol::IdentityKey::new(snapshot.identity_key.public),
         )
         .unwrap();
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -3928,8 +3928,7 @@ mod tests {
         let signed_prekey = KeyPair::generate(&mut rng);
         let signature = identity
             .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature");
+            .sign(&signed_prekey.public.serialize(), &mut rng);
 
         [
             NodeBuilder::new("registration")
@@ -3938,9 +3937,9 @@ mod tests {
             wacore::protocol::retry::build_retry_keys_node(
                 identity.identity_key().public_key(),
                 7,
-                &prekey.public_key,
+                &prekey.public,
                 100,
-                &signed_prekey.public_key,
+                &signed_prekey.public,
                 signature.to_vec(),
                 Vec::new(),
             ),
@@ -4540,8 +4539,8 @@ mod tests {
                 9,
                 0,
                 &[7; 32],
-                key_pair.public_key,
-                Some(key_pair.private_key),
+                key_pair.public,
+                Some(key_pair.private),
             )
             .unwrap();
         client
@@ -4703,12 +4702,11 @@ mod tests {
         let device = KeyPair::generate(&mut rng);
         let signed_prekey = KeyPair::generate(&mut rng);
         let one_time_prekey = KeyPair::generate(&mut rng);
-        let identity = device.public_key.public_key_bytes();
-        let account_key = account.public_key.public_key_bytes();
+        let identity = device.public.raw();
+        let account_key = account.public.raw();
         let prekey_signature = device
-            .private_key
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .unwrap();
+            .private
+            .sign(&signed_prekey.public.serialize(), &mut rng);
         for (jid, hosted_device) in test_util::device_cases() {
             for device_type in test_util::ENCRYPTION_TYPES {
                 let details = {
@@ -4747,14 +4745,11 @@ mod tests {
                                 NodeBuilder::new("identity")
                                     .bytes(identity.to_vec())
                                     .build(),
-                                OneTimePreKeyNode::new(
-                                    1,
-                                    one_time_prekey.public_key.public_key_bytes().to_vec(),
-                                )
-                                .into_node(),
+                                OneTimePreKeyNode::new(1, one_time_prekey.public.raw().to_vec())
+                                    .into_node(),
                                 SignedPreKeyNode::new(
                                     2,
-                                    signed_prekey.public_key.public_key_bytes().to_vec(),
+                                    signed_prekey.public.raw().to_vec(),
                                     prekey_signature.to_vec(),
                                 )
                                 .into_node(),
@@ -4840,25 +4835,18 @@ mod tests {
         let signed_prekey = KeyPair::generate(&mut rng);
         let signed_prekey_signature = remote_identity
             .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature should be valid");
+            .sign(&signed_prekey.public.serialize(), &mut rng);
 
         let regular_requester = Jid::pn_device("559922223333", 1);
         let keys = NodeBuilder::new("keys")
             .children([
                 NodeBuilder::new("type").bytes(vec![5]).build(),
                 NodeBuilder::new("identity")
-                    .bytes(
-                        remote_identity
-                            .identity_key()
-                            .public_key()
-                            .public_key_bytes()
-                            .to_vec(),
-                    )
+                    .bytes(remote_identity.identity_key().public_key().raw().to_vec())
                     .build(),
                 SignedPreKeyNode::new(
                     100,
-                    signed_prekey.public_key.public_key_bytes().to_vec(),
+                    signed_prekey.public.raw().to_vec(),
                     signed_prekey_signature.to_vec(),
                 )
                 .into_node(),

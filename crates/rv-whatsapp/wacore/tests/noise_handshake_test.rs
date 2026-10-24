@@ -1,11 +1,11 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 use wacore::handshake::NoiseHandshake;
-use wacore_crypto::CryptographicHash;
-use wacore_crypto::aes_256_gcm_decrypt;
 use wacore::libsignal::protocol::{PrivateKey, PublicKey};
 use wacore::noise::generate_iv;
 use wacore_binary::consts::{NOISE_PATTERN_XX, WA_CONN_HEADER};
+use wacore_crypto::CryptographicHash;
+use wacore_crypto::aes_256_gcm_decrypt;
 
 fn hex_to_bytes<const N: usize>(hex_str: &str) -> [u8; N] {
     hex::decode(hex_str)
@@ -38,11 +38,11 @@ fn test_server_static_key_decryption_with_go_values() {
 
     let our_private_key =
         PrivateKey::deserialize(&client_eph_priv).expect("test private key should deserialize");
-    let their_public_key = PublicKey::from_djb_public_key_bytes(&server_eph_pub)
-        .expect("test public key should deserialize");
+    let their_public_key =
+        PublicKey::try_from(&server_eph_pub[..]).expect("test public key should deserialize");
 
     let rust_shared_secret = our_private_key
-        .calculate_agreement(&their_public_key)
+        .agree(&their_public_key)
         .expect("key agreement should succeed");
 
     let (rust_salt_after_mix, rust_key_for_decrypt) = {

@@ -49,6 +49,17 @@ impl PublicKey {
     }
 }
 
+/// The 32 raw bytes.
+impl TryFrom<&[u8]> for PublicKey {
+    type Error = Error;
+
+    fn try_from(raw: &[u8]) -> Result<Self> {
+        Ok(Self(
+            raw.try_into().map_err(|_| Error::BadKeyLength(raw.len()))?,
+        ))
+    }
+}
+
 /// A private key, clamped as X25519 uses it.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct PrivateKey([u8; 32]);

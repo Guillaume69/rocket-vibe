@@ -407,7 +407,7 @@ async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
 
     // Create a valid but undecryptable SignalMessage
     let dummy_key = [0u8; 32];
-    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public_key;
+    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
     let sender_identity_pair =
         IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity_pair =
@@ -565,7 +565,7 @@ async fn test_empty_session_record_treated_as_session_not_found() {
 
     // Craft a SignalMessage to trigger decryption
     let dummy_key = [0u8; 32];
-    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public_key;
+    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
     let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
@@ -907,11 +907,11 @@ async fn bobs_prekey_bundle_with_spk_id(client: &Arc<Client>, spk_id: u32) -> (P
     let bundle = PreKeyBundle::new(
         reg_id,
         u32::from(own_device_jid.device).into(),
-        Some((pk_id_u32.into(), pk_pair.public_key)),
+        Some((pk_id_u32.into(), pk_pair.public)),
         spk_id.into(),
         spk_pub,
         spk_sig_vec,
-        IdentityKey::new(identity_kp.public_key),
+        IdentityKey::new(identity_kp.public),
     )
     .expect("bundle");
     (bundle, bob_jid)
@@ -1463,7 +1463,7 @@ async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
 
     // Create msg + skmsg node; msg will fail (no session), so skmsg should be skipped
     let dummy_key = [0u8; 32];
-    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public_key;
+    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
     let sender_identity_pair =
         IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity_pair =
@@ -5307,7 +5307,7 @@ async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
 
     // A well-formed SignalMessage for a session we have never established:
     // parses, then fails to decrypt with SessionNotFound.
-    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public_key;
+    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
     let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
@@ -15013,7 +15013,7 @@ async fn a_session_enc_with_no_session_reports_no_session() {
     let signal_message = SignalMessage::new(
         4,
         &[0u8; 32],
-        KeyPair::generate(&mut rng).public_key,
+        KeyPair::generate(&mut rng).public,
         0,
         0,
         b"test",
@@ -16094,8 +16094,8 @@ fn a_stored_bot_secret_that_will_not_derive_is_storage_not_a_missing_secret() {
 /// against the peer is the same mistake as counting a failed disk read.
 #[test]
 fn a_local_key_agreement_failure_is_not_the_peers() {
-    use wacore_crypto::CryptoProviderError;
     use wacore::libsignal::protocol::SignalProtocolError;
+    use wacore_crypto::CryptoProviderError;
 
     assert_eq!(
         signal_error_reason(&SignalProtocolError::KeyAgreementFailed(
@@ -23109,7 +23109,7 @@ async fn decrypt_failure_ack_recipient(test_id: &str, verdict: Option<bool>) -> 
         }
     })
     .await;
-    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public_key;
+    let sender_ratchet = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>()).public;
     let sender_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = IdentityKeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(

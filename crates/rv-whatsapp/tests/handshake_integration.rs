@@ -64,11 +64,7 @@ struct InProcessServer {
 impl InProcessServer {
     fn new() -> Self {
         let identity_kp = KeyPair::generate(&mut rand::rng());
-        let server_static_pub: [u8; 32] = identity_kp
-            .public_key
-            .public_key_bytes()
-            .try_into()
-            .expect("X25519 pub key is 32 bytes");
+        let server_static_pub: [u8; 32] = *identity_kp.public.raw();
         let cert_chain_bytes = build_cert_chain_bytes(&server_static_pub);
         Self {
             identity_kp,
@@ -77,11 +73,7 @@ impl InProcessServer {
     }
 
     fn server_static_pub(&self) -> [u8; 32] {
-        self.identity_kp
-            .public_key
-            .public_key_bytes()
-            .try_into()
-            .expect("X25519 pub key is 32 bytes")
+        *self.identity_kp.public.raw()
     }
 }
 
@@ -153,14 +145,14 @@ async fn xx_serve_hello_only(
     noise.authenticate(&client_eph_pub);
 
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
     noise.authenticate(&server_eph_pub);
     noise
-        .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_static = noise.encrypt(&server.server_static_pub()).unwrap();
     noise
-        .mix_shared_secret(server.identity_kp.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server.identity_kp.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_payload = noise.encrypt(&server.cert_chain_bytes).unwrap();
 
@@ -204,14 +196,14 @@ async fn xx_serve_full(
     noise.authenticate(&client_eph_pub);
 
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
     noise.authenticate(&server_eph_pub);
     noise
-        .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_static = noise.encrypt(&server.server_static_pub()).unwrap();
     noise
-        .mix_shared_secret(server.identity_kp.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server.identity_kp.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_payload = noise.encrypt(&server.cert_chain_bytes).unwrap();
 
@@ -262,23 +254,23 @@ async fn ik_serve_accept(
     noise.authenticate(&server.server_static_pub());
     noise.authenticate(&client_eph_pub);
     noise
-        .mix_shared_secret(server.identity_kp.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server.identity_kp.private.serialize(), &client_eph_pub)
         .unwrap();
     let client_static = noise.decrypt(&encrypted_static).unwrap();
     let client_static: [u8; 32] = client_static.try_into().unwrap();
     noise
-        .mix_shared_secret(server.identity_kp.private_key.serialize(), &client_static)
+        .mix_shared_secret(&server.identity_kp.private.serialize(), &client_static)
         .unwrap();
     let _payload = noise.decrypt(&encrypted_payload).unwrap();
 
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
     noise.authenticate(&server_eph_pub);
     noise
-        .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
         .unwrap();
     noise
-        .mix_shared_secret(server_eph.private_key.serialize(), &client_static)
+        .mix_shared_secret(&server_eph.private.serialize(), &client_static)
         .unwrap();
     let encrypted_cert = noise.encrypt(&server.cert_chain_bytes).unwrap();
 
@@ -676,7 +668,7 @@ async fn ik_serve_fallback_with_corrupt_payloads(
     wait_for_send(transport, 1).await;
 
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
 
     let server_hello = {
         let mut proto = wa::HandshakeMessage::default();
@@ -983,14 +975,14 @@ async fn ik_serve_force_fallback(
     noise.authenticate(&client_eph_pub);
 
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph.public_key.public_key_bytes().try_into().unwrap();
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
     noise.authenticate(&server_eph_pub);
     noise
-        .mix_shared_secret(server_eph.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server_eph.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_static = noise.encrypt(&server.server_static_pub()).unwrap();
     noise
-        .mix_shared_secret(server.identity_kp.private_key.serialize(), &client_eph_pub)
+        .mix_shared_secret(&server.identity_kp.private.serialize(), &client_eph_pub)
         .unwrap();
     let encrypted_cert = noise.encrypt(&server.cert_chain_bytes).unwrap();
 
@@ -1133,8 +1125,8 @@ async fn ik_with_stale_cache_invalidates_and_increments_counter() {
     // To test the *crypto-fatal* path instead, we send a malformed
     // ServerHello so the client's read_server_hello errors out at
     // decrypt of the cert (Core handshake error → invalidation runs).
-    let bogus_server_eph = KeyPair::generate(&mut rand::rng()).public_key;
-    let bogus_server_eph_bytes: [u8; 32] = bogus_server_eph.public_key_bytes().try_into().unwrap();
+    let bogus_server_eph = KeyPair::generate(&mut rand::rng()).public;
+    let bogus_server_eph_bytes: [u8; 32] = *bogus_server_eph.raw();
     let server_hello = {
         let mut proto = wa::HandshakeMessage::default();
         proto.server_hello = buffa::MessageField::some({

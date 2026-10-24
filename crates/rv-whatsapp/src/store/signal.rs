@@ -230,16 +230,11 @@ impl IdentityKeyStore for Device {
         identity_key: &IdentityKey,
     ) -> SignalResult<IdentityChange> {
         let address_str = address.as_str();
-        let key_bytes = identity_key.public_key().public_key_bytes();
+        let key_bytes = identity_key.public_key().raw();
         let existing_identity_opt = self.get_identity(address).await?;
 
         self.backend
-            .put_identity(
-                address_str,
-                key_bytes.try_into().map_err(|_| {
-                    SignalProtocolError::InvalidArgument("Invalid key length".into())
-                })?,
-            )
+            .put_identity(address_str, *key_bytes)
             .await
             .map_err(|e| SignalProtocolError::BackendError("backend put_identity", Box::new(e)))?;
 
@@ -271,7 +266,7 @@ impl IdentityKeyStore for Device {
 
         match identity_bytes {
             Some(bytes) if !bytes.is_empty() => {
-                let public_key = PublicKey::from_djb_public_key_bytes(&bytes)?;
+                let public_key = PublicKey::try_from(&bytes[..])?;
                 Ok(Some(IdentityKey::new(public_key)))
             }
             _ => Ok(None),
@@ -298,10 +293,8 @@ impl PreKeyStore for Device {
 
                 // Fallback: old format stored just the private key bytes (32 bytes)
                 // Reconstruct the full record by deriving the public key
-                if let Ok(private_key) = PrivateKey::deserialize(&bytes)
-                    && let Ok(public_key) = private_key.public_key()
-                {
-                    let key_pair = KeyPair::new(public_key, private_key);
+                if let Ok(private_key) = PrivateKey::deserialize(&bytes) {
+                    let key_pair = KeyPair::from_private(private_key);
                     let record = new_pre_key_record(prekey_id, &key_pair);
                     return Ok(Some(record));
                 }
@@ -581,9 +574,9 @@ mod tests {
         use wacore::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
         let mut record = SessionRecord::new(state);
@@ -725,7 +718,7 @@ mod tests {
         assert_eq!(loaded.id, Some(old_id));
         assert_eq!(
             loaded.public_key.as_deref(),
-            Some(kp.public_key.public_key_bytes())
+            Some(kp.public.raw().as_slice())
         );
 
         // A truly-unknown id still returns None.

@@ -916,9 +916,9 @@ impl SignalStore for GatedSessionRead<'_> {
 }
 
 fn fresh_session(rng: &mut rand::rngs::StdRng) -> SessionRecord {
-    let local = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let remote = IdentityKey::new(KeyPair::generate(rng).public_key);
-    let base_key = KeyPair::generate(rng).public_key;
+    let local = IdentityKey::new(KeyPair::generate(rng).public);
+    let remote = IdentityKey::new(KeyPair::generate(rng).public);
+    let base_key = KeyPair::generate(rng).public;
     let mut root = [0; 32];
     let mut chain = [0; 32];
     rng.fill(&mut root);

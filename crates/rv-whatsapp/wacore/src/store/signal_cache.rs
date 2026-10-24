@@ -2696,14 +2696,7 @@ mod sender_key_lock_tests {
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
         record
-            .add_sender_key_state(
-                3,
-                chain_id,
-                0,
-                &[7u8; 32],
-                kp.public_key,
-                Some(kp.private_key),
-            )
+            .add_sender_key_state(3, chain_id, 0, &[7u8; 32], kp.public, Some(kp.private))
             .expect("valid sender key state");
         record
     }
@@ -4896,9 +4889,9 @@ mod lease_reload_tests {
 
     pub(super) fn leased_session() -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base_key);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], 0));
         let mut record = SessionRecord::new(state);
@@ -6292,9 +6285,9 @@ mod cold_read_race_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(
             &KeyPair::generate(&mut rng),
@@ -6752,9 +6745,9 @@ mod flush_contention_reproduction_tests {
 
     fn session_at_index(index: u32) -> SessionRecord {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base_key = KeyPair::generate(&mut rng).public_key;
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let base_key = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([4u8; 32]), &base_key);
         state.set_sender_chain(
             &KeyPair::generate(&mut rng),

@@ -231,25 +231,17 @@ async fn serve_noise_handshake(
         .map_err(|_| anyhow::anyhow!("invalid client ephemeral length"))?;
 
     let server_static = KeyPair::generate(&mut rand::rng());
-    let server_static_pub: [u8; 32] = server_static
-        .public_key
-        .public_key_bytes()
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("invalid server static key length"))?;
+    let server_static_pub: [u8; 32] = *server_static.public.raw();
     let cert_chain = build_cert_chain_bytes(&server_static_pub);
     let server_eph = KeyPair::generate(&mut rand::rng());
-    let server_eph_pub: [u8; 32] = server_eph
-        .public_key
-        .public_key_bytes()
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("invalid server ephemeral length"))?;
+    let server_eph_pub: [u8; 32] = *server_eph.public.raw();
 
     let mut noise = NoiseHandshake::new(NOISE_PATTERN_XX, &WA_CONN_HEADER)?;
     noise.authenticate(&client_eph);
     noise.authenticate(&server_eph_pub);
-    noise.mix_shared_secret(server_eph.private_key.serialize(), &client_eph)?;
+    noise.mix_shared_secret(&server_eph.private.serialize(), &client_eph)?;
     let encrypted_static = noise.encrypt(&server_static_pub)?;
-    noise.mix_shared_secret(server_static.private_key.serialize(), &client_eph)?;
+    noise.mix_shared_secret(&server_static.private.serialize(), &client_eph)?;
     let encrypted_payload = noise.encrypt(&cert_chain)?;
     let server_hello = {
         let mut proto = wa::HandshakeMessage::default();
@@ -275,7 +267,7 @@ async fn serve_noise_handshake(
         .into_option()
         .expect("client completes XX handshake");
     let client_static = noise.decrypt(finish.r#static.as_deref().expect("client static"))?;
-    noise.mix_shared_secret(server_eph.private_key.serialize(), &client_static)?;
+    noise.mix_shared_secret(&server_eph.private.serialize(), &client_static)?;
     let _login_payload = noise.decrypt(finish.payload.as_deref().expect("client payload"))?;
     let (write, read) = noise.finish()?;
     // `NoiseHandshake::finish` yields initiator write/read keys; from the peer

@@ -147,7 +147,7 @@ impl SessionState {
         s.local_identity_public = Some(our_identity.serialize().into_vec());
         s.remote_identity_public = Some(their_identity.serialize().into_vec());
         s.root_key = Some(root_key.0.to_vec());
-        s.alice_base_key = Some(alice_base_key.serialize().into_vec());
+        s.alice_base_key = Some(alice_base_key.serialize().to_vec());
         Self(s)
     }
 
@@ -197,8 +197,8 @@ impl SessionState {
 
     pub fn set_sender_chain(&mut self, sender: &KeyPair, next_chain_key: &ChainKey) {
         let mut chain = Chain::default();
-        chain.sender_ratchet_key = Some(sender.public_key.serialize().into_vec());
-        chain.sender_ratchet_key_private = Some(sender.private_key.serialize().to_vec());
+        chain.sender_ratchet_key = Some(sender.public.serialize().to_vec());
+        chain.sender_ratchet_key_private = Some(sender.private.serialize().to_vec());
         chain.chain_key = chain_key_field(next_chain_key);
         self.0.sender_chain = buffa::MessageField::some(chain);
     }
@@ -554,9 +554,9 @@ mod tests {
 
     fn leased(index: u32) -> SessionRecord {
         let mut rng = rand::rng();
-        let local = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public_key);
-        let base = KeyPair::generate(&mut rng).public_key;
+        let local = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let remote = IdentityKey::new(KeyPair::generate(&mut rng).public);
+        let base = KeyPair::generate(&mut rng).public;
         let mut state = SessionState::new(3, &local, &remote, &RootKey::new([0; 32]), &base);
         state.set_sender_chain(&KeyPair::generate(&mut rng), &ChainKey::new([1; 32], index));
         SessionRecord::new(state)

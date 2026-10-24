@@ -308,8 +308,7 @@ impl User {
         let spk_pair = KeyPair::generate(&mut rng);
         let spk_sig = identity_key_pair
             .private_key()
-            .calculate_signature(&spk_pair.public_key.serialize(), &mut rng)
-            .unwrap();
+            .sign(&spk_pair.public.serialize(), &mut rng);
         let spk_record =
             SignedPreKeyRecord::new(spk_id, Timestamp::from_epoch_millis(0), &spk_pair, &spk_sig);
 
@@ -357,9 +356,9 @@ impl User {
         PreKeyBundle::new(
             self.identity.reg_id,
             1.into(),
-            Some((1.into(), self.prekey_pair.public_key)),
+            Some((1.into(), self.prekey_pair.public)),
             1.into(),
-            self.signed_prekey_pair.public_key,
+            self.signed_prekey_pair.public,
             self.signed_prekey_sig.clone(),
             *self.identity.key_pair.identity_key(),
         )

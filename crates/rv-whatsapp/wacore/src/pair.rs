@@ -3,11 +3,11 @@ use crate::adv::{
     DeviceSignatureKind,
 };
 use crate::companion_reg::CompanionWebClientType;
-use wacore_crypto::aes_256_gcm_encrypt;
 use crate::libsignal::protocol::{KeyPair, PublicKey};
 use base64::Engine as _;
 use base64::prelude::*;
 use hmac::{Hmac, Mac};
+use wacore_crypto::aes_256_gcm_encrypt;
 
 use sha2::Sha256;
 use wacore_binary::builder::NodeBuilder;
@@ -57,10 +57,8 @@ impl PairUtils {
         ref_str: &str,
         client_type: CompanionWebClientType,
     ) -> String {
-        let noise_b64 =
-            BASE64_STANDARD.encode(device_state.noise_key.public_key.public_key_bytes());
-        let identity_b64 =
-            BASE64_STANDARD.encode(device_state.identity_key.public_key.public_key_bytes());
+        let noise_b64 = BASE64_STANDARD.encode(device_state.noise_key.public.raw());
+        let identity_b64 = BASE64_STANDARD.encode(device_state.identity_key.public.raw());
         let adv_b64 = BASE64_STANDARD.encode(device_state.adv_secret_key);
 
         format!("{ref_str},{noise_b64},{identity_b64},{adv_b64},{client_type}")
@@ -255,18 +253,20 @@ impl PairUtils {
 
         let msg_to_verify = AccountSignatureMessage::new(
             inner_details_bytes,
-            &device_state.identity_key.public_key,
+            &device_state.identity_key.public,
             identity_details.device_type,
         );
 
-        let account_public_key = PublicKey::from_djb_public_key_bytes(account_sig_key_bytes)
-            .map_err(|e| PairCryptoError {
+        let account_public_key =
+            PublicKey::try_from(account_sig_key_bytes).map_err(|e| PairCryptoError {
                 code: 401,
                 text: "invalid-key",
                 source: e.into(),
             })?;
 
-        if !account_public_key.verify_signature(msg_to_verify.as_bytes(), account_sig_bytes) {
+        if !<&[u8; 64]>::try_from(account_sig_bytes)
+            .is_ok_and(|sig| account_public_key.verify(msg_to_verify.as_bytes(), sig))
+        {
             return Err(PairCryptoError {
                 code: 401,
                 text: "signature-mismatch",
@@ -285,13 +285,8 @@ impl PairUtils {
             msg_to_verify.for_device(&account_public_key, DeviceSignatureKind::Companion);
         let device_signature = device_state
             .identity_key
-            .private_key
-            .calculate_signature(&msg_to_sign, &mut rand::make_rng::<rand::rngs::StdRng>())
-            .map_err(|e| PairCryptoError {
-                code: 500,
-                text: "internal-error",
-                source: e.into(),
-            })?;
+            .private
+            .sign(&msg_to_sign, &mut rand::make_rng::<rand::rngs::StdRng>());
         signed_identity.device_signature = Some(device_signature.to_vec());
 
         let self_signed_identity_bytes =
@@ -383,18 +378,16 @@ impl PairUtils {
             .map_err(|e| anyhow::anyhow!("Failed to init HMAC for master pairing: {e}"))?;
         mac.update(&ADV_PREFIX_ACCOUNT_SIGNATURE);
         mac.update(dut_identity_pub);
-        mac.update(master_ephemeral.public_key.public_key_bytes());
+        mac.update(master_ephemeral.public.raw());
         let account_signature = mac.finalize().into_bytes();
 
-        let their_public_key = PublicKey::from_djb_public_key_bytes(dut_noise_pub)?;
-        let shared_secret = master_ephemeral
-            .private_key
-            .calculate_agreement(&their_public_key)?;
+        let their_public_key = PublicKey::try_from(&dut_noise_pub[..])?;
+        let shared_secret = master_ephemeral.private.agree(&their_public_key)?;
 
         let mut final_message = Vec::with_capacity(64 + 32 + 32);
         final_message.extend_from_slice(&account_signature);
-        final_message.extend_from_slice(master_ephemeral.public_key.public_key_bytes());
-        final_message.extend_from_slice(identity_key.public_key.public_key_bytes());
+        final_message.extend_from_slice(master_ephemeral.public.raw());
+        final_message.extend_from_slice(identity_key.public.raw());
 
         // Encrypt the final message
         let mut encryption_key = [0u8; 32];
@@ -493,8 +486,8 @@ mod tests {
         let qr = PairUtils::make_qr_data(&state, "the-ref", CompanionWebClientType::OtherWebClient);
         let (pairing_ref, noise, identity) = PairUtils::parse_qr_code(&qr).unwrap();
         assert_eq!(pairing_ref, "the-ref");
-        assert_eq!(noise, *state.noise_key.public_key.public_key_bytes());
-        assert_eq!(identity, *state.identity_key.public_key.public_key_bytes());
+        assert_eq!(noise, *state.noise_key.public.raw());
+        assert_eq!(identity, *state.identity_key.public.raw());
     }
 
     #[test]
@@ -502,15 +495,15 @@ mod tests {
         let state = dummy_device_state();
         let legacy = [
             "ref".to_string(),
-            BASE64_STANDARD.encode(state.noise_key.public_key.public_key_bytes()),
-            BASE64_STANDARD.encode(state.identity_key.public_key.public_key_bytes()),
+            BASE64_STANDARD.encode(state.noise_key.public.raw()),
+            BASE64_STANDARD.encode(state.identity_key.public.raw()),
             BASE64_STANDARD.encode(state.adv_secret_key),
         ]
         .join(",");
         let (pairing_ref, noise, identity) = PairUtils::parse_qr_code(&legacy).unwrap();
         assert_eq!(pairing_ref, "ref");
-        assert_eq!(noise, *state.noise_key.public_key.public_key_bytes());
-        assert_eq!(identity, *state.identity_key.public_key.public_key_bytes());
+        assert_eq!(noise, *state.noise_key.public.raw());
+        assert_eq!(identity, *state.identity_key.public.raw());
     }
 
     #[test]
@@ -552,8 +545,8 @@ mod tests {
     #[test]
     fn parse_qr_code_rejects_empty_trailing_client_type() {
         let state = dummy_device_state();
-        let noise = BASE64_STANDARD.encode(state.noise_key.public_key.public_key_bytes());
-        let identity = BASE64_STANDARD.encode(state.identity_key.public_key.public_key_bytes());
+        let noise = BASE64_STANDARD.encode(state.noise_key.public.raw());
+        let identity = BASE64_STANDARD.encode(state.identity_key.public.raw());
         let adv = BASE64_STANDARD.encode(state.adv_secret_key);
         let qr = format!("ref,{noise},{identity},{adv},");
         let err = PairUtils::parse_qr_code(&qr).unwrap_err();
@@ -576,7 +569,7 @@ mod tests {
     fn parse_qr_code_rejects_wrong_key_length() {
         let state = dummy_device_state();
         let short_noise = BASE64_STANDARD.encode([0u8; 16]);
-        let identity = BASE64_STANDARD.encode(state.identity_key.public_key.public_key_bytes());
+        let identity = BASE64_STANDARD.encode(state.identity_key.public.raw());
         let adv = BASE64_STANDARD.encode(state.adv_secret_key);
         let qr = format!("ref,{short_noise},{identity},{adv}");
         let err = PairUtils::parse_qr_code(&qr).unwrap_err();
@@ -655,8 +648,8 @@ mod tests {
             let (pairing_ref, noise, identity) = PairUtils::parse_qr_code(&qr)
                 .unwrap_or_else(|e| panic!("{ct:?} round-trip failed: {e}"));
             assert_eq!(pairing_ref, "the-ref", "{ct:?}");
-            assert_eq!(noise, *state.noise_key.public_key.public_key_bytes());
-            assert_eq!(identity, *state.identity_key.public_key.public_key_bytes());
+            assert_eq!(noise, *state.noise_key.public.raw());
+            assert_eq!(identity, *state.identity_key.public.raw());
         }
     }
 
@@ -784,12 +777,7 @@ mod tests {
                     assert_eq!(
                         crate::adv::validate_adv_with_identity_key(
                             &result,
-                            state
-                                .identity_key
-                                .public_key
-                                .public_key_bytes()
-                                .try_into()
-                                .unwrap(),
+                            state.identity_key.public.raw(),
                             None,
                             &Jid::pn_device(TEST_PN, 1),
                         ),
@@ -797,15 +785,15 @@ mod tests {
                     );
                     let details = signed.details.as_deref().unwrap();
                     let account_key = signed.account_signature_key.as_deref().unwrap();
-                    let identity = state.identity_key.public_key.public_key_bytes();
+                    let identity = state.identity_key.public.raw();
                     let signature = signed.device_signature.as_deref().unwrap();
-                    assert!(state.identity_key.public_key.verify_signature(
+                    assert!(state.identity_key.public.verify(
                         &[&[6, 1], details, identity, account_key].concat(),
-                        signature,
+                        signature.try_into().unwrap(),
                     ));
-                    assert!(!state.identity_key.public_key.verify_signature(
+                    assert!(!state.identity_key.public.verify(
                         &[&[6, 6], details, identity, account_key].concat(),
-                        signature,
+                        signature.try_into().unwrap(),
                     ));
                 }
             }
@@ -840,26 +828,26 @@ mod tests {
         let signed = waproto::codec::adv_signed_device_identity_decode(&result).unwrap();
         assert_eq!(signed.details.as_deref(), Some(details.as_slice()));
         assert!(
-            state.identity_key.public_key.verify_signature(
+            state.identity_key.public.verify(
                 &[
                     &[6, 1],
                     details.as_slice(),
-                    state.identity_key.public_key.public_key_bytes(),
-                    account.public_key.public_key_bytes()
+                    state.identity_key.public.raw(),
+                    account.public.raw()
                 ]
                 .concat(),
-                signed.device_signature.as_deref().unwrap(),
+                signed
+                    .device_signature
+                    .as_deref()
+                    .unwrap()
+                    .try_into()
+                    .unwrap(),
             )
         );
         assert_eq!(
             crate::adv::validate_adv_with_identity_key(
                 &result,
-                state
-                    .identity_key
-                    .public_key
-                    .public_key_bytes()
-                    .try_into()
-                    .unwrap(),
+                state.identity_key.public.raw(),
                 None,
                 &Jid::pn_device(TEST_PN, 1),
             ),
@@ -926,8 +914,7 @@ mod tests {
                     }
                     Corruption::SubstitutedKey => {
                         let key = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
-                        signed.account_signature_key =
-                            Some(key.public_key.public_key_bytes().to_vec());
+                        signed.account_signature_key = Some(key.public.raw().to_vec());
                         (401, "signature-mismatch")
                     }
                 };

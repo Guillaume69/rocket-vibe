@@ -73,9 +73,9 @@ impl Peer {
             1.into(),
             None,
             device.signed_pre_key_id.into(),
-            device.signed_pre_key.public_key,
+            device.signed_pre_key.public,
             device.signed_pre_key_signature.to_vec(),
-            IdentityKey::new(device.identity_key.public_key),
+            IdentityKey::new(device.identity_key.public),
         )
         .unwrap()
     }

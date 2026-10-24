@@ -144,12 +144,11 @@ fn decode_sender_key_distribution(
                         value.len()
                     ))
                 })?;
-            let signing_key =
-                PublicKey::from_djb_public_key_bytes(&signing_key).map_err(|error| {
-                    SignalError::InvalidInput(format!(
-                        "sender-key distribution signing_key is invalid: {error}"
-                    ))
-                })?;
+            let signing_key = PublicKey::try_from(&signing_key[..]).map_err(|error| {
+                SignalError::InvalidInput(format!(
+                    "sender-key distribution signing_key is invalid: {error}"
+                ))
+            })?;
             Ok(SenderKeyDistributionMessage::new(
                 SENDERKEY_MESSAGE_CURRENT_VERSION,
                 id,
@@ -760,14 +759,13 @@ mod tests {
         let prekey = KeyPair::generate(&mut rng);
         let signature = identity
             .private_key()
-            .calculate_signature(&signed_prekey.public_key.serialize(), &mut rng)
-            .expect("signed prekey signature");
+            .sign(&signed_prekey.public.serialize(), &mut rng);
         PreKeyBundle::new(
             registration_id,
             device_id.into(),
-            Some((7u32.into(), prekey.public_key)),
+            Some((7u32.into(), prekey.public)),
             9u32.into(),
-            signed_prekey.public_key,
+            signed_prekey.public,
             signature,
             *identity.identity_key(),
         )
@@ -1363,7 +1361,7 @@ mod tests {
         unframed.extend_from_slice(&[0x1A, 32]);
         unframed.extend_from_slice(&[0x11; 32]);
         unframed.extend_from_slice(&[0x22, 32]);
-        unframed.extend_from_slice(signing.public_key.public_key_bytes());
+        unframed.extend_from_slice(signing.public.raw());
 
         assert!(
             matches!(
@@ -1378,7 +1376,7 @@ mod tests {
             .expect("the unframed encoding must keep decoding");
         assert_eq!(decoded.chain_id(), 7);
         assert_eq!(decoded.chain_key(), &[0x11u8; 32]);
-        assert_eq!(decoded.signing_key(), &signing.public_key);
+        assert_eq!(decoded.signing_key(), &signing.public);
     }
 
     /// The shortest byte string either accepted encoding can produce: the
@@ -1436,7 +1434,7 @@ mod tests {
             7,
             0,
             [0x11; 32],
-            signing.public_key,
+            signing.public,
         )
         .expect("distribution")
         .into_serialized();
@@ -1447,6 +1445,6 @@ mod tests {
         );
         let decoded = decode_sender_key_distribution(&framed).expect("framed distribution");
         assert_eq!(decoded.chain_id(), 7);
-        assert_eq!(decoded.signing_key(), &signing.public_key);
+        assert_eq!(decoded.signing_key(), &signing.public);
     }
 }

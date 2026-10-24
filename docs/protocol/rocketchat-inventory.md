@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-723 production files scanned; 756 occurrences.
+724 production files scanned; 756 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -342,8 +342,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/sync.rs:433](../../apps/desktop/crates/rv-core/src/sync.rs#L433) | call:GET | history_endpoint(kind), o).await?; |
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/sync.rs:451](../../apps/desktop/crates/rv-core/src/sync.rs#L451) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/teams/sync.rs:493](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L493) | url | /api/v2/query |
-| [apps/desktop/crates/rv-core/src/teams/sync.rs:639](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L639) | url | /api/csa |
 | [apps/desktop/crates/rv-core/src/uploads.rs:95](../../apps/desktop/crates/rv-core/src/uploads.rs#L95) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:397](../../apps/desktop/crates/rv-core/src/uploads.rs#L397) | call:POST | "posts" |
 | [apps/desktop/crates/rv-core/src/uploads.rs:602](../../apps/desktop/crates/rv-core/src/uploads.rs#L602) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |
@@ -760,6 +758,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
 | [crates/rv-teams/src/auth.rs:2123](../../crates/rv-teams/src/auth.rs#L2123) | url | /api/csa |
+| [crates/rv-teams/src/service.rs:268](../../crates/rv-teams/src/service.rs#L268) | url | /api/v2/query |
+| [crates/rv-teams/src/service.rs:371](../../crates/rv-teams/src/service.rs#L371) | url | /api/csa |
 | [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
 | [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
 | [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |

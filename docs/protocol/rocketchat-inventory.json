@@ -718,6 +718,7 @@
     "crates/rv-teams/src/frames.rs",
     "crates/rv-teams/src/lib.rs",
     "crates/rv-teams/src/live.rs",
+    "crates/rv-teams/src/service.rs",
     "crates/rv-teams/src/translate.rs",
     "packages/provider-api/src/calls.ts",
     "packages/provider-api/src/cards.ts",
@@ -2736,18 +2737,6 @@
       "line": 451,
       "kind": "endpoint",
       "surface": "chat.getMessage"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
-      "line": 493,
-      "kind": "url",
-      "surface": "/api/v2/query"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/teams/sync.rs",
-      "line": 639,
-      "kind": "url",
-      "surface": "/api/csa"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/uploads.rs",
@@ -5242,6 +5231,18 @@
     {
       "file": "crates/rv-teams/src/auth.rs",
       "line": 2123,
+      "kind": "url",
+      "surface": "/api/csa"
+    },
+    {
+      "file": "crates/rv-teams/src/service.rs",
+      "line": 268,
+      "kind": "url",
+      "surface": "/api/v2/query"
+    },
+    {
+      "file": "crates/rv-teams/src/service.rs",
+      "line": 371,
       "kind": "url",
       "surface": "/api/csa"
     },

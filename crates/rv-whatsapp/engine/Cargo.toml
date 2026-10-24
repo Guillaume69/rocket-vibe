@@ -9,6 +9,10 @@ description = "The WhatsApp engine of rocket-vibe: its JSON protocol over whatsa
 
 [dependencies]
 aes-gcm = { workspace = true }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+rv-link-preview = { path = "../../rv-link-preview" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "fs"] }
+whatsapp-rust = { path = "..", default-features = false, features = ["tokio-transport", "tokio-runtime", "ureq-client", "tokio-native"] }
 base64 = { workspace = true, features = ["std"] }
 rand = { workspace = true }
 serde = { workspace = true }

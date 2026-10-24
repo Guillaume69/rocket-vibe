@@ -65,6 +65,20 @@ pub struct Avatar {
     pub checked: i64,
 }
 
+/// What WhatsApp tells of a person: the phone's address book, the name they
+/// chose, their business name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Contact {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub full_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub first_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub push_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub business_name: String,
+}
+
 /// A link preview carried by an edit.
 #[derive(Clone, Debug, Default)]
 pub struct Preview {
@@ -91,6 +105,8 @@ pub struct Projection {
     chat_names: BTreeMap<String, String>,
     avatars: BTreeMap<String, Avatar>,
     unread: BTreeMap<String, i64>,
+    #[serde(default)]
+    contacts: BTreeMap<String, Contact>,
 }
 
 /// `<chat>:<WhatsApp id>` into its two parts.
@@ -450,6 +466,58 @@ impl Projection {
             .collect()
     }
 
+    /// Changes what is known of a person; reports whether anything changed.
+    pub fn update_contact(&mut self, jid: &str, update: impl FnOnce(&mut Contact)) -> bool {
+        let contact = self.contacts.entry(jid.to_owned()).or_default();
+        let before = contact.clone();
+        update(contact);
+        let changed = *contact != before;
+        if *contact == Contact::default() {
+            self.contacts.remove(jid);
+        }
+        changed
+    }
+
+    pub fn contacts(&self) -> impl Iterator<Item = (&str, &Contact)> {
+        self.contacts.iter().map(|(jid, c)| (jid.as_str(), c))
+    }
+
+    /// The name WhatsApp would show: the phone's address book first, then the
+    /// name the person chose, the business name, the conversation's name, and
+    /// the number last. `alt` is the person's other address (LID or number).
+    /// Empty when nothing better than the JID is known.
+    pub fn name_of(&self, jid: &str, alt: Option<&str>) -> String {
+        let stored = self.chat_names.get(jid).cloned().unwrap_or_default();
+        if jid.ends_with(GROUP_SERVER) {
+            return stored;
+        }
+        let found: Vec<&Contact> = std::iter::once(jid)
+            .chain(alt)
+            .filter_map(|j| self.contacts.get(j))
+            .collect();
+        for c in &found {
+            if !c.full_name.is_empty() {
+                return c.full_name.clone();
+            }
+            if !c.first_name.is_empty() {
+                return c.first_name.clone();
+            }
+        }
+        let pick = |f: fn(&Contact) -> &String| {
+            found.iter().map(|c| f(c)).find(|n| !n.is_empty()).cloned()
+        };
+        if let Some(name) = pick(|c| &c.push_name).or_else(|| pick(|c| &c.business_name)) {
+            return name;
+        }
+        if !stored.is_empty() {
+            return stored;
+        }
+        let number = std::iter::once(jid)
+            .chain(alt)
+            .find_map(|j| j.strip_suffix("@s.whatsapp.net"));
+        number.map(|n| format!("+{n}")).unwrap_or_default()
+    }
+
     pub fn avatar(&self, jid: &str) -> Option<&Avatar> {
         self.avatars.get(jid)
     }
@@ -777,6 +845,24 @@ mod tests {
     }
 
     #[test]
+    fn names_as_whatsapp_shows_them() {
+        let mut p = Projection::default();
+        let pn = "33612345678@s.whatsapp.net";
+        assert_eq!(p.name_of(pn, None), "+33612345678");
+        assert_eq!(p.name_of("1@lid", None), "");
+        assert_eq!(p.name_of("1@lid", Some(pn)), "+33612345678");
+        p.set_chat_name(pn, "Chat name");
+        assert_eq!(p.name_of(pn, None), "Chat name");
+        p.update_contact("1@lid", |c| c.push_name = "Pushed".into());
+        assert_eq!(p.name_of(pn, Some("1@lid")), "Pushed");
+        assert!(p.update_contact(pn, |c| c.first_name = "Al".into()));
+        assert!(!p.update_contact(pn, |c| c.first_name = "Al".into()));
+        assert_eq!(p.name_of(pn, Some("1@lid")), "Al");
+        p.set_chat_name("g@g.us", "Group");
+        assert_eq!(p.name_of("g@g.us", None), "Group");
+    }
+
+    #[test]
     fn the_projection_survives_a_round_trip() {
         let mut p = Projection::default();
         let mut m = message("a@s.whatsapp.net:1", 1, "");
@@ -795,6 +881,7 @@ mod tests {
             },
         );
         p.set_unread("a@s.whatsapp.net", 2, true);
+        p.update_contact("a@s.whatsapp.net", |c| c.full_name = "A".into());
         let back: Projection = serde_json::from_slice(&serde_json::to_vec(&p).unwrap()).unwrap();
         assert_eq!(back, p);
     }

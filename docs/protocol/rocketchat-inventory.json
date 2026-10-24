@@ -710,6 +710,7 @@
     "crates/rv-slack/src/handoff.rs",
     "crates/rv-slack/src/lib.rs",
     "crates/rv-slack/src/live.rs",
+    "crates/rv-slack/src/service.rs",
     "crates/rv-slack/src/translate.rs",
     "crates/rv-teams/examples/teams-authz.rs",
     "crates/rv-teams/examples/teams-shapes.rs",
@@ -2557,36 +2558,6 @@
       "line": 2755,
       "kind": "endpoint",
       "surface": "users.setPresence"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 150,
-      "kind": "call:POST",
-      "surface": "method"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 164,
-      "kind": "endpoint",
-      "surface": "users.conversations"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 166,
-      "kind": "endpoint",
-      "surface": "users.conversations"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 682,
-      "kind": "endpoint",
-      "surface": "chat.update"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/slack/sync.rs",
-      "line": 693,
-      "kind": "endpoint",
-      "surface": "chat.delete"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/social.rs",
@@ -5206,7 +5177,7 @@
     },
     {
       "file": "crates/rv-slack/src/lib.rs",
-      "line": 301,
+      "line": 302,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
@@ -5215,6 +5186,36 @@
       "line": 137,
       "kind": "call:POST",
       "surface": "\"rtm.connect\""
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 64,
+      "kind": "call:POST",
+      "surface": "method"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 115,
+      "kind": "endpoint",
+      "surface": "users.conversations"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 117,
+      "kind": "endpoint",
+      "surface": "users.conversations"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 251,
+      "kind": "endpoint",
+      "surface": "chat.update"
+    },
+    {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 261,
+      "kind": "endpoint",
+      "surface": "chat.delete"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",

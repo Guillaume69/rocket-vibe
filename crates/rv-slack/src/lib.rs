@@ -7,6 +7,7 @@ pub mod directory;
 pub mod emojis;
 pub mod handoff;
 pub mod live;
+pub mod service;
 pub mod translate;
 
 pub use account::{Session, SlackAccount, login, login_at, login_paired};

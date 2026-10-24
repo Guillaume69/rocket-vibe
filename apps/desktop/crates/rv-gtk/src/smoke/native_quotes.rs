@@ -45,8 +45,22 @@ fn contains(root: &gtk::Widget, text: &str) -> bool {
     false
 }
 
-fn reply_button(root: &gtk::Widget) -> Option<gtk::Button> {
-    action_button(root, "actions.reply")
+async fn menu_action(
+    window: &AppWindow,
+    event: impl Fn() -> crate::rows::RowEvent,
+    thread: bool,
+    key: &str,
+) -> Option<gtk::Button> {
+    for attempt in 0..300 {
+        if attempt % 60 == 0 {
+            window.chat.play(event(), thread);
+        }
+        if let Some(button) = action_button(window.window.upcast_ref(), key) {
+            return Some(button);
+        }
+        glib::timeout_future(Duration::from_millis(50)).await;
+    }
+    None
 }
 fn action_button(root: &gtk::Widget, key: &str) -> Option<gtk::Button> {
     button_with_label(root, crate::i18n::t(key))
@@ -195,8 +209,9 @@ async fn run(window: Rc<AppWindow>) {
     let source =
         session.store.messages(&rid, 100).unwrap().into_iter().rev().find(|m| m.text == "GTK quote source").unwrap();
     let reply_text = format!("GTK quoted reply {}", source.id);
-    window.chat.play(
-        crate::rows::RowEvent::Menu {
+    let button = menu_action(
+        &window,
+        || crate::rows::RowEvent::Menu {
             row: Box::new(source.clone().presentation(&rid, &session.info.user_id)),
             anchor: window.chat.room_list().row_widget(&source.id).unwrap(),
             x: 10.0,
@@ -204,15 +219,9 @@ async fn run(window: Rc<AppWindow>) {
             link: None,
         },
         false,
-    );
-    let mut button = None;
-    for _ in 0..100 {
-        button = reply_button(window.window.upcast_ref());
-        if button.is_some() {
-            break;
-        }
-        glib::timeout_future(Duration::from_millis(50)).await;
-    }
+        "actions.reply",
+    )
+    .await;
     check("existing GTK menu exposes native reply", button.is_some(), ());
     let Some(button) = button else {
         std::process::exit(1);
@@ -312,24 +321,19 @@ async fn run(window: Rc<AppWindow>) {
     );
     window.chat.composer().clear_reply();
     check("native discovery enables threads", session.supported_features().iter().any(|f| f == "threads"), ());
-    window.chat.play(
-        crate::rows::RowEvent::Menu {
-            row: Box::new(current.presentation(&rid, &session.info.user_id)),
+    let thread_button = menu_action(
+        &window,
+        || crate::rows::RowEvent::Menu {
+            row: Box::new(current.clone().presentation(&rid, &session.info.user_id)),
             anchor: window.chat.room_list().row_widget(&reply.id).unwrap(),
             x: 10.0,
             y: 10.0,
             link: None,
         },
         false,
-    );
-    let mut thread_button = None;
-    for _ in 0..100 {
-        thread_button = action_button(window.window.upcast_ref(), "actions.reply_thread");
-        if thread_button.is_some() {
-            break;
-        }
-        glib::timeout_future(Duration::from_millis(50)).await;
-    }
+        "actions.reply_thread",
+    )
+    .await;
     check("existing GTK menu opens a native thread", thread_button.is_some(), ());
     let Some(thread_button) = thread_button else { std::process::exit(1) };
     thread_button.emit_clicked();
@@ -372,8 +376,9 @@ async fn run(window: Rc<AppWindow>) {
             && window.chat.room_list().row(&child.id).is_none(),
         (),
     );
-    window.chat.play(
-        crate::rows::RowEvent::Menu {
+    let quote_button = menu_action(
+        &window,
+        || crate::rows::RowEvent::Menu {
             row: Box::new(child.clone().presentation(&rid, &session.info.user_id)),
             anchor: thread.list.row_widget(&child.id).unwrap(),
             x: 10.0,
@@ -381,15 +386,9 @@ async fn run(window: Rc<AppWindow>) {
             link: None,
         },
         true,
-    );
-    let mut quote_button = None;
-    for _ in 0..80 {
-        quote_button = reply_button(window.window.upcast_ref());
-        if quote_button.is_some() {
-            break;
-        }
-        glib::timeout_future(Duration::from_millis(50)).await;
-    }
+        "actions.reply",
+    )
+    .await;
     check("GTK thread retains its existing quote action", quote_button.is_some(), ());
     let Some(quote_button) = quote_button else { std::process::exit(1) };
     quote_button.emit_clicked();
@@ -490,8 +489,9 @@ async fn cross_room_quotes(
         window.chat.room_list().row(&id).is_some_and(|row| row.outbox_status.is_none()),
         (),
     );
-    window.chat.play(
-        crate::rows::RowEvent::Menu {
+    let button = menu_action(
+        window,
+        || crate::rows::RowEvent::Menu {
             row: Box::new(window.chat.room_list().row(&id).unwrap()),
             anchor: window.chat.room_list().row_widget(&id).unwrap(),
             x: 10.0,
@@ -499,15 +499,9 @@ async fn cross_room_quotes(
             link: None,
         },
         false,
-    );
-    let mut button = None;
-    for _ in 0..100 {
-        button = action_button(window.window.upcast_ref(), "quote.elsewhere");
-        if button.is_some() {
-            break;
-        }
-        glib::timeout_future(Duration::from_millis(50)).await;
-    }
+        "quote.elsewhere",
+    )
+    .await;
     check("GTK existing menu exposes destination chooser", button.is_some(), ());
     if button.is_none() {
         let context = session.message_action_context(&source.id).await;

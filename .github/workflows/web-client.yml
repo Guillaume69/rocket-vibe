@@ -8,15 +8,63 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 concurrency:
   group: web-client-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  browser:
+  assets:
     runs-on: ubuntu-24.04
-    # Real sealed-history paging beyond 200 accepted MLS messages seeds 205
-    # private sends through the UI: about an hour on a hosted runner.
-    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Build and verify committed browser assets
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run crypto:build
+          npm run format:check
+          npm test
+          npm run build
+          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json src/crypto
+
+  # Built from the committed dist, which the assets job proves current. The
+  # server's fmt, clippy and tests are native-server.yml's.
+  server:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: cargo build --locked -p vibez
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vibez-debug
+          path: target/debug/vibez
+          retention-days: 1
+
+  browser:
+    needs: server
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Real sealed-history paging beyond 200 accepted MLS messages seeds 205
+          # private sends through the UI: about an hour on a hosted runner.
+          - shard: e2ee
+            suites: e2ee
+          - shard: rest
+            suites: browser features media images video-reduce voice voice-connection voice-lifecycle incoming-call sessions locked composer conversation-parity gtk-forms emoji-completion admin-invitations shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security security-pending factor-auth visual workflows reads profiles navigation social
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:18-alpine
@@ -40,7 +88,6 @@ jobs:
       VIBEZ_USER_PASSWORD: web-client-disposable-password
       RV_WEB_CRYPTO_ALICE: webcryptoalice
       RV_WEB_CRYPTO_BOB: webcryptobob
-      RUST_TEST_THREADS: 4
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -48,30 +95,16 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: actions/download-artifact@v4
         with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      - name: Build and verify committed browser assets
+          name: vibez-debug
+          path: target/debug
+      - name: Browsers
         working-directory: apps/web
         run: |
+          chmod +x ../../target/debug/vibez
           npm ci
-          npm run crypto:build
-          npm run format:check
-          npm test
-          npm run build
-          git diff --exit-code -- dist src/gtk.css src/design.generated.ts src/third-party.generated.ts src/native-strings.generated.json src/native-errors.generated.json src/crypto
           npx playwright install --with-deps chromium firefox
-      - name: Build the actual server distribution
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked -p vibez --all-targets -- -D warnings
-          cargo test --locked -p vibez --lib
-          cargo test --locked -p vibez --test room_details
-          cargo test --locked -p vibez --test bots a_key_reaches_only_the_routes_of_its_scopes
-          cargo build --locked -p vibez
       - name: Start isolated SMTP, SFU and server
         run: |
           mkdir -p .cache/web-shots .cache/web-objects
@@ -147,11 +180,12 @@ jobs:
           # between suites on this disposable server. All suites also share localhost's
           # login budget; release that IP window only at the closed-suite boundary,
           # keeping every limit within each suite real.
-          for suite in e2ee browser features media images video-reduce voice voice-connection voice-lifecycle incoming-call sessions locked composer conversation-parity gtk-forms emoji-completion admin-invitations shell-parity quiet receipts scheduled reminders threads global-search logout-replay notifications security security-pending factor-auth visual workflows reads profiles navigation social; do
+          for suite in ${{ matrix.suites }}; do
             npm run "test:$suite"
             docker exec "${{ job.services.postgres.id }}" psql -U web -d web --set ON_ERROR_STOP=1 --command "DELETE FROM snapshot_heads; DELETE FROM login_windows WHERE key LIKE 'ip:%'"
           done
       - name: Exercise authenticated browser vault and concurrent workers
+        if: matrix.shard == 'rest'
         working-directory: apps/web
         run: |
           RV_WEB_API_URL="$RV_WEB_TEST_URL" npm run dev -- --port 3418 > ../../.cache/web-crypto-vite.log 2>&1 &
@@ -163,7 +197,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: web-browser-evidence
+          name: web-browser-evidence-${{ matrix.shard }}
           path: |
             .cache/web-shots
             artifacts/rail-presence

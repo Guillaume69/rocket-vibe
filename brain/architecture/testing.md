@@ -74,14 +74,14 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 
 ## Server and shared crates
 
-- **`apps/server/scripts/check.sh`** is the server's gate, run by `native-server.yml` (`verify`, with PostgreSQL) and `server-release.yml`: fmt, clippy `-D warnings` and `cargo test` of the root workspace (the server, `rv-protocol`, `rv-client`, `rv-crypto-public`), the crypto test vectors re-verified independently with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile Vibez provider tests ([server.md](server.md)).
+- **`apps/server/scripts/check.sh`** is the server's gate, run by `native-server.yml` (`verify`, with PostgreSQL) and `server-release.yml`: fmt, clippy `-D warnings` and the tests of the root workspace (the server, `rv-protocol`, `rv-client`, `rv-crypto-public`), the crypto test vectors re-verified independently with Node, `rv-crypto`'s tests, the protocol schema diff, the generated protocol, emoji and Rocket.Chat inventory checks, and the mobile Vibez provider tests ([server.md](server.md)). With `cargo-nextest` installed (CI installs it) the tests run through `cargo nextest run`, every test binary in one pool, plus a `cargo test --doc` pass; without it, plain `cargo test`.
 - **Database tests**: about 300 `#[sqlx::test]`, in `apps/server/src/` and `apps/server/tests/`, each on a fresh database from `DATABASE_URL`; without PostgreSQL they fail. `tests/` drives real HTTP and WebSockets through `rv-client` and the mobile TypeScript transport.
 - **Native pilots** (`native-server.yml`): the mobile provider's SQLite runner, the GTK app and the Swift view models against a disposable server and PostgreSQL in Docker (`docker/compose.native-*-pilot.yml`): sign-in and second factors, sessions after restart, files, quotes and threads, email codes and profile receipts. The same job times the GTK Vibez reload under a burst of traffic and writes the result to its run summary ([desktop-gtk.md](desktop-gtk.md)).
 - **Crypto** (`native-server.yml`, `native-crypto-android.yml`): `rv-crypto` on Linux, Windows and macOS with a real Secret Service restart test on Linux, its delivery worker against the server, and the Android bridge on an emulator ([shared-crates.md](shared-crates.md)).
 
 ## Web
 
-`npm test` runs the unit tests (`apps/web/tests/*.test.ts`) with Node's runner. The `test:*` scripts are Playwright suites (sessions, reads, composer, media, voice, security, E2EE, workflows, visual...) that `web-client.yml` runs on Chromium and Firefox against a real server with PostgreSQL, SMTP and LiveKit; the voice suites exchange real audio and read RTP statistics. CI also rebuilds the wasm crypto engine and fails if it differs from the committed one ([web-client.md](web-client.md)).
+`npm test` runs the unit tests (`apps/web/tests/*.test.ts`) with Node's runner. The `test:*` scripts are Playwright suites (sessions, reads, composer, media, voice, security, E2EE, workflows, visual...) that `web-client.yml` runs on Chromium and Firefox against a real server with PostgreSQL, SMTP and LiveKit, in two parallel shards (`e2ee` alone, the rest together), each against the `vibez` debug binary its `server` job builds from the committed `dist`; the voice suites exchange real audio and read RTP statistics. CI also rebuilds the wasm crypto engine and fails if it differs from the committed one ([web-client.md](web-client.md)).
 
 ## What CI gates on every change
 
@@ -90,7 +90,7 @@ Fixtures for media playback live in `apps/desktop/tests/media/` (`voice.ogg`, `v
 | Mobile | version consistency, `tsc --noEmit`, ESLint, `npm test` |
 | Desktop | version, `cargo fmt --check`, `clippy -D warnings`, `cargo test --workspace` (Fedora 44) |
 | SwiftUI | build, `swift test`, `rv-rooms`, packaging and launch, on every branch including `master` when `macos/` or `rv-ffi` changes |
-| Web | version, format, build and committed assets, `npm test`, the server's clippy and unit tests, the browser suites |
+| Web | version, format, build and committed assets, `npm test`, the browser suites |
 | Server | `check.sh`, the native pilots, `rv-core` and `rv-native` on Windows, the Swift models against the server |
 | Crypto | `rv-crypto` on three OSes, the delivery worker, the Android bridge |
 | Rust locks | `scripts/cargo-locks.mjs`: one version per crate line across the seven `Cargo.lock` |

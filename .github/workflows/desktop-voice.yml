@@ -51,12 +51,10 @@ jobs:
           curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal -c clippy -c rustfmt
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v5
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            apps/desktop/voice/target
-          key: voice-linux-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+          workspaces: apps/desktop/voice -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo fmt --all --check
       # rv-screen-audio needs newer PipeWire headers: its own job below.
       - run: cargo clippy --release --locked -p rv-voice -- -D warnings
@@ -88,12 +86,10 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends libpipewire-0.3-dev clang
       - uses: actions/checkout@v5
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            apps/desktop/voice/target
-          key: voice-screen-audio-${{ hashFiles('apps/desktop/voice/Cargo.lock') }}
+          workspaces: apps/desktop/voice -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo clippy --release --locked -p rv-screen-audio -- -D warnings
       - run: cargo build --release --locked -p rv-screen-audio
       - run: target/release/rv-screen-audio --version

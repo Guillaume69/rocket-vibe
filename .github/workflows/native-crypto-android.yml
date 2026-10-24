@@ -27,6 +27,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 jobs:
   android-keystore:
     runs-on: ubuntu-24.04
@@ -45,18 +49,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           targets: aarch64-linux-android,x86_64-linux-android
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/rv-crypto-mobile -> ../../target/mobile-crypto
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - uses: actions/cache/restore@v4
+        id: gradle
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/mobile-crypto
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock', 'apps/mobile/package-lock.json') }}-${{ github.sha }}
-          restore-keys: |
-            crypto-android-${{ hashFiles('crates/rv-crypto-mobile/Cargo.lock', 'apps/mobile/package-lock.json') }}-
-            crypto-android-
+          key: crypto-android-gradle-${{ hashFiles('apps/mobile/package-lock.json') }}
+          restore-keys: crypto-android-gradle-
       - name: Android build dependencies
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
@@ -73,6 +77,13 @@ jobs:
       - name: Build both native ABIs and compile the actual Kotlin test APK
         working-directory: apps/mobile/android
         run: ./gradlew :crypto-native:assembleDebugAndroidTest --console=plain
+      - uses: actions/cache/save@v4
+        if: github.ref == 'refs/heads/master' && steps.gradle.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle.outputs.cache-primary-key }}
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

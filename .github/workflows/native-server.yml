@@ -7,6 +7,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'apps/server/**'
+      - 'apps/web/dist/**'
       - 'crates/**'
       - 'apps/mobile/**'
       - 'apps/desktop/**'
@@ -22,6 +23,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'apps/server/**'
+      - 'apps/web/dist/**'
       - 'crates/**'
       - 'apps/mobile/**'
       - 'apps/desktop/**'
@@ -39,6 +41,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   scope:
@@ -96,16 +102,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/native-crypto
-          key: native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            native-crypto-${{ runner.os }}-${{ hashFiles('crates/rv-crypto/Cargo.lock') }}-
-            native-crypto-${{ runner.os }}-
+          workspaces: |
+            crates/rv-crypto -> ../../target/native-crypto
+            crates/rv-crypto-mobile -> ../../target/native-crypto
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo fmt --manifest-path crates/rv-crypto/Cargo.toml -- --check
       - run: cargo clippy --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto --all-targets -- -D warnings
       - run: cargo test --locked --manifest-path crates/rv-crypto/Cargo.toml --features system-keystore,native-http --target-dir target/native-crypto
@@ -150,18 +152,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            native-crypto-http-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'crates/rv-crypto/Cargo.lock') }}-
-            native-crypto-http-${{ runner.os }}-
-            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            native-server-${{ runner.os }}-
+          workspaces: |
+            . -> target
+            crates/rv-crypto -> ../../target/native-crypto
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Build the separate private HTTP worker fixture
         run: cargo build --locked --manifest-path crates/rv-crypto/Cargo.toml --features native-http --target-dir target/native-crypto --example delivery_smoke
       - name: Run the private worker against real HTTP and PostgreSQL
@@ -192,19 +188,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            native-server-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
-            native-server-${{ runner.os }}-
+          shared-key: vibez
+          workspaces: |
+            . -> target
+            crates/rv-crypto -> ../../target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: bash apps/server/scripts/check.sh
       # The mobile typecheck and tests are mobile.yml's, on every branch.
       - name: Export Android JavaScript bundle
@@ -224,15 +220,15 @@ jobs:
       - name: Install mobile provider dependencies for the integration peer
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: native_desktop_fedora
         with:
           path: |
             .cache/native-desktop-cargo
             apps/desktop/target
-          key: native-desktop-fedora-${{ hashFiles('apps/desktop/Cargo.lock') }}-${{ github.sha }}
+          key: native-desktop-fedora-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock') }}
           restore-keys: |
-            native-desktop-fedora-${{ hashFiles('apps/desktop/Cargo.lock') }}-
-            native-desktop-fedora-
+            native-desktop-fedora-${{ hashFiles('apps/desktop/docker/Dockerfile') }}-
       - uses: docker/setup-buildx-action@v4
       - name: Load cached Fedora toolchain
         uses: docker/build-push-action@v7
@@ -264,6 +260,7 @@ jobs:
         run: |
           mkdir -p .cache/native-desktop-cargo artifacts
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-desktop-cargo:/cargo" \
+            -e CARGO_INCREMENTAL -e CARGO_PROFILE_DEV_DEBUG \
             -w /workspace/apps/desktop rocket-vibe-rs-build bash -ec '
               # fmt, clippy and the workspace tests run in desktop.yml, on every branch.
               xvfb-run -a cargo test --locked -p rocket-vibe-gtk native_link_previews_paint -- --ignored --test-threads=1
@@ -282,6 +279,13 @@ jobs:
               cargo build --locked -p rocket-vibe-gtk
               timeout 30s bash scripts/check-notification-activation.sh
             '
+      - uses: actions/cache/save@v4
+        if: github.ref == 'refs/heads/master' && steps.native_desktop_fedora.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .cache/native-desktop-cargo
+            apps/desktop/target
+          key: ${{ steps.native_desktop_fedora.outputs.cache-primary-key }}
       - name: Actual mobile SQLite runner and GTK desktop against PostgreSQL
         run: |
           docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server mobile factor-seed factor-proxy
@@ -364,15 +368,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            apps/desktop/target
-          key: native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}-${{ github.sha }}
-          restore-keys: |
-            native-desktop-core-windows-${{ hashFiles('apps/desktop/Cargo.lock') }}-
-            native-desktop-core-windows-
+          workspaces: apps/desktop -> target
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: cargo test --locked -p rv-core
       - name: Windows notification bridge and real COM process callback
         run: |
@@ -386,16 +385,17 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: native_swift_rust
         with:
           path: |
             .cache/native-swift-cargo
             apps/desktop/target/swift-linux
-          key: native-swift-rust-v2-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}-${{ github.sha }}
+          key: native-swift-rust-v3-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}
           restore-keys: |
-            native-swift-rust-v2-${{ hashFiles('apps/desktop/Cargo.lock', 'apps/desktop/macos/Package.swift') }}-
-            native-swift-rust-v2-
-      - uses: actions/cache@v4
+            native-swift-rust-v3-${{ hashFiles('apps/desktop/macos/docker/Dockerfile') }}-
+      - uses: actions/cache/restore@v4
+        id: native_swift_objects
         with:
           path: apps/desktop/macos/.build/linux
           # Generated UniFFI records can change Swift layouts. Reuse compiled
@@ -434,6 +434,7 @@ jobs:
           docker run --rm -v "$PWD:/workspace" -v "$PWD/.cache/native-swift-cargo:/cargo" \
             -w /workspace/apps/desktop -e CARGO_HOME=/cargo \
             -e CARGO_TARGET_DIR=/workspace/apps/desktop/target/swift-linux \
+            -e CARGO_INCREMENTAL -e CARGO_PROFILE_DEV_DEBUG \
             -e CC=clang -e CXX=clang++ -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=clang \
             rocket-vibe-swift bash -ec '
               lib=$(macos/scripts/generate.sh | tail -1)
@@ -442,6 +443,18 @@ jobs:
               swift build --scratch-path .build/linux
               swift test --scratch-path .build/linux
             '
+      - uses: actions/cache/save@v4
+        if: github.ref == 'refs/heads/master' && steps.native_swift_rust.outputs.cache-hit != 'true'
+        with:
+          path: |
+            .cache/native-swift-cargo
+            apps/desktop/target/swift-linux
+          key: ${{ steps.native_swift_rust.outputs.cache-primary-key }}
+      - uses: actions/cache/save@v4
+        if: github.ref == 'refs/heads/master' && steps.native_swift_objects.outputs.cache-hit != 'true'
+        with:
+          path: apps/desktop/macos/.build/linux
+          key: ${{ steps.native_swift_objects.outputs.cache-primary-key }}
       - name: Swift models against PostgreSQL with real secure storage
         run: |
           docker compose -f docker/compose.native-pilot.yml up -d postgres bootstrap server factor-seed factor-proxy

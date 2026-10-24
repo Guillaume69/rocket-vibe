@@ -675,11 +675,10 @@ mod tests {
         let recovered = SenderKeyRecord::deserialize(&durable).expect("recovery reload");
         assert_eq!(
             recovered
-                .sender_key_state()
+                .state()
                 .expect("sender-key state")
-                .sender_chain_key()
-                .expect("sender chain")
-                .iteration(),
+                .chain_key()
+                .index,
             wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }

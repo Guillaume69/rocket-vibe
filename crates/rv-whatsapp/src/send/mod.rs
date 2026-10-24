@@ -3283,9 +3283,8 @@ impl Client {
                 // the record: borrow the current state instead of `*_mut().cloned()`.
                 let needs_rotation = record
                     .as_ref()
-                    .and_then(|r| r.sender_key_state().ok())
-                    .and_then(|state| state.sender_chain_key())
-                    .map(|ck| ck.iteration())
+                    .and_then(|r| r.state())
+                    .map(|state| state.chain_key().index)
                     .is_some_and(|iter| iter >= SENDER_KEY_ROTATION_THRESHOLD);
                 Ok::<(bool, bool), anyhow::Error>((key_exists, needs_rotation))
             };

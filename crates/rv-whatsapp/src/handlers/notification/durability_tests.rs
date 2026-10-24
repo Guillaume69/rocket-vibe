@@ -840,9 +840,7 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
     use wacore::client::context::GroupRoutingInfo;
-    use wacore::libsignal::protocol::{
-        KeyPair, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord,
-    };
+    use wacore::libsignal::protocol::{KeyPair, SenderKeyRecord};
     use wacore::libsignal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     use wacore::types::message::AddressingMode;
@@ -896,16 +894,15 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
             let mut rng = rand::make_rng::<rand::rngs::StdRng>();
             let key_pair = KeyPair::generate(&mut rng);
             let mut record = SenderKeyRecord::new_empty();
-            record
-                .add_sender_key_state(
-                    SENDERKEY_MESSAGE_CURRENT_VERSION,
-                    7,
-                    0,
-                    &[9; 32],
-                    key_pair.public,
-                    Some(key_pair.private),
-                )
-                .unwrap();
+            record.add_state(
+                7,
+                rv_signal::ChainKey {
+                    index: 0,
+                    key: [9; 32],
+                },
+                key_pair.public,
+                Some(key_pair.private),
+            );
             raw.put_sender_key(name.cache_key(), &record.serialize().unwrap())
                 .await
                 .unwrap();

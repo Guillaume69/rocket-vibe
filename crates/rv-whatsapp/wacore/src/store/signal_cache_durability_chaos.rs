@@ -938,31 +938,17 @@ fn dm_chain_index(record: &SessionRecord) -> Result<u32> {
 }
 
 fn group_position(record: &SenderKeyRecord) -> Result<(u32, u32)> {
-    let state = record
-        .sender_key_state()
-        .map_err(|_| anyhow::anyhow!("group sender-key state missing"))?;
-    Ok((
-        state.chain_id(),
-        state
-            .sender_chain_key()
-            .context("group sender chain missing")?
-            .iteration(),
-    ))
+    let state = record.state().context("group sender-key state missing")?;
+    Ok((state.chain_id(), state.chain_key().index))
 }
 
 fn group_key_fingerprint(record: &SenderKeyRecord) -> Result<KeyIvFingerprint> {
-    let message_key = record
-        .sender_key_state()
-        .map_err(|_| anyhow::anyhow!("group sender-key state missing"))?
-        .sender_chain_key()
-        .context("group sender chain missing")?
-        .sender_message_key();
-    let cipher_key: [u8; 32] = message_key
-        .cipher_key()
-        .try_into()
-        .context("group cipher key length")?;
-    let iv: [u8; 16] = message_key.iv().try_into().context("group IV length")?;
-    Ok((cipher_key, iv))
+    let keys = record
+        .state()
+        .context("group sender-key state missing")?
+        .chain_key()
+        .group_keys();
+    Ok((keys.cipher_key, keys.iv))
 }
 
 fn incarnation(seed: u64, generation: u64) -> StoreIncarnation {

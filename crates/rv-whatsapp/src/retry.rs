@@ -4496,7 +4496,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_participant_rotation_is_durable_before_throttled_return() {
-        use wacore::libsignal::protocol::{SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord};
+        use wacore::libsignal::protocol::SenderKeyRecord;
         use wacore::libsignal::store::sender_key_name::SenderKeyName;
         use wacore_binary::builder::NodeBuilder;
 
@@ -4531,16 +4531,15 @@ mod tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let key_pair = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
-                9,
-                0,
-                &[7; 32],
-                key_pair.public,
-                Some(key_pair.private),
-            )
-            .unwrap();
+        record.add_state(
+            9,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7; 32],
+            },
+            key_pair.public,
+            Some(key_pair.private),
+        );
         client
             .signal_cache
             .put_sender_key(&sender_key_name, record)

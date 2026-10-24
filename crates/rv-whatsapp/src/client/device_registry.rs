@@ -3573,9 +3573,7 @@ mod tests {
 
     #[tokio::test]
     async fn rotation_waits_for_in_flight_sender_key_advance() {
-        use wacore::libsignal::protocol::{
-            KeyPair, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyRecord, group_encrypt,
-        };
+        use wacore::libsignal::protocol::{KeyPair, SenderKeyRecord, group_encrypt};
         use wacore::libsignal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
 
@@ -3594,16 +3592,15 @@ mod tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let key_pair = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
-                7,
-                0,
-                &[9; 32],
-                key_pair.public,
-                Some(key_pair.private),
-            )
-            .unwrap();
+        record.add_state(
+            7,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [9; 32],
+            },
+            key_pair.public,
+            Some(key_pair.private),
+        );
         client.signal_cache.put_sender_key(&name, record).await;
 
         let chain_lock = client.signal_cache.sender_key_lock(&name).await;

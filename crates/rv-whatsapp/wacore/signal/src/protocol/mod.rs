@@ -28,14 +28,13 @@ pub use group::{
 pub use keys::{KeyPair, PrivateKey, PublicKey};
 pub use messages::{
     CiphertextMessage, CiphertextMessageType, OwnedCiphertextMessage, PreKeySignalMessage,
-    SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyDistributionMessage, SenderKeyMessage,
-    SignalMessage, prekey_signal_message, sender_key_distribution_message, sender_key_message,
-    signal_message,
+    SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage, prekey_signal_message,
+    sender_key_distribution_message, sender_key_message, signal_message,
 };
 pub use prekeys::{
     GenericSignedPreKey, PreKeyId, PreKeyRecord, SignedPreKeyId, SignedPreKeyRecord, Timestamp,
 };
-pub use sender_keys::{SenderChainKey, SenderKeyRecord, SenderKeyState, SenderMessageKey};
+pub use sender_keys::{SenderChainKey, SenderKeyRecord, SenderKeyState};
 pub use session::{
     AliceSignalProtocolParameters, ChainKey, MessageKeyGenerator, MessageKeys, RootKey,
     SessionRecord, SessionState, UnacknowledgedPreKeyMessageItems, UsePQRatchet,

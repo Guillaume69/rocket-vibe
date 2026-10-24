@@ -74,10 +74,10 @@ pub async fn group_encrypt<S: SenderKeyStore + ?Sized, R: CryptoRng + ?Sized>(
             ))
         })?;
     let iteration = record
-        .sender_key_state()?
-        .sender_chain_key()
+        .state()
         .ok_or(SignalProtocolError::InvalidSenderKeySession)?
-        .iteration();
+        .chain_key()
+        .index;
     record.reserve_iterations(iteration);
     let bytes = record
         .with_signal(|r| r.encrypt(plaintext, csprng))?

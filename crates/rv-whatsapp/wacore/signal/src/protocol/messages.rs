@@ -9,9 +9,6 @@ pub use rv_signal::{
     PreKeySignalMessage, SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
 };
 
-/// The version a sender key state is recorded with.
-pub const SENDERKEY_MESSAGE_CURRENT_VERSION: u8 = 3;
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u8)]
 pub enum CiphertextMessageType {

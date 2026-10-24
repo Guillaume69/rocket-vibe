@@ -2695,15 +2695,21 @@ mod sender_key_lock_tests {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(3, chain_id, 0, &[7u8; 32], kp.public, Some(kp.private))
-            .expect("valid sender key state");
+        record.add_state(
+            chain_id,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7u8; 32],
+            },
+            kp.public,
+            Some(kp.private),
+        );
         record
     }
 
     fn chain_id_of(record: &SenderKeyRecord) -> u32 {
         record
-            .sender_key_state()
+            .state()
             .expect("record must carry a state")
             .chain_id()
     }

@@ -3921,9 +3921,15 @@ mod mark_full_distribution_list {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public, Some(kp.private))
-            .expect("valid sender key state");
+        record.add_state(
+            1,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7u8; 32],
+            },
+            kp.public,
+            Some(kp.private),
+        );
 
         let mut sks = MemSenderKeyStore::default();
         sks.records.insert(name.clone(), record);
@@ -7167,9 +7173,15 @@ mod warm_group_send_encoding_scale {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
-        record
-            .add_sender_key_state(3, 1, 0, &[7u8; 32], kp.public, Some(kp.private))
-            .expect("valid sender key state");
+        record.add_state(
+            1,
+            rv_signal::ChainKey {
+                index: 0,
+                key: [7u8; 32],
+            },
+            kp.public,
+            Some(kp.private),
+        );
         let name = make_sender_key_name(&group, &own.to_protocol_address());
         let mut sender_keys = MemSenderKeyStore::default();
         sender_keys.0.insert(name, record);

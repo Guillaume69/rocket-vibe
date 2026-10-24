@@ -107,16 +107,15 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
         let session = SessionRecord::new(state).serialize().unwrap();
         let identity = keypair_bytes(&identity);
         let mut sender_key = SenderKeyRecord::new_empty();
-        sender_key
-            .add_sender_key_state(
-                3,
-                17,
-                0,
-                &[0x33; 32],
-                signing.public,
-                (device_id == 1).then(|| signing.private.clone()),
-            )
-            .unwrap();
+        sender_key.add_state(
+            17,
+            wacore::libsignal::protocol::SenderChainKey {
+                index: 0,
+                key: [0x33; 32],
+            },
+            signing.public,
+            (device_id == 1).then(|| signing.private.clone()),
+        );
         diesel::sql_query("INSERT INTO sender_keys (address, record, device_id) VALUES (?, ?, ?)")
             .bind::<Text, _>(SENDER_ADDRESS)
             .bind::<Binary, _>(sender_key.serialize().unwrap())

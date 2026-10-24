@@ -8442,12 +8442,7 @@ async fn public_group_decrypt_waits_for_sender_key_lock() {
         .unwrap()
         .expect("installed sender key");
     assert_eq!(
-        before
-            .sender_key_state()
-            .unwrap()
-            .sender_chain_key()
-            .unwrap()
-            .iteration(),
+        before.state().unwrap().chain_key().index,
         0,
         "decrypt must not advance while another mutation owns the chain"
     );
@@ -8466,15 +8461,7 @@ async fn public_group_decrypt_waits_for_sender_key_lock() {
         .await
         .unwrap()
         .expect("advanced sender key");
-    assert_eq!(
-        after
-            .sender_key_state()
-            .unwrap()
-            .sender_chain_key()
-            .unwrap()
-            .iteration(),
-        1
-    );
+    assert_eq!(after.state().unwrap().chain_key().index, 1);
 }
 
 /// Bad path: a group skmsg whose sender key was never distributed hits
@@ -17686,7 +17673,7 @@ async fn pdo_retry_skdm_equivalence_preserves_distinct_user_payloads() {
                     let name =
                         make_sender_key_name(&group, &sender.jid.to_non_ad().to_protocol_address());
                     let old = sender.sender_keys.0.remove(&name).unwrap();
-                    let old_id = old.sender_key_state().unwrap().chain_id();
+                    let old_id = old.state().unwrap().chain_id();
                     let newer = loop {
                         let distribution = sender.create_group_skdm(&group).await;
                         let new_id = sender
@@ -17694,7 +17681,7 @@ async fn pdo_retry_skdm_equivalence_preserves_distinct_user_payloads() {
                             .0
                             .get(&name)
                             .unwrap()
-                            .sender_key_state()
+                            .state()
                             .unwrap()
                             .chain_id();
                         if new_id != old_id {
@@ -17892,7 +17879,7 @@ async fn pdo_retry_skdm_equivalence_preserves_distinct_user_payloads() {
                     .unwrap()
                     .expect("rotated retry SKDM installed");
                 assert_eq!(
-                    record.sender_key_state().unwrap().chain_id(),
+                    record.state().unwrap().chain_id(),
                     expected_chain_id,
                     "retry2 must apply its rotated distribution before event suppression"
                 );
@@ -22129,11 +22116,10 @@ async fn full_pending_journal_flush_recreation(novel_payload: bool) {
         .await
         .unwrap()
         .unwrap()
-        .sender_key_state()
+        .state()
         .unwrap()
-        .sender_chain_key()
-        .unwrap()
-        .iteration();
+        .chain_key()
+        .index;
 
     let mut plaintext = wa::Message::default();
     plaintext.conversation = Some("full journal payload".into());
@@ -22246,11 +22232,10 @@ async fn full_pending_journal_flush_recreation(novel_payload: bool) {
         .await
         .unwrap()
         .unwrap()
-        .sender_key_state()
+        .state()
         .unwrap()
-        .sender_chain_key()
-        .unwrap()
-        .iteration();
+        .chain_key()
+        .index;
     let protected_before_cancel = flushed_iteration == before_iteration || incoming_carrier_stored;
     worker.abort();
     assert!(worker.await.unwrap_err().is_cancelled());

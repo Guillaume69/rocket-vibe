@@ -1,122 +1,17 @@
-//! Sender key records, kept as `SenderKeyRecordStructure`, with the same
-//! counter lease as sessions (see `session.rs`): my own chain's iterations
-//! are reserved in batches and a recovery moves it to the ceiling.
-
-use waproto::codec;
-use waproto::whatsapp as wa;
+//! Sender key records are `rv-signal`'s, kept with the same counter lease as
+//! sessions (see `session.rs`): my own chain's iterations are reserved in
+//! batches and a recovery moves it to the ceiling.
 
 use super::consts::{MAX_RESERVATION_FAST_FORWARD, SENDER_CHAIN_RESERVATION_BATCH};
 use super::envelope;
-use super::error::{InvalidSenderKeySessionError, Result, SignalProtocolError};
+use super::error::{Result, SignalProtocolError};
 use super::keys::{PrivateKey, PublicKey};
 
-const MAX_STATES: usize = 5;
-
-/// A sender chain position.
-#[derive(Clone, Debug)]
-pub struct SenderChainKey {
-    iteration: u32,
-    seed: [u8; 32],
-}
-
-impl SenderChainKey {
-    pub fn iteration(&self) -> u32 {
-        self.iteration
-    }
-
-    pub fn seed(&self) -> &[u8; 32] {
-        &self.seed
-    }
-
-    pub fn sender_message_key(&self) -> SenderMessageKey {
-        let keys = rv_signal::ChainKey {
-            index: self.iteration,
-            key: self.seed,
-        }
-        .group_keys();
-        SenderMessageKey {
-            iteration: self.iteration,
-            cipher_key: keys.cipher_key,
-            iv: keys.iv,
-        }
-    }
-}
-
-/// The keys of one group message.
-#[derive(Clone, Debug)]
-pub struct SenderMessageKey {
-    iteration: u32,
-    cipher_key: [u8; 32],
-    iv: [u8; 16],
-}
-
-impl SenderMessageKey {
-    pub fn iteration(&self) -> u32 {
-        self.iteration
-    }
-    pub fn cipher_key(&self) -> &[u8] {
-        &self.cipher_key
-    }
-    pub fn iv(&self) -> &[u8] {
-        &self.iv
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct SenderKeyState(wa::SenderKeyStateStructure);
-
-impl SenderKeyState {
-    pub fn chain_id(&self) -> u32 {
-        self.0.sender_key_id.unwrap_or(0)
-    }
-
-    pub fn sender_chain_key(&self) -> Option<SenderChainKey> {
-        let ck = self.0.sender_chain_key.as_option()?;
-        let seed = ck.seed.as_deref()?.try_into().ok()?;
-        Some(SenderChainKey {
-            iteration: ck.iteration.unwrap_or(0),
-            seed,
-        })
-    }
-
-    pub fn signing_key_public(
-        &self,
-    ) -> std::result::Result<PublicKey, InvalidSenderKeySessionError> {
-        let key = self
-            .0
-            .sender_signing_key
-            .as_option()
-            .and_then(|k| k.public.as_deref())
-            .unwrap_or_default();
-        PublicKey::deserialize(key).map_err(|_| InvalidSenderKeySessionError("bad signing key"))
-    }
-
-    pub fn signing_key_private(
-        &self,
-    ) -> std::result::Result<Option<PrivateKey>, InvalidSenderKeySessionError> {
-        match self
-            .0
-            .sender_signing_key
-            .as_option()
-            .and_then(|k| k.private.as_deref())
-        {
-            None | Some([]) => Ok(None),
-            Some(bytes) => PrivateKey::deserialize(bytes)
-                .map(Some)
-                .map_err(|_| InvalidSenderKeySessionError("bad signing key")),
-        }
-    }
-
-    fn set_chain(&mut self, iteration: u32, seed: [u8; 32]) {
-        let ck = self.0.sender_chain_key.get_or_insert_default();
-        ck.iteration = Some(iteration);
-        ck.seed = Some(bytes::Bytes::copy_from_slice(&seed));
-    }
-}
+pub use rv_signal::{ChainKey as SenderChainKey, SenderKeyState};
 
 #[derive(Clone, Debug, Default)]
 pub struct SenderKeyRecord {
-    states: Vec<SenderKeyState>,
+    inner: rv_signal::SenderKeyRecord,
     lease: u32,
     wire_gated: bool,
 }
@@ -127,46 +22,28 @@ impl SenderKeyRecord {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.states.is_empty()
+        self.inner.is_empty()
     }
 
-    pub fn sender_key_state(
-        &self,
-    ) -> std::result::Result<&SenderKeyState, InvalidSenderKeySessionError> {
-        self.states
-            .first()
-            .ok_or(InvalidSenderKeySessionError("empty sender key record"))
+    /// The newest state: mine to send with, or the last a sender distributed.
+    pub fn state(&self) -> Option<&SenderKeyState> {
+        self.inner.state()
     }
 
-    pub fn add_sender_key_state(
+    pub fn states(&self) -> &[SenderKeyState] {
+        self.inner.states()
+    }
+
+    /// Adds a state as the newest one.
+    pub fn add_state(
         &mut self,
-        _message_version: u8,
         chain_id: u32,
-        iteration: u32,
-        chain_key: &[u8],
-        signature_key: PublicKey,
-        signature_private_key: Option<PrivateKey>,
-    ) -> Result<()> {
-        let seed: [u8; 32] = chain_key.try_into().map_err(|_| {
-            SignalProtocolError::InvalidArgument("chain key must be 32 bytes".to_owned())
-        })?;
-        let mut s = wa::SenderKeyStateStructure::default();
-        s.sender_key_id = Some(chain_id);
-        let signing = s.sender_signing_key.get_or_insert_default();
-        signing.public = Some(bytes::Bytes::copy_from_slice(&signature_key.serialize()));
-        signing.private =
-            signature_private_key.map(|k| bytes::Bytes::copy_from_slice(&k.serialize()));
-        let mut state = SenderKeyState(s);
-        state.set_chain(iteration, seed);
-        self.states.insert(0, state);
-        self.states.truncate(MAX_STATES);
-        Ok(())
-    }
-
-    fn structure(&self) -> wa::SenderKeyRecordStructure {
-        let mut r = wa::SenderKeyRecordStructure::default();
-        r.sender_key_states = self.states.iter().map(|s| s.0.clone()).collect();
-        r
+        chain: SenderChainKey,
+        signing_public: PublicKey,
+        signing_private: Option<PrivateKey>,
+    ) {
+        self.inner
+            .add_state(chain_id, chain, signing_public, signing_private);
     }
 
     /// Runs `f` on the `rv-signal` record; a failed `f` leaves this one as it was.
@@ -174,19 +51,10 @@ impl SenderKeyRecord {
         &mut self,
         f: impl FnOnce(&mut rv_signal::SenderKeyRecord) -> std::result::Result<T, rv_signal::Error>,
     ) -> Result<std::result::Result<T, rv_signal::Error>> {
-        let mut record = rv_signal::SenderKeyRecord::deserialize(&codec::sender_key_record_to_vec(
-            &self.structure(),
-        ))
-        .map_err(|_| SignalProtocolError::InvalidSenderKeySession)?;
+        let mut record = self.inner.clone();
         let out = f(&mut record);
         if out.is_ok() {
-            let r = codec::sender_key_record_decode(&record.serialize())
-                .map_err(|_| SignalProtocolError::InvalidSenderKeySession)?;
-            self.states = r
-                .sender_key_states
-                .into_iter()
-                .map(SenderKeyState)
-                .collect();
+            self.inner = record;
         }
         Ok(out)
     }
@@ -223,20 +91,12 @@ impl SenderKeyRecord {
     }
 
     pub fn estimated_size(&self) -> usize {
-        self.states
-            .iter()
-            .map(|s| buffa::Message::encoded_len(&s.0) as usize + 3)
-            .sum()
+        self.inner.serialize().len() + 3 * self.inner.states().len()
     }
 
     pub fn serialize(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
-        envelope::write(
-            &mut out,
-            &codec::sender_key_record_to_vec(&self.structure()),
-            self.lease,
-            None,
-        );
+        envelope::write(&mut out, &self.inner.serialize(), self.lease, None);
         Ok(out)
     }
 
@@ -248,7 +108,7 @@ impl SenderKeyRecord {
         let mut out = Vec::new();
         envelope::write(
             &mut out,
-            &codec::sender_key_record_to_vec(&self.structure()),
+            &self.inner.serialize(),
             self.lease,
             Some(incarnation),
         );
@@ -267,14 +127,10 @@ impl SenderKeyRecord {
             }
             None => (bytes, 0, true),
         };
-        let r = codec::sender_key_record_decode(record_bytes)
+        let inner = rv_signal::SenderKeyRecord::deserialize(record_bytes)
             .map_err(|_| SignalProtocolError::InvalidProtobufEncoding)?;
         let mut out = Self {
-            states: r
-                .sender_key_states
-                .into_iter()
-                .map(SenderKeyState)
-                .collect(),
+            inner,
             lease,
             wire_gated: false,
         };
@@ -287,29 +143,91 @@ impl SenderKeyRecord {
     /// My own newest chain moves to the lease ceiling.
     fn recover_lease(&mut self) -> Result<()> {
         let lease = self.lease;
-        let Some(state) = self.states.first_mut() else {
+        let Some(state) = self.inner.state() else {
             return Ok(());
         };
-        if !matches!(state.signing_key_private(), Ok(Some(_))) {
+        if state.signing_private().is_none() {
             return Ok(());
         }
-        let Some(chain) = state.sender_chain_key() else {
-            return Ok(());
-        };
-        if lease <= chain.iteration {
+        let iteration = state.chain_key().index;
+        if lease <= iteration {
             return Ok(());
         }
-        if lease - chain.iteration > MAX_RESERVATION_FAST_FORWARD {
+        if lease - iteration > MAX_RESERVATION_FAST_FORWARD {
             return Err(SignalProtocolError::InvalidSenderKeySession);
         }
-        let mut key = rv_signal::ChainKey {
-            index: chain.iteration,
-            key: chain.seed,
-        };
-        while key.index < lease {
-            key = key.next();
+        self.inner
+            .fast_forward(lease)
+            .map_err(|_| SignalProtocolError::InvalidSenderKeySession)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use waproto::codec;
+    use waproto::whatsapp as wa;
+
+    /// A record as the protobuf structure stored it before the record was
+    /// `rv-signal`'s: a newest state of mine with skipped keys, then an older one.
+    fn stored_structure(
+        mine: &rv_signal::KeyPair,
+        theirs: &rv_signal::KeyPair,
+    ) -> wa::SenderKeyRecordStructure {
+        let state =
+            |id: u32, iteration: u32, seed: u8, signing: &rv_signal::KeyPair, private: bool| {
+                let mut s = wa::SenderKeyStateStructure::default();
+                s.sender_key_id = Some(id);
+                let chain = s.sender_chain_key.get_or_insert_default();
+                chain.iteration = Some(iteration);
+                chain.seed = Some(Bytes::copy_from_slice(&[seed; 32]));
+                let key = s.sender_signing_key.get_or_insert_default();
+                key.public = Some(Bytes::copy_from_slice(&signing.public.serialize()));
+                key.private = private.then(|| Bytes::copy_from_slice(&signing.private.serialize()));
+                s
+            };
+        let mut newest = state(9, 5, 3, mine, true);
+        for iteration in [1, 2] {
+            let mut skipped = wa::sender_key_state_structure::SenderMessageKey::default();
+            skipped.iteration = Some(iteration);
+            skipped.seed = Some(Bytes::copy_from_slice(&[iteration as u8; 32]));
+            newest.sender_message_keys.push(skipped);
         }
-        state.set_chain(key.index, key.key);
-        Ok(())
+        let mut record = wa::SenderKeyRecordStructure::default();
+        record.sender_key_states = vec![newest, state(4, 40, 7, theirs, false)];
+        record
+    }
+
+    #[test]
+    fn a_stored_record_reads_the_same_and_writes_back_the_same_structure() {
+        let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+        let (mine, theirs) = (
+            rv_signal::KeyPair::generate(&mut rng),
+            rv_signal::KeyPair::generate(&mut rng),
+        );
+        let structure = stored_structure(&mine, &theirs);
+
+        let record =
+            SenderKeyRecord::deserialize(&codec::sender_key_record_to_vec(&structure)).unwrap();
+        let states = record.states();
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].chain_id(), 9);
+        assert_eq!(states[0].chain_key().index, 5);
+        assert_eq!(states[0].chain_key().key, [3; 32]);
+        assert_eq!(*states[0].signing_public(), mine.public);
+        assert_eq!(
+            states[0].signing_private().map(|k| k.serialize()),
+            Some(mine.private.serialize())
+        );
+        assert_eq!((states[1].chain_id(), states[1].chain_key().index), (4, 40));
+        assert!(states[1].signing_private().is_none());
+
+        let written = record.serialize().unwrap();
+        let stored = envelope::read(&written).unwrap().expect("an envelope");
+        assert_eq!(
+            codec::sender_key_record_decode(stored.record).unwrap(),
+            structure
+        );
     }
 }

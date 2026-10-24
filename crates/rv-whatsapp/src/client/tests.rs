@@ -1781,16 +1781,15 @@ async fn cleanup_connection_state_does_not_burn_a_clean_sender_key_lease() {
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
     let signing_key = KeyPair::generate(&mut rng);
     let mut record = SenderKeyRecord::new_empty();
-    record
-        .add_sender_key_state(
-            3,
-            12345,
-            0,
-            &[0x42; 32],
-            signing_key.public,
-            Some(signing_key.private),
-        )
-        .expect("sender key state");
+    record.add_state(
+        12345,
+        rv_signal::ChainKey {
+            index: 0,
+            key: [0x42; 32],
+        },
+        signing_key.public,
+        Some(signing_key.private),
+    );
     record.reserve_iterations(0);
     client.signal_cache.put_sender_key(&name, record).await;
 
@@ -1805,11 +1804,10 @@ async fn cleanup_connection_state_does_not_burn_a_clean_sender_key_lease() {
         .expect("sender key");
     assert_eq!(
         reloaded
-            .sender_key_state()
+            .state()
             .expect("sender key state")
-            .sender_chain_key()
-            .expect("sender chain")
-            .iteration(),
+            .chain_key()
+            .index,
         0
     );
 }

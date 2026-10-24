@@ -1,0 +1,9 @@
+FROM ubuntu:24.04
+RUN useradd --system --uid 10001 --no-create-home vibez \
+  && mkdir -p /var/lib/vibez/objects && chown -R 10001:10001 /var/lib/vibez
+ENV VIBEZ_OBJECTS_DIR=/var/lib/vibez/objects
+COPY vibez /usr/local/bin/vibez
+USER 10001
+EXPOSE 3400
+ENTRYPOINT ["vibez"]
+CMD ["serve"]

@@ -32,6 +32,25 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  android-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/rv-crypto-mobile -> ../../target/mobile-crypto
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+      - run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006"'
+      - name: Build the device ABI
+        run: node apps/mobile/modules/crypto-native/build-android.mjs --ndk "$ANDROID_HOME/ndk/27.1.12297006" --abis arm64-v8a
+
   android-keystore:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -48,7 +67,7 @@ jobs:
           java-version: 17
       - uses: dtolnay/rust-toolchain@1.97.1
         with:
-          targets: aarch64-linux-android,x86_64-linux-android
+          targets: x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/rv-crypto-mobile -> ../../target/mobile-crypto
@@ -75,9 +94,9 @@ jobs:
           # needs neither the app's Firebase credentials nor its release key.
           node -e "const fs=require('node:fs');const c=JSON.parse(fs.readFileSync('app.json'));delete c.expo.android.googleServicesFile;fs.writeFileSync('app.json',JSON.stringify(c));"
           npx expo prebuild --platform android --no-install
-      - name: Build both native ABIs and compile the actual Kotlin test APK
+      - name: Build the emulator's ABI and compile the actual Kotlin test APK
         working-directory: apps/mobile/android
-        run: ./gradlew :crypto-native:assembleDebugAndroidTest --console=plain
+        run: ./gradlew :crypto-native:assembleDebugAndroidTest --console=plain -PreactNativeArchitectures=x86_64
       - uses: actions/cache/save@v4
         if: github.ref == 'refs/heads/master' && steps.gradle.outputs.cache-hit != 'true'
         with:

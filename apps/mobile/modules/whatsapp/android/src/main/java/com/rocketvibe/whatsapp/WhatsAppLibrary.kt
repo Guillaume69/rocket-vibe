@@ -4,7 +4,7 @@ import com.sun.jna.Callback
 import com.sun.jna.Library
 import com.sun.jna.Native
 
-/** librv_whatsapp.so (apps/desktop/whatsapp/mobile): the WhatsApp engine's C face. */
+/** librv_whatsapp.so (crates/rv-whatsapp/android): the WhatsApp engine's C face. */
 internal interface WhatsAppLibrary : Library {
   /** Each frame an engine emits, a JSON object, on one of the engine's threads. */
   interface Frame : Callback {

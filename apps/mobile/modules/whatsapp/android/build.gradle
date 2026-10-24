@@ -25,13 +25,15 @@ dependencies {
   androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }
 
-// The WhatsApp engine (apps/desktop/whatsapp, Go), the desktop helper's own
-// code, built as librv_whatsapp.so per ABI as crypto-native builds its Rust.
+// The WhatsApp engine (crates/rv-whatsapp, Rust), the one the desktop runs,
+// built as librv_whatsapp.so per ABI as crypto-native builds its Rust.
 def repository = file('../../../../..')
 def requestedAbis = providers.gradleProperty('reactNativeArchitectures').orElse('arm64-v8a,x86_64')
 def buildWhatsApp = tasks.register('buildWhatsAppNative', Exec) {
   workingDir repository
-  inputs.files(fileTree(new File(repository, 'apps/desktop/whatsapp')) { include '**/*.go', 'go.mod', 'go.sum' })
+  inputs.files(fileTree(new File(repository, 'crates/rv-whatsapp')) { include '**/*.rs', '**/Cargo.toml', 'Cargo.lock', '**/*.proto', '**/*.json'; exclude 'target/**' })
+  inputs.files(fileTree(new File(repository, 'crates/rv-signal')) { include '**/*.rs', '**/Cargo.toml'; exclude 'target/**' })
+  inputs.files(fileTree(new File(repository, 'crates/rv-link-preview')) { include '**/*.rs', 'Cargo.toml' })
   inputs.file file('../build-android.mjs')
   inputs.property 'abis', requestedAbis
   inputs.property 'minApi', android.defaultConfig.minSdkVersion.apiLevel

@@ -16,6 +16,9 @@ on:
       - 'crates/rv-provider/**'
       - 'crates/rv-slack/**'
       - 'crates/rv-teams/**'
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   pull_request:
@@ -29,6 +32,9 @@ on:
       - 'crates/rv-provider/**'
       - 'crates/rv-slack/**'
       - 'crates/rv-teams/**'
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
       - 'scripts/version.mjs'
       - '.github/workflows/desktop.yml'
   workflow_dispatch:
@@ -66,8 +72,8 @@ jobs:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/desktop-voice.yml
 
-  # The rv-whatsapp helper every package carries next to the app's executable,
-  # with its licence notice (whatsmeow is MPL-2.0): whatsapp::locate() finds it.
+  # The licence notice of the crates the WhatsApp engine links into the app,
+  # which every package carries.
   whatsapp:
     if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/desktop-whatsapp.yml
@@ -95,7 +101,7 @@ jobs:
         with:
           workspaces: apps/desktop -> target
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
       - run: cargo build --locked --release -p rocket-vibe-gtk
@@ -113,7 +119,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: env.PACKAGE == 'true'
         with:
-          name: rv-whatsapp-linux-x86_64
+          name: rv-whatsapp-licenses
           path: apps/desktop/dist/whatsapp
       - name: Package
         if: env.PACKAGE == 'true'
@@ -125,9 +131,7 @@ jobs:
           install -m755 dist/voice/rv-voice "dist/$name/rv-voice"
           install -m755 dist/voice/rv-screen-audio "dist/$name/rv-screen-audio"
           "dist/$name/rv-voice" --version
-          install -m755 dist/whatsapp/rv-whatsapp "dist/$name/rv-whatsapp"
-          cp dist/whatsapp/rv-whatsapp-licenses.txt "dist/$name/"
-          "dist/$name/rv-whatsapp" --version
+          cp dist/whatsapp/rv-whatsapp-licenses-linux.txt "dist/$name/rv-whatsapp-licenses.txt"
           cp -R data/icons "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v4
@@ -158,12 +162,11 @@ jobs:
           path: apps/desktop/dist/voice
       - uses: actions/download-artifact@v4
         with:
-          name: rv-whatsapp-linux-x86_64
+          name: rv-whatsapp-licenses
           path: apps/desktop/dist/whatsapp
       - run: sh scripts/appimage-build.sh "${{ needs.version.outputs.version }}" dist
         env:
           RV_VOICE_REQUIRED: 1
-          RV_WHATSAPP_REQUIRED: 1
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-appimage
@@ -251,12 +254,11 @@ jobs:
           path: apps/desktop/dist/voice
       - uses: actions/download-artifact@v4
         with:
-          name: rv-whatsapp-windows-x86_64
+          name: rv-whatsapp-licenses
           path: apps/desktop/dist/whatsapp
       - run: scripts/package-windows.sh "${{ needs.version.outputs.version }}"
         env:
           RV_VOICE_REQUIRED: 1
-          RV_WHATSAPP_REQUIRED: 1
       - name: Installer
         shell: pwsh
         run: |
@@ -286,9 +288,6 @@ jobs:
           # The voice sidecar beside the exe, where voice::available() looks.
           & "$app\bin\rv-voice.exe" --version
           if ($LASTEXITCODE -ne 0) { throw "rv-voice.exe does not run from the install" }
-          # The WhatsApp helper beside it, where whatsapp::locate() looks.
-          & "$app\bin\rv-whatsapp.exe" --version
-          if ($LASTEXITCODE -ne 0) { throw "rv-whatsapp.exe does not run from the install" }
           if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\rocket-vibe\rocket-vibe.lnk")) { throw "no Start menu shortcut" }
           $command = (Get-ItemProperty "HKCU:\Software\Classes\rocketvibe\shell\open\command").'(default)'
           if ($command -notlike "*rocket-vibe-gtk.exe*%1*") { throw "rocketvibe:// is not registered: $command" }
@@ -506,12 +505,11 @@ jobs:
           path: apps/desktop/dist/voice
       - uses: actions/download-artifact@v4
         with:
-          name: rv-whatsapp-macos-arm64
+          name: rv-whatsapp-licenses
           path: apps/desktop/dist/whatsapp
       - run: scripts/package-macos.sh "${{ needs.version.outputs.version }}"
         env:
           RV_VOICE_REQUIRED: 1
-          RV_WHATSAPP_REQUIRED: 1
       # Apple's notary checks the signed DMG; the ticket stapled to it lets
       # the app open offline without any prompt.
       - name: Notarization
@@ -560,7 +558,6 @@ jobs:
           sudo mv /opt/homebrew /opt/homebrew-aside
           app="$PWD/dist/rocket-vibe.app"
           "$app/Contents/MacOS/rv-voice" --version
-          "$app/Contents/MacOS/rv-whatsapp" --version
           "$app/Contents/MacOS/rocket-vibe-gtk" rocketvibe://room/smoke > "$RUNNER_TEMP/app.log" 2>&1 &
           pid=$!
           sleep 10

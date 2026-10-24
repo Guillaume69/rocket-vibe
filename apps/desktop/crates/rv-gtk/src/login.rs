@@ -163,13 +163,9 @@ fn provider_kind(kind: rv_core::native::ServerKind) -> bool {
     matches!(kind, rv_core::native::ServerKind::Slack | rv_core::native::ServerKind::Teams)
 }
 
-/// The kinds behind the unlock, last: WhatsApp (when its helper is
-/// installed), Slack and Teams. Hidden again, a selected one falls back to Automatic.
+/// The kinds behind the unlock, last: WhatsApp, Slack and Teams. Hidden again, a selected one falls back to Automatic.
 fn show_experimental_kinds(kind: &gtk::DropDown, shown: bool) {
-    let mut gated = Vec::new();
-    if crate::window::whatsapp_helper().is_some() {
-        gated.push(WHATSAPP_KIND);
-    }
+    let mut gated = vec![WHATSAPP_KIND];
     gated.push(t("login.kind_slack"));
     gated.push(t("login.kind_teams"));
     for label in gated {

@@ -1,4 +1,5 @@
-//! Local WhatsApp desktop pilot. The sidecar owns encrypted state and the wire protocol.
+//! A WhatsApp account on the desktop: the engine (`rv-whatsapp-engine`) runs in this
+//! process and owns the sealed state and the wire protocol; this side keeps its snapshot.
 //! No WhatsApp content or credentials go through a Vibez server.
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -10,7 +11,7 @@ use base64::Engine;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use zeroize::Zeroize;
 
@@ -515,18 +516,139 @@ pub fn storage_key() -> Result<String, String> {
     bytes.zeroize();
     Ok(value)
 }
-/// The helper beside the app's executable, or in an AppImage's root (whose
-/// executable is its loader; the root is in `SHARUN_DIR`), like `rv-voice`.
-pub fn locate() -> Option<PathBuf> {
-    let name = if cfg!(windows) { "rv-whatsapp.exe" } else { "rv-whatsapp" };
-    let beside = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join(name)));
-    let bundled = ["SHARUN_DIR", "APPDIR"]
-        .into_iter()
-        .filter_map(std::env::var_os)
-        .filter(|root| !root.is_empty())
-        .map(|root| PathBuf::from(root).join("bin").join(name));
-    beside.into_iter().chain(bundled).find(|path| path.is_file())
+/// Where an account's engine runs: in this process, or a program speaking
+/// the same JSON lines over its pipes (the scripted peer of the tests and the
+/// smoke runs, named by `RV_WHATSAPP_HELPER`).
+#[derive(Clone, Debug)]
+pub enum Runner {
+    InProcess,
+    Helper(PathBuf),
 }
+
+impl Runner {
+    pub fn from_env() -> Self {
+        match std::env::var_os("RV_WHATSAPP_HELPER").map(PathBuf::from).filter(|p| p.is_file()) {
+            Some(program) => Runner::Helper(program),
+            None => Runner::InProcess,
+        }
+    }
+}
+
+/// The engine's two directions: its frames, and the command lines it is given.
+struct Lines {
+    frames: mpsc::UnboundedReceiver<String>,
+    commands: mpsc::UnboundedSender<String>,
+    /// Fires once the engine has checkpointed its state and let it go.
+    finished: oneshot::Receiver<()>,
+}
+
+struct FrameSink(mpsc::UnboundedSender<String>);
+
+impl rv_whatsapp_engine::Sink for FrameSink {
+    fn frame(&self, frame: String) {
+        let _ = self.0.send(frame);
+    }
+}
+
+const START_FAILED: &str = r#"{"type":"error","code":"connector_start_failed"}"#;
+
+/// The engine on a thread of its own: it blocks on its runtime to open,
+/// handle a command and close.
+fn in_process(state: &Path, mut key: String) -> Result<Lines, String> {
+    let decoded = base64::engine::general_purpose::STANDARD.decode(&key);
+    key.zeroize();
+    let mut secret = decoded.map_err(|_| failure())?;
+    let (frames_tx, frames) = mpsc::unbounded_channel();
+    let (commands, mut commands_rx) = mpsc::unbounded_channel::<String>();
+    let (done, finished) = oneshot::channel();
+    let state = state.to_owned();
+    rv_whatsapp_engine::diagnostics::from_env();
+    std::thread::Builder::new()
+        .name("rv-whatsapp".into())
+        .spawn(move || {
+            let opened = rv_whatsapp_engine::Device::open(&state, &secret, Arc::new(FrameSink(frames_tx.clone())));
+            secret.zeroize();
+            match opened {
+                Ok(mut device) => {
+                    device.connect();
+                    while let Some(line) = commands_rx.blocking_recv() {
+                        if !device.handle(&line) {
+                            break;
+                        }
+                    }
+                    device.close();
+                }
+                Err(_) => {
+                    let _ = frames_tx.send(START_FAILED.to_owned());
+                }
+            }
+            let _ = done.send(());
+        })
+        .map_err(|_| failure())?;
+    Ok(Lines { frames, commands, finished })
+}
+
+/// A program speaking the engine's JSON lines: the key goes first, then
+/// commands to its stdin, frames back from its stdout, one per line.
+async fn helper(program: &Path, state: &Path, mut key: String) -> Result<Lines, String> {
+    let mut command = Command::new(program);
+    command
+        .arg("--state")
+        .arg(state)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let mut child = command.spawn().map_err(|_| failure())?;
+    let mut stdin = child.stdin.take().ok_or_else(failure)?;
+    let stdout = child.stdout.take().ok_or_else(failure)?;
+    let mut init = json!({"type":"start","key":key});
+    key.zeroize();
+    let mut bytes = serde_json::to_vec(&init).map_err(|_| failure())?;
+    if let serde_json::Value::String(secret) = &mut init["key"] {
+        secret.zeroize();
+    }
+    bytes.push(b'\n');
+    let sent = stdin.write_all(&bytes).await;
+    bytes.zeroize();
+    sent.map_err(|_| failure())?;
+    let (frames_tx, frames) = mpsc::unbounded_channel();
+    let (commands, mut commands_rx) = mpsc::unbounded_channel::<String>();
+    let (done, finished) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut stdout = BufReader::new(stdout);
+        let mut line = Vec::new();
+        loop {
+            let mut limited = (&mut stdout).take(MAX_FRAME + 1 - line.len() as u64);
+            match limited.read_until(b'\n', &mut line).await {
+                Ok(n) if n > 0 && line.len() <= MAX_FRAME as usize => {}
+                _ => break,
+            }
+            let Ok(text) = String::from_utf8(std::mem::take(&mut line)) else { break };
+            if frames_tx.send(text.trim_end().to_owned()).is_err() {
+                break;
+            }
+        }
+    });
+    tokio::spawn(async move {
+        while let Some(command) = commands_rx.recv().await {
+            let mut frame = command.into_bytes();
+            frame.push(b'\n');
+            if stdin.write_all(&frame).await.is_err() {
+                break;
+            }
+        }
+        drop(stdin);
+        if tokio::time::timeout(Duration::from_secs(5), child.wait()).await.is_err() {
+            let _ = child.kill().await;
+        }
+        let _ = done.send(());
+    });
+    Ok(Lines { frames, commands, finished })
+}
+
 impl Snapshot {
     fn apply(&mut self, event: Event) {
         self.revision += 1;
@@ -644,30 +766,11 @@ impl Snapshot {
     }
 }
 impl Connector {
-    pub async fn start(program: &Path, state: &Path, mut key: String) -> Result<Arc<Self>, String> {
-        let mut command = Command::new(program);
-        command
-            .arg("--state")
-            .arg(state)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        command.creation_flags(0x08000000);
-        let mut child = command.spawn().map_err(|_| failure())?;
-        let mut stdin = child.stdin.take().ok_or_else(failure)?;
-        let stdout = child.stdout.take().ok_or_else(failure)?;
-        let mut init = json!({"type":"start","key":key});
-        key.zeroize();
-        let mut bytes = serde_json::to_vec(&init).map_err(|_| failure())?;
-        if let serde_json::Value::String(secret) = &mut init["key"] {
-            secret.zeroize();
-        }
-        bytes.push(b'\n');
-        let sent = stdin.write_all(&bytes).await;
-        bytes.zeroize();
-        sent.map_err(|_| failure())?;
+    pub async fn start(runner: &Runner, state: &Path, key: String) -> Result<Arc<Self>, String> {
+        let lines = match runner {
+            Runner::InProcess => in_process(state, key)?,
+            Runner::Helper(program) => helper(program, state, key).await?,
+        };
         let (requests, receiver) = mpsc::channel(32);
         let connector = Arc::new(Self {
             snapshot: Mutex::new(Snapshot { state: "connecting".into(), ..Default::default() }),
@@ -676,7 +779,7 @@ impl Connector {
             searches: Mutex::default(),
             downloads: Mutex::default(),
         });
-        tokio::spawn(worker(Arc::downgrade(&connector), child, stdin, BufReader::new(stdout), receiver));
+        tokio::spawn(worker(Arc::downgrade(&connector), lines, receiver));
         Ok(connector)
     }
     pub fn snapshot(&self) -> Snapshot {
@@ -813,29 +916,21 @@ impl Connector {
         self.request(Request::Read { chat })
     }
 }
-async fn worker(
-    weak: Weak<Connector>,
-    mut child: Child,
-    mut stdin: ChildStdin,
-    mut stdout: BufReader<tokio::process::ChildStdout>,
-    mut receiver: mpsc::Receiver<Request>,
-) {
-    let mut line = Vec::new();
+async fn worker(weak: Weak<Connector>, lines: Lines, mut receiver: mpsc::Receiver<Request>) {
+    let Lines { mut frames, commands, finished } = lines;
     loop {
-        let mut limited = (&mut stdout).take(MAX_FRAME + 1 - line.len() as u64);
         tokio::select! {
-            read = limited.read_until(b'\n', &mut line) => {
-                if !matches!(read, Ok(n) if n > 0) || line.len() > MAX_FRAME as usize { break; }
-                // Not JSON is a broken helper; a frame of a type this build does
-                // not know is a newer helper, and is skipped.
-                let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else { break };
+            frame = frames.recv() => {
+                let Some(frame) = frame else { break };
+                // Not JSON is a broken engine; a frame of a type this build does
+                // not know is a newer one, and is skipped.
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&frame) else { break };
                 let Some(connector) = weak.upgrade() else { break };
                 if let Ok(event) = serde_json::from_value::<Event>(value) {
                     if let Event::Found { id, people } = event {
                         if let Some(asker) = connector.searches.lock().unwrap_or_else(|p| p.into_inner()).remove(&id) {
                             let _ = asker.send(people);
                         }
-                        line.clear();
                         continue;
                     }
                     if let Event::File { id, path } = event {
@@ -844,7 +939,6 @@ async fn worker(
                         for waiter in waiters {
                             let _ = waiter.send(path.clone());
                         }
-                        line.clear();
                         continue;
                     }
                     let revision = {
@@ -854,7 +948,6 @@ async fn worker(
                     };
                     connector.revisions.send_replace(revision);
                 }
-                line.clear();
             }
             request = receiver.recv() => {
                 let Some(request) = request else { break };
@@ -883,17 +976,13 @@ async fn worker(
                     Request::Logout => json!({"type":"logout"}),
                     Request::Stop => json!({"type":"stop"}),
                 };
-                let mut frame = value.to_string().into_bytes();
-                frame.push(b'\n');
-                if stdin.write_all(&frame).await.is_err() { break; }
+                if commands.send(value.to_string()).is_err() { break; }
                 if stopping { break; }
             }
         }
     }
-    drop(stdin);
-    if tokio::time::timeout(Duration::from_secs(5), child.wait()).await.is_err() {
-        let _ = child.kill().await;
-    }
+    drop(commands);
+    let _ = tokio::time::timeout(Duration::from_secs(10), finished).await;
     if let Some(connector) = weak.upgrade() {
         let mut snapshot = connector.snapshot.lock().unwrap_or_else(|p| p.into_inner());
         if snapshot.state != "logged_out" {

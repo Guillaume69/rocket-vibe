@@ -54,7 +54,7 @@ The minimum versions the GTK feature flags imply (GTK 4.12, libadwaita 1.6, Pang
 `apps/desktop/scripts/build.sh`:
 
 1. builds the image as `rocket-vibe-rs-build` and creates the `rv-cargo` volume (cargo registry cache shared across runs), chowned to the caller's uid;
-2. runs, as the caller's uid with the checkout mounted at `/src`: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo build --workspace`, all with `--profile "$PROFILE"` (`PROFILE=dev` by default, `PROFILE=release` for a release build).
+2. runs, as the caller's uid with the checkout mounted at `/src`: `cargo fmt -- --check` (the workspace's own crates; the vendored WhatsApp engine it links keeps upstream's formatting), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `cargo build --workspace`, all with `--profile "$PROFILE"` (`PROFILE=dev` by default, `PROFILE=release` for a release build).
 
 The script runs under `set -euo pipefail`, so a failed step fails the script. Because the image ships the same GTK 4.22 and libadwaita 1.9 as a Fedora 44 host, the binary in `target/` runs natively on the developer's machine. The other scripts reuse the same image: `smoke.sh`, `e2e.sh`, `e2e-actions.sh` (the app under Xvfb against the seeded test server) and `coverage.sh`; see [testing.md](testing.md).
 

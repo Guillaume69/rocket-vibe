@@ -5,11 +5,7 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
-description = "The WhatsApp engine of rocket-vibe: its JSON protocol over whatsapp-rust"
-
-[[bin]]
-name = "rv-whatsapp"
-path = "src/main.rs"
+description = "The WhatsApp engine of rocket-vibe: its JSON protocol over whatsapp-rust, run in the app"
 
 [dependencies]
 aes-gcm = { workspace = true }

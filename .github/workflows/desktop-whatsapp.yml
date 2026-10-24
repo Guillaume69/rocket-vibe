@@ -1,10 +1,7 @@
-# Builds the rv-whatsapp helper (crates/rv-whatsapp/engine, the Rust engine on
-# whatsapp-rust) on the three desktop platforms and uploads it with its licence
-# notice: rv-whatsapp-linux-x86_64, rv-whatsapp-windows-x86_64,
-# rv-whatsapp-macos-arm64. On its own when the helper changes; called by
-# desktop.yml when it packages, whose jobs put rv-whatsapp next to the app's
-# executable. The Go engine (apps/desktop/whatsapp) is Android's until its
-# JNI binding: its checks stay here.
+# The licence notice of the crates the WhatsApp engine (crates/rv-whatsapp/engine,
+# on whatsapp-rust) links into the desktop app, per platform:
+# rv-whatsapp-licenses-{linux,windows,macos}.txt in the rv-whatsapp-licenses
+# artifact. Called by desktop.yml when it packages.
 name: desktop-whatsapp
 
 on:
@@ -16,7 +13,6 @@ on:
       - 'crates/rv-signal/**'
       - 'crates/rv-link-preview/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
       - '.github/workflows/desktop-whatsapp.yml'
   pull_request:
     paths:
@@ -24,7 +20,6 @@ on:
       - 'crates/rv-signal/**'
       - 'crates/rv-link-preview/**'
       - 'crates/rv-protocol/**'
-      - 'apps/desktop/whatsapp/**'
       - '.github/workflows/desktop-whatsapp.yml'
   workflow_dispatch:
 
@@ -35,105 +30,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ubuntu:22.04 (glibc 2.35) so the binary runs on older distributions; the
-  # Windows helper is cross-built there with mingw-w64 (x86_64-pc-windows-gnu).
-  linux-windows:
+  licenses:
     runs-on: ubuntu-24.04
-    container: ubuntu:22.04
-    defaults:
-      run:
-        working-directory: crates/rv-whatsapp
-    steps:
-      - name: Toolchain
-        working-directory: /
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates curl git build-essential gcc-mingw-w64-x86-64 python3
-          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.97.1 -t x86_64-pc-windows-gnu
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - uses: actions/checkout@v5
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            crates/rv-whatsapp/target
-          key: whatsapp-helper-linux-${{ hashFiles('crates/rv-whatsapp/Cargo.lock') }}
-      - name: Build
-        env:
-          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
-          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc
-          AR_x86_64_pc_windows_gnu: x86_64-w64-mingw32-ar
-        run: |
-          cargo build --release --locked -p rv-whatsapp-engine --bin rv-whatsapp
-          cargo build --release --locked -p rv-whatsapp-engine --bin rv-whatsapp --target x86_64-pc-windows-gnu
-          mkdir -p out/linux out/windows
-          cp target/release/rv-whatsapp out/linux/
-          cp target/x86_64-pc-windows-gnu/release/rv-whatsapp.exe out/windows/
-          out/linux/rv-whatsapp --version
-          bash engine/licenses.sh > out/linux/rv-whatsapp-licenses.txt
-          bash engine/licenses.sh x86_64-pc-windows-gnu > out/windows/rv-whatsapp-licenses.txt
-      - name: glibc 2.35 at most
-        run: |
-          floor=$(objdump -T out/linux/rv-whatsapp | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1)
-          echo "$floor"
-          [ "$(printf '%s\nGLIBC_2.35\n' "$floor" | sort -V | tail -1)" = GLIBC_2.35 ]
-      - name: The helper opens a state, answers and seals it
-        run: |
-          state=$(mktemp -d)/state
-          key=$(head -c 32 /dev/urandom | base64)
-          printf '{"type":"start","key":"%s"}\n{"type":"stop"}\n' "$key" | out/linux/rv-whatsapp --state "$state" | tee out.jsonl
-          grep -q '"state":"loaded"' out.jsonl
-          head -c 5 "$state" | grep -q RVWA2
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rv-whatsapp-linux-x86_64
-          path: crates/rv-whatsapp/out/linux/*
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rv-whatsapp-windows-x86_64
-          path: crates/rv-whatsapp/out/windows/*
-
-  macos:
-    runs-on: macos-15
     defaults:
       run:
         working-directory: crates/rv-whatsapp
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            crates/rv-whatsapp/target
-          key: whatsapp-helper-macos-${{ hashFiles('crates/rv-whatsapp/Cargo.lock') }}
-      - name: Build
+      - name: Notices
         run: |
-          cargo build --release --locked -p rv-whatsapp-engine --bin rv-whatsapp
           mkdir -p out
-          cp target/release/rv-whatsapp out/
-          out/rv-whatsapp --version
-          bash engine/licenses.sh > out/rv-whatsapp-licenses.txt
+          bash engine/licenses.sh x86_64-unknown-linux-gnu > out/rv-whatsapp-licenses-linux.txt
+          bash engine/licenses.sh x86_64-pc-windows-gnu > out/rv-whatsapp-licenses-windows.txt
+          bash engine/licenses.sh aarch64-apple-darwin > out/rv-whatsapp-licenses-macos.txt
+          grep -q "whatsapp-rust" out/rv-whatsapp-licenses-linux.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: rv-whatsapp-macos-arm64
+          name: rv-whatsapp-licenses
           path: crates/rv-whatsapp/out/*
-
-  # The Go engine, built into Android's librv_whatsapp.so by mobile.yml.
-  go-engine:
-    runs-on: ubuntu-24.04
-    defaults:
-      run:
-        working-directory: apps/desktop/whatsapp
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/desktop/whatsapp/go.mod
-          cache-dependency-path: apps/desktop/whatsapp/go.sum
-      - name: Format, vet, tests
-        run: |
-          test -z "$(gofmt -l .)"
-          go vet -tags sqlite_unlock_notify ./...
-          go test -race -tags sqlite_unlock_notify ./...

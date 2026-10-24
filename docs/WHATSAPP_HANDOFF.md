@@ -2,7 +2,8 @@
 
 Date: 2026-10-12.
 Branch: `claude/whatsapp-feasibility`, based on `origin/master` at `089df389`. It continues `codex/whatsapp-feasibility`, whose work was left uncommitted in the Codex worktree when that session ended; the first commit imports it unchanged, the following ones fix it, then make WhatsApp an account of the GTK app.
-Status: linked and used live by the user on Windows (pilot window builds); the integrated account is checked by tests and the synthetic GTK smoke, its live check pending. Not merged into master, not released.
+Since 2026-10-24 both apps run the Rust engine (`crates/rv-whatsapp`) inside the app; the Go helper this handoff describes is deleted, and its paths are history (`brain/features/whatsapp.md` is current).
+Status at the time: linked and used live by the user on Windows (pilot window builds); the integrated account is checked by tests and the synthetic GTK smoke, its live check pending. Not merged into master, not released.
 
 ## Accepted direction and scope
 

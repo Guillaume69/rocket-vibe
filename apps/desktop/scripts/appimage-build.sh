@@ -21,20 +21,6 @@ if [ ! -f "$voice" ]; then
   voice=
 fi
 
-# The WhatsApp helper comes prebuilt (whatsapp/README.md, desktop-whatsapp.yml):
-# $RV_WHATSAPP, else dist/whatsapp/rv-whatsapp, with its licence notice beside
-# it; without it the AppImage offers no WhatsApp, a failure when
-# RV_WHATSAPP_REQUIRED=1 (CI).
-whatsapp=${RV_WHATSAPP:-dist/whatsapp/rv-whatsapp}
-if [ ! -f "$whatsapp" ]; then
-  if [ "${RV_WHATSAPP_REQUIRED:-}" = 1 ]; then
-    echo "no WhatsApp helper at $whatsapp" >&2
-    exit 1
-  fi
-  echo "warning: no WhatsApp helper at $whatsapp, the AppImage will not offer WhatsApp" >&2
-  whatsapp=
-fi
-
 tools=294be3fc770c1418d13d6189e5ee779b81e1b578
 base="https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$tools/useful-tools"
 setup="https://raw.githubusercontent.com/pkgforge-dev/anylinux-setup-action/7278cbb7c3692fce7241d427614ef7984192f138/setup.sh"
@@ -63,12 +49,6 @@ if [ -n "$voice" ]; then
     install -Dm755 "$helper" /usr/bin/rv-screen-audio
     sidecar="$sidecar /usr/bin/rv-screen-audio"
   fi
-fi
-# The WhatsApp helper, found under $SHARUN_DIR like rv-voice (rv-core/src/whatsapp.rs).
-# Its licence notice is not in the AppImage yet (quick-sharun gathers binaries).
-if [ -n "$whatsapp" ]; then
-  install -Dm755 "$whatsapp" /usr/bin/rv-whatsapp
-  sidecar="$sidecar /usr/bin/rv-whatsapp"
 fi
 install -Dm644 data/com.rocketvibe.app.desktop /usr/share/applications/com.rocketvibe.app.desktop
 for size in data/icons/hicolor/*; do

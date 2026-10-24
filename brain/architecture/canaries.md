@@ -27,7 +27,7 @@ Each check answers `ok`, `broken` or `notice`. `scripts/canaries/issues.mjs` kee
 
 ## Out of reach
 
-Anything behind a session needs an account the project does not have: the Teams skype token and its region routes, message and Trouter shapes; Slack's boot-page token scrape, the `d` cookie and RTM frames; WhatsApp's stanzas after pairing, app-state sync and media. Personal Teams is a different service, not a stand-in. The Go WhatsApp helper's own version pin (Android, the whatsmeow fork in `apps/desktop/whatsapp/go.mod`) lives in the module cache, outside the repository, and is not checked. A Slack test workspace would allow an authenticated Slack canary.
+Anything behind a session needs an account the project does not have: the Teams skype token and its region routes, message and Trouter shapes; Slack's boot-page token scrape, the `d` cookie and RTM frames; WhatsApp's stanzas after pairing, app-state sync and media. Personal Teams is a different service, not a stand-in. A Slack test workspace would allow an authenticated Slack canary.
 
 ## Sources
 

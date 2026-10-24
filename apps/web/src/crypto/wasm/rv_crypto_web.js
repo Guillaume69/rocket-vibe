@@ -11,6 +11,17 @@ export class Bridge {
         const ptr = this.__destroy_into_raw();
         wasm.__wbg_bridge_free(ptr, 0);
     }
+    /**
+     * Whether the state moved since the last restore or snapshot.
+     * @returns {boolean}
+     */
+    changed() {
+        const ret = wasm.bridge_changed(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
     close() {
         wasm.bridge_close(this.__wbg_ptr);
     }

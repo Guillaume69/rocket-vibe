@@ -6,7 +6,8 @@ declare const self: DedicatedWorkerGlobalScope;
 let bridge: Bridge | undefined,
   scope = "",
   closed = false,
-  queue = Promise.resolve();
+  queue = Promise.resolve(),
+  held: { revision: number; iv: Uint8Array } | undefined;
 const empty = JSON.stringify({ version: 1, keys: {}, databases: [] });
 type Request =
   | { id: number; type: "open"; account: CryptoAccount }
@@ -45,9 +46,16 @@ async function open(account: CryptoAccount): Promise<unknown> {
 async function invoke(method: string, args: string[]): Promise<unknown> {
   return navigator.locks.request("vibez-crypto:" + scope, async () => {
     if (closed || !bridge) throw Error("crypto_view_closed");
-    const old = await loadEnvelope(scope),
-      before = old ? await unseal(scope, old) : empty;
-    bridge.restore(before);
+    const old = await loadEnvelope(scope);
+    if (
+      !old ||
+      old.revision !== held?.revision ||
+      !old.iv.every((byte, i) => byte === held?.iv[i])
+    ) {
+      held = undefined;
+      bridge.restore(old ? await unseal(scope, old) : empty);
+      if (old) held = { revision: old.revision, iv: old.iv };
+    }
     let result: unknown, failure: unknown;
     try {
       result = JSON.parse(
@@ -58,14 +66,15 @@ async function invoke(method: string, args: string[]): Promise<unknown> {
     }
     // Errors can still checkpoint an observed withdrawal or a pending intent.
     // Its durable write must finish before either success or failure is exposed.
-    const after = bridge.snapshot();
-    if (after !== before) {
+    if (bridge.changed()) {
+      held = undefined;
       const rotation =
         method === "storageAction" &&
         typeof result === "string" &&
         (JSON.parse(result) as { renewed?: boolean }).renewed === true;
-      const next = await seal(scope, after, old, rotation);
+      const next = await seal(scope, bridge.snapshot(), old, rotation);
       await saveEnvelope(scope, old?.revision, next);
+      held = { revision: next.revision, iv: next.iv };
     }
     if (closed) throw Error("crypto_view_closed");
     if (failure !== undefined) throw failure;

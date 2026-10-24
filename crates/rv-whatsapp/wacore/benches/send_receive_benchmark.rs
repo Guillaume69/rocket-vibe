@@ -352,9 +352,8 @@ impl User {
     }
 
     fn prekey_bundle(&self) -> PreKeyBundle {
-        PreKeyBundle::new(
+        wacore::libsignal::protocol::prekey_bundle(
             self.identity.reg_id,
-            1.into(),
             Some((1.into(), self.prekey_pair.public)),
             1.into(),
             self.signed_prekey_pair.public,

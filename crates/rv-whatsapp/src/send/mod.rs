@@ -8684,9 +8684,8 @@ mod tests {
                 let opk = KeyPair::generate(&mut rng);
                 let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
 
-                PreKeyBundle::new(
+                wacore::libsignal::protocol::prekey_bundle(
                     1,
-                    1u32.into(),
                     Some((1u32.into(), opk.public)),
                     1u32.into(),
                     spk.public,
@@ -8907,9 +8906,8 @@ mod tests {
                 let spk = KeyPair::generate(&mut rng);
                 let opk = KeyPair::generate(&mut rng);
                 let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
-                PreKeyBundle::new(
+                wacore::libsignal::protocol::prekey_bundle(
                     1,
-                    1u32.into(),
                     Some((1u32.into(), opk.public)),
                     1u32.into(),
                     spk.public,
@@ -10007,7 +10005,7 @@ mod tests {
     #[tokio::test]
     async fn group_repairs_each_original_id_only_to_missed_devices() {
         use wacore::libsignal::protocol::{
-            CiphertextMessage, GenericSignedPreKey, PreKeyBundle, SignedPreKeyStore, UsePQRatchet,
+            CiphertextMessage, GenericSignedPreKey, SignedPreKeyStore, UsePQRatchet,
             message_decrypt, process_prekey_bundle,
         };
         use wacore::store::traits::{DeviceInfo, DeviceListRecord};
@@ -10045,9 +10043,8 @@ mod tests {
             .get_signed_pre_key(1.into())
             .await
             .unwrap();
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::libsignal::protocol::prekey_bundle(
             receiver_device.core.registration_id,
-            u32::from(missed.device).into(),
             None,
             1.into(),
             signed_key.public_key().unwrap(),

@@ -2217,9 +2217,8 @@ mod tests {
             .get_signed_pre_key(1.into())
             .await
             .expect("receiver signed prekey");
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::libsignal::protocol::prekey_bundle(
             snapshot.core.registration_id,
-            2u32.into(),
             None,
             1u32.into(),
             signed.public_key().unwrap(),

@@ -6,7 +6,7 @@
 
 use rand::CryptoRng;
 
-use super::address::{DeviceId, ProtocolAddress};
+use super::address::ProtocolAddress;
 use super::error::{Result, SignalProtocolError};
 use super::keys::{KeyPair, PublicKey, local_identity};
 use super::messages::{
@@ -31,79 +31,29 @@ pub struct DecryptionResult {
     pub identity_change: IdentityChange,
 }
 
-/// A peer's published keys.
-#[derive(Clone, Debug)]
-pub struct PreKeyBundle {
+pub use rv_signal::PreKeyBundle;
+
+/// A peer's published keys as `rv-signal` takes them; a signature that is not
+/// 64 bytes is refused.
+pub fn prekey_bundle(
     registration_id: u32,
-    device_id: DeviceId,
     pre_key: Option<(PreKeyId, PublicKey)>,
     signed_pre_key_id: SignedPreKeyId,
     signed_pre_key_public: PublicKey,
-    signed_pre_key_signature: [u8; SIGNED_PRE_KEY_SIGNATURE_LEN],
+    signed_pre_key_signature: impl TryInto<[u8; SIGNED_PRE_KEY_SIGNATURE_LEN]>,
     identity_key: PublicKey,
-}
-
-impl PreKeyBundle {
-    pub fn new(
-        registration_id: u32,
-        device_id: DeviceId,
-        pre_key: Option<(PreKeyId, PublicKey)>,
-        signed_pre_key_id: SignedPreKeyId,
-        signed_pre_key_public: PublicKey,
-        signed_pre_key_signature: impl TryInto<[u8; SIGNED_PRE_KEY_SIGNATURE_LEN]>,
-        identity_key: PublicKey,
-    ) -> Result<Self> {
-        let signed_pre_key_signature = signed_pre_key_signature.try_into().map_err(|_| {
-            SignalProtocolError::InvalidArgument(
-                "signed prekey signature must be 64 bytes".to_owned(),
-            )
-        })?;
-        Ok(Self {
-            registration_id,
-            device_id,
-            pre_key,
-            signed_pre_key_id,
-            signed_pre_key_public,
-            signed_pre_key_signature,
-            identity_key,
-        })
-    }
-
-    pub fn registration_id(&self) -> Result<u32> {
-        Ok(self.registration_id)
-    }
-    pub fn device_id(&self) -> Result<DeviceId> {
-        Ok(self.device_id)
-    }
-    pub fn pre_key_id(&self) -> Result<Option<PreKeyId>> {
-        Ok(self.pre_key.map(|(id, _)| id))
-    }
-    pub fn pre_key_public(&self) -> Result<Option<PublicKey>> {
-        Ok(self.pre_key.map(|(_, key)| key))
-    }
-    pub fn signed_pre_key_id(&self) -> Result<SignedPreKeyId> {
-        Ok(self.signed_pre_key_id)
-    }
-    pub fn signed_pre_key_public(&self) -> Result<PublicKey> {
-        Ok(self.signed_pre_key_public)
-    }
-    pub fn signed_pre_key_signature(&self) -> Result<&[u8]> {
-        Ok(&self.signed_pre_key_signature)
-    }
-    pub fn identity_key(&self) -> Result<&PublicKey> {
-        Ok(&self.identity_key)
-    }
-
-    fn inner(&self) -> rv_signal::PreKeyBundle {
-        rv_signal::PreKeyBundle {
-            registration_id: self.registration_id,
-            identity: self.identity_key,
-            signed_prekey_id: self.signed_pre_key_id.into(),
-            signed_prekey: self.signed_pre_key_public,
-            signed_prekey_signature: self.signed_pre_key_signature,
-            prekey: self.pre_key.map(|(id, key)| (u32::from(id), key)),
-        }
-    }
+) -> Result<PreKeyBundle> {
+    let signed_prekey_signature = signed_pre_key_signature.try_into().map_err(|_| {
+        SignalProtocolError::InvalidArgument("signed prekey signature must be 64 bytes".to_owned())
+    })?;
+    Ok(PreKeyBundle {
+        registration_id,
+        identity: identity_key,
+        signed_prekey_id: signed_pre_key_id.into(),
+        signed_prekey: signed_pre_key_public,
+        signed_prekey_signature,
+        prekey: pre_key.map(|(id, key)| (u32::from(id), key)),
+    })
 }
 
 async fn require_trusted(
@@ -347,7 +297,7 @@ pub async fn process_prekey_bundle<R: CryptoRng + ?Sized>(
     require_trusted(
         identity_store,
         remote_address,
-        bundle.identity_key()?,
+        &bundle.identity,
         Direction::Sending,
     )
     .await?;
@@ -357,9 +307,9 @@ pub async fn process_prekey_bundle<R: CryptoRng + ?Sized>(
     let (checkout, record) = CheckoutGuard::take(session_store, remote_address).await?;
     let mut record = record.unwrap_or_default();
     record
-        .with_signal(|r| r.initiate(&local, &bundle.inner(), csprng))?
+        .with_signal(|r| r.initiate(&local, bundle, csprng))?
         .map_err(|e| SignalProtocolError::from_signal(e, CiphertextMessageType::PreKey))?;
-    let change = save_identity(identity_store, remote_address, bundle.identity_key()?).await?;
+    let change = save_identity(identity_store, remote_address, &bundle.identity).await?;
     checkout.store(record).await?;
     Ok(change)
 }
@@ -376,7 +326,7 @@ pub fn initialize_alice_session_record<R: CryptoRng + ?Sized>(
         ));
     }
     let local = local_identity(&parameters.our_identity_key_pair, 0);
-    let bundle = rv_signal::PreKeyBundle {
+    let bundle = PreKeyBundle {
         registration_id: 0,
         identity: parameters.their_identity_key,
         signed_prekey_id: 0,

@@ -336,9 +336,8 @@ impl PreKeyUtils {
         let signed_pre_key_id: SignedPreKeyId = signed_pre_key_id_u32.into();
         let signed_pre_key_public = PublicKey::try_from(&signed_pre_key_public_bytes[..])?;
 
-        let bundle = PreKeyBundle::new(
+        let bundle = crate::libsignal::protocol::prekey_bundle(
             registration_id,
-            (jid.device as u32).into(),
             pre_key_tuple,
             signed_pre_key_id,
             signed_pre_key_public,
@@ -519,15 +518,14 @@ mod tests {
         assert_eq!(extract_prekey_public_key(&bad_wire), None);
     }
 
-    fn create_mock_bundle(device_id: u32) -> PreKeyBundle {
+    fn create_mock_bundle(_device_id: u32) -> PreKeyBundle {
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let identity_pair = KeyPair::generate(&mut rng);
         let signed_prekey_pair = KeyPair::generate(&mut rng);
         let prekey_pair = KeyPair::generate(&mut rng);
 
-        PreKeyBundle::new(
+        crate::libsignal::protocol::prekey_bundle(
             1,
-            device_id.into(),
             Some((1u32.into(), prekey_pair.public)),
             2u32.into(),
             signed_prekey_pair.public,
@@ -725,9 +723,8 @@ mod tests {
         let device = KeyPair::generate(&mut rng);
         let account_key = account.public.raw();
         for (jid, hosted_device) in test_util::device_cases() {
-            let bundle = PreKeyBundle::new(
+            let bundle = crate::libsignal::protocol::prekey_bundle(
                 1,
-                u32::from(jid.device).into(),
                 Some((1u32.into(), device.public)),
                 2u32.into(),
                 device.public,

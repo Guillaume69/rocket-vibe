@@ -68,9 +68,8 @@ impl Peer {
 
     fn bundle(&self) -> PreKeyBundle {
         let device = self.manager.get_device_snapshot();
-        PreKeyBundle::new(
+        wacore::libsignal::protocol::prekey_bundle(
             device.registration_id,
-            1.into(),
             None,
             device.signed_pre_key_id.into(),
             device.signed_pre_key.public,

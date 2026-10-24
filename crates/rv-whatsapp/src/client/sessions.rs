@@ -1548,7 +1548,7 @@ mod tests {
     #[tokio::test]
     async fn a_device_that_establishes_counts_nothing() {
         use wacore::iq::prekeys::PreKeyBundleUserNode;
-        use wacore::libsignal::protocol::{KeyPair, PreKeyBundle};
+        use wacore::libsignal::protocol::KeyPair;
         use wacore::protocol::ProtocolNode;
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
@@ -1565,9 +1565,8 @@ mod tests {
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
         let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::libsignal::protocol::prekey_bundle(
             1,
-            0u32.into(),
             Some((1u32.into(), opk.public)),
             1u32.into(),
             spk.public,

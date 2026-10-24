@@ -900,9 +900,8 @@ async fn bobs_prekey_bundle_with_spk_id(client: &Arc<Client>, spk_id: u32) -> (P
         .or_else(|| snapshot.pn.clone())
         .expect("own jid");
     let bob_jid = own_device_jid.to_non_ad();
-    let bundle = PreKeyBundle::new(
+    let bundle = wacore::libsignal::protocol::prekey_bundle(
         reg_id,
-        u32::from(own_device_jid.device).into(),
         Some((pk_id_u32.into(), pk_pair.public)),
         spk_id.into(),
         spk_pub,

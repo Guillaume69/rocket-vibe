@@ -404,9 +404,8 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
         .private_key()
         .calculate_signature(&spk.public_key.serialize(), &mut rng)
         .expect("signature");
-    let bundle = PreKeyBundle::new(
+    let bundle = wacore::libsignal::protocol::prekey_bundle(
         1,
-        1u32.into(),
         Some((1u32.into(), opk.public_key)),
         1u32.into(),
         spk.public_key,
@@ -473,9 +472,8 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     // we encrypt to it. No one-time pre-key: `PreKeyBundle` allows `None`, and
     // omitting it keeps this fixture from depending on pre-key generation.
     let peer_snapshot = peer_client.persistence_manager.get_device_snapshot();
-    let bundle = PreKeyBundle::new(
+    let bundle = wacore::libsignal::protocol::prekey_bundle(
         peer_snapshot.registration_id,
-        u32::from(peer.device).into(),
         None,
         peer_snapshot.signed_pre_key_id.into(),
         peer_snapshot.signed_pre_key.public_key,

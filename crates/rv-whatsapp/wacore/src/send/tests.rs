@@ -917,9 +917,8 @@ fn create_mock_bundle() -> PreKeyBundle {
     let signed_prekey_pair = KeyPair::generate(&mut rng);
     let prekey_pair = KeyPair::generate(&mut rng);
 
-    PreKeyBundle::new(
-        1,                                       // registration_id
-        1u32.into(),                             // device_id
+    crate::libsignal::protocol::prekey_bundle(
+        1,                                       // device_id
         Some((1u32.into(), prekey_pair.public)), // pre_key
         2u32.into(),                             // signed_pre_key_id
         signed_prekey_pair.public,
@@ -938,9 +937,8 @@ fn signed_prekey_bundle() -> PreKeyBundle {
     let spk = KeyPair::generate(&mut rng);
     let opk = KeyPair::generate(&mut rng);
     let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
-    PreKeyBundle::new(
+    crate::libsignal::protocol::prekey_bundle(
         1,
-        1u32.into(),
         Some((1u32.into(), opk.public)),
         1u32.into(),
         spk.public,
@@ -5631,9 +5629,8 @@ mod local_identity_change_on_send {
         let spk = KeyPair::generate(rng);
         let opk = KeyPair::generate(rng);
         let sig = identity.private.sign(&spk.public.serialize(), rng);
-        PreKeyBundle::new(
+        crate::libsignal::protocol::prekey_bundle(
             1,
-            1u32.into(),
             Some((1u32.into(), opk.public)),
             1u32.into(),
             spk.public,
@@ -5860,9 +5857,8 @@ mod local_identity_change_on_send {
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
         let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
-        let bundle = PreKeyBundle::new(
+        let bundle = crate::libsignal::protocol::prekey_bundle(
             1,
-            1u32.into(),
             Some((1u32.into(), opk.public)),
             1u32.into(),
             spk.public,

@@ -752,31 +752,21 @@ impl PreKeyBundleUserNode {
         bundle: &PreKeyBundle,
         device_identity: Option<Vec<u8>>,
     ) -> Result<Self, anyhow::Error> {
-        let registration_id = bundle.registration_id()?;
+        let registration_id = bundle.registration_id;
 
-        // Identity key must be 32 bytes (raw key).
-        // PublicKey::public_key_bytes() returns the raw 32-byte key without the 0x05 prefix.
-        let identity_key = bundle.identity_key()?.raw().to_vec();
-
-        let signed_pre_key_id: u32 = bundle.signed_pre_key_id()?.into();
-        let signed_pre_key_public = bundle.signed_pre_key_public()?.raw().to_vec();
-        let signed_pre_key_signature = bundle.signed_pre_key_signature()?.to_vec();
+        // Identity key must be 32 bytes (raw key, without the 0x05 prefix).
+        let identity_key = bundle.identity.raw().to_vec();
 
         let signed_pre_key = SignedPreKeyNode::new(
-            signed_pre_key_id,
-            signed_pre_key_public,
-            signed_pre_key_signature,
+            bundle.signed_prekey_id,
+            bundle.signed_prekey.raw().to_vec(),
+            bundle.signed_prekey_signature.to_vec(),
         );
 
         // Optional one-time prekey
-        let one_time_pre_key = match (bundle.pre_key_id()?, bundle.pre_key_public()?) {
-            (Some(id), Some(pk)) => {
-                let pre_key_id: u32 = id.into();
-                let public_bytes = pk.raw().to_vec();
-                Some(OneTimePreKeyNode::new(pre_key_id, public_bytes))
-            }
-            _ => None,
-        };
+        let one_time_pre_key = bundle
+            .prekey
+            .map(|(id, pk)| OneTimePreKeyNode::new(id, pk.raw().to_vec()));
 
         Ok(Self {
             jid,

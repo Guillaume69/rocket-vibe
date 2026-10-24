@@ -748,7 +748,7 @@ mod tests {
         (client, backend)
     }
 
-    fn peer_prekey_bundle(registration_id: u32, device_id: u32) -> PreKeyBundle {
+    fn peer_prekey_bundle(registration_id: u32, _device_id: u32) -> PreKeyBundle {
         use wacore::libsignal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -758,9 +758,8 @@ mod tests {
         let signature = identity
             .private
             .sign(&signed_prekey.public.serialize(), &mut rng);
-        PreKeyBundle::new(
+        wacore::libsignal::protocol::prekey_bundle(
             registration_id,
-            device_id.into(),
             Some((7u32.into(), prekey.public)),
             9u32.into(),
             signed_prekey.public,

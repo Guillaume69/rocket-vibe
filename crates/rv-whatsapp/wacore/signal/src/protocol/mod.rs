@@ -16,7 +16,7 @@ pub use address::{AddressBuf, DeviceId, ProtocolAddress};
 pub use cipher::{
     DecryptionResult, PreKeyBundle, SIGNED_PRE_KEY_SIGNATURE_LEN, initialize_alice_session_record,
     message_decrypt, message_decrypt_owned, message_decrypt_prekey, message_decrypt_signal,
-    message_encrypt, process_prekey_bundle,
+    message_encrypt, prekey_bundle, process_prekey_bundle,
 };
 pub use error::{
     CurveError, InvalidSenderKeySessionError, InvalidSessionError, Result, SignalProtocolError,

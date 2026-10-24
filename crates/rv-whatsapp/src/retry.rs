@@ -8,7 +8,7 @@ use wacore::types::message::MessageCategory;
 
 use std::sync::Arc;
 use wacore::iq::prekeys::{OneTimePreKeyNode, SignedPreKeyNode};
-use wacore::libsignal::protocol::{PreKeyBundle, PublicKey};
+use wacore::libsignal::protocol::PublicKey;
 use wacore::protocol::ProtocolNode;
 use wacore::protocol::retry::{MAX_RETRY_COUNT, MIN_RETRY_FOR_BASE_KEY_CHECK};
 use wacore::types::jid::JidExt;
@@ -1775,9 +1775,8 @@ impl Client {
             .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
 
         // Build and process the prekey bundle.
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::libsignal::protocol::prekey_bundle(
             registration_id,
-            u32::from(requester_jid.device).into(),
             prekey_data,
             signed_prekey.id.into(),
             skey_public,
@@ -2145,8 +2144,8 @@ mod tests {
     async fn retry_metadata_reaches_transport_and_matches_decrypted_payload() {
         use crate::store::commands::DeviceCommand;
         use wacore::libsignal::protocol::{
-            PreKeyBundle, SessionStore, UsePQRatchet, message_decrypt_prekey,
-            message_decrypt_signal, process_prekey_bundle,
+            SessionStore, UsePQRatchet, message_decrypt_prekey, message_decrypt_signal,
+            process_prekey_bundle,
         };
 
         let client = retry_repair_client("retry_metadata_sender").await;
@@ -2171,9 +2170,8 @@ mod tests {
             .await;
         let (prekey_id, prekey) = receiver.get_or_gen_single_pre_key().await.unwrap();
         let snapshot = receiver.persistence_manager.get_device_snapshot();
-        let bundle = PreKeyBundle::new(
+        let bundle = wacore::libsignal::protocol::prekey_bundle(
             snapshot.registration_id,
-            1u32.into(),
             Some((prekey_id.into(), prekey)),
             snapshot.signed_pre_key_id.into(),
             snapshot.signed_pre_key.public,

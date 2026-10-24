@@ -14,9 +14,8 @@ pub(crate) async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) -> anyho
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
         let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
-        PreKeyBundle::new(
+        wacore::libsignal::protocol::prekey_bundle(
             1,
-            1u32.into(),
             Some((1u32.into(), opk.public)),
             1u32.into(),
             spk.public,

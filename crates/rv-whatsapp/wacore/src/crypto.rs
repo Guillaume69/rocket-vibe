@@ -3,7 +3,7 @@
 use hkdf::Hkdf;
 use sha2::Sha256;
 
-use crate::libsignal::protocol::{KeyPair, PrivateKey};
+use crate::signal::protocol::{KeyPair, PrivateKey};
 
 const HKDF_SHA256_MAX_OUTPUT_LENGTH: usize = 255 * 32;
 

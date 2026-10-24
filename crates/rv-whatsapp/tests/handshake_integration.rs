@@ -36,7 +36,7 @@ use std::sync::atomic::AtomicU32;
 use std::time::Duration;
 
 use wacore::handshake::NoiseHandshake;
-use wacore::libsignal::protocol::KeyPair;
+use wacore::signal::protocol::KeyPair;
 use wacore_binary::consts::{NOISE_PATTERN_IK, NOISE_PATTERN_XX, WA_CONN_HEADER};
 use wacore_noise::test_util::build_cert_chain_bytes;
 use whatsapp_rust::waproto::whatsapp as wa;

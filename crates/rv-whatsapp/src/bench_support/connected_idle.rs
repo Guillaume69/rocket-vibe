@@ -16,7 +16,7 @@ use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use wacore::handshake::{NoiseCipher, NoiseHandshake};
-use wacore::libsignal::protocol::{KeyPair, SenderKeyName};
+use wacore::signal::protocol::{KeyPair, SenderKeyName};
 use wacore::store::traits::Backend;
 use wacore::types::events::{Event, EventHandler, Subscription};
 use wacore::types::jid::{JidExt, make_sender_key_name};
@@ -260,7 +260,7 @@ impl Session {
         tokio::time::timeout(DEADLINE, self.client.bench_startup.wait_before_offline())
             .await
             .context("pre-offline startup tasks did not finish")?;
-        use wacore::libsignal::protocol::{create_sender_key_distribution_message, group_encrypt};
+        use wacore::signal::protocol::{create_sender_key_distribution_message, group_encrypt};
         super::seed_registry(&self.client, super::PEER_USER, &[0]).await;
         super::seed_registry(&self.client, super::OWN_USER, &[0, 1]).await;
         let peer_jid = Jid::new(super::PEER_USER, Server::Pn);

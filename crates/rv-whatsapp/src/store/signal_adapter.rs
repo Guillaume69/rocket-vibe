@@ -3,15 +3,15 @@ use crate::store::persistence_manager::PersistenceManager;
 use crate::store::signal_cache::SignalStoreCache;
 use async_trait::async_trait;
 use std::sync::Arc;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     Direction, IdentityChange, IdentityKeyStore, KeyPair, PreKeyId, PreKeyRecord, PreKeyStore,
     ProtocolAddress, PublicKey, SessionCheckoutKey, SessionCheckoutStoreResult, SessionRecord,
     SessionStore, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore,
 };
 
-use wacore::libsignal::store::record_helpers as wacore_record;
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
-use wacore::libsignal::store::{
+use wacore::signal::store::record_helpers as wacore_record;
+use wacore::signal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::{
     PreKeyStore as WacorePreKeyStore, SignedPreKeyStore as WacoreSignedPreKeyStore,
 };
 
@@ -538,12 +538,12 @@ impl SignedPreKeyStore for SignedPreKeyAdapter {
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-impl wacore::libsignal::protocol::SenderKeyStore for SenderKeyAdapter {
+impl wacore::signal::protocol::SenderKeyStore for SenderKeyAdapter {
     async fn store_sender_key(
         &mut self,
         sender_key_name: &SenderKeyName,
-        record: wacore::libsignal::protocol::SenderKeyRecord,
-    ) -> wacore::libsignal::protocol::error::Result<()> {
+        record: wacore::signal::protocol::SenderKeyRecord,
+    ) -> wacore::signal::protocol::error::Result<()> {
         self.0.cache.put_sender_key(sender_key_name, record).await;
         Ok(())
     }
@@ -551,9 +551,8 @@ impl wacore::libsignal::protocol::SenderKeyStore for SenderKeyAdapter {
     async fn load_sender_key(
         &self,
         sender_key_name: &SenderKeyName,
-    ) -> wacore::libsignal::protocol::error::Result<
-        Option<wacore::libsignal::protocol::SenderKeyRecord>,
-    > {
+    ) -> wacore::signal::protocol::error::Result<Option<wacore::signal::protocol::SenderKeyRecord>>
+    {
         let device = self.0.device();
         // group_decrypt mutates the loaded record (catch-up + ratchet) and stores
         // it back, so the trait needs an owned copy. The cache keeps its `Arc`, so
@@ -603,7 +602,7 @@ mod tests {
     /// reject a valid pre-key message.
     #[tokio::test]
     async fn a_promoted_signed_pre_key_is_only_visible_to_a_fresh_snapshot() {
-        use wacore::libsignal::protocol::KeyPair;
+        use wacore::signal::protocol::KeyPair;
         use wacore::store::commands::DeviceCommand;
 
         let backend: Arc<dyn crate::store::Backend> = Arc::new(InMemoryBackend::new());
@@ -706,7 +705,7 @@ mod tests {
     /// the only thing that can produce an answer.
     #[tokio::test]
     async fn a_promotion_racing_a_lookup_is_resolved_by_the_retry() {
-        use wacore::libsignal::protocol::KeyPair;
+        use wacore::signal::protocol::KeyPair;
         use wacore::store::commands::DeviceCommand;
 
         let backend = Arc::new(InMemoryBackend::new());
@@ -896,7 +895,7 @@ mod tests {
     }
 
     fn outbound_session() -> (SessionRecord, KeyPair) {
-        use wacore::libsignal::protocol::{
+        use wacore::signal::protocol::{
             AliceSignalProtocolParameters, KeyPair, UsePQRatchet, initialize_alice_session_record,
         };
 
@@ -919,7 +918,7 @@ mod tests {
     }
 
     async fn cancel_encrypt_after_checkout(seed_durable: bool) {
-        use wacore::libsignal::protocol::message_encrypt;
+        use wacore::signal::protocol::message_encrypt;
 
         let backend: Arc<dyn crate::store::Backend> = Arc::new(InMemoryBackend::new());
         let cache = Arc::new(SignalStoreCache::new());
@@ -999,7 +998,7 @@ mod tests {
 
     #[tokio::test]
     async fn checkout_commit_fails_closed_across_a_lossy_clear() {
-        use wacore::libsignal::protocol::SessionCheckout;
+        use wacore::signal::protocol::SessionCheckout;
 
         let backend: Arc<dyn crate::store::Backend> = Arc::new(InMemoryBackend::new());
         let cache = Arc::new(SignalStoreCache::new());
@@ -1029,7 +1028,7 @@ mod tests {
     /// async path: store → visible to has/load, both on cold and warm cache.
     #[tokio::test]
     async fn session_store_fast_paths_round_trip() {
-        use wacore::libsignal::protocol::SessionStore as _;
+        use wacore::signal::protocol::SessionStore as _;
         let mut adapter = test_adapter().await;
         let addr = ProtocolAddress::new("15550002222", 1.into());
 
@@ -1069,7 +1068,7 @@ mod tests {
     /// key → ReplacedExisting (the last two run on the warm-cache fast path).
     #[tokio::test]
     async fn identity_fast_paths_keep_change_semantics() {
-        use wacore::libsignal::protocol::{IdentityKeyStore as _, KeyPair};
+        use wacore::signal::protocol::{IdentityKeyStore as _, KeyPair};
         let mut adapter = test_adapter().await;
         let addr = ProtocolAddress::new("15550003333", 1.into());
 
@@ -1128,7 +1127,7 @@ mod tests {
 mod hook_alloc_tests {
     use super::*;
     use crate::test_alloc::min_allocs;
-    use wacore::libsignal::protocol::{Direction, KeyPair};
+    use wacore::signal::protocol::{Direction, KeyPair};
     use wacore::store::in_memory::InMemoryBackend;
 
     async fn adapter_for_test() -> SignalProtocolStoreAdapter {
@@ -1159,7 +1158,7 @@ mod hook_alloc_tests {
         // whole path allocates nothing, and only the resolver can tell us that.
         // Calling the hook alone would pass even if the resolver ignored it.
         let allocs = min_allocs(0, || {
-            futures::FutureExt::now_or_never(wacore::libsignal::protocol::is_trusted_identity(
+            futures::FutureExt::now_or_never(wacore::signal::protocol::is_trusted_identity(
                 &adapter.identity_store,
                 &address,
                 &identity,

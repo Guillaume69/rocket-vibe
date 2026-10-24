@@ -2198,7 +2198,7 @@ mod tests {
     #[cfg(feature = "voip-engine-wacore")]
     #[tokio::test]
     async fn timestampless_rekey_decrypts_and_reaches_group_media() {
-        use wacore::libsignal::protocol::{
+        use wacore::signal::protocol::{
             GenericSignedPreKey, PreKeyBundle, PublicKey, SignedPreKeyStore, UsePQRatchet,
             process_prekey_bundle,
         };
@@ -2217,7 +2217,7 @@ mod tests {
             .get_signed_pre_key(1.into())
             .await
             .expect("receiver signed prekey");
-        let bundle = wacore::libsignal::protocol::prekey_bundle(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             snapshot.core.registration_id,
             None,
             1u32.into(),

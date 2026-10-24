@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{Context, ensure};
 use rand::{RngExt, SeedableRng};
 
-use crate::libsignal::protocol::{
+use crate::signal::protocol::{
     ChainKey, CiphertextMessageType, KeyPair, RootKey, SenderKeyMessage, SenderKeyStore,
     SessionState, SignalProtocolError, create_sender_key_distribution_message, group_decrypt,
     group_encrypt, process_sender_key_distribution_message,
@@ -32,7 +32,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
         &mut self,
         name: &SenderKeyName,
         record: SenderKeyRecord,
-    ) -> crate::libsignal::protocol::error::Result<()> {
+    ) -> crate::signal::protocol::error::Result<()> {
         self.cache.put_sender_key(name, record).await;
         Ok(())
     }
@@ -40,7 +40,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     async fn load_sender_key(
         &self,
         name: &SenderKeyName,
-    ) -> crate::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+    ) -> crate::signal::protocol::error::Result<Option<SenderKeyRecord>> {
         Ok(self
             .cache
             .get_sender_key(name, self.backend)

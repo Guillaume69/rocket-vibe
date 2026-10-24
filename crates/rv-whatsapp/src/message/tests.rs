@@ -9,7 +9,7 @@ use crate::store::persistence_manager::PersistenceManager;
 use crate::test_utils::{MockHttpClient, wait_for_lock_waiter};
 use crate::types::message::EditAttribute;
 use std::sync::Arc;
-use wacore::libsignal::protocol::SignalMessage;
+use wacore::signal::protocol::SignalMessage;
 use wacore_binary::builder::NodeBuilder;
 
 fn node_to_arc(node: wacore_binary::Node) -> Arc<OwnedNodeRef> {
@@ -372,7 +372,7 @@ async fn test_status_broadcast_hosted_family_with_device_id_resolves_to_hosted_l
 
 #[tokio::test]
 async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
-    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
+    use wacore::signal::protocol::{KeyPair, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_graceful_fail?mode=memory&cache=shared")
@@ -518,7 +518,7 @@ async fn batch_accumulates_undecryptable_and_dispatches_once() {
 /// and includes keys early, instead of producing an unhelpful InvalidMessage error.
 #[tokio::test]
 async fn test_empty_session_record_treated_as_session_not_found() {
-    use wacore::libsignal::protocol::{KeyPair, SessionRecord, SignalMessage};
+    use wacore::signal::protocol::{KeyPair, SessionRecord, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_empty_session?mode=memory&cache=shared")
@@ -622,7 +622,7 @@ async fn test_empty_session_record_treated_as_session_not_found() {
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     CiphertextMessage, Direction, IdentityChange, KeyPair, PreKeyBundle, PreKeyRecord,
     PreKeyStore as SigPreKeyStore, ProtocolAddress, PublicKey, SenderKeyName, SenderKeyRecord,
     SenderKeyStore as SigSenderKeyStore, SessionRecord, SessionStore as SigSessionStore,
@@ -630,7 +630,7 @@ use wacore::libsignal::protocol::{
     create_sender_key_distribution_message, group_encrypt, message_decrypt_signal, message_encrypt,
     process_prekey_bundle,
 };
-use wacore::libsignal::protocol::{IdentityKeyStore as SigIdentityKeyStore, SignalProtocolError};
+use wacore::signal::protocol::{IdentityKeyStore as SigIdentityKeyStore, SignalProtocolError};
 
 #[derive(Default, Clone)]
 struct MemSessionStore(HashMap<ProtocolAddress, SessionRecord>);
@@ -781,8 +781,7 @@ impl AlicePeer {
     }
 
     async fn decrypt_signal(&mut self, bob_addr: &ProtocolAddress, ciphertext: &[u8]) -> Vec<u8> {
-        let message =
-            wacore::libsignal::protocol::signal_message(ciphertext).expect("signal message");
+        let message = wacore::signal::protocol::signal_message(ciphertext).expect("signal message");
         message_decrypt_signal(
             &message,
             bob_addr,
@@ -864,7 +863,7 @@ async fn bobs_prekey_bundle(client: &Arc<Client>) -> (PreKeyBundle, Jid) {
 /// can trigger `InvalidSignedPreKeyId` on Bob's decrypt path (the signed-prekey
 /// signature covers only the public key, so an unprovisioned id still verifies).
 async fn bobs_prekey_bundle_with_spk_id(client: &Arc<Client>, spk_id: u32) -> (PreKeyBundle, Jid) {
-    use wacore::libsignal::protocol::GenericSignedPreKey;
+    use wacore::signal::protocol::GenericSignedPreKey;
     ensure_bob_paired(client).await;
     let snapshot = client.persistence_manager.get_device_snapshot();
     let identity_kp = snapshot.core.identity_key.clone();
@@ -900,7 +899,7 @@ async fn bobs_prekey_bundle_with_spk_id(client: &Arc<Client>, spk_id: u32) -> (P
         .or_else(|| snapshot.pn.clone())
         .expect("own jid");
     let bob_jid = own_device_jid.to_non_ad();
-    let bundle = wacore::libsignal::protocol::prekey_bundle(
+    let bundle = wacore::signal::protocol::prekey_bundle(
         reg_id,
         Some((pk_id_u32.into(), pk_pair.public)),
         spk_id.into(),
@@ -1427,7 +1426,7 @@ async fn test_prod_scenario_pkmsg_archives_old_session_after_badmac() {
 
 #[tokio::test]
 async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
-    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
+    use wacore::signal::protocol::{KeyPair, SignalMessage};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_skip_skmsg_test?mode=memory&cache=shared")
@@ -1510,7 +1509,7 @@ async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
 async fn test_self_sent_lid_group_message_sender_key_mismatch() {
     use crate::store::SqliteStore;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         SenderKeyStore, create_sender_key_distribution_message,
         process_sender_key_distribution_message,
     };
@@ -1611,7 +1610,7 @@ async fn test_self_sent_lid_group_message_sender_key_mismatch() {
 async fn test_multiple_lid_participants_sender_key_isolation() {
     use crate::store::SqliteStore;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         SenderKeyStore, create_sender_key_distribution_message,
         process_sender_key_distribution_message,
     };
@@ -2076,7 +2075,7 @@ fn test_own_jid_check_in_lid_mode() {
 async fn test_sender_key_always_uses_display_jid() {
     use crate::store::SqliteStore;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{SenderKeyStore, create_sender_key_distribution_message};
+    use wacore::signal::protocol::{SenderKeyStore, create_sender_key_distribution_message};
 
     let backend = Arc::new(
         SqliteStore::open("file:memdb_display_jid_test?mode=memory&cache=shared")
@@ -2166,7 +2165,7 @@ async fn test_sender_key_always_uses_display_jid() {
 async fn test_second_message_with_only_skmsg_decrypts() {
     use crate::store::SqliteStore;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         create_sender_key_distribution_message, process_sender_key_distribution_message,
     };
 
@@ -5270,7 +5269,7 @@ const DISPATCH_ANNOUNCEMENT: &str = "Dispatching UndecryptableMessage event.";
 /// which is what keeps the silencing from turning into a dropped failure.
 #[tokio::test]
 async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
-    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
+    use wacore::signal::protocol::{KeyPair, SignalMessage};
 
     if log_assertions_delegated_to_child(
         "message::tests::undecryptable_receive_branch_stays_silent_when_batch_dispatched",
@@ -7669,9 +7668,9 @@ async fn process_session_ct(
     client: &Arc<Client>,
     sender: &Jid,
     id: &str,
-    ct: &wacore::libsignal::protocol::CiphertextMessage,
+    ct: &wacore::signal::protocol::CiphertextMessage,
 ) {
-    use wacore::libsignal::protocol::CiphertextMessage;
+    use wacore::signal::protocol::CiphertextMessage;
     let (enc_type, bytes) = match ct {
         CiphertextMessage::PreKeySignalMessage(m) => ("pkmsg", m.serialized().to_vec()),
         CiphertextMessage::SignalMessage(m) => ("msg", m.serialized().to_vec()),
@@ -14154,7 +14153,7 @@ async fn bench_session_decrypt_throughput() {
 /// classification in `group_decrypt_retry_reason`.
 #[test]
 fn test_group_decrypt_retry_reason_classification() {
-    use wacore::libsignal::protocol::CiphertextMessageType;
+    use wacore::signal::protocol::CiphertextMessageType;
 
     // Recoverable sender-key errors -> retry receipt.
     assert_eq!(
@@ -14979,7 +14978,7 @@ async fn a_session_envelope_that_does_not_parse_reports_malformed_ciphertext() {
 /// device has never had.
 #[tokio::test]
 async fn a_session_enc_with_no_session_reports_no_session() {
-    use wacore::libsignal::protocol::{KeyPair, SignalMessage};
+    use wacore::signal::protocol::{KeyPair, SignalMessage};
     let client = create_test_client_for_retry_with_id("enc_fail_nosession").await;
     let (recorder, _leases) = watch_enc_outcomes(&client);
 
@@ -15852,7 +15851,7 @@ async fn a_skmsg_skipped_beside_a_duplicate_is_still_reported() {
 /// cannot drift apart.
 #[test]
 fn a_backend_error_is_storage_not_a_signal_failure() {
-    use wacore::libsignal::protocol::SignalProtocolError;
+    use wacore::signal::protocol::SignalProtocolError;
 
     #[derive(Debug)]
     struct StoreDown;
@@ -15910,8 +15909,8 @@ fn a_backend_error_is_storage_not_a_signal_failure() {
 /// were ours.
 #[tokio::test]
 async fn a_corrupt_stored_prekey_is_not_blamed_on_the_peer() {
-    use wacore::libsignal::protocol::{PreKeyStore, SignalProtocolError};
-    use wacore::libsignal::store::PreKeyStore as WacorePreKeyStore;
+    use wacore::signal::protocol::{PreKeyStore, SignalProtocolError};
+    use wacore::signal::store::PreKeyStore as WacorePreKeyStore;
 
     let client = crate::test_utils::create_test_client_with_name("enc_fail_corrupt_row").await;
     let device = client.persistence_manager.get_device_snapshot();
@@ -15956,7 +15955,7 @@ async fn a_corrupt_stored_prekey_is_not_blamed_on_the_peer() {
 /// catch-all has to agree.
 #[test]
 fn a_version_mismatch_is_an_invalid_message_on_both_paths() {
-    use wacore::libsignal::protocol::SignalProtocolError;
+    use wacore::signal::protocol::SignalProtocolError;
 
     let mismatch = SignalProtocolError::UnrecognizedMessageVersion(9);
     assert_eq!(
@@ -15975,7 +15974,7 @@ fn a_version_mismatch_is_an_invalid_message_on_both_paths() {
 /// of miscount this event exists to avoid.
 #[test]
 fn a_migrated_session_reports_the_retry_failure_not_the_one_that_opened_it() {
-    use wacore::libsignal::protocol::{CiphertextMessageType, SignalProtocolError};
+    use wacore::signal::protocol::{CiphertextMessageType, SignalProtocolError};
 
     assert_eq!(
         session_error_reason(&SignalProtocolError::BadMac(CiphertextMessageType::Whisper)),
@@ -16007,7 +16006,7 @@ fn a_migrated_session_reports_the_retry_failure_not_the_one_that_opened_it() {
 /// like the pre-key row it has to be marked at the store boundary.
 #[tokio::test]
 async fn a_corrupt_stored_identity_is_not_blamed_on_the_peer() {
-    use wacore::libsignal::protocol::{IdentityKeyStore, SignalProtocolError};
+    use wacore::signal::protocol::{IdentityKeyStore, SignalProtocolError};
 
     let client = crate::test_utils::create_test_client_with_name("enc_fail_corrupt_ident").await;
     let peer: Jid = "12025550102@s.whatsapp.net".parse().unwrap();
@@ -16068,7 +16067,7 @@ fn a_stored_bot_secret_that_will_not_derive_is_storage_not_a_missing_secret() {
 /// against the peer is the same mistake as counting a failed disk read.
 #[test]
 fn a_local_key_agreement_failure_is_not_the_peers() {
-    use wacore::libsignal::protocol::SignalProtocolError;
+    use wacore::signal::protocol::SignalProtocolError;
     use wacore_crypto::CryptoProviderError;
 
     assert_eq!(

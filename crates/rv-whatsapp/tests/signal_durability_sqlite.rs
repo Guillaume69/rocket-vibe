@@ -4,12 +4,12 @@ use std::path::Path;
 use std::process::Command;
 
 use rand::SeedableRng;
-use wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
+use wacore::signal::protocol::{
     ChainKey, KeyPair, RootKey, SenderKeyRecord, SenderKeyStore, SessionRecord, SessionState,
     create_sender_key_distribution_message, group_encrypt,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use whatsapp_rust::store::SqliteStore;
 use whatsapp_rust::store::signal_cache::SignalStoreCache;
 
@@ -32,7 +32,7 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
         &mut self,
         name: &SenderKeyName,
         record: SenderKeyRecord,
-    ) -> wacore::libsignal::protocol::error::Result<()> {
+    ) -> wacore::signal::protocol::error::Result<()> {
         self.cache.put_sender_key(name, record).await;
         Ok(())
     }
@@ -40,13 +40,13 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     async fn load_sender_key(
         &self,
         name: &SenderKeyName,
-    ) -> wacore::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+    ) -> wacore::signal::protocol::error::Result<Option<SenderKeyRecord>> {
         Ok(self
             .cache
             .get_sender_key(name, self.backend)
             .await
             .map_err(|error| {
-                wacore::libsignal::protocol::SignalProtocolError::BackendError(
+                wacore::signal::protocol::SignalProtocolError::BackendError(
                     "SQLite durability test",
                     error.into(),
                 )
@@ -55,8 +55,8 @@ impl SenderKeyStore for CachedSenderKeyStore<'_> {
     }
 }
 
-fn dm_address() -> wacore::libsignal::protocol::ProtocolAddress {
-    wacore::libsignal::protocol::ProtocolAddress::new("15550008001", 1.into())
+fn dm_address() -> wacore::signal::protocol::ProtocolAddress {
+    wacore::signal::protocol::ProtocolAddress::new("15550008001", 1.into())
 }
 
 fn group_name() -> SenderKeyName {

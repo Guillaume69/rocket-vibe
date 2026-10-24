@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::client::context::{GroupRoutingInfo, SendContextResolver};
-use crate::libsignal::protocol::{KeyPair, PreKeyBundle};
+use crate::signal::protocol::{KeyPair, PreKeyBundle};
 use crate::types::jid::make_sender_key_name;
 use std::collections::HashMap;
 use wacore_binary::Jid;
@@ -917,7 +917,7 @@ fn create_mock_bundle() -> PreKeyBundle {
     let signed_prekey_pair = KeyPair::generate(&mut rng);
     let prekey_pair = KeyPair::generate(&mut rng);
 
-    crate::libsignal::protocol::prekey_bundle(
+    crate::signal::protocol::prekey_bundle(
         1,                                       // device_id
         Some((1u32.into(), prekey_pair.public)), // pre_key
         2u32.into(),                             // signed_pre_key_id
@@ -937,7 +937,7 @@ fn signed_prekey_bundle() -> PreKeyBundle {
     let spk = KeyPair::generate(&mut rng);
     let opk = KeyPair::generate(&mut rng);
     let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
-    crate::libsignal::protocol::prekey_bundle(
+    crate::signal::protocol::prekey_bundle(
         1,
         Some((1u32.into(), opk.public)),
         1u32.into(),
@@ -1590,7 +1590,7 @@ mod metadata {
 
 mod group_retry {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::signal::protocol::{
         Direction, IdentityChange, IdentityKeyStore, KeyPair, ProtocolAddress, PublicKey,
         SessionStore, process_prekey_bundle,
     };
@@ -1610,25 +1610,24 @@ mod group_retry {
         async fn load_session(
             &self,
             a: &ProtocolAddress,
-        ) -> crate::libsignal::protocol::error::Result<
-            Option<crate::libsignal::protocol::SessionRecord>,
-        > {
+        ) -> crate::signal::protocol::error::Result<Option<crate::signal::protocol::SessionRecord>>
+        {
             Ok(self
                 .0
                 .get(a)
-                .and_then(|b| crate::libsignal::protocol::SessionRecord::deserialize(b).ok()))
+                .and_then(|b| crate::signal::protocol::SessionRecord::deserialize(b).ok()))
         }
         async fn has_session(
             &self,
             a: &ProtocolAddress,
-        ) -> crate::libsignal::protocol::error::Result<bool> {
+        ) -> crate::signal::protocol::error::Result<bool> {
             Ok(self.0.contains_key(a))
         }
         async fn store_session(
             &mut self,
             a: &ProtocolAddress,
-            r: crate::libsignal::protocol::SessionRecord,
-        ) -> crate::libsignal::protocol::error::Result<()> {
+            r: crate::signal::protocol::SessionRecord,
+        ) -> crate::signal::protocol::error::Result<()> {
             self.0.insert(a.clone(), r.serialize()?);
             Ok(())
         }
@@ -1642,21 +1641,17 @@ mod group_retry {
     #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl IdentityKeyStore for MemIdentityStore {
-        async fn get_identity_key_pair(
-            &self,
-        ) -> crate::libsignal::protocol::error::Result<KeyPair> {
+        async fn get_identity_key_pair(&self) -> crate::signal::protocol::error::Result<KeyPair> {
             Ok(self.pair.clone())
         }
-        async fn get_local_registration_id(
-            &self,
-        ) -> crate::libsignal::protocol::error::Result<u32> {
+        async fn get_local_registration_id(&self) -> crate::signal::protocol::error::Result<u32> {
             Ok(self.reg_id)
         }
         async fn save_identity(
             &mut self,
             a: &ProtocolAddress,
             id: &PublicKey,
-        ) -> crate::libsignal::protocol::error::Result<IdentityChange> {
+        ) -> crate::signal::protocol::error::Result<IdentityChange> {
             self.known.insert(a.clone(), *id);
             Ok(IdentityChange::from_changed(false))
         }
@@ -1665,13 +1660,13 @@ mod group_retry {
             _: &ProtocolAddress,
             _: &PublicKey,
             _: Direction,
-        ) -> crate::libsignal::protocol::error::Result<bool> {
+        ) -> crate::signal::protocol::error::Result<bool> {
             Ok(true)
         }
         async fn get_identity(
             &self,
             a: &ProtocolAddress,
-        ) -> crate::libsignal::protocol::error::Result<Option<PublicKey>> {
+        ) -> crate::signal::protocol::error::Result<Option<PublicKey>> {
             Ok(self.known.get(a).copied())
         }
     }
@@ -2828,8 +2823,8 @@ mod group_retry {
             async fn load_session(
                 &self,
                 a: &ProtocolAddress,
-            ) -> crate::libsignal::protocol::error::Result<
-                Option<crate::libsignal::protocol::SessionRecord>,
+            ) -> crate::signal::protocol::error::Result<
+                Option<crate::signal::protocol::SessionRecord>,
             > {
                 let mut g = self.inner.lock().unwrap();
                 if g.taken.contains(a) {
@@ -2838,7 +2833,7 @@ mod group_retry {
                 let rec = g
                     .present
                     .get(a)
-                    .and_then(|b| crate::libsignal::protocol::SessionRecord::deserialize(b).ok());
+                    .and_then(|b| crate::signal::protocol::SessionRecord::deserialize(b).ok());
                 if rec.is_some() {
                     g.taken.insert(a.clone());
                 }
@@ -2847,15 +2842,15 @@ mod group_retry {
             async fn has_session(
                 &self,
                 a: &ProtocolAddress,
-            ) -> crate::libsignal::protocol::error::Result<bool> {
+            ) -> crate::signal::protocol::error::Result<bool> {
                 let g = self.inner.lock().unwrap();
                 Ok(g.present.contains_key(a) && !g.taken.contains(a))
             }
             async fn store_session(
                 &mut self,
                 a: &ProtocolAddress,
-                r: crate::libsignal::protocol::SessionRecord,
-            ) -> crate::libsignal::protocol::error::Result<()> {
+                r: crate::signal::protocol::SessionRecord,
+            ) -> crate::signal::protocol::error::Result<()> {
                 let mut g = self.inner.lock().unwrap();
                 g.present.insert(a.clone(), r.serialize()?);
                 g.taken.remove(a);
@@ -3748,20 +3743,20 @@ mod collect_stale_device_users {
 /// device that is actually alive and keyless.
 mod mark_full_distribution_list {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::runtime::{AbortHandle, Runtime};
+    use crate::signal::protocol::{
         Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
         ProtocolAddress, PublicKey, SenderKeyRecord, SenderKeyStore, SessionStore, SignedPreKeyId,
         SignedPreKeyRecord, SignedPreKeyStore, UsePQRatchet, process_prekey_bundle,
     };
-    use crate::libsignal::store::sender_key_name::SenderKeyName;
-    use crate::runtime::{AbortHandle, Runtime};
+    use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::types::jid::JidExt;
     use crate::types::message::AddressingMode;
     use std::future::Future;
     use std::pin::Pin;
     use std::time::Duration;
 
-    type SigResult<T> = crate::libsignal::protocol::error::Result<T>;
+    type SigResult<T> = crate::signal::protocol::error::Result<T>;
 
     // Clones share state (Arc), mirroring production stores: the encrypt
     // fan-out spawns tasks over store clones and their writes must be
@@ -3774,13 +3769,13 @@ mod mark_full_distribution_list {
         async fn load_session(
             &self,
             a: &ProtocolAddress,
-        ) -> SigResult<Option<crate::libsignal::protocol::SessionRecord>> {
+        ) -> SigResult<Option<crate::signal::protocol::SessionRecord>> {
             Ok(self
                 .0
                 .lock()
                 .unwrap()
                 .get(a)
-                .and_then(|b| crate::libsignal::protocol::SessionRecord::deserialize(b).ok()))
+                .and_then(|b| crate::signal::protocol::SessionRecord::deserialize(b).ok()))
         }
         async fn has_session(&self, a: &ProtocolAddress) -> SigResult<bool> {
             Ok(self.0.lock().unwrap().contains_key(a))
@@ -3788,7 +3783,7 @@ mod mark_full_distribution_list {
         async fn store_session(
             &mut self,
             a: &ProtocolAddress,
-            r: crate::libsignal::protocol::SessionRecord,
+            r: crate::signal::protocol::SessionRecord,
         ) -> SigResult<()> {
             self.0.lock().unwrap().insert(a.clone(), r.serialize()?);
             Ok(())
@@ -3803,26 +3798,22 @@ mod mark_full_distribution_list {
         async fn load_session(
             &self,
             _: &ProtocolAddress,
-        ) -> SigResult<Option<crate::libsignal::protocol::SessionRecord>> {
-            Err(
-                crate::libsignal::protocol::SignalProtocolError::InvalidState(
-                    "load_session",
-                    "session store is unavailable".to_string(),
-                ),
-            )
+        ) -> SigResult<Option<crate::signal::protocol::SessionRecord>> {
+            Err(crate::signal::protocol::SignalProtocolError::InvalidState(
+                "load_session",
+                "session store is unavailable".to_string(),
+            ))
         }
         async fn has_session(&self, _: &ProtocolAddress) -> SigResult<bool> {
-            Err(
-                crate::libsignal::protocol::SignalProtocolError::InvalidState(
-                    "has_session",
-                    "session store is unavailable".to_string(),
-                ),
-            )
+            Err(crate::signal::protocol::SignalProtocolError::InvalidState(
+                "has_session",
+                "session store is unavailable".to_string(),
+            ))
         }
         async fn store_session(
             &mut self,
             _: &ProtocolAddress,
-            _: crate::libsignal::protocol::SessionRecord,
+            _: crate::signal::protocol::SessionRecord,
         ) -> SigResult<()> {
             unreachable!("nothing is stored once the reads fail")
         }
@@ -3914,8 +3905,8 @@ mod mark_full_distribution_list {
     /// (key, IV) reused toward every member.
     #[tokio::test]
     async fn encrypt_group_message_leases_the_sender_chain() {
-        use crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
-        use crate::libsignal::protocol::{KeyPair, SenderKeyRecord};
+        use crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH;
+        use crate::signal::protocol::{KeyPair, SenderKeyRecord};
 
         let name = SenderKeyName::new("g@g.us".to_string(), "me.0".to_string());
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -3955,7 +3946,7 @@ mod mark_full_distribution_list {
     /// error type here would silently cost the self-heal.
     #[tokio::test]
     async fn encrypt_group_message_preserves_no_sender_key_state() {
-        use crate::libsignal::protocol::SignalProtocolError;
+        use crate::signal::protocol::SignalProtocolError;
 
         let name = SenderKeyName::new("g@g.us".to_string(), "me.0".to_string());
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -5214,7 +5205,7 @@ mod mark_full_distribution_list {
             // A warm send never creates the chain, so seed it exactly as the
             // first (cold) send to this group would have.
             let sk_name = make_sender_key_name(&group, &own_jid.to_protocol_address());
-            crate::libsignal::protocol::create_sender_key_distribution_message(
+            crate::signal::protocol::create_sender_key_distribution_message(
                 &sk_name, &mut sks, &mut rng,
             )
             .await
@@ -5492,18 +5483,18 @@ mod group_phash_golden {
 
 mod local_identity_change_on_send {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::runtime::{AbortHandle, Runtime};
+    use crate::signal::protocol::{
         Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
         ProtocolAddress, PublicKey, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
         SignedPreKeyRecord, SignedPreKeyStore,
     };
-    use crate::runtime::{AbortHandle, Runtime};
     use crate::types::jid::JidExt;
     use std::future::Future;
     use std::pin::Pin;
     use std::time::Duration;
 
-    type SigResult<T> = crate::libsignal::protocol::error::Result<T>;
+    type SigResult<T> = crate::signal::protocol::error::Result<T>;
 
     #[derive(Clone, Default)]
     struct MemSessionStore(HashMap<ProtocolAddress, Vec<u8>>);
@@ -5635,7 +5626,7 @@ mod local_identity_change_on_send {
         let spk = KeyPair::generate(rng);
         let opk = KeyPair::generate(rng);
         let sig = identity.private.sign(&spk.public.serialize(), rng);
-        crate::libsignal::protocol::prekey_bundle(
+        crate::signal::protocol::prekey_bundle(
             1,
             Some((1u32.into(), opk.public)),
             1u32.into(),
@@ -5863,7 +5854,7 @@ mod local_identity_change_on_send {
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
         let sig = receiver.private.sign(&spk.public.serialize(), &mut rng);
-        let bundle = crate::libsignal::protocol::prekey_bundle(
+        let bundle = crate::signal::protocol::prekey_bundle(
             1,
             Some((1u32.into(), opk.public)),
             1u32.into(),
@@ -7003,12 +6994,12 @@ mod local_identity_change_on_send {
 /// cache to add. That side is covered by `mark_full_distribution_list`.
 mod warm_group_send_encoding_scale {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::runtime::{AbortHandle, Runtime};
+    use crate::signal::protocol::{
         Direction, IdentityChange, IdentityKeyStore, PreKeyId, PreKeyRecord, PreKeyStore,
         ProtocolAddress, PublicKey, SenderKeyRecord, SessionRecord, SessionStore, SignedPreKeyId,
         SignedPreKeyRecord, SignedPreKeyStore,
     };
-    use crate::runtime::{AbortHandle, Runtime};
     use crate::types::jid::{JidExt, make_sender_key_name};
     use crate::types::message::AddressingMode;
     use std::future::Future;
@@ -7017,7 +7008,7 @@ mod warm_group_send_encoding_scale {
     use wacore_binary::marshal::marshal;
     use wacore_binary::node::NodeContent;
 
-    type SigResult<T> = crate::libsignal::protocol::error::Result<T>;
+    type SigResult<T> = crate::signal::protocol::error::Result<T>;
 
     /// A warm send touches no pairwise session, so every store below except the
     /// sender-key one exists only to satisfy `SignalStores`. `unreachable!()`

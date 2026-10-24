@@ -19,12 +19,6 @@ use wacore::send::{
     DmStanzaRequest, GroupStanzaRequest, ResolvedDmDevices, SenderKeyDistributionPolicy,
     SignalStores, prepare_dm_stanza, prepare_group_stanza, prepare_peer_stanza,
 };
-use wacore::types::jid::{JidExt, make_sender_key_name};
-use wacore::types::message::AddressingMode;
-use wacore_binary::JidExt as _;
-use wacore_binary::jid::Jid;
-use wacore_binary::marshal::marshal;
-use wacore_binary::node::{Node, NodeContent};
 use wacore::signal::protocol::{
     CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
     PreKeyBundle, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
@@ -34,6 +28,12 @@ use wacore::signal::protocol::{
     process_sender_key_distribution_message,
 };
 use wacore::signal::store::sender_key_name::SenderKeyName;
+use wacore::types::jid::{JidExt, make_sender_key_name};
+use wacore::types::message::AddressingMode;
+use wacore_binary::JidExt as _;
+use wacore_binary::jid::Jid;
+use wacore_binary::marshal::marshal;
+use wacore_binary::node::{Node, NodeContent};
 use waproto::whatsapp as wa;
 
 type SigResult<T> = wacore::signal::protocol::error::Result<T>;
@@ -352,7 +352,7 @@ impl User {
     }
 
     fn prekey_bundle(&self) -> PreKeyBundle {
-        wacore::libsignal::protocol::prekey_bundle(
+        wacore::signal::protocol::prekey_bundle(
             self.identity.reg_id,
             Some((1.into(), self.prekey_pair.public)),
             1.into(),
@@ -392,7 +392,7 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             .await
             .unwrap();
         let ct_msg = CiphertextMessage::PreKeySignalMessage(
-            wacore::libsignal::protocol::prekey_signal_message(ct.serialize()).unwrap(),
+            wacore::signal::protocol::prekey_signal_message(ct.serialize()).unwrap(),
         );
         let mut rng = bench_rng(0xBE_5EED + 2);
         message_decrypt(
@@ -414,7 +414,7 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             .await
             .unwrap();
         let ct_back_msg = CiphertextMessage::SignalMessage(
-            wacore::libsignal::protocol::signal_message(ct_back.serialize()).unwrap(),
+            wacore::signal::protocol::signal_message(ct_back.serialize()).unwrap(),
         );
         message_decrypt(
             &ct_back_msg,
@@ -534,11 +534,11 @@ fn decrypt_dm(
     futures::executor::block_on(async {
         let parsed = if enc_type == "pkmsg" {
             CiphertextMessage::PreKeySignalMessage(
-                wacore::libsignal::protocol::prekey_signal_message(ciphertext).unwrap(),
+                wacore::signal::protocol::prekey_signal_message(ciphertext).unwrap(),
             )
         } else {
             CiphertextMessage::SignalMessage(
-                wacore::libsignal::protocol::signal_message(ciphertext).unwrap(),
+                wacore::signal::protocol::signal_message(ciphertext).unwrap(),
             )
         };
         let mut rng = bench_rng(0xBE_5EED + 3);

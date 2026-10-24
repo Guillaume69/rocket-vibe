@@ -49,7 +49,7 @@ use wacore_binary::{Jid, Server};
 use wacore_binary::{Node, NodeContent, NodeContentRef, NodeRef};
 
 // Re-export PreKeyBundle for convenience
-pub use crate::libsignal::protocol::{PreKeyBundle, PublicKey};
+pub use crate::signal::protocol::{PreKeyBundle, PublicKey};
 
 /// Pre-key count response.
 #[derive(Debug, Clone)]
@@ -1223,7 +1223,7 @@ mod tests {
     /// Helper: assert direct encode produces identical bytes to build_iq + marshal.
     fn assert_direct_encode_matches_marshal(num_prekeys: u32) {
         use crate::iq::spec::IqSpec;
-        use crate::libsignal::protocol::KeyPair;
+        use crate::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let identity = KeyPair::generate(&mut rng);

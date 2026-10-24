@@ -1,6 +1,6 @@
 //! Synthetic ADV fixtures shared by unit and downstream integration tests.
 
-use crate::libsignal::protocol::KeyPair;
+use crate::signal::protocol::KeyPair;
 use wacore_binary::{Jid, Server};
 use waproto::whatsapp::{self as wa, ADVEncryptionType};
 

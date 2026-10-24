@@ -230,11 +230,11 @@ async fn dm_created_poll_quiz_and_event_roundtrip() {
 
 #[tokio::test]
 async fn group_created_references_preserve_pn_lid_and_decrypt_real_wire() {
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         create_sender_key_distribution_message, group_decrypt,
         process_sender_key_distribution_message,
     };
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     for fixture in [
         GroupSendFixture::new().await,
         GroupSendFixture::new_lid(2).await,

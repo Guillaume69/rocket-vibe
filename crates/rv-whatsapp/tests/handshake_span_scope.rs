@@ -27,8 +27,8 @@ use std::time::Duration;
 use tracing_subscriber::registry::LookupSpan;
 
 use wacore::handshake::NoiseHandshake;
-use wacore::libsignal::protocol::KeyPair;
 use wacore::runtime::{AbortHandle, Runtime};
+use wacore::signal::protocol::KeyPair;
 use wacore_binary::consts::{NOISE_PATTERN_XX, WA_CONN_HEADER};
 use wacore_noise::test_util::build_cert_chain_bytes;
 use whatsapp_rust::handshake::{NoiseCertPolicy, do_handshake_with_cert_policy};

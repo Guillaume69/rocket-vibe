@@ -10,7 +10,7 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     ChainKey, KeyPair, ProtocolAddress, RootKey, SessionCheckoutStoreResult, SessionRecord,
     SessionState,
 };

@@ -28,8 +28,8 @@
 //!   The handoff only proves ADV-secret continuity for a re-link (suppresses the
 //!   verification-code UX); it does NOT replace the WebAuthn assertion.
 
-use crate::libsignal::protocol::{KeyPair, PublicKey};
 use crate::pair_code::PairCodeUtils;
+use crate::signal::protocol::{KeyPair, PublicKey};
 use buffa::Enumeration;
 #[cfg(test)]
 use hkdf::Hkdf;

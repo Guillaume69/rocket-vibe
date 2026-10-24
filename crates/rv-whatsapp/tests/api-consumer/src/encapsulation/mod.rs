@@ -59,11 +59,11 @@ pub fn inspect(client: &Client) -> BoxFuture<'_, ()> {
 
 pub fn mutate_adapter(
     pm: &PersistenceManager,
-) -> BoxFuture<'_, Result<u32, whatsapp_rust::wacore::libsignal::protocol::SignalProtocolError>> {
+) -> BoxFuture<'_, Result<u32, whatsapp_rust::wacore::signal::protocol::SignalProtocolError>> {
     Box::pin(async move {
         pm.modify_device_async(|device| {
             Box::pin(async move {
-                use whatsapp_rust::wacore::libsignal::protocol::IdentityKeyStore;
+                use whatsapp_rust::wacore::signal::protocol::IdentityKeyStore;
                 device.get_local_registration_id().await
             })
         })

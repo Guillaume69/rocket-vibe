@@ -3,13 +3,13 @@ use async_lock::Mutex;
 use async_trait::async_trait;
 use rand::RngExt;
 use std::sync::{Arc, OnceLock};
-use wacore::libsignal::protocol::error::Result as SignalResult;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::error::Result as SignalResult;
+use wacore::signal::protocol::{
     Direction, IdentityChange, IdentityKeyStore, KeyPair, PrivateKey, ProtocolAddress, PublicKey,
     SenderKeyRecord, SenderKeyStore, SessionRecord, SignalProtocolError,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
-use wacore::libsignal::store::*;
+use wacore::signal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::*;
 use waproto::whatsapp::{PreKeyRecordStructure, SignedPreKeyRecordStructure};
 
 type StoreError = Box<dyn std::error::Error + Send + Sync>;
@@ -280,8 +280,8 @@ impl PreKeyStore for Device {
         &self,
         prekey_id: u32,
     ) -> Result<Option<PreKeyRecordStructure>, StoreError> {
-        use wacore::libsignal::protocol::KeyPair;
-        use wacore::libsignal::store::record_helpers::new_pre_key_record;
+        use wacore::signal::protocol::KeyPair;
+        use wacore::signal::store::record_helpers::new_pre_key_record;
 
         match self.backend.load_prekey(prekey_id).await {
             Ok(Some(bytes)) => {
@@ -570,7 +570,7 @@ mod tests {
     }
 
     fn leased_session() -> SessionRecord {
-        use wacore::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
+        use wacore::signal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let local = KeyPair::generate(&mut rng).public;
@@ -620,13 +620,13 @@ mod tests {
         let recovered = SessionRecord::deserialize(&durable).expect("recovery reload");
         assert_eq!(
             session_chain_index(&recovered),
-            wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 
     #[tokio::test]
     async fn direct_sender_key_store_preserves_clean_reloads_and_recovery_ceiling() {
-        use wacore::libsignal::protocol::{
+        use wacore::signal::protocol::{
             create_sender_key_distribution_message, group_decrypt, group_encrypt,
             process_sender_key_distribution_message,
         };
@@ -679,7 +679,7 @@ mod tests {
                 .expect("sender-key state")
                 .chain_key()
                 .index,
-            wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 

@@ -216,7 +216,7 @@ pub(crate) async fn handle_identity_change(client: &Arc<Client>, node: &NodeRef<
         return;
     }
 
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
 
     // Always run the device-list cleanup, matching WA Web's

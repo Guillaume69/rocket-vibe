@@ -656,7 +656,7 @@ mod tests {
     use super::*;
     use crate::cache::Freshness;
     use crate::test_utils::create_test_client;
-    use wacore::libsignal::protocol::{ProtocolAddress, SessionRecord};
+    use wacore::signal::protocol::{ProtocolAddress, SessionRecord};
     use wacore::store::traits::{DeviceInfo, DeviceListRecord};
     use wacore::types::jid::JidExt;
 

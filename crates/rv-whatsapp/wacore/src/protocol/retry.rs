@@ -6,8 +6,8 @@
 //! `whatsapp-rust/src/retry.rs`.
 
 use crate::iq::prekeys::{OneTimePreKeyNode, SignedPreKeyNode};
-use crate::libsignal::protocol::PublicKey;
 use crate::protocol::ProtocolNode;
+use crate::signal::protocol::PublicKey;
 use wacore_binary::builder::NodeBuilder;
 use wacore_binary::{Node, NodeContent, NodeRef};
 
@@ -445,7 +445,7 @@ mod tests {
         // WhatsApp Web's xmppPreKey / xmppSignedPreKey carry the raw 32-byte curve public key in
         // <value>; a peer parses the retry <keys> bundle expecting exactly that, so the prekey and
         // signed prekey values must parse with the prekey parsers (which require 32 bytes).
-        use crate::libsignal::protocol::KeyPair;
+        use crate::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let identity = KeyPair::generate(&mut rng);

@@ -23,7 +23,7 @@ use crate::companion_reg::{
     CompanionWebClientType, companion_platform_display, companion_platform_display_raw,
     companion_web_client_type_for_props,
 };
-use crate::libsignal::protocol::{KeyPair, PublicKey};
+use crate::signal::protocol::{KeyPair, PublicKey};
 use crate::time::Instant;
 use aes::cipher::{KeyIvInit, StreamCipher};
 use ctr::Ctr128BE;

@@ -13,8 +13,8 @@ use std::sync::atomic::Ordering;
 use wacore::iq::prekeys::{
     DigestKeyBundleSpec, PreKeyCountSpec, PreKeyFetchReason, PreKeyFetchSpec, PreKeyUploadSpec,
 };
-use wacore::libsignal::protocol::{KeyPair, PublicKey};
-use wacore::libsignal::store::record_helpers::encode_pre_key_record_to;
+use wacore::signal::protocol::{KeyPair, PublicKey};
+use wacore::signal::store::record_helpers::encode_pre_key_record_to;
 use wacore::store::commands::DeviceCommand;
 use wacore_binary::Jid;
 
@@ -374,9 +374,8 @@ impl Client {
                         .await;
                 }
                 let structure = waproto::codec::pre_key_record_decode(&record)?;
-                let record = wacore::libsignal::store::record_helpers::prekey_structure_to_record(
-                    structure,
-                )?;
+                let record =
+                    wacore::signal::store::record_helpers::prekey_structure_to_record(structure)?;
                 return Ok((id, record.key_pair()?.public));
             }
             log::warn!(
@@ -1141,7 +1140,7 @@ mod tests {
 #[cfg(test)]
 #[allow(clippy::disallowed_methods)]
 mod window_tests {
-    use wacore::libsignal::protocol::PublicKey;
+    use wacore::signal::protocol::PublicKey;
 
     fn snapshot(client: &crate::client::Client) -> (u32, u32) {
         let d = client.persistence_manager.get_device_snapshot();
@@ -1362,8 +1361,8 @@ mod window_tests {
     #[tokio::test]
     async fn consumed_head_advances_to_next_live_window_key() {
         use buffa::Message;
-        use wacore::libsignal::protocol::KeyPair;
-        use wacore::libsignal::store::record_helpers::new_pre_key_record;
+        use wacore::signal::protocol::KeyPair;
+        use wacore::signal::store::record_helpers::new_pre_key_record;
         use wacore::store::commands::DeviceCommand;
 
         let client = crate::test_utils::create_test_client_with_name("prekey_window_heal").await;

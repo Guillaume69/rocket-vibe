@@ -713,7 +713,7 @@ pub async fn create_sender_key_distribution_message_for_group(
 ) -> Result<Vec<u8>> {
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
 
-    let skdm = crate::libsignal::protocol::create_sender_key_distribution_message(
+    let skdm = crate::signal::protocol::create_sender_key_distribution_message(
         sender_key_name,
         store,
         &mut rng,

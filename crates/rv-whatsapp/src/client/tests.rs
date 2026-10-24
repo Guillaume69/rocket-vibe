@@ -1253,7 +1253,7 @@ async fn ensure_sessions_warm_cache_short_circuits() {
             .signal_cache
             .try_put_session(
                 &jid.to_protocol_address(),
-                wacore::libsignal::protocol::SessionRecord::new_fresh(),
+                wacore::signal::protocol::SessionRecord::new_fresh(),
             )
             .is_ok()
     );
@@ -1346,8 +1346,8 @@ async fn test_primary_phone_session_probe_does_not_wait_for_offline_sync() {
 /// which is how MAC verification started failing. It must stay read-only.
 #[tokio::test]
 async fn test_primary_phone_session_probe_leaves_an_existing_session_alone() {
-    use wacore::libsignal::protocol::SessionRecord;
-    use wacore::libsignal::store::SessionStore;
+    use wacore::signal::protocol::SessionRecord;
+    use wacore::signal::store::SessionStore;
     use wacore::types::jid::JidExt;
     use wacore_binary::Jid;
 
@@ -1722,7 +1722,7 @@ async fn create_offline_sync_test_client() -> Arc<Client> {
 /// a full SKDM re-fanout on the next send).
 #[tokio::test]
 async fn cleanup_connection_state_flushes_dirty_signal_state() {
-    use wacore::libsignal::protocol::ProtocolAddress;
+    use wacore::signal::protocol::ProtocolAddress;
     let client = create_offline_sync_test_client().await;
 
     // A dirty identity lives only in the write-back cache until flushed.
@@ -1748,8 +1748,8 @@ async fn cleanup_connection_state_flushes_dirty_signal_state() {
 /// Same guarantee on the sender-key store, which drives SKDM fanout.
 #[tokio::test]
 async fn cleanup_connection_state_flushes_dirty_sender_key() {
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     let client = create_offline_sync_test_client().await;
 
     let name = SenderKeyName::from_parts("group@g.us", "5550001000@s.whatsapp.net:1");
@@ -1774,8 +1774,8 @@ async fn cleanup_connection_state_flushes_dirty_sender_key() {
 
 #[tokio::test]
 async fn cleanup_connection_state_does_not_burn_a_clean_sender_key_lease() {
-    use wacore::libsignal::protocol::{KeyPair, SenderKeyRecord};
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::{KeyPair, SenderKeyRecord};
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     let client = create_offline_sync_test_client().await;
     let name = SenderKeyName::from_parts("group@g.us", "5550001001@s.whatsapp.net:1");
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -1816,8 +1816,8 @@ async fn cleanup_connection_state_does_not_burn_a_clean_sender_key_lease() {
 /// drop the very state the flush was meant to persist.
 #[tokio::test]
 async fn cleanup_connection_state_keeps_state_when_flush_fails() {
-    use wacore::libsignal::protocol::{ProtocolAddress, SenderKeyRecord};
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::{ProtocolAddress, SenderKeyRecord};
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     let client = create_offline_sync_test_client().await;
 
     // A malformed identity (not 32 bytes) makes flush() error out, standing
@@ -7167,7 +7167,7 @@ mod ensure_sessions_concurrency {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use wacore::libsignal::protocol::{KeyPair, SessionRecord};
+    use wacore::signal::protocol::{KeyPair, SessionRecord};
     use wacore::types::jid::JidExt;
     use wacore_binary::builder::NodeBuilder;
     use wacore_binary::{Jid, Node};

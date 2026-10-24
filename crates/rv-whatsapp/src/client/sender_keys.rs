@@ -295,7 +295,7 @@ impl Client {
     /// message permit while this caller holds the group lock, which a message
     /// holder can itself need. It would also flush unrelated inbound state.
     async fn rotate_own_sender_key_state(&self, group_id: &str) -> Result<()> {
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
         let snapshot = self.persistence_manager.get_device_snapshot();
         let backend = self.persistence_manager.backend();
@@ -1007,8 +1007,8 @@ mod tests {
     #[tokio::test]
     async fn completed_sender_key_deletion_resets_tracking_after_retirement() {
         use std::sync::atomic::Ordering;
-        use wacore::libsignal::protocol::SenderKeyRecord;
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore::types::jid::JidExt;
         let client = create_test_client().await;
         let lid: Jid = "888000888000888:3@lid".parse().unwrap();

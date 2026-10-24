@@ -8,9 +8,9 @@ use wacore::types::message::MessageCategory;
 
 use std::sync::Arc;
 use wacore::iq::prekeys::{OneTimePreKeyNode, SignedPreKeyNode};
-use wacore::libsignal::protocol::PublicKey;
 use wacore::protocol::ProtocolNode;
 use wacore::protocol::retry::{MAX_RETRY_COUNT, MIN_RETRY_FOR_BASE_KEY_CHECK};
+use wacore::signal::protocol::PublicKey;
 use wacore::types::jid::JidExt;
 use wacore_binary::JidExt as _;
 #[cfg(test)]
@@ -884,7 +884,7 @@ impl Client {
                 };
 
                 for own_jid in jids_to_delete {
-                    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+                    use wacore::signal::store::sender_key_name::SenderKeyName;
                     let sk_name = SenderKeyName::from_parts(
                         &group_jid,
                         own_jid.to_protocol_address().as_str(),
@@ -1445,7 +1445,7 @@ impl Client {
     /// since the flush has to happen after the guard is released.
     async fn reconcile_under_session_lock(
         &self,
-        signal_address: &wacore::libsignal::protocol::ProtocolAddress,
+        signal_address: &wacore::signal::protocol::ProtocolAddress,
         message_id: &str,
         retry_count: u8,
         node: &NodeRef<'_>,
@@ -1775,7 +1775,7 @@ impl Client {
             .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
 
         // Build and process the prekey bundle.
-        let bundle = wacore::libsignal::protocol::prekey_bundle(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             registration_id,
             prekey_data,
             signed_prekey.id.into(),
@@ -2003,7 +2003,7 @@ mod tests {
     use crate::test_utils::MockHttpClient;
     use std::borrow::Cow;
     use std::sync::Arc;
-    use wacore::libsignal::protocol::KeyPair;
+    use wacore::signal::protocol::KeyPair;
     use wacore::types::jid::JidExt as _;
     use wacore_binary::{Jid, JidExt};
     use waproto::whatsapp as wa;
@@ -2044,10 +2044,10 @@ mod tests {
 
     async fn seed_retry_lease(
         client: &Client,
-        address: &wacore::libsignal::protocol::ProtocolAddress,
+        address: &wacore::signal::protocol::ProtocolAddress,
         durable: bool,
     ) {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
 
         let mut record = SessionRecord::new_fresh();
         record.reserve_sender_chain_counters(0);
@@ -2143,7 +2143,7 @@ mod tests {
     #[tokio::test]
     async fn retry_metadata_reaches_transport_and_matches_decrypted_payload() {
         use crate::store::commands::DeviceCommand;
-        use wacore::libsignal::protocol::{
+        use wacore::signal::protocol::{
             SessionStore, UsePQRatchet, message_decrypt_prekey, message_decrypt_signal,
             process_prekey_bundle,
         };
@@ -2170,7 +2170,7 @@ mod tests {
             .await;
         let (prekey_id, prekey) = receiver.get_or_gen_single_pre_key().await.unwrap();
         let snapshot = receiver.persistence_manager.get_device_snapshot();
-        let bundle = wacore::libsignal::protocol::prekey_bundle(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             snapshot.registration_id,
             Some((prekey_id.into(), prekey)),
             snapshot.signed_pre_key_id.into(),
@@ -2277,7 +2277,7 @@ mod tests {
             let address = sender.to_protocol_address();
             let plaintext = if automatic {
                 message_decrypt_signal(
-                    &wacore::libsignal::protocol::signal_message(bytes).unwrap(),
+                    &wacore::signal::protocol::signal_message(bytes).unwrap(),
                     &address,
                     &mut adapter.session_store,
                     &mut adapter.identity_store,
@@ -2288,7 +2288,7 @@ mod tests {
                 .plaintext
             } else {
                 message_decrypt_prekey(
-                    &wacore::libsignal::protocol::prekey_signal_message(bytes).unwrap(),
+                    &wacore::signal::protocol::prekey_signal_message(bytes).unwrap(),
                     &address,
                     &mut adapter.session_store,
                     &mut adapter.identity_store,
@@ -2956,7 +2956,7 @@ mod tests {
     // Produces a parseable SessionRecord so peek_session succeeds and
     // alice_base_key/remote_registration_id return meaningful values.
     fn valid_serialized_session(remote_regid: u32, base_key: Vec<u8>) -> Vec<u8> {
-        use wacore::libsignal::protocol::{SessionRecord, SessionState};
+        use wacore::signal::protocol::{SessionRecord, SessionState};
         use waproto::whatsapp::SessionStructure;
 
         let state = SessionState::from_session_structure({
@@ -3982,7 +3982,7 @@ mod tests {
     /// the lock is held is the one the decision is made against.
     #[tokio::test]
     async fn reconcile_reads_the_session_under_the_lock_it_deletes_with() {
-        use wacore::libsignal::protocol::SessionRecord;
+        use wacore::signal::protocol::SessionRecord;
 
         let client = retry_repair_client("retry_repair_reconcile_lock").await;
         let peer = Jid::lid_device("100000000000123".to_string(), 5);
@@ -4382,7 +4382,7 @@ mod tests {
     /// succeeds again, so that member is back in the next send.
     #[tokio::test]
     async fn skdm_encrypts_again_after_a_cache_missed_bundle_repair() {
-        use wacore::libsignal::protocol::{CiphertextMessageType, message_encrypt};
+        use wacore::signal::protocol::{CiphertextMessageType, message_encrypt};
 
         let client = retry_repair_client("retry_repair_skdm_encrypt").await;
         let group: Jid = "120363021033254957@g.us".parse().unwrap();
@@ -4496,8 +4496,8 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_participant_rotation_is_durable_before_throttled_return() {
-        use wacore::libsignal::protocol::SenderKeyRecord;
-        use wacore::libsignal::store::sender_key_name::SenderKeyName;
+        use wacore::signal::protocol::SenderKeyRecord;
+        use wacore::signal::store::sender_key_name::SenderKeyName;
         use wacore_binary::builder::NodeBuilder;
 
         let backend = crate::test_utils::create_test_backend().await;

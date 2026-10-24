@@ -5,14 +5,14 @@ use crate::types::message::MessageInfo;
 use log::{debug, warn};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use wacore::libsignal::protocol::SenderKeyStore;
-use wacore::libsignal::protocol::group_decrypt_shared;
-use wacore::libsignal::protocol::{
+use wacore::message_processing::EncType;
+use wacore::protocol::nack::NackReason;
+use wacore::signal::protocol::SenderKeyStore;
+use wacore::signal::protocol::group_decrypt_shared;
+use wacore::signal::protocol::{
     CiphertextMessage, DecryptionResult, IdentityChange, OwnedCiphertextMessage,
     SignalProtocolError, UsePQRatchet, message_decrypt, message_decrypt_owned,
 };
-use wacore::message_processing::EncType;
-use wacore::protocol::nack::NackReason;
 use wacore::types::jid::{JidExt, make_sender_key_name};
 use wacore_binary::Jid;
 use wacore_binary::JidExt as _;

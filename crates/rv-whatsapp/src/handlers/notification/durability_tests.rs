@@ -840,8 +840,8 @@ async fn metadata_commit_finishes_cache_publication_after_retirement() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
     use wacore::client::context::GroupRoutingInfo;
-    use wacore::libsignal::protocol::{KeyPair, SenderKeyRecord};
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::{KeyPair, SenderKeyRecord};
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     use wacore::types::message::AddressingMode;
     for (shutdown_only, fail_response) in
@@ -1047,8 +1047,8 @@ async fn captured_generation_is_preserved_when_success_retires_it_without_shutdo
 
 #[tokio::test]
 async fn admitted_key_retirement_does_not_wait_for_the_offline_message_permit() {
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     let (client, _) = create_iq_test_client().await;
     let own: Jid = "888000888000888:3@lid".parse().unwrap();
@@ -1092,8 +1092,8 @@ async fn admitted_key_retirement_does_not_wait_for_the_offline_message_permit() 
 async fn sender_key_storage_error_withholds_group_events_and_ack() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
     let (mut probe, _) = ProbeBackend::new();
     let raw = probe.backend.clone();
@@ -1191,8 +1191,8 @@ async fn failed_key_delete_preserves_remove_retry_admission() {
     use crate::store::release::tests::ProbeBackend;
     use crate::test_utils::create_iq_test_client_with_backend;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use wacore::libsignal::protocol::SenderKeyRecord;
-    use wacore::libsignal::store::sender_key_name::SenderKeyName;
+    use wacore::signal::protocol::SenderKeyRecord;
+    use wacore::signal::store::sender_key_name::SenderKeyName;
     use wacore::types::jid::JidExt;
 
     let (mut probe, _) = ProbeBackend::new();

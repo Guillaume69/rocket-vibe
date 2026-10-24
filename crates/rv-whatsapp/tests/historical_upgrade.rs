@@ -6,12 +6,12 @@
 
 use std::{path::Path, sync::Arc};
 use wacore::appstate::hash::HashState;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     CiphertextMessage, PreKeyBundle, ProtocolAddress, UsePQRatchet,
     create_sender_key_distribution_message, group_decrypt, group_encrypt, message_decrypt,
     message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
 };
-use wacore::libsignal::store::sender_key_name::SenderKeyName;
+use wacore::signal::store::sender_key_name::SenderKeyName;
 use wacore::store::traits::{AppStateSyncKey, AppSyncStore, DeviceStore, ProtocolStore};
 use whatsapp_rust::store::{
     SqliteStore, commands::DeviceCommand, persistence_manager::PersistenceManager,
@@ -68,7 +68,7 @@ impl Peer {
 
     fn bundle(&self) -> PreKeyBundle {
         let device = self.manager.get_device_snapshot();
-        wacore::libsignal::protocol::prekey_bundle(
+        wacore::signal::protocol::prekey_bundle(
             device.registration_id,
             None,
             device.signed_pre_key_id.into(),
@@ -361,7 +361,7 @@ async fn consume(dir: &Path) {
             );
         }
         let delayed = CiphertextMessage::SignalMessage(
-            wacore::libsignal::protocol::signal_message(
+            wacore::signal::protocol::signal_message(
                 std::fs::read(dir.join("dm-skipped.bin"))
                     .unwrap()
                     .as_slice(),
@@ -408,7 +408,7 @@ async fn consume(dir: &Path) {
         .await
         .unwrap();
         assert!(
-            fresh.iteration >= wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
+            fresh.iteration >= wacore::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
             "the historical sender lease must survive upgrade and restart"
         );
         assert_eq!(

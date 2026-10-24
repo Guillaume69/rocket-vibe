@@ -2,7 +2,7 @@
 
 use e2e_tests::{TestClient, scan_sessions, send_and_expect_text};
 use log::info;
-use wacore::libsignal::protocol::SessionRecord;
+use wacore::signal::protocol::SessionRecord;
 
 /// Read the sender-chain counter of the first established session for `user`
 /// straight from the backend (no cache, no settle) — the durable outbound

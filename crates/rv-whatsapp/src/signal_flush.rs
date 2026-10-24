@@ -270,7 +270,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use wacore::libsignal::protocol::{ProtocolAddress, SessionRecord};
+    use wacore::signal::protocol::{ProtocolAddress, SessionRecord};
 
     async fn backend_session(client: &Arc<Client>, addr: &ProtocolAddress) -> Option<bytes::Bytes> {
         client

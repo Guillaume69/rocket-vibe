@@ -9,10 +9,10 @@ use async_lock::Mutex;
 use portable_atomic::{AtomicBool, AtomicU64, Ordering};
 use rand::RngExt;
 
-use crate::libsignal::protocol::{
+use crate::signal::protocol::{
     ProtocolAddress, SenderKeyRecord, SessionCheckoutKey, SessionCheckoutStoreResult, SessionRecord,
 };
-use crate::libsignal::store::sender_key_name::SenderKeyName;
+use crate::signal::store::sender_key_name::SenderKeyName;
 use crate::store::traits::SignalStore;
 
 type StoreIncarnation = [u8; 16];
@@ -2470,7 +2470,7 @@ impl SignalStoreCache {
 #[cfg(test)]
 mod sender_key_lock_tests {
     use super::*;
-    use crate::libsignal::store::sender_key_name::SenderKeyName;
+    use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::store::error::Result as StoreResult;
     use bytes::Bytes;
 
@@ -2691,7 +2691,7 @@ mod sender_key_lock_tests {
     }
 
     fn sender_key_record_with_chain(chain_id: u32) -> SenderKeyRecord {
-        use crate::libsignal::protocol::KeyPair;
+        use crate::signal::protocol::KeyPair;
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let kp = KeyPair::generate(&mut rng);
         let mut record = SenderKeyRecord::new_empty();
@@ -4189,7 +4189,7 @@ mod consumed_prekey_atomicity_tests {
     #[tokio::test]
     async fn prekey_behind_an_unreadable_session_row_survives_flush() {
         use super::lease_reload_tests::leased_session;
-        use crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD;
+        use crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD;
 
         let backend = InMemoryBackend::new();
         let addr = seed(&backend).await;
@@ -4687,7 +4687,7 @@ mod eviction_tests {
         assert_eq!(candidates.keys.len(), 4);
         assert!(EvictionCandidates::new(0).consider(&Arc::from("unused"), true));
     }
-    use crate::libsignal::protocol::{DeviceId, ProtocolAddress};
+    use crate::signal::protocol::{DeviceId, ProtocolAddress};
     use crate::store::in_memory::InMemoryBackend;
 
     fn addr(i: usize) -> ProtocolAddress {
@@ -4853,7 +4853,7 @@ mod eviction_tests {
 #[cfg(test)]
 mod lease_reload_tests {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::signal::protocol::{
         ChainKey, KeyPair, RootKey, SenderKeyStore, SessionState,
         create_sender_key_distribution_message, group_decrypt, group_encrypt,
         process_sender_key_distribution_message,
@@ -4871,7 +4871,7 @@ mod lease_reload_tests {
             &mut self,
             name: &SenderKeyName,
             record: SenderKeyRecord,
-        ) -> crate::libsignal::protocol::error::Result<()> {
+        ) -> crate::signal::protocol::error::Result<()> {
             self.cache.put_sender_key(name, record).await;
             Ok(())
         }
@@ -4879,7 +4879,7 @@ mod lease_reload_tests {
         async fn load_sender_key(
             &self,
             name: &SenderKeyName,
-        ) -> crate::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+        ) -> crate::signal::protocol::error::Result<Option<SenderKeyRecord>> {
             Ok(self
                 .cache
                 .get_sender_key(name, self.backend)
@@ -4978,7 +4978,7 @@ mod lease_reload_tests {
             .expect("session");
         assert_eq!(
             session_chain_index(&recovered),
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
     }
 
@@ -5000,7 +5000,7 @@ mod lease_reload_tests {
 
         let mut stranded = leased_session();
         stranded.reserve_sender_chain_counters(
-            crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
+            crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
         );
         assert_eq!(session_chain_index(&stranded), 0);
         cache.put_session(&address, stranded).await;
@@ -5057,7 +5057,7 @@ mod lease_reload_tests {
 
         let mut stranded = leased_session();
         stranded.reserve_sender_chain_counters(
-            crate::libsignal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
+            crate::signal::protocol::consts::MAX_RESERVATION_FAST_FORWARD,
         );
         cache.put_session(&address, stranded).await;
         cache.flush(&backend).await.expect("flush");
@@ -5146,7 +5146,7 @@ mod lease_reload_tests {
             .expect("session");
         assert_eq!(
             session_chain_index(&recovered),
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
 
         cache.put_session(&address, checked_out).await;
@@ -5289,7 +5289,7 @@ mod lease_reload_tests {
             .expect("recovery send");
         assert_eq!(
             recovered.iteration,
-            crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
+            crate::signal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
 
         cache.flush(&backend).await.expect("retry flush");
@@ -5306,7 +5306,7 @@ mod pre_wire_gate_tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use crate::libsignal::store::sender_key_name::SenderKeyName;
+    use crate::signal::store::sender_key_name::SenderKeyName;
     use crate::store::in_memory::InMemoryBackend;
     use async_lock::Barrier;
 
@@ -6168,7 +6168,7 @@ mod pre_wire_gate_tests {
 #[cfg(test)]
 mod cold_read_race_tests {
     use super::*;
-    use crate::libsignal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
+    use crate::signal::protocol::{ChainKey, KeyPair, RootKey, SessionState};
     use crate::store::error::Result as StoreResult;
     use bytes::Bytes;
     use std::sync::atomic::AtomicUsize;
@@ -6738,7 +6738,7 @@ mod cold_read_race_tests {
 #[cfg(test)]
 mod flush_contention_reproduction_tests {
     use super::*;
-    use crate::libsignal::protocol::{
+    use crate::signal::protocol::{
         ChainKey, KeyPair, ProtocolAddress, RootKey, SessionRecord, SessionState,
     };
     use crate::store::in_memory::InMemoryBackend;

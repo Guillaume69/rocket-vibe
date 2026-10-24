@@ -3667,13 +3667,13 @@ mod tests {
             .persistence_manager
             .process_command(DeviceCommand::SetPushName("fictional".into()))
             .await;
-        let address = wacore::libsignal::protocol::ProtocolAddress::new("15550000001", 1.into());
+        let address = wacore::signal::protocol::ProtocolAddress::new("15550000001", 1.into());
         assert!(
             client
                 .signal_cache
                 .try_put_session(
                     &address,
-                    wacore::libsignal::protocol::SessionRecord::new_fresh(),
+                    wacore::signal::protocol::SessionRecord::new_fresh(),
                 )
                 .is_ok()
         );

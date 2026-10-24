@@ -7,7 +7,7 @@ use log::{error, info, warn};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use wacore::companion_reg::companion_web_client_type_for_props;
-use wacore::libsignal::protocol::KeyPair;
+use wacore::signal::protocol::KeyPair;
 use wacore_binary::NodeRef;
 use wacore_binary::{Jid, SERVER_JID};
 

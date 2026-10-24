@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use wacore_binary::{Jid, JidExt};
 use waproto::whatsapp::ADVEncryptionType;
 
-use crate::libsignal::protocol::PublicKey;
+use crate::signal::protocol::PublicKey;
 use crate::store::traits::DeviceInfo;
 
 const ADV_PREFIX_LEN: usize = 2;
@@ -390,7 +390,7 @@ mod tests {
         assert_eq!(decoded.valid_indexes, vec![3, 5, 7]);
     }
 
-    use crate::libsignal::protocol::KeyPair;
+    use crate::signal::protocol::KeyPair;
 
     /// Build a signed device-identity. When `include_account_key` is false the
     /// `account_signature_key` field is omitted (the trimmed shape the real

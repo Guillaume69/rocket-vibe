@@ -3,7 +3,7 @@ use crate::adv::{
     DeviceSignatureKind,
 };
 use crate::companion_reg::CompanionWebClientType;
-use crate::libsignal::protocol::{KeyPair, PublicKey};
+use crate::signal::protocol::{KeyPair, PublicKey};
 use base64::Engine as _;
 use base64::prelude::*;
 use hmac::{Hmac, Mac};

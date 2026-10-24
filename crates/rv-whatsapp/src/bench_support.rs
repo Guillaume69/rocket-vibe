@@ -393,7 +393,7 @@ async fn settle_signal_flush_worker(client: &Arc<Client>) {
 /// own companion — encrypted to on every measured send — use
 /// [`establish_acknowledged_session`] instead.
 async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
-    use wacore::libsignal::protocol::{KeyPair, PreKeyBundle, UsePQRatchet, process_prekey_bundle};
+    use wacore::signal::protocol::{KeyPair, PreKeyBundle, UsePQRatchet, process_prekey_bundle};
     use wacore::types::jid::JidExt;
 
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
@@ -404,7 +404,7 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
         .private_key()
         .calculate_signature(&spk.public_key.serialize(), &mut rng)
         .expect("signature");
-    let bundle = wacore::libsignal::protocol::prekey_bundle(
+    let bundle = wacore::signal::protocol::prekey_bundle(
         1,
         Some((1u32.into(), opk.public_key)),
         1u32.into(),
@@ -437,7 +437,7 @@ async fn seed_peer_session(client: &Arc<Client>, peer: &Jid) {
 /// produce that one reply, not to be measured; the receive fixture keeps it as
 /// the party that encrypts every measured stanza.
 async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc<Client> {
-    use wacore::libsignal::protocol::{
+    use wacore::signal::protocol::{
         CiphertextMessage, PreKeyBundle, PreKeySignalMessage, PublicKey, SignalMessage,
         UsePQRatchet, message_decrypt, message_encrypt, process_prekey_bundle,
     };
@@ -472,7 +472,7 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     // we encrypt to it. No one-time pre-key: `PreKeyBundle` allows `None`, and
     // omitting it keeps this fixture from depending on pre-key generation.
     let peer_snapshot = peer_client.persistence_manager.get_device_snapshot();
-    let bundle = wacore::libsignal::protocol::prekey_bundle(
+    let bundle = wacore::signal::protocol::prekey_bundle(
         peer_snapshot.registration_id,
         None,
         peer_snapshot.signed_pre_key_id.into(),
@@ -507,7 +507,7 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     let mut peer_adapter = peer_client.signal_adapter();
     message_decrypt(
         &CiphertextMessage::PreKeySignalMessage(
-            wacore::libsignal::protocol::prekey_signal_message(initial.serialize())
+            wacore::signal::protocol::prekey_signal_message(initial.serialize())
                 .expect("pkmsg parses"),
         ),
         &own_address,
@@ -532,7 +532,7 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     .expect("companion reply encrypt");
     message_decrypt(
         &CiphertextMessage::SignalMessage(
-            wacore::libsignal::protocol::signal_message(reply.serialize()).expect("msg parses"),
+            wacore::signal::protocol::signal_message(reply.serialize()).expect("msg parses"),
         ),
         &peer_address,
         &mut adapter.session_store,
@@ -811,9 +811,9 @@ pub struct ReceiveHarness {
     client: Arc<Client>,
     peer: Arc<Client>,
     peer_jid: Jid,
-    own_address: wacore::libsignal::protocol::ProtocolAddress,
+    own_address: wacore::signal::protocol::ProtocolAddress,
     group: Jid,
-    group_sender_key: wacore::libsignal::protocol::SenderKeyName,
+    group_sender_key: wacore::signal::protocol::SenderKeyName,
     counter: Arc<MessageCounter>,
     stanza_counter: Arc<StanzaEventCounter>,
     /// Dropping it would unsubscribe the counter.
@@ -851,7 +851,7 @@ impl ReceiveHarness {
     /// advances the peer's sending chain, so stanzas must be received in the
     /// order they were built.
     pub fn dm_stanza(&self) -> Arc<wacore_binary::OwnedNodeRef> {
-        use wacore::libsignal::protocol::message_encrypt;
+        use wacore::signal::protocol::message_encrypt;
 
         let plaintext = wacore::messages::MessageUtils::encode_and_pad(&wa::Message::text("bench"));
         let ciphertext = self.runtime.block_on(async {
@@ -884,7 +884,7 @@ impl ReceiveHarness {
     /// A fresh group text message from the peer under its sender key. Same
     /// ordering requirement as [`Self::dm_stanza`].
     pub fn group_stanza(&self) -> Arc<wacore_binary::OwnedNodeRef> {
-        use wacore::libsignal::protocol::group_encrypt;
+        use wacore::signal::protocol::group_encrypt;
 
         let plaintext = wacore::messages::MessageUtils::encode_and_pad(&wa::Message::text("bench"));
         let ciphertext = self.runtime.block_on(async {
@@ -1200,7 +1200,7 @@ pub struct MultiLaneReceiveHarness {
     peer: Arc<Client>,
     peer_jid: Jid,
     groups: Vec<Jid>,
-    group_sender_keys: Vec<wacore::libsignal::protocol::SenderKeyName>,
+    group_sender_keys: Vec<wacore::signal::protocol::SenderKeyName>,
     counter: Arc<MessageCounter>,
     _subscription: wacore::types::events::Subscription,
     next_id: portable_atomic::AtomicU64,
@@ -1242,7 +1242,7 @@ impl MultiLaneReceiveHarness {
         active_lanes: usize,
         count: usize,
     ) -> Vec<Arc<wacore_binary::OwnedNodeRef>> {
-        use wacore::libsignal::protocol::group_encrypt;
+        use wacore::signal::protocol::group_encrypt;
 
         assert!(active_lanes >= 1 && active_lanes <= self.groups.len());
         let plaintext = wacore::messages::MessageUtils::encode_and_pad(&wa::Message::text("bench"));
@@ -1425,11 +1425,11 @@ async fn build_multilane_receive_fixture(
     Arc<Client>,
     Jid,
     Vec<Jid>,
-    Vec<wacore::libsignal::protocol::SenderKeyName>,
+    Vec<wacore::signal::protocol::SenderKeyName>,
     Arc<MessageCounter>,
     wacore::types::events::Subscription,
 ) {
-    use wacore::libsignal::protocol::create_sender_key_distribution_message;
+    use wacore::signal::protocol::create_sender_key_distribution_message;
     use wacore::types::jid::{JidExt, make_sender_key_name};
 
     let client = build_offline_client().await;
@@ -1521,9 +1521,9 @@ struct ReceiveFixture {
     client: Arc<Client>,
     peer: Arc<Client>,
     peer_jid: Jid,
-    own_address: wacore::libsignal::protocol::ProtocolAddress,
+    own_address: wacore::signal::protocol::ProtocolAddress,
     group: Jid,
-    group_sender_key: wacore::libsignal::protocol::SenderKeyName,
+    group_sender_key: wacore::signal::protocol::SenderKeyName,
     counter: Arc<MessageCounter>,
     stanza_counter: Arc<StanzaEventCounter>,
     subscription: wacore::types::events::Subscription,
@@ -1533,7 +1533,7 @@ struct ReceiveFixture {
 /// the acknowledged pairwise session, the installed sender key and the
 /// subscribed counter, none of which a benchmark measures.
 async fn build_receive_fixture() -> ReceiveFixture {
-    use wacore::libsignal::protocol::create_sender_key_distribution_message;
+    use wacore::signal::protocol::create_sender_key_distribution_message;
     use wacore::types::jid::{JidExt, make_sender_key_name};
 
     let client = build_offline_client().await;

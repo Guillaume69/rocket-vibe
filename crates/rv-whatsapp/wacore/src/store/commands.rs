@@ -1,5 +1,5 @@
 use crate::client_profile::ClientProfile;
-use crate::libsignal::protocol::KeyPair;
+use crate::signal::protocol::KeyPair;
 use crate::store::Device;
 use crate::store::device::{CachedServerCertChain, DevicePropsOverride};
 use wacore_binary::Jid;
@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn set_signed_pre_key_rotates_trio_and_stamps_clock() {
-        use crate::libsignal::protocol::KeyPair;
+        use crate::signal::protocol::KeyPair;
 
         let mut device = Device::new();
         let old_kp_bytes = device.signed_pre_key.public.raw().to_vec();

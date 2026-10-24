@@ -1,5 +1,5 @@
 use crate::client_profile::ClientProfile;
-use crate::libsignal::protocol::KeyPair;
+use crate::signal::protocol::KeyPair;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use std::sync::{Arc, LazyLock};
@@ -92,7 +92,7 @@ pub mod status_privacy_serde {
 
 pub mod key_pair_serde {
     use super::KeyPair;
-    use crate::libsignal::protocol::{PrivateKey, PublicKey};
+    use crate::signal::protocol::{PrivateKey, PublicKey};
     use serde::{self, Deserializer, Serializer};
 
     pub fn serialize<S>(key_pair: &KeyPair, serializer: S) -> Result<S::Ok, S::Error>

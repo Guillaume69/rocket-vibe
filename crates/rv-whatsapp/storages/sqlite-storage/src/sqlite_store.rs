@@ -15,7 +15,7 @@ use std::time::Duration;
 use thiserror::Error;
 use wacore::appstate::hash::HashState;
 use wacore::appstate::processor::AppStateMutationMAC;
-use wacore::libsignal::protocol::{KeyPair, PrivateKey, PublicKey};
+use wacore::signal::protocol::{KeyPair, PrivateKey, PublicKey};
 use wacore::store::Device as CoreDevice;
 use wacore::store::error::{Result, StoreError};
 use wacore::store::traits::*;

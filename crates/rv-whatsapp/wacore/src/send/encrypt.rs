@@ -28,7 +28,7 @@ where
     // the concrete SignalProtocolError as the source, so callers can still
     // downcast NoSenderKeyState to clear stale tracking and retry with SKDM
     // redistribution.
-    crate::libsignal::protocol::group_encrypt(sender_key_store, sender_key_name, plaintext, csprng)
+    crate::signal::protocol::group_encrypt(sender_key_store, sender_key_name, plaintext, csprng)
         .await
         .context("group encrypt failed")
 }
@@ -39,13 +39,13 @@ where
 /// encrypt tree as a single instantiation instead of one ~60 KiB copy per
 /// concrete adapter set. Blanket-impl'd for every `Clone` store, so concrete
 /// adapters need no changes.
-pub trait CloneableSessionStore: crate::libsignal::protocol::SessionStore {
+pub trait CloneableSessionStore: crate::signal::protocol::SessionStore {
     fn clone_box(&self) -> Box<dyn CloneableSessionStore + Send + Sync>;
 }
 
 impl<T> CloneableSessionStore for T
 where
-    T: crate::libsignal::protocol::SessionStore + Clone + Send + Sync + 'static,
+    T: crate::signal::protocol::SessionStore + Clone + Send + Sync + 'static,
 {
     fn clone_box(&self) -> Box<dyn CloneableSessionStore + Send + Sync> {
         Box::new(self.clone())
@@ -53,13 +53,13 @@ where
 }
 
 /// See [`CloneableSessionStore`].
-pub trait CloneableIdentityStore: crate::libsignal::protocol::IdentityKeyStore {
+pub trait CloneableIdentityStore: crate::signal::protocol::IdentityKeyStore {
     fn clone_box(&self) -> Box<dyn CloneableIdentityStore + Send + Sync>;
 }
 
 impl<T> CloneableIdentityStore for T
 where
-    T: crate::libsignal::protocol::IdentityKeyStore + Clone + Send + Sync + 'static,
+    T: crate::signal::protocol::IdentityKeyStore + Clone + Send + Sync + 'static,
 {
     fn clone_box(&self) -> Box<dyn CloneableIdentityStore + Send + Sync> {
         Box::new(self.clone())
@@ -73,8 +73,8 @@ pub struct SignalStores<'a> {
     pub sender_key_store: &'a mut (dyn SenderKeyStore + Send + Sync),
     pub session_store: &'a mut (dyn CloneableSessionStore + Send + Sync),
     pub identity_store: &'a mut (dyn CloneableIdentityStore + Send + Sync),
-    pub prekey_store: &'a mut (dyn crate::libsignal::protocol::PreKeyStore + Send + Sync),
-    pub signed_prekey_store: &'a (dyn crate::libsignal::protocol::SignedPreKeyStore + Send + Sync),
+    pub prekey_store: &'a mut (dyn crate::signal::protocol::PreKeyStore + Send + Sync),
+    pub signed_prekey_store: &'a (dyn crate::signal::protocol::SignedPreKeyStore + Send + Sync),
 }
 
 /// Check if an anyhow error is a 406 "not-acceptable" server error (device unregistered).
@@ -300,8 +300,8 @@ where
 async fn encrypt_one_device(
     plaintext: &[u8],
     addr: &ProtocolAddress,
-    session_store: &mut dyn crate::libsignal::protocol::SessionStore,
-    identity_store: &mut dyn crate::libsignal::protocol::IdentityKeyStore,
+    session_store: &mut dyn crate::signal::protocol::SessionStore,
+    identity_store: &mut dyn crate::signal::protocol::IdentityKeyStore,
     device_jid: Jid,
 ) -> (Jid, Result<Option<EncryptOneResult>>) {
     match message_encrypt(plaintext, addr, session_store, identity_store).await {
@@ -644,7 +644,7 @@ async fn has_session_or_report(
     resolver: &dyn SendContextResolver,
     devices: &[Jid],
 ) -> Result<bool> {
-    match crate::libsignal::protocol::has_session(session_store, addr).await {
+    match crate::signal::protocol::has_session(session_store, addr).await {
         Ok(present) => Ok(present),
         Err(error) => {
             resolver.on_unkeyable_devices(UnkeyableDevice::SessionLookup, devices.len() as u64);
@@ -1526,7 +1526,7 @@ mod encryption_override_tests {
         assert_ne!(addr.as_str(), device.to_protocol_address().as_str());
 
         // No memo (e.g. `assume_ready`): the override still decides the render.
-        let empty: Vec<crate::libsignal::protocol::ProtocolAddress> = Vec::new();
+        let empty: Vec<crate::signal::protocol::ProtocolAddress> = Vec::new();
         let addr = encrypt_address_at(&empty, &overrides, &devices, 0);
         assert_eq!(addr.as_str(), upgraded.to_protocol_address().as_str());
 

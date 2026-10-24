@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use tokio::sync::oneshot;
 use wacore::handshake::{NoiseCipher, NoiseHandshake};
-use wacore::libsignal::protocol::KeyPair;
+use wacore::signal::protocol::KeyPair;
 use wacore::store::InMemoryBackend;
 use wacore::store::traits::{DeviceInfo, DeviceListRecord};
 use wacore::types::events::{Event, EventHandler};

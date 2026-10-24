@@ -8,8 +8,8 @@
 use crate::client::{Client, SignalMaintenanceError};
 use crate::request::IqError;
 use wacore::iq::prekeys::RotateSignedPreKeySpec;
-use wacore::libsignal::protocol::{KeyPair, PrivateKey, PublicKey, SignalProtocolError};
-use wacore::libsignal::store::record_helpers::new_signed_pre_key_record;
+use wacore::signal::protocol::{KeyPair, PrivateKey, PublicKey, SignalProtocolError};
+use wacore::signal::store::record_helpers::new_signed_pre_key_record;
 use wacore::store::commands::DeviceCommand;
 
 /// Rotation cadence, matching the interval WA Web's `ROTATE_KEY` task returns to
@@ -877,7 +877,7 @@ mod tests {
     /// the one it replaced is still addressable.
     #[tokio::test]
     async fn a_successful_rotation_advances_the_cadence_and_keeps_both_keys_addressable() {
-        use wacore::libsignal::protocol::{GenericSignedPreKey, SignedPreKeyStore};
+        use wacore::signal::protocol::{GenericSignedPreKey, SignedPreKeyStore};
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
         let before = client.persistence_manager.get_device_snapshot();
@@ -921,7 +921,7 @@ mod tests {
     /// the window gets `InvalidSignedPreKeyId`, and the id reaches a log.
     #[tokio::test]
     async fn the_retention_boundary_decides_which_ids_still_decrypt() {
-        use wacore::libsignal::protocol::SignedPreKeyStore;
+        use wacore::signal::protocol::SignedPreKeyStore;
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
         let first_id = client

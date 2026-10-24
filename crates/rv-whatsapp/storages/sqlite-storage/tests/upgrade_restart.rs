@@ -13,7 +13,7 @@ use diesel::sql_types::{Binary, Integer, Text};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use rand::SeedableRng;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     ChainKey, KeyPair, RootKey, SenderKeyName, SenderKeyRecord, SenderKeyStore, SessionRecord,
     SessionState, group_decrypt, group_encrypt,
 };
@@ -109,7 +109,7 @@ fn seed_baseline(fixture: &Fixture) -> Vec<Seed> {
         let mut sender_key = SenderKeyRecord::new_empty();
         sender_key.add_state(
             17,
-            wacore::libsignal::protocol::SenderChainKey {
+            wacore::signal::protocol::SenderChainKey {
                 index: 0,
                 key: [0x33; 32],
             },
@@ -291,7 +291,7 @@ impl SenderKeyStore for SenderStore {
     async fn load_sender_key(
         &self,
         _: &SenderKeyName,
-    ) -> wacore::libsignal::protocol::error::Result<Option<SenderKeyRecord>> {
+    ) -> wacore::signal::protocol::error::Result<Option<SenderKeyRecord>> {
         self.0
             .get_sender_key(SENDER_ADDRESS)
             .await
@@ -304,7 +304,7 @@ impl SenderKeyStore for SenderStore {
         &mut self,
         _: &SenderKeyName,
         record: SenderKeyRecord,
-    ) -> wacore::libsignal::protocol::error::Result<()> {
+    ) -> wacore::signal::protocol::error::Result<()> {
         self.0
             .put_sender_key(SENDER_ADDRESS, &record.serialize()?)
             .await

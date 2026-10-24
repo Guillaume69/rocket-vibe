@@ -80,7 +80,7 @@ impl rand::TryCryptoRng for LazyStdRng {}
 
 async fn decrypt_session_message(
     message: &mut ParsedSessionMessage,
-    signal_address: &wacore::libsignal::protocol::ProtocolAddress,
+    signal_address: &wacore::signal::protocol::ProtocolAddress,
     adapter: &mut crate::store::signal_adapter::SignalProtocolStoreAdapter,
     rng: &mut LazyStdRng,
 ) -> Result<DecryptionResult, SignalProtocolError> {
@@ -1151,12 +1151,12 @@ impl Client {
                 )
                 .entered();
                 if is_prekey {
-                    wacore::libsignal::protocol::prekey_signal_message(&ciphertext)
+                    wacore::signal::protocol::prekey_signal_message(&ciphertext)
                         .map(CiphertextMessage::PreKeySignalMessage)
                         .map(OwnedCiphertextMessage::from)
                         .map(ParsedSessionMessage::Consumable)
                 } else {
-                    wacore::libsignal::protocol::signal_message(&ciphertext)
+                    wacore::signal::protocol::signal_message(&ciphertext)
                         .map(CiphertextMessage::SignalMessage)
                         .map(ParsedSessionMessage::Retained)
                 }
@@ -2575,7 +2575,7 @@ impl Client {
     async fn try_pn_to_lid_migration_decrypt(
         self: &Arc<Self>,
         sender_jid: &Jid,
-        signal_address: &wacore::libsignal::protocol::ProtocolAddress,
+        signal_address: &wacore::signal::protocol::ProtocolAddress,
         parsed_message: &mut ParsedSessionMessage,
         adapter: &mut crate::store::signal_adapter::SignalProtocolStoreAdapter,
         rng: &mut LazyStdRng,

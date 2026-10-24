@@ -1,15 +1,15 @@
 use crate::client::context::{GroupRoutingInfo, SendContextResolver};
-use crate::libsignal::protocol::{
-    CiphertextMessage, IdentityChange, ProtocolAddress, SenderKeyMessage, SenderKeyStore,
-    UsePQRatchet, message_encrypt, process_prekey_bundle,
-};
-use crate::libsignal::store::sender_key_name::SenderKeyName;
 use crate::messages::MessageUtils;
 use crate::reporting_token::{
     build_reporting_node, generate_reporting_token, generate_reporting_token_from_encoded,
     reporting_context_info,
 };
 use crate::runtime::{AbortHandle, Runtime};
+use crate::signal::protocol::{
+    CiphertextMessage, IdentityChange, ProtocolAddress, SenderKeyMessage, SenderKeyStore,
+    UsePQRatchet, message_encrypt, process_prekey_bundle,
+};
+use crate::signal::store::sender_key_name::SenderKeyName;
 use crate::types::jid::JidExt;
 use crate::types::jid::make_sender_key_name_for_jid;
 use crate::types::message::PeerMessageOptions;

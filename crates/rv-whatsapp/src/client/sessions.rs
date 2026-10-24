@@ -6,10 +6,10 @@ use rand::rngs::StdRng;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
-use wacore::libsignal::protocol::{
+use wacore::signal::protocol::{
     IdentityChange, PreKeyBundle, SignalProtocolError, UsePQRatchet, process_prekey_bundle,
 };
-use wacore::libsignal::store::SessionStore;
+use wacore::signal::store::SessionStore;
 use wacore::stats::UnkeyableDevice;
 use wacore::types::jid::JidExt;
 use wacore_binary::Jid;
@@ -1548,8 +1548,8 @@ mod tests {
     #[tokio::test]
     async fn a_device_that_establishes_counts_nothing() {
         use wacore::iq::prekeys::PreKeyBundleUserNode;
-        use wacore::libsignal::protocol::KeyPair;
         use wacore::protocol::ProtocolNode;
+        use wacore::signal::protocol::KeyPair;
 
         let (client, transport) = crate::test_utils::create_iq_test_client().await;
         assert_eq!(
@@ -1565,7 +1565,7 @@ mod tests {
         let spk = KeyPair::generate(&mut rng);
         let opk = KeyPair::generate(&mut rng);
         let signature = receiver.private.sign(&spk.public.serialize(), &mut rng);
-        let bundle = wacore::libsignal::protocol::prekey_bundle(
+        let bundle = wacore::signal::protocol::prekey_bundle(
             1,
             Some((1u32.into(), opk.public)),
             1u32.into(),

@@ -642,7 +642,7 @@ pub async fn scan_sessions(
     for device_id in 0..=99u16 {
         let addr = peer_session_addr(user, server, device_id);
         if let Some(data) = backend.get_session(&addr).await? {
-            let record = wacore::libsignal::protocol::SessionRecord::deserialize(&data)?;
+            let record = wacore::signal::protocol::SessionRecord::deserialize(&data)?;
             let has_pending = match record.session_state() {
                 Some(state) => state
                     .unacknowledged_pre_key_message_items()

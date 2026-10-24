@@ -548,7 +548,7 @@ mod tests {
 
     #[tokio::test]
     async fn reregistered_primary_excludes_historical_delta_on_hot_and_cold_saves() {
-        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
+        use wacore::signal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
 
         for cold in [false, true] {
             let client = crate::test_utils::create_test_client().await;
@@ -591,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn same_primary_and_new_companion_keep_historical_delta_eligible() {
-        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair};
+        use wacore::signal::protocol::{IdentityKeyStore, KeyPair};
         use wacore::types::jid::JidExt;
 
         let client = crate::test_utils::create_test_client().await;
@@ -628,7 +628,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_primary_first_observation_does_not_block_a_companion() {
-        use wacore::libsignal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
+        use wacore::signal::protocol::{IdentityKeyStore, KeyPair, ProtocolAddress};
 
         let client = crate::test_utils::create_test_client().await;
         let sent = GroupIdentitySnapshot::capture(&client);

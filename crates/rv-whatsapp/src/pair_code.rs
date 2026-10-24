@@ -62,8 +62,8 @@ use crate::types::events::Event;
 use log::{error, info, warn};
 
 use std::sync::Arc;
-use wacore::libsignal::protocol::KeyPair;
 use wacore::pair_code::{PairCodeState, PairCodeUtils, resolve_companion_platform};
+use wacore::signal::protocol::KeyPair;
 use wacore_binary::Jid;
 use wacore_binary::{NodeContent, NodeContentRef, NodeRef};
 
@@ -1561,7 +1561,7 @@ mod tests {
     // primary_hello rotates it (via `SetAdvSecretKey`) before the socket send.
 
     use crate::test_utils::{create_iq_test_client, create_test_client, poll_until};
-    use wacore::libsignal::protocol::KeyPair;
+    use wacore::signal::protocol::KeyPair;
     use wacore_binary::Node;
     use wacore_binary::builder::NodeBuilder;
 

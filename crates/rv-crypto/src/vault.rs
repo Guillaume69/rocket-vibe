@@ -10,7 +10,7 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs::{self, OpenOptions},
@@ -22,6 +22,8 @@ const DOMAIN: &str = "vibez-mls-vault-v1";
 const LIMIT: usize = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 65536;
 pub mod blobs;
+mod cache;
+pub(crate) use cache::forget;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
@@ -98,7 +100,7 @@ pub struct Checkpoint {
 /// Auxiliary outbox/receipt/cache records are encrypted with the MLS state.
 pub type Records = BTreeMap<String, Vec<u8>>;
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Document {
     previous: Option<Checkpoint>,
@@ -121,35 +123,35 @@ struct Working {
     provider: OpenMlsRustCrypto,
     records: Records,
 }
-impl Working {
-    fn from_document(mut document: Document) -> Result<Self, Error> {
-        if document.mls.len() > MAX_ENTRIES || document.records.len() > MAX_ENTRIES {
+impl Document {
+    fn check(&self) -> Result<(), Error> {
+        if self.mls.len() > MAX_ENTRIES || self.records.len() > MAX_ENTRIES {
             return Err(Error::Limit);
         }
+        let mut keys = std::collections::HashSet::with_capacity(self.mls.len());
+        if self.mls.iter().any(|(key, value)| {
+            key.is_empty() || key.len() > LIMIT || value.len() > LIMIT || !keys.insert(key)
+        }) {
+            return Err(Error::Integrity);
+        }
+        Ok(())
+    }
+}
+impl Working {
+    /// A fresh provider over a copy of a checked document. Only a transaction
+    /// copies the records, which it rewrites; a read borrows the document's.
+    fn from_document(document: &Document, records: Records) -> Result<Self, Error> {
         let working = Self {
             provider: OpenMlsRustCrypto::default(),
-            records: std::mem::take(&mut document.records),
+            records,
         };
-        {
-            let mut values = working
-                .provider
-                .storage()
-                .values
-                .write()
-                .map_err(|_| Error::Storage)?;
-            while let Some((mut key, mut value)) = document.mls.pop() {
-                if key.is_empty()
-                    || key.len() > LIMIT
-                    || value.len() > LIMIT
-                    || values.contains_key(&key)
-                {
-                    key.zeroize();
-                    value.zeroize();
-                    return Err(Error::Integrity);
-                }
-                values.insert(key, value);
-            }
-        }
+        working
+            .provider
+            .storage()
+            .values
+            .write()
+            .map_err(|_| Error::Storage)?
+            .extend(document.mls.iter().cloned());
         Ok(working)
     }
     fn document(&self) -> Result<Document, Error> {
@@ -254,11 +256,23 @@ fn seal(scope: &Scope, key: &Key, revision: i64, document: &Document) -> Result<
         ciphertext,
     })
 }
-fn unseal(scope: &Scope, key: &Key, row: &Sealed, expected: Checkpoint) -> Result<Working, Error> {
+/// The checked document sealed in `row`, which must match the protected checkpoint.
+fn unseal(
+    scope: &Scope,
+    key: &Key,
+    row: &Sealed,
+    expected: Checkpoint,
+) -> Result<Arc<Document>, Error> {
+    if let Some(document) = cache::find(scope, key, row, expected) {
+        return Ok(document);
+    }
     if checkpoint(scope, row)? != expected {
         return Err(Error::Stale);
     }
-    Working::from_document(decode(scope, key, row)?)
+    let document = Arc::new(decode(scope, key, row)?);
+    document.check()?;
+    cache::keep(scope, key, row, expected, document.clone());
+    Ok(document)
 }
 fn decode(scope: &Scope, key: &Key, row: &Sealed) -> Result<Document, Error> {
     let cipher = XChaCha20Poly1305::new_from_slice(key.0.as_ref()).map_err(|_| Error::Integrity)?;
@@ -412,7 +426,7 @@ impl Vault {
             return Err(Error::Scope);
         }
         let db = connection(path)?;
-        drop(unseal(&scope, &key, &read(&db)?, checkpoint)?);
+        unseal(&scope, &key, &read(&db)?, checkpoint)?;
         blobs::migrate(&db)?;
         Ok(Self {
             db,
@@ -478,7 +492,7 @@ impl Vault {
         if document.previous != Some(protected) {
             return Err(Error::Stale);
         }
-        drop(Working::from_document(document)?);
+        document.check()?;
         blobs::migrate(&db)?;
         let checkpoint = checkpoint(&scope, &row)?;
         Ok(Self {
@@ -504,9 +518,10 @@ impl Vault {
         if self.pending {
             return Err(Error::Pending);
         }
-        let working = unseal(&self.scope, &self.key, &read(&self.db)?, self.checkpoint)?;
+        let document = unseal(&self.scope, &self.key, &read(&self.db)?, self.checkpoint)?;
+        let working = Working::from_document(&document, Records::new())?;
         let blobs = blobs::Access::new(&self.db, &self.scope, &self.key);
-        operation(&working.provider, &working.records, &blobs)
+        operation(&working.provider, &document.records, &blobs)
     }
     /// Successful provider writes and private operation records become durable
     /// together. On any error, the temporary provider/group is discarded entirely.
@@ -534,12 +549,14 @@ impl Vault {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| Error::Storage)?;
-        let mut working = unseal(
+        let current = unseal(
             &self.scope,
             &self.key,
             &read(&transaction)?,
             self.checkpoint,
         )?;
+        let mut working = Working::from_document(&current, current.records.clone())?;
+        drop(current);
         blobs::initialize(&transaction)?;
         let mut blobs = blobs::Access::new(&transaction, &self.scope, &self.key);
         let result = operation(&working.provider, &mut working.records, &mut blobs)?;
@@ -549,6 +566,7 @@ impl Vault {
             .checked_add(1)
             .ok_or(Error::Limit)?;
         let mut document = working.document()?;
+        document.check()?;
         document.previous = Some(self.checkpoint);
         let row = seal(&self.scope, &self.key, revision, &document)?;
         let next = checkpoint(&self.scope, &row)?;
@@ -565,6 +583,7 @@ impl Vault {
         #[cfg(test)]
         crash_boundary("before-commit");
         transaction.commit().map_err(|_| Error::Storage)?;
+        cache::keep(&self.scope, &self.key, &row, next, Arc::new(document));
         self.checkpoint = next;
         self.pending = true;
         #[cfg(test)]
@@ -591,12 +610,14 @@ impl Vault {
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| Error::Storage)?;
-        let mut working = unseal(
+        let current = unseal(
             &self.scope,
             &self.key,
             &read(&transaction)?,
             self.checkpoint,
         )?;
+        let mut working = Working::from_document(&current, current.records.clone())?;
+        drop(current);
         blobs::initialize(&transaction)?;
         let sealed = blobs::rekey(&transaction, &self.scope, &self.key, &next)?;
         mutate(&mut working.records);
@@ -606,6 +627,7 @@ impl Vault {
             .checked_add(1)
             .ok_or(Error::Limit)?;
         let mut document = working.document()?;
+        document.check()?;
         document.previous = Some(self.checkpoint);
         let row = seal(&self.scope, &next, revision, &document)?;
         let checkpoint = checkpoint(&self.scope, &row)?;
@@ -619,6 +641,7 @@ impl Vault {
         #[cfg(test)]
         crash_boundary("before-rotation-commit");
         transaction.commit().map_err(|_| Error::Storage)?;
+        cache::keep(&self.scope, &next, &row, checkpoint, Arc::new(document));
         self.key = next;
         self.checkpoint = checkpoint;
         self.pending = true;

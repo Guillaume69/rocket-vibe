@@ -13,7 +13,7 @@ fn is_zero(n: &i64) -> bool {
     *n == 0
 }
 
-mod base64_bytes {
+pub(crate) mod base64_bytes {
     use base64::Engine as _;
     use serde::{Deserialize, Deserializer, Serializer};
 

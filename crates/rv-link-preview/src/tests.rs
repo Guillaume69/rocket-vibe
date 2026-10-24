@@ -124,19 +124,6 @@ fn redirects_repeat_policy_and_deny_tls_downgrade() {
         assert!(redirect(&start, url).is_err(), "accepted {url}");
     }
 }
-#[test]
-fn uses_message_structure_for_bounded_deduplicated_links() {
-    let source = "`https://code.example/a`\n\n> https://quoted.example/a\n\n![alt](https://image.example/a.png)\n\nhttps://first.example/a#one [label](https://second.example/b) https://first.example/a#one\n\nhttps://third.example/c https://fourth.example/d";
-    assert_eq!(
-        links(source),
-        [
-            "https://first.example/a#one",
-            "https://second.example/b",
-            "https://third.example/c"
-        ]
-    );
-    assert!(links("https://127.1/private [bad](file:///tmp/a)").is_empty());
-}
 fn page(source: &str) -> Resource {
     Resource {
         final_url: Url::parse("https://example.com/path/page").unwrap(),
@@ -225,7 +212,7 @@ fn normalizes_image_to_png_and_refuses_mime_spoofing() {
 #[tokio::test]
 async fn rejects_private_literal_before_any_network_request() {
     assert_eq!(
-        collect("http://127.0.0.1/").await.unwrap_err(),
+        collect("http://127.0.0.1/", "test").await.unwrap_err(),
         Failure::Blocked
     );
 }
@@ -254,7 +241,7 @@ async fn http_client_pins_dns_sends_no_credentials_and_never_follows_redirects()
     });
     // Directly exercise the production client builder with a test socket.
     // The public policy above is never disabled in collect/fetch.
-    let response = client(host, &[address])
+    let response = client(host, &[address], "test")
         .unwrap()
         .get(format!("http://{host}:{}/page", address.port()))
         .send()
@@ -298,7 +285,7 @@ async fn response_reader_bounds_announced_and_chunked_bodies_and_refuses_compres
             address.port()
         ))
         .unwrap();
-        let response = client("reader.example.invalid", &[address])
+        let response = client("reader.example.invalid", &[address], "test")
             .unwrap()
             .get(url.clone())
             .send()

@@ -59,7 +59,7 @@ The server keeps one ordered **journal** of changes (`journal`, `src/store.rs`):
 
 ## What it serves
 
-Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permissions recomputed on the server (`src/permissions.rs`), edits, deletions, pins and stars (`src/message_actions.rs`, `src/marks.rs`), reactions, quotes, threads (their list, following and "also send to the room", `src/threads.rs`, see [threads](../features/threads.md)) and mentions, full-text search (PostgreSQL `simple` configuration, `src/search.rs`), profiles and avatars, custom emoji and the instance icon, [slash commands](../features/slash-commands.md) (`src/commands.rs`), [bots](../features/bots.md), [workflows](../features/workflows.md), [voice](../features/voice.md) over LiveKit, push through FCM with content fetched on receipt (`src/push.rs`), email through a durable encrypted queue (`src/mail.rs`), link previews with SSRF protections (public addresses only, ports 80 and 443, DNS checked and pinned on every redirect, `src/link_previews/network.rs`), [administration and reports](../features/administration.md) (an administrator reads a private message only through an open report, `src/admin.rs`), and the server side of native E2EE: the device directory, key packages, signed MLS transitions and opaque ordered messages, verified with `rv-crypto-public` only, never with any private state (`src/e2ee.rs`, `src/e2ee/`; the features in the `e2ee-*` pages).
+Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permissions recomputed on the server (`src/permissions.rs`), edits, deletions, pins and stars (`src/message_actions.rs`, `src/marks.rs`), reactions, quotes, threads (their list, following and "also send to the room", `src/threads.rs`, see [threads](../features/threads.md)) and mentions, full-text search (PostgreSQL `simple` configuration, `src/search.rs`), profiles and avatars, custom emoji and the instance icon, [slash commands](../features/slash-commands.md) (`src/commands.rs`), [bots](../features/bots.md), [workflows](../features/workflows.md), [voice](../features/voice.md) over LiveKit, push through FCM with content fetched on receipt (`src/push.rs`), email through a durable encrypted queue (`src/mail.rs`), link previews with SSRF protections (public addresses only, ports 80 and 443, DNS checked and pinned on every redirect, `crates/rv-link-preview`), [administration and reports](../features/administration.md) (an administrator reads a private message only through an open report, `src/admin.rs`), and the server side of native E2EE: the device directory, key packages, signed MLS transitions and opaque ordered messages, verified with `rv-crypto-public` only, never with any private state (`src/e2ee.rs`, `src/e2ee/`; the features in the `e2ee-*` pages).
 
 ## Tests and release
 
@@ -111,7 +111,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 - `apps/server/src/push.rs`
 - `apps/server/src/mail.rs`
 - `apps/server/src/email_delivery.rs`
-- `apps/server/src/link_previews/network.rs`
+- `crates/rv-link-preview/src/lib.rs`
 - `apps/server/src/voice.rs`
 - `apps/server/src/livekit.rs`
 - `apps/server/src/bots.rs`

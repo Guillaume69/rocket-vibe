@@ -4,7 +4,7 @@ The Rust crates in `crates/` are shared by the Vibez server and the three client
 
 ## Workspaces and locks
 
-The root `Cargo.toml` is a resolver-3 workspace of `apps/server`, `crates/rv-protocol`, `crates/rv-client` and `crates/rv-crypto-public`. Everything else keeps a workspace of its own, on purpose:
+The root `Cargo.toml` is a resolver-3 workspace of `apps/server`, `crates/rv-protocol`, `crates/rv-client`, `crates/rv-crypto-public` and `crates/rv-link-preview`. Everything else keeps a workspace of its own, on purpose:
 
 | Workspace | Why it stands apart |
 |---|---|
@@ -32,7 +32,8 @@ Nine workspaces mean nine `Cargo.lock`. Within one semver-compatible line (`1.x`
 | `rv-crypto-web` | | | | `src/crypto/wasm/` |
 | `rv-voice-mobile` | | | `modules/voice` (JNI) | |
 | `rv-signal` | | through `rv-whatsapp` | not yet | |
-| `rv-whatsapp` | | not yet (the GTK app still runs the Go helper) | not yet | |
+| `rv-whatsapp` | | the `rv-whatsapp` helper process (`rv-whatsapp-engine`), not linked in process yet | not yet (Android still binds the Go engine) | |
+| `rv-link-preview` | yes (link previews) | through the `rv-whatsapp` helper | | |
 
 Cargo unifies features across a workspace: the three desktop crates all get `rv-crypto`'s `native-http` and `system-keystore` once any of them asks.
 
@@ -74,13 +75,14 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 
 ## `rv-whatsapp`: the WhatsApp engine
 
-[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) at `d73c3cc1`, MIT parts only, vendored to replace the Go helper (`apps/desktop/whatsapp/`) and later reshaped to the apps' architecture; `VENDOR.md` lists what was left out, what was added and why ([decisions.md](../decisions.md)). It keeps upstream's layout: the client (`src/`), the sans-IO core (`wacore`), the binary node codec, the Noise transport, the protobuf schema (`waproto`), SQLite storage, a Tokio transport and an HTTP client. Three crates are ours:
+[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) at `d73c3cc1`, MIT parts only, vendored in place of the Go helper (`apps/desktop/whatsapp/`, now Android's only) and later reshaped to the apps' architecture; `VENDOR.md` lists what was left out, what was added and why ([decisions.md](../decisions.md)). It keeps upstream's layout: the client (`src/`), the sans-IO core (`wacore`), the binary node codec, the Noise transport, the protobuf schema (`waproto`), SQLite storage, a Tokio transport and an HTTP client. Four crates are ours:
 
 - **`wacore-signal`** is the Signal interface the engine calls, on `rv-signal` (re-exported as `wacore::libsignal`, the path the engine's code uses). Records are kept as WhatsApp's protobuf structures (a partial one is valid until it encrypts) and become `rv-signal` records for each operation. It carries two storage contracts of the engine's write-back cache:
   - **the counter lease**: a sending chain reserves its counters 64 at a time before one goes on the wire, and the raised lease must be stored first (`has_pending_reservation`, `is_wire_gated`); a record reloaded by the store instance that wrote it (same incarnation) is exact, any other reload moves the chain to the reserved ceiling, refused past 2,000. A record with no lease is stored as the bare `RecordStructure`;
   - **the session checkout**: an encrypt or decrypt takes the session out of the cache and works on a copy; success hands the new record back, failure or a dropped call (an aborted task) hands the original back unchanged.
 - **`wacore-crypto`**: AES-GCM (the transport, in place), AES-CBC (in place), HMAC and SHA-2.
 - **`wacore-appstate`**: the settings sync (app state), rewritten with WhatsApp Web's MAC rules; only its action catalogue is upstream's.
+- **`rv-whatsapp-engine`** (`engine/`): the desktop helper. It speaks rv-core's JSON-lines protocol, the Go helper's frame for frame, over a whatsapp-rust client built with the in-memory backend (no SQLite linked: the default features are off). Its own projection keeps what the client is shown (messages, reactions, contacts and names, photos, unread counts), since whatsapp-rust has no message or contact store. The backend's snapshot (`InMemoryBackend::snapshot`, our addition) and the projection are sealed together into one file (`vault.rs`, AES-256-GCM, written through a temporary file under an exclusive lock), flushed from the client's write-behind caches first. The binary is `rv-whatsapp` (`main.rs`); `desktop-whatsapp.yml` builds it, Windows cross-built with mingw-w64.
 
 Upstream's test suite runs as is: 5,449 tests.
 
@@ -129,6 +131,10 @@ Upstream's test suite runs as is: 5,449 tests.
 - `crates/rv-voice-mobile/Cargo.toml`
 - `crates/rv-signal/src/lib.rs`
 - `crates/rv-whatsapp/VENDOR.md`
+- `crates/rv-whatsapp/engine/src/engine.rs`
+- `crates/rv-whatsapp/engine/src/vault.rs`
+- `crates/rv-link-preview/src/lib.rs`
+- `.github/workflows/desktop-whatsapp.yml`
 - `crates/rv-whatsapp/wacore/signal/src/protocol/session.rs`
 - `crates/rv-whatsapp/wacore/signal/src/protocol/storage.rs`
 - `crates/rv-whatsapp/wacore/appstate/src/processor.rs`

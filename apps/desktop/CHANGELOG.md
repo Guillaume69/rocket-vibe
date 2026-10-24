@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Changed
+
+- WhatsApp (experimental): the helper behind a WhatsApp account is rewritten in Rust on whatsapp-rust, in place of the Go helper on whatsmeow. Existing WhatsApp accounts must be linked again once: the new helper cannot read the old one's saved state and shows the account as expired. The linked device is named Rocket Vibe on the phone. Link previews of your own messages are fetched with the same protections as the Vibez server's (public addresses only, standard web ports). In groups, a read receipt is sent even when your privacy settings send none, as WhatsApp's own apps do.
+
 ## [0.26.0] - 2026-10-24
 
 ### Added

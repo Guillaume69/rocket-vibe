@@ -3389,6 +3389,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rv-link-preview"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "image",
+ "reqwest",
+ "rv-protocol",
+ "scraper",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "rv-protocol"
 version = "0.1.0"
 dependencies = [
@@ -4550,7 +4563,6 @@ dependencies = [
  "clap",
  "data-encoding",
  "ed25519-dalek",
- "encoding_rs",
  "futures-util",
  "gcp_auth",
  "hmac 0.12.1",
@@ -4565,8 +4577,8 @@ dependencies = [
  "reqwest",
  "rv-client",
  "rv-crypto-public",
+ "rv-link-preview",
  "rv-protocol",
- "scraper",
  "serde",
  "serde_json",
  "sha1",

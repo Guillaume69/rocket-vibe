@@ -6,11 +6,15 @@ on:
     paths:
       - 'crates/rv-whatsapp/**'
       - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
+      - 'crates/rv-protocol/**'
       - '.github/workflows/rv-whatsapp.yml'
   pull_request:
     paths:
       - 'crates/rv-whatsapp/**'
       - 'crates/rv-signal/**'
+      - 'crates/rv-link-preview/**'
+      - 'crates/rv-protocol/**'
       - '.github/workflows/rv-whatsapp.yml'
   workflow_dispatch:
 
@@ -42,6 +46,6 @@ jobs:
           restore-keys: rv-whatsapp-${{ runner.os }}-
       # Upstream's own files keep upstream's (nightly) formatting: only the
       # crates written here are held to rustfmt (VENDOR.md).
-      - run: cargo fmt -p wacore-signal -p wacore-crypto -p wacore-appstate --check
+      - run: cargo fmt -p wacore-signal -p wacore-crypto -p wacore-appstate -p rv-whatsapp-engine --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked

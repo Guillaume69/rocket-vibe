@@ -188,7 +188,7 @@ final class NativeProviderTests: XCTestCase {
         let app=AppModel(home:home);defer{app.end()}
         app.login.server=server;app.login.user="desktop";app.login.password=password
         await app.submitLogin();let native=try XCTUnwrap(app.native)
-        try await until{app.connection == .online}
+        try await until(diagnostics:{"connection \(app.connection), screen \(app.screen), login error \(app.login.error ?? "none"), native error \(app.native?.status().error ?? "none")"}){app.connection == .online}
         let peer=try await makeExtraDevice(server:server,password:password,username:"mobile")
         let rid=try await native.direct(username:"mobile")
         try await until{app.rooms.contains{$0.rid==rid}}

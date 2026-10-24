@@ -526,7 +526,7 @@ pub async fn prepare_group_stanza(
     // Release before the chain-independent stanza build.
     drop(chain_guard);
 
-    let skmsg_ciphertext = skmsg.into_serialized();
+    let skmsg_ciphertext: Box<[u8]> = skmsg.serialized().into();
 
     let mediatype = media_type_from_message(message);
     let hide_decrypt_fail = should_hide_decrypt_fail_for_send(edit, message);
@@ -720,7 +720,7 @@ pub async fn create_sender_key_distribution_message_for_group(
     )
     .await?;
 
-    Ok(skdm.into_serialized().into_vec())
+    Ok(skdm.serialized().to_vec())
 }
 
 /// Build a `Message.ProtocolMessage` for `GROUP_MEMBER_LABEL_CHANGE`.

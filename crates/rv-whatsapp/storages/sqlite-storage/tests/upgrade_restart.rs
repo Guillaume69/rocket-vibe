@@ -328,7 +328,7 @@ async fn send_and_decrypt(db: &SqliteDatabase) -> u32 {
             .unwrap(),
         PAYLOAD
     );
-    message.iteration()
+    message.iteration
 }
 
 #[tokio::test]

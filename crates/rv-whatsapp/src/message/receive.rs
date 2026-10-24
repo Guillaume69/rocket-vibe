@@ -1151,12 +1151,12 @@ impl Client {
                 )
                 .entered();
                 if is_prekey {
-                    PreKeySignalMessage::try_from(ciphertext)
+                    wacore::libsignal::protocol::prekey_signal_message(&ciphertext)
                         .map(CiphertextMessage::PreKeySignalMessage)
                         .map(OwnedCiphertextMessage::from)
                         .map(ParsedSessionMessage::Consumable)
                 } else {
-                    SignalMessage::try_from(ciphertext)
+                    wacore::libsignal::protocol::signal_message(&ciphertext)
                         .map(CiphertextMessage::SignalMessage)
                         .map(ParsedSessionMessage::Retained)
                 }

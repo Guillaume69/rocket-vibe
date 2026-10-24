@@ -9,6 +9,7 @@ use crate::store::persistence_manager::PersistenceManager;
 use crate::test_utils::{MockHttpClient, wait_for_lock_waiter};
 use crate::types::message::EditAttribute;
 use std::sync::Arc;
+use wacore::libsignal::protocol::SignalMessage;
 use wacore_binary::builder::NodeBuilder;
 
 fn node_to_arc(node: wacore_binary::Node) -> Arc<OwnedNodeRef> {
@@ -411,16 +412,14 @@ async fn test_process_session_enc_batch_handles_session_not_found_gracefully() {
     let sender_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
-        4,
         &dummy_key,
+        &sender_identity_pair.public,
+        &receiver_identity_pair.public,
         sender_ratchet,
         0,
         0,
-        b"test",
-        &sender_identity_pair.public,
-        &receiver_identity_pair.public,
-    )
-    .expect("SignalMessage::new should succeed with valid inputs");
+        b"test".to_vec(),
+    );
 
     let enc_node = NodeBuilder::new("enc")
         .attr("type", "msg")
@@ -567,16 +566,14 @@ async fn test_empty_session_record_treated_as_session_not_found() {
     let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
-        4,
         &dummy_key,
+        &sender_identity.public,
+        &receiver_identity.public,
         sender_ratchet,
         0,
         0,
-        b"test",
-        &sender_identity.public,
-        &receiver_identity.public,
-    )
-    .expect("SignalMessage::new should succeed");
+        b"test".to_vec(),
+    );
 
     let enc_node = NodeBuilder::new("enc")
         .attr("type", "msg")
@@ -784,7 +781,8 @@ impl AlicePeer {
     }
 
     async fn decrypt_signal(&mut self, bob_addr: &ProtocolAddress, ciphertext: &[u8]) -> Vec<u8> {
-        let message = SignalMessage::try_from(ciphertext).expect("signal message");
+        let message =
+            wacore::libsignal::protocol::signal_message(ciphertext).expect("signal message");
         message_decrypt_signal(
             &message,
             bob_addr,
@@ -1465,16 +1463,14 @@ async fn test_handle_incoming_message_skips_skmsg_after_msg_failure() {
     let sender_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity_pair = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
-        4,
         &dummy_key,
+        &sender_identity_pair.public,
+        &receiver_identity_pair.public,
         sender_ratchet,
         0,
         0,
-        b"test",
-        &sender_identity_pair.public,
-        &receiver_identity_pair.public,
-    )
-    .expect("SignalMessage::new should succeed with valid inputs");
+        b"test".to_vec(),
+    );
 
     let msg_node = NodeBuilder::new("enc")
         .attr("type", "msg")
@@ -5307,16 +5303,14 @@ async fn undecryptable_receive_branch_stays_silent_when_batch_dispatched() {
     let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
-        4,
         &[0u8; 32],
+        &sender_identity.public,
+        &receiver_identity.public,
         sender_ratchet,
         0,
         0,
-        b"test",
-        &sender_identity.public,
-        &receiver_identity.public,
-    )
-    .expect("SignalMessage::new should succeed with valid inputs");
+        b"test".to_vec(),
+    );
     let enc = NodeBuilder::new("enc")
         .attr("type", "msg")
         .bytes(signal_message.serialized().to_vec())
@@ -15007,16 +15001,14 @@ async fn a_session_enc_with_no_session_reports_no_session() {
     let info = dm_info("ENCFAIL_NOSESSION", &sender);
     let mut rng = rand::make_rng::<rand::rngs::StdRng>();
     let signal_message = SignalMessage::new(
-        4,
         &[0u8; 32],
+        &KeyPair::generate(&mut rng).public,
+        &KeyPair::generate(&mut rng).public,
         KeyPair::generate(&mut rng).public,
         0,
         0,
-        b"test",
-        &KeyPair::generate(&mut rng).public,
-        &KeyPair::generate(&mut rng).public,
-    )
-    .expect("valid inputs");
+        b"test".to_vec(),
+    );
 
     client
         .clone()
@@ -23109,16 +23101,14 @@ async fn decrypt_failure_ack_recipient(test_id: &str, verdict: Option<bool>) -> 
     let sender_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let receiver_identity = KeyPair::generate(&mut rand::make_rng::<rand::rngs::StdRng>());
     let signal_message = SignalMessage::new(
-        4,
         &[0u8; 32],
+        &sender_identity.public,
+        &receiver_identity.public,
         sender_ratchet,
         0,
         0,
-        b"test",
-        &sender_identity.public,
-        &receiver_identity.public,
-    )
-    .expect("SignalMessage::new should succeed with valid inputs");
+        b"test".to_vec(),
+    );
     let node = NodeBuilder::new("message")
         .attr("from", "236395184570386@lid")
         .attr("recipient", "156535032389744@lid")

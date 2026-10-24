@@ -10007,8 +10007,8 @@ mod tests {
     #[tokio::test]
     async fn group_repairs_each_original_id_only_to_missed_devices() {
         use wacore::libsignal::protocol::{
-            CiphertextMessage, GenericSignedPreKey, PreKeyBundle, PreKeySignalMessage,
-            SignalMessage, SignedPreKeyStore, UsePQRatchet, message_decrypt, process_prekey_bundle,
+            CiphertextMessage, GenericSignedPreKey, PreKeyBundle, SignedPreKeyStore, UsePQRatchet,
+            message_decrypt, process_prekey_bundle,
         };
         use wacore::store::traits::{DeviceInfo, DeviceListRecord};
         let fixture = GroupSendFixture::new().await;
@@ -10154,10 +10154,14 @@ mod tests {
                 .unwrap();
             let ciphertext = match encrypted.attrs().optional_string("type").as_deref() {
                 Some("pkmsg") => CiphertextMessage::PreKeySignalMessage(
-                    PreKeySignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                    wacore::libsignal::protocol::prekey_signal_message(
+                        encrypted.content_bytes().unwrap(),
+                    )
+                    .unwrap(),
                 ),
                 Some("msg") => CiphertextMessage::SignalMessage(
-                    SignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                    wacore::libsignal::protocol::signal_message(encrypted.content_bytes().unwrap())
+                        .unwrap(),
                 ),
                 other => panic!("unexpected direct encryption type {other:?}"),
             };

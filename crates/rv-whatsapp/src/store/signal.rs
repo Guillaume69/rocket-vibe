@@ -648,7 +648,7 @@ mod tests {
             let message = group_encrypt(&mut sender, &name, b"payload", &mut rng)
                 .await
                 .expect("group encrypt");
-            assert_eq!(message.iteration(), expected_iteration);
+            assert_eq!(message.iteration, expected_iteration);
             last = Some(message);
         }
 
@@ -665,7 +665,7 @@ mod tests {
         let same_process = group_encrypt(&mut replacement, &name, b"same-process", &mut rng)
             .await
             .expect("encrypt after same-process replacement");
-        assert_eq!(same_process.iteration(), 33);
+        assert_eq!(same_process.iteration, 33);
 
         let durable = sender_backend
             .get_sender_key(name.cache_key())

@@ -4,10 +4,9 @@
 
 use thiserror::Error;
 use wacore::libsignal::protocol::{
-    CiphertextMessage, DecryptionResult, IdentityChange, PreKeyBundle, PreKeySignalMessage,
-    PublicKey, SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyDistributionMessage, SenderKeyStore,
-    SignalMessage, SignalProtocolError, UsePQRatchet, message_decrypt, message_encrypt,
-    process_sender_key_distribution_message,
+    CiphertextMessage, DecryptionResult, IdentityChange, PreKeyBundle, PublicKey,
+    SenderKeyDistributionMessage, SenderKeyStore, SignalProtocolError, UsePQRatchet,
+    message_decrypt, message_encrypt, process_sender_key_distribution_message,
 };
 use wacore::message_processing::EncType;
 use wacore::messages::MessageUtils;
@@ -114,7 +113,7 @@ fn decode_sender_key_distribution(
             bytes.len()
         )));
     }
-    match SenderKeyDistributionMessage::try_from(bytes) {
+    match wacore::libsignal::protocol::sender_key_distribution_message(bytes) {
         Ok(message) => Ok(message),
         Err(primary_error) => {
             let fallback = waproto::codec::sender_key_distribution_message_decode(bytes)
@@ -150,12 +149,11 @@ fn decode_sender_key_distribution(
                 ))
             })?;
             Ok(SenderKeyDistributionMessage::new(
-                SENDERKEY_MESSAGE_CURRENT_VERSION,
                 id,
                 iteration,
                 chain_key,
                 signing_key,
-            )?)
+            ))
         }
     }
 }
@@ -469,12 +467,12 @@ impl<'a> Signal<'a> {
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, SignalError> {
         let parsed = match enc_type {
-            EncType::PreKeyMessage => {
-                CiphertextMessage::PreKeySignalMessage(PreKeySignalMessage::try_from(ciphertext)?)
-            }
-            EncType::Message => {
-                CiphertextMessage::SignalMessage(SignalMessage::try_from(ciphertext)?)
-            }
+            EncType::PreKeyMessage => CiphertextMessage::PreKeySignalMessage(
+                wacore::libsignal::protocol::prekey_signal_message(ciphertext)?,
+            ),
+            EncType::Message => CiphertextMessage::SignalMessage(
+                wacore::libsignal::protocol::signal_message(ciphertext)?,
+            ),
             EncType::SenderKey => {
                 return Err(SignalError::Unsupported(
                     "use decrypt_group_message for sender-key messages".into(),
@@ -587,7 +585,7 @@ impl<'a> Signal<'a> {
                 .await;
         }
 
-        Ok((skdm_bytes, ciphertext.into_serialized().into_vec()))
+        Ok((skdm_bytes, ciphertext.serialized().to_vec()))
     }
 
     /// Decrypt a group (sender-key) message.
@@ -1365,7 +1363,7 @@ mod tests {
 
         assert!(
             matches!(
-                SenderKeyDistributionMessage::try_from(&unframed[..]),
+                wacore::libsignal::protocol::sender_key_distribution_message(&unframed[..]),
                 Err(SignalProtocolError::LegacyCiphertextVersion(0))
             ),
             "the primary reads the leading protobuf tag as a version, which is \
@@ -1374,9 +1372,9 @@ mod tests {
 
         let decoded = decode_sender_key_distribution(&unframed)
             .expect("the unframed encoding must keep decoding");
-        assert_eq!(decoded.chain_id(), 7);
-        assert_eq!(decoded.chain_key(), &[0x11u8; 32]);
-        assert_eq!(decoded.signing_key(), &signing.public);
+        assert_eq!(decoded.chain_id, 7);
+        assert_eq!(decoded.chain_key, [0x11u8; 32]);
+        assert_eq!(decoded.signing_key, signing.public);
     }
 
     /// The shortest byte string either accepted encoding can produce: the
@@ -1401,9 +1399,9 @@ mod tests {
         assert_eq!(bytes.len(), MIN_SENDER_KEY_DISTRIBUTION_LEN);
 
         let decoded = decode_sender_key_distribution(&bytes).expect("shortest unframed encoding");
-        assert_eq!(decoded.chain_id(), 0);
-        assert_eq!(decoded.iteration(), 0);
-        assert_eq!(decoded.chain_key(), &[7u8; 32]);
+        assert_eq!(decoded.chain_id, 0);
+        assert_eq!(decoded.iteration, 0);
+        assert_eq!(decoded.chain_key, [7u8; 32]);
     }
 
     #[tokio::test]
@@ -1429,22 +1427,16 @@ mod tests {
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let signing = KeyPair::generate(&mut rng);
-        let framed = SenderKeyDistributionMessage::new(
-            SENDERKEY_MESSAGE_CURRENT_VERSION,
-            7,
-            0,
-            [0x11; 32],
-            signing.public,
-        )
-        .expect("distribution")
-        .into_serialized();
+        let framed = SenderKeyDistributionMessage::new(7, 0, [0x11; 32], signing.public)
+            .serialized()
+            .to_vec();
 
         assert!(
-            SenderKeyDistributionMessage::try_from(&framed[..]).is_ok(),
+            wacore::libsignal::protocol::sender_key_distribution_message(&framed[..]).is_ok(),
             "the framed shape must decode through the primary, not by falling back"
         );
         let decoded = decode_sender_key_distribution(&framed).expect("framed distribution");
-        assert_eq!(decoded.chain_id(), 7);
-        assert_eq!(decoded.signing_key(), &signing.public);
+        assert_eq!(decoded.chain_id, 7);
+        assert_eq!(decoded.signing_key, signing.public);
     }
 }

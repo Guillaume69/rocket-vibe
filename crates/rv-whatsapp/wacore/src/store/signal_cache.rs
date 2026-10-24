@@ -5182,7 +5182,7 @@ mod lease_reload_tests {
             let message = group_encrypt(&mut sender, &name, b"payload", &mut rng)
                 .await
                 .expect("group encrypt");
-            assert_eq!(message.iteration(), expected_iteration);
+            assert_eq!(message.iteration, expected_iteration);
             last = Some(message);
             sender_cache.flush(&sender_backend).await.expect("flush");
             sender_cache.clear_after_flush().await;
@@ -5211,7 +5211,7 @@ mod lease_reload_tests {
         let first = group_encrypt(&mut store, &name, b"first", &mut rng)
             .await
             .expect("first send");
-        assert_eq!(first.iteration(), 0);
+        assert_eq!(first.iteration, 0);
         cache.flush(&backend).await.expect("flush");
         assert!(
             cache
@@ -5226,7 +5226,7 @@ mod lease_reload_tests {
         let second = group_encrypt(&mut store, &name, b"second", &mut rng)
             .await
             .expect("send after eviction");
-        assert_eq!(second.iteration(), 1);
+        assert_eq!(second.iteration, 1);
     }
 
     #[tokio::test]
@@ -5249,13 +5249,13 @@ mod lease_reload_tests {
         let first = group_encrypt(&mut store, &name, b"first", &mut rng)
             .await
             .expect("first send");
-        assert_eq!(first.iteration(), 0);
+        assert_eq!(first.iteration, 0);
         cache.flush(&backend).await.expect("flush");
 
         let unflushed = group_encrypt(&mut store, &name, b"unflushed", &mut rng)
             .await
             .expect("unflushed send");
-        assert_eq!(unflushed.iteration(), 1);
+        assert_eq!(unflushed.iteration, 1);
         cache.clear_after_flush().await;
 
         {
@@ -5268,7 +5268,7 @@ mod lease_reload_tests {
         let resumed = group_encrypt(&mut store, &name, b"resumed", &mut rng)
             .await
             .expect("resident send");
-        assert_eq!(resumed.iteration(), 2);
+        assert_eq!(resumed.iteration, 2);
 
         let replacement = SignalStoreCache::with_max_entries_and_incarnation(
             DEFAULT_MAX_CACHE_ENTRIES,
@@ -5282,7 +5282,7 @@ mod lease_reload_tests {
             .await
             .expect("recovery send");
         assert_eq!(
-            recovered.iteration(),
+            recovered.iteration,
             crate::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH
         );
 
@@ -5291,7 +5291,7 @@ mod lease_reload_tests {
         let exact = group_encrypt(&mut store, &name, b"exact", &mut rng)
             .await
             .expect("exact reload");
-        assert_eq!(exact.iteration(), 3);
+        assert_eq!(exact.iteration, 3);
     }
 }
 

@@ -113,7 +113,7 @@ async fn crash_child(database: &str) -> ! {
     let first = group_encrypt(&mut sender, &name, b"first", &mut rng)
         .await
         .expect("first group encrypt");
-    assert_eq!(first.iteration(), 0);
+    assert_eq!(first.iteration, 0);
 
     cache.flush(&store).await.expect("durable lease flush");
     assert!(!cache.needs_pre_wire_flush().await);
@@ -131,7 +131,7 @@ async fn crash_child(database: &str) -> ! {
         let message = group_encrypt(&mut sender, &name, b"unflushed", &mut rng)
             .await
             .expect("group encrypt");
-        assert_eq!(message.iteration(), expected);
+        assert_eq!(message.iteration, expected);
     }
 
     crash_now()
@@ -181,7 +181,7 @@ async fn verify_recovery(database: &str) {
     let recovered_group = group_encrypt(&mut sender, &name, b"recovered", &mut rng)
         .await
         .expect("group recovery encrypt");
-    assert_eq!(recovered_group.iteration(), SENDER_CHAIN_RESERVATION_BATCH);
+    assert_eq!(recovered_group.iteration, SENDER_CHAIN_RESERVATION_BATCH);
     assert!(cache.needs_pre_wire_flush().await);
     cache.flush(&store).await.expect("recovery lease flush");
     assert!(!cache.needs_pre_wire_flush().await);
@@ -197,7 +197,7 @@ async fn verify_recovery(database: &str) {
     let exact_group = group_encrypt(&mut sender, &name, b"exact", &mut rng)
         .await
         .expect("clean group reload");
-    assert_eq!(exact_group.iteration(), SENDER_CHAIN_RESERVATION_BATCH + 1);
+    assert_eq!(exact_group.iteration, SENDER_CHAIN_RESERVATION_BATCH + 1);
     assert!(!cache.needs_pre_wire_flush().await);
 }
 

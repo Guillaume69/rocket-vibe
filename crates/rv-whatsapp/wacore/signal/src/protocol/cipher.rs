@@ -156,10 +156,10 @@ async fn encrypt_checked_out(
         .with_signal(|r| r.encrypt(ptext))?
         .map_err(|e| SignalProtocolError::from_signal(e, CiphertextMessageType::Whisper))?;
     Ok(match kind {
-        rv_signal::Kind::PreKey => {
-            CiphertextMessage::PreKeySignalMessage(PreKeySignalMessage::try_from(bytes.as_slice())?)
-        }
-        _ => CiphertextMessage::SignalMessage(SignalMessage::try_from(bytes.as_slice())?),
+        rv_signal::Kind::PreKey => CiphertextMessage::PreKeySignalMessage(
+            super::messages::prekey_signal_message(bytes.as_slice())?,
+        ),
+        _ => CiphertextMessage::SignalMessage(super::messages::signal_message(bytes.as_slice())?),
     })
 }
 
@@ -284,11 +284,11 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
         require_trusted(
             identity_store,
             remote_address,
-            ciphertext.identity_key(),
+            &ciphertext.identity_key,
             Direction::Receiving,
         )
         .await?;
-        let base_key = ciphertext.base_key().serialize();
+        let base_key = ciphertext.base_key.serialize();
         let known = record
             .session_state()
             .is_some_and(|s| s.alice_base_key() == &base_key[..])
@@ -299,11 +299,11 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
             (None, None)
         } else {
             let signed = signed_pre_key_store
-                .get_signed_pre_key(ciphertext.signed_pre_key_id())
+                .get_signed_pre_key(ciphertext.signed_prekey_id.into())
                 .await?
                 .key_pair()?;
-            let one_time = match ciphertext.pre_key_id() {
-                Some(id) => Some(pre_key_store.get_pre_key(id).await?.key_pair()?),
+            let one_time = match ciphertext.prekey_id {
+                Some(id) => Some(pre_key_store.get_pre_key(id.into()).await?.key_pair()?),
                 None => None,
             };
             (Some(signed), one_time)
@@ -314,7 +314,7 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
         let out = record
             .with_signal(|r| {
                 r.decrypt_prekey(
-                    &ciphertext.inner,
+                    ciphertext,
                     &local,
                     signed.as_ref(),
                     one_time.as_ref(),
@@ -323,7 +323,7 @@ pub async fn message_decrypt_prekey<R: CryptoRng + ?Sized>(
             })?
             .map_err(|e| SignalProtocolError::from_signal(e, CiphertextMessageType::PreKey))?;
         let identity_change =
-            save_identity(identity_store, remote_address, ciphertext.identity_key()).await?;
+            save_identity(identity_store, remote_address, &ciphertext.identity_key).await?;
         Ok::<_, SignalProtocolError>(DecryptionResult {
             plaintext: out.plaintext,
             consumed_prekey_id: out.used_prekey.map(PreKeyId::from),

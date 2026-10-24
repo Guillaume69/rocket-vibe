@@ -371,8 +371,8 @@ impl ChaosHarness {
             ensure!(
                 self.published_group.insert(fingerprint),
                 "group key/IV was published twice at chain {} iteration {}",
-                message.chain_id(),
-                message.iteration()
+                message.chain_id,
+                message.iteration
             );
             self.pending_group.push_back(message);
             if self.pending_group.len() > 64 {

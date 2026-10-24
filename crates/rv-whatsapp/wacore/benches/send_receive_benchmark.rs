@@ -27,11 +27,11 @@ use wacore_binary::marshal::marshal;
 use wacore_binary::node::{Node, NodeContent};
 use wacore_signal::protocol::{
     CiphertextMessage, Direction, GenericSignedPreKey, IdentityChange, IdentityKeyStore, KeyPair,
-    PreKeyBundle, PreKeyId, PreKeyRecord, PreKeySignalMessage, PreKeyStore, ProtocolAddress,
-    PublicKey, SenderKeyRecord, SenderKeyStore, SessionRecord, SessionStore, SignalMessage,
-    SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore, Timestamp, UsePQRatchet,
-    create_sender_key_distribution_message, group_decrypt, message_decrypt, message_encrypt,
-    process_prekey_bundle, process_sender_key_distribution_message,
+    PreKeyBundle, PreKeyId, PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
+    SenderKeyStore, SessionRecord, SessionStore, SignedPreKeyId, SignedPreKeyRecord,
+    SignedPreKeyStore, Timestamp, UsePQRatchet, create_sender_key_distribution_message,
+    group_decrypt, message_decrypt, message_encrypt, process_prekey_bundle,
+    process_sender_key_distribution_message,
 };
 use wacore_signal::store::sender_key_name::SenderKeyName;
 use waproto::whatsapp as wa;
@@ -393,7 +393,7 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
             .await
             .unwrap();
         let ct_msg = CiphertextMessage::PreKeySignalMessage(
-            PreKeySignalMessage::try_from(ct.serialize()).unwrap(),
+            wacore::libsignal::protocol::prekey_signal_message(ct.serialize()).unwrap(),
         );
         let mut rng = bench_rng(0xBE_5EED + 2);
         message_decrypt(
@@ -414,8 +414,9 @@ fn establish_bidirectional(a: &mut User, b: &mut User) {
         let ct_back = message_encrypt(b"ack", &a.address, &mut b.sessions, &mut b.identity)
             .await
             .unwrap();
-        let ct_back_msg =
-            CiphertextMessage::SignalMessage(SignalMessage::try_from(ct_back.serialize()).unwrap());
+        let ct_back_msg = CiphertextMessage::SignalMessage(
+            wacore::libsignal::protocol::signal_message(ct_back.serialize()).unwrap(),
+        );
         message_decrypt(
             &ct_back_msg,
             &b.address,
@@ -534,10 +535,12 @@ fn decrypt_dm(
     futures::executor::block_on(async {
         let parsed = if enc_type == "pkmsg" {
             CiphertextMessage::PreKeySignalMessage(
-                PreKeySignalMessage::try_from(ciphertext).unwrap(),
+                wacore::libsignal::protocol::prekey_signal_message(ciphertext).unwrap(),
             )
         } else {
-            CiphertextMessage::SignalMessage(SignalMessage::try_from(ciphertext).unwrap())
+            CiphertextMessage::SignalMessage(
+                wacore::libsignal::protocol::signal_message(ciphertext).unwrap(),
+            )
         };
         let mut rng = bench_rng(0xBE_5EED + 3);
         let decrypted = message_decrypt(

@@ -27,9 +27,10 @@ pub use group::{
 };
 pub use keys::{KeyPair, PrivateKey, PublicKey};
 pub use messages::{
-    CIPHERTEXT_MESSAGE_CURRENT_VERSION, CiphertextMessage, CiphertextMessageType,
-    OwnedCiphertextMessage, PreKeySignalMessage, SENDERKEY_MESSAGE_CURRENT_VERSION,
-    SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
+    CiphertextMessage, CiphertextMessageType, OwnedCiphertextMessage, PreKeySignalMessage,
+    SENDERKEY_MESSAGE_CURRENT_VERSION, SenderKeyDistributionMessage, SenderKeyMessage,
+    SignalMessage, prekey_signal_message, sender_key_distribution_message, sender_key_message,
+    signal_message,
 };
 pub use prekeys::{
     GenericSignedPreKey, PreKeyId, PreKeyRecord, SignedPreKeyId, SignedPreKeyRecord, Timestamp,

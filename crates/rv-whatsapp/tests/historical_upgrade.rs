@@ -7,7 +7,7 @@
 use std::{path::Path, sync::Arc};
 use wacore::appstate::hash::HashState;
 use wacore::libsignal::protocol::{
-    CiphertextMessage, PreKeyBundle, ProtocolAddress, SignalMessage, UsePQRatchet,
+    CiphertextMessage, PreKeyBundle, ProtocolAddress, UsePQRatchet,
     create_sender_key_distribution_message, group_decrypt, group_encrypt, message_decrypt,
     message_encrypt, process_prekey_bundle, process_sender_key_distribution_message,
 };
@@ -362,7 +362,7 @@ async fn consume(dir: &Path) {
             );
         }
         let delayed = CiphertextMessage::SignalMessage(
-            SignalMessage::try_from(
+            wacore::libsignal::protocol::signal_message(
                 std::fs::read(dir.join("dm-skipped.bin"))
                     .unwrap()
                     .as_slice(),
@@ -409,8 +409,7 @@ async fn consume(dir: &Path) {
         .await
         .unwrap();
         assert!(
-            fresh.iteration()
-                >= wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
+            fresh.iteration >= wacore::libsignal::protocol::consts::SENDER_CHAIN_RESERVATION_BATCH,
             "the historical sender lease must survive upgrade and restart"
         );
         assert_eq!(

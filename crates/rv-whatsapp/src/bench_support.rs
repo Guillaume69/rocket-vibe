@@ -509,7 +509,8 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     let mut peer_adapter = peer_client.signal_adapter();
     message_decrypt(
         &CiphertextMessage::PreKeySignalMessage(
-            PreKeySignalMessage::try_from(initial.serialize()).expect("pkmsg parses"),
+            wacore::libsignal::protocol::prekey_signal_message(initial.serialize())
+                .expect("pkmsg parses"),
         ),
         &own_address,
         &mut peer_adapter.session_store,
@@ -533,7 +534,7 @@ async fn establish_acknowledged_session(client: &Arc<Client>, peer: &Jid) -> Arc
     .expect("companion reply encrypt");
     message_decrypt(
         &CiphertextMessage::SignalMessage(
-            SignalMessage::try_from(reply.serialize()).expect("msg parses"),
+            wacore::libsignal::protocol::signal_message(reply.serialize()).expect("msg parses"),
         ),
         &peer_address,
         &mut adapter.session_store,

@@ -198,6 +198,9 @@ jobs:
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: bash apps/server/scripts/check.sh
       # The mobile typecheck and tests are mobile.yml's, on every branch.
       - name: Export Android JavaScript bundle

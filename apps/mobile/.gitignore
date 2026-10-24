@@ -15,7 +15,7 @@ GoogleService-Info.plist
 modules/*/android/build/
 
 # Node
-node_modules/
+node_modules
 npm-debug.log*
 yarn-error.log*
 .pnpm-debug.log*

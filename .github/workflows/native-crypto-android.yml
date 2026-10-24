@@ -76,10 +76,10 @@ jobs:
         id: gradle
         with:
           path: |
-            ~/.gradle/caches
+            ~/.gradle/caches/modules-2
             ~/.gradle/wrapper
-          key: crypto-android-gradle-${{ hashFiles('apps/mobile/package-lock.json') }}
-          restore-keys: crypto-android-gradle-
+          key: crypto-android-gradle-v2-${{ hashFiles('apps/mobile/package-lock.json') }}
+          restore-keys: crypto-android-gradle-v2-
       - name: Android build dependencies
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
@@ -101,7 +101,7 @@ jobs:
         if: github.ref == 'refs/heads/master' && steps.gradle.outputs.cache-hit != 'true'
         with:
           path: |
-            ~/.gradle/caches
+            ~/.gradle/caches/modules-2
             ~/.gradle/wrapper
           key: ${{ steps.gradle.outputs.cache-primary-key }}
       - name: Enable KVM

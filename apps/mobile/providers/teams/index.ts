@@ -8,6 +8,7 @@
 
 import type { DdpEvent } from '../../lib/ddp.ts';
 import { setDownloadResolver } from '../../lib/downloadResolver.ts';
+import { setMediaLease } from '../../lib/mediaAuth.ts';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '../../lib/typing.ts';
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session } from '../../lib/auth.ts';
@@ -76,8 +77,20 @@ export type TeamsProviderOptions = { fetch?: typeof fetch; listener?: Listener }
 const refuse = (what: string) => () => Promise.reject(new TeamsError(`${what}_not_supported`));
 
 export function createTeamsProvider(session: Session, rest: RestClient, generateId: () => string, options: TeamsProviderOptions = {}): Provider {
-  const tokens = new TeamsTokens(session, { fetch: options.fetch });
-  const client = new TeamsClient(tokens, { fetch: options.fetch, onRejected: () => rest.onTokenRejected?.(session.authToken) });
+  // Images on Teams' object store answer to the skype token in asyncgw's own
+  // form; the lease follows every renewal of that token.
+  const tokens = new TeamsTokens(session, {
+    fetch: options.fetch,
+    onSkype: (skype, routes) => {
+      if (routes.ams) setMediaLease(routes.ams, session.authToken, session.userId, { Authorization: `skype_token ${skype}` });
+    },
+  });
+  const client = new TeamsClient(tokens, {
+    fetch: options.fetch,
+    onRejected: () => rest.onTokenRejected?.(session.authToken),
+    me: session.userId,
+    isChat: (rid) => rooms.entries.has(rid) && !rooms.entries.get(rid)?.team,
+  });
   const directory = new TeamsDirectory();
   directory.remember(session.userId, session.username);
   // Teams file downloads resolve a SharePoint share to its pre-signed Graph

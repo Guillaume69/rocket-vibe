@@ -30,7 +30,7 @@ const SESSION: Session = {
 } as Session;
 
 /** A fetch answering from `route`, recording each call. */
-function fake(route: (call: Call) => { status?: number; body?: unknown } | 'throw') {
+function fake(route: (call: Call) => { status?: number; body?: unknown } | 'throw', clientOptions: { me?: string; isChat?: (rid: string) => boolean } = {}) {
   const calls: Call[] = [];
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const call: Call = {
@@ -43,7 +43,7 @@ function fake(route: (call: Call) => { status?: number; body?: unknown } | 'thro
     if (answer === 'throw') throw new TypeError('network down');
     return new Response(answer.body === undefined ? '' : JSON.stringify(answer.body), { status: answer.status ?? 200 });
   }) as typeof fetch;
-  const client = new TeamsClient(TeamsTokens.preset(SESSION, ROUTES, 'skype-fixture', 'bearer-fixture', { fetch: fetcher }), { fetch: fetcher });
+  const client = new TeamsClient(TeamsTokens.preset(SESSION, ROUTES, 'skype-fixture', 'bearer-fixture', { fetch: fetcher }), { fetch: fetcher, ...clientOptions });
   return { calls, client };
 }
 
@@ -318,4 +318,22 @@ test('downloadUrl resolves a SharePoint share to the pre-signed Graph download u
   const { client: c2 } = fake((call) =>
     call.url.includes('/oauth2/v2.0/token') ? { body: { access_token: 'g', expires_in: 3600 } } : { body: {} });
   assert.equal(await c2.downloadUrl(shareUrl), shareUrl);
+});
+
+test('a chat file goes to my OneDrive chat files folder and is shared with the chat, no mail', async () => {
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/oauth2/v2.0/token')) return { body: { access_token: 'graph-fixture', expires_in: 3600 } };
+    if (call.url.includes('/me/drive/root:/Microsoft%20Teams%20Chat%20Files?')) return { body: { id: 'F', parentReference: { driveId: 'D' } } };
+    if (call.url.includes('/drives/D/items/F:/note.txt?')) {
+      return { body: { id: 'I', name: 'note.txt', webUrl: 'https://c-my.sharepoint.com/personal/me/Documents/Microsoft Teams Chat Files/note.txt', sharepointIds: { siteUrl: 'https://c-my.sharepoint.com/personal/me', listItemUniqueId: 'U' } } };
+    }
+    if (call.url.includes(`/threads/${encodeURIComponent(RID).replace(/%3A/gi, ':').replace(/%40/g, '@')}`)) return { body: { members: [{ id: ME }, { id: '8:orgid:bob' }, { id: '28:bot' }] } };
+    if (call.url.endsWith('/drives/D/items/I/invite')) return { body: { value: [{ id: 'p' }] } };
+    return { status: 404, body: {} };
+  }, { me: ME, isChat: () => true });
+  assert.ok((await client.contentUrl(RID, 'note.txt')).endsWith('/drives/D/items/F:/note.txt:/content'));
+  const ref = await client.fileRef(RID, 'note.txt');
+  assert.deepEqual([ref.itemId, ref.site, ref.unique], ['I', 'https://c-my.sharepoint.com/personal/me', 'U']);
+  const invite = calls.find((c) => c.url.endsWith('/invite'));
+  assert.deepEqual(invite?.body, { requireSignIn: true, sendInvitation: false, roles: ['read'], recipients: [{ objectId: 'bob' }] });
 });

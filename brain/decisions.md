@@ -476,3 +476,8 @@ The engine was written against its Signal crate's interface (about 2,000 call si
 ## Canaries watch the private protocols (2026-10-23)
 
 User decision, 2026-10-23: since WhatsApp, Slack and Teams are reached through private surfaces that can move without notice, a daily GitHub Actions workflow checks that the shapes the apps rely on have not moved, and opens a GitHub issue when one has. There is no dedicated Teams account (personal Teams is a different service, not a stand-in for a work tenant) and no spare WhatsApp number, so those canaries read only public material: whatspec's extraction of the current WhatsApp Web bundle, diffed against what the apps use, and the Teams and Slack web clients' bundles. Slack gains an authenticated canary once a test workspace exists. All canaries run on GitHub's runners.
+
+## Teams files the apps send carry no preview image (2026-10-24)
+
+Teams' object store (asyncgw), where its web app puts the preview image it attaches to a file, creates an object only for a `User-Agent` it recognises as one of Microsoft's own clients: an honest `RocketVibe/<version> (<os>)` is refused (400, probed live 2026-10-24) and only the web app's own agent string passes. The apps do not present themselves as Microsoft's client to get past it: it misrepresents them to the service and puts the account at risk. Files they send show as file cards without a thumbnail in Teams; images others send do show, since reading the store only needs the skype token. See [Teams](architecture/teams.md).
+

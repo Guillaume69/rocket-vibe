@@ -307,19 +307,64 @@ export function isGraphShare(url: string): boolean {
   }
 }
 
-/** File attachments from the chat service `properties.files` (a JSON string):
- *  each `{title, fileInfo.fileUrl}`. Only SharePoint/OneDrive files are kept
- *  (downloaded through Graph `/shares`), as the renderer's RC shape. */
+/** An image on Teams' object store (`https://<region>.asyncgw.teams.microsoft.com/v1/objects/<id>/views/<view>`),
+ *  read with the skype token (verified live 2026-10-24). Mirrors `is_teams_image` in the desktop core. */
+export function isTeamsImage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.username === '' && u.password === ''
+      && u.hostname.toLowerCase().endsWith('.asyncgw.teams.microsoft.com')
+      && u.pathname.startsWith('/v1/objects/') && u.pathname.includes('/views/');
+  } catch {
+    return false;
+  }
+}
+
+function imageAttachment(url: string, title: string | null, width: number | null, height: number | null): Doc {
+  const a: Doc = { image_url: url };
+  if (title) a.title = title;
+  if (width && height && width > 0 && height > 0) a.image_dimensions = { width, height };
+  return a;
+}
+
+/** The images pasted into a message: its `<img>` tags on Teams' object store, emoji left to the text. */
+function inlineImages(content: string): Doc[] {
+  const out: Doc[] = [];
+  for (const [tag] of content.matchAll(/<img\b[^>]*>/gi)) {
+    if (/itemtype\s*=\s*["'][^"']*\/Emoji["']/i.test(tag)) continue;
+    const attr = (name: string): string | null => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, 'i'))?.[1] ?? null;
+    const src = attr('src');
+    if (!src) continue;
+    const url = decodeEntities(src);
+    if (!isTeamsImage(url)) continue;
+    const size = (name: string): number | null => {
+      const v = Number.parseInt(attr(name) ?? '', 10);
+      return Number.isFinite(v) ? v : null;
+    };
+    out.push(imageAttachment(url, null, size('width'), size('height')));
+  }
+  return out;
+}
+
+/** A message's attachments in the renderer's RC shape: images pasted into it,
+ *  then its `properties.files` (a JSON string), each with its preview image
+ *  when Teams keeps one on its object store. Only SharePoint/OneDrive files
+ *  become file cards (downloaded through Graph `/shares`). Mirrors
+ *  `file_attachments` in the desktop core. */
 export function fileAttachments(raw: unknown): string | null {
+  const out: Doc[] = inlineImages(str(raw, 'content') ?? '');
   const props = (raw as Doc).properties as Doc | undefined;
   const files = props?.files;
   let parsed: unknown = files;
   if (typeof files === 'string') {
-    try { parsed = JSON.parse(files); } catch { return null; }
+    try { parsed = JSON.parse(files); } catch { parsed = null; }
   }
-  if (!Array.isArray(parsed)) return null;
-  const out: Doc[] = [];
-  for (const f of parsed as Doc[]) {
+  for (const f of Array.isArray(parsed) ? (parsed as Doc[]) : []) {
+    const preview = f?.filePreview as Doc | undefined;
+    const previewUrl = str(preview, 'previewUrl');
+    if (previewUrl && isTeamsImage(previewUrl)) {
+      out.push(imageAttachment(previewUrl, str(f, 'title') ?? str(f, 'fileName'), int(preview, 'previewWidth'), int(preview, 'previewHeight')));
+    }
     const info = f?.fileInfo as Doc | undefined;
     const url = str(info, 'fileUrl') ?? str(f, 'fileUrl');
     if (!url || !isGraphShare(url)) continue;

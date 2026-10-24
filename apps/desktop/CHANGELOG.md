@@ -7,6 +7,11 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Microsoft Teams (experimental): images show in the conversation, both those pasted into a message and the preview of an image file.
+- Microsoft Teams (experimental): send a file in a chat, not only a channel. Like the Teams app, it is stored in your OneDrive's Microsoft Teams Chat Files folder and shared with the chat's members, without an email.
+
 ## [0.25.0] - 2026-10-24
 
 ### Fixed

@@ -1452,6 +1452,387 @@ impl Tokens {
         })
     }
 
+    /// The sharing step a chat's file needs, self-cleaning: a small file into
+    /// my OneDrive's `Microsoft Teams Chat Files`, read granted to the
+    /// conversation's other members by AAD object id (no invitation mail),
+    /// posted there as a file card, read back, then the message and the file go.
+    pub async fn probe_share(&self, conversation: &str) -> Value {
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => return json!({ "error": format!("graph token: {e:?}") }),
+        };
+        let http = http();
+        let mut out = serde_json::Map::new();
+        let skype_header = format!("skypetoken={}", skype.as_str());
+        let me = self.info.lock().unwrap().user_id.clone();
+        let team = std::env::var("TEAMS_PIN_TEAM")
+            .unwrap_or_else(|_| "19:30c22b53ecfc46eeb99d89d5c4429edd@thread.tacv2".to_owned());
+        let mut others: Vec<String> = Vec::new();
+        for (label, thread) in [("conversation", conversation), ("team", team.as_str())] {
+            let roster_url = format!("{}/v1/threads/{thread}?view=msnp24Equivalent&threadProperties=1", routes.chat);
+            let (status, roster) = match http.get(&roster_url).header("authentication", &skype_header).send().await {
+                Ok(r) => (r.status().as_u16(), r.json::<Value>().await.unwrap_or(Value::Null)),
+                Err(_) => (0, Value::Null),
+            };
+            let members: Vec<&str> = roster
+                .get("members")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.get("id").and_then(Value::as_str))
+                .collect();
+            let found: Vec<String> = members
+                .iter()
+                .filter_map(|mri| mri.strip_prefix("8:orgid:"))
+                .filter(|oid| !me.ends_with(oid))
+                .map(|s| (*s).to_owned())
+                .collect();
+            out.insert(
+                format!("roster_{label}"),
+                json!({"status": status, "members": members.len(), "other_orgid": found.len()}),
+            );
+            if others.is_empty() {
+                others = found;
+            }
+        }
+        let group =
+            std::env::var("TEAMS_PIN_GROUP").unwrap_or_else(|_| "c08557f5-e913-4f5b-ab1b-3e9a2f7102bd".to_owned());
+        for (label, url) in [
+            (
+                "graph_channel_members",
+                format!("https://graph.microsoft.com/v1.0/teams/{group}/channels/{conversation}/members"),
+            ),
+            ("graph_team_members", format!("https://graph.microsoft.com/v1.0/teams/{group}/members")),
+        ] {
+            let (status, members) = graph_get(&http, graph.as_str(), &url).await;
+            let from_graph: Vec<String> = members
+                .get("value")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.get("userId").and_then(Value::as_str))
+                .filter(|oid| !me.ends_with(oid))
+                .map(str::to_owned)
+                .collect();
+            out.insert(
+                label.into(),
+                json!({"status": status, "members": members.get("value").and_then(Value::as_array).map(Vec::len), "others": from_graph.len(), "error": members.pointer("/error/code")}),
+            );
+            if others.is_empty() {
+                others = from_graph;
+            }
+        }
+        out.insert("other_members".into(), json!(others.len()));
+        if others.is_empty() {
+            return Value::Object(out);
+        }
+        let name = "rv-share-probe.txt";
+        let put = format!("https://graph.microsoft.com/v1.0/me/drive/root:/Microsoft Teams Chat Files/{name}:/content");
+        let item: Value = match http
+            .put(&put)
+            .bearer_auth(graph.as_str())
+            .header("content-type", "text/plain")
+            .body("rv share probe")
+            .send()
+            .await
+        {
+            Ok(r) => {
+                out.insert("onedrive_upload".into(), json!(r.status().as_u16()));
+                r.json().await.unwrap_or(Value::Null)
+            }
+            Err(e) => return json!({ "onedrive_upload": e.to_string() }),
+        };
+        let Some(item_id) = item.get("id").and_then(Value::as_str).map(str::to_owned) else {
+            return Value::Object(out);
+        };
+        let invite = json!({
+            "requireSignIn": true,
+            "sendInvitation": false,
+            "roles": ["read"],
+            "recipients": others.iter().map(|oid| json!({"objectId": oid})).collect::<Vec<_>>(),
+        });
+        match http
+            .post(format!("https://graph.microsoft.com/v1.0/me/drive/items/{item_id}/invite"))
+            .bearer_auth(graph.as_str())
+            .json(&invite)
+            .send()
+            .await
+        {
+            Ok(r) => {
+                let status = r.status().as_u16();
+                let body: Value = r.json().await.unwrap_or(Value::Null);
+                let granted = body.get("value").and_then(Value::as_array).map(Vec::len);
+                let error = body.pointer("/error/code").cloned();
+                out.insert("invite".into(), json!({"status": status, "permissions": granted, "error": error}));
+            }
+            Err(e) => _ = out.insert("invite".into(), json!(e.to_string())),
+        }
+        let (_, full) = graph_get(
+            &http,
+            graph.as_str(),
+            &format!("https://graph.microsoft.com/v1.0/me/drive/items/{item_id}?$select=id,webUrl,sharepointIds"),
+        )
+        .await;
+        let web_url = full.get("webUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let site = full.pointer("/sharepointIds/siteUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let unique =
+            full.pointer("/sharepointIds/listItemUniqueId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let files = serde_json::to_string(&json!([{
+            "@type": "http://schema.skype.com/File", "version": 2, "id": unique, "itemid": unique,
+            "fileName": name, "fileType": "txt", "title": name, "type": "txt", "state": "active",
+            "fileInfo": {"fileUrl": web_url, "siteUrl": site, "serverRelativeUrl": "", "itemId": Value::Null, "shareUrl": Value::Null, "shareId": Value::Null},
+            "fileChicletState": {"serviceName": "teams", "state": "active"},
+            "baseUrl": site, "objectUrl": web_url,
+        }]))
+        .unwrap_or_default();
+        let body = json!({
+            "content": "", "messagetype": "RichText/Html", "contenttype": "Text",
+            "clientmessageid": chrono::Utc::now().timestamp_millis().to_string(),
+            "imdisplayname": "rv probe", "properties": {"files": files},
+        });
+        let mut msg_id = None;
+        if let Some(send) = conversation_sub_url(&routes.chat, conversation, &["messages"], "")
+            && let Ok(r) = http.post(send).header("authentication", &skype_header).json(&body).send().await
+        {
+            out.insert("send_status".into(), json!(r.status().as_u16()));
+            let b: Value = r.json().await.unwrap_or(Value::Null);
+            msg_id = b.get("OriginalArrivalTime").and_then(Value::as_i64).map(|n| n.to_string());
+        }
+        let (perm_status, perms) = graph_get(
+            &http,
+            graph.as_str(),
+            &format!("https://graph.microsoft.com/v1.0/me/drive/items/{item_id}/permissions"),
+        )
+        .await;
+        let readers = perms.get("value").and_then(Value::as_array).map(|v| {
+            v.iter()
+                .filter(|p| p.get("roles").and_then(Value::as_array).is_some_and(|r| r.iter().any(|x| x == "read")))
+                .count()
+        });
+        out.insert("permissions_back".into(), json!({"status": perm_status, "read_grants": readers}));
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        if let Some(id) = &msg_id
+            && let Some(del) = conversation_sub_url(&routes.chat, conversation, &["messages", id], "")
+        {
+            let r = http.delete(del).header("authentication", &skype_header).send().await;
+            out.insert("message_delete".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+        }
+        let r = http
+            .delete(format!("https://graph.microsoft.com/v1.0/me/drive/items/{item_id}"))
+            .bearer_auth(graph.as_str())
+            .send()
+            .await;
+        out.insert("onedrive_delete".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+        Value::Object(out)
+    }
+
+    /// Image and chat-file probe, self-cleaning, aimed at a conversation where
+    /// a post notifies nobody (`48:notes` by default). (A) the asyncgw image
+    /// object the web app attaches as a file's preview: which token it takes,
+    /// create (`pish/image`, read for the conversation), upload a 1x1 PNG,
+    /// read `views/imgo` back with and without auth. (B) a chat's file: the
+    /// bytes into my OneDrive's `Microsoft Teams Chat Files`, then a message
+    /// carrying it in `properties.files` with the object as `filePreview` and
+    /// in `amsreferences`, read back. Then the message, file and object go.
+    pub async fn probe_images(&self, conversation: &str) -> Value {
+        const PNG: &str =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PzWvWQAAAABJRU5ErkJggg==";
+        use base64::Engine;
+        let png = base64::engine::general_purpose::STANDARD.decode(PNG).unwrap_or_default();
+        let (skype, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        let http = http();
+        let mut out = serde_json::Map::new();
+        let ams = routes.ams.trim_end_matches('/').to_owned();
+        out.insert("ams_host".into(), json!(url::Url::parse(&ams).ok().and_then(|u| u.host_str().map(str::to_owned))));
+        let mut candidates: Vec<(String, String)> = Vec::new();
+        for aud in
+            ["https://ic3.teams.office.com", "https://api.spaces.skype.com", "https://chatsvcagg.teams.microsoft.com"]
+        {
+            match self.access(aud).await {
+                Ok(lease) => candidates.push((format!("bearer {aud}"), format!("Bearer {}", lease.value.as_str()))),
+                Err(e) => _ = out.insert(format!("mint:{aud}"), json!(format!("{} {}", e.status, e.message))),
+            }
+        }
+        candidates.push(("skype_token".into(), format!("skype_token {}", skype.as_str())));
+        let channel = std::env::var("TEAMS_PIN_CHANNEL")
+            .unwrap_or_else(|_| "19:VWiAIWKIbdNqlBPzHGegbdN09-VGacp1PMQCEeL96ZE1@thread.tacv2".to_owned());
+        let mut tries = serde_json::Map::new();
+        let mut chosen = None;
+        let own_agent = format!("RocketVibe/{} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::OS);
+        out.insert("user_agent".into(), json!(own_agent));
+        'found: for (target, client_headers) in [(conversation, true), (channel.as_str(), true)] {
+            let create = json!({
+                "type": "pish/image",
+                "permissions": { target: ["read"] },
+                "sharingMode": "Attached",
+                "filename": "rv-probe.png",
+            });
+            for (label, value) in candidates.iter().filter(|(l, _)| l.contains("ic3") || l == "skype_token") {
+                let mut req = http
+                    .post(format!("{ams}/v1/objects/"))
+                    .header("authorization", value)
+                    .header("x-ams-post-sharing-mode", "Attached")
+                    .json(&create);
+                if client_headers {
+                    req = req.header("user-agent", &own_agent);
+                }
+                let key = format!(
+                    "{label} -> {} headers={client_headers}",
+                    if target == conversation { "conversation" } else { "channel" }
+                );
+                let Ok(r) = req.send().await else {
+                    tries.insert(key, json!(0));
+                    continue;
+                };
+                let status = r.status().as_u16();
+                let text = r.text().await.unwrap_or_default();
+                if (200..300).contains(&status)
+                    && let Some(id) = serde_json::from_str::<Value>(&text)
+                        .ok()
+                        .and_then(|b| b.get("id").and_then(Value::as_str).map(str::to_owned))
+                {
+                    tries.insert(key, json!(status));
+                    chosen = Some((label.clone(), value.clone(), id));
+                    break 'found;
+                }
+                tries.insert(key, json!({"status": status, "body": text.chars().take(300).collect::<String>()}));
+            }
+        }
+        out.insert("create".into(), Value::Object(tries));
+        let Some((label, auth, object)) = chosen else { return Value::Object(out) };
+        out.insert("accepted_token".into(), json!(label));
+        let put = http
+            .put(format!("{ams}/v1/objects/{object}/content/imgpsh"))
+            .header("authorization", &auth)
+            .header("content-type", "application/octet-stream")
+            .body(png.clone())
+            .send()
+            .await;
+        out.insert("content_put".into(), json!(put.map(|r| r.status().as_u16()).unwrap_or(0)));
+        let preview = format!("{ams}/v1/objects/{object}/views/imgo");
+        for (key, with) in [("view_with_auth", true), ("view_without_auth", false)] {
+            let mut req = http.get(&preview);
+            if with {
+                req = req.header("authorization", &auth);
+            }
+            let seen = match req.send().await {
+                Ok(r) => {
+                    let s = r.status().as_u16();
+                    let kind = r.headers().get("content-type").and_then(|v| v.to_str().ok()).map(str::to_owned);
+                    let len = r.bytes().await.map(|b| b.len()).unwrap_or(0);
+                    json!({"status": s, "content_type": kind, "bytes": len})
+                }
+                Err(e) => json!({"error": e.to_string()}),
+            };
+            out.insert(key.into(), seen);
+        }
+        let skype_view =
+            http.get(&preview).header("authorization", format!("skype_token {}", skype.as_str())).send().await;
+        out.insert("view_with_skype_token".into(), json!(skype_view.map(|r| r.status().as_u16()).unwrap_or(0)));
+
+        // (B) A chat's file in my OneDrive.
+        let graph = match self.graph().await {
+            Ok(b) => b,
+            Err(e) => {
+                out.insert("graph".into(), json!(format!("{e:?}")));
+                return Value::Object(out);
+            }
+        };
+        let name = "rv-chat-probe.png";
+        let put = format!("https://graph.microsoft.com/v1.0/me/drive/root:/Microsoft Teams Chat Files/{name}:/content");
+        let item =
+            match http.put(&put).bearer_auth(graph.as_str()).header("content-type", "image/png").body(png).send().await
+            {
+                Ok(r) => {
+                    out.insert("onedrive_upload".into(), json!(r.status().as_u16()));
+                    r.json::<Value>().await.unwrap_or(Value::Null)
+                }
+                Err(e) => {
+                    out.insert("onedrive_upload".into(), json!(e.to_string()));
+                    Value::Null
+                }
+            };
+        let item_id = item.get("id").and_then(Value::as_str).map(str::to_owned);
+        let mut msg_id = None;
+        if let Some(item_id) = &item_id {
+            let url = format!(
+                "https://graph.microsoft.com/v1.0/me/drive/items/{item_id}?$select=id,webUrl,sharepointIds,parentReference"
+            );
+            let (_, full) = graph_get(&http, graph.as_str(), &url).await;
+            let web_url = full.get("webUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let site = full.pointer("/sharepointIds/siteUrl").and_then(Value::as_str).unwrap_or_default().to_owned();
+            let unique =
+                full.pointer("/sharepointIds/listItemUniqueId").and_then(Value::as_str).unwrap_or_default().to_owned();
+            out.insert("onedrive_item".into(), json!({"personal_site": site.contains("-my.sharepoint.com/personal/"), "web_url_present": !web_url.is_empty(), "unique_present": !unique.is_empty()}));
+            let files = serde_json::to_string(&json!([{
+                "@type": "http://schema.skype.com/File", "version": 2, "id": unique, "itemid": unique,
+                "fileName": name, "fileType": "png", "title": name, "type": "png", "state": "active",
+                "fileInfo": {"fileUrl": web_url, "siteUrl": site, "serverRelativeUrl": "", "itemId": Value::Null, "shareUrl": Value::Null, "shareId": Value::Null},
+                "fileChicletState": {"serviceName": "teams", "state": "active"},
+                "baseUrl": site, "objectUrl": web_url,
+                "filePreview": {"previewUrl": preview, "previewHeight": 1, "previewWidth": 1},
+            }]))
+            .unwrap_or_default();
+            let body = json!({
+                "content": "", "messagetype": "RichText/Html", "contenttype": "Text",
+                "clientmessageid": chrono::Utc::now().timestamp_millis().to_string(),
+                "imdisplayname": "rv probe", "amsreferences": [object],
+                "properties": {"files": files},
+            });
+            let skype_header = format!("skypetoken={}", skype.as_str());
+            if let Some(send) = conversation_sub_url(&routes.chat, conversation, &["messages"], "") {
+                match http.post(send).header("authentication", &skype_header).json(&body).send().await {
+                    Ok(r) => {
+                        out.insert("send_status".into(), json!(r.status().as_u16()));
+                        let b: Value = r.json().await.unwrap_or(Value::Null);
+                        msg_id = b.get("OriginalArrivalTime").and_then(Value::as_i64).map(|n| n.to_string());
+                    }
+                    Err(e) => _ = out.insert("send_status".into(), json!(e.to_string())),
+                }
+            }
+            if let Some(id) = &msg_id {
+                if let Some(url) = conversation_sub_url(
+                    &routes.chat,
+                    conversation,
+                    &["messages", id],
+                    "view=msnp24Equivalent|supportsMessageProperties",
+                ) && let Ok(r) = http.get(url).header("authentication", &skype_header).send().await
+                {
+                    let b: Value = r.json().await.unwrap_or(Value::Null);
+                    let files = b
+                        .pointer("/properties/files")
+                        .and_then(Value::as_str)
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+                    out.insert("message_back".into(), json!({
+                        "amsreferences": b.get("amsreferences"),
+                        "preview_kept": files.as_ref().and_then(|f| f.pointer("/0/filePreview/previewUrl")).is_some(),
+                        "file_url_kept": files.as_ref().and_then(|f| f.pointer("/0/fileInfo/fileUrl")).is_some(),
+                    }));
+                }
+                if let Some(del) = conversation_sub_url(&routes.chat, conversation, &["messages", id], "") {
+                    let r = http.delete(del).header("authentication", &skype_header).send().await;
+                    out.insert("message_delete".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+                }
+            }
+            let r = http
+                .delete(format!("https://graph.microsoft.com/v1.0/me/drive/items/{item_id}"))
+                .bearer_auth(graph.as_str())
+                .send()
+                .await;
+            out.insert("onedrive_delete".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+        }
+        let r = http.delete(format!("{ams}/v1/objects/{object}")).header("authorization", &auth).send().await;
+        out.insert("object_delete".into(), json!(r.map(|x| x.status().as_u16()).unwrap_or(0)));
+        Value::Object(out)
+    }
+
     /// File-upload round-trip probe (the user authorized live writes;
     /// self-cleaning). Uses the Graph token to find the channel's files folder,
     /// uploads a tiny probe file there, posts a chat-service message carrying it

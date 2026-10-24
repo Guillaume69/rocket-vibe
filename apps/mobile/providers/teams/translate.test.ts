@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
-  TeamsDirectory, channelLink, chatLink, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
+  TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription,
 } from './translate.ts';
 
@@ -235,4 +235,25 @@ test('fileAttachments keeps SharePoint files in the RC shape, drops AMS media', 
   assert.equal(files[0].type, 'file');
   assert.equal(files[0].size, 1234);
   assert.equal(fileAttachments({ properties: {} }), null);
+});
+
+test('images on the object store show inline, a file with its preview image', () => {
+  const preview = 'https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/0-frc-d2-ab/views/imgo';
+  const raw = {
+    content: '<p><img itemtype="http://schema.skype.com/AMSImage" width="300" height="200" src="https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/0-frc-d1-cd/views/imgo"></p>'
+      + '<img itemtype="http://schema.skype.com/Emoji" alt="x" src="https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/e/views/imgo">'
+      + '<img src="https://tracker.example/p.gif">',
+    properties: { files: JSON.stringify([{ title: 'photo.png', fileInfo: { fileUrl: 'https://contoso.sharepoint.com/sites/x/Shared Documents/photo.png' }, filePreview: { previewUrl: preview, previewWidth: 512, previewHeight: 256 } }]) },
+  };
+  const found = JSON.parse(fileAttachments(raw)!) as Record<string, unknown>[];
+  assert.equal(found.length, 3);
+  assert.deepEqual(found[0].image_dimensions, { width: 300, height: 200 });
+  assert.deepEqual(found[1], { image_url: preview, title: 'photo.png', image_dimensions: { width: 512, height: 256 } });
+  assert.equal(found[2].type, 'file');
+  for (const no of [
+    'http://fr-prod.asyncgw.teams.microsoft.com/v1/objects/a/views/imgo',
+    'https://evil.example/v1/objects/a/views/imgo',
+    'https://asyncgw.teams.microsoft.com.evil.example/v1/objects/a/views/imgo',
+    'https://u@fr-prod.asyncgw.teams.microsoft.com/v1/objects/a/views/imgo',
+  ]) assert.equal(isTeamsImage(no), false, no);
 });

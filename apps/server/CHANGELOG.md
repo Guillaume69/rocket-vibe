@@ -11,6 +11,10 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Changed
+
+- Web client: encrypted Vibez conversations respond several times faster, most of all in rooms with some history: the encryption engine no longer decrypts and re-verifies its whole saved state several times for each step of a send.
+
 ## [0.9.0] - 2026-10-22
 
 ### Changed

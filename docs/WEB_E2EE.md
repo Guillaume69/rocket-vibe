@@ -27,8 +27,10 @@ allows same-origin workers and WASM compilation, without JavaScript eval.
 A dedicated worker owns a volatile SQLite database and the protected native
 records. Before each operation it acquires a Web Lock for
 `[origin, instance, data epoch, user, server device]`, restores the latest
-authenticated snapshot, runs the native operation, and saves any changed state
-in a strict-durability IndexedDB transaction. A compare-and-swap revision
+authenticated snapshot unless it already holds that exact envelope (the one it
+restored or wrote, by revision and IV), runs the native operation, and saves
+the state, when the bridge reports a key write or a database revision, in a
+strict-durability IndexedDB transaction. A compare-and-swap revision
 prevents replacing a newer checkpoint. Only after persistence may a result or
 outgoing packet reach the renderer. A failed operation can still checkpoint
 a withdrawal or pending original before returning its error.

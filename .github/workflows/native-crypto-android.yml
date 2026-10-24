@@ -117,7 +117,7 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -no-audio -no-boot-anim -no-snapshot-save -gpu swiftshader_indirect
-          script: cd apps/mobile/android && ./gradlew :crypto-native:connectedDebugAndroidTest --console=plain
+          script: cd apps/mobile/android && ./gradlew :crypto-native:connectedDebugAndroidTest --console=plain -PreactNativeArchitectures=x86_64
       - uses: actions/upload-artifact@v4
         if: always()
         with:

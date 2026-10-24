@@ -4,27 +4,28 @@
 //! on the first try — one allocation per call is the whole point of estimating
 //! instead of planning.
 //!
-//! The allocation half shares this binary with the equality half because the
-//! counting allocator is process-global; a min-delta over many windows is what
-//! keeps a sibling test's allocations out of the measurement.
-
-// Host-only allocation-count harness; std's 64-bit atomic is fine (never built
-// for embedded targets).
-#![allow(clippy::disallowed_types)]
+//! The counting allocator counts per thread, so a sibling test running in
+//! parallel never lands in the measurement.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::cell::Cell;
 use wacore_binary::builder::NodeBuilder;
 use wacore_binary::jid::Jid;
 use wacore_binary::marshal::{marshal_exact, marshal_shallow};
 use wacore_binary::node::Node;
 
 struct CountingAlloc;
-static ALLOCS: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    static ALLOCS: Cell<u64> = const { Cell::new(0) };
+}
+
+fn allocs() -> u64 {
+    ALLOCS.with(Cell::get)
+}
 
 unsafe impl GlobalAlloc for CountingAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCS.fetch_add(1, Ordering::Relaxed);
+        let _ = ALLOCS.try_with(|n| n.set(n.get() + 1));
         unsafe { System.alloc(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -175,20 +176,13 @@ fn shallow_encodes_every_send_shape_exactly_as_the_exact_path_did() {
 #[test]
 fn shallow_reserves_enough_to_allocate_once() {
     for (name, node) in send_shapes() {
-        // Min-delta over many windows: the counter is process-global and
-        // harness threads bleed sporadic allocations, but if the reserve
-        // really covers the encoding, at least one window lands on exactly
-        // the output buffer.
-        let mut min_delta = u64::MAX;
-        for _ in 0..64 {
-            let before = ALLOCS.load(Ordering::Relaxed);
-            let payload = marshal_shallow(&node).expect("marshal_shallow");
-            let after = ALLOCS.load(Ordering::Relaxed);
-            assert!(!payload.is_empty());
-            min_delta = min_delta.min(after - before);
-        }
+        let before = allocs();
+        let payload = marshal_shallow(&node).expect("marshal_shallow");
+        let after = allocs();
+        assert!(!payload.is_empty());
         assert_eq!(
-            min_delta, 1,
+            after - before,
+            1,
             "{name}: the shallow reserve must cover the encoding, so the output \
              buffer is the only allocation"
         );

@@ -380,7 +380,7 @@ An independent reference client has corresponding start/session/registration cod
 
 Existing seams requiring explicit changes:
 
-- apps/mobile/lib/provider.ts: ProviderKind/KINDS, diagnostics, capability granularity, cursor/read APIs.
+- packages/provider-api/src/provider.ts: ProviderKind/KINDS, diagnostics, capability granularity, cursor/read APIs.
 - lib/serverKind.ts, app/login.tsx, lib/auth.ts, lib/sessionStore.ts, ui/session.tsx: explicit Teams choice, device code, secure renewal and complete account identity. Cloud login is not a guessed Rocket.Chat server probe.
 - providers/index.ts: exhaustive Teams factory with its own credentials/transport, not an RC RestClient for auth.
 - ui/sync.tsx: choose Teams before RC REST/DDP/E2EE/push setup; construct its engines and reuse local presentation.
@@ -550,7 +550,7 @@ Use its auth/DTO/parser source as additional evidence with license review and a 
 
 ### Repository baseline
 
-- [Provider contract](../../apps/mobile/lib/provider.ts), [factory](../../apps/mobile/providers/index.ts), [Rocket.Chat](../../apps/mobile/providers/rocketchat/index.ts), [Vibez](../../apps/mobile/providers/vibez/index.ts).
+- [Provider contract](../../packages/provider-api/src/provider.ts), [factory](../../apps/mobile/providers/index.ts), [Rocket.Chat](../../apps/mobile/providers/rocketchat/index.ts), [Vibez](../../apps/mobile/providers/vibez/index.ts).
 - [Session](../../apps/mobile/lib/auth.ts), [discovery](../../apps/mobile/lib/serverKind.ts), [secure sessions](../../apps/mobile/lib/sessionStore.ts), [lifecycle](../../apps/mobile/ui/session.tsx), [sync](../../apps/mobile/ui/sync.tsx).
 - [Models](../../apps/mobile/lib/normalize.ts), [schema](../../apps/mobile/db/schema.ts), [outbox](../../apps/mobile/lib/outbox.ts), [upload queue](../../apps/mobile/lib/uploadQueue.ts).
 - [Desktop session](../../apps/desktop/crates/rv-core/src/session.rs), [native selector/backend](../../apps/desktop/crates/rv-core/src/native.rs), [store](../../apps/desktop/crates/rv-core/src/store.rs), [FFI](../../apps/desktop/crates/rv-ffi/src/lib.rs).

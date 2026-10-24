@@ -9,7 +9,7 @@ set -euo pipefail
 repo=$(git rev-parse --show-toplevel)
 cd "$repo"
 scanned=(apps/mobile/app apps/mobile/lib apps/mobile/ui apps/mobile/providers/rocketchat
-  apps/mobile/plugins apps/desktop/crates apps/desktop/macos/Sources crates/rv-provider crates/rv-slack crates/rv-teams scripts/inventory-rocketchat.mjs)
+  apps/mobile/plugins apps/desktop/crates apps/desktop/macos/Sources crates/rv-provider crates/rv-slack crates/rv-teams packages/provider-api scripts/inventory-rocketchat.mjs)
 
 # Nothing the inventory reads is in this commit.
 git diff --cached --quiet -- "${scanned[@]}" && exit 0

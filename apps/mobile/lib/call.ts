@@ -26,15 +26,9 @@
 import type { CallCheck } from './callRing.ts';
 import { RestError, isTokenRejected } from './rest.ts';
 import type { RestClient } from './rest.ts';
+import type { CallScope, NativeCalls } from '@rocket-vibe/provider-api/calls';
+export type { CallScope, NativeCalls } from '@rocket-vibe/provider-api/calls';
 
-export type CallScope={room?:string;membership?:string|null;alive?:()=>boolean};
-export type NativeCalls={
-  available:(room?:string,membership?:string|null)=>Promise<boolean>;
-  memo:()=>boolean;
-  start:(room:string,membership:string|null|undefined,alive:()=>boolean)=>Promise<string>;
-  join:(id:string,scope:CallScope,alive:()=>boolean,state?:{cam?:boolean;mic?:boolean})=>Promise<string>;
-  decline?:(id:string)=>Promise<void>;
-};
 type Binding={key:string;calls:NativeCalls|null};
 const bindings=new WeakMap<RestClient,Binding>(),identities=new WeakMap<RestClient,string>();
 let serial=0;

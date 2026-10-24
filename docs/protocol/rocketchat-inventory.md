@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-706 production files scanned; 756 occurrences.
+723 production files scanned; 756 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -524,22 +524,22 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/app/unlock-e2e.tsx:66](../../apps/mobile/app/unlock-e2e.tsx#L66) | endpoint | e2e.field |
 | [apps/mobile/app/unlock-e2e.tsx:99](../../apps/mobile/app/unlock-e2e.tsx#L99) | endpoint | e2e.unlock |
 | [apps/mobile/app/unlock-e2e.tsx:104](../../apps/mobile/app/unlock-e2e.tsx#L104) | endpoint | e2e.unlock |
-| [apps/mobile/lib/auth.ts:96](../../apps/mobile/lib/auth.ts#L96) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:110](../../apps/mobile/lib/auth.ts#L110) | call:POST | 'login' |
-| [apps/mobile/lib/auth.ts:156](../../apps/mobile/lib/auth.ts#L156) | call:POST | 'users.2fa.sendEmailCode' |
-| [apps/mobile/lib/auth.ts:178](../../apps/mobile/lib/auth.ts#L178) | call:POST | 'logout' |
-| [apps/mobile/lib/call.ts:78](../../apps/mobile/lib/call.ts#L78) | call:POST | 'video-conference.start' |
-| [apps/mobile/lib/call.ts:78](../../apps/mobile/lib/call.ts#L78) | endpoint | video-conference.start |
-| [apps/mobile/lib/call.ts:101](../../apps/mobile/lib/call.ts#L101) | call:POST | 'video-conference.join' |
-| [apps/mobile/lib/call.ts:101](../../apps/mobile/lib/call.ts#L101) | endpoint | video-conference.join |
-| [apps/mobile/lib/call.ts:117](../../apps/mobile/lib/call.ts#L117) | call:GET | 'video-conference.info' |
-| [apps/mobile/lib/call.ts:117](../../apps/mobile/lib/call.ts#L117) | endpoint | video-conference.info |
-| [apps/mobile/lib/call.ts:148](../../apps/mobile/lib/call.ts#L148) | call:GET | 'video-conference.capabilities' |
-| [apps/mobile/lib/call.ts:148](../../apps/mobile/lib/call.ts#L148) | endpoint | video-conference.capabilities |
-| [apps/mobile/lib/call.ts:197](../../apps/mobile/lib/call.ts#L197) | call:GET | 'video-conference.info' |
-| [apps/mobile/lib/call.ts:197](../../apps/mobile/lib/call.ts#L197) | endpoint | video-conference.info |
-| [apps/mobile/lib/call.ts:221](../../apps/mobile/lib/call.ts#L221) | call:POST | 'video-conference.cancel' |
-| [apps/mobile/lib/call.ts:221](../../apps/mobile/lib/call.ts#L221) | endpoint | video-conference.cancel |
+| [apps/mobile/lib/auth.ts:65](../../apps/mobile/lib/auth.ts#L65) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:79](../../apps/mobile/lib/auth.ts#L79) | call:POST | 'login' |
+| [apps/mobile/lib/auth.ts:125](../../apps/mobile/lib/auth.ts#L125) | call:POST | 'users.2fa.sendEmailCode' |
+| [apps/mobile/lib/auth.ts:147](../../apps/mobile/lib/auth.ts#L147) | call:POST | 'logout' |
+| [apps/mobile/lib/call.ts:72](../../apps/mobile/lib/call.ts#L72) | call:POST | 'video-conference.start' |
+| [apps/mobile/lib/call.ts:72](../../apps/mobile/lib/call.ts#L72) | endpoint | video-conference.start |
+| [apps/mobile/lib/call.ts:95](../../apps/mobile/lib/call.ts#L95) | call:POST | 'video-conference.join' |
+| [apps/mobile/lib/call.ts:95](../../apps/mobile/lib/call.ts#L95) | endpoint | video-conference.join |
+| [apps/mobile/lib/call.ts:111](../../apps/mobile/lib/call.ts#L111) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:111](../../apps/mobile/lib/call.ts#L111) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:142](../../apps/mobile/lib/call.ts#L142) | call:GET | 'video-conference.capabilities' |
+| [apps/mobile/lib/call.ts:142](../../apps/mobile/lib/call.ts#L142) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/call.ts:191](../../apps/mobile/lib/call.ts#L191) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:191](../../apps/mobile/lib/call.ts#L191) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:215](../../apps/mobile/lib/call.ts#L215) | call:POST | 'video-conference.cancel' |
+| [apps/mobile/lib/call.ts:215](../../apps/mobile/lib/call.ts#L215) | endpoint | video-conference.cancel |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | call:GET | 'rooms.get' |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | endpoint | rooms.get |
 | [apps/mobile/lib/catchUp.ts:45](../../apps/mobile/lib/catchUp.ts#L45) | call:GET | 'subscriptions.get' |
@@ -569,18 +569,17 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/myProfile.ts:125](../../apps/mobile/lib/myProfile.ts#L125) | endpoint | users.setStatus |
 | [apps/mobile/lib/myProfile.ts:146](../../apps/mobile/lib/myProfile.ts#L146) | call:POST | 'users.updateOwnBasicInfo' |
 | [apps/mobile/lib/myProfile.ts:147](../../apps/mobile/lib/myProfile.ts#L147) | endpoint | users.updateOwnBasicInfo |
-| [apps/mobile/lib/outbox.ts:180](../../apps/mobile/lib/outbox.ts#L180) | call:POST | 'chat.sendMessage' |
-| [apps/mobile/lib/outbox.ts:180](../../apps/mobile/lib/outbox.ts#L180) | endpoint | chat.sendMessage |
-| [apps/mobile/lib/outbox.ts:258](../../apps/mobile/lib/outbox.ts#L258) | call:GET | 'chat.getMessage' |
-| [apps/mobile/lib/outbox.ts:259](../../apps/mobile/lib/outbox.ts#L259) | endpoint | chat.getMessage |
+| [apps/mobile/lib/outbox.ts:151](../../apps/mobile/lib/outbox.ts#L151) | call:POST | 'chat.sendMessage' |
+| [apps/mobile/lib/outbox.ts:151](../../apps/mobile/lib/outbox.ts#L151) | endpoint | chat.sendMessage |
+| [apps/mobile/lib/outbox.ts:229](../../apps/mobile/lib/outbox.ts#L229) | call:GET | 'chat.getMessage' |
+| [apps/mobile/lib/outbox.ts:230](../../apps/mobile/lib/outbox.ts#L230) | endpoint | chat.getMessage |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | call:GET | 'permissions.listAll' |
 | [apps/mobile/lib/permissions.ts:27](../../apps/mobile/lib/permissions.ts#L27) | endpoint | permissions.listAll |
 | [apps/mobile/lib/permissions.ts:28](../../apps/mobile/lib/permissions.ts#L28) | call:GET | 'me' |
-| [apps/mobile/lib/presence.ts:26](../../apps/mobile/lib/presence.ts#L26) | stream | stream-notify-logged |
-| [apps/mobile/lib/presence.ts:169](../../apps/mobile/lib/presence.ts#L169) | call:GET | 'users.presence' |
-| [apps/mobile/lib/presence.ts:169](../../apps/mobile/lib/presence.ts#L169) | endpoint | users.presence |
-| [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | call:GET | 'users.info' |
-| [apps/mobile/lib/profilePreload.ts:75](../../apps/mobile/lib/profilePreload.ts#L75) | endpoint | users.info |
+| [apps/mobile/lib/presence.ts:168](../../apps/mobile/lib/presence.ts#L168) | call:GET | 'users.presence' |
+| [apps/mobile/lib/presence.ts:168](../../apps/mobile/lib/presence.ts#L168) | endpoint | users.presence |
+| [apps/mobile/lib/profilePreload.ts:73](../../apps/mobile/lib/profilePreload.ts#L73) | call:GET | 'users.info' |
+| [apps/mobile/lib/profilePreload.ts:73](../../apps/mobile/lib/profilePreload.ts#L73) | endpoint | users.info |
 | [apps/mobile/lib/pushToken.ts:33](../../apps/mobile/lib/pushToken.ts#L33) | call:POST | 'push.token' |
 | [apps/mobile/lib/pushToken.ts:33](../../apps/mobile/lib/pushToken.ts#L33) | endpoint | push.token |
 | [apps/mobile/lib/pushToken.ts:38](../../apps/mobile/lib/pushToken.ts#L38) | call:DELETE | 'push.token' |
@@ -591,21 +590,17 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/server.ts:127](../../apps/mobile/lib/server.ts#L127) | endpoint | settings.public |
 | [apps/mobile/lib/serverIcon.ts:79](../../apps/mobile/lib/serverIcon.ts#L79) | url | /api/v1/instance/icon |
 | [apps/mobile/lib/serverIcon.ts:81](../../apps/mobile/lib/serverIcon.ts#L81) | url | /api/v1/settings.public |
-| [apps/mobile/lib/sync.ts:136](../../apps/mobile/lib/sync.ts#L136) | stream | stream-room-messages |
-| [apps/mobile/lib/sync.ts:137](../../apps/mobile/lib/sync.ts#L137) | stream | stream-notify-user |
-| [apps/mobile/lib/sync.ts:138](../../apps/mobile/lib/sync.ts#L138) | stream | stream-notify-room |
-| [apps/mobile/lib/typing.ts:21](../../apps/mobile/lib/typing.ts#L21) | stream | stream-notify-room |
-| [apps/mobile/lib/upload.ts:92](../../apps/mobile/lib/upload.ts#L92) | url | /api/v1/rooms.media/{…} |
-| [apps/mobile/lib/upload.ts:133](../../apps/mobile/lib/upload.ts#L133) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
-| [apps/mobile/lib/upload.ts:133](../../apps/mobile/lib/upload.ts#L133) | endpoint | rooms.mediaConfirm/{…}/{…} |
-| [apps/mobile/lib/upload.ts:163](../../apps/mobile/lib/upload.ts#L163) | url | /api/v1/users.setAvatar |
-| [apps/mobile/lib/upload.ts:259](../../apps/mobile/lib/upload.ts#L259) | url | /api/v4/users/{…}/image |
-| [apps/mobile/lib/upload.ts:264](../../apps/mobile/lib/upload.ts#L264) | resource | /avatar/{…} |
-| [apps/mobile/lib/upload.ts:266](../../apps/mobile/lib/upload.ts#L266) | resource | /avatar/uid/{…} |
-| [apps/mobile/lib/upload.ts:268](../../apps/mobile/lib/upload.ts#L268) | resource | /avatar/room/{…} |
-| [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | call:GET | 'settings.public' |
-| [apps/mobile/lib/uploadQueue.ts:125](../../apps/mobile/lib/uploadQueue.ts#L125) | endpoint | settings.public |
-| [apps/mobile/lib/uploadQueue.ts:496](../../apps/mobile/lib/uploadQueue.ts#L496) | resource | /file-upload/{…}/{…} |
+| [apps/mobile/lib/upload.ts:67](../../apps/mobile/lib/upload.ts#L67) | url | /api/v1/rooms.media/{…} |
+| [apps/mobile/lib/upload.ts:108](../../apps/mobile/lib/upload.ts#L108) | call:POST | \`rooms.mediaConfirm/{…}/{…}\` |
+| [apps/mobile/lib/upload.ts:108](../../apps/mobile/lib/upload.ts#L108) | endpoint | rooms.mediaConfirm/{…}/{…} |
+| [apps/mobile/lib/upload.ts:138](../../apps/mobile/lib/upload.ts#L138) | url | /api/v1/users.setAvatar |
+| [apps/mobile/lib/upload.ts:234](../../apps/mobile/lib/upload.ts#L234) | url | /api/v4/users/{…}/image |
+| [apps/mobile/lib/upload.ts:239](../../apps/mobile/lib/upload.ts#L239) | resource | /avatar/{…} |
+| [apps/mobile/lib/upload.ts:241](../../apps/mobile/lib/upload.ts#L241) | resource | /avatar/uid/{…} |
+| [apps/mobile/lib/upload.ts:243](../../apps/mobile/lib/upload.ts#L243) | resource | /avatar/room/{…} |
+| [apps/mobile/lib/uploadQueue.ts:83](../../apps/mobile/lib/uploadQueue.ts#L83) | call:GET | 'settings.public' |
+| [apps/mobile/lib/uploadQueue.ts:83](../../apps/mobile/lib/uploadQueue.ts#L83) | endpoint | settings.public |
+| [apps/mobile/lib/uploadQueue.ts:454](../../apps/mobile/lib/uploadQueue.ts#L454) | resource | /file-upload/{…}/{…} |
 | [apps/mobile/lib/whatsappFiles.ts:80](../../apps/mobile/lib/whatsappFiles.ts#L80) | url | /api/v1/files/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:176](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L176) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
@@ -765,3 +760,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
 | [crates/rv-teams/src/auth.rs:2123](../../crates/rv-teams/src/auth.rs#L2123) | url | /api/csa |
+| [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
+| [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
+| [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |
+| [packages/provider-api/src/sync.ts:138](../../packages/provider-api/src/sync.ts#L138) | stream | stream-notify-room |
+| [packages/provider-api/src/typing.ts:1](../../packages/provider-api/src/typing.ts#L1) | stream | stream-notify-room |

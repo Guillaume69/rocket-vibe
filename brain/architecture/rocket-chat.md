@@ -62,7 +62,7 @@ All paths are under `/api/v1/` except `/api/info`, which both clients reach thro
 | Administration (admin only) | `statistics` (and `?refresh=true` on demand), `roles.getUsersInRole`, `users.listByStatus`, `roles.addUserToRole` / `roles.removeUserFromRole`, `users.setActiveStatus`, `users.delete`, `rooms.adminRooms`, `moderation.reportsByUsers`, `moderation.user.reportedMessages`, `moderation.reports`, `moderation.dismissReports`, `moderation.userReports`, `moderation.user.reportsByUserId`, `moderation.dismissUserReports`, `moderation.user.deleteReportedMessages`, `chat.delete`, `emoji-custom.create` / `emoji-custom.delete`, `assets.setAsset` / `assets.unsetAsset` (`favicon_192`, the server icon) | `providers/rocketchat/admin.ts` | `admin.rs` |
 | Reports (any member) | `chat.reportMessage`, `moderation.reportUser` | `providers/rocketchat/admin.ts` | `admin.rs` |
 
-Mobile code reaches Rocket.Chat only through the `Provider` facade (`apps/mobile/lib/provider.ts`), whose Rocket.Chat driver is `apps/mobile/providers/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
+Mobile code reaches Rocket.Chat only through the `Provider` facade (`packages/provider-api/src/provider.ts`), whose Rocket.Chat driver is `apps/mobile/providers/rocketchat/`. Screens never name an endpoint for history, threads or subscriptions.
 
 ## Status codes and the response envelope
 
@@ -112,7 +112,7 @@ REST is limited to 10 calls a minute by default (measured); the 11th answers 429
 - docs/DEV.md
 - apps/mobile/lib/rest.ts
 - apps/mobile/lib/ddp.ts
-- apps/mobile/lib/provider.ts
+- packages/provider-api/src/provider.ts
 - apps/mobile/providers/rocketchat/index.ts
 - apps/mobile/providers/rocketchat/translator.ts
 - apps/mobile/providers/rocketchat/history.ts

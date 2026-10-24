@@ -65,6 +65,7 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
           npm ci --no-audit --no-fund --prefix apps/mobile
+          npm ci --no-audit --no-fund
       - name: Generate an isolated instrumentation host
         working-directory: apps/mobile
         env:

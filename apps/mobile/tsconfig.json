@@ -10,6 +10,7 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    "../../packages/*/src/**/*.ts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]

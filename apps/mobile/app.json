@@ -103,7 +103,8 @@
       "expo-web-browser"
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "onDemandFilesystem": false
     }
   }
 }

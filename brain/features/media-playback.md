@@ -13,7 +13,7 @@ How images, video and audio attachments, and YouTube, Dailymotion and Vimeo link
 
 ## Mobile
 
-**Mattermost and kChat copies.** `lib/mediaAuth.ts` registers an account/token lease per origin. `ui/authorizedMedia.ts` uses native SHA-256 account and full-URL keys under a unique live-session directory, shared by `ui/authorizedImage.ts` and attachment exports. Only a current lease can download, publish or reuse bytes. Session cleanup removes its bearer and username map synchronously, deletes its directory and fences late downloads and renames. A stale cleanup cannot revoke a replacement account. First use removes the old unowned `authorized-media/` and `jointes/` caches and copies left by earlier processes. Files explicitly saved to Downloads or the gallery remain user-owned.
+**Mattermost and kChat copies.** `packages/provider-api/src/mediaAuth.ts` registers an account/token lease per origin. `ui/authorizedMedia.ts` uses native SHA-256 account and full-URL keys under a unique live-session directory, shared by `ui/authorizedImage.ts` and attachment exports. Only a current lease can download, publish or reuse bytes. Session cleanup removes its bearer and username map synchronously, deletes its directory and fences late downloads and renames. A stale cleanup cannot revoke a replacement account. First use removes the old unowned `authorized-media/` and `jointes/` caches and copies left by earlier processes. Files explicitly saved to Downloads or the gallery remain user-owned.
 
 - **Images.** `AttachedImage` in `ui/messageRow.tsx`. A tap opens `ui/imageViewer.tsx`, a full-screen viewer in a native `Modal` with its own `GestureHandlerRootView` (a `Modal` is a separate native window the root gesture handler does not cover): pinch to zoom, pan once zoomed, double tap to zoom in or out, swipe down to close, and a save button (`saveInBackground` in `ui/attachmentActions.ts`). The protected URL is kept in context state and **never passed as an expo-router route parameter**, which would put a secret in a serialisable URL. Animated GIFs play through Fresco's animated-GIF support.
 - **Video attachments.** `ui/videoPlayer.tsx` (`expo-video`). The message shows a themed card (aurora banner, play button, download progress overlay `TransferBar`); a tap opens a full-screen `Modal` with native controls. The player is created only when the modal mounts and released when it closes: `useVideoPlayer` is a costly native instance and a room can hold several videos. Video attachments must be tested before the generic file branch, since they also carry `title_link`.
@@ -50,7 +50,7 @@ OS clipboard permission integration and external-provider streaming remain separ
 
 ## Sources
 
-- apps/mobile/lib/mediaAuth.ts
+- packages/provider-api/src/mediaAuth.ts
 - apps/mobile/lib/authorizedMediaCache.ts
 - apps/mobile/lib/authorizedMediaCache.test.ts
 - apps/mobile/ui/authorizedMedia.ts

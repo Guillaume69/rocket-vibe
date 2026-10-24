@@ -2,11 +2,11 @@ import { Redirect, Stack, useFocusEffect, useLocalSearchParams, useRouter } from
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { ExperimentalUnlock } from '../lib/experimentalUnlock.ts';
 import { setExperimentalProviders, useExperimentalProviders } from '../ui/experimentalProviders.ts';
-import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, type DeviceCode } from '../providers/teams/auth.ts';
+import { approved as teamsApproved, deviceCode as teamsDeviceCode, TeamsError, type DeviceCode } from '@rocket-vibe/provider-teams/auth';
 import { slackFailure } from '../ui/slackSignIn.tsx';
 import { SignInWebView } from '../ui/signInWebView.tsx';
 import { WebCookies } from '../modules/web-cookies/index.ts';
-import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, slackUserAgent, isSlackWebPage, signInFromWeb } from '../providers/slack/webSignIn.ts';
+import { CLIENT_HOSTS_SCRIPT, SLACK_WEB_COOKIES, SLACK_WEB_START, isSlackWebDone, slackUserAgent, isSlackWebPage, signInFromWeb } from '@rocket-vibe/provider-slack/webSignIn';
 import * as Crypto from 'expo-crypto';
 import { AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';

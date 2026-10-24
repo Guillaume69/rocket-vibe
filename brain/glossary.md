@@ -113,7 +113,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Ephemeral post | A Mattermost or kChat post "visible only to you" (`ephemeral_message`: a command's answer, a reminder's confirmation), never stored; the apps show it as the private note above the composer. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 | Card button | An integration card's `actions[]` button (Mattermost and kChat), pressed through `POST /posts/<post>/actions/<action>` with the `cookie` an ephemeral post's button carries. | [mattermost-and-kchat](features/mattermost-and-kchat.md#post-rendering) |
 
-## Slack (`apps/mobile/providers/slack/`, `crates/rv-slack/`, `apps/desktop/crates/rv-core/src/slack/`)
+## Slack (`packages/provider-slack/`, `crates/rv-slack/`, `apps/desktop/crates/rv-core/src/slack/`)
 
 | Term | Meaning | More |
 |---|---|---|
@@ -136,17 +136,18 @@ All code, comments and docs are in English. French survives in two places only: 
 | `E2EEngine` | E2EE engine: private key in memory, room key cache, unlock. | `apps/mobile/lib/e2e/engine.ts` |
 | Migration (`migrateDatabase`) | Runs drizzle migrations on one database, memoised per file name. | `apps/mobile/db/migrate.ts` |
 | `normalize` | Turns server payloads into local rows (`LocalMessage`, `LocalRoom`, `LocalSubscription`); where the server's quirks are absorbed. | `apps/mobile/lib/normalize.ts` |
-| Origin (`originOf`, `sameOrigin`) | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `apps/mobile/lib/origin.ts` |
+| Origin (`originOf`, `sameOrigin`) | URL origin (scheme + authority) and comparisons, parsed by hand because React Native's `URL` polyfill never throws. | `packages/provider-api/src/origin.ts` |
 | `OutboxEngine`, `outbox` | The text outbox engine (client-side `_id`, optimistic display) and its table (`pending`, `failed`; a sent row is deleted). | `apps/mobile/lib/outbox.ts`, `apps/mobile/db/schema.ts` |
 | `PresenceEngine`, `TypingEngine`, `ActivityEngine` | Volatile in-memory stores for presence, typing, and background-fetch activity (scope `'global'` or a `rid`). | `apps/mobile/lib/presence.ts`, `apps/mobile/lib/typing.ts`, `apps/mobile/lib/activity.ts` |
-| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Kinds: `rocketchat`, `vibez`, `mattermost`, `kchat`, `whatsapp`. | `apps/mobile/lib/provider.ts`, `apps/mobile/providers/` |
+| `Provider` | The neutral facade over a chat server (listener, translator, actions, capabilities); `ProviderKind` is stored in the session as `kind`. Kinds: `rocketchat`, `vibez`, `mattermost`, `kchat`, `whatsapp`, `slack`, `teams`. The contract is in `@rocket-vibe/provider-api`; the app extends it with its own servers' extras. | `packages/provider-api/src/provider.ts`, `apps/mobile/lib/provider.ts`, `apps/mobile/providers/`, `packages/provider-slack/`, `packages/provider-teams/` |
+| Provider package | An npm package of `packages/` (`@rocket-vibe/provider-api`, `provider-slack`, `provider-teams`): mobile provider code outside the app, TypeScript source read as is. | `brain/architecture/provider-packages.md` |
 | Quote | Reply-quote: a message starting with `[ ](permalink?msg=<id>)`, which the server turns into an attachment. | `apps/mobile/lib/quote.ts` |
 | `RcTranslator` | Decodes Rocket.Chat stream events and documents into neutral `SyncChange` values. | `apps/mobile/providers/rocketchat/translator.ts` |
 | `Reconnector` | Reconnection driver: exponential backoff with jitter, 1 s to 30 s; `suspend`/`resume` on background and foreground. | `apps/mobile/lib/reconnect.ts` |
 | `RestClient` | The REST client; runs under Node, owns timeouts, 429 sleep and the 401 hook. | `apps/mobile/lib/rest.ts` |
 | `sessionStore`, `storageKeys` | Session and fixed-key persistence in `expo-secure-store`, and the derivation of every key name (`STORED_KEYS`, per-server session, per-account E2EE key). | `apps/mobile/lib/sessionStore.ts`, `apps/mobile/lib/storageKeys.ts` |
-| `Store` | The storage interface the sync engine writes through, and its factories (`createStore`, `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`). | `apps/mobile/lib/sync.ts`, `apps/mobile/db/store.ts` |
-| `SyncEngine` | Applies stream events and REST documents as upserts. | `apps/mobile/lib/sync.ts` |
+| `Store` | The storage interface the sync engine writes through, and its factories (`createStore`, `createOutboxStore`, `createUploadStore`, `createDraftStore`, `createEmojiStore`). | `packages/provider-api/src/sync.ts`, `apps/mobile/db/store.ts` |
+| `SyncEngine` | Applies stream events and REST documents as upserts. | `packages/provider-api/src/sync.ts` |
 | `UploadEngine`, `uploads` | The upload queue engine (validation, two-step upload, `file_id` dedup) and its table (`pending`, `sending`, `failed`). | `apps/mobile/lib/uploadQueue.ts`, `apps/mobile/db/schema.ts` |
 | `upserts` | The idempotent SQL, kept in one module and executed as-is by the tests on `node:sqlite`. | `apps/mobile/db/upserts.ts` |
 | `users` | Users table: `uid` to current username and `avatar_etag`. | `apps/mobile/db/schema.ts` |
@@ -317,8 +318,8 @@ The code had French names until the English rename. These are the only French wo
 
 ## Sources
 
-- apps/mobile/providers/teams/auth.ts
-- apps/mobile/providers/teams/trouter.ts
+- packages/provider-teams/src/auth.ts
+- packages/provider-teams/src/trouter.ts
 - crates/rv-teams/src/
 
 - `CLAUDE.md`
@@ -328,7 +329,7 @@ The code had French names until the English rename. These are the only French wo
 - `apps/mobile/db/writeQueue.ts`
 - `apps/mobile/db/store.ts`
 - `apps/mobile/db/migrations/0016_english_names.sql`
-- `apps/mobile/lib/provider.ts`
+- `packages/provider-api/src/provider.ts`
 - `apps/mobile/lib/connectionSetup.ts`
 - `apps/mobile/lib/catchUp.ts`
 - `apps/mobile/lib/ddp.ts`
@@ -358,5 +359,5 @@ The code had French names until the English rename. These are the only French wo
 - `apps/server/src/giphy.rs`
 - `brain/features/social.md`
 - scripts/slack/session.mjs
-- apps/mobile/providers/slack/handoff.ts
+- packages/provider-slack/src/handoff.ts
 - crates/rv-slack/src/handoff.rs

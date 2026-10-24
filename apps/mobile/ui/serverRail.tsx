@@ -27,7 +27,7 @@ import { useSession } from './session.tsx';
 import { Tappable } from './tappable.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { mattermostUnread } from '../providers/mattermost/auth.ts';
-import { slackUnread } from '../providers/slack/auth.ts';
+import { slackUnread } from '@rocket-vibe/provider-slack/auth';
 
 const POLL_MS = 60_000;
 const TILE = 44;

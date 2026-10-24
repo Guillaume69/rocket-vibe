@@ -18,8 +18,8 @@
  * Since the SQLite database is per (server, account), only one server is
  * indexed at a time: the active session's, set by `setCustomEmojis`.
  */
-
-export type CustomEmoji = { name: string; extension: string; aliases: string[]; uri?:string };
+import type { CustomEmoji } from '@rocket-vibe/provider-api/emojis';
+export type { CustomEmoji } from '@rocket-vibe/provider-api/emojis';
 
 /** Custom emoji persistence. Implemented on SQLite (`db/store.ts`). */
 export interface EmojiStore {

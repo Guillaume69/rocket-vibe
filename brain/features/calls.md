@@ -31,7 +31,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
   - calls `joinConference`; a URL whose origin cannot be read is refused rather than loaded unguarded;
   - appends `#config.disableDeepLinking=true` so `meet.jit.si` skips its "open in the app" interstitial, which tried an `intent://` link and failed with `ERR_UNKNOWN_URL_SCHEME`;
   - sends an ordinary mobile Chrome user agent (without `; wv`), because Jitsi restricts WebViews it identifies;
-  - `originWhitelist={[origin]}` plus `onShouldStartLoadWithRequest` allowing only `about:blank` and `sameOrigin(url, origin)` (`lib/origin.ts`, a regex origin parser, because React Native's `URL` polyfill never throws and returns `''` for `origin`);
+  - `originWhitelist={[origin]}` plus `onShouldStartLoadWithRequest` allowing only `about:blank` and `sameOrigin(url, origin)` (`packages/provider-api/src/origin.ts`, a regex origin parser, because React Native's `URL` polyfill never throws and returns `''` for `origin`);
   - `setSupportMultipleWindows={false}` keeps `target=_blank` links in the view, `mediaPlaybackRequiresUserAction={false}`, iOS `mediaCapturePermissionGrantType="grant"`;
   - hanging up leads Jitsi to a `close` page, detected in `onNavigationStateChange` to return to the room; the End button is the guaranteed exit; load errors offer Retry.
   - once the conference URL is loaded, holds the call in the voice module's `CallService` (`VoiceNative.holdCall`, released on leaving the screen): a microphone foreground service, camera type added when granted, behind an ongoing `CallStyle` notification whose Hang up emits `hangUp` and closes the screen, a tap bringing the app back. Without it Android silences a background app's capture (while-in-use permissions) and freezes the process, which dropped the conference as soon as the app went behind or the phone locked. `react-native-webview` never pauses the WebView itself (`onHostPause` is empty). iOS has no equivalent yet (no background audio mode).
@@ -81,7 +81,7 @@ Start, join, call card with Join, profile Call: both apps ([parity](../parity.md
 - apps/mobile/modules/voice/android/src/main/java/com/rocketvibe/voice/VoiceModule.kt
 - apps/mobile/ui/settingsSections.tsx
 - apps/mobile/plugins/ios-notification-service/NotificationService.swift
-- apps/mobile/lib/origin.ts
+- packages/provider-api/src/origin.ts
 - apps/mobile/lib/normalize.ts
 - apps/mobile/app/call/[callId].tsx
 - apps/mobile/app/profile.tsx

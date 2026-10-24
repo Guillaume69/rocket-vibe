@@ -15,7 +15,7 @@ The link is produced by the Android push service for every conversation notifica
 - **Routing.** expo-router maps `rocketvibe://room/<rid>` to `app/room/[rid].tsx` and merges the query into the route params, so `host` arrives through `useLocalSearchParams` (a behaviour read in expo-router's code, see the project facts). `app/+native-intent.tsx` (`redirectSystemPath`) passes every path through, an old `salon/` path rewritten to `room/` (`withEnglishRoomPath`, `lib/roomLink.ts`), except the iOS share extension's `rocketvibe://dataUrl=<key>` callback, which is not a route and would show "page not found".
 - **Cold start and running.** The Android notification intent uses only `FLAG_ACTIVITY_NEW_TASK`; `MainActivity` is `singleTask`, so a running app receives it through `onNewIntent` and a dead one starts fresh, both carrying the URL.
 - **No session**: the room screen redirects to `/login`.
-- **Other server.** The screen compares origins (`originOf`/`sameOrigin`, `lib/origin.ts`), never the raw string, since any app can send that intent. A non-web `host` is ignored. A different origin renders `OtherServer`: an explicit button naming the target server, which calls `switchServer(host)` and, on success, `replace`s the route without `host` so it cannot replay later. The switch is never automatic: it moves the resume pointer, closes the socket and opens another database ([login-and-servers.md](login-and-servers.md)).
+- **Other server.** The screen compares origins (`originOf`/`sameOrigin`, `packages/provider-api/src/origin.ts`), never the raw string, since any app can send that intent. A non-web `host` is ignored. A different origin renders `OtherServer`: an explicit button naming the target server, which calls `switchServer(host)` and, on success, `replace`s the route without `host` so it cannot replay later. The switch is never automatic: it moves the resume pointer, closes the socket and opens another database ([login-and-servers.md](login-and-servers.md)).
 
 ### Incoming shares
 
@@ -51,7 +51,7 @@ The link is produced by the Android push service for every conversation notifica
 - apps/mobile/lib/roomLink.ts
 - apps/mobile/plugins/with-incoming-share.js
 - apps/mobile/plugins/with-fcm-deeplink.js
-- apps/mobile/lib/origin.ts
+- packages/provider-api/src/origin.ts
 - apps/mobile/lib/externalLink.ts
 - apps/mobile/lib/upload.ts
 - apps/mobile/ui/externalLink.ts

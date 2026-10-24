@@ -27,7 +27,7 @@ Reconciliation ignores an empty list (an active account always has subscriptions
 
 ## Mobile
 
-**Engine.** `SyncEngine` (sync engine, `apps/mobile/lib/sync.ts`) writes neutral rows through a `Store` interface; the Rocket.Chat specifics (stream payload shapes, `removed` actions that carry only a subscription `_id`) live in `RcTranslator` (`apps/mobile/providers/rocketchat/translator.ts`). REST batches are ingested in one transaction, so a page of 50 messages is one commit and one change notification for the live queries. E2EE messages are decrypted during ingestion when the room key is available, otherwise kept as `encrypted_raw` for a pass at unlock (see [../architecture/e2ee.md](../architecture/e2ee.md)). Schema, upserts and the write queue are in [../architecture/mobile-data.md](../architecture/mobile-data.md).
+**Engine.** `SyncEngine` (sync engine, `packages/provider-api/src/sync.ts`) writes neutral rows through a `Store` interface; the Rocket.Chat specifics (stream payload shapes, `removed` actions that carry only a subscription `_id`) live in `RcTranslator` (`apps/mobile/providers/rocketchat/translator.ts`). REST batches are ingested in one transaction, so a page of 50 messages is one commit and one change notification for the live queries. E2EE messages are decrypted during ingestion when the room key is available, otherwise kept as `encrypted_raw` for a pass at unlock (see [../architecture/e2ee.md](../architecture/e2ee.md)). Schema, upserts and the write queue are in [../architecture/mobile-data.md](../architecture/mobile-data.md).
 
 **Write queue.** `expo-sqlite` transactions are per connection and not re-entrant, so every writer on one connection shares a single `WriteQueue` (write queue, `apps/mobile/db/writeQueue.ts`) created by `openDatabase`. Two interleaved batches used to die with "cannot rollback - no transaction is active".
 
@@ -95,7 +95,7 @@ Two consequences worth knowing on desktop: a room created between the reconcilia
 - apps/web/src/store.ts
 - apps/web/src/app.ts
 - apps/web/tests/retention.test.ts
-- apps/mobile/lib/sync.ts
+- packages/provider-api/src/sync.ts
 - apps/mobile/lib/catchUp.ts
 - apps/mobile/lib/connectionSetup.ts
 - apps/mobile/lib/outbox.ts

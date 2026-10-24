@@ -10,7 +10,8 @@
     "apps/desktop/macos/Sources",
     "crates/rv-provider",
     "crates/rv-slack",
-    "crates/rv-teams"
+    "crates/rv-teams",
+    "packages/provider-api"
   ],
   "scanned": [
     "apps/desktop/crates/rv-core/examples/export-native-rendering.rs",
@@ -522,7 +523,6 @@
     "apps/mobile/lib/serverKind.ts",
     "apps/mobile/lib/sessionStore.ts",
     "apps/mobile/lib/sessionTransport.ts",
-    "apps/mobile/lib/slackAvatars.ts",
     "apps/mobile/lib/storageKeys.ts",
     "apps/mobile/lib/storedRecords.ts",
     "apps/mobile/lib/streamingFile.ts",
@@ -718,7 +718,25 @@
     "crates/rv-teams/src/frames.rs",
     "crates/rv-teams/src/lib.rs",
     "crates/rv-teams/src/live.rs",
-    "crates/rv-teams/src/translate.rs"
+    "crates/rv-teams/src/translate.rs",
+    "packages/provider-api/src/calls.ts",
+    "packages/provider-api/src/cards.ts",
+    "packages/provider-api/src/crypto.ts",
+    "packages/provider-api/src/ddp.ts",
+    "packages/provider-api/src/displayNames.ts",
+    "packages/provider-api/src/downloadResolver.ts",
+    "packages/provider-api/src/emojis.ts",
+    "packages/provider-api/src/mediaAuth.ts",
+    "packages/provider-api/src/origin.ts",
+    "packages/provider-api/src/outbox.ts",
+    "packages/provider-api/src/presence.ts",
+    "packages/provider-api/src/provider.ts",
+    "packages/provider-api/src/rows.ts",
+    "packages/provider-api/src/session.ts",
+    "packages/provider-api/src/sync.ts",
+    "packages/provider-api/src/testing.ts",
+    "packages/provider-api/src/typing.ts",
+    "packages/provider-api/src/uploads.ts"
   ],
   "entries": [
     {
@@ -3813,97 +3831,97 @@
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 96,
+      "line": 65,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 110,
+      "line": 79,
       "kind": "call:POST",
       "surface": "'login'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 156,
+      "line": 125,
       "kind": "call:POST",
       "surface": "'users.2fa.sendEmailCode'"
     },
     {
       "file": "apps/mobile/lib/auth.ts",
-      "line": 178,
+      "line": 147,
       "kind": "call:POST",
       "surface": "'logout'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 78,
+      "line": 72,
       "kind": "call:POST",
       "surface": "'video-conference.start'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 78,
+      "line": 72,
       "kind": "endpoint",
       "surface": "video-conference.start"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 101,
+      "line": 95,
       "kind": "call:POST",
       "surface": "'video-conference.join'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 101,
+      "line": 95,
       "kind": "endpoint",
       "surface": "video-conference.join"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 117,
+      "line": 111,
       "kind": "call:GET",
       "surface": "'video-conference.info'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 117,
+      "line": 111,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 148,
+      "line": 142,
       "kind": "call:GET",
       "surface": "'video-conference.capabilities'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 148,
+      "line": 142,
       "kind": "endpoint",
       "surface": "video-conference.capabilities"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 197,
+      "line": 191,
       "kind": "call:GET",
       "surface": "'video-conference.info'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 197,
+      "line": 191,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 221,
+      "line": 215,
       "kind": "call:POST",
       "surface": "'video-conference.cancel'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 221,
+      "line": 215,
       "kind": "endpoint",
       "surface": "video-conference.cancel"
     },
@@ -4083,25 +4101,25 @@
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 180,
+      "line": 151,
       "kind": "call:POST",
       "surface": "'chat.sendMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 180,
+      "line": 151,
       "kind": "endpoint",
       "surface": "chat.sendMessage"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 258,
+      "line": 229,
       "kind": "call:GET",
       "surface": "'chat.getMessage'"
     },
     {
       "file": "apps/mobile/lib/outbox.ts",
-      "line": 259,
+      "line": 230,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
@@ -4125,31 +4143,25 @@
     },
     {
       "file": "apps/mobile/lib/presence.ts",
-      "line": 26,
-      "kind": "stream",
-      "surface": "stream-notify-logged"
-    },
-    {
-      "file": "apps/mobile/lib/presence.ts",
-      "line": 169,
+      "line": 168,
       "kind": "call:GET",
       "surface": "'users.presence'"
     },
     {
       "file": "apps/mobile/lib/presence.ts",
-      "line": 169,
+      "line": 168,
       "kind": "endpoint",
       "surface": "users.presence"
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 75,
+      "line": 73,
       "kind": "call:GET",
       "surface": "'users.info'"
     },
     {
       "file": "apps/mobile/lib/profilePreload.ts",
-      "line": 75,
+      "line": 73,
       "kind": "endpoint",
       "surface": "users.info"
     },
@@ -4214,92 +4226,68 @@
       "surface": "/api/v1/settings.public"
     },
     {
-      "file": "apps/mobile/lib/sync.ts",
-      "line": 136,
-      "kind": "stream",
-      "surface": "stream-room-messages"
-    },
-    {
-      "file": "apps/mobile/lib/sync.ts",
-      "line": 137,
-      "kind": "stream",
-      "surface": "stream-notify-user"
-    },
-    {
-      "file": "apps/mobile/lib/sync.ts",
-      "line": 138,
-      "kind": "stream",
-      "surface": "stream-notify-room"
-    },
-    {
-      "file": "apps/mobile/lib/typing.ts",
-      "line": 21,
-      "kind": "stream",
-      "surface": "stream-notify-room"
-    },
-    {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 92,
+      "line": 67,
       "kind": "url",
       "surface": "/api/v1/rooms.media/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 133,
+      "line": 108,
       "kind": "call:POST",
       "surface": "`rooms.mediaConfirm/{…}/{…}`"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 133,
+      "line": 108,
       "kind": "endpoint",
       "surface": "rooms.mediaConfirm/{…}/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 163,
+      "line": 138,
       "kind": "url",
       "surface": "/api/v1/users.setAvatar"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 259,
+      "line": 234,
       "kind": "url",
       "surface": "/api/v4/users/{…}/image"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 264,
+      "line": 239,
       "kind": "resource",
       "surface": "/avatar/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 266,
+      "line": 241,
       "kind": "resource",
       "surface": "/avatar/uid/{…}"
     },
     {
       "file": "apps/mobile/lib/upload.ts",
-      "line": 268,
+      "line": 243,
       "kind": "resource",
       "surface": "/avatar/room/{…}"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 125,
+      "line": 83,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 125,
+      "line": 83,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 496,
+      "line": 454,
       "kind": "resource",
       "surface": "/file-upload/{…}/{…}"
     },
@@ -5256,6 +5244,36 @@
       "line": 2123,
       "kind": "url",
       "surface": "/api/csa"
+    },
+    {
+      "file": "packages/provider-api/src/presence.ts",
+      "line": 3,
+      "kind": "stream",
+      "surface": "stream-notify-logged"
+    },
+    {
+      "file": "packages/provider-api/src/sync.ts",
+      "line": 136,
+      "kind": "stream",
+      "surface": "stream-room-messages"
+    },
+    {
+      "file": "packages/provider-api/src/sync.ts",
+      "line": 137,
+      "kind": "stream",
+      "surface": "stream-notify-user"
+    },
+    {
+      "file": "packages/provider-api/src/sync.ts",
+      "line": 138,
+      "kind": "stream",
+      "surface": "stream-notify-room"
+    },
+    {
+      "file": "packages/provider-api/src/typing.ts",
+      "line": 1,
+      "kind": "stream",
+      "surface": "stream-notify-room"
     }
   ]
 }

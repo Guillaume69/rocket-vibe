@@ -4,6 +4,8 @@
  * emoji index: rows read it synchronously, and only the active account's is
  * set. Empty, every row shows the username.
  */
+import type { DisplayNameSource } from '@rocket-vibe/provider-api/displayNames';
+export type { DisplayNameSource } from '@rocket-vibe/provider-api/displayNames';
 
 let names: ReadonlyMap<string, string> = new Map();
 let statuses: ReadonlyMap<string, string> = new Map();
@@ -39,14 +41,6 @@ export function onDisplayNamesChange(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 }
-
-/** The provider's own map, kept current for as long as the session lives. */
-export type DisplayNameSource = {
-  names(): ReadonlyMap<string, string>;
-  statuses(): ReadonlyMap<string, string>;
-  mentions?(): ReadonlyMap<string, string>;
-  subscribe(listener: () => void): () => void;
-};
 
 export function mountDisplayNames(source: DisplayNameSource | undefined): () => void {
   if (source === undefined) return () => {};

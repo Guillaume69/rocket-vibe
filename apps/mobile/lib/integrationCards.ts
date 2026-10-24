@@ -1,12 +1,7 @@
 import type { CardActionAnswer } from './provider.ts';
+import type { IntegrationCard, CardAction, CardMenu, MenuSource, MenuOption } from '@rocket-vibe/provider-api/cards';
+export type { IntegrationCard, CardAction, CardMenu, MenuSource, MenuOption } from '@rocket-vibe/provider-api/cards';
 
-/** Presentation shared by Rocket.Chat and Vibez attachments. */
-export type IntegrationCard={author:string|null;title:string|null;url:string|null;pretext:string|null;text:string|null;color:string|null;fields:{title:string;value:string;short:boolean}[];actions:CardAction[]};
-export type CardAction={id:string;name:string;style:string|null;cookie:string|null;menu:CardMenu|null};
-/** A card menu: its listed choices, or people or channels the server searches, and the value chosen before any press. */
-export type CardMenu={source:MenuSource;options:MenuOption[];initial:string|null};
-export type MenuSource='options'|'users'|'channels';
-export type MenuOption={label:string;value:string};
 export function integrationCard(value:unknown):IntegrationCard|null {
   if(!value||typeof value!=='object'||Array.isArray(value))return null;
   const a=value as Record<string,unknown>;
@@ -55,7 +50,6 @@ export function filterMenuOptions(options:readonly MenuOption[],term:string):Men
   const wanted=fold(term.trim());
   return wanted?options.filter(o=>fold(o.label).includes(wanted)):[...options];
 }
-
 
 const ROUTE_ID = /^[A-Za-z0-9_-]+$/;
 

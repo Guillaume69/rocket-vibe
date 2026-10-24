@@ -17,9 +17,8 @@
  */
 
 import type { DdpEvent } from './ddp.ts';
-
-export const STREAM_NOTIFY_ROOM_TYPING = 'stream-notify-room';
-export const TYPING_ACTIVITY = 'user-typing';
+import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
+export { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
 
 const EXPIRATION_MS = 15_000;
 

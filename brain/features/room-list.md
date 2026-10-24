@@ -88,9 +88,9 @@ The quick activity picker preserves profile text. Mattermost and kChat use the s
 - crates/rv-provider/src/normalize.rs
 - apps/mobile/app/new-room.tsx
 - apps/mobile/providers/mattermost/live.ts
-- apps/mobile/providers/slack/live.ts
-- apps/mobile/providers/teams/index.ts
-- apps/mobile/providers/teams/sync.ts
+- packages/provider-slack/src/live.ts
+- packages/provider-teams/src/index.ts
+- packages/provider-teams/src/sync.ts
 - apps/mobile/providers/vibez/store.ts
 - apps/mobile/db/store.ts
 - apps/desktop/crates/rv-core/src/mattermost/sync.rs

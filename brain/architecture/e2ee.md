@@ -62,7 +62,7 @@ An encrypted message is sent as `t: 'e2e'`, `e2e: 'pending'`, `content`, plus `e
 - apps/mobile/metro.config.js
 - apps/mobile/lib/storageKeys.ts
 - apps/mobile/lib/sessionStore.ts
-- apps/mobile/lib/sync.ts
+- packages/provider-api/src/sync.ts
 - apps/mobile/lib/outbox.ts
 - apps/mobile/lib/uploadQueue.ts
 - apps/mobile/ui/sync.tsx

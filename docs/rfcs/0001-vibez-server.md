@@ -70,7 +70,7 @@ old sections of the READMEs and the roadmap.
 
 | Component | Finding | Consequence |
 |---|---|---|
-| Mobile: `lib/provider.ts` | `Provider`, `Translator`, `Listener` interfaces, actions and outboxes; `ProviderKind` contains only `rocketchat` | Extend a separation that has already begun |
+| Mobile: `packages/provider-api/src/provider.ts` | `Provider`, `Translator`, `Listener` interfaces, actions and outboxes; `ProviderKind` contains only `rocketchat` | Extend a separation that has already begun |
 | Mobile: `providers/rocketchat/` | First concrete adapter | Preserve its behavior and its tests |
 | Mobile: auth, profiles, presence, push, E2EE and several screens | Rocket.Chat calls still direct | Complete the contract; adding a driver is not enough |
 | Desktop: `rv-core` | UI-less core, Rust, Tokio, HTTP, WebSocket, SQLite | Introduce the providers into the core; do not move the network into GTK |
@@ -727,7 +727,7 @@ must remain concrete, tested and reviewed with the operator concerned.
 ### Repository studied
 
 - [Project README](../../README.md).
-- [Mobile provider contract](../../apps/mobile/lib/provider.ts) and
+- [Mobile provider contract](../../packages/provider-api/src/provider.ts) and
   [current registry](../../apps/mobile/providers/index.ts).
 - [Mobile Rocket.Chat driver](../../apps/mobile/providers/rocketchat/index.ts).
 - [Mobile outbox](../../apps/mobile/lib/outbox.ts), [session storage](../../apps/mobile/lib/sessionStore.ts).

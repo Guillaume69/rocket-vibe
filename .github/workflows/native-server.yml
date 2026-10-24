@@ -10,6 +10,9 @@ on:
       - 'apps/web/dist/**'
       - 'crates/**'
       - 'apps/mobile/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'apps/desktop/**'
       - 'docs/protocol/**'
       - 'docker/compose.vibez.yml'
@@ -26,6 +29,9 @@ on:
       - 'apps/web/dist/**'
       - 'crates/**'
       - 'apps/mobile/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'apps/desktop/**'
       - 'docs/protocol/**'
       - 'docker/compose.native-pilot.yml'
@@ -198,6 +204,8 @@ jobs:
       - name: Install locked mobile dependencies
         working-directory: apps/mobile
         run: npm ci --no-audit --no-fund
+      - name: Install the provider packages' workspace
+        run: npm ci --no-audit --no-fund
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
@@ -219,6 +227,8 @@ jobs:
           node-version: '24'
       - name: Install mobile provider dependencies for the integration peer
         working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund
+      - name: Install the provider packages' workspace
         run: npm ci --no-audit --no-fund
       - uses: actions/cache/restore@v4
         id: native_desktop_fedora

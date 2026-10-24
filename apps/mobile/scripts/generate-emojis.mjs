@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generates `lib/emojis.generated.ts`: the "shortcode -> Unicode character"
+ * Generates `packages/provider-api/src/emojis.generated.ts`: the "shortcode -> Unicode character"
  * table that Rocket.Chat does NOT send.
  *
  *   npm run emojis:generate
@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
-const OUTPUT = join(ROOT, 'lib', 'emojis.generated.ts');
+const OUTPUT = join(ROOT, '..', '..', 'packages', 'provider-api', 'src', 'emojis.generated.ts');
 const OUTPUT_RC = join(ROOT, 'lib', 'emojis.rocketchat.generated.ts');
 // The codes Rocket.Chat 8.5's `chat.react` accepts (its emoji.list), read from
 // the bench and committed at the repository root, shared with the desktop.
@@ -170,6 +170,6 @@ writeFileSync(OUTPUT_RC, fileRc);
 console.log(`lib/emojis.rocketchat.generated.ts: ${aliased} aliased, ${hidden} hidden`);
 const bytes = new TextEncoder().encode(file).length;
 console.log(
-  `lib/emojis.generated.ts: ${table.size} shortcodes + ${baseCount} sorted base codes, ${bytes} bytes ` +
+  `emojis.generated.ts: ${table.size} shortcodes + ${baseCount} sorted base codes, ${bytes} bytes ` +
     `(emoji-toolkit ${version}, ${collisions} diverging collision(s) dropped)`,
 );

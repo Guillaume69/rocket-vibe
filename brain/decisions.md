@@ -499,12 +499,13 @@ Teams' object store (asyncgw), where its web app puts the preview image it attac
 
 ## CI caches are saved from master only (2026-10-24)
 
-The repository held 13 GB of Actions cache against GitHub's 10 GB cap, so all but three entries were evicted and most Rust jobs compiled from scratch on every push. Three things filled it: keys ending in the commit sha, so every run saved a new multi-gigabyte entry; branch runs saving copies no other branch can restore (a run reads its own ref's caches and the default branch's); and tag runs saving release builds no later tag can read. So caches are saved from `master` only, keyed on what they hold (toolchain, lockfiles, Docker toolchain image), and release-only jobs cache nothing. A branch that changes a lockfile builds its new dependencies cold until it lands. See [operations](operations.md).
+The repository held 13 GB of Actions cache against GitHub's 10 GB cap, so all but three entries were evicted and most Rust jobs compiled from scratch on every push. Three things filled it: keys ending in the commit sha, so every run saved a new multi-gigabyte entry; branch runs saving copies no other branch can restore (a run reads its own ref's caches and the default branch's); and tag runs saving release builds no later tag can read. So caches are saved from `master` only, keyed on what they hold (toolchain, lockfiles, Docker toolchain image), and release-only jobs cache nothing. A branch that changes a lockfile builds its new dependencies cold until it lands. See [operations](operations.md). The repository stays within the free 10 GB rather than buying more (user decision, 2026-10-25): the Cargo caches built in Docker are pruned to their dependency artifacts, and the Android instrumentation job keeps no Gradle cache (1.3 GB, which no measured run had ever restored: the job takes the same 12 to 13 minutes without it), so the caches the workflows read fit without evicting each other.
 
 Sources:
 - .github/workflows/native-server.yml
 - .github/workflows/desktop.yml
 - .github/workflows/web-client.yml
+- .github/workflows/native-crypto-android.yml
 
 ## Authenticated E2EE state is reused, never re-derived, while its bytes are unchanged (2026-10-24)
 

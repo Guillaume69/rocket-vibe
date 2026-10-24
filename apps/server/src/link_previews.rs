@@ -64,7 +64,7 @@ async fn deliver(app: &App, job: Lease) -> Result<bool> {
         failed(app, &job, false).await?;
         return Ok(false);
     }
-    let collected = match network::collect(&job.url).await {
+    let collected = match network::collect(&job.url, "Vibez-LinkPreview/1").await {
         Ok(value) => value,
         Err(error) => {
             failed(app, &job, error.retry()).await?;

@@ -212,7 +212,7 @@ fn normalizes_image_to_png_and_refuses_mime_spoofing() {
 #[tokio::test]
 async fn rejects_private_literal_before_any_network_request() {
     assert_eq!(
-        collect("http://127.0.0.1/").await.unwrap_err(),
+        collect("http://127.0.0.1/", "test").await.unwrap_err(),
         Failure::Blocked
     );
 }
@@ -241,7 +241,7 @@ async fn http_client_pins_dns_sends_no_credentials_and_never_follows_redirects()
     });
     // Directly exercise the production client builder with a test socket.
     // The public policy above is never disabled in collect/fetch.
-    let response = client(host, &[address])
+    let response = client(host, &[address], "test")
         .unwrap()
         .get(format!("http://{host}:{}/page", address.port()))
         .send()
@@ -285,7 +285,7 @@ async fn response_reader_bounds_announced_and_chunked_bodies_and_refuses_compres
             address.port()
         ))
         .unwrap();
-        let response = client("reader.example.invalid", &[address])
+        let response = client("reader.example.invalid", &[address], "test")
             .unwrap()
             .get(url.clone())
             .send()

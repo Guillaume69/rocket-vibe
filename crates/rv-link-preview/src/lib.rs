@@ -144,7 +144,7 @@ async fn resolve(url: &Url) -> Result<Vec<SocketAddr>> {
     };
     checked_addresses(addresses)
 }
-fn client(host: &str, addresses: &[SocketAddr]) -> Result<Client> {
+fn client(host: &str, addresses: &[SocketAddr], agent: &str) -> Result<Client> {
     Client::builder()
         .no_proxy()
         .redirect(Policy::none())
@@ -157,7 +157,7 @@ fn client(host: &str, addresses: &[SocketAddr]) -> Result<Client> {
         .resolve_to_addrs(host, addresses)
         .connect_timeout(Duration::from_secs(3))
         .timeout(REQUEST_TIME)
-        .user_agent("Vibez-LinkPreview/1")
+        .user_agent(agent)
         .build()
         .map_err(|_| Failure::Network)
 }
@@ -172,11 +172,11 @@ fn redirect(current: &Url, location: &str) -> Result<Url> {
     }
     Ok(next)
 }
-async fn fetch(raw: &str, limit: usize, image_only: bool) -> Result<Resource> {
+async fn fetch(raw: &str, limit: usize, image_only: bool, agent: &str) -> Result<Resource> {
     let mut url = web_url(raw)?;
     for hop in 0..=4 {
         let addresses = resolve(&url).await?;
-        let request = client(url.host_str().ok_or(Failure::Blocked)?, &addresses)?;
+        let request = client(url.host_str().ok_or(Failure::Blocked)?, &addresses, agent)?;
         let response = request
             .get(url.clone())
             .header(
@@ -398,8 +398,8 @@ fn normalize_image(resource: Resource) -> Result<NormalizedImage> {
         height: thumbnail.height(),
     })
 }
-async fn collect_inner(url: &str) -> Result<Collected> {
-    let resource = fetch(url, IMAGE_BYTES, false).await?;
+async fn collect_inner(url: &str, agent: &str) -> Result<Collected> {
+    let resource = fetch(url, IMAGE_BYTES, false, agent).await?;
     if resource.media_type.starts_with("image/") {
         let image = tokio::task::spawn_blocking(move || normalize_image(resource))
             .await
@@ -416,7 +416,7 @@ async fn collect_inner(url: &str) -> Result<Collected> {
         .await
         .map_err(|_| Failure::Unsupported)??;
     let image = if let Some(image_url) = meta.image_url {
-        match fetch(&image_url, IMAGE_BYTES, true).await {
+        match fetch(&image_url, IMAGE_BYTES, true, agent).await {
             Ok(resource) => tokio::task::spawn_blocking(move || normalize_image(resource))
                 .await
                 .ok()
@@ -437,8 +437,9 @@ async fn collect_inner(url: &str) -> Result<Collected> {
         image,
     })
 }
-pub async fn collect(url: &str) -> Result<Collected> {
-    tokio::time::timeout(TOTAL_TIME, collect_inner(url))
+/// Collects the preview of `url`, introducing itself as `agent`.
+pub async fn collect(url: &str, agent: &str) -> Result<Collected> {
+    tokio::time::timeout(TOTAL_TIME, collect_inner(url, agent))
         .await
         .map_err(|_| Failure::Network)?
 }

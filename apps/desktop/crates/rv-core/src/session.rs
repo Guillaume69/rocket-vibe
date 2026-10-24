@@ -470,7 +470,7 @@ impl Session {
         let media = Arc::new(match sync.backend() {
             Backend::Mattermost(mm) => MediaCache::for_mattermost(rest.clone(), mm.directory.clone()),
             Backend::Slack(slack) => MediaCache::for_slack(rest.clone(), slack.directory.clone()),
-            Backend::Teams(_) => MediaCache::new(rest.clone()),
+            Backend::Teams(teams) => MediaCache::for_teams(rest.clone(), teams.clone()),
             Backend::RocketChat => MediaCache::new(rest.clone()),
         });
         let uploads = Arc::new(Uploads::new(store.clone(), rest.clone(), sync.clone()));

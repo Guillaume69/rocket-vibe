@@ -493,14 +493,71 @@ pub(crate) fn is_graph_share(url: &str) -> bool {
 /// are kept (downloaded through Graph `/shares`), as the renderer's RC shape
 /// `{title, title_link, type: "file", size}`. None when the message has no
 /// such file.
-pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
-    let files = raw.get("properties")?.get("files")?;
-    let parsed = match files {
-        Value::String(s) => serde_json::from_str::<Value>(s).ok()?,
-        other => other.clone(),
-    };
+/// An image Teams keeps on its asyncgw object store (`https://<region>.asyncgw
+/// .teams.microsoft.com/v1/objects/<id>/views/<view>`), read with the skype
+/// token (verified live 2026-10-24: 200 with it, 401 without).
+pub fn is_teams_image(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        u.scheme() == "https"
+            && u.username().is_empty()
+            && u.password().is_none()
+            && u.host_str().is_some_and(|h| h.ends_with(".asyncgw.teams.microsoft.com"))
+            && u.path().starts_with("/v1/objects/")
+            && u.path().contains("/views/")
+    })
+}
+
+fn image_attachment(url: &str, title: Option<&str>, width: Option<i64>, height: Option<i64>) -> Value {
+    let mut a = json!({ "image_url": url });
+    if let Some(title) = title {
+        a["title"] = json!(title);
+    }
+    if let (Some(w), Some(h)) = (width.filter(|w| *w > 0), height.filter(|h| *h > 0)) {
+        a["image_dimensions"] = json!({ "width": w, "height": h });
+    }
+    a
+}
+
+/// The images pasted into a message: its `<img>` tags on Teams' object store,
+/// emoji left to the text.
+fn inline_images(content: &str) -> Vec<Value> {
     let mut out = Vec::new();
-    for f in parsed.as_array()? {
+    let mut rest = content;
+    while let Some(at) = rest.to_ascii_lowercase().find("<img") {
+        let tail = &rest[at..];
+        let end = tail.find('>').map_or(tail.len(), |e| e + 1);
+        let tag = &tail[..end];
+        rest = &tail[end..];
+        if attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Emoji")) {
+            continue;
+        }
+        let Some(src) = attribute(tag, "src").map(crate::content::decode_entities) else { continue };
+        if is_teams_image(&src) {
+            let size = |name: &str| attribute(tag, name).and_then(|v| v.trim_end_matches("px").parse::<i64>().ok());
+            out.push(image_attachment(&src, None, size("width"), size("height")));
+        }
+    }
+    out
+}
+
+/// A message's attachments in the renderer's Rocket.Chat shape: images pasted
+/// into it, then its shared files, each with its preview image when Teams
+/// keeps one on its object store.
+pub(crate) fn file_attachments(raw: &Value) -> Option<String> {
+    let mut out = inline_images(str_of(raw, "content").unwrap_or_default());
+    let parsed = match raw.get("properties").and_then(|p| p.get("files")) {
+        Some(Value::String(s)) => serde_json::from_str::<Value>(s).unwrap_or(Value::Null),
+        Some(other) => other.clone(),
+        None => Value::Null,
+    };
+    for f in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
+        if let Some(preview) =
+            f.pointer("/filePreview/previewUrl").and_then(Value::as_str).filter(|u| is_teams_image(u))
+        {
+            let title = f.get("title").or_else(|| f.get("fileName")).and_then(Value::as_str);
+            let size = |key: &str| f.pointer(&format!("/filePreview/{key}")).and_then(Value::as_i64);
+            out.push(image_attachment(preview, title, size("previewWidth"), size("previewHeight")));
+        }
         let Some(url) =
             f.pointer("/fileInfo/fileUrl").and_then(Value::as_str).or_else(|| f.get("fileUrl").and_then(Value::as_str))
         else {
@@ -714,6 +771,42 @@ mod tests {
         // AMS call-recording media is not a driveItem: left out.
         assert!(!is_graph_share("https://as-api.asyncgw.teams.microsoft.com/v1/objects/0-weu-x/views/original"));
         assert!(!is_graph_share("not a url"));
+    }
+
+    #[test]
+    fn images_on_the_object_store_show_inline() {
+        let preview = "https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/0-frc-d2-ab/views/imgo";
+        let files = serde_json::to_string(&json!([{
+            "title": "photo.png",
+            "fileInfo": {"fileUrl": "https://contoso.sharepoint.com/sites/x/Shared Documents/photo.png"},
+            "filePreview": {"previewUrl": preview, "previewWidth": 512, "previewHeight": 256},
+        }]))
+        .unwrap();
+        let raw = json!({
+            "content": concat!(
+                "<p><img itemtype=\"http://schema.skype.com/AMSImage\" width=\"300\" height=\"200\" ",
+                "src=\"https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/0-frc-d1-cd/views/imgo\"></p>",
+                "<img itemtype=\"http://schema.skype.com/Emoji\" alt=\"x\" src=\"https://fr-prod.asyncgw.teams.microsoft.com/v1/objects/e/views/imgo\">",
+                "<img src=\"https://tracker.example/p.gif\">"
+            ),
+            "properties": {"files": files},
+        });
+        let found: Vec<Value> = serde_json::from_str(&file_attachments(&raw).unwrap()).unwrap();
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert_eq!(found[0]["image_dimensions"], json!({"width": 300, "height": 200}));
+        assert_eq!(
+            found[1],
+            json!({"image_url": preview, "title": "photo.png", "image_dimensions": {"width": 512, "height": 256}})
+        );
+        assert_eq!(found[2]["type"], "file");
+        for no in [
+            "http://fr-prod.asyncgw.teams.microsoft.com/v1/objects/a/views/imgo",
+            "https://evil.example/v1/objects/a/views/imgo",
+            "https://asyncgw.teams.microsoft.com.evil.example/v1/objects/a/views/imgo",
+            "https://u@fr-prod.asyncgw.teams.microsoft.com/v1/objects/a/views/imgo",
+        ] {
+            assert!(!is_teams_image(no), "{no}");
+        }
     }
 
     #[test]

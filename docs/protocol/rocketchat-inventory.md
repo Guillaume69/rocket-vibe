@@ -217,11 +217,11 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:42](../../apps/desktop/crates/rv-core/src/media.rs#L42) | resource | /avatar/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:43](../../apps/desktop/crates/rv-core/src/media.rs#L43) | resource | /avatar/uid/{…} |
 | [apps/desktop/crates/rv-core/src/media.rs:44](../../apps/desktop/crates/rv-core/src/media.rs#L44) | resource | /avatar/room/{…} |
-| [apps/desktop/crates/rv-core/src/media.rs:196](../../apps/desktop/crates/rv-core/src/media.rs#L196) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:205](../../apps/desktop/crates/rv-core/src/media.rs#L205) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:206](../../apps/desktop/crates/rv-core/src/media.rs#L206) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:226](../../apps/desktop/crates/rv-core/src/media.rs#L226) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:275](../../apps/desktop/crates/rv-core/src/media.rs#L275) | call:FETCH_PROTECTED | &path).await?; |
+| [apps/desktop/crates/rv-core/src/media.rs:209](../../apps/desktop/crates/rv-core/src/media.rs#L209) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:218](../../apps/desktop/crates/rv-core/src/media.rs#L218) | url | /api/v4/users/{…}/image |
+| [apps/desktop/crates/rv-core/src/media.rs:219](../../apps/desktop/crates/rv-core/src/media.rs#L219) | url | /api/v4/users/{…}/image |
+| [apps/desktop/crates/rv-core/src/media.rs:239](../../apps/desktop/crates/rv-core/src/media.rs#L239) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:300](../../apps/desktop/crates/rv-core/src/media.rs#L300) | call:FETCH_PROTECTED | &path).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:163](../../apps/desktop/crates/rv-core/src/outbox.rs#L163) | call:POST | "chat.sendMessage" |
@@ -363,8 +363,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:20](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L20) | url | /api/authsvc/v1.0/authz |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:1173](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L1173) | url | /api/v2/query |
 | [apps/desktop/crates/rv-core/src/teams/auth.rs:2128](../../apps/desktop/crates/rv-core/src/teams/auth.rs#L2128) | url | /api/csa |
-| [apps/desktop/crates/rv-core/src/teams/sync.rs:455](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L455) | url | /api/v2/query |
-| [apps/desktop/crates/rv-core/src/teams/sync.rs:601](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L601) | url | /api/csa |
+| [apps/desktop/crates/rv-core/src/teams/sync.rs:493](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L493) | url | /api/v2/query |
+| [apps/desktop/crates/rv-core/src/teams/sync.rs:639](../../apps/desktop/crates/rv-core/src/teams/sync.rs#L639) | url | /api/csa |
 | [apps/desktop/crates/rv-core/src/uploads.rs:95](../../apps/desktop/crates/rv-core/src/uploads.rs#L95) | resource | /file-upload/{…}/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:397](../../apps/desktop/crates/rv-core/src/uploads.rs#L397) | call:POST | "posts" |
 | [apps/desktop/crates/rv-core/src/uploads.rs:602](../../apps/desktop/crates/rv-core/src/uploads.rs#L602) | call:POST | &format!("rooms.mediaConfirm/{…}/{…}", row.rid) |

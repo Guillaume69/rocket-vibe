@@ -34,6 +34,9 @@ pub struct FileRef {
     pub unique: String,
 }
 
+/// The OneDrive folder Teams keeps a chat's files in.
+const CHAT_FILES: &str = "Microsoft Teams Chat Files";
+
 /// Percent-encode one URL path segment (RFC 3986 unreserved kept), for a file
 /// name in a Graph path-addressed upload.
 fn encode_segment(s: &str) -> String {
@@ -162,6 +165,41 @@ impl TeamsSync {
                 Err(e) if e.status == 401 && attempt == 0 => self.tokens.forget_aggregator().await,
                 other => return other,
             }
+        }
+        unreachable!("the second attempt returns")
+    }
+
+    /// An image on Teams' object store (`translate::is_teams_image`), with the
+    /// skype token in asyncgw's own form; a refused token is renewed once.
+    pub async fn fetch_image(&self, url: &str) -> Result<(Vec<u8>, String), RestError> {
+        if !translate::is_teams_image(url) {
+            return Err(RestError::network(format!("{url}: not a Teams image.")));
+        }
+        let net = |e: reqwest::Error| RestError::network(format!("teams image: {e}"));
+        for attempt in 0..2 {
+            let (token, _) = self.tokens.chat().await?;
+            let response = self
+                .http
+                .get(url)
+                .header("authorization", format!("skype_token {}", token.as_str()))
+                .send()
+                .await
+                .map_err(net)?;
+            let status = response.status().as_u16();
+            if status == 401 && attempt == 0 {
+                self.tokens.forget_chat().await;
+                continue;
+            }
+            if !(200..300).contains(&status) {
+                return Err(RestError { status, ..RestError::network(format!("teams image: {status}")) });
+            }
+            let kind = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            return Ok((response.bytes().await.map_err(net)?.to_vec(), kind));
         }
         unreachable!("the second attempt returns")
     }
@@ -620,9 +658,18 @@ impl TeamsSync {
     }
 
     /// (Graph drive id, folder item id) of a channel's SharePoint files folder, cached per room.
+    /// (Graph drive id, folder item id) where a room's files go, cached per
+    /// room: a channel's SharePoint files folder, a chat's `Microsoft Teams
+    /// Chat Files` folder in my OneDrive (as Teams' own clients do), made
+    /// when it does not exist yet.
     async fn channel_drive(&self, rid: &str) -> Result<(String, String), RestError> {
         if let Some(found) = self.drives.lock().unwrap().get(rid).cloned() {
             return Ok(found);
+        }
+        if self.team_of(rid).is_none() {
+            let pair = self.chat_files_folder().await?;
+            self.drives.lock().unwrap().insert(rid.to_owned(), pair.clone());
+            return Ok(pair);
         }
         let group = self.parent_team(rid).await?;
         let url = format!(
@@ -639,7 +686,80 @@ impl TeamsSync {
         Ok(pair)
     }
 
-    /// Uploads `bytes` into a channel's files folder (Graph simple upload), and
+    async fn chat_files_folder(&self) -> Result<(String, String), RestError> {
+        let pair = |v: &Value| {
+            Some((
+                v.pointer("/parentReference/driveId").and_then(Value::as_str)?.to_owned(),
+                v.get("id").and_then(Value::as_str)?.to_owned(),
+            ))
+        };
+        let path = format!(
+            "https://graph.microsoft.com/v1.0/me/drive/root:/{}?$select=id,parentReference",
+            encode_segment(CHAT_FILES)
+        );
+        if let Ok(found) = self.graph_json(&path).await
+            && let Some(found) = pair(&found)
+        {
+            return Ok(found);
+        }
+        let token = self.tokens.graph().await?;
+        let body = serde_json::json!({ "name": CHAT_FILES, "folder": {}, "@microsoft.graph.conflictBehavior": "fail" });
+        let made = self
+            .http
+            .post("https://graph.microsoft.com/v1.0/me/drive/root/children")
+            .bearer_auth(token.as_str())
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams chat files: {e}")))?;
+        let status = made.status().as_u16();
+        let made: Value = made.json().await.unwrap_or(Value::Null);
+        match pair(&made) {
+            Some(found) => Ok(found),
+            None if status == 409 => pair(&self.graph_json(&path).await?)
+                .ok_or_else(|| crate::teams::auth::refusal("teams_chat_files", status)),
+            None => Err(crate::teams::auth::refusal("teams_chat_files", status)),
+        }
+    }
+
+    /// Grants a chat's other members read on a file in my OneDrive, as Teams'
+    /// clients do for a chat's files, without Microsoft's invitation mail
+    /// (`driveItem/invite`, verified live 2026-10-24).
+    async fn share_with_chat(&self, rid: &str, drive: &str, item_id: &str) -> Result<(), RestError> {
+        let url = self.chat_url(&["threads", rid], "view=msnp24Equivalent&threadProperties=1").await?;
+        let roster = self.chat(Method::GET, url, None).await?.body;
+        let me = self.me().to_owned();
+        let others: Vec<Value> = roster
+            .get("members")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| str_of(m, "id"))
+            .filter(|mri| *mri != me)
+            .filter_map(|mri| mri.strip_prefix("8:orgid:"))
+            .map(|oid| serde_json::json!({ "objectId": oid }))
+            .collect();
+        if others.is_empty() {
+            return Ok(());
+        }
+        let token = self.tokens.graph().await?;
+        let body = serde_json::json!({ "requireSignIn": true, "sendInvitation": false, "roles": ["read"], "recipients": others });
+        let r = self
+            .http
+            .post(format!("https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}/invite"))
+            .bearer_auth(token.as_str())
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| RestError::network(format!("teams share: {e}")))?;
+        let status = r.status().as_u16();
+        if status >= 400 {
+            return Err(crate::teams::auth::refusal(&format!("graph_invite_{status}"), status));
+        }
+        Ok(())
+    }
+
+    /// Uploads `bytes` into a room's files folder (Graph simple upload), and
     /// returns the stored file as the chat message needs it.
     pub async fn upload_file(&self, rid: &str, name: &str, mime: &str, bytes: Vec<u8>) -> Result<FileRef, RestError> {
         let (drive, folder) = self.channel_drive(rid).await?;
@@ -672,6 +792,9 @@ impl TeamsSync {
     /// The stored file's message fields, re-read for its SharePoint ids.
     pub async fn file_ref(&self, rid: &str, item_id: &str) -> Result<FileRef, RestError> {
         let (drive, _) = self.channel_drive(rid).await?;
+        if self.team_of(rid).is_none() {
+            self.share_with_chat(rid, &drive, item_id).await?;
+        }
         let url = format!(
             "https://graph.microsoft.com/v1.0/drives/{drive}/items/{item_id}?$select=id,name,webUrl,sharepointIds"
         );

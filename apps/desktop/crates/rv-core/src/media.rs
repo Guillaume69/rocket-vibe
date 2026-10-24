@@ -168,6 +168,8 @@ pub struct MediaCache {
     directory: Option<Arc<crate::mattermost::directory::Directory>>,
     /// A Slack account: photos are public CDN URLs, read without the session.
     slack: Option<Arc<crate::slack::directory::Directory>>,
+    /// A Teams account: images on its object store need the skype token.
+    teams: Option<Arc<crate::teams::sync::TeamsSync>>,
     entries: Mutex<HashMap<String, Arc<Media>>>,
     /// Files of encrypted rooms by path: the server holds only their ciphertext.
     keys: Mutex<HashMap<String, crate::e2e::FileEncryption>>,
@@ -175,11 +177,22 @@ pub struct MediaCache {
 
 impl MediaCache {
     pub fn new(rest: RestClient) -> Self {
-        MediaCache { rest, directory: None, slack: None, entries: Mutex::default(), keys: Mutex::default() }
+        MediaCache {
+            rest,
+            directory: None,
+            slack: None,
+            teams: None,
+            entries: Mutex::default(),
+            keys: Mutex::default(),
+        }
     }
 
     pub fn for_mattermost(rest: RestClient, directory: Arc<crate::mattermost::directory::Directory>) -> Self {
         MediaCache { directory: Some(directory), ..Self::new(rest) }
+    }
+
+    pub fn for_teams(rest: RestClient, teams: Arc<crate::teams::sync::TeamsSync>) -> Self {
+        MediaCache { teams: Some(teams), ..Self::new(rest) }
     }
 
     pub fn for_slack(rest: RestClient, directory: Arc<crate::slack::directory::Directory>) -> Self {
@@ -262,6 +275,18 @@ impl MediaCache {
     pub async fn fetch(&self, path_or_url: &str) -> Result<Arc<Media>, RestError> {
         if let Some(hit) = self.entries.lock().unwrap().get(path_or_url) {
             return Ok(hit.clone());
+        }
+        if let Some(teams) = &self.teams
+            && crate::teams::translate::is_teams_image(path_or_url)
+        {
+            let (bytes, content_type) = teams.fetch_image(path_or_url).await?;
+            let media = Arc::new(Media { bytes, content_type });
+            let mut entries = self.entries.lock().unwrap();
+            if entries.len() >= CACHE_LIMIT {
+                entries.clear();
+            }
+            entries.insert(path_or_url.to_owned(), media.clone());
+            return Ok(media);
         }
         let path = match (self.server_path(path_or_url), &self.slack) {
             // Slack names nobody up front: a person no loaded message named

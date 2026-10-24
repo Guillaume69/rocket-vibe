@@ -22,37 +22,8 @@ import {
   type FileToSend,
   type TransportUpload,
 } from './upload.ts';
-
-export type UploadRow = {
-  id: string;
-  rid: string;
-  uri: string;
-  name: string;
-  type: string;
-  caption: string | null;
-  /** The thread the file answers, sent as `tmid` with the confirmation; null in the room. */
-  tmid: string | null;
-  status: 'pending' | 'sending' | 'failed';
-  /** Returned by `rooms.media`. Non-null = the bytes are already on the server. */
-  fileId: string | null;
-};
-
-export interface UploadStore {
-  insert(row: Omit<UploadRow, 'status' | 'fileId'>): Promise<void>;
-  /** Only the `pending` rows, in creation order. */
-  listToSend(): Promise<UploadRow[]>;
-  /** Claims the row (`pending` → `sending`). `false` if another pass took it. */
-  claim(id: string): Promise<boolean>;
-  /** Hands back to the replay the orphaned `sending` rows of a killed process, EXCEPT those still in flight here. */
-  rearmInFlight(inFlightHere: string[]): Promise<void>;
-  /** The "Retry" gesture: a failure becomes a candidate again. */
-  rearm(id: string): Promise<void>;
-  recordFileId(id: string, fileId: string): Promise<void>;
-  /** Is the message carrying this file ALREADY in the database? Local, never network. */
-  fileAlreadyPosted(rid: string, fileId: string): Promise<boolean>;
-  markFailed(id: string, error: string): Promise<void>;
-  delete(id: string): Promise<void>;
-}
+import type { UploadRow, UploadStore, EncryptedFile, UploadEncryption } from '@rocket-vibe/provider-api/uploads';
+export type { UploadRow, UploadStore, EncryptedFile, UploadEncryption } from '@rocket-vibe/provider-api/uploads';
 
 export type UploadRules = {
   maxSize: number | null;
@@ -61,19 +32,6 @@ export type UploadRules = {
   /** `E2E_Enable_Encrypt_Files`: without it, an encrypted room accepts no file. */
   encryptedFiles: boolean;
 };
-
-/** An encrypted file in a temporary file, ready to upload. */
-export type EncryptedFile = { uri: string; key: FileJwk; iv: string; sha256: string; size: number };
-
-/** What the queue needs to send into an encrypted room. */
-export interface UploadEncryption {
-  roomEncrypted(rid: string): Promise<boolean>;
-  /** Content encrypted for this room, `null` without a key (locked). */
-  encrypt(rid: string, payload: object): EncryptedContent | null;
-  encryptFile(uri: string): Promise<EncryptedFile>;
-  /** SHA-256 hash (hex) of a text: the name the file leaves under. */
-  hashedName(name: string): string;
-}
 
 /** The room key is missing: the row waits for the unlock, it does not fail. */
 class KeyWait extends Error {}

@@ -5,9 +5,7 @@ const expoConfig = require("eslint-config-expo/flat");
 module.exports = defineConfig([
   expoConfig,
   {
-    // `lib/emojis.generated.ts`: 260 KB on one line, produced by
-    // `npm run emojis:generate`. Nothing to fix there by hand.
-    ignores: ['dist/*', 'db/migrations/*', 'lib/emojis.generated.ts'],
+    ignores: ['dist/*', 'db/migrations/*'],
   },
   {
     files: ['lib/**/*.ts', 'db/**/*.ts'],

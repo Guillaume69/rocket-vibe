@@ -15,19 +15,14 @@
 import type { DdpEvent } from './ddp.ts';
 import { CALL_TYPE, type LocalMessage } from './normalize.ts';
 import type { Translator } from './provider.ts';
+import type { CallSignal, CallCheck } from '@rocket-vibe/provider-api/calls';
+export type { CallSignal, CallCheck } from '@rocket-vibe/provider-api/calls';
 
 /** How long a call rings: Rocket.Chat cancels an unanswered direct call after 40 s. */
 export const RING_MS = 40_000;
 /** How often the server's record of a ringing call is read again. */
 export const RING_CHECK_MS = 5_000;
 const SEEN_KEPT = 200;
-
-export type CallSignal =
-  | { kind: 'call'; rid: string; messageId: string; callId: string; authorId: string; ts: number }
-  | { kind: 'over'; messageId: string };
-
-/** The server's record of a call. */
-export type CallCheck = { rid: string; callerId: string; callerName: string | null; over: boolean; joined: readonly string[] };
 
 export type IncomingCall = { messageId: string; rid: string; callId: string; callerId: string; callerName: string | null; until: number };
 

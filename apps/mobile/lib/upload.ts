@@ -20,33 +20,8 @@ import {nativeAvatarUri} from './nativeAvatars.ts';
 import {nativeFileUri} from './nativeFiles.ts';
 import { photoUri } from './whatsappFiles.ts';
 import { slackAvatar } from './slackAvatars.ts';
-
-export type FileToSend = {
-  uri: string;
-  name: string;
-  /** MIME. Checked against `FileUpload_MediaTypeWhiteList` BEFORE the call. */
-  type: string;
-};
-
-/**
- * Sends the multipart and returns the response's TEXT BODY. The app
- * implementation uses `expo-file-system` (createUploadTask); tests, a fetch.
- */
-export type TransportUpload = (
-  url: string,
-  headers: Record<string, string>,
-  file: FileToSend,
-  onProgress?: (fraction: number) => void,
-  /**
-   * Called ONCE, as soon as the task exists, with a way to interrupt it.
-   * Without it "Discard" only did a DELETE in the database: the bytes kept
-   * going up and the file ended up appearing in the room, after the user had
-   * explicitly discarded it.
-   */
-  onCancelable?: (cancel: () => Promise<void>) => void,
-  /** Text fields added to the multipart (the encrypted `content` of a file in an encrypted room). */
-  fields?: Record<string, string>,
-) => Promise<{ status: number; body: string }>;
+import type { FileToSend, TransportUpload } from '@rocket-vibe/provider-api/uploads';
+export type { FileToSend, TransportUpload } from '@rocket-vibe/provider-api/uploads';
 
 export class UploadError extends Error {
   constructor(message: string) {

@@ -1,7 +1,13 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { getDefaultConfig } = require('expo/metro-config');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const path = require('node:path');
 
 const config = getDefaultConfig(__dirname);
+// The provider packages (`packages/`), linked from the repository's npm workspace.
+const repository = path.resolve(__dirname, '../..');
+config.watchFolders = [...config.watchFolders, path.join(repository, 'packages'), path.join(repository, 'node_modules')];
+config.resolver.nodeModulesPaths = [path.join(__dirname, 'node_modules'), path.join(repository, 'node_modules')];
 // Without this, Metro refuses to resolve drizzle-kit's `.sql` migrations.
 config.resolver.sourceExts.push('sql');
 

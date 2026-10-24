@@ -1,0 +1,10 @@
+{
+  "name": "rocket-vibe-packages",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present"
+  }
+}

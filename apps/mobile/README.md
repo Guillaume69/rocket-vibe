@@ -188,7 +188,7 @@ globally (see `docs/DEV.md`).
 | `npm test` | Unit tests (`node --test` on `lib/`, `db/`, `ui/`, `providers/` and the `plugins/*.test.mjs`). |
 | `npm run seed` | (Re)seeds the test data on the dev server. |
 | `npm run db:generate` | Generates the Drizzle migrations from the schema. |
-| `npm run emojis:generate` | Regenerates the shortcode table (`lib/emojis.generated.ts`) from `emoji-toolkit`. |
+| `npm run emojis:generate` | Regenerates the shortcode table (`packages/provider-api/src/emojis.generated.ts`) from `emoji-toolkit`. |
 | `npm run icons:generate` | Regenerates the icon font and its name table from `assets/icons/*.svg`. |
 
 For a **release**: `source scripts/env.sh && cd android && ./gradlew assembleRelease`,

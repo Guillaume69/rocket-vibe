@@ -20,11 +20,10 @@
 
 import type { DdpEvent } from './ddp.ts';
 import type { RestClient } from './rest.ts';
-
-export type PresenceStatus = 'online' | 'away' | 'busy' | 'offline';
-
-export const STREAM_NOTIFY_LOGGED = 'stream-notify-logged';
-export const PRESENCE_EVENT = 'user-status';
+import type { PresenceStatus } from '@rocket-vibe/provider-api/presence';
+export type { PresenceStatus } from '@rocket-vibe/provider-api/presence';
+import { STREAM_NOTIFY_LOGGED, PRESENCE_EVENT } from '@rocket-vibe/provider-api/presence';
+export { STREAM_NOTIFY_LOGGED, PRESENCE_EVENT } from '@rocket-vibe/provider-api/presence';
 
 /** The server's `STATUS_MAP` (read in the 8.5 bundle). */
 const SINCE_NUMBER = new Map<number, PresenceStatus>([

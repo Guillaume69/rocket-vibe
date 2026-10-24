@@ -37,6 +37,8 @@ import {
   type KeyObject,
 } from 'crypto';
 import { Buffer } from 'buffer';
+import type { EncryptedContent, FileJwk } from '@rocket-vibe/provider-api/crypto';
+export type { EncryptedContent, FileJwk } from '@rocket-vibe/provider-api/crypto';
 
 /** Private key envelope as returned by `e2e.fetchMyKeys`. */
 export type PrivateKeyEnvelope = {
@@ -47,21 +49,6 @@ export type PrivateKeyEnvelope = {
   /** Literal ASCII string `v2:<uid>:<uuid>`, used AS IS (no base64). */
   salt: string;
   iterations: number;
-};
-
-/**
- * `content` object of an encrypted message. Three observed shapes:
- *   - `rc.v2` GCM (recent server): `{kid, iv(12 B), ciphertext(+tag)}`;
- *   - `rc.v2` CBC (old account): `{kid, iv(16 B), ciphertext}`;
- *   - `rc.v1` (legacy): `{ciphertext}` alone, where `ciphertext = keyID(12) +
- *     base64(IV(16) || AES-CBC)`, with no separate `iv`/`kid` field.
- * Hence OPTIONAL `iv`/`kid`.
- */
-export type EncryptedContent = {
-  algorithm: string;
-  ciphertext: string;
-  kid?: string;
-  iv?: string;
 };
 
 /** Imported RSA private key, opaque, kept in memory for a session. */
@@ -340,9 +327,6 @@ export function decryptFile(bytes: Buffer, encryption: FileEncryption): Buffer {
 export function sha256Digest(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
-
-/** A sent file's key, in the JWK shape the web client reimports (AES-CTR, extractable). */
-export type FileJwk = { kty: 'oct'; alg: 'A256CTR'; k: string; ext: true; key_ops: ['encrypt', 'decrypt'] };
 
 /**
  * Plain file -> bytes to upload, and what is needed to read it back: a fresh

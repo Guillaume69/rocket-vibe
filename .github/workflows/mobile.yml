@@ -8,6 +8,9 @@ on:
     tags: ['mobile-v*']
     paths:
       - 'apps/mobile/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
       - 'apps/desktop/whatsapp/**'
@@ -16,6 +19,9 @@ on:
   pull_request:
     paths:
       - 'apps/mobile/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - 'crates/rv-crypto*/**'
       - 'crates/rv-protocol/**'
       - 'apps/desktop/whatsapp/**'
@@ -42,7 +48,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: apps/mobile/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
       - id: version
         run: |
           if [ "${{ github.ref_type }}" = tag ]; then
@@ -53,9 +61,13 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - run: npm ci
+        working-directory: .
+      - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
       - run: npm test
+      - run: npm test
+        working-directory: .
 
   # expo prebuild + Gradle on the runner: a local build, never EAS.
   android:
@@ -73,7 +85,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: apps/mobile/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -111,6 +125,8 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           echo "RV_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+      - run: npm ci
+        working-directory: .
       - run: npm ci
       - run: npx expo prebuild --platform android --clean
         env:

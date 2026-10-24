@@ -1,0 +1,56 @@
+# Daily check that the private surfaces WhatsApp, Slack and Teams are reached
+# through have not moved, without an account (brain/architecture/canaries.md).
+# A broken provider gets one issue labelled `canary`, commented on each day it
+# stays broken and closed once it passes again. A push to the canaries only
+# runs their unit tests.
+name: canaries
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - 'scripts/canaries/**'
+      - '.github/workflows/canaries.yml'
+
+concurrency:
+  group: canaries-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: node --test scripts/canaries/canaries.test.mjs
+
+  check:
+    if: github.event_name != 'push'
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - id: run
+        continue-on-error: true
+        run: node scripts/canaries/run.mjs --json "$RUNNER_TEMP/canaries.json"
+      - name: Issues
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          test -f "$RUNNER_TEMP/canaries.json" || { echo "::error::The canaries wrote no report."; exit 1; }
+          node scripts/canaries/issues.mjs "$RUNNER_TEMP/canaries.json" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: A broken canary fails the run
+        if: steps.run.outcome == 'failure'
+        run: exit 1

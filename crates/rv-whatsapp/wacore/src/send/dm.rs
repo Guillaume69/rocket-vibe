@@ -1,0 +1,748 @@
+//! 1:1 (DM) stanza preparation and DM retry stanzas.
+
+use super::*;
+use anyhow::Context as _;
+
+fn is_exact_dm_sender_device(device_jid: &Jid, own_jid: &Jid, own_lid: Option<&Jid>) -> bool {
+    (device_jid.is_same_user_as(own_jid) && device_jid.device == own_jid.device)
+        || own_lid
+            .is_some_and(|lid| device_jid.is_same_user_as(lid) && device_jid.device == lid.device)
+}
+
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.dm_partition", level = "debug", skip_all)
+)]
+pub(crate) fn partition_dm_devices(
+    mut all_devices: Vec<Jid>,
+    own_jid: &Jid,
+    own_lid: Option<&Jid>,
+) -> PartitionedDmDevices {
+    // Unstable partition is intentional: participant wire order is not
+    // significant and phash sorts independently. Classifying in one pass and
+    // reusing the caller's buffer avoids allocating recipient + own-device
+    // Vecs on every DM send.
+    let mut recipient_count = 0;
+    let mut device_index = 0;
+    while device_index < all_devices.len() {
+        if is_exact_dm_sender_device(&all_devices[device_index], own_jid, own_lid) {
+            all_devices.swap_remove(device_index);
+            continue;
+        }
+
+        if !all_devices[device_index].matches_user_or_lid(own_jid, own_lid) {
+            all_devices.swap(device_index, recipient_count);
+            recipient_count += 1;
+        }
+        device_index += 1;
+    }
+
+    PartitionedDmDevices {
+        // Frozen once the partition is settled: nothing appends to it
+        // afterwards, and the fan-out build over-reserves, so the boxed slice
+        // keeps a resident DM memo from parking that slack.
+        devices: all_devices.into_boxed_slice(),
+        recipient_count,
+    }
+}
+
+pub(crate) struct PartitionedDmDevices {
+    devices: Box<[Jid]>,
+    recipient_count: usize,
+}
+
+impl crate::stats::HeapSize for PartitionedDmDevices {
+    fn heap_bytes(&self) -> usize {
+        self.devices.len() * size_of::<Jid>()
+            + self.devices.iter().map(|j| j.heap_bytes()).sum::<usize>()
+    }
+}
+
+impl PartitionedDmDevices {
+    pub(crate) fn valid_devices(&self) -> &[Jid] {
+        &self.devices
+    }
+
+    pub(crate) fn recipient_devices(&self) -> &[Jid] {
+        &self.devices[..self.recipient_count]
+    }
+
+    pub(crate) fn own_other_devices(&self) -> &[Jid] {
+        &self.devices[self.recipient_count..]
+    }
+}
+
+/// A DM that could not carry a single `<enc>` for its recipient, so it was not
+/// sent at all.
+///
+/// The recipient half of the fan-out and our own companion half write into one
+/// participant list, so "some device encrypted" is not the same question as
+/// "the recipient can read this": a stanza built from the own half alone is
+/// acked by the server and delivered to nobody. Both shapes below mean the same
+/// thing to the caller: nothing reached the recipient, and the device list is
+/// the suspect, so a retry is worth making with a forced device refresh.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum NoRecipientDeviceError {
+    /// Every device resolved for the recipient failed to encrypt. `source` is
+    /// the first of those failures (missing session, refused pre-key bundle).
+    #[error("encryption failed for all {attempted} recipient device(s)")]
+    EncryptionFailed {
+        attempted: usize,
+        #[source]
+        source: anyhow::Error,
+    },
+    /// The fan-out held no device for the recipient to begin with. Distinct
+    /// from the above: nothing was attempted, so there is no per-device cause.
+    #[error("no device resolved for the recipient")]
+    Unresolved,
+}
+
+/// The server named a device 0 as gone while the send was establishing
+/// sessions for it.
+///
+/// Kept apart from [`NoRecipientDeviceError`] because it can name our own
+/// primary as easily as the peer's, and the two ask for different things: this
+/// says one identity's device list is stale on a device that owns its chat, so
+/// the stanza is not built at all. Nothing was on the wire, and the useful
+/// retry is one that resolves devices again.
+#[derive(Debug, thiserror::Error)]
+#[error("the server rejected the primary device with code {code}")]
+#[non_exhaustive]
+pub struct PrimaryDeviceRejected {
+    /// The `<error code>` the server attached to it.
+    pub code: u16,
+}
+
+impl PrimaryDeviceRejected {
+    pub fn new(code: u16) -> Self {
+        Self { code }
+    }
+}
+
+impl NoRecipientDeviceError {
+    fn encryption_failed(attempted: usize, source: Option<anyhow::Error>) -> Self {
+        Self::EncryptionFailed {
+            attempted,
+            // A device can also drop out without an error (an encrypt that
+            // produced an unsupported ciphertext type), so the source is
+            // synthesised rather than left absent.
+            source: source.unwrap_or_else(|| anyhow!("no recipient device produced a ciphertext")),
+        }
+    }
+}
+
+/// What the recipient half of a DM fan-out managed to encrypt for.
+///
+/// A DM whose fan-out lost some but not all of the recipient's devices still
+/// builds a stanza, is acked, and returns a real message id, so this is the
+/// only place the loss is visible. `skipped_primary` is called out separately
+/// because a recipient's phone holds the chat whether or not they have a
+/// companion linked and open: a stanza that reached only companions is the one
+/// a recipient is most likely to never see.
+///
+/// Zero-valued for a self-chat, which has no recipient half at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub struct RecipientFanout {
+    /// Recipient devices the fan-out attempted.
+    pub addressed: usize,
+    /// Of those, how many produced a `<to><enc>` node.
+    pub encrypted: usize,
+    /// The recipient's device 0 was among the devices that encrypted for
+    /// nothing. Says nothing about how many others were skipped; `addressed`
+    /// against `encrypted` answers that.
+    pub skipped_primary: bool,
+    /// The server answered 406 (unregistered) for at least one of them.
+    pub had_unregistered_device: bool,
+}
+
+impl RecipientFanout {
+    /// Some recipient device was addressed and dropped. The total-loss case
+    /// never reaches a caller: it is [`NoRecipientDeviceError`].
+    pub fn is_partial(&self) -> bool {
+        self.encrypted < self.addressed
+    }
+}
+
+/// Result of `prepare_dm_stanza` — carries the stanza node and the
+/// locally computed phash for server ACK validation.
+///
+/// Sealed: it is a return type, and every field it has grown was a fact the
+/// send already knew and threw away. Sealing it means the next one costs
+/// nobody a compile error.
+#[non_exhaustive]
+pub struct PreparedDmStanza {
+    pub node: Node,
+    /// What the recipient half of the fan-out reached. See [`RecipientFanout`].
+    pub recipient_fanout: RecipientFanout,
+    /// Every device, either half, that was addressed and produced no `<enc>`.
+    /// Empty on a complete fan-out. These hold no copy of the message, so a
+    /// repair driven by a later device-list disagreement has to treat them as
+    /// unreached even though the send named them.
+    pub unreached_devices: Vec<Jid>,
+    /// Locally computed phash from the sent device set. Not sent on the
+    /// wire (WA Web only sends phash for groups). Used by the caller to
+    /// compare against the server's ACK phash for device-list drift detection.
+    pub phash: Option<CompactString>,
+    /// `MessageContextInfo.message_secret` generated for this stanza so the
+    /// caller can persist it for later addon (msmsg/poll/edit) decryption.
+    /// `None` when the message had no reporting token (no secret was used).
+    pub message_secret: Option<[u8; crate::reporting_token::MESSAGE_SECRET_SIZE]>,
+}
+
+pub struct DmStanzaRequest<'a> {
+    pub own_jid: &'a Jid,
+    /// Our own LID, when known. Same value the fan-out was partitioned with, so
+    /// the self-chat check below classifies the destination exactly the way
+    /// `partition_dm_devices` classified its devices.
+    pub own_lid: Option<&'a Jid>,
+    pub account: Option<&'a wa::ADVSignedDeviceIdentity>,
+    pub to: &'a Jid,
+    pub message: &'a wa::Message,
+    pub message_id: &'a str,
+    pub edit: Option<&'a crate::types::message::EditAttribute>,
+    pub extra_nodes: &'a [Node],
+    /// The already-partitioned fan-out. Borrowed, not owned: the caller's
+    /// per-recipient memo hands out the same `Arc` on every repeat send, so
+    /// neither the device list nor its phash is rebuilt here.
+    pub devices: &'a ResolvedDmDevices,
+    pub pre_encoded: Option<&'a [u8]>,
+}
+
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.dm_prepare", level = "debug", skip_all, err(Debug))
+)]
+pub async fn prepare_dm_stanza(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    request: DmStanzaRequest<'_>,
+) -> Result<PreparedDmStanza> {
+    let DmStanzaRequest {
+        own_jid,
+        own_lid,
+        account,
+        to: to_jid,
+        message,
+        message_id: request_id,
+        edit,
+        extra_nodes: extra_stanza_nodes,
+        devices: resolved_devices,
+        pre_encoded,
+    } = request;
+    // Encode the message at most once (reusing the caller's `pre_encoded` bytes when
+    // provided) and thread those bytes through both the reporting token
+    // (whitelisted-field extraction) and the wire plaintext below. The rare mci-hoist
+    // path (message carries a top-level message_context_info) can't share: its
+    // plaintext folds the reporting secret into the existing mci, diverging from the
+    // bytes the token is computed over, so it re-encodes.
+    let shared_content = message.message_context_info.is_unset().then(|| {
+        pre_encoded.map_or_else(
+            || std::borrow::Cow::Owned(waproto::codec::message_to_vec(message)),
+            std::borrow::Cow::Borrowed,
+        )
+    });
+
+    // sender is the author's own jid, remote is the chat jid (WAWebReportingTokenUtils:
+    // getSender vs e.to). Both previously used to_jid, conflating sender with remote.
+    // Reuse the message's own secret when the caller set one (e.g. polls), instead of
+    // minting a fresh one that would overwrite it: WA Web derives the reporting token
+    // from the message's existing messageSecret (`p ?? e.messageSecret`), and a poll's
+    // creator must keep the secret that ends up on the wire to decrypt later votes.
+    let existing_secret = crate::reporting_token::extract_message_secret(message);
+    let reporting_result = match &shared_content {
+        Some(content) => generate_reporting_token_from_encoded(
+            message,
+            content,
+            request_id,
+            own_jid,
+            to_jid,
+            existing_secret,
+        ),
+        None => generate_reporting_token(message, request_id, own_jid, to_jid, existing_secret),
+    };
+
+    // The reporting token's MessageContextInfo (message_secret + version) is spliced
+    // straight onto the encoded plaintexts instead of deep-cloning the whole message
+    // via prepare_message_with_context just to attach two fields.
+    let extra_context = reporting_result.as_ref().map(reporting_context_info);
+
+    // The set arrives partitioned (sender excluded) so phash reflects the actual
+    // sent set and the own-device plaintext can be skipped when there's nothing
+    // to send it to.
+    let recipient_devices = resolved_devices.recipient_devices();
+    let own_other_devices = resolved_devices.own_other_devices();
+    let total_devices = resolved_devices.devices().len();
+    // The memoized addresses are parallel to `devices()`, which is the
+    // recipient partition followed by our companions. A list of any other
+    // length is not one this set produced, so it is ignored rather than
+    // trusted, and the fan-out resolves per device as it does without a memo.
+    let (recipient_addresses, own_addresses) = match resolved_devices.signal_addressing() {
+        Some(addressing) if addressing.encryption().len() == total_devices => {
+            let (recipient, own) = addressing.encryption().split_at(recipient_devices.len());
+            (Some(recipient), Some(own))
+        }
+        _ => (None, None),
+    };
+
+    let phash = resolved_devices.phash();
+
+    // Splice the shared content into the recipient plaintext and, when present, the
+    // own-device DeviceSentMessage plaintext. With no own companion devices (an
+    // account with nothing else linked), the DSM plaintext would be built only to
+    // go unused, so encode just the recipient. The mci-hoist path re-encodes via
+    // `encode_dm_plaintexts` (see `shared_content`).
+    let crate::messages::DmPlaintexts {
+        recipient: recipient_plaintext,
+        own_devices: own_devices_plaintext,
+    } = match &shared_content {
+        Some(content) if own_other_devices.is_empty() => crate::messages::DmPlaintexts {
+            recipient: MessageUtils::pad_with_context_from_encoded(content, extra_context.as_ref()),
+            own_devices: Vec::new(),
+        },
+        Some(content) => {
+            MessageUtils::dm_plaintexts_from_encoded(content, extra_context.as_ref(), to_jid)
+        }
+        None => MessageUtils::encode_dm_plaintexts(message, extra_context.as_ref(), to_jid),
+    };
+
+    let mut participant_nodes = Vec::with_capacity(total_devices);
+    let mut includes_prekey_message = false;
+    let mut recipient_fanout = RecipientFanout::default();
+    let mut unreached_devices: Vec<Jid> = Vec::new();
+
+    let hide_decrypt_fail = should_hide_decrypt_fail_for_send(edit, message);
+
+    let mediatype = media_type_from_message(message);
+
+    // NOTE: WA Web has a bare-<enc> fast path for single primary device
+    // (WAWebSendMsgCreateFanoutStanza). Not implemented here because
+    // encrypt_for_devices always wraps in <to jid=...> nodes;
+    // a bare-enc mode would require refactoring the encryption layer.
+    // The <participants> form is accepted by the server regardless.
+
+    // Both fan-outs append into the vector already sized for the whole
+    // participant set, so neither stages a node list of its own.
+    if !recipient_devices.is_empty() {
+        let summary = encrypt_for_devices_into(
+            runtime,
+            stores,
+            resolver,
+            recipient_devices,
+            &recipient_plaintext,
+            hide_decrypt_fail,
+            mediatype,
+            &mut participant_nodes,
+            recipient_addresses,
+        )
+        .await?;
+        includes_prekey_message = includes_prekey_message || summary.includes_prekey_message;
+        recipient_fanout = RecipientFanout {
+            addressed: recipient_devices.len(),
+            encrypted: summary.encrypted_devices,
+            skipped_primary: summary.skipped_primary,
+            had_unregistered_device: summary.had_unregistered_device,
+        };
+        unreached_devices = summary.dropped_devices;
+        // The recipient half wrote into an empty buffer, so an emptiness test
+        // here is a recipient-node count without walking anything. Bailing
+        // before the own half also keeps a companion's sender chain from
+        // advancing for a stanza that is not going out.
+        if participant_nodes.is_empty() {
+            return Err(NoRecipientDeviceError::encryption_failed(
+                recipient_devices.len(),
+                summary.first_error,
+            )
+            .into());
+        }
+    } else if !to_jid.matches_user_or_lid(own_jid, own_lid) {
+        // No recipient half at all. For a self-chat that is the normal shape
+        // (every resolved device is ours, and the own-devices copy IS the
+        // message); for anyone else the fan-out lost them.
+        return Err(NoRecipientDeviceError::Unresolved.into());
+    }
+
+    if !own_other_devices.is_empty() {
+        let summary = encrypt_for_devices_into(
+            runtime,
+            stores,
+            resolver,
+            own_other_devices,
+            &own_devices_plaintext,
+            hide_decrypt_fail,
+            mediatype,
+            &mut participant_nodes,
+            own_addresses,
+        )
+        .await?;
+        includes_prekey_message = includes_prekey_message || summary.includes_prekey_message;
+        unreached_devices.extend(summary.dropped_devices);
+    }
+
+    // Only reachable for a self-chat now (the recipient half returns above):
+    // every own device failed, and an empty <participants> would silently drop
+    // the message. WA Web's encryptAndSendUserMsg rejects an empty success set
+    // too, though it does not distinguish the two halves.
+    if participant_nodes.is_empty() && total_devices > 0 {
+        return Err(anyhow!(
+            "encryption failed for all {total_devices} own device(s)"
+        ));
+    }
+
+    // Sized for everything that can follow `<participants>`: the optional
+    // `<device-identity>`, the optional `<reporting>`, and the caller's extra
+    // nodes. `vec![one]` reserves exactly one slot, so each later push
+    // reallocated and memcpy'd the whole (large) `Node` values.
+    let mut message_content_nodes = Vec::with_capacity(3 + extra_stanza_nodes.len());
+    message_content_nodes.push(
+        NodeBuilder::new("participants")
+            .children(participant_nodes)
+            .build(),
+    );
+
+    // DM stays lenient when pkmsg lacks an account (no pre-flight here): map the
+    // helper's error back to omission so the wire shape is unchanged.
+    if let Some(device_identity_bytes) = needs_device_identity(includes_prekey_message, account)
+        .ok()
+        .flatten()
+    {
+        message_content_nodes.push(
+            NodeBuilder::new("device-identity")
+                .bytes(device_identity_bytes)
+                .build(),
+        );
+    }
+
+    // Add reporting token node if we generated one
+    if let Some(ref result) = reporting_result {
+        message_content_nodes.push(build_reporting_node(result));
+    }
+
+    // Add any extra stanza nodes provided by the caller
+    message_content_nodes.extend(extra_stanza_nodes.iter().cloned());
+
+    let stanza_type = stanza_type_from_message(message);
+
+    let mut stanza_builder = NodeBuilder::new("message")
+        .attr("to", to_jid)
+        .attr("id", request_id)
+        .attr("type", stanza_type);
+
+    if let Some(edit_attr) = edit
+        && *edit_attr != crate::types::message::EditAttribute::Empty
+    {
+        stanza_builder = stanza_builder.attr("edit", edit_attr.to_string_val());
+    }
+
+    let stanza = stanza_builder.children(message_content_nodes).build();
+
+    Ok(PreparedDmStanza {
+        node: stanza,
+        recipient_fanout,
+        unreached_devices,
+        phash,
+        message_secret: reporting_result.map(|r| r.message_secret),
+    })
+}
+
+/// Returns true if `message_encrypt` on `signal_address` would produce
+/// a pkmsg (no session yet, or session with un-acked pre-key still
+/// pending). Used before `message_encrypt` to fail-fast when `account`
+/// is None — pkmsg without `<device-identity>` reproduces the linked
+/// device deadlock.
+///
+/// `SessionStore::load_session` is take-semantics in production
+/// (`SessionAdapter` → `SignalStoreCache::get_session` marks the slot
+/// `CheckedOut`); the checkout guard keeps cancellation from hiding it from
+/// the subsequent `message_encrypt`.
+pub async fn pkmsg_would_be_emitted<S>(
+    session_store: &mut S,
+    signal_address: &ProtocolAddress,
+) -> Result<bool>
+where
+    S: crate::libsignal::protocol::SessionStore,
+{
+    let loaded =
+        crate::libsignal::protocol::SessionCheckout::load(session_store, signal_address).await?;
+    // Conservative read: treat any failure to interrogate the session as
+    // "would be pkmsg" so the caller bails. Silently treating Err as false
+    // would let message_encrypt run with a corrupt session and potentially
+    // burn the sender chain.
+    let needs_pkmsg = if let Some(session) = loaded.as_ref()
+        && let Some(state) = session.record().session_state()
+        && let Ok(None) = state.unacknowledged_pre_key_message_items()
+    {
+        false
+    } else {
+        true
+    };
+    if let Some(session) = loaded {
+        session
+            .commit()
+            .await
+            .context("restoring checked-out session after pairwise retry pre-flight")?;
+    }
+    Ok(needs_pkmsg)
+}
+
+/// Structural destination for the canonical pairwise retry encoder.
+#[derive(Debug)]
+pub enum PairwiseRetryDestination {
+    Direct {
+        to: Jid,
+        recipient: Option<Jid>,
+    },
+    Participant {
+        to: Jid,
+        participant: Jid,
+        addressing_mode: Option<crate::types::message::AddressingMode>,
+    },
+}
+
+/// Native inputs for one pairwise retransmission. Grouping them prevents
+/// positional argument drift without allocating or introducing an intermediate
+/// wire representation.
+pub struct PairwiseRetryRequest<'a> {
+    pub destination: PairwiseRetryDestination,
+    pub encryption_jid: Jid,
+    pub message: &'a wa::Message,
+    pub message_id: String,
+    pub retry_count: u8,
+    pub account: Option<&'a wa::ADVSignedDeviceIdentity>,
+    pub edit: Option<crate::types::message::EditAttribute>,
+    /// Canonical, unpadded protobuf bytes for `message`, when the caller already
+    /// encoded it for persistence or another stanza. Reusing them avoids a
+    /// second tree walk and allocation before padding.
+    pub pre_encoded: Option<&'a [u8]>,
+}
+
+#[inline]
+fn is_pairwise_user(jid: &Jid) -> bool {
+    !jid.is_empty()
+        && matches!(
+            jid.server,
+            wacore_binary::Server::Pn
+                | wacore_binary::Server::Lid
+                | wacore_binary::Server::Hosted
+                | wacore_binary::Server::HostedLid
+                | wacore_binary::Server::Bot
+        )
+}
+
+fn validate_pairwise_retry_route(
+    destination: &PairwiseRetryDestination,
+    encryption_jid: &Jid,
+) -> Result<()> {
+    if !is_pairwise_user(encryption_jid) {
+        bail!("pairwise retry encryption target must be a user device JID");
+    }
+
+    match destination {
+        PairwiseRetryDestination::Direct { to, recipient } => {
+            if !is_pairwise_user(to) {
+                bail!("direct retry destination must be a user JID");
+            }
+            if recipient.as_ref().is_some_and(|jid| !is_pairwise_user(jid)) {
+                bail!("direct retry recipient must be a user JID");
+            }
+        }
+        PairwiseRetryDestination::Participant {
+            to,
+            participant,
+            addressing_mode,
+        } => {
+            if !is_pairwise_user(participant) {
+                bail!("participant retry target must be a user device JID");
+            }
+            if to.is_group() {
+                if addressing_mode.is_none() {
+                    bail!("group retry requires an addressing mode");
+                }
+            } else if to.is_broadcast_list() {
+                if addressing_mode.is_some() {
+                    bail!("broadcast retry must not carry a group addressing mode");
+                }
+            } else {
+                bail!("participant retry destination must be a group or broadcast list");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Mirrors `WAWebSendMsgCreateDeviceStanza.createUserDeviceMsgStanza`.
+/// `<enc>` goes directly under `<message>`; the fanout wrapper is rejected for
+/// retries. Routing stays typed and structural attributes remain core-owned.
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.pairwise_retry", level = "debug", skip_all, err(Debug))
+)]
+pub async fn prepare_pairwise_retry_stanza<S, I>(
+    session_store: &mut S,
+    identity_store: &mut I,
+    request: PairwiseRetryRequest<'_>,
+) -> Result<Node>
+where
+    S: crate::libsignal::protocol::SessionStore,
+    I: crate::libsignal::protocol::IdentityKeyStore,
+{
+    let PairwiseRetryRequest {
+        destination,
+        encryption_jid,
+        message,
+        message_id,
+        retry_count,
+        account,
+        edit,
+        pre_encoded,
+    } = request;
+    if message_id.is_empty() {
+        bail!("retry message ID must not be empty");
+    }
+    if !(1..crate::protocol::retry::MAX_RETRY_COUNT).contains(&retry_count) {
+        bail!(
+            "retry count {retry_count} must be in 1..{}",
+            crate::protocol::retry::MAX_RETRY_COUNT
+        );
+    }
+    validate_pairwise_retry_route(&destination, &encryption_jid)?;
+
+    let plaintext = match pre_encoded {
+        Some(content) => MessageUtils::pad_with_context_from_encoded(content, None),
+        None => MessageUtils::encode_and_pad(message),
+    };
+    let signal_address = encryption_jid.to_protocol_address();
+
+    if account.is_none() && pkmsg_would_be_emitted(session_store, &signal_address).await? {
+        bail!(
+            "pairwise retry pkmsg requires <device-identity> (account is None); \
+             refusing before message_encrypt to avoid advancing the sender chain"
+        );
+    }
+
+    let encrypted =
+        message_encrypt(&plaintext, &signal_address, session_store, identity_store).await?;
+
+    let (enc_type, is_prekey, serialized) = extract_ciphertext(encrypted)
+        .ok_or_else(|| anyhow!("Unexpected encryption message type for pairwise retry"))?;
+
+    let hide_decrypt_fail = should_hide_decrypt_fail_for_send(edit.as_ref(), message);
+    let mut enc_builder = NodeBuilder::new("enc")
+        .attr("v", stanza::ENC_VERSION)
+        .attr("type", enc_type)
+        .attr("count", retry_count);
+    if let Some(mt) = media_type_from_message(message) {
+        enc_builder = enc_builder.attr("mediatype", mt);
+    }
+    if hide_decrypt_fail {
+        enc_builder = enc_builder.attr("decrypt-fail", "hide");
+    }
+    let enc_node = enc_builder.bytes(serialized).build();
+
+    let meta = message_meta_from_message(message);
+    let mut children = Vec::with_capacity(1 + usize::from(is_prekey) + usize::from(meta.is_some()));
+    children.push(enc_node);
+    // Defense in depth: pre-flight should have caught a no-account pkmsg, but a
+    // corrupt session that triggers a fresh pkmsg mid-call would slip past.
+    if let Some(device_identity_bytes) = needs_device_identity(is_prekey, account)? {
+        children.push(
+            NodeBuilder::new("device-identity")
+                .bytes(device_identity_bytes)
+                .build(),
+        );
+    }
+
+    // Retry has no caller-provided extra nodes: this builder is the sole owner
+    // of derived meta insertion (WAWebSendMsgCreateDeviceStanza, see provenance).
+    children.extend(meta);
+
+    let mut stanza_builder = NodeBuilder::new("message");
+    match destination {
+        PairwiseRetryDestination::Direct { to, recipient } => {
+            stanza_builder = stanza_builder.attr("to", to);
+            if let Some(recipient) = recipient {
+                stanza_builder = stanza_builder.attr("recipient", recipient);
+            }
+        }
+        PairwiseRetryDestination::Participant {
+            to,
+            participant,
+            addressing_mode,
+        } => {
+            stanza_builder = stanza_builder
+                .attr("to", to)
+                .attr("participant", participant);
+            if let Some(addressing_mode) = addressing_mode {
+                stanza_builder = stanza_builder.attr("addressing_mode", addressing_mode.as_str());
+            }
+        }
+    }
+    stanza_builder = stanza_builder
+        .attr("id", message_id)
+        .attr("type", stanza_type_from_message(message));
+
+    // Without `edit`, the resend looks like a normal message and the client never
+    // applies the revoke/edit.
+    if let Some(e) = edit
+        && e != crate::types::message::EditAttribute::Empty
+    {
+        stanza_builder = stanza_builder.attr("edit", e.to_string_val());
+    }
+
+    Ok(stanza_builder.children(children).build())
+}
+
+#[cfg(test)]
+mod partition_tests {
+    use super::*;
+
+    /// Classification is in place, so a fan-out that drops nothing keeps the
+    /// caller's allocation: the freeze into a boxed slice is a no-op when the
+    /// input was already exact, and no per-partition `Vec` is ever built.
+    #[test]
+    fn partition_dm_devices_reuses_an_exact_input_allocation() {
+        let own_jid = Jid::lid_device("123456789".to_owned(), 7);
+        // `vec![]` allocates exactly three slots, so the freeze below has no
+        // slack to hand back and must leave the buffer where it is.
+        let devices = vec![
+            Jid::lid_device("987654321".to_owned(), 0),
+            Jid::lid_device("123456789".to_owned(), 0),
+            Jid::lid_device("987654321".to_owned(), 1),
+        ];
+        let allocation = devices.as_ptr();
+
+        let partitioned = partition_dm_devices(devices, &own_jid, None);
+
+        assert_eq!(partitioned.devices.as_ptr(), allocation);
+        assert_eq!(partitioned.devices.len(), 3);
+    }
+
+    #[test]
+    fn partition_dm_devices_splits_recipients_from_own_devices() {
+        let own_jid = Jid::lid_device("123456789".to_owned(), 7);
+        let devices = vec![
+            Jid::lid_device("987654321".to_owned(), 0),
+            Jid::lid_device("123456789".to_owned(), 0),
+            own_jid.clone(),
+            Jid::lid_device("987654321".to_owned(), 1),
+        ];
+
+        let partitioned = partition_dm_devices(devices, &own_jid, None);
+
+        // The sending device is dropped, so the frozen slice holds exactly the
+        // three survivors rather than the four slots it was built in.
+        assert_eq!(partitioned.devices.len(), 3);
+        assert_eq!(partitioned.valid_devices().len(), 3);
+        assert_eq!(partitioned.recipient_devices().len(), 2);
+        assert_eq!(partitioned.own_other_devices().len(), 1);
+        assert!(
+            partitioned
+                .recipient_devices()
+                .iter()
+                .all(|device| device.user == "987654321")
+        );
+        assert_eq!(partitioned.own_other_devices()[0].device, 0);
+    }
+}

@@ -1,0 +1,84 @@
+[package]
+name = "whatsapp-rust-sqlite-storage"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+authors = ["João Lucas <jlucaso@hotmail.com>"]
+license = "MIT"
+repository = "https://github.com/oxidezap/whatsapp-rust"
+description = "SQLite storage backend for whatsapp-rust"
+
+# `libsqlite3-sys` is pulled only to activate its `bundled` feature (compile
+# SQLite in-tree); there is no direct `use`, so static analysers flag it.
+[package.metadata.cargo-machete]
+# `js` names sqlite-wasm-rs only to select Diesel's browser host hooks.
+ignored = ["libsqlite3-sys", "sqlite-wasm-rs"]
+
+[features]
+default = ["bundled-sqlite"]
+bundled-sqlite = ["libsqlite3-sys/bundled"]
+test-util = []
+# The browser host on wasm32-unknown-unknown: wacore's JS randomness and
+# sqlite-wasm-rs's wasm-bindgen hooks, which the 0.6 ABI Diesel accepts no
+# longer enables by default. Opt-in because Cargo checks sqlite-wasm-rs's
+# `links = "wsqlite3"` across the whole resolve, whatever the target: an
+# unconditional 0.6 edge stops a native application from also depending on a
+# crate that requires 0.5, such as rusqlite 0.40. No effect on other targets.
+js = ["wacore/js", "dep:sqlite-wasm-rs"]
+wasm-test = ["js"]
+
+[dependencies]
+async-trait = { workspace = true }
+buffa = { workspace = true }
+bytes = { workspace = true }
+diesel = { workspace = true }
+diesel_migrations = { workspace = true }
+libsqlite3-sys = { version = "0.38", default-features = false, optional = true }
+log = { workspace = true }
+# Shared across all r2d2 pools so each per-session store doesn't spawn its own pool of
+# management threads. Already in the tree transitively via r2d2 0.8.
+scheduled-thread-pool = "0.2"
+serde_json = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+thiserror = { workspace = true }
+wacore = { workspace = true }
+wacore-binary = { workspace = true }
+
+[build-dependencies]
+buffa-build = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+waproto = { workspace = true }
+portable-atomic = { workspace = true }
+rand = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+# Tokio's timer requires a runtime time driver, which the single-agent browser
+# target does not provide. This future wraps the platform's real setTimeout.
+gloo-timers = { version = "0.4", features = ["futures"] }
+
+# Diesel 2.3.14 accepts the 0.6 ABI; `js` selects the browser host hooks.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+sqlite-wasm-rs = { version = "0.6.1", default-features = false, features = ["wasm-bindgen"], optional = true }
+
+[[bench]]
+name = "signal_flush"
+harness = false
+
+[[bench]]
+name = "store_shapes"
+harness = false
+
+[[bench]]
+name = "store_contention"
+harness = false
+
+[[bench]]
+name = "signal_cache_contention"
+harness = false
+
+[lints]
+workspace = true

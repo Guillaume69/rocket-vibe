@@ -1,0 +1,1314 @@
+//! RTCP: standard sender/source reports and WhatsApp compact reports (PT 208/209).
+//! The SR's NTP timestamp is taken as a `now_ms` argument so this stays
+//! pure/no-clock (caller passes `wacore::time`).
+
+pub const RTCP_PT_SR: u8 = 200;
+pub const RTCP_PT_RR: u8 = 201;
+pub const RTCP_PT_SDES: u8 = 202;
+pub const RTCP_PT_RTPFB: u8 = 205;
+pub const RTCP_PT_PSFB: u8 = 206;
+pub const RTCP_PT_WA_COMPACT: u8 = 208;
+pub const RTCP_PT_WA_COMPACT2: u8 = 209;
+pub const RTCP_HEADER_LEN: usize = 8;
+pub const SRTCP_TRAILER_LEN: usize = 14;
+pub const WHATSAPP_RTCP_CNAME_LEN: usize = 18;
+
+/// NTP epoch offset (seconds between 1900-01-01 and 1970-01-01).
+const NTP_UNIX_OFFSET_SECS: u64 = 2_208_988_800;
+
+pub fn is_rtcp_packet(data: &[u8]) -> bool {
+    data.len() >= RTCP_HEADER_LEN && (data[0] >> 6) & 0x03 == 2 && (192..=223).contains(&data[1])
+}
+
+pub fn rtcp_payload_type(data: &[u8]) -> Option<u8> {
+    is_rtcp_packet(data).then(|| data[1])
+}
+
+pub fn parse_rtcp_sender_ssrc(data: &[u8]) -> Option<u32> {
+    if !is_rtcp_packet(data) {
+        return None;
+    }
+    Some(u32::from_be_bytes([data[4], data[5], data[6], data[7]]))
+}
+
+/// Fields useful for proving whether the peer reports or requests one of our streams.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RtcpSummary {
+    pub packet_types: Vec<u8>,
+    pub sender_ssrc: u32,
+    pub referenced_ssrcs: Vec<u32>,
+    pub report_blocks: Vec<RtcpReportBlock>,
+    pub feedback: Vec<RtcpFeedback>,
+    pub sdes_cname_lengths: Vec<usize>,
+    /// The native video profile sets bit 4 separately from the four-bit report count.
+    pub uses_whatsapp_profile_extension: bool,
+}
+
+/// The neutral RTCP payload types are the one definition: the parser fills them and the public
+/// `CallEvent::RtcpReceived` carries them across the seam.
+pub use crate::voip_control::MediaRtcpFeedback as RtcpFeedback;
+pub use crate::voip_control::MediaRtcpReportBlock as RtcpReportBlock;
+
+fn parse_sdes_cname_lengths(packet: &[u8], source_count: usize) -> Option<Vec<usize>> {
+    let mut cursor = 4usize;
+    let mut cname_lengths = Vec::new();
+    for _ in 0..source_count {
+        cursor = cursor.checked_add(4)?;
+        packet.get(cursor - 4..cursor)?;
+        loop {
+            let item_type = *packet.get(cursor)?;
+            cursor += 1;
+            if item_type == 0 {
+                while cursor & 3 != 0 {
+                    if *packet.get(cursor)? != 0 {
+                        return None;
+                    }
+                    cursor += 1;
+                }
+                break;
+            }
+            let item_len = *packet.get(cursor)? as usize;
+            cursor += 1;
+            packet.get(cursor..cursor.checked_add(item_len)?)?;
+            if item_type == 1 {
+                cname_lengths.push(item_len);
+            }
+            cursor += item_len;
+        }
+    }
+    (cursor == packet.len()).then_some(cname_lengths)
+}
+
+fn parse_report_blocks(
+    packet: &[u8],
+    start: usize,
+    raw_count: usize,
+) -> Option<(Vec<RtcpReportBlock>, bool)> {
+    let available = packet.len().checked_sub(start)?;
+    let mut report_count = raw_count;
+    let mut uses_whatsapp_profile_extension = false;
+    if available < report_count.checked_mul(24)? && raw_count & 0x10 != 0 {
+        report_count = raw_count & 0x0f;
+        uses_whatsapp_profile_extension = true;
+    }
+    if report_count == 0 {
+        return (available == 0).then_some((Vec::new(), uses_whatsapp_profile_extension));
+    }
+    if available < report_count.checked_mul(24)? {
+        return None;
+    }
+
+    let stride = if available % report_count == 0 {
+        available / report_count
+    } else {
+        24
+    };
+    if stride < 24 {
+        return None;
+    }
+
+    let mut reports = Vec::with_capacity(report_count);
+    for index in 0..report_count {
+        let at = start.checked_add(index.checked_mul(stride)?)?;
+        let block = packet.get(at..at.checked_add(stride)?)?;
+        let cumulative_raw = u32::from_be_bytes([0, block[5], block[6], block[7]]) as i32;
+        let cumulative_lost = if cumulative_raw & 0x80_0000 != 0 {
+            cumulative_raw | !0x00ff_ffff
+        } else {
+            cumulative_raw
+        };
+        reports.push(RtcpReportBlock {
+            ssrc: u32::from_be_bytes(block[0..4].try_into().ok()?),
+            fraction_lost: block[4],
+            cumulative_lost,
+            extended_highest_sequence: u32::from_be_bytes(block[8..12].try_into().ok()?),
+            jitter: u32::from_be_bytes(block[12..16].try_into().ok()?),
+            last_sender_report: u32::from_be_bytes(block[16..20].try_into().ok()?),
+            delay_since_last_sender_report: u32::from_be_bytes(block[20..24].try_into().ok()?),
+            profile_extension: block[24..].to_vec(),
+        });
+    }
+    Some((reports, uses_whatsapp_profile_extension))
+}
+
+/// Parse a decrypted RTCP compound packet. Referenced SSRCs include SR/RR report blocks and the
+/// media targets of transport/payload feedback (NACK, PLI, FIR).
+pub fn summarize_rtcp(data: &[u8]) -> Option<RtcpSummary> {
+    let mut offset = 0usize;
+    let mut packet_types = Vec::new();
+    let mut referenced_ssrcs = Vec::new();
+    let mut report_blocks = Vec::new();
+    let mut feedback = Vec::new();
+    let mut sdes_cname_lengths = Vec::new();
+    let mut sender_ssrc = None;
+    let mut uses_whatsapp_profile_extension = false;
+
+    while offset < data.len() {
+        let header = data.get(offset..offset + 4)?;
+        if (header[0] >> 6) & 0x03 != 2 || !(192..=223).contains(&header[1]) {
+            return None;
+        }
+        let words = u16::from_be_bytes([header[2], header[3]]) as usize + 1;
+        let packet_len = words.checked_mul(4)?;
+        let packet = data.get(offset..offset.checked_add(packet_len)?)?;
+        if packet.len() < RTCP_HEADER_LEN {
+            return None;
+        }
+
+        // RTCP padding belongs only to the final compound member and is not FCI.
+        let packet = if packet[0] & 0x20 != 0 {
+            let padding = usize::from(*packet.last()?);
+            if offset + packet_len != data.len()
+                || padding == 0
+                || padding % 4 != 0
+                || padding > packet.len() - RTCP_HEADER_LEN
+            {
+                return None;
+            }
+            &packet[..packet.len() - padding]
+        } else {
+            packet
+        };
+
+        let packet_type = packet[1];
+        let raw_count = (packet[0] & 0x1f) as usize;
+        let this_sender = u32::from_be_bytes(packet[4..8].try_into().ok()?);
+        sender_ssrc.get_or_insert(this_sender);
+        packet_types.push(packet_type);
+
+        let report_start = match packet_type {
+            RTCP_PT_SR => Some(28),
+            RTCP_PT_RR => Some(8),
+            _ => None,
+        };
+        if let Some(start) = report_start {
+            let (mut parsed, uses_profile) = parse_report_blocks(packet, start, raw_count)?;
+            uses_whatsapp_profile_extension |= uses_profile;
+            referenced_ssrcs.extend(parsed.iter().map(|report| report.ssrc));
+            report_blocks.append(&mut parsed);
+        }
+
+        if matches!(packet_type, RTCP_PT_RTPFB | RTCP_PT_PSFB) && packet.len() >= 12 {
+            let fmt = if raw_count & 0x10 != 0 {
+                uses_whatsapp_profile_extension = true;
+                raw_count & 0x0f
+            } else {
+                raw_count
+            };
+            let media_ssrc = u32::from_be_bytes(packet[8..12].try_into().ok()?);
+            feedback.push(RtcpFeedback {
+                packet_type,
+                fmt: fmt as u8,
+                sender_ssrc: this_sender,
+                media_ssrc,
+                fci: packet[12..].to_vec(),
+            });
+            if media_ssrc != 0 {
+                referenced_ssrcs.push(media_ssrc);
+            }
+            // FIR commonly leaves the media-source field zero and names targets in 8-byte FCI rows.
+            if packet_type == RTCP_PT_PSFB && fmt == 4 {
+                for fci in packet[12..].chunks_exact(8) {
+                    referenced_ssrcs.push(u32::from_be_bytes(fci[..4].try_into().ok()?));
+                }
+            }
+        } else if packet_type == RTCP_PT_WA_COMPACT && packet.len() >= 12 {
+            referenced_ssrcs.push(u32::from_be_bytes(packet[8..12].try_into().ok()?));
+        } else if packet_type == RTCP_PT_SDES {
+            let (parsed, uses_profile) =
+                if let Some(parsed) = parse_sdes_cname_lengths(packet, raw_count) {
+                    (parsed, false)
+                } else if raw_count & 0x10 != 0 {
+                    (parse_sdes_cname_lengths(packet, raw_count & 0x0f)?, true)
+                } else {
+                    return None;
+                };
+            uses_whatsapp_profile_extension |= uses_profile;
+            sdes_cname_lengths.extend(parsed);
+        }
+
+        offset += packet_len;
+    }
+
+    referenced_ssrcs.sort_unstable();
+    referenced_ssrcs.dedup();
+    Some(RtcpSummary {
+        packet_types,
+        sender_ssrc: sender_ssrc?,
+        referenced_ssrcs,
+        report_blocks,
+        feedback,
+        sdes_cname_lengths,
+        uses_whatsapp_profile_extension,
+    })
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct RtcpSenderStats {
+    pub packets_sent: u32,
+    pub octets_sent: u32,
+    pub rtp_timestamp: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RtcpReceptionReport {
+    pub ssrc: u32,
+    pub fraction_lost: u8,
+    pub cumulative_lost: i32,
+    pub extended_highest_sequence: u32,
+    pub jitter: u32,
+    pub last_sender_report: u32,
+    pub delay_since_last_sender_report: u32,
+    /// Payload bytes received on the stream so far, modulo 2^32: the first word of the native
+    /// report's extension.
+    pub bytes_received: u32,
+    /// The stream's receive rate since the previous report, in bit/s: the extension's sixth word.
+    pub receive_rate_bps: u32,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct RtpReceptionStats {
+    ssrc: Option<u32>,
+    base_sequence: u16,
+    max_sequence: u16,
+    sequence_cycles: u32,
+    received: u32,
+    expected_prior: u32,
+    received_prior: u32,
+    transit: Option<u32>,
+    /// The last RTP timestamp seen, so consecutive packets can be differenced.
+    ///
+    /// The difference is the peer's own statement of how much audio each packet carries, in the
+    /// negotiated clock, and it is the only such statement that does not pass through a codec.
+    /// [`Self::frame_span`] is what turns two colliding payload grammars into one decidable
+    /// question; see `crate::voip::opus_packet`.
+    last_rtp_timestamp: Option<u32>,
+    /// Difference between the last two RTP timestamps of the CURRENT stream.
+    frame_span: Option<u32>,
+    jitter_q4: u64,
+    last_sender_report: u32,
+    last_sender_report_at_ms: Option<u64>,
+    /// Payload bytes of the stream counted by [`Self::count_payload`], and as of the last report,
+    /// with when that report was made, for its receive rate.
+    payload_bytes: u64,
+    payload_bytes_prior: u64,
+    reported_at_ms: Option<u64>,
+}
+
+impl RtpReceptionStats {
+    /// Counts the payload of a packet of the current stream, which [`Self::observe`] has just
+    /// seen.
+    pub(crate) fn count_payload(&mut self, ssrc: u32, bytes: usize) {
+        if self.ssrc == Some(ssrc) {
+            self.payload_bytes = self.payload_bytes.saturating_add(bytes as u64);
+        }
+    }
+
+    pub(crate) fn observe(
+        &mut self,
+        ssrc: u32,
+        sequence: u16,
+        rtp_timestamp: u32,
+        arrival_ms: u64,
+        clock_rate: u32,
+    ) {
+        // Whether this packet is the newest of the stream, which decides below whether it may move
+        // the timestamp baseline. A fresh stream's first packet is newest by definition.
+        let is_newest;
+        if self.ssrc != Some(ssrc) {
+            *self = Self {
+                ssrc: Some(ssrc),
+                base_sequence: sequence,
+                max_sequence: sequence,
+                received: 1,
+                ..Self::default()
+            };
+            is_newest = true;
+        } else {
+            let delta = sequence.wrapping_sub(self.max_sequence);
+            is_newest = delta != 0 && delta < 0x8000;
+            if is_newest {
+                if sequence < self.max_sequence {
+                    self.sequence_cycles = self.sequence_cycles.wrapping_add(1 << 16);
+                }
+                self.max_sequence = sequence;
+            }
+            self.received = self.received.wrapping_add(1);
+        }
+
+        let arrival_rtp = ((arrival_ms as u128 * clock_rate as u128) / 1000) as u32;
+        let transit = arrival_rtp.wrapping_sub(rtp_timestamp);
+        if let Some(previous) = self.transit {
+            let delta = transit.wrapping_sub(previous) as i32;
+            let distance = (delta as i64).unsigned_abs();
+            let decay = (self.jitter_q4 + 8) >> 4;
+            self.jitter_q4 = self
+                .jitter_q4
+                .saturating_add(distance)
+                .saturating_sub(decay);
+        }
+        self.transit = Some(transit);
+
+        // The baseline tracks the NEWEST packet, not the last one to arrive. Advancing it on a
+        // reordered packet would poison the following measurement as well as its own: given
+        // 1/1000, 3/2920, 2/1960, 4/3880, leaving the baseline at 1960 makes packet 4 read a step of
+        // 1920 rather than the 960 the peer is actually pacing at, and the codec probe would go on
+        // refusing a stream that agrees with itself.
+        //
+        // Only forward steps within a second of audio count: a retransmission or a wrap would
+        // otherwise produce an absurd difference, and one bad sample must not move a codec decision.
+        //
+        // A step that does not qualify CLEARS the span rather than leaving the last good one in
+        // place. The codec probe reads this as the current packet's own statement about its pacing,
+        // so a stale value would let packets that say nothing about their cadence -- a repeated or
+        // backward timestamp on a newer sequence number -- borrow the agreement of packets that
+        // did, and three of those are enough to switch the call's codec for good.
+        if is_newest {
+            if let Some(previous) = self.last_rtp_timestamp {
+                let delta = rtp_timestamp.wrapping_sub(previous);
+                self.frame_span = (delta > 0 && delta <= clock_rate).then_some(delta);
+            }
+            self.last_rtp_timestamp = Some(rtp_timestamp);
+        } else {
+            // The same rule as above, for the same reason: this packet arrived out of order, so the
+            // difference between it and the newest one is not a statement about the peer's pacing.
+            // Left set, the previous packet's span would be lent to it, and a reordered packet that
+            // happens to parse as Opus could supply the third agreement the probe requires -- a
+            // permanent codec switch on two packets that stated the cadence and one that did not.
+            // The baseline is deliberately NOT touched: it still tracks the newest packet.
+            self.frame_span = None;
+        }
+    }
+
+    /// The SSRC of the stream currently being tracked, if any.
+    pub(crate) fn ssrc(&self) -> Option<u32> {
+        self.ssrc
+    }
+
+    /// Samples between the last two packets of this stream, per the peer's own RTP timestamps.
+    ///
+    /// `None` until two consecutive in-order packets have been seen, cleared again by a newest
+    /// packet whose step is unusable (zero, backward, or over a second), and reset with the stream
+    /// when the SSRC changes, because a renumbered stream is a new statement and not a
+    /// continuation.
+    pub(crate) fn frame_span(&self) -> Option<u32> {
+        self.frame_span
+    }
+
+    pub(crate) fn observe_sender_report(
+        &mut self,
+        sender_ssrc: u32,
+        ntp_seconds: u32,
+        ntp_fraction: u32,
+        arrival_ms: u64,
+    ) {
+        if self.ssrc != Some(sender_ssrc) {
+            return;
+        }
+        self.last_sender_report = (ntp_seconds << 16) | (ntp_fraction >> 16);
+        self.last_sender_report_at_ms = Some(arrival_ms);
+    }
+
+    pub(crate) fn report(&mut self, now_ms: u64) -> Option<RtcpReceptionReport> {
+        let ssrc = self.ssrc?;
+        let expected = self
+            .sequence_cycles
+            .wrapping_add(self.max_sequence as u32)
+            .wrapping_sub(self.base_sequence as u32)
+            .wrapping_add(1);
+        let expected_interval = expected.wrapping_sub(self.expected_prior);
+        let received_interval = self.received.wrapping_sub(self.received_prior);
+        let lost_interval = expected_interval as i64 - received_interval as i64;
+        let fraction_lost = if expected_interval == 0 || lost_interval <= 0 {
+            0
+        } else {
+            ((lost_interval * 256) / expected_interval as i64).min(255) as u8
+        };
+        self.expected_prior = expected;
+        self.received_prior = self.received;
+        let receive_rate_bps = self
+            .reported_at_ms
+            .filter(|&at| now_ms > at)
+            .map(|at| {
+                let bits = self.payload_bytes.saturating_sub(self.payload_bytes_prior) * 8;
+                (u128::from(bits) * 1000 / u128::from(now_ms - at)).min(u128::from(u32::MAX)) as u32
+            })
+            .unwrap_or(0);
+        self.payload_bytes_prior = self.payload_bytes;
+        self.reported_at_ms = Some(now_ms);
+
+        let cumulative_lost =
+            (expected as i64 - self.received as i64).clamp(-0x80_0000, 0x7f_ffff) as i32;
+        let delay_since_last_sender_report = self
+            .last_sender_report_at_ms
+            .map(|at| {
+                let elapsed = now_ms.saturating_sub(at);
+                ((elapsed as u128 * 65_536) / 1000).min(u32::MAX as u128) as u32
+            })
+            .unwrap_or(0);
+
+        Some(RtcpReceptionReport {
+            ssrc,
+            fraction_lost,
+            cumulative_lost,
+            extended_highest_sequence: self.sequence_cycles | self.max_sequence as u32,
+            jitter: (self.jitter_q4 >> 4).min(u32::MAX as u64) as u32,
+            last_sender_report: self.last_sender_report,
+            delay_since_last_sender_report,
+            bytes_received: self.payload_bytes as u32,
+            receive_rate_bps,
+        })
+    }
+}
+
+pub(crate) fn parse_sender_report_timing(data: &[u8]) -> Option<(u32, u32, u32)> {
+    let mut offset = 0usize;
+    while offset < data.len() {
+        let header = data.get(offset..offset + 4)?;
+        let packet_len =
+            (u16::from_be_bytes([header[2], header[3]]) as usize + 1).checked_mul(4)?;
+        let packet = data.get(offset..offset.checked_add(packet_len)?)?;
+        if header[1] == RTCP_PT_SR && packet.len() >= 28 {
+            return Some((
+                u32::from_be_bytes(packet[4..8].try_into().ok()?),
+                u32::from_be_bytes(packet[8..12].try_into().ok()?),
+                u32::from_be_bytes(packet[12..16].try_into().ok()?),
+            ));
+        }
+        offset += packet_len;
+    }
+    None
+}
+
+/// Native WhatsApp streams use eleven random lowercase hex nibbles around a fixed `@pj...org`
+/// suffix. Production entropy comes from the engine's injected random source.
+pub fn build_whatsapp_rtcp_cname(entropy: &[u8; 12]) -> [u8; WHATSAPP_RTCP_CNAME_LEN] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut random_hex = [0u8; 11];
+    for (nibble, out) in random_hex.iter_mut().enumerate() {
+        let byte = entropy[6 + nibble / 2];
+        let value = if nibble & 1 == 0 {
+            byte >> 4
+        } else {
+            byte & 0x0f
+        };
+        *out = HEX[value as usize];
+    }
+    let mut cname = [0u8; WHATSAPP_RTCP_CNAME_LEN];
+    cname[..5].copy_from_slice(&random_hex[..5]);
+    cname[5..8].copy_from_slice(b"@pj");
+    cname[8..14].copy_from_slice(&random_hex[5..]);
+    cname[14..].copy_from_slice(b".org");
+    cname
+}
+
+/// 12-byte compact RTCP (PT 208, RC=1); 26 bytes on the wire with the SRTCP trailer.
+pub fn build_compact_rtcp_208(local_ssrc: u32, remote_ssrc: u32) -> [u8; 12] {
+    let mut buf = [0u8; 12];
+    buf[0] = 0x81; // V=2, P=0, RC=1
+    buf[1] = RTCP_PT_WA_COMPACT;
+    buf[2] = 0;
+    buf[3] = 2; // (2+1)*4 = 12 bytes
+    buf[4..8].copy_from_slice(&local_ssrc.to_be_bytes());
+    buf[8..12].copy_from_slice(&remote_ssrc.to_be_bytes());
+    buf
+}
+
+/// 8-byte compact RTCP (PT 209, RC=1): pre-speech ladder.
+pub fn build_compact_rtcp_209(local_ssrc: u32) -> [u8; 8] {
+    let mut buf = [0u8; 8];
+    buf[0] = 0x81;
+    buf[1] = RTCP_PT_WA_COMPACT2;
+    buf[2] = 0;
+    buf[3] = 1; // (1+1)*4 = 8 bytes
+    buf[4..8].copy_from_slice(&local_ssrc.to_be_bytes());
+    buf
+}
+
+/// 12-byte Picture Loss Indication (PT 206, FMT=1), RFC 4585 s6.3.1.
+///
+/// WhatsApp ships two PLI builders and picks between them on a per-stream
+/// feature bit: this one, and a 16-byte form carrying a monotonic sequence
+/// number so the receiver can coalesce repeats. **We deliberately send the
+/// short one, and the reason is in the peer's deduplicator rather than in the
+/// RFC.**
+///
+/// That deduplicator accepts a sequence only when `stored < seq`, or when
+/// `seq < 400` and `stored` is near the wrap; a rejected one does not advance
+/// `stored`. Its initial value is the same sentinel it substitutes for a PLI
+/// that carries no sequence at all. So a sender whose counter has passed 400
+/// and then meets a receiver whose state is fresh -- a peer that rebuilt its
+/// video stream, or an answering device after a rekey -- has every request
+/// dropped, silently, for the rest of the call, with no path back. The
+/// sentinel is special-cased to "not a duplicate" instead, so a PLI with no
+/// sequence is honoured unconditionally and forever.
+///
+/// What the short form costs is the peer's own coalescing, which our throttle
+/// already provides on this side, and a log line about the mismatch. What it
+/// buys is that the request cannot stop working.
+pub(crate) fn build_picture_loss_indication(sender_ssrc: u32, media_ssrc: u32) -> [u8; 12] {
+    let mut buf = [0u8; 12];
+    buf[0] = 0x81; // V=2, P=0, FMT=1 (PLI)
+    buf[1] = RTCP_PT_PSFB;
+    buf[2] = 0;
+    buf[3] = 2; // (2+1)*4 = 12 bytes
+    buf[4..8].copy_from_slice(&sender_ssrc.to_be_bytes());
+    buf[8..12].copy_from_slice(&media_ssrc.to_be_bytes());
+    buf
+}
+
+/// A PLI on the native video profile, which sets bit 4 beside the FMT.
+///
+/// Not an extension invented here to match a capture: the peer's transport
+/// recognises a video PLI by `packet_type == 206 && byte0 & 0x1F == 0x11`, so
+/// the bit is required rather than tolerated, and the same bit is already on
+/// this pipeline's SDES and sender report. It costs nothing to read, because
+/// the FMT is masked with `& 0x0F` on both sides -- `summarize_rtcp` included.
+///
+/// A receiver following RFC 4585 to the letter reads FMT 17 and must discard
+/// the packet. That is the correct trade only because this transport carries
+/// WhatsApp peers and nothing else.
+pub(crate) fn build_whatsapp_picture_loss_indication(
+    sender_ssrc: u32,
+    media_ssrc: u32,
+    profile_extension: bool,
+) -> [u8; 12] {
+    let mut packet = build_picture_loss_indication(sender_ssrc, media_ssrc);
+    if profile_extension {
+        packet[0] |= 0x10;
+    }
+    packet
+}
+
+/// 28-byte Sender Report (PT 200, RC=0). `now_ms` is the wall clock in milliseconds.
+pub fn build_sender_report(local_ssrc: u32, stats: &RtcpSenderStats, now_ms: u64) -> [u8; 28] {
+    let mut buf = [0u8; 28];
+    buf[0] = 0x80; // V=2, RC=0
+    buf[1] = RTCP_PT_SR;
+    buf[2] = 0;
+    buf[3] = 6; // (6+1)*4 = 28 bytes
+    buf[4..8].copy_from_slice(&local_ssrc.to_be_bytes());
+    // NTP timestamp: seconds (upper 32) since 1900, fraction (lower 32). Both fields
+    // truncate to u32 (wrapping), matching the reference encoder.
+    let ntp_sec = (now_ms / 1000).wrapping_add(NTP_UNIX_OFFSET_SECS) as u32;
+    let ntp_frac = ((now_ms % 1000) as f64 / 1000.0 * 4_294_967_296.0) as u32;
+    buf[8..12].copy_from_slice(&ntp_sec.to_be_bytes());
+    buf[12..16].copy_from_slice(&ntp_frac.to_be_bytes());
+    buf[16..20].copy_from_slice(&stats.rtp_timestamp.to_be_bytes());
+    buf[20..24].copy_from_slice(&stats.packets_sent.to_be_bytes());
+    buf[24..28].copy_from_slice(&stats.octets_sent.to_be_bytes());
+    buf
+}
+
+fn encode_reception_report(report: &RtcpReceptionReport, out: &mut Vec<u8>) {
+    out.extend_from_slice(&report.ssrc.to_be_bytes());
+    out.push(report.fraction_lost);
+    let lost = report.cumulative_lost as u32;
+    out.extend_from_slice(&lost.to_be_bytes()[1..]);
+    out.extend_from_slice(&report.extended_highest_sequence.to_be_bytes());
+    out.extend_from_slice(&report.jitter.to_be_bytes());
+    out.extend_from_slice(&report.last_sender_report.to_be_bytes());
+    out.extend_from_slice(&report.delay_since_last_sender_report.to_be_bytes());
+}
+
+const WHATSAPP_RECEPTION_REPORT_EXTENSION_LEN: usize = 24;
+
+fn encode_whatsapp_reception_report(report: &RtcpReceptionReport, out: &mut Vec<u8>) {
+    encode_reception_report(report, out);
+    // Optional transport/BWE statistics in the native 1:1 report; zero is the native unavailable
+    // value, and the RFC fields above remain authoritative. A native client's own reports fill the
+    // first word with the payload bytes it has received on the stream and the sixth with its
+    // receive rate in bit/s (each tracks the sender's own count and rate). Those two are filled
+    // here; the words whose meaning is not known stay zero. Left all zero, a native sender had no
+    // statement of what reached us, and lowered its video to 600 kbit/s a couple of minutes into a
+    // call.
+    let mut extension = [0u8; WHATSAPP_RECEPTION_REPORT_EXTENSION_LEN];
+    extension[0..4].copy_from_slice(&report.bytes_received.to_be_bytes());
+    extension[20..24].copy_from_slice(&report.receive_rate_bps.to_be_bytes());
+    out.extend_from_slice(&extension);
+}
+
+fn build_sender_report_with_reports(
+    local_ssrc: u32,
+    stats: &RtcpSenderStats,
+    now_ms: u64,
+    reports: &[RtcpReceptionReport],
+) -> Vec<u8> {
+    let reports = &reports[..reports.len().min(31)];
+    let mut packet = build_sender_report(local_ssrc, stats, now_ms).to_vec();
+    packet[0] |= reports.len() as u8;
+    for report in reports {
+        encode_reception_report(report, &mut packet);
+    }
+    let words = packet.len() / 4 - 1;
+    packet[2..4].copy_from_slice(&(words as u16).to_be_bytes());
+    packet
+}
+
+/// Native WhatsApp's 32-byte SDES packet: one chunk, its 18-byte CNAME, END, and padding.
+pub fn build_source_description(
+    local_ssrc: u32,
+    cname: &[u8; WHATSAPP_RTCP_CNAME_LEN],
+) -> [u8; 32] {
+    let mut packet = [0u8; 32];
+    packet[0] = 0x81;
+    packet[1] = RTCP_PT_SDES;
+    packet[2..4].copy_from_slice(&7u16.to_be_bytes());
+    packet[4..8].copy_from_slice(&local_ssrc.to_be_bytes());
+    packet[8] = 1;
+    packet[9] = WHATSAPP_RTCP_CNAME_LEN as u8;
+    packet[10..28].copy_from_slice(cname);
+    packet
+}
+
+pub(crate) fn build_whatsapp_source_description(
+    local_ssrc: u32,
+    cname: &[u8; WHATSAPP_RTCP_CNAME_LEN],
+    profile_extension: bool,
+) -> [u8; 32] {
+    let mut packet = build_source_description(local_ssrc, cname);
+    if profile_extension {
+        packet[0] |= 0x10;
+    }
+    packet
+}
+
+/// Native RTCP sessions without a CNAME still send an empty 12-byte SDES chunk.
+pub fn build_empty_source_description(local_ssrc: u32) -> [u8; 12] {
+    let mut packet = [0u8; 12];
+    packet[0] = 0x81;
+    packet[1] = RTCP_PT_SDES;
+    packet[2..4].copy_from_slice(&2u16.to_be_bytes());
+    packet[4..8].copy_from_slice(&local_ssrc.to_be_bytes());
+    packet
+}
+
+/// WhatsApp's periodic sender report is a compound `SR + SDES` datagram.
+pub fn build_sender_report_with_sdes(
+    local_ssrc: u32,
+    stats: &RtcpSenderStats,
+    now_ms: u64,
+    cname: &[u8; WHATSAPP_RTCP_CNAME_LEN],
+) -> Vec<u8> {
+    build_sender_report_with_sdes_and_reports(local_ssrc, stats, now_ms, cname, &[])
+}
+
+pub(crate) fn build_sender_report_with_sdes_and_reports(
+    local_ssrc: u32,
+    stats: &RtcpSenderStats,
+    now_ms: u64,
+    cname: &[u8; WHATSAPP_RTCP_CNAME_LEN],
+    reports: &[RtcpReceptionReport],
+) -> Vec<u8> {
+    let sdes = build_source_description(local_ssrc, cname);
+    let sender_report = build_sender_report_with_reports(local_ssrc, stats, now_ms, reports);
+    let mut compound = Vec::with_capacity(sender_report.len() + sdes.len());
+    compound.extend_from_slice(&sender_report);
+    compound.extend_from_slice(&sdes);
+    compound
+}
+
+/// The native 1:1 path associates one receive stream with each RTCP sender. Its report block is
+/// the RFC 3550 block followed by 24 bytes of WhatsApp transport/BWE statistics.
+pub(crate) fn build_whatsapp_sender_report_with_sdes(
+    local_ssrc: u32,
+    stats: &RtcpSenderStats,
+    now_ms: u64,
+    cname: &[u8; WHATSAPP_RTCP_CNAME_LEN],
+    report: Option<&RtcpReceptionReport>,
+    profile_extension: bool,
+) -> Vec<u8> {
+    let mut sender_report = build_sender_report(local_ssrc, stats, now_ms).to_vec();
+    if profile_extension {
+        sender_report[0] |= 0x10;
+    }
+    if let Some(report) = report {
+        sender_report[0] |= 1;
+        encode_whatsapp_reception_report(report, &mut sender_report);
+        let words = sender_report.len() / 4 - 1;
+        sender_report[2..4].copy_from_slice(&(words as u16).to_be_bytes());
+    }
+    let sdes = build_whatsapp_source_description(local_ssrc, cname, profile_extension);
+    sender_report.extend_from_slice(&sdes);
+    sender_report
+}
+
+#[cfg(test)]
+mod frame_span_tests {
+    use super::*;
+
+    const CLOCK: u32 = 16_000;
+    const SSRC: u32 = 0x5741_0001;
+
+    fn observe(stats: &mut RtpReceptionStats, seq: u16, timestamp: u32, ssrc: u32) {
+        stats.observe(ssrc, seq, timestamp, u64::from(seq) * 60, CLOCK);
+    }
+
+    // The number the whole codec decision rests on. `codec_probe` compares the duration a packet's
+    // Opus header declares against this, and the arithmetic that makes a false promotion impossible
+    // assumes it is the negotiated 960. Nothing exercised the producer.
+    #[test]
+    fn two_consecutive_packets_yield_the_step_between_them() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        assert_eq!(
+            stats.frame_span(),
+            None,
+            "one packet is not a difference yet"
+        );
+        observe(&mut stats, 2, 1_960, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+        observe(&mut stats, 3, 2_920, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+    }
+
+    // A newest packet whose timestamp goes backwards states nothing about its own cadence, so the
+    // span reports nothing rather than the previous packet's. The consumer is the codec probe,
+    // which reads the span as THIS packet's statement and abstains without penalty when there is
+    // none: holding the old value instead would let packets that say nothing about their pacing
+    // borrow the agreement of packets that did, and three borrowed agreements switch the call's
+    // codec permanently.
+    #[test]
+    fn a_backwards_timestamp_leaves_no_cadence_to_borrow() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        observe(&mut stats, 2, 1_960, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+        observe(&mut stats, 3, 1_000, SSRC);
+        assert_eq!(
+            stats.frame_span(),
+            None,
+            "a backwards timestamp is not a cadence, and not the last one either"
+        );
+        // And the stream recovering re-states it.
+        observe(&mut stats, 4, 1_960, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+    }
+
+    // The reordered packet must not poison the NEXT one either. Leaving the baseline on an old
+    // packet makes the packet after it measure a step that spans the gap, so the span reads 1920 on
+    // a stream pacing at 960 and the codec probe refuses a stream that agrees with itself.
+    #[test]
+    fn the_packet_after_a_reordered_one_still_measures_the_real_cadence() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        observe(&mut stats, 3, 2_920, SSRC);
+        observe(&mut stats, 2, 1_960, SSRC); // late
+        observe(&mut stats, 4, 3_880, SSRC);
+        assert_eq!(
+            stats.frame_span(),
+            Some(960),
+            "the baseline must follow the newest packet, not the last to arrive"
+        );
+    }
+
+    // A difference larger than a second of audio is not a frame duration, whatever caused it -- and
+    // like a backwards step, it leaves no cadence rather than the previous packet's.
+    #[test]
+    fn an_absurd_forward_jump_states_no_cadence() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        observe(&mut stats, 2, 1_960, SSRC);
+        observe(&mut stats, 3, 1_960 + CLOCK + 1, SSRC);
+        assert_eq!(stats.frame_span(), None);
+    }
+
+    // A renumbered stream restarts the timestamp sequence, so differences across the change are not
+    // comparable and the span must not carry over.
+    #[test]
+    fn a_new_ssrc_resets_the_span() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        observe(&mut stats, 2, 1_960, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+        observe(&mut stats, 3, 5_000, 0xDEAD_BEEF);
+        assert_eq!(
+            stats.frame_span(),
+            None,
+            "a new stream has no difference yet"
+        );
+    }
+
+    // The 16-bit RTP timestamp space wraps; the difference across a wrap is still the step.
+    #[test]
+    fn the_span_survives_a_timestamp_wrap() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, u32::MAX - 400, SSRC);
+        observe(&mut stats, 2, 559, SSRC);
+        assert_eq!(stats.frame_span(), Some(960));
+    }
+
+    // A peer repeating a timestamp is not advancing, and a zero step would make the probe compare
+    // against nothing.
+    #[test]
+    fn a_repeated_timestamp_does_not_produce_a_zero_span() {
+        let mut stats = RtpReceptionStats::default();
+        observe(&mut stats, 1, 1_000, SSRC);
+        observe(&mut stats, 2, 1_000, SSRC);
+        assert_eq!(stats.frame_span(), None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::voip::testkat::kats;
+
+    #[test]
+    fn feedback_padding_is_not_control_information() {
+        let mut nack = vec![0xa1, RTCP_PT_RTPFB, 0, 4];
+        nack.extend_from_slice(&1u32.to_be_bytes());
+        nack.extend_from_slice(&2u32.to_be_bytes());
+        nack.extend_from_slice(&[0, 10, 0, 0]);
+        nack.extend_from_slice(&[0, 0, 0, 4]);
+        let summary = summarize_rtcp(&nack).unwrap();
+        assert_eq!(summary.feedback[0].fci, [0, 10, 0, 0]);
+        let mut unpadded = nack[..16].to_vec();
+        unpadded[0] &= !0x20;
+        unpadded[3] = 3;
+        assert_eq!(
+            summarize_rtcp(&unpadded).unwrap().feedback,
+            summary.feedback
+        );
+        for count in [0, 1, 16, 255] {
+            *nack.last_mut().unwrap() = count;
+            assert!(
+                summarize_rtcp(&nack).is_none(),
+                "invalid padding count {count}"
+            );
+        }
+        *nack.last_mut().unwrap() = 4;
+        nack.extend_from_slice(&unpadded);
+        assert!(
+            summarize_rtcp(&nack).is_none(),
+            "only the final compound member may be padded"
+        );
+    }
+
+    #[test]
+    fn compact_reports_match_kat() {
+        let k = kats();
+        let ssrc = k["inputs"]["ssrc"].as_u64().unwrap() as u32;
+        let remote = k["rtcp"]["remoteSsrc"].as_u64().unwrap() as u32;
+        assert_eq!(
+            hex::encode(build_compact_rtcp_208(ssrc, remote)),
+            k["rtcp"]["compact208"].as_str().unwrap()
+        );
+        assert_eq!(
+            hex::encode(build_compact_rtcp_209(ssrc)),
+            k["rtcp"]["compact209"].as_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn sender_report_matches_kat() {
+        let k = kats();
+        let ssrc = k["inputs"]["ssrc"].as_u64().unwrap() as u32;
+        let now_ms = k["rtcp"]["nowMs"].as_u64().unwrap();
+        let stats = RtcpSenderStats {
+            packets_sent: k["rtcp"]["stats"]["packetsSent"].as_u64().unwrap() as u32,
+            octets_sent: k["rtcp"]["stats"]["octetsSent"].as_u64().unwrap() as u32,
+            rtp_timestamp: k["rtcp"]["stats"]["rtpTimestamp"].as_u64().unwrap() as u32,
+        };
+        assert_eq!(
+            hex::encode(build_sender_report(ssrc, &stats, now_ms)),
+            k["rtcp"]["senderReport"].as_str().unwrap()
+        );
+    }
+
+    #[test]
+    fn native_cname_and_sdes_match_wire_layout() {
+        let entropy = [
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+        ];
+        let cname = build_whatsapp_rtcp_cname(&entropy);
+        assert_eq!(&cname, b"66778@pj899aab.org");
+
+        let sdes = build_source_description(0x1234_5678, &cname);
+        assert_eq!(
+            hex::encode(sdes),
+            "81ca0007123456780112363637373840706a3839396161622e6f726700000000"
+        );
+        let summary = summarize_rtcp(&sdes).unwrap();
+        assert_eq!(summary.packet_types, [RTCP_PT_SDES]);
+        assert_eq!(summary.sdes_cname_lengths, [WHATSAPP_RTCP_CNAME_LEN]);
+    }
+
+    #[test]
+    fn empty_sdes_is_one_padded_chunk() {
+        let sdes = build_empty_source_description(0x1234_5678);
+        assert_eq!(hex::encode(sdes), "81ca00021234567800000000");
+        let summary = summarize_rtcp(&sdes).unwrap();
+        assert!(summary.sdes_cname_lengths.is_empty());
+    }
+
+    #[test]
+    fn sender_report_compound_includes_sdes() {
+        let stats = RtcpSenderStats {
+            packets_sent: 5,
+            octets_sent: 600,
+            rtp_timestamp: 1600,
+        };
+        let cname = *b"66778@pj899aab.org";
+        let compound =
+            build_sender_report_with_sdes(0x1234_5678, &stats, 1_718_000_000_000, &cname);
+        let summary = summarize_rtcp(&compound).unwrap();
+        assert_eq!(summary.packet_types, [RTCP_PT_SR, RTCP_PT_SDES]);
+        assert_eq!(summary.sdes_cname_lengths, [WHATSAPP_RTCP_CNAME_LEN]);
+    }
+
+    #[test]
+    fn standard_sender_report_encodes_two_report_blocks() {
+        let stats = RtcpSenderStats {
+            packets_sent: 9,
+            octets_sent: 4_096,
+            rtp_timestamp: 90_000,
+        };
+        let reports = [
+            RtcpReceptionReport {
+                ssrc: 0x1111_2222,
+                fraction_lost: 0x40,
+                cumulative_lost: 2,
+                extended_highest_sequence: 0x0001_0002,
+                jitter: 123,
+                last_sender_report: 0x3344_5566,
+                delay_since_last_sender_report: 0x7788_99aa,
+                bytes_received: 0,
+                receive_rate_bps: 0,
+            },
+            RtcpReceptionReport {
+                ssrc: 0x3333_4444,
+                fraction_lost: 0,
+                cumulative_lost: -1,
+                extended_highest_sequence: 7,
+                jitter: 8,
+                last_sender_report: 0,
+                delay_since_last_sender_report: 0,
+                bytes_received: 0,
+                receive_rate_bps: 0,
+            },
+        ];
+        let compound = build_sender_report_with_sdes_and_reports(
+            0x5555_6666,
+            &stats,
+            1_700_000_000_000,
+            b"00000@pj000000.org",
+            &reports,
+        );
+
+        assert_eq!(compound.len(), 76 + 32);
+        assert_eq!(&compound[..4], &[0x82, RTCP_PT_SR, 0, 18]);
+        assert_eq!(&compound[28..32], &reports[0].ssrc.to_be_bytes());
+        assert_eq!(&compound[32..36], &[0x40, 0, 0, 2]);
+        assert_eq!(&compound[52..56], &reports[1].ssrc.to_be_bytes());
+        assert_eq!(&compound[56..60], &[0, 0xff, 0xff, 0xff]);
+        assert_eq!(&compound[76..80], &[0x81, RTCP_PT_SDES, 0, 7]);
+
+        let summary = summarize_rtcp(&compound).expect("valid SR+SDES compound");
+        assert_eq!(summary.packet_types, [RTCP_PT_SR, RTCP_PT_SDES]);
+        assert_eq!(summary.referenced_ssrcs, [reports[0].ssrc, reports[1].ssrc]);
+    }
+
+    #[test]
+    fn parses_native_video_profile_report_and_sdes_layouts() {
+        let sender = 0x1111_2222u32;
+        let target = 0x3333_4444u32;
+        let mut sender_report = vec![0x91, RTCP_PT_SR, 0, 18];
+        sender_report.extend_from_slice(&sender.to_be_bytes());
+        sender_report.extend_from_slice(&[0; 20]);
+        sender_report.extend_from_slice(&target.to_be_bytes());
+        sender_report.extend_from_slice(&[0x20, 0xff, 0xff, 0xfe]);
+        sender_report.extend_from_slice(&0x0001_2345u32.to_be_bytes());
+        sender_report.extend_from_slice(&77u32.to_be_bytes());
+        sender_report.extend_from_slice(&0x5566_7788u32.to_be_bytes());
+        sender_report.extend_from_slice(&0x0000_8000u32.to_be_bytes());
+        let extension: Vec<u8> = (0..WHATSAPP_RECEPTION_REPORT_EXTENSION_LEN as u8).collect();
+        sender_report.extend_from_slice(&extension);
+        assert_eq!(sender_report.len(), 76);
+
+        let mut full_sdes = build_source_description(sender, b"00000@pj000000.org");
+        full_sdes[0] = 0x91;
+        let mut full_compound = sender_report.clone();
+        full_compound.extend_from_slice(&full_sdes);
+        assert_eq!(full_compound.len(), 108);
+
+        let summary = summarize_rtcp(&full_compound).expect("native full-SDES compound");
+        assert_eq!(summary.packet_types, [RTCP_PT_SR, RTCP_PT_SDES]);
+        assert_eq!(summary.referenced_ssrcs, [target]);
+        assert!(summary.uses_whatsapp_profile_extension);
+        assert_eq!(summary.sdes_cname_lengths, [WHATSAPP_RTCP_CNAME_LEN]);
+        assert_eq!(
+            summary.report_blocks,
+            [RtcpReportBlock {
+                ssrc: target,
+                fraction_lost: 0x20,
+                cumulative_lost: -2,
+                extended_highest_sequence: 0x0001_2345,
+                jitter: 77,
+                last_sender_report: 0x5566_7788,
+                delay_since_last_sender_report: 0x0000_8000,
+                profile_extension: extension,
+            }]
+        );
+
+        let mut empty_sdes = build_empty_source_description(sender);
+        empty_sdes[0] = 0x91;
+        let mut empty_compound = sender_report;
+        empty_compound.extend_from_slice(&empty_sdes);
+        assert_eq!(empty_compound.len(), 88);
+        let summary = summarize_rtcp(&empty_compound).expect("native empty-SDES compound");
+        assert_eq!(summary.packet_types, [RTCP_PT_SR, RTCP_PT_SDES]);
+        assert!(summary.sdes_cname_lengths.is_empty());
+        assert!(summary.uses_whatsapp_profile_extension);
+    }
+
+    #[test]
+    fn native_video_sender_report_matches_profile_structure() {
+        let report = RtcpReceptionReport {
+            ssrc: 0x3333_4444,
+            fraction_lost: 5,
+            cumulative_lost: 2,
+            extended_highest_sequence: 91,
+            jitter: 7,
+            last_sender_report: 8,
+            delay_since_last_sender_report: 9,
+            bytes_received: 0x0008_1549,
+            receive_rate_bps: 758_055,
+        };
+        let compound = build_whatsapp_sender_report_with_sdes(
+            0x1111_2222,
+            &RtcpSenderStats {
+                packets_sent: 3,
+                octets_sent: 400,
+                rtp_timestamp: 90_000,
+            },
+            1_700_000_000_000,
+            b"00000@pj000000.org",
+            Some(&report),
+            true,
+        );
+
+        assert_eq!(compound.len(), 108);
+        assert_eq!(&compound[..4], &[0x91, RTCP_PT_SR, 0, 18]);
+        assert_eq!(&compound[28..32], &report.ssrc.to_be_bytes());
+        // The bytes received and the receive rate, where a native client's report carries them;
+        // the rest of the extension zero.
+        let mut extension = [0u8; 24];
+        extension[0..4].copy_from_slice(&0x0008_1549u32.to_be_bytes());
+        extension[20..24].copy_from_slice(&758_055u32.to_be_bytes());
+        assert_eq!(&compound[52..76], &extension);
+        assert_eq!(&compound[76..80], &[0x91, RTCP_PT_SDES, 0, 7]);
+        let summary = summarize_rtcp(&compound).expect("native video compound");
+        assert_eq!(summary.referenced_ssrcs, [report.ssrc]);
+        assert_eq!(summary.report_blocks[0].profile_extension, extension);
+        assert!(summary.uses_whatsapp_profile_extension);
+    }
+
+    #[test]
+    fn reception_stats_report_the_bytes_received_and_the_rate_since_the_last_report() {
+        let mut reception = RtpReceptionStats::default();
+        reception.observe(0x1111, 1, 0, 1_000, 90_000);
+        reception.count_payload(0x1111, 800);
+        let first = reception.report(1_000).expect("a stream");
+        assert_eq!(first.bytes_received, 800);
+        assert_eq!(
+            first.receive_rate_bps, 0,
+            "no interval before the first report"
+        );
+        for sequence in 2..=101u16 {
+            reception.observe(0x1111, sequence, 0, 1_000, 90_000);
+            reception.count_payload(0x1111, 1_000);
+        }
+        // Another stream's packets are not this one's.
+        reception.count_payload(0x2222, 50_000);
+        let second = reception.report(2_000).expect("a stream");
+        assert_eq!(second.bytes_received, 100_800);
+        assert_eq!(second.receive_rate_bps, 800_000, "100 kB in a second");
+    }
+
+    #[test]
+    fn reception_stats_track_loss_wrap_lsr_and_dlsr() {
+        let mut reception = RtpReceptionStats::default();
+        reception.observe(0x1234_5678, 65_534, 90_000, 1_000, 90_000);
+        reception.observe(0x1234_5678, 65_535, 95_400, 1_060, 90_000);
+        // Sequence zero is deliberately lost; sequence one proves the rollover.
+        reception.observe(0x1234_5678, 1, 106_200, 1_180, 90_000);
+        reception.observe_sender_report(0x1234_5678, 0x0102_0304, 0x5060_7080, 1_180);
+
+        let report = reception.report(1_680).expect("observed RTP source");
+        assert_eq!(report.ssrc, 0x1234_5678);
+        assert_eq!(report.fraction_lost, 64);
+        assert_eq!(report.cumulative_lost, 1);
+        assert_eq!(report.extended_highest_sequence, 0x0001_0001);
+        assert_eq!(report.jitter, 0);
+        assert_eq!(report.last_sender_report, 0x0304_5060);
+        assert_eq!(report.delay_since_last_sender_report, 32_768);
+
+        let next = reception.report(1_680).expect("source remains active");
+        assert_eq!(next.fraction_lost, 0);
+        assert_eq!(next.cumulative_lost, 1);
+    }
+
+    #[test]
+    fn parses_sender_report_ntp_timing_from_compound() {
+        let report = build_sender_report(
+            0x1234_5678,
+            &RtcpSenderStats {
+                packets_sent: 0,
+                octets_sent: 0,
+                rtp_timestamp: 0,
+            },
+            1_700_000_000_250,
+        );
+        assert_eq!(
+            parse_sender_report_timing(&report),
+            Some((
+                0x1234_5678,
+                (NTP_UNIX_OFFSET_SECS + 1_700_000_000) as u32,
+                1 << 30,
+            ))
+        );
+    }
+
+    #[test]
+    fn rtcp_classification() {
+        let k = kats();
+        let sr = hex::decode(k["rtcp"]["senderReport"].as_str().unwrap()).unwrap();
+        assert!(is_rtcp_packet(&sr));
+        assert_eq!(rtcp_payload_type(&sr), Some(200));
+        // RTP uses a 7-bit PT. Marker+H264 is 0xe1, outside RTCP's mux range.
+        let video = [0x80, 0xe1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1];
+        assert!(!is_rtcp_packet(&video));
+        let rtp = hex::decode(k["rtp"]["speechHeader16"].as_str().unwrap()).unwrap();
+        assert!(!is_rtcp_packet(&rtp));
+    }
+
+    #[test]
+    fn summarizes_rr_and_feedback_targets() {
+        let sender = 0x1111_2222u32;
+        let audio = 0x3333_4444u32;
+        let video = 0x5555_6666u32;
+
+        // RR with one 24-byte report block.
+        let mut compound = vec![0x81, RTCP_PT_RR, 0, 7];
+        compound.extend_from_slice(&sender.to_be_bytes());
+        compound.extend_from_slice(&audio.to_be_bytes());
+        compound.extend_from_slice(&[0; 20]);
+        // PLI for the video SSRC.
+        compound.extend_from_slice(&[0x81, RTCP_PT_PSFB, 0, 2]);
+        compound.extend_from_slice(&sender.to_be_bytes());
+        compound.extend_from_slice(&video.to_be_bytes());
+
+        let summary = summarize_rtcp(&compound).expect("valid compound RTCP");
+        assert_eq!(summary.packet_types, [RTCP_PT_RR, RTCP_PT_PSFB]);
+        assert_eq!(summary.sender_ssrc, sender);
+        assert_eq!(summary.referenced_ssrcs, [audio, video]);
+        assert_eq!(
+            summary.feedback,
+            [RtcpFeedback {
+                packet_type: RTCP_PT_PSFB,
+                fmt: 1,
+                sender_ssrc: sender,
+                media_ssrc: video,
+                fci: Vec::new(),
+            }]
+        );
+        assert!(summary.sdes_cname_lengths.is_empty());
+    }
+
+    #[test]
+    fn whatsapp_feedback_profile_bit_is_not_part_of_fmt() {
+        let sender = 0x1111_2222u32;
+        let video = 0x5555_6666u32;
+        let mut pli = vec![0x91, RTCP_PT_PSFB, 0, 2];
+        pli.extend_from_slice(&sender.to_be_bytes());
+        pli.extend_from_slice(&video.to_be_bytes());
+
+        let summary = summarize_rtcp(&pli).expect("WhatsApp-profile PLI");
+        assert!(summary.uses_whatsapp_profile_extension);
+        assert_eq!(summary.feedback[0].fmt, 1);
+        assert_eq!(summary.referenced_ssrcs, [video]);
+    }
+
+    /// Both builders, byte for byte, and back through the parser that reads a
+    /// peer's. They differ in one bit, which the profile flag decides.
+    #[test]
+    fn picture_loss_indications_match_the_wire_layout() {
+        let sender = 0x1111_2222u32;
+        let video = 0x5555_6666u32;
+
+        let plain = build_picture_loss_indication(sender, video);
+        assert_eq!(&plain[..4], &[0x81, RTCP_PT_PSFB, 0, 2]);
+        assert_eq!(&plain[4..8], &sender.to_be_bytes());
+        assert_eq!(&plain[8..12], &video.to_be_bytes());
+        // No FCI: a sequence number is what the 16-byte form adds, and the
+        // builder's doc says why we do not send it.
+        assert_eq!(plain.len(), 12);
+
+        assert_eq!(
+            build_whatsapp_picture_loss_indication(sender, video, false),
+            plain,
+            "off the profile, the WhatsApp spelling is the RFC one"
+        );
+        let profile = build_whatsapp_picture_loss_indication(sender, video, true);
+        assert_eq!(profile[0], 0x91);
+        assert_eq!(&profile[1..], &plain[1..]);
+
+        for packet in [plain, profile] {
+            let summary = summarize_rtcp(&packet).expect("a PLI parses as one");
+            assert_eq!(summary.feedback[0].fmt, 1);
+            assert_eq!(summary.feedback[0].media_ssrc, video);
+            assert!(summary.feedback[0].fci.is_empty());
+            assert_eq!(summary.referenced_ssrcs, [video]);
+        }
+        // The bit is the only difference the parser sees, in both directions.
+        assert!(
+            summarize_rtcp(&profile)
+                .expect("a PLI parses as one")
+                .uses_whatsapp_profile_extension
+        );
+        assert!(
+            !summarize_rtcp(&plain)
+                .expect("a PLI parses as one")
+                .uses_whatsapp_profile_extension
+        );
+    }
+
+    #[test]
+    fn summarizes_fir_target_from_feedback_control_information() {
+        let sender = 0x1111_2222u32;
+        let video = 0x5555_6666u32;
+        let mut fir = vec![0x84, RTCP_PT_PSFB, 0, 4];
+        fir.extend_from_slice(&sender.to_be_bytes());
+        fir.extend_from_slice(&0u32.to_be_bytes());
+        fir.extend_from_slice(&video.to_be_bytes());
+        fir.extend_from_slice(&[7, 0, 0, 0]);
+
+        let summary = summarize_rtcp(&fir).expect("valid FIR");
+
+        assert_eq!(summary.referenced_ssrcs, [video]);
+        assert_eq!(
+            summary.feedback,
+            [RtcpFeedback {
+                packet_type: RTCP_PT_PSFB,
+                fmt: 4,
+                sender_ssrc: sender,
+                media_ssrc: 0,
+                fci: [video.to_be_bytes().as_slice(), &[7, 0, 0, 0]].concat(),
+            }]
+        );
+    }
+
+    #[test]
+    fn malformed_compound_rtcp_is_rejected() {
+        // Claims 32 bytes but only carries the common header.
+        assert!(summarize_rtcp(&[0x80, RTCP_PT_RR, 0, 7, 0, 0, 0, 1]).is_none());
+    }
+
+    #[test]
+    fn malformed_sdes_is_rejected() {
+        let mut sdes = build_source_description(1, b"00000@pj000000.org");
+        *sdes.last_mut().unwrap() = 1;
+        assert!(summarize_rtcp(&sdes).is_none());
+    }
+}

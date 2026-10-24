@@ -1,0 +1,10880 @@
+use crate::schema::*;
+use async_trait::async_trait;
+use bytes::Bytes;
+use diesel::prelude::*;
+use diesel::r2d2::ConnectionManager;
+use diesel::result::{DatabaseErrorKind, Error as DieselError};
+use diesel::sqlite::SqliteConnection;
+use diesel::upsert::excluded;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
+use log::warn;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
+use thiserror::Error;
+use wacore::appstate::hash::HashState;
+use wacore::appstate::processor::AppStateMutationMAC;
+use wacore::libsignal::protocol::{KeyPair, PrivateKey, PublicKey};
+use wacore::store::Device as CoreDevice;
+use wacore::store::error::{Result, StoreError};
+use wacore::store::traits::*;
+use wacore_binary::Jid;
+
+/// Internal error type that preserves the Diesel error for structured matching
+/// before converting to `StoreError`. Used in retry loops where we need to
+/// distinguish retriable SQLite lock errors from other failures.
+enum DieselOrStore {
+    Diesel(DieselError),
+    Store(StoreError),
+}
+
+impl From<DieselOrStore> for StoreError {
+    fn from(e: DieselOrStore) -> Self {
+        match e {
+            DieselOrStore::Diesel(e) => StoreError::Database(Box::new(e)),
+            DieselOrStore::Store(e) => e,
+        }
+    }
+}
+
+/// Check if a Diesel error represents a retriable SQLite lock contention.
+///
+/// SQLite BUSY (error code 5) and LOCKED (error code 6) both map to
+/// `DatabaseError(Unknown, _)` in Diesel. We inspect the error message
+/// from `sqlite3_errmsg()` to distinguish them from other unknown errors.
+fn is_retriable_sqlite_error(error: &DieselError) -> bool {
+    match error {
+        DieselError::DatabaseError(DatabaseErrorKind::Unknown, info) => {
+            let msg = info.message();
+            msg.contains("locked") || msg.contains("busy")
+        }
+        _ => false,
+    }
+}
+
+/// Back off between SQLite contention retries with the target's real timer.
+/// Native uses Tokio's timer, while the browser target uses its JavaScript
+/// `setTimeout` future because no Tokio time driver is installed there.
+#[cfg(not(target_family = "wasm"))]
+pub(crate) async fn retry_backoff(delay_ms: u64) {
+    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+}
+
+#[cfg(target_family = "wasm")]
+pub(crate) async fn retry_backoff(delay_ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(delay_ms as u32).await;
+}
+
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+
+pub(crate) type SqlitePool = crate::pool::Pool;
+
+/// Row representation for the `device` table.
+///
+/// Field order must match the column order in `schema::device`.
+/// Using a named struct instead of a positional tuple so fields are
+/// accessed by name, reducing the risk of mix-ups when columns are added.
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = device)]
+#[allow(dead_code)]
+struct DeviceRow {
+    id: i32,
+    lid: String,
+    pn: String,
+    registration_id: i32,
+    noise_key: Vec<u8>,
+    identity_key: Vec<u8>,
+    signed_pre_key: Vec<u8>,
+    signed_pre_key_id: i32,
+    signed_pre_key_signature: Vec<u8>,
+    adv_secret_key: Vec<u8>,
+    account: Option<Vec<u8>>,
+    push_name: String,
+    app_version_primary: i32,
+    app_version_secondary: i32,
+    app_version_tertiary: i64,
+    app_version_last_fetched_ms: i64,
+    edge_routing_info: Option<Vec<u8>>,
+    props_hash: Option<String>,
+    next_pre_key_id: i32,
+    nct_salt: Option<Vec<u8>>,
+    server_has_prekeys: bool,
+    server_cert_chain: Option<Vec<u8>>,
+    login_counter: i32,
+    first_unupload_pre_key_id: i32,
+    lid_migrated: bool,
+    last_signed_pre_key_rotation_ms: i64,
+    read_receipts_disabled: bool,
+    server_client_expiration: Option<String>,
+    status_privacy: Option<Vec<u8>>,
+}
+
+/// One account in a database that holds several, as [`crate::SqliteDatabase::list_devices`]
+/// reports it.
+///
+/// `linked` mirrors [`wacore::store::Device::is_registered`]: the row exists from
+/// the moment it is created, but it only counts as a paired account once the
+/// server has handed it a phone number, which is what `pn` carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDeviceSummary {
+    pub id: i32,
+    pub pn: Option<Jid>,
+    pub lid: Option<Jid>,
+    pub push_name: String,
+    pub linked: bool,
+}
+
+/// A freshly generated [`CoreDevice`] laid out as one row of `device`.
+///
+/// The point of the type is the two callers that must produce identical fresh
+/// accounts: [`crate::SqliteDatabase::create_device`] and
+/// [`crate::SqliteDatabase::reset_device`]. Building the column list twice is how the two
+/// drift as fields are added.
+///
+/// `id` uses `treat_none_as_default_value`, so `None` drops the column from the
+/// insert entirely and leaves allocation to `device.id`'s `AUTOINCREMENT`.
+/// Choosing the id in Rust instead (`MAX(id) + 1`) races between concurrent
+/// creates and can hand back an id that was deleted, which would make an
+/// `AccountId` resolve to a different person.
+#[derive(Insertable)]
+#[diesel(table_name = device)]
+struct FreshDeviceRow {
+    #[diesel(treat_none_as_default_value = true)]
+    id: Option<i32>,
+    lid: String,
+    pn: String,
+    registration_id: i32,
+    noise_key: Vec<u8>,
+    identity_key: Vec<u8>,
+    signed_pre_key: Vec<u8>,
+    signed_pre_key_id: i32,
+    signed_pre_key_signature: Vec<u8>,
+    adv_secret_key: Vec<u8>,
+    account: Option<Vec<u8>>,
+    push_name: String,
+    app_version_primary: i32,
+    app_version_secondary: i32,
+    app_version_tertiary: i64,
+    app_version_last_fetched_ms: i64,
+    edge_routing_info: Option<Vec<u8>>,
+    props_hash: Option<String>,
+    next_pre_key_id: i32,
+    nct_salt: Option<Vec<u8>>,
+    server_has_prekeys: bool,
+    server_cert_chain: Option<Vec<u8>>,
+    login_counter: i32,
+    first_unupload_pre_key_id: i32,
+    lid_migrated: bool,
+    last_signed_pre_key_rotation_ms: i64,
+    read_receipts_disabled: bool,
+    server_client_expiration: Option<String>,
+    status_privacy: Option<Vec<u8>>,
+}
+
+impl FreshDeviceRow {
+    /// Build the row for a brand-new, unpaired account, optionally pinning the
+    /// id. Serialization of the key pairs is the only fallible step.
+    fn new(id: Option<i32>) -> Result<Self> {
+        let device = CoreDevice::new();
+        Ok(Self {
+            id,
+            lid: String::new(),
+            pn: String::new(),
+            registration_id: device.registration_id as i32,
+            noise_key: serialize_keypair(&device.noise_key)?,
+            identity_key: serialize_keypair(&device.identity_key)?,
+            signed_pre_key: serialize_keypair(&device.signed_pre_key)?,
+            signed_pre_key_id: device.signed_pre_key_id as i32,
+            signed_pre_key_signature: device.signed_pre_key_signature.to_vec(),
+            adv_secret_key: device.adv_secret_key.to_vec(),
+            account: None,
+            push_name: device.push_name,
+            app_version_primary: device.app_version_primary as i32,
+            app_version_secondary: device.app_version_secondary as i32,
+            app_version_tertiary: device.app_version_tertiary as i64,
+            app_version_last_fetched_ms: device.app_version_last_fetched_ms,
+            edge_routing_info: None,
+            props_hash: None,
+            next_pre_key_id: device.next_pre_key_id as i32,
+            nct_salt: None,
+            server_has_prekeys: device.server_has_prekeys,
+            server_cert_chain: None,
+            login_counter: 0,
+            first_unupload_pre_key_id: device.first_unupload_pre_key_id as i32,
+            lid_migrated: false,
+            last_signed_pre_key_rotation_ms: device.last_signed_pre_key_rotation_ms,
+            read_receipts_disabled: false,
+            server_client_expiration: None,
+            status_privacy: None,
+        })
+    }
+
+    fn insert(&self, conn: &mut SqliteConnection) -> std::result::Result<(), DieselError> {
+        diesel::insert_into(device::table)
+            .values(self)
+            .execute(conn)
+            .map(|_| ())
+    }
+}
+
+/// Every table that carries a per-account `device_id`, and therefore everything
+/// that has to go when an account is reset or removed.
+///
+/// Deliberately one list read by both [`crate::SqliteDatabase::reset_device`] and
+/// [`crate::SqliteDatabase::remove_device`], so the two cannot drift. A test
+/// (`account_scoped_table_list_covers_the_schema`) compares it against
+/// `pragma_table_info` and fails on any `device_id` column the list is missing,
+/// which is the only way a newly added table cannot silently leak account state.
+///
+/// `device` itself is intentionally absent: teardown deletes that row
+/// separately, and `reset_device` recreates it.
+///
+/// `lid_pn_mapping` also declares `ON DELETE CASCADE` to `device`, but it is
+/// listed here too: `reset_device` deletes the row the cascade springs from, and
+/// letting only that one table lean on the cascade would make the two teardown
+/// paths disagree about what "purged" means.
+///
+/// **Sibling tables owned by other stores.** A second store sharing this
+/// database file, for chats, messages or receipts, keeps its account-scoped
+/// rows in tables this list cannot name. Those tables are swept by the
+/// `DELETE FROM device` at the center of both teardown paths, because every
+/// pooled connection sets `PRAGMA foreign_keys = ON`, so a row with
+/// `FOREIGN KEY(device_id) REFERENCES device(id) ON DELETE CASCADE` goes with
+/// it. That cascade is the contract: a sibling store that keys state by
+/// `device_id` must declare it, exactly as `lid_pn_mapping` does, or its rows
+/// outlive the account. `a_sibling_table_cascades_away_with_its_account` pins
+/// the mechanism. A sibling owner cannot register in this `const`, so the
+/// cascade is the only channel available to it.
+const ACCOUNT_SCOPED_TABLES: &[&str] = &[
+    "app_state_keys",
+    "app_state_mutation_macs",
+    "app_state_versions",
+    "base_keys",
+    "device_registry",
+    "group_metadata",
+    "identities",
+    "lid_pn_mapping",
+    "msg_secrets",
+    "pending_inbound_messages",
+    "prekeys",
+    "sender_key_devices",
+    "sender_keys",
+    "sent_messages",
+    "sessions",
+    "signed_prekeys",
+    "tc_tokens",
+];
+
+/// `last_insert_rowid()` on the connection that just inserted, which is why the
+/// insert and this read share one `write_blocking`/`with_retry` closure: the
+/// value is per-connection state, not per-database.
+fn last_insert_rowid(conn: &mut SqliteConnection) -> std::result::Result<i32, DieselError> {
+    diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+        "last_insert_rowid()",
+    ))
+    .get_result(conn)
+}
+
+/// Delete every account-scoped row for `device_id`.
+///
+/// Raw SQL rather than Diesel's query builder because the table list is runtime
+/// data (a `const &[&str]`). The identifiers are compile-time literals from
+/// [`ACCOUNT_SCOPED_TABLES`], never caller input, so interpolating them is not
+/// an injection surface; the id is bound.
+fn purge_account_state(
+    conn: &mut SqliteConnection,
+    device_id: i32,
+) -> std::result::Result<(), DieselError> {
+    for table in ACCOUNT_SCOPED_TABLES {
+        diesel::sql_query(format!("DELETE FROM {table} WHERE device_id = ?"))
+            .bind::<diesel::sql_types::Integer, _>(device_id)
+            .execute(conn)?;
+    }
+    Ok(())
+}
+
+/// Translate the sentinel a lifecycle transaction raises when its `device` row
+/// is absent into the typed error callers match on. Any other error passes
+/// through untouched.
+///
+/// [`DieselError::NotFound`] is the sentinel rather than a private enum because
+/// the write queue transports `DieselError`; the lifecycle closures issue only
+/// `execute`/`count` statements, none of which produce `NotFound`, so the match
+/// cannot swallow a real one.
+fn missing_device(error: StoreError, device_id: i32) -> StoreError {
+    match &error {
+        StoreError::Database(inner)
+            if inner
+                .downcast_ref::<DieselError>()
+                .is_some_and(|d| matches!(d, DieselError::NotFound)) =>
+        {
+            StoreError::DeviceNotFound(device_id)
+        }
+        _ => error,
+    }
+}
+
+/// Serialize a key pair the way the `device` columns store it: private scalar
+/// then public key, 64 bytes. A free function because [`FreshDeviceRow`] builds
+/// rows before any store handle exists, and it must produce byte-identical
+/// output to [`SqliteStore::serialize_keypair`] (which delegates here).
+fn serialize_keypair(key_pair: &KeyPair) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(64);
+    bytes.extend_from_slice(key_pair.private_key.serialize());
+    bytes.extend_from_slice(key_pair.public_key.public_key_bytes());
+    Ok(bytes)
+}
+
+/// Max ids per `eq_any` list, under SQLite's default 999 host-parameter limit.
+const ID_PARAM_CHUNK: usize = 900;
+
+/// The `device_registry` columns a record is rebuilt from, in
+/// [`DeviceRegistryRow`] order.
+const DEVICE_REGISTRY_COLUMNS: (
+    device_registry::user_id,
+    device_registry::devices_json,
+    device_registry::timestamp,
+    device_registry::phash,
+    device_registry::raw_id,
+) = (
+    device_registry::user_id,
+    device_registry::devices_json,
+    device_registry::timestamp,
+    device_registry::phash,
+    device_registry::raw_id,
+);
+
+type DeviceRegistryRow = (String, String, i32, Option<String>, Option<i32>);
+
+fn device_registry_row_to_record(
+    (user, devices_json, timestamp, phash, raw_id): DeviceRegistryRow,
+) -> Result<DeviceListRecord> {
+    // Decoded as a `Vec` and converted, so this reuses the `Vec<DeviceInfo>`
+    // codec the crate already instantiates rather than stamping a second one
+    // for `Box<[_]>`.
+    let devices: Vec<DeviceInfo> =
+        serde_json::from_str(&devices_json).map_err(|e| StoreError::Serialization(Box::new(e)))?;
+    Ok(DeviceListRecord {
+        user: Arc::from(user),
+        devices: devices.into_boxed_slice(),
+        timestamp: timestamp as i64,
+        phash: phash.map(Box::<str>::from),
+        raw_id: raw_id.map(|r| r as u32),
+    })
+}
+
+/// The statements behind the app-state version and MAC writes, shared by the
+/// single-purpose methods and the fused per-patch commit so the two cannot
+/// drift.
+fn upsert_app_state_version(
+    conn: &mut SqliteConnection,
+    name: &str,
+    data: &[u8],
+    device_id: i32,
+) -> std::result::Result<(), DieselError> {
+    diesel::insert_into(app_state_versions::table)
+        .values((
+            app_state_versions::name.eq(name),
+            app_state_versions::state_data.eq(data),
+            app_state_versions::device_id.eq(device_id),
+        ))
+        .on_conflict((app_state_versions::name, app_state_versions::device_id))
+        .do_update()
+        .set(app_state_versions::state_data.eq(data))
+        .execute(conn)?;
+    Ok(())
+}
+
+fn insert_app_state_mutation_macs(
+    conn: &mut SqliteConnection,
+    name: &str,
+    version: u64,
+    mutations: &[AppStateMutationMAC],
+    device_id: i32,
+) -> std::result::Result<(), DieselError> {
+    let records: Vec<_> = mutations
+        .iter()
+        .map(|m| {
+            (
+                app_state_mutation_macs::name.eq(name),
+                app_state_mutation_macs::version.eq(version as i64),
+                app_state_mutation_macs::index_mac.eq(&m.index_mac),
+                app_state_mutation_macs::value_mac.eq(&m.value_mac),
+                app_state_mutation_macs::device_id.eq(device_id),
+            )
+        })
+        .collect();
+    // SQLite's variable limit is typically 999 or 32766; five columns per
+    // row keeps 100 rows at 500 parameters.
+    const CHUNK_SIZE: usize = 100;
+    for chunk in records.chunks(CHUNK_SIZE) {
+        diesel::insert_into(app_state_mutation_macs::table)
+            .values(chunk)
+            .on_conflict((
+                app_state_mutation_macs::name,
+                app_state_mutation_macs::index_mac,
+                app_state_mutation_macs::device_id,
+            ))
+            .do_update()
+            .set((
+                app_state_mutation_macs::version.eq(excluded(app_state_mutation_macs::version)),
+                app_state_mutation_macs::value_mac.eq(excluded(app_state_mutation_macs::value_mac)),
+            ))
+            .execute(conn)?;
+    }
+    Ok(())
+}
+
+fn delete_app_state_mutation_macs(
+    conn: &mut SqliteConnection,
+    name: &str,
+    index_macs: &[Vec<u8>],
+    device_id: i32,
+) -> std::result::Result<(), DieselError> {
+    const CHUNK_SIZE: usize = 500;
+    for chunk in index_macs.chunks(CHUNK_SIZE) {
+        diesel::delete(
+            app_state_mutation_macs::table.filter(
+                app_state_mutation_macs::name
+                    .eq(name)
+                    .and(app_state_mutation_macs::index_mac.eq_any(chunk))
+                    .and(app_state_mutation_macs::device_id.eq(device_id)),
+            ),
+        )
+        .execute(conn)?;
+    }
+    Ok(())
+}
+
+/// Eight bound columns per row keep this below SQLite's default 999-parameter
+/// limit while bounding Diesel's temporary insert-expression allocation.
+const MSG_SECRET_INSERT_CHUNK_SIZE: usize = 100;
+
+/// A read-only closure with its type erased, so the read path monomorphizes
+/// once per return type rather than once per call site.
+type ReadQuery<T> = Box<dyn FnOnce(&mut SqliteConnection) -> Result<T> + Send>;
+
+/// A unit of work for the write queue, erased for the same reason.
+type BlockingJob<T> = Box<dyn FnOnce() -> Result<T> + Send>;
+
+type WriteJob<T> = Box<dyn FnOnce(&mut SqliteConnection) -> Result<T> + Send>;
+
+// Native retries cross blocking worker boundaries; the browser shim runs inline.
+#[derive(Clone)]
+enum OwnedPendingMutation {
+    Replace {
+        payload: Arc<PendingInboundPayload>,
+        revision: PendingInboundRevision,
+    },
+    Delete(PendingInboundLease),
+}
+
+impl OwnedPendingMutation {
+    fn operation(&self) -> &'static str {
+        match self {
+            Self::Replace { .. } => "replace_pending_inbound_if",
+            Self::Delete(_) => "delete_pending_inbound_if",
+        }
+    }
+
+    fn lease(&self) -> PendingInboundLease {
+        match self {
+            Self::Replace { payload, .. } => payload.lease(),
+            Self::Delete(lease) => lease.clone(),
+        }
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+type RetryQuery<T> =
+    Box<dyn FnOnce(&mut SqliteConnection) -> std::result::Result<T, DieselError> + Send>;
+#[cfg(target_family = "wasm")]
+type RetryQuery<T> = Box<dyn FnOnce(&mut SqliteConnection) -> std::result::Result<T, DieselError>>;
+
+#[cfg(not(target_family = "wasm"))]
+type RetryFactory<'a, T> = dyn FnMut() -> RetryQuery<T> + Send + 'a;
+#[cfg(target_family = "wasm")]
+type RetryFactory<'a, T> = dyn FnMut() -> RetryQuery<T> + 'a;
+
+// Keep the shared retry poll outside the per-factory caller without boxing.
+#[inline(never)]
+fn poll_retry_future<F: Future>(
+    future: Pin<&mut F>,
+    cx: &mut std::task::Context<'_>,
+) -> std::task::Poll<F::Output> {
+    future.poll(cx)
+}
+
+/// Reader connections and the permits that bound how many run at once.
+#[derive(Clone)]
+pub(crate) struct ReadPool {
+    pub(crate) pool: SqlitePool,
+    /// One permit per connection, so the count of blocking threads parked on
+    /// `pool.get()` is bounded by the pool rather than by the caller.
+    pub(crate) semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+/// Fixed-device storage handle implementing the open domain traits in `Backend`.
+/// Obtain siblings from [`crate::SqliteDatabase::store`] without opening new pools.
+/// Repeated SQLite busy/locked failures return [`StoreError::RetriesExhausted`]
+/// after six attempts, including the total attempt count and last Diesel cause.
+/// Other database failures retain their backend source.
+/// Exhaustion describes contention, not whether replaying a larger application
+/// operation is safe.
+/// Domain operations do not accept a second account id:
+///
+/// ```compile_fail
+/// use whatsapp_rust_sqlite_storage::SqliteStore;
+/// async fn cross_scope(store: &SqliteStore) {
+///     store.put_session_for_device("15550000001.1", b"state", 2).await.unwrap();
+/// }
+/// ```
+#[derive(Clone)]
+pub struct SqliteStore {
+    pub(crate) pool: SqlitePool,
+    pub(crate) db_semaphore: Arc<tokio::sync::Semaphore>,
+    /// A separate, `query_only` pool and its permits, when
+    /// [`SqliteDatabaseConfig::read_pool_size`] asked for reader connections and
+    /// the database is actually in WAL. `None` keeps reads on `pool` behind
+    /// `db_semaphore` — the original behaviour, where one queue covers
+    /// everything.
+    ///
+    /// Deliberately a second pool rather than extra connections in the main
+    /// one: several write paths check a connection out directly, without the
+    /// semaphore, and are serialized today only because the pool hands out one
+    /// connection at a time. Growing that pool would let two of them run at
+    /// once and deadlock on the write-lock upgrade — the exact failure this
+    /// change exists to avoid.
+    pub(crate) reads: Option<ReadPool>,
+    /// Whether a deferred read transaction is safe here: WAL, and not shared
+    /// cache. It is the same condition that decides [`Self::reads`], and it has
+    /// to gate the wider-write-pool snapshot too — under shared cache a read
+    /// transaction holds table locks that fail the writer with
+    /// `SQLITE_LOCKED_SHAREDCACHE`, which `busy_timeout` cannot absorb.
+    pub(crate) snapshot_safe: bool,
+    pub(crate) database_path: String,
+    pub(crate) commit_barrier: Option<CommitBarrierHook>,
+    /// Opt-in reclaim of free pages during maintenance. Only acts when the
+    /// database is already in `auto_vacuum = INCREMENTAL`; see
+    /// [`SqliteDatabaseConfig::incremental_vacuum`].
+    incremental_vacuum: bool,
+    incremental_vacuum_pages: u32,
+    device_id: i32,
+}
+
+/// `PRAGMA synchronous` durability level for a store's connections.
+#[derive(Debug, Clone, Copy)]
+pub enum Synchronous {
+    Off,
+    Normal,
+    Full,
+}
+
+impl Synchronous {
+    fn as_pragma(self) -> &'static str {
+        match self {
+            Synchronous::Off => "OFF",
+            Synchronous::Normal => "NORMAL",
+            Synchronous::Full => "FULL",
+        }
+    }
+}
+
+/// Per-connection initialization hook, run at the start of `on_acquire` — before any
+/// of the store's own pragmas, and (because WAL setup and migrations run on a pooled
+/// connection) before those too. This ordering is what makes the hook usable for
+/// SQLCipher-style keying, where `PRAGMA key` must be the first statement on a fresh
+/// connection; it equally serves loading extensions or custom per-connection pragmas.
+///
+/// The hook must be idempotent per connection and cheap: r2d2 calls it once for every
+/// connection it opens, including replacements after errors. Return `Err` to reject
+/// the connection (surfaces as a pool/build error) — e.g. when key verification
+/// (`SELECT count(*) FROM sqlite_master`) fails on a wrongly-keyed database.
+pub type ConnectionInitHook = Arc<
+    dyn Fn(
+            &mut SqliteConnection,
+        ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>
+        + Send
+        + Sync,
+>;
+
+#[cfg(target_family = "wasm")]
+pub type CommitBarrierFuture = Pin<Box<dyn Future<Output = Result<()>> + 'static>>;
+
+#[cfg(not(target_family = "wasm"))]
+pub type CommitBarrierFuture = Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>;
+
+#[cfg(target_family = "wasm")]
+pub type CommitBarrierHook = Arc<dyn Fn() -> CommitBarrierFuture + Send + Sync + 'static>;
+
+/// A write reached SQLite's commit boundary, but its backing durability hook
+/// failed afterwards. Callers must treat the SQL mutation as committed in the
+/// live connection while retaining any retry state needed by the backend.
+#[derive(Debug, Error)]
+#[error("post-commit durability barrier failed")]
+pub struct CommitBarrierError(#[source] pub StoreError);
+
+pub(crate) fn commit_barrier_error(error: StoreError) -> StoreError {
+    StoreError::Database(Box::new(CommitBarrierError(error)))
+}
+
+#[inline(never)]
+pub(crate) async fn await_barrier_hook(hook: &Option<CommitBarrierHook>) -> Result<()> {
+    if let Some(barrier) = hook {
+        barrier().await.map_err(commit_barrier_error)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(target_family = "wasm"))]
+pub type CommitBarrierHook = Arc<dyn Fn() -> CommitBarrierFuture + Send + Sync + 'static>;
+
+/// Per-database connection tuning for [`crate::SqliteDatabase::open`].
+/// [`Default`] is a low-memory profile: one writer and, when native WAL/private
+/// cache permits it, one reader, sharing a process-wide r2d2 management thread
+/// pool, with a 512 KiB page-cache cap per connection. `pool_size` and the writer
+/// semaphore stay in lockstep; prefer `read_pool_size` for read concurrency.
+/// Set `cache_size_kib` for a hotter/larger DB, or `thread_pool` to control r2d2's
+/// management threads (e.g. share your own across crates).
+///
+/// Multiple sessions on one database share these resources via
+/// [`crate::SqliteDatabase::store`].
+///
+/// **The other profile: one long-lived session, one large database.** A process
+/// that pairs once and stays connected for weeks — a bot — is the opposite
+/// shape from the default's assumption. There is one store, not fifty, and its
+/// database reaches a few hundred MB (`msg_secrets` dominates it; its
+/// `CacheConfig::msg_secret_retention` horizon is what sets the size). Against
+/// that file a 512 KiB page cache is a fraction of a percent, so nearly every
+/// b-tree descent is an OS read, and one reader connection means the decrypt
+/// path queues behind whatever write is in flight. The default is not raised
+/// for everyone because the density case is real and pays for both in memory;
+/// name the profile instead:
+///
+/// ```
+/// # use whatsapp_rust_sqlite_storage::SqliteDatabaseConfig;
+/// let config = SqliteDatabaseConfig {
+///     // A warm cache for a database far larger than the default assumes.
+///     cache_size_kib: 16 * 1024,
+///     // Two readers, so a session lookup never waits out a write-behind flush.
+///     read_pool_size: 2,
+///     ..Default::default()
+/// }
+/// // Optional: moves reads onto reclaimable file-backed pages.
+/// .with_mmap_size(256 * 1024 * 1024);
+/// ```
+#[derive(Clone)]
+pub struct SqliteDatabaseConfig {
+    /// Max concurrent operations: r2d2 `max_size` AND the internal semaphore permits,
+    /// kept in lockstep. Clamped to at least 1.
+    ///
+    /// Raising this makes *writes* concurrent, which SQLite does not want: two
+    /// deferred transactions that both read and then write deadlock on the
+    /// upgrade, and `busy_timeout` cannot break it. Leave it at 1 and reach for
+    /// [`read_pool_size`](Self::read_pool_size) instead — that is the knob for
+    /// concurrency, and it is safe because WAL readers never contend for the
+    /// write lock.
+    pub pool_size: u32,
+    /// Extra connections reserved for read-only work, each free to run while a
+    /// write holds the write permit. `0` keeps every operation on the single
+    /// queue, exactly as before this knob existed; the default is `1`. This covers the
+    /// store's own reads (sessions, identities, sender keys) as well as
+    /// [`SharedSqlite::read`](crate::SharedSqlite::read).
+    ///
+    /// WAL supports many concurrent readers alongside one writer, but that was
+    /// unreachable while one `pool_size` governed both the pool and the
+    /// serialization semaphore: the setting that would admit readers also
+    /// admitted concurrent writers. These connections are additional — the write
+    /// path keeps its own, so a burst of readers can never starve the writer.
+    ///
+    /// Costs one connection's page cache ([`cache_size_kib`](Self::cache_size_kib))
+    /// each while active. Native WAL readers are reclaimed after r2d2's existing
+    /// ten-minute idle timeout (plus up to thirty seconds of reaper lag). Only
+    /// unleased connections are closed; the next read reopens one with the same
+    /// initialization hook and pragmas, without queueing behind the writer.
+    /// All requested readers are still validated eagerly at startup. Set this
+    /// to `0` to avoid their startup cost as well in a process holding many
+    /// per-session stores that read rarely.
+    pub read_pool_size: u32,
+    /// `PRAGMA cache_size`, in KiB per connection.
+    ///
+    /// A cap on growth, not a reservation, and not the whole per-connection
+    /// cost: a connection also carries a 48,000 B lookaside slab that no pragma
+    /// can shrink (`SQLITE_DBCONFIG_LOOKASIDE` is C-API only, and diesel does
+    /// not expose the `sqlite3*`). Measured on an idle session, dropping this
+    /// from 512 to 1 moved resident memory from ~123 to ~92 KiB per connection
+    /// — so tuning it down does not substitute for holding fewer connections;
+    /// use [`crate::SqliteDatabase::store`] to share connections.
+    pub cache_size_kib: u32,
+    /// `PRAGMA mmap_size`, in bytes. `None` (default) leaves mmap off — the
+    /// current behavior. When set, pages are read through a reclaimable,
+    /// file-backed memory map instead of the heap page cache, which helps a
+    /// process holding many small per-session DBs (the mapped pages are
+    /// OS-reclaimable, unlike heap cache bytes).
+    ///
+    /// Caveat: mmap I/O covers *reads* of the main database file; in WAL mode
+    /// (this store's default) writes still go through the WAL, and a checkpoint
+    /// briefly falls back to non-mmap I/O. `0` disables mmap the same as `None`.
+    pub mmap_size: Option<u64>,
+    /// `PRAGMA busy_timeout`.
+    pub busy_timeout: Duration,
+    /// `PRAGMA synchronous`.
+    pub synchronous: Synchronous,
+    /// r2d2 connection-management thread pool. `None` shares one process-wide pool so many
+    /// stores don't each spawn their own threads.
+    pub thread_pool: Option<Arc<scheduled_thread_pool::ScheduledThreadPool>>,
+    /// Optional hook run first on every new pooled connection, before the store's own
+    /// pragmas, WAL setup, and migrations. See [`ConnectionInitHook`] for the contract;
+    /// set via [`SqliteDatabaseConfig::with_connection_init`].
+    pub connection_init: Option<ConnectionInitHook>,
+    /// Optional awaitable called after each successful SQLite write commit.
+    /// Readers never call it. The callback runs while the write permit is held
+    /// and must not re-enter this store or a [`SharedSqlite`](crate::SharedSqlite)
+    /// handle, which would wait for the permit it already owns.
+    pub commit_barrier: Option<CommitBarrierHook>,
+    /// Opt-in: return free pages to the filesystem during
+    /// [`DeviceStore::maintenance`](wacore::store::traits::DeviceStore::maintenance),
+    /// via `PRAGMA incremental_vacuum`.
+    ///
+    /// Off by default, and **never** performs a full reorganization. It acts
+    /// only when the database is already in `auto_vacuum = INCREMENTAL` mode,
+    /// either because a previous run configured it or because this store opened
+    /// a brand-new empty file and enabled it there (which is metadata-only, no
+    /// rewrite). On a database still in the default mode this flag does
+    /// nothing: switching modes requires a full `VACUUM`, which this headless
+    /// library must not trigger on a file an embedder may be sharing (the same
+    /// file may host rowid or FTS `external-content` tables whose stable
+    /// rowids a reorganization invalidates).
+    ///
+    /// Each maintenance pass reclaims at most [`Self::incremental_vacuum_pages`]
+    /// pages, so the work stays bounded and off the hot path.
+    pub incremental_vacuum: bool,
+    /// Pages reclaimed per maintenance pass when [`Self::incremental_vacuum`] is
+    /// set. Default 400 (~1.6 MiB at a 4 KiB page size). `0` disables the pass
+    /// while leaving the mode untouched.
+    pub incremental_vacuum_pages: u32,
+}
+
+impl Default for SqliteDatabaseConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: 1,
+            // One reader connection by default (~100 KiB): without it every
+            // read waited out whatever the write permit was doing, and a
+            // `get_session` issued during a write-behind flush measured
+            // p50 7.2 ms / p99 22.8 ms against 0.17 ms / 4.0 ms with a
+            // reader pool. A process holding many stores can set it back to 0.
+            read_pool_size: 1,
+            cache_size_kib: 512,
+            mmap_size: None,
+            busy_timeout: Duration::from_secs(30),
+            synchronous: Synchronous::Normal,
+            thread_pool: None,
+            connection_init: None,
+            commit_barrier: None,
+            incremental_vacuum: false,
+            incremental_vacuum_pages: 400,
+        }
+    }
+}
+
+impl SqliteDatabaseConfig {
+    /// Reserve `n` connections for read-only work, so reads stop queueing
+    /// behind the write permit. See [`read_pool_size`](Self::read_pool_size)
+    /// for what it costs and why raising `pool_size` is not the same thing.
+    pub fn with_read_pool_size(mut self, n: u32) -> Self {
+        self.read_pool_size = n;
+        self
+    }
+
+    /// Set `PRAGMA mmap_size` (bytes), enabling file-backed memory-mapped reads.
+    /// Builder-style so new optional knobs don't force struct-literal churn;
+    /// pass `0` to keep mmap off. See the [`SqliteDatabaseConfig::mmap_size`] caveat.
+    pub fn with_mmap_size(mut self, bytes: u64) -> Self {
+        self.mmap_size = Some(bytes);
+        self
+    }
+
+    /// Install a per-connection init hook, run before the store's pragmas, WAL setup,
+    /// and migrations on every pooled connection (see [`ConnectionInitHook`]).
+    ///
+    /// The canonical use is SQLCipher keying, where the key must be applied — and
+    /// ideally verified — before anything else touches the database:
+    ///
+    /// ```no_run
+    /// # use whatsapp_rust_sqlite_storage::SqliteDatabaseConfig;
+    /// use diesel::prelude::*;
+    ///
+    /// let config = SqliteDatabaseConfig::default().with_connection_init(move |conn| {
+    ///     diesel::sql_query("PRAGMA key = 'my-passphrase';").execute(conn)?;
+    ///     // Verify the key: this fails on a wrongly-keyed database.
+    ///     diesel::sql_query("SELECT count(*) FROM sqlite_master;").execute(conn)?;
+    ///     Ok(())
+    /// });
+    /// ```
+    ///
+    /// Linking a SQLCipher-enabled SQLite is the caller's responsibility: disable this
+    /// crate's default `bundled-sqlite` feature and depend on `libsqlite3-sys` with a
+    /// SQLCipher build (e.g. its `bundled-sqlcipher` feature) instead.
+    pub fn with_connection_init<F>(mut self, hook: F) -> Self
+    where
+        F: Fn(
+                &mut SqliteConnection,
+            ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.connection_init = Some(Arc::new(hook));
+        self
+    }
+
+    /// Install an awaitable that confirms a write reached the configured
+    /// backend before the write operation returns.
+    pub fn with_commit_barrier(mut self, barrier: CommitBarrierHook) -> Self {
+        self.commit_barrier = Some(barrier);
+        self
+    }
+
+    /// Opt into returning free pages to the filesystem during maintenance.
+    ///
+    /// `pages` is the per-pass batch. Zero leaves the option off entirely, so
+    /// it neither reclaims nor switches a fresh database into
+    /// `auto_vacuum = INCREMENTAL`; the latter is a one-way mode change outside
+    /// a full `VACUUM`, and enabling it with nothing ever reclaimed would only
+    /// add pointer-map overhead. Enabling this never forces a reorganization:
+    /// `auto_vacuum` is set only when the store opens a brand-new empty file,
+    /// and the maintenance pass reclaims only when the database is already in
+    /// that mode. See [`SqliteDatabaseConfig::incremental_vacuum`] for why a full
+    /// `VACUUM` is not run.
+    pub fn with_incremental_vacuum(mut self, pages: u32) -> Self {
+        self.incremental_vacuum = pages > 0;
+        self.incremental_vacuum_pages = pages;
+        self
+    }
+}
+
+#[derive(Clone)]
+struct ConnectionOptions {
+    cache_size_kib: u32,
+    mmap_size: Option<u64>,
+    busy_timeout_ms: u64,
+    synchronous: Synchronous,
+    connection_init: Option<ConnectionInitHook>,
+    /// Stamp `PRAGMA query_only` on the connection, making a write through it a
+    /// plain error. Set on the reader pool: those connections must never take
+    /// SQLite's write lock, and enforcing it here beats documenting it.
+    query_only: bool,
+}
+
+impl std::fmt::Debug for ConnectionOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionOptions")
+            .field("cache_size_kib", &self.cache_size_kib)
+            .field("mmap_size", &self.mmap_size)
+            .field("busy_timeout_ms", &self.busy_timeout_ms)
+            .field("synchronous", &self.synchronous)
+            .field(
+                "connection_init",
+                &self.connection_init.as_ref().map(|_| ()),
+            )
+            .finish()
+    }
+}
+
+impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error>
+    for ConnectionOptions
+{
+    fn on_acquire(
+        &self,
+        conn: &mut SqliteConnection,
+    ) -> std::result::Result<(), diesel::r2d2::Error> {
+        // Must run before any pragma: SQLCipher-style hooks can't have the pool touch
+        // the database (even pragmas) before the connection is keyed.
+        if let Some(init) = &self.connection_init {
+            init(conn).map_err(|e| {
+                diesel::r2d2::Error::QueryError(diesel::result::Error::QueryBuilderError(e))
+            })?;
+        }
+        // cache_size negative = KiB (page-size independent). temp_store/foreign_keys are
+        // fixed: they guard correctness, not memory, so they're not user-tunable.
+        let mut pragmas = vec![
+            format!("PRAGMA busy_timeout = {};", self.busy_timeout_ms),
+            format!("PRAGMA synchronous = {};", self.synchronous.as_pragma()),
+            format!("PRAGMA cache_size = -{};", self.cache_size_kib),
+            "PRAGMA temp_store = memory;".to_string(),
+            "PRAGMA foreign_keys = ON;".to_string(),
+            // A WAL grows to the largest single transaction ever committed and,
+            // with no limit set, stays that size for the life of the file: an
+            // auto-checkpoint only resets the WAL, it never shortens it. The
+            // history-sync msg_secrets seed is one such transaction, so a
+            // month-long process pays its peak forever. 32 MiB is well above any
+            // ordinary commit here, so the cap only ever trims the outlier.
+            "PRAGMA journal_size_limit = 33554432;".to_string(),
+        ];
+        // Opt-in: emit mmap_size only for a non-zero value, so the default keeps
+        // SQLite's mmap off (current behavior).
+        if let Some(mmap_size) = self.mmap_size.filter(|&n| n > 0) {
+            pragmas.push(format!("PRAGMA mmap_size = {mmap_size};"));
+        }
+        // Last, so it cannot block the pragmas above (they are connection
+        // settings, not database writes, but query_only is cheap to order).
+        if self.query_only {
+            pragmas.push("PRAGMA query_only = 1;".to_string());
+        }
+        for pragma in pragmas {
+            diesel::sql_query(pragma)
+                .execute(conn)
+                .map_err(diesel::r2d2::Error::QueryError)?;
+        }
+        Ok(())
+    }
+}
+
+fn parse_database_path(database_url: &str) -> Result<String> {
+    // Reject in-memory databases
+    if database_url == ":memory:" {
+        return Err(StoreError::InvalidConfig(
+            "Snapshot not supported for in-memory databases".to_string(),
+        ));
+    }
+
+    // Strip query string and fragment
+    let path = database_url
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(database_url);
+
+    // Remove sqlite:// prefix if present
+    let path = path.trim_start_matches("sqlite://");
+
+    // Check if the resulting path looks like an in-memory marker
+    if path == ":memory:" || path.starts_with(":memory:?") {
+        return Err(StoreError::InvalidConfig(
+            "Snapshot not supported for in-memory databases".to_string(),
+        ));
+    }
+
+    Ok(path.to_string())
+}
+
+/// The filesystem path behind a parsed database path, for sidecar files.
+///
+/// `parse_database_path` keeps a `file:` scheme because SQLite wants it back
+/// verbatim, but the WAL and shm sidecars live beside the *file* the scheme
+/// names: `file:db.sqlite?mode=rwc` writes `db.sqlite-wal`, not
+/// `file:db.sqlite-wal`. `file:///abs/path` is the same file as `/abs/path`.
+///
+/// The scheme is also what decides whether `%20` is an escape: inside a URI
+/// SQLite decodes it, so `file:/tmp/my%20db.sqlite` opens `/tmp/my db.sqlite`
+/// and writes `/tmp/my db.sqlite-wal`. A bare path is a filename SQLite passes
+/// through untouched, where the same three characters are themselves the name
+/// — so decoding happens only on the URI branch, and `Cow` keeps the common
+/// case (no escape to expand) allocation-free.
+fn filesystem_path(database_path: &str) -> std::borrow::Cow<'_, str> {
+    let Some(path) = database_path
+        .strip_prefix("file://")
+        .or_else(|| database_path.strip_prefix("file:"))
+    else {
+        return std::borrow::Cow::Borrowed(database_path);
+    };
+    // `file://localhost/abs` names the local file too; nothing else after the
+    // authority slashes is a path this crate would have opened.
+    let path = path
+        .strip_prefix("localhost/")
+        .map_or(path, |rest| &path[path.len() - rest.len() - 1..]);
+    percent_decode(path)
+}
+
+/// Expand `%HH` escapes, the way SQLite does when it parses a URI filename.
+///
+/// A `%` that does not introduce two hex digits stays literal, which is also
+/// SQLite's behaviour: it decodes what it recognizes and copies the rest.
+fn percent_decode(path: &str) -> std::borrow::Cow<'_, str> {
+    if !path.contains('%') {
+        return std::borrow::Cow::Borrowed(path);
+    }
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let decoded = (bytes[i] == b'%')
+            .then(|| bytes.get(i + 1).zip(bytes.get(i + 2)))
+            .flatten()
+            .and_then(|(hi, lo)| {
+                Some(
+                    (char::from(*hi).to_digit(16)? << 4) as u8
+                        | char::from(*lo).to_digit(16)? as u8,
+                )
+            });
+        match decoded {
+            Some(byte) => {
+                out.push(byte);
+                i += 3;
+            }
+            None => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    // A decoded escape can only be invalid UTF-8 if the URI carried one, in
+    // which case the original text is the closest thing to a usable path.
+    String::from_utf8(out).map_or_else(
+        |_| std::borrow::Cow::Borrowed(path),
+        std::borrow::Cow::Owned,
+    )
+}
+
+/// Whether the URI asks SQLite for shared cache.
+///
+/// Only a `file:` URI carries query parameters; a bare path containing `?` is
+/// filename, not configuration. SQLite takes the first occurrence of a repeated
+/// parameter, so this stops at the first `cache=`.
+fn is_shared_cache(database_url: &str) -> bool {
+    let Some((_, query)) = database_url.split_once('?') else {
+        return false;
+    };
+    if !database_url.starts_with("file:") {
+        return false;
+    }
+    query
+        .split('#')
+        .next()
+        .unwrap_or(query)
+        .split('&')
+        .filter_map(|param| param.split_once('='))
+        .find(|(key, _)| *key == "cache")
+        .is_some_and(|(_, value)| value.eq_ignore_ascii_case("shared"))
+}
+
+impl SqliteStore {
+    /// Open one account (device id 1) with the default low-memory configuration.
+    /// This does not create the device row; the client's normal provisioning
+    /// path calls `DeviceStore::create`.
+    ///
+    /// For custom connection tuning or multiple accounts, use
+    /// [`crate::SqliteDatabase::open`] and [`crate::SqliteDatabase::store`].
+    pub async fn open(database_url: &str) -> Result<Self> {
+        Ok(
+            crate::SqliteDatabase::open(database_url, SqliteDatabaseConfig::default())
+                .await?
+                .store(1),
+        )
+    }
+
+    /// Administration and whole-pool reporting for this store's database.
+    /// No connections are opened; dropping either handle leaves the other usable.
+    pub fn database(&self) -> crate::SqliteDatabase {
+        crate::SqliteDatabase {
+            template: self.clone(),
+        }
+    }
+
+    /// Resources owned by the device scope, excluding shared pool resources.
+    /// There are no per-device caches in this adapter. This reports zero payload
+    /// memory, not the size of this small Rust handle or SQLite's shared cache.
+    /// Compose with `database().resource_report()` **once per database**.
+    /// The legacy `DeviceStore::resource_report` remains a whole-pool report.
+    pub fn scoped_resource_report(&self) -> wacore::stats::StorageResourceReport {
+        wacore::stats::StorageResourceReport {
+            memory_bytes: Some(0),
+            ..Default::default()
+        }
+    }
+
+    pub(crate) async fn build(
+        database_url: &str,
+        device_id: i32,
+        config: SqliteDatabaseConfig,
+    ) -> std::result::Result<Self, StoreError> {
+        let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+        // pool_size drives both r2d2's max_size and the semaphore permits, so a serialized
+        // store (the default 1) carries exactly one connection, and raising it for real
+        // concurrency keeps the two in step.
+        let pool_size = config.pool_size.max(1);
+        let read_pool_size = config.read_pool_size;
+        // Left as the `Option` the embedder gave; `pool::builder` resolves it.
+        let thread_pool = config.thread_pool;
+        let read_thread_pool = thread_pool.clone();
+        let commit_barrier = config.commit_barrier.clone();
+
+        let options = ConnectionOptions {
+            cache_size_kib: config.cache_size_kib,
+            mmap_size: config.mmap_size,
+            // Clamp a non-zero timeout up to >=1ms (and to SQLite's signed-int ms range):
+            // as_millis() would truncate a sub-millisecond Duration to 0, which disables the
+            // busy handler instead of keeping a short timeout.
+            busy_timeout_ms: if config.busy_timeout.is_zero() {
+                0
+            } else {
+                config.busy_timeout.as_millis().clamp(1, i32::MAX as u128) as u64
+            },
+            synchronous: config.synchronous,
+            connection_init: config.connection_init,
+            query_only: false,
+        };
+        let read_options = ConnectionOptions {
+            query_only: true,
+            ..options.clone()
+        };
+
+        // r2d2's build() synchronously opens the pool's initial connection, so build the
+        // pool AND run migrations inside one blocking task to keep the async runtime
+        // unblocked (matters when many stores open at once).
+        let db_url = database_url.to_string();
+        let want_incremental_vacuum = config.incremental_vacuum;
+        let (pool, journal_mode) = crate::pool::spawn_blocking(
+            move || -> std::result::Result<(SqlitePool, String), StoreError> {
+                // test_on_check_out(false): a local SQLite file connection doesn't
+                // spontaneously drop, so r2d2's per-checkout SELECT 1 liveness probe guards
+                // nothing — a real failure surfaces on the next query. The shared thread pool
+                // avoids r2d2's per-pool management threads (see `pool::builder`).
+                let pool = crate::pool::builder(thread_pool)
+                    .max_size(pool_size)
+                    .test_on_check_out(false)
+                    .connection_customizer(Box::new(options))
+                    .build(manager)
+                    .map_err(|e| StoreError::Connection(Box::new(e)))?;
+
+                let mut conn = pool
+                    .get()
+                    .map_err(|e| StoreError::Connection(Box::new(e)))?;
+
+                // auto_vacuum only takes effect if set before the database has
+                // any page at all, and on a populated database SQLite silently
+                // ignores the pragma (the only way to change it later is a full
+                // VACUUM, which this library must not run on a file it may be
+                // sharing). It also has to be set BEFORE `journal_mode = WAL`,
+                // which writes page 1 and would make the file non-empty. So
+                // this enables INCREMENTAL only on a brand-new, still-empty
+                // file; an existing database is left exactly as it was, and the
+                // maintenance pass reacts to whatever mode it is really in.
+                if want_incremental_vacuum {
+                    #[derive(diesel::QueryableByName)]
+                    struct PageCount {
+                        #[diesel(sql_type = diesel::sql_types::BigInt)]
+                        page_count: i64,
+                    }
+                    let page_count: PageCount = diesel::sql_query("PRAGMA page_count;")
+                        .get_result(&mut *conn)
+                        .map_err(|e| StoreError::Database(Box::new(e)))?;
+                    if page_count.page_count == 0 {
+                        diesel::sql_query("PRAGMA auto_vacuum = INCREMENTAL;")
+                            .execute(&mut *conn)
+                            .map_err(|e| StoreError::Database(Box::new(e)))?;
+                    }
+                }
+
+                // The PRAGMA reports the mode actually in effect, which is not
+                // always the one asked for — an in-memory database has no WAL
+                // to switch to and stays on its own journal.
+                #[derive(diesel::QueryableByName)]
+                struct JournalMode {
+                    #[diesel(sql_type = diesel::sql_types::Text)]
+                    journal_mode: String,
+                }
+                let journal_mode = diesel::sql_query("PRAGMA journal_mode = WAL;")
+                    .get_result::<JournalMode>(&mut *conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?
+                    .journal_mode;
+
+                conn.run_pending_migrations(MIGRATIONS)
+                    .map_err(StoreError::Migration)?;
+                // Returned to the pool before the pool is: on the web the
+                // checkout is the only connection there is, and a pool moved
+                // out from under a live one would not compile there.
+                drop(conn);
+
+                Ok((pool, journal_mode))
+            },
+        )
+        .await
+        .map_err(|e| StoreError::Database(Box::new(e)))??;
+        if let Some(barrier) = commit_barrier {
+            await_barrier_hook(&Some(barrier)).await?;
+        }
+
+        // Reader connections only pay off under WAL, and only with a page cache
+        // per connection. Each of the two ways that can fail turns the intended
+        // concurrency into a worse failure than the single queue it replaces, so
+        // decline rather than half-deliver it.
+        let wal = journal_mode.eq_ignore_ascii_case("wal");
+        // Shared cache replaces WAL's snapshot isolation with table-level locks
+        // held for the length of a transaction, so a writer touching a table a
+        // read snapshot has open fails with SQLITE_LOCKED_SHAREDCACHE — which
+        // the busy handler does not retry, so `busy_timeout` cannot absorb it.
+        let shared_cache = is_shared_cache(&db_url);
+        let declined = if cfg!(target_family = "wasm") {
+            // A reader pool is a second connection, and on the web there is no
+            // such thing: the pool holds the one handle the VFS will give out
+            // for that origin-private file (see `pool`'s web module).
+            Some("the web build has a single connection per database".to_string())
+        } else if !wal {
+            Some(format!("journal_mode is '{journal_mode}', not WAL"))
+        } else if shared_cache {
+            Some("the URI opts into shared cache, whose table locks block the writer".to_string())
+        } else {
+            None
+        };
+        // Info, not warn: the default asks for one reader, so an in-memory or
+        // rollback-journal database would otherwise warn on every open.
+        if read_pool_size > 0
+            && let Some(reason) = &declined
+        {
+            log::info!("sqlite-storage: read_pool_size={read_pool_size} ignored, {reason}");
+        }
+        let reads = if read_pool_size > 0 && declined.is_none() {
+            let manager = ConnectionManager::<SqliteConnection>::new(&db_url);
+            let pool = crate::pool::spawn_blocking(
+                move || -> std::result::Result<SqlitePool, StoreError> {
+                    let builder = crate::pool::builder(read_thread_pool);
+                    // Keep r2d2's ten-minute idle timeout, but do not immediately
+                    // replace retired readers. The existing semaphore and pooled
+                    // checkout lease still bound concurrency and protect in-use
+                    // connections; the next read recreates one on demand.
+                    #[cfg(not(target_family = "wasm"))]
+                    let builder = builder.min_idle(Some(0));
+                    let pool = builder
+                        .max_size(read_pool_size)
+                        .test_on_check_out(false)
+                        .connection_customizer(Box::new(read_options))
+                        .build(manager)
+                        .map_err(|e| StoreError::Connection(Box::new(e)))?;
+                    // Validate every requested native reader at open, as before:
+                    // hook or pragma failures must reject the constructor, not
+                    // be deferred until the first message after pairing.
+                    #[cfg(not(target_family = "wasm"))]
+                    {
+                        let mut initial = Vec::with_capacity(read_pool_size as usize);
+                        for _ in 0..read_pool_size {
+                            initial.push(
+                                pool.get()
+                                    .map_err(|e| StoreError::Connection(Box::new(e)))?,
+                            );
+                        }
+                        drop(initial);
+                    }
+                    Ok(pool)
+                },
+            )
+            .await
+            .map_err(|e| StoreError::Database(Box::new(e)))??;
+            Some(ReadPool {
+                pool,
+                semaphore: Arc::new(tokio::sync::Semaphore::new(read_pool_size as usize)),
+            })
+        } else {
+            None
+        };
+
+        let database_path = parse_database_path(database_url)?;
+
+        Ok(Self {
+            pool,
+            db_semaphore: Arc::new(tokio::sync::Semaphore::new(pool_size as usize)),
+            reads,
+            snapshot_safe: declined.is_none(),
+            database_path,
+            commit_barrier: config.commit_barrier,
+            incremental_vacuum: config.incremental_vacuum,
+            incremental_vacuum_pages: config.incremental_vacuum_pages,
+            device_id,
+        })
+    }
+
+    /// Fixed account scope used by all domain trait operations on this handle.
+    pub fn device_id(&self) -> i32 {
+        self.device_id
+    }
+
+    /// A store for a *sibling device* in the same database, reusing this
+    /// store's connections instead of opening more.
+    ///
+    /// Every constructor builds its own r2d2 pool, so a process holding N
+    /// sessions against one database file ends up with N SQLite connections —
+    /// and a connection costs memory before it reads a single row: a 48,000 B
+    /// lookaside slab (`SQLITE_DEFAULT_LOOKASIDE` 1200,40, which this build
+    /// does not override), plus a page cache that grows to
+    /// [`SqliteDatabaseConfig::cache_size_kib`]. Measured on an idle session that
+    /// has only done a couple of point reads, that is ~123 KiB of resident
+    /// memory per session, and it does not shrink meaningfully with a smaller
+    /// cache cap: ~92 KiB of it survives `cache_size_kib = 1`. Nothing else
+    /// about the store is per-session — every query already takes a
+    /// `device_id` — so sibling sessions on one database only ever needed that
+    /// field to differ. Same reasoning as [`SqliteStore::shared`], applied to
+    /// sibling devices instead of sibling crates.
+    ///
+    /// The returned store owns clones of the pool handles, so it stays usable
+    /// for as long as it lives — dropping the store it came from closes
+    /// nothing.
+    ///
+    /// What it does **not** do:
+    ///
+    /// - **Create the device row.** It only stamps queries with `device_id`.
+    ///   The row still comes from `DeviceStore::create`, database provisioning
+    ///   or restore; selecting a scope does not write.
+    /// - **Isolate writes.** Siblings share the write permits, of which
+    ///   [`SqliteDatabaseConfig::pool_size`] decides the number — so at its
+    ///   default of 1 their writes serialize against each other, and a base
+    ///   store built with a wider pool passes that width on instead. That is
+    ///   the trade, and at the default it is not free: on a burst where every
+    ///   session writes continuously, sharing
+    ///   costs ~2.5x the aggregate write throughput of a pool per session,
+    ///   because a private connection lets one session's queueing overlap
+    ///   another's SQLite work. In exchange the queue is FIFO-fair, where
+    ///   separate connections leave it to SQLite's busy handler and its random
+    ///   backoff (measured: ~2x spread between the fastest and slowest
+    ///   session). So this is for fleets that are mostly idle — the shape
+    ///   sessions actually have — and not for continuously writing ones.
+    ///   [`SqliteDatabaseConfig::read_pool_size`] widens the *read* side only,
+    ///   and its connections are shared here too.
+    /// - **Split the resource report.** `resource_report()` describes the
+    ///   *pool*, and siblings share one, so every handle reports the same
+    ///   whole-pool estimate. That is the honest answer for a shared
+    ///   connection — the bytes belong to the pool, not to any one session —
+    ///   but it means summing the report across a fleet of siblings counts
+    ///   those bytes once per sibling. Count them once per pool instead. The
+    ///   saving this method exists for is exactly why there is only one pool
+    ///   left to count.
+    ///
+    /// The public account-selection entry point is `SqliteDatabase::store`.
+    pub(crate) fn share_for_device(&self, device_id: i32) -> Self {
+        Self {
+            pool: self.pool.clone(),
+            db_semaphore: Arc::clone(&self.db_semaphore),
+            reads: self.reads.clone(),
+            snapshot_safe: self.snapshot_safe,
+            database_path: self.database_path.clone(),
+            commit_barrier: self.commit_barrier.clone(),
+            incremental_vacuum: self.incremental_vacuum,
+            incremental_vacuum_pages: self.incremental_vacuum_pages,
+            device_id,
+        }
+    }
+
+    /// Run a **read-only** query on a reader connection, falling back to the
+    /// write queue when none is configured.
+    ///
+    /// This is where every read-only method belongs. The write permit is a
+    /// single slot on purpose, so a read taken through [`Self::with_semaphore`]
+    /// waits out whatever write is in flight; on the decrypt path that means a
+    /// session or identity miss queues behind a whole write-behind flush.
+    ///
+    /// Consistency: a read issued after a write's `await` returned observes it,
+    /// because a WAL reader opens on the latest committed snapshot. Reads that
+    /// merely overlap a write see either state, which is what the single permit
+    /// already gave them (it ordered them arbitrarily, not causally).
+    ///
+    /// Only correct for statements that cannot write. Reader connections carry
+    /// `PRAGMA query_only`, so a write sent here fails loudly -- but the
+    /// fallback hands out an ordinary write connection, so with no reader pool
+    /// (the default) that net is absent and the routing scan is the only guard.
+    async fn read_query<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut SqliteConnection) -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        // Erase the closure before the real body: two dozen read methods
+        // through a generic body carrying Diesel's transaction machinery
+        // monomorphizes per call site, and that is ~90 KiB of .text.
+        self.read_erased(Box::new(f)).await
+    }
+
+    async fn read_erased<T: Send + 'static>(&self, f: ReadQuery<T>) -> Result<T> {
+        // A deferred read transaction is what pins the snapshot, so take one
+        // wherever real concurrency sits behind it: reader connections, or a
+        // wider write pool on a database where a read transaction cannot lock
+        // the writer out. One implementation, shared with the sibling crates.
+        if self.reads.is_some() || (self.snapshot_safe && self.pool.max_size() > 1) {
+            return self.shared().read(f).await;
+        }
+        // No snapshot to take here. With the default single connection, checking
+        // it out is both the serialization and the snapshot, so this takes no
+        // permit -- adding one would serialize the `spawn_blocking` dispatch that
+        // the pool wait currently overlaps, which measured ~25% on p50. With a
+        // wider pool the permit is the only ordering left.
+        let permit = if self.pool.max_size() > 1 {
+            Some(
+                self.db_semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|e| StoreError::Database(Box::new(e)))?,
+            )
+        } else {
+            None
+        };
+        let pool = self.pool.clone();
+        crate::pool::spawn_blocking(move || {
+            let _permit = permit;
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            f(&mut conn)
+        })
+        .await
+        .map_err(|e| StoreError::Database(Box::new(e)))?
+    }
+
+    /// The write queue: one permit, so two writers can never deadlock on the
+    /// transaction upgrade. Read-only work belongs in [`Self::read_query`].
+    async fn with_semaphore<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce() -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        // Erased for the same reason as [`Self::read_query`]: the body carries a
+        // permit acquire and a `spawn_blocking`, and there are enough call sites
+        // that monomorphizing it per closure type costs tens of KiB of .text.
+        self.with_semaphore_erased(Box::new(f)).await
+    }
+
+    async fn with_semaphore_erased<T: Send + 'static>(&self, f: BlockingJob<T>) -> Result<T> {
+        let permit = self
+            .db_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+        let result = crate::pool::spawn_blocking(move || {
+            let res = f();
+            drop(permit);
+            res
+        })
+        .await
+        .map_err(|e| StoreError::Database(Box::new(e)))??;
+        Ok(result)
+    }
+
+    async fn await_commit_barrier(&self) -> Result<()> {
+        await_barrier_hook(&self.commit_barrier).await
+    }
+
+    async fn write_blocking<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut SqliteConnection) -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.write_blocking_erased(Box::new(f)).await
+    }
+
+    #[inline(never)]
+    async fn write_blocking_erased<T: Send + 'static>(&self, f: WriteJob<T>) -> Result<T> {
+        let permit = self
+            .db_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+        let pool = self.pool.clone();
+        let (result, permit) = crate::pool::spawn_blocking(move || -> Result<(T, _)> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let result = f(&mut conn)?;
+            Ok((result, permit))
+        })
+        .await
+        .map_err(|e| StoreError::Database(Box::new(e)))??;
+        self.await_commit_barrier().await?;
+        drop(permit);
+        Ok(result)
+    }
+
+    // Share the mutation retry/transaction body while retaining owned leases
+    // in the worker, including when its awaiting caller is cancelled.
+    async fn mutate_pending_inbound_owned(
+        &self,
+        key: PendingInboundKey<'_>,
+        expected: PendingInboundRevision,
+        max_bytes: usize,
+        mutation: OwnedPendingMutation,
+    ) -> Result<PendingInboundMutation> {
+        let (chat, sender, id) = (
+            key.chat.to_owned(),
+            key.sender.to_owned(),
+            key.id.to_owned(),
+        );
+        let device_id = self.device_id;
+        self.with_retry(mutation.operation(), || {
+            let (chat, sender, id) = (chat.clone(), sender.clone(), id.clone());
+            let mutation = mutation.clone();
+            Box::new(move |conn| {
+                conn.immediate_transaction(|conn| {
+                    let current = match read_pending_inbound_bounded_row(
+                        conn,
+                        device_id,
+                        &chat,
+                        &sender,
+                        &id,
+                        max_bytes,
+                        mutation.lease(),
+                    )? {
+                        Ok(current) => current,
+                        Err(error) => return Ok(Err(error)),
+                    };
+                    let revision = current.as_ref().map_or(
+                        PendingInboundRevision::missing(),
+                        PendingInboundRecord::revision,
+                    );
+                    // Already-replaced is Applied even if the caller's expected
+                    // revision is stale. Delete has no such shortcut.
+                    if let OwnedPendingMutation::Replace {
+                        revision: replacement,
+                        ..
+                    } = &mutation
+                        && revision == *replacement
+                    {
+                        return Ok(Ok(PendingInboundMutation::Applied));
+                    }
+                    if revision != expected {
+                        return Ok(Ok(PendingInboundMutation::Conflict));
+                    }
+                    match &mutation {
+                        OwnedPendingMutation::Replace { payload, .. } => {
+                            insert_pending_inbound_row(
+                                conn,
+                                device_id,
+                                &chat,
+                                &sender,
+                                &id,
+                                payload.bytes(),
+                            )?;
+                        }
+                        OwnedPendingMutation::Delete(_) => {
+                            delete_pending_inbound_row(conn, device_id, &chat, &sender, &id)?;
+                        }
+                    }
+                    Ok(Ok(PendingInboundMutation::Applied))
+                })
+            })
+        })
+        .await?
+    }
+
+    /// Execute a database operation with semaphore serialization and retry on
+    /// transient SQLite lock/busy errors. Mirrors WhatsApp Web's PromiseQueue
+    /// pattern that serializes database commits to avoid concurrent write contention.
+    async fn with_retry<F, T>(&self, op_name: &str, make_op: F) -> Result<T>
+    where
+        F: Fn() -> RetryQuery<T> + wacore::sync_marker::MaybeSend,
+        T: wacore::sync_marker::MaybeSend + 'static,
+    {
+        self.with_retry_inner(op_name, make_op, true).await
+    }
+
+    async fn with_read_retry<F, T>(&self, op_name: &str, make_op: F) -> Result<T>
+    where
+        F: Fn() -> RetryQuery<T> + wacore::sync_marker::MaybeSend,
+        T: wacore::sync_marker::MaybeSend + 'static,
+    {
+        self.with_retry_inner(op_name, make_op, false).await
+    }
+
+    async fn with_retry_inner<F, T>(
+        &self,
+        op_name: &str,
+        make_op: F,
+        await_barrier: bool,
+    ) -> Result<T>
+    where
+        F: Fn() -> RetryQuery<T> + wacore::sync_marker::MaybeSend,
+        T: wacore::sync_marker::MaybeSend + 'static,
+    {
+        let mut make_op = make_op;
+        let future = self.with_retry_erased(op_name, &mut make_op, await_barrier);
+        let mut future = std::pin::pin!(future);
+        std::future::poll_fn(|cx| poll_retry_future(future.as_mut(), cx)).await
+    }
+
+    async fn with_retry_erased<T>(
+        &self,
+        op_name: &str,
+        make_op: &mut RetryFactory<'_, T>,
+        await_barrier: bool,
+    ) -> Result<T>
+    where
+        T: wacore::sync_marker::MaybeSend + 'static,
+    {
+        const MAX_RETRIES: u32 = 5;
+
+        let mut attempt = 0;
+        loop {
+            let permit = self
+                .db_semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+
+            let pool = self.pool.clone();
+            let op = make_op();
+
+            let result = crate::pool::spawn_blocking(move || {
+                let result = (|| {
+                    let mut conn = pool
+                        .get()
+                        .map_err(|e| DieselOrStore::Store(StoreError::Connection(Box::new(e))))?;
+                    op(&mut conn).map_err(DieselOrStore::Diesel)
+                })();
+                (result, permit)
+            })
+            .await;
+
+            match result {
+                Ok((Ok(val), permit)) => {
+                    let barrier = if await_barrier {
+                        self.await_commit_barrier().await
+                    } else {
+                        Ok(())
+                    };
+                    drop(permit);
+                    barrier?;
+                    return Ok(val);
+                }
+                Ok((Err(DieselOrStore::Diesel(e)), permit)) if is_retriable_sqlite_error(&e) => {
+                    drop(permit);
+                    if attempt == MAX_RETRIES {
+                        return Err(StoreError::RetriesExhausted {
+                            op: op_name.to_string(),
+                            attempts: attempt + 1,
+                            source: Box::new(e),
+                        });
+                    }
+                    let delay_ms = 10u64 * (1u64 << attempt.min(4));
+                    // Skip the first transient blip; warn from the second retry on so
+                    // sustained busy/locked contention doesn't go unobserved.
+                    if attempt >= 1 {
+                        warn!(
+                            "{op_name} busy/locked, retry {}/{} in {delay_ms}ms: {e}",
+                            attempt + 1,
+                            MAX_RETRIES + 1
+                        );
+                    }
+                    retry_backoff(delay_ms).await;
+                    attempt += 1;
+                }
+                Ok((Err(e), permit)) => {
+                    drop(permit);
+                    return Err(e.into());
+                }
+                Err(e) => return Err(StoreError::Database(Box::new(e))),
+            }
+        }
+    }
+
+    fn serialize_keypair(&self, key_pair: &KeyPair) -> Result<Vec<u8>> {
+        serialize_keypair(key_pair)
+    }
+
+    fn deserialize_keypair(&self, bytes: &[u8]) -> Result<KeyPair> {
+        if bytes.len() != 64 {
+            return Err(StoreError::Validation(format!(
+                "Invalid KeyPair length: {}",
+                bytes.len()
+            )));
+        }
+
+        let private_key = PrivateKey::deserialize(&bytes[0..32])
+            .map_err(|e| StoreError::Serialization(Box::new(e)))?;
+        let public_key = PublicKey::from_djb_public_key_bytes(&bytes[32..64])
+            .map_err(|e| StoreError::Serialization(Box::new(e)))?;
+
+        Ok(KeyPair::new(public_key, private_key))
+    }
+
+    async fn save_device_data_for_device(
+        &self,
+        device_id: i32,
+        device_data: &CoreDevice,
+    ) -> Result<()> {
+        // Use Arc so retry clones are just atomic increments, not deep copies.
+        let noise_key_data: Arc<[u8]> = self.serialize_keypair(&device_data.noise_key)?.into();
+        let identity_key_data: Arc<[u8]> =
+            self.serialize_keypair(&device_data.identity_key)?.into();
+        let signed_pre_key_data: Arc<[u8]> =
+            self.serialize_keypair(&device_data.signed_pre_key)?.into();
+        let account_data: Option<Arc<[u8]>> = device_data
+            .account
+            .as_ref()
+            .map(|a| Arc::from(wacore::store::device::account_serde::to_bytes(a)));
+        let registration_id = device_data.registration_id as i32;
+        let signed_pre_key_id = device_data.signed_pre_key_id as i32;
+        let signed_pre_key_signature: Arc<[u8]> =
+            Arc::from(&device_data.signed_pre_key_signature[..]);
+        let adv_secret_key: Arc<[u8]> = Arc::from(&device_data.adv_secret_key[..]);
+        let push_name: Arc<str> = Arc::from(device_data.push_name.as_str());
+        let app_version_primary = device_data.app_version_primary as i32;
+        let app_version_secondary = device_data.app_version_secondary as i32;
+        let app_version_tertiary = device_data.app_version_tertiary as i64;
+        let app_version_last_fetched_ms = device_data.app_version_last_fetched_ms;
+        let edge_routing_info: Option<Arc<[u8]>> =
+            device_data.edge_routing_info.as_deref().map(Arc::from);
+        let props_hash: Option<Arc<str>> = device_data.props_hash.as_deref().map(Arc::from);
+        // JSON rather than a column per field: the record is a deadline plus
+        // the build it was issued for, and splitting a version triple across
+        // columns buys nothing -- nothing queries or orders by it.
+        let server_client_expiration: Option<Arc<str>> = device_data
+            .server_client_expiration
+            .as_ref()
+            .and_then(|v| serde_json::to_string(v).ok())
+            .map(Arc::from);
+        let next_pre_key_id = device_data.next_pre_key_id as i32;
+        let first_unupload_pre_key_id = device_data.first_unupload_pre_key_id as i32;
+        let server_has_prekeys = device_data.server_has_prekeys;
+        let nct_salt: Option<Arc<[u8]>> = device_data.nct_salt.as_deref().map(Arc::from);
+        let status_privacy: Option<Arc<[u8]>> = device_data.status_privacy.as_ref().map(|action| {
+            Arc::from(wacore::store::device::status_privacy_serde::to_bytes(
+                action,
+            ))
+        });
+        let server_cert_chain: Option<Arc<[u8]>> = device_data
+            .server_cert_chain
+            .as_ref()
+            .map(|chain| Arc::from(crate::wire::encode_server_cert_chain(chain)));
+        let login_counter = device_data.login_counter;
+        let lid_migrated = device_data.lid_migrated;
+        let last_signed_pre_key_rotation_ms = device_data.last_signed_pre_key_rotation_ms;
+        let read_receipts_disabled = device_data.read_receipts_disabled;
+        let new_lid: Arc<str> = Arc::from(
+            device_data
+                .lid
+                .as_ref()
+                .map(|j| j.to_string())
+                .unwrap_or_default()
+                .as_str(),
+        );
+        let new_pn: Arc<str> = Arc::from(
+            device_data
+                .pn
+                .as_ref()
+                .map(|j| j.to_string())
+                .unwrap_or_default()
+                .as_str(),
+        );
+
+        self.with_retry("save_device_data", || {
+            let noise_key_data = Arc::clone(&noise_key_data);
+            let identity_key_data = Arc::clone(&identity_key_data);
+            let signed_pre_key_data = Arc::clone(&signed_pre_key_data);
+            let account_data = account_data.clone();
+            let signed_pre_key_signature = Arc::clone(&signed_pre_key_signature);
+            let adv_secret_key = Arc::clone(&adv_secret_key);
+            let push_name = Arc::clone(&push_name);
+            let edge_routing_info = edge_routing_info.clone();
+            let props_hash = props_hash.clone();
+            let server_client_expiration = server_client_expiration.clone();
+            let nct_salt = nct_salt.clone();
+            let status_privacy = status_privacy.clone();
+            let server_cert_chain = server_cert_chain.clone();
+            let new_lid = Arc::clone(&new_lid);
+            let new_pn = Arc::clone(&new_pn);
+
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::insert_into(device::table)
+                    .values((
+                        device::id.eq(device_id),
+                        device::lid.eq(&*new_lid),
+                        device::pn.eq(&*new_pn),
+                        device::registration_id.eq(registration_id),
+                        device::noise_key.eq(&*noise_key_data),
+                        device::identity_key.eq(&*identity_key_data),
+                        device::signed_pre_key.eq(&*signed_pre_key_data),
+                        device::signed_pre_key_id.eq(signed_pre_key_id),
+                        device::signed_pre_key_signature.eq(&*signed_pre_key_signature),
+                        device::adv_secret_key.eq(&*adv_secret_key),
+                        device::account.eq(account_data.as_deref()),
+                        device::push_name.eq(&*push_name),
+                        device::app_version_primary.eq(app_version_primary),
+                        device::app_version_secondary.eq(app_version_secondary),
+                        device::app_version_tertiary.eq(app_version_tertiary),
+                        device::app_version_last_fetched_ms.eq(app_version_last_fetched_ms),
+                        device::edge_routing_info.eq(edge_routing_info.as_deref()),
+                        device::props_hash.eq(props_hash.as_deref()),
+                        device::next_pre_key_id.eq(next_pre_key_id),
+                        device::first_unupload_pre_key_id.eq(first_unupload_pre_key_id),
+                        device::server_has_prekeys.eq(server_has_prekeys),
+                        device::nct_salt.eq(nct_salt.as_deref()),
+                        device::status_privacy.eq(status_privacy.as_deref()),
+                        device::server_cert_chain.eq(server_cert_chain.as_deref()),
+                        device::login_counter.eq(login_counter),
+                        device::lid_migrated.eq(lid_migrated),
+                        device::last_signed_pre_key_rotation_ms.eq(last_signed_pre_key_rotation_ms),
+                        device::read_receipts_disabled.eq(read_receipts_disabled),
+                        device::server_client_expiration.eq(server_client_expiration.as_deref()),
+                    ))
+                    .on_conflict(device::id)
+                    .do_update()
+                    .set((
+                        device::lid.eq(excluded(device::lid)),
+                        device::pn.eq(excluded(device::pn)),
+                        device::registration_id.eq(excluded(device::registration_id)),
+                        device::noise_key.eq(excluded(device::noise_key)),
+                        device::identity_key.eq(excluded(device::identity_key)),
+                        device::signed_pre_key.eq(excluded(device::signed_pre_key)),
+                        device::signed_pre_key_id.eq(excluded(device::signed_pre_key_id)),
+                        device::signed_pre_key_signature
+                            .eq(excluded(device::signed_pre_key_signature)),
+                        device::adv_secret_key.eq(excluded(device::adv_secret_key)),
+                        device::account.eq(excluded(device::account)),
+                        device::push_name.eq(excluded(device::push_name)),
+                        device::app_version_primary.eq(excluded(device::app_version_primary)),
+                        device::app_version_secondary.eq(excluded(device::app_version_secondary)),
+                        device::app_version_tertiary.eq(excluded(device::app_version_tertiary)),
+                        device::app_version_last_fetched_ms
+                            .eq(excluded(device::app_version_last_fetched_ms)),
+                        device::edge_routing_info.eq(excluded(device::edge_routing_info)),
+                        device::props_hash.eq(excluded(device::props_hash)),
+                        device::next_pre_key_id.eq(excluded(device::next_pre_key_id)),
+                        device::first_unupload_pre_key_id
+                            .eq(excluded(device::first_unupload_pre_key_id)),
+                        device::server_has_prekeys.eq(excluded(device::server_has_prekeys)),
+                        device::nct_salt.eq(excluded(device::nct_salt)),
+                        device::status_privacy.eq(excluded(device::status_privacy)),
+                        device::server_cert_chain.eq(excluded(device::server_cert_chain)),
+                        device::login_counter.eq(excluded(device::login_counter)),
+                        device::lid_migrated.eq(excluded(device::lid_migrated)),
+                        device::last_signed_pre_key_rotation_ms
+                            .eq(excluded(device::last_signed_pre_key_rotation_ms)),
+                        device::read_receipts_disabled.eq(excluded(device::read_receipts_disabled)),
+                        device::server_client_expiration
+                            .eq(excluded(device::server_client_expiration)),
+                    ))
+                    .execute(conn)
+                    .map(|_| ())
+            })
+        })
+        .await
+    }
+
+    pub(crate) async fn create_new_device(&self) -> Result<i32> {
+        let device_id = self.device_id;
+        let new_device = wacore::store::Device::new();
+
+        let noise_key_data: Arc<[u8]> = self.serialize_keypair(&new_device.noise_key)?.into();
+        let identity_key_data: Arc<[u8]> = self.serialize_keypair(&new_device.identity_key)?.into();
+        let signed_pre_key_data: Arc<[u8]> =
+            self.serialize_keypair(&new_device.signed_pre_key)?.into();
+        let registration_id = new_device.registration_id as i32;
+        let signed_pre_key_id = new_device.signed_pre_key_id as i32;
+        let signed_pre_key_signature: Arc<[u8]> =
+            Arc::from(&new_device.signed_pre_key_signature[..]);
+        let adv_secret_key: Arc<[u8]> = Arc::from(&new_device.adv_secret_key[..]);
+        let push_name: Arc<str> = Arc::from(new_device.push_name.as_str());
+        let app_version_primary = new_device.app_version_primary as i32;
+        let app_version_secondary = new_device.app_version_secondary as i32;
+        let app_version_tertiary = new_device.app_version_tertiary as i64;
+        let app_version_last_fetched_ms = new_device.app_version_last_fetched_ms;
+        let next_pre_key_id = new_device.next_pre_key_id as i32;
+        let first_unupload_pre_key_id = new_device.first_unupload_pre_key_id as i32;
+        let server_has_prekeys = new_device.server_has_prekeys;
+        let last_signed_pre_key_rotation_ms = new_device.last_signed_pre_key_rotation_ms;
+
+        self.with_retry("create_new_device", || {
+            let noise_key_data = Arc::clone(&noise_key_data);
+            let identity_key_data = Arc::clone(&identity_key_data);
+            let signed_pre_key_data = Arc::clone(&signed_pre_key_data);
+            let signed_pre_key_signature = Arc::clone(&signed_pre_key_signature);
+            let adv_secret_key = Arc::clone(&adv_secret_key);
+            let push_name = Arc::clone(&push_name);
+
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::insert_into(device::table)
+                    .values((
+                        device::id.eq(device_id),
+                        device::lid.eq(""),
+                        device::pn.eq(""),
+                        device::registration_id.eq(registration_id),
+                        device::noise_key.eq(&*noise_key_data),
+                        device::identity_key.eq(&*identity_key_data),
+                        device::signed_pre_key.eq(&*signed_pre_key_data),
+                        device::signed_pre_key_id.eq(signed_pre_key_id),
+                        device::signed_pre_key_signature.eq(&*signed_pre_key_signature),
+                        device::adv_secret_key.eq(&*adv_secret_key),
+                        device::account.eq(None::<&[u8]>),
+                        device::push_name.eq(&*push_name),
+                        device::app_version_primary.eq(app_version_primary),
+                        device::app_version_secondary.eq(app_version_secondary),
+                        device::app_version_tertiary.eq(app_version_tertiary),
+                        device::app_version_last_fetched_ms.eq(app_version_last_fetched_ms),
+                        device::edge_routing_info.eq(None::<&[u8]>),
+                        device::props_hash.eq(None::<&str>),
+                        device::next_pre_key_id.eq(next_pre_key_id),
+                        device::first_unupload_pre_key_id.eq(first_unupload_pre_key_id),
+                        device::server_has_prekeys.eq(server_has_prekeys),
+                        device::nct_salt.eq(None::<&[u8]>),
+                        device::status_privacy.eq(None::<&[u8]>),
+                        device::server_cert_chain.eq(None::<&[u8]>),
+                        device::login_counter.eq(0i32),
+                        device::lid_migrated.eq(false),
+                        device::last_signed_pre_key_rotation_ms.eq(last_signed_pre_key_rotation_ms),
+                        device::read_receipts_disabled.eq(false),
+                        device::server_client_expiration.eq(None::<&str>),
+                    ))
+                    .execute(conn)
+                    .map(|_| device_id)
+            })
+        })
+        .await
+    }
+
+    pub(crate) async fn list_devices_impl(&self) -> Result<Vec<StoredDeviceSummary>> {
+        self.read_query(|conn| {
+            #[derive(QueryableByName)]
+            struct Row {
+                #[diesel(sql_type = diesel::sql_types::Integer)]
+                id: i32,
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                pn: String,
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                lid: String,
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                push_name: String,
+            }
+
+            let rows: Vec<Row> =
+                diesel::sql_query("SELECT id, pn, lid, push_name FROM device ORDER BY id ASC")
+                    .load(conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let pn = row.pn.parse().ok();
+                    StoredDeviceSummary {
+                        id: row.id,
+                        linked: pn.is_some(),
+                        pn,
+                        lid: if row.lid.is_empty() {
+                            None
+                        } else {
+                            row.lid.parse().ok()
+                        },
+                        push_name: row.push_name,
+                    }
+                })
+                .collect())
+        })
+        .await
+    }
+
+    pub(crate) async fn create_sibling_device_impl(&self) -> Result<(i32, SqliteStore)> {
+        let row = Arc::new(FreshDeviceRow::new(None)?);
+        let device_id = self
+            .with_retry("create_sibling_device", move || {
+                let row = Arc::clone(&row);
+                Box::new(move |conn: &mut SqliteConnection| {
+                    // One transaction around insert + id read so a retry after a
+                    // partial failure cannot leave a second row behind.
+                    conn.immediate_transaction(|conn| {
+                        row.insert(conn)?;
+                        last_insert_rowid(conn)
+                    })
+                })
+            })
+            .await?;
+        Ok((device_id, self.share_for_device(device_id)))
+    }
+
+    pub(crate) async fn reset_device_impl(&self, device_id: i32) -> Result<SqliteStore> {
+        let row = Arc::new(FreshDeviceRow::new(Some(device_id))?);
+        self.with_retry("reset_device", move || {
+            let row = Arc::clone(&row);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.immediate_transaction(|conn| {
+                    let deleted = diesel::delete(device::table.filter(device::id.eq(device_id)))
+                        .execute(conn)?;
+                    if deleted == 0 {
+                        // Rolls the (empty) transaction back; translated to the
+                        // typed error by `missing_device` below.
+                        return Err(DieselError::NotFound);
+                    }
+                    purge_account_state(conn, device_id)?;
+                    // Same id, fresh keys: the account keeps its identity while
+                    // its state starts over.
+                    row.insert(conn)?;
+                    Ok(())
+                })
+            })
+        })
+        .await
+        .map_err(|e| missing_device(e, device_id))?;
+        Ok(self.share_for_device(device_id))
+    }
+
+    pub(crate) async fn remove_device_impl(&self, device_id: i32) -> Result<()> {
+        self.with_retry("remove_device", move || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.immediate_transaction(|conn| {
+                    let deleted = diesel::delete(device::table.filter(device::id.eq(device_id)))
+                        .execute(conn)?;
+                    if deleted == 0 {
+                        return Err(DieselError::NotFound);
+                    }
+                    purge_account_state(conn, device_id)?;
+                    Ok(())
+                })
+            })
+        })
+        .await
+        .map_err(|e| missing_device(e, device_id))?;
+        Ok(())
+    }
+
+    pub(crate) async fn device_exists_impl(&self, device_id: i32) -> Result<bool> {
+        use crate::schema::device;
+
+        self.read_query(move |conn| {
+            let count: i64 = device::table
+                .filter(device::id.eq(device_id))
+                .count()
+                .get_result(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+
+            Ok(count > 0)
+        })
+        .await
+    }
+
+    async fn load_device_data_for_device(&self, device_id: i32) -> Result<Option<CoreDevice>> {
+        use crate::schema::device;
+
+        let row = self
+            .read_query(move |conn| {
+                let result = device::table
+                    .filter(device::id.eq(device_id))
+                    .first::<DeviceRow>(conn)
+                    .optional()
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                Ok(result)
+            })
+            .await?;
+
+        if let Some(row) = row {
+            let pn = if !row.pn.is_empty() {
+                row.pn.parse().ok()
+            } else {
+                None
+            };
+            let lid = if !row.lid.is_empty() {
+                row.lid.parse().ok()
+            } else {
+                None
+            };
+
+            let noise_key = self.deserialize_keypair(&row.noise_key)?;
+            let identity_key = self.deserialize_keypair(&row.identity_key)?;
+            let signed_pre_key = self.deserialize_keypair(&row.signed_pre_key)?;
+
+            let signed_pre_key_signature: [u8; 64] =
+                row.signed_pre_key_signature.try_into().map_err(|_| {
+                    StoreError::Validation("Invalid signed_pre_key_signature length".to_string())
+                })?;
+
+            let adv_secret_key: [u8; 32] = row
+                .adv_secret_key
+                .try_into()
+                .map_err(|_| StoreError::Validation("Invalid adv_secret_key length".to_string()))?;
+
+            let account = row
+                .account
+                .map(|data| {
+                    wacore::store::device::account_serde::from_bytes(&data)
+                        .map_err(|e| StoreError::Serialization(Box::new(e)))
+                })
+                .transpose()?;
+
+            Ok(Some(CoreDevice {
+                pn,
+                lid,
+                registration_id: row.registration_id as u32,
+                noise_key,
+                identity_key,
+                signed_pre_key,
+                signed_pre_key_id: row.signed_pre_key_id as u32,
+                signed_pre_key_signature,
+                adv_secret_key,
+                account: account.map(Arc::new),
+                push_name: row.push_name,
+                app_version_primary: row.app_version_primary as u32,
+                app_version_secondary: row.app_version_secondary as u32,
+                app_version_tertiary: row.app_version_tertiary.try_into().unwrap_or(0u32),
+                app_version_last_fetched_ms: row.app_version_last_fetched_ms,
+                device_props: Arc::new(wacore::store::device::DEVICE_PROPS.clone()),
+                client_profile: wacore::client_profile::ClientProfile::web(),
+                edge_routing_info: row.edge_routing_info,
+                props_hash: row.props_hash,
+                next_pre_key_id: row.next_pre_key_id as u32,
+                first_unupload_pre_key_id: row.first_unupload_pre_key_id as u32,
+                server_has_prekeys: row.server_has_prekeys,
+                nct_salt: row.nct_salt,
+                nct_salt_sync_seen: false,
+                status_privacy: row.status_privacy.as_deref().and_then(|bytes| {
+                    match wacore::store::device::status_privacy_serde::from_bytes(bytes) {
+                        Ok(action) => Some(Arc::new(action)),
+                        Err(e) => {
+                            // The optional audience must not prevent account startup. Never
+                            // substitute an all-contacts audience for an undecodable value.
+                            log::warn!(
+                                "device {} status_privacy blob ({} bytes) failed to decode: {e}; \
+                                 treating audience as unknown",
+                                self.device_id,
+                                bytes.len(),
+                            );
+                            None
+                        }
+                    }
+                }),
+                server_cert_chain: row
+                    .server_cert_chain
+                    .as_deref()
+                    .and_then(|bytes| {
+                        // The cert chain is a perf cache, not load-bearing
+                        // identity. A corrupt blob (truncated row, format
+                        // change between versions) must NOT block startup —
+                        // log it and degrade to None so the next connect
+                        // simply pays one XX handshake to repopulate.
+                        match crate::wire::decode_server_cert_chain(bytes) {
+                            Ok(chain) => Some(chain),
+                            Err(e) => {
+                                log::warn!(
+                                    "device {} server_cert_chain blob ({} bytes) failed to decode: {e}; \
+                                     dropping cache, next connect will use XX",
+                                    self.device_id,
+                                    bytes.len(),
+                                );
+                                None
+                            }
+                        }
+                    }),
+                login_counter: row.login_counter,
+                lid_migrated: row.lid_migrated,
+                last_signed_pre_key_rotation_ms: row.last_signed_pre_key_rotation_ms,
+                read_receipts_disabled: row.read_receipts_disabled,
+                // A row written by a newer build, or corrupted, reads as no
+                // deadline rather than failing the whole device load; the
+                // next `<ib>` restates it.
+                server_client_expiration: row
+                    .server_client_expiration
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str(raw).ok()),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn put_identity_for_device(
+        &self,
+        address: &str,
+        key: [u8; 32],
+        device_id: i32,
+    ) -> Result<()> {
+        // The key is a `Copy` array and the address is refcount-shared, so a
+        // retry costs no heap allocation beyond the operation closure.
+        let address_owned: Arc<str> = Arc::from(address);
+        self.with_retry("identity_write", move || {
+            let address = address_owned.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                crate::upsert_queries::UpsertIdentity {
+                    address: address.as_ref(),
+                    key: &key[..],
+                    device_id,
+                }
+                .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn delete_identity_for_device(&self, address: &str, device_id: i32) -> Result<()> {
+        let address_owned = address.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                identities::table
+                    .filter(identities::address.eq(address_owned))
+                    .filter(identities::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn load_identity_for_device(
+        &self,
+        address: &str,
+        device_id: i32,
+    ) -> Result<Option<Vec<u8>>> {
+        let address = address.to_string();
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = identities::table
+                .select(identities::key)
+                .filter(identities::address.eq(address))
+                .filter(identities::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(res)
+        })
+        .await
+    }
+
+    async fn get_session_for_device(
+        &self,
+        address: &str,
+        device_id: i32,
+    ) -> Result<Option<Vec<u8>>> {
+        let address_for_query = address.to_string();
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = sessions::table
+                .select(sessions::record)
+                .filter(sessions::address.eq(address_for_query))
+                .filter(sessions::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+
+            Ok(res)
+        })
+        .await
+    }
+
+    async fn put_session_for_device(
+        &self,
+        address: &str,
+        session: &[u8],
+        device_id: i32,
+    ) -> Result<()> {
+        // Copied once, then refcount-shared across attempts: this runs after
+        // every Signal encrypt/decrypt, and a session record is several KiB,
+        // so a per-attempt `Vec` clone was a memcpy on the happy path too.
+        let address_owned: Arc<str> = Arc::from(address);
+        let session_bytes = Bytes::copy_from_slice(session);
+        self.with_retry("session_write", move || {
+            let address = address_owned.clone();
+            let session = session_bytes.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                crate::upsert_queries::UpsertSession {
+                    address: address.as_ref(),
+                    record: session.as_ref(),
+                    device_id,
+                }
+                .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn delete_session_for_device(&self, address: &str, device_id: i32) -> Result<()> {
+        let address_owned = address.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                sessions::table
+                    .filter(sessions::address.eq(address_owned))
+                    .filter(sessions::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn put_sender_key_for_device(
+        &self,
+        address: &str,
+        record: &[u8],
+        device_id: i32,
+    ) -> Result<()> {
+        let address = address.to_string();
+        let record_vec = record.to_vec();
+        self.write_blocking(move |conn| {
+            crate::upsert_queries::UpsertSenderKey {
+                address: &address,
+                record: &record_vec,
+                device_id,
+            }
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_sender_key_for_device(
+        &self,
+        address: &str,
+        device_id: i32,
+    ) -> Result<Option<Vec<u8>>> {
+        let address = address.to_string();
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = sender_keys::table
+                .select(sender_keys::record)
+                .filter(sender_keys::address.eq(address))
+                .filter(sender_keys::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(res)
+        })
+        .await
+    }
+
+    async fn delete_sender_key_for_device(&self, address: &str, device_id: i32) -> Result<()> {
+        let address = address.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                sender_keys::table
+                    .filter(sender_keys::address.eq(address))
+                    .filter(sender_keys::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_app_state_sync_key_for_device(
+        &self,
+        key_id: &[u8],
+        device_id: i32,
+    ) -> Result<Option<AppStateSyncKey>> {
+        // On the write queue: a stale absent answer is sent on the wire as an
+        // orphan reply to a peer's key request, so it is not a miss the caller
+        // retries.
+        let pool = self.pool.clone();
+        let key_id = key_id.to_vec();
+        let res: Option<Vec<u8>> = self
+            .with_semaphore(move || -> Result<Option<Vec<u8>>> {
+                let mut conn = pool
+                    .get()
+                    .map_err(|e| StoreError::Connection(Box::new(e)))?;
+                let res: Option<Vec<u8>> = app_state_keys::table
+                    .select(app_state_keys::key_data)
+                    .filter(app_state_keys::key_id.eq(&key_id))
+                    .filter(app_state_keys::device_id.eq(device_id))
+                    .first(&mut *conn)
+                    .optional()
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                Ok(res)
+            })
+            .await?;
+
+        if let Some(data) = res {
+            // An undecodable blob (an old bincode row or genuine corruption) is
+            // treated as absent: the app-state sync path then re-requests the key,
+            // the primary re-shares it, and the next set overwrites it as protobuf.
+            match crate::wire::decode_app_state_sync_key(&data) {
+                Ok(key) => Ok(Some(key)),
+                Err(e) => {
+                    warn!(
+                        "app_state_sync_key blob ({} bytes) failed to decode: {e}; \
+                         treating as absent, key will be re-requested",
+                        data.len()
+                    );
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn set_app_state_sync_key_for_device(
+        &self,
+        key_id: &[u8],
+        key: AppStateSyncKey,
+        device_id: i32,
+    ) -> Result<()> {
+        let key_id = key_id.to_vec();
+        let data = crate::wire::encode_app_state_sync_key(&key);
+        self.write_blocking(move |conn| {
+            diesel::insert_into(app_state_keys::table)
+                .values((
+                    app_state_keys::key_id.eq(&key_id),
+                    app_state_keys::key_data.eq(&data),
+                    app_state_keys::device_id.eq(device_id),
+                ))
+                .on_conflict((app_state_keys::key_id, app_state_keys::device_id))
+                .do_update()
+                .set(app_state_keys::key_data.eq(&data))
+                .execute(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_latest_app_state_sync_key_id_for_device(
+        &self,
+        device_id: i32,
+    ) -> Result<Option<Vec<u8>>> {
+        // On the write queue: a stale absent answer becomes InvalidRequest and
+        // fails the user's app-state action outright.
+        let pool = self.pool.clone();
+        let res: Option<Vec<u8>> = self
+            .with_semaphore(move || -> Result<Option<Vec<u8>>> {
+                let mut conn = pool
+                    .get()
+                    .map_err(|e| StoreError::Connection(Box::new(e)))?;
+                // Return the latest key whose blob actually decodes. A legacy bincode
+                // row (or a corrupt one) reads as absent via get_sync_key but still
+                // sits in the table with a possibly lexicographically-higher key_id;
+                // selecting it here would make the outbound build_patch fail later in
+                // get_app_state_key with KeyNotFound. Skip undecodable rows so outbound
+                // mutations use the newest USABLE key.
+                let candidates: Vec<(Vec<u8>, Vec<u8>)> = app_state_keys::table
+                    .select((app_state_keys::key_id, app_state_keys::key_data))
+                    .filter(app_state_keys::device_id.eq(device_id))
+                    .order(app_state_keys::key_id.desc())
+                    .load(&mut *conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                let res = candidates
+                    .into_iter()
+                    .find(|(_, data)| crate::wire::decode_app_state_sync_key(data).is_ok())
+                    .map(|(key_id, _)| key_id);
+                Ok(res)
+            })
+            .await?;
+        Ok(res)
+    }
+
+    async fn get_app_state_version_for_device(
+        &self,
+        name: &str,
+        device_id: i32,
+    ) -> Result<Option<HashState>> {
+        let name = name.to_string();
+        let res: Option<Vec<u8>> = self
+            .read_query(move |conn| {
+                let res: Option<Vec<u8>> = app_state_versions::table
+                    .select(app_state_versions::state_data)
+                    .filter(app_state_versions::name.eq(name))
+                    .filter(app_state_versions::device_id.eq(device_id))
+                    .first(conn)
+                    .optional()
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                Ok(res)
+            })
+            .await?;
+
+        if let Some(data) = res {
+            // An undecodable blob (an old bincode row or corruption) is answered
+            // as never-synced, which rebuilds the collection from a snapshot.
+            // Answering version 0 instead asked the server to resume from a
+            // baseline this side could not actually read.
+            match crate::wire::decode_hash_state(&data) {
+                Ok(state) => Ok(Some(state)),
+                Err(e) => {
+                    warn!(
+                        "app_state_version blob ({} bytes) failed to decode: {e}; \
+                         treating the collection as never synced so it rebuilds",
+                        data.len()
+                    );
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn delete_app_state_version_for_device(&self, name: &str, device_id: i32) -> Result<()> {
+        let name = name.to_string();
+        self.with_retry("delete_app_state_version", || {
+            let name = name.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    app_state_versions::table
+                        .filter(app_state_versions::name.eq(&name))
+                        .filter(app_state_versions::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn set_app_state_version_for_device(
+        &self,
+        name: &str,
+        state: HashState,
+        device_id: i32,
+    ) -> Result<()> {
+        let name = name.to_string();
+        // Behind an `Arc` so a retry attempt clones a refcount, not the
+        // encoded state; same shape as `put_lid_mappings`.
+        let data = Arc::new(crate::wire::encode_hash_state(&state));
+        self.with_retry("set_app_state_version", || {
+            let name = name.clone();
+            let data = Arc::clone(&data);
+            Box::new(move |conn: &mut SqliteConnection| {
+                upsert_app_state_version(conn, &name, &data, device_id)
+            })
+        })
+        .await
+    }
+
+    async fn put_app_state_mutation_macs_for_device(
+        &self,
+        name: &str,
+        version: u64,
+        mutations: &[AppStateMutationMAC],
+        device_id: i32,
+    ) -> Result<()> {
+        if mutations.is_empty() {
+            return Ok(());
+        }
+        let name = name.to_string();
+        // One owned copy of the batch, shared across retry attempts: a
+        // 3000-MAC snapshot apply cloned 6000 `Vec<u8>` per attempt before.
+        let mutations: Arc<[AppStateMutationMAC]> = Arc::from(mutations);
+        self.with_retry("put_app_state_mutation_macs", || {
+            let name = name.clone();
+            let mutations = Arc::clone(&mutations);
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Chunking is a parameter-limit workaround, not a commit
+                // boundary: a reader that lands between two chunks must not see
+                // half a batch.
+                conn.transaction(|conn| {
+                    insert_app_state_mutation_macs(conn, &name, version, &mutations, device_id)
+                })
+            })
+        })
+        .await
+    }
+
+    async fn delete_app_state_mutation_macs_for_device(
+        &self,
+        name: &str,
+        index_macs: &[Vec<u8>],
+        device_id: i32,
+    ) -> Result<()> {
+        if index_macs.is_empty() {
+            return Ok(());
+        }
+        let name = name.to_string();
+        let index_macs: Arc<[Vec<u8>]> = Arc::from(index_macs);
+        self.with_retry("delete_app_state_mutation_macs", || {
+            let name = name.clone();
+            let index_macs = Arc::clone(&index_macs);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    delete_app_state_mutation_macs(conn, &name, &index_macs, device_id)?;
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    /// One applied patch — version, removed MACs, added MACs — in ONE
+    /// transaction. The three single-purpose writes each cost a permit, a
+    /// `spawn_blocking` and a WAL commit (~65 us each on a file-backed store),
+    /// which for the small patches of a paged incremental sync was 155 us of
+    /// the 270 us a patch took to persist. Committing them together is also
+    /// strictly stronger than either order the sync loop used: the version
+    /// can no longer land without the MACs it pairs with.
+    async fn commit_app_state_patch_for_device(
+        &self,
+        name: &str,
+        state: &HashState,
+        removed_index_macs: &[Vec<u8>],
+        added: &[AppStateMutationMAC],
+        device_id: i32,
+    ) -> Result<()> {
+        let name = name.to_string();
+        let version = state.version;
+        let data = Arc::new(crate::wire::encode_hash_state(state));
+        let removed: Arc<[Vec<u8>]> = Arc::from(removed_index_macs);
+        let added: Arc<[AppStateMutationMAC]> = Arc::from(added);
+        self.with_retry("commit_app_state_patch", || {
+            let name = name.clone();
+            let data = Arc::clone(&data);
+            let removed = Arc::clone(&removed);
+            let added = Arc::clone(&added);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    upsert_app_state_version(conn, &name, &data, device_id)?;
+                    delete_app_state_mutation_macs(conn, &name, &removed, device_id)?;
+                    insert_app_state_mutation_macs(conn, &name, version, &added, device_id)
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_app_state_mutation_mac_for_device(
+        &self,
+        name: &str,
+        index_mac: &[u8],
+        device_id: i32,
+    ) -> Result<Option<Vec<u8>>> {
+        let name = name.to_string();
+        let index_mac = index_mac.to_vec();
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = app_state_mutation_macs::table
+                .select(app_state_mutation_macs::value_mac)
+                .filter(app_state_mutation_macs::name.eq(&name))
+                .filter(app_state_mutation_macs::index_mac.eq(&index_mac))
+                .filter(app_state_mutation_macs::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(res)
+        })
+        .await
+    }
+
+    /// Batched read of previous-MAC values for many index_macs in one query
+    /// (single spawn_blocking + `index_mac IN (...)`), replacing the per-mutation
+    /// N+1 in appstate sync.
+    async fn get_app_state_mutation_macs_batch_for_device(
+        &self,
+        name: &str,
+        index_macs: &[[u8; 32]],
+        device_id: i32,
+    ) -> Result<std::collections::HashMap<[u8; 32], Vec<u8>>> {
+        if index_macs.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let name = name.to_string();
+        let index_macs: Vec<[u8; 32]> = index_macs.to_vec();
+        self.read_query(move |conn| {
+            let mut out = std::collections::HashMap::with_capacity(index_macs.len());
+            const CHUNK_SIZE: usize = 500;
+            for chunk in index_macs.chunks(CHUNK_SIZE) {
+                let chunk_slices: Vec<&[u8]> = chunk.iter().map(|m| m.as_slice()).collect();
+                let rows: Vec<(Vec<u8>, Vec<u8>)> = app_state_mutation_macs::table
+                    .select((
+                        app_state_mutation_macs::index_mac,
+                        app_state_mutation_macs::value_mac,
+                    ))
+                    .filter(app_state_mutation_macs::name.eq(&name))
+                    .filter(app_state_mutation_macs::index_mac.eq_any(chunk_slices))
+                    .filter(app_state_mutation_macs::device_id.eq(device_id))
+                    .load(conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                // Rows with a non-32-byte index_mac cannot have come from the
+                // 32-byte keys we just queried; skip defensively.
+                out.extend(
+                    rows.into_iter().filter_map(|(k, v)| {
+                        <[u8; 32]>::try_from(k.as_slice()).ok().map(|k| (k, v))
+                    }),
+                );
+            }
+            Ok(out)
+        })
+        .await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl SignalStore for SqliteStore {
+    async fn put_identity(&self, address: &str, key: [u8; 32]) -> Result<()> {
+        self.put_identity_for_device(address, key, self.device_id)
+            .await
+    }
+
+    async fn put_identities_batch(&self, identities: &[(Arc<str>, [u8; 32])]) -> Result<()> {
+        if identities.is_empty() {
+            return Ok(());
+        }
+
+        let device_id = self.device_id;
+        // `Arc<Vec>` so each retry attempt bumps a refcount instead of re-cloning
+        // the whole batch.
+        let batch = Arc::new(identities.to_vec());
+        self.with_retry("put_identities_batch", || {
+            let batch = batch.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for (address, key) in batch.iter() {
+                        crate::upsert_queries::UpsertIdentity {
+                            address: address.as_ref(),
+                            key: &key[..],
+                            device_id,
+                        }
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn load_identity(&self, address: &str) -> Result<Option<[u8; 32]>> {
+        let blob = self
+            .load_identity_for_device(address, self.device_id)
+            .await?;
+        match blob {
+            None => Ok(None),
+            Some(v) => Ok(Some(v.try_into().map_err(|v: Vec<u8>| {
+                StoreError::Validation(format!(
+                    "identity key for '{}' has invalid length {} (expected 32)",
+                    address,
+                    v.len()
+                ))
+            })?)),
+        }
+    }
+
+    async fn delete_identity(&self, address: &str) -> Result<()> {
+        self.delete_identity_for_device(address, self.device_id)
+            .await
+    }
+
+    /// One transaction, one `IN` list per chunk: the per-address delete is a
+    /// `spawn_blocking`, a pool checkout and a WAL commit each, and the flush
+    /// issues these for every entry it dropped.
+    async fn delete_identities_batch(&self, items: &[Arc<str>]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let items = Arc::new(items.to_vec());
+        self.with_retry("delete_identities_batch", || {
+            let items = items.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for chunk in items.chunks(ID_PARAM_CHUNK) {
+                        diesel::delete(
+                            identities::table
+                                .filter(identities::device_id.eq(device_id))
+                                .filter(
+                                    identities::address.eq_any(chunk.iter().map(|a| a.as_ref())),
+                                ),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_session(&self, address: &str) -> Result<Option<Bytes>> {
+        Ok(self
+            .get_session_for_device(address, self.device_id)
+            .await?
+            .map(Bytes::from))
+    }
+
+    /// One read query for the whole fan-out: the per-address `get_session` is a
+    /// pool checkout plus query each, and a group send faults one per device on
+    /// a cold cache. Chunked like `delete_sessions_batch`: a large group
+    /// carries more addresses than SQLite's host-parameter limit. Returns only
+    /// the addresses that exist, in backend order.
+    async fn get_sessions_batch(&self, addresses: &[Arc<str>]) -> Result<Vec<(Arc<str>, Bytes)>> {
+        if addresses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let device_id = self.device_id;
+        let items = Arc::new(addresses.to_vec());
+        self.read_query(move |conn| {
+            let mut out = Vec::with_capacity(items.len());
+            for chunk in items.chunks(ID_PARAM_CHUNK) {
+                let rows: Vec<(String, Vec<u8>)> = sessions::table
+                    .select((sessions::address, sessions::record))
+                    .filter(sessions::address.eq_any(chunk.iter().map(|a| a.as_ref())))
+                    .filter(sessions::device_id.eq(device_id))
+                    .load(conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                out.extend(
+                    rows.into_iter()
+                        .map(|(address, record)| (Arc::from(address), Bytes::from(record))),
+                );
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    async fn has_session(&self, address: &str) -> Result<bool> {
+        // Not the cache's has_session, which reads get_session instead. This one
+        // is only reached through Device::contains_session, whose single caller
+        // logs the answer, so a stale one changes a log line.
+        let device_id = self.device_id;
+        let address_owned = address.to_string();
+        self.read_query(move |conn| {
+            let exists = diesel::select(diesel::dsl::exists(
+                sessions::table
+                    .filter(sessions::address.eq(&address_owned))
+                    .filter(sessions::device_id.eq(device_id)),
+            ))
+            .get_result(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(exists)
+        })
+        .await
+    }
+
+    async fn has_signal_state_for_user(&self, user: &str) -> Result<bool> {
+        let device_id = self.device_id;
+        // Address is `user@server` (device 0) or `user:dev@server`; `user` is a
+        // numeric PN/LID so it carries no LIKE wildcards.
+        let pat_at = format!("{user}@%");
+        let pat_dev = format!("{user}:%");
+        // On the write queue: the only consumer, `has_state_for_user`, is the
+        // skip guard for the PN to LID session migration and has no cold-load
+        // re-check, so a stale absent answer skips a migration nothing retries.
+        let pool = self.pool.clone();
+        self.with_semaphore(move || -> Result<bool> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let conn = &mut *conn;
+            let has_session = diesel::select(diesel::dsl::exists(
+                sessions::table
+                    .filter(sessions::device_id.eq(device_id))
+                    .filter(
+                        sessions::address
+                            .like(&pat_at)
+                            .or(sessions::address.like(&pat_dev)),
+                    ),
+            ))
+            .get_result::<bool>(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            if has_session {
+                return Ok(true);
+            }
+            let has_identity = diesel::select(diesel::dsl::exists(
+                identities::table
+                    .filter(identities::device_id.eq(device_id))
+                    .filter(
+                        identities::address
+                            .like(&pat_at)
+                            .or(identities::address.like(&pat_dev)),
+                    ),
+            ))
+            .get_result::<bool>(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(has_identity)
+        })
+        .await
+    }
+
+    async fn put_session(&self, address: &str, session: &[u8]) -> Result<()> {
+        self.put_session_for_device(address, session, self.device_id)
+            .await
+    }
+
+    async fn put_sessions_batch(&self, sessions: &[(Arc<str>, Bytes)]) -> Result<()> {
+        if sessions.is_empty() {
+            return Ok(());
+        }
+
+        let device_id = self.device_id;
+        let batch = Arc::new(sessions.to_vec());
+        self.with_retry("put_sessions_batch", || {
+            let batch = batch.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for (address, record) in batch.iter() {
+                        crate::upsert_queries::UpsertSession {
+                            address: address.as_ref(),
+                            record: record.as_ref(),
+                            device_id,
+                        }
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn delete_session(&self, address: &str) -> Result<()> {
+        self.delete_session_for_device(address, self.device_id)
+            .await
+    }
+
+    /// See `delete_identities_batch`.
+    async fn delete_sessions_batch(&self, items: &[Arc<str>]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let items = Arc::new(items.to_vec());
+        self.with_retry("delete_sessions_batch", || {
+            let items = items.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for chunk in items.chunks(ID_PARAM_CHUNK) {
+                        diesel::delete(
+                            sessions::table
+                                .filter(sessions::device_id.eq(device_id))
+                                .filter(sessions::address.eq_any(chunk.iter().map(|a| a.as_ref()))),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn store_prekey(&self, id: u32, record: &[u8], uploaded: bool) -> Result<()> {
+        let device_id = self.device_id;
+        // One copy, then refcount clones per attempt (see put_session_for_device).
+        let record = Bytes::copy_from_slice(record);
+        self.with_retry("store_prekey", move || {
+            let record = record.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::insert_into(prekeys::table)
+                    .values((
+                        prekeys::id.eq(id as i32),
+                        prekeys::key.eq(record.as_ref()),
+                        prekeys::uploaded.eq(uploaded),
+                        prekeys::device_id.eq(device_id),
+                    ))
+                    .on_conflict((prekeys::id, prekeys::device_id))
+                    .do_update()
+                    .set((
+                        prekeys::key.eq(record.as_ref()),
+                        prekeys::uploaded.eq(uploaded),
+                    ))
+                    .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn store_prekeys_batch(&self, keys: &[(u32, Bytes)], uploaded: bool) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+
+        let device_id = self.device_id;
+        // `Arc<Vec>` so each retry attempt bumps a refcount instead of re-cloning
+        // the whole batch (see put_sessions_batch).
+        let batch = Arc::new(keys.to_vec());
+        self.with_retry("store_prekeys_batch", || {
+            let batch = batch.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for (id, record) in batch.iter() {
+                        diesel::insert_into(prekeys::table)
+                            .values((
+                                prekeys::id.eq(*id as i32),
+                                prekeys::key.eq(record.as_ref()),
+                                prekeys::uploaded.eq(uploaded),
+                                prekeys::device_id.eq(device_id),
+                            ))
+                            .on_conflict((prekeys::id, prekeys::device_id))
+                            .do_update()
+                            .set((
+                                prekeys::key.eq(record.as_ref()),
+                                prekeys::uploaded.eq(uploaded),
+                            ))
+                            .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn load_prekey(&self, id: u32) -> Result<Option<Bytes>> {
+        let device_id = self.device_id;
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = prekeys::table
+                .select(prekeys::key)
+                .filter(prekeys::id.eq(id as i32))
+                .filter(prekeys::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(res.map(Bytes::from))
+        })
+        .await
+    }
+
+    async fn load_prekeys_batch(&self, ids: &[u32]) -> Result<Vec<(u32, Bytes)>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let device_id = self.device_id;
+        let ids: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+        self.read_query(move |conn| {
+            // Chunked like mark_prekeys_uploaded: the upload window can carry
+            // more ids than SQLite's host-parameter limit.
+            let mut out = Vec::with_capacity(ids.len());
+            for chunk in ids.chunks(ID_PARAM_CHUNK) {
+                let rows: Vec<(i32, Vec<u8>)> = prekeys::table
+                    .select((prekeys::id, prekeys::key))
+                    .filter(prekeys::id.eq_any(chunk))
+                    .filter(prekeys::device_id.eq(device_id))
+                    .load(conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                out.extend(
+                    rows.into_iter()
+                        .map(|(id, key)| (id as u32, Bytes::from(key))),
+                );
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    async fn remove_prekey(&self, id: u32) -> Result<()> {
+        let device_id = self.device_id;
+        self.with_retry("remove_prekey", move || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    prekeys::table
+                        .filter(prekeys::id.eq(id as i32))
+                        .filter(prekeys::device_id.eq(device_id)),
+                )
+                .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn mark_prekeys_uploaded(&self, ids: &[u32]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let ids: Vec<i32> = ids.iter().map(|&id| id as i32).collect();
+        self.with_retry("mark_prekeys_uploaded", move || {
+            let ids = ids.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Stay under SQLite's host-parameter limit (999 by default);
+                // the upload batch is configurable up to u16::MAX ids.
+                conn.transaction(|conn| {
+                    for chunk in ids.chunks(ID_PARAM_CHUNK) {
+                        diesel::update(
+                            prekeys::table
+                                .filter(prekeys::id.eq_any(chunk.to_vec()))
+                                .filter(prekeys::device_id.eq(device_id)),
+                        )
+                        .set(prekeys::uploaded.eq(true))
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    /// See `delete_identities_batch`.
+    async fn remove_prekeys_batch(&self, items: &[u32]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let items = Arc::new(items.to_vec());
+        self.with_retry("remove_prekeys_batch", || {
+            let items = items.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for chunk in items.chunks(ID_PARAM_CHUNK) {
+                        diesel::delete(
+                            prekeys::table
+                                .filter(prekeys::device_id.eq(device_id))
+                                .filter(prekeys::id.eq_any(chunk.iter().map(|id| *id as i32))),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_max_prekey_id(&self) -> Result<u32> {
+        let device_id = self.device_id;
+        self.read_query(move |conn| {
+            use diesel::dsl::max;
+            let result: Option<i32> = prekeys::table
+                .filter(prekeys::device_id.eq(device_id))
+                .select(max(prekeys::id))
+                .first(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(result.unwrap_or(0) as u32)
+        })
+        .await
+    }
+
+    async fn store_signed_prekey(&self, id: u32, record: &[u8]) -> Result<()> {
+        let device_id = self.device_id;
+        // One copy, then refcount clones per attempt (see put_session_for_device).
+        let record = Bytes::copy_from_slice(record);
+        self.with_retry("store_signed_prekey", move || {
+            let record = record.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::insert_into(signed_prekeys::table)
+                    .values((
+                        signed_prekeys::id.eq(id as i32),
+                        signed_prekeys::record.eq(record.as_ref()),
+                        signed_prekeys::device_id.eq(device_id),
+                    ))
+                    .on_conflict((signed_prekeys::id, signed_prekeys::device_id))
+                    .do_update()
+                    .set(signed_prekeys::record.eq(record.as_ref()))
+                    .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn load_signed_prekey(&self, id: u32) -> Result<Option<Vec<u8>>> {
+        let device_id = self.device_id;
+        self.read_query(move |conn| {
+            let res: Option<Vec<u8>> = signed_prekeys::table
+                .select(signed_prekeys::record)
+                .filter(signed_prekeys::id.eq(id as i32))
+                .filter(signed_prekeys::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(res)
+        })
+        .await
+    }
+
+    async fn load_all_signed_prekeys(&self) -> Result<Vec<(u32, Vec<u8>)>> {
+        let device_id = self.device_id;
+        self.read_query(move |conn| {
+            let results: Vec<(i32, Vec<u8>)> = signed_prekeys::table
+                .select((signed_prekeys::id, signed_prekeys::record))
+                .filter(signed_prekeys::device_id.eq(device_id))
+                .load(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(results
+                .into_iter()
+                .map(|(id, record)| (id as u32, record))
+                .collect())
+        })
+        .await
+    }
+
+    async fn remove_signed_prekey(&self, id: u32) -> Result<()> {
+        let device_id = self.device_id;
+        self.with_retry("remove_signed_prekey", move || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    signed_prekeys::table
+                        .filter(signed_prekeys::id.eq(id as i32))
+                        .filter(signed_prekeys::device_id.eq(device_id)),
+                )
+                .execute(conn)
+            })
+        })
+        .await
+        .map(|_| ())
+    }
+
+    async fn put_sender_key(&self, address: &str, record: &[u8]) -> Result<()> {
+        self.put_sender_key_for_device(address, record, self.device_id)
+            .await
+    }
+
+    async fn put_sender_keys_batch(&self, sender_keys: &[(Arc<str>, Bytes)]) -> Result<()> {
+        if sender_keys.is_empty() {
+            return Ok(());
+        }
+
+        let device_id = self.device_id;
+        let batch = Arc::new(sender_keys.to_vec());
+        self.with_retry("put_sender_keys_batch", || {
+            let batch = batch.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for (address, record) in batch.iter() {
+                        crate::upsert_queries::UpsertSenderKey {
+                            address: address.as_ref(),
+                            record: record.as_ref(),
+                            device_id,
+                        }
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_sender_key(&self, address: &str) -> Result<Option<Vec<u8>>> {
+        self.get_sender_key_for_device(address, self.device_id)
+            .await
+    }
+
+    async fn delete_sender_key(&self, address: &str) -> Result<()> {
+        self.delete_sender_key_for_device(address, self.device_id)
+            .await
+    }
+
+    /// See `delete_identities_batch`.
+    async fn delete_sender_keys_batch(&self, items: &[Arc<str>]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let items = Arc::new(items.to_vec());
+        self.with_retry("delete_sender_keys_batch", || {
+            let items = items.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction(|conn| {
+                    for chunk in items.chunks(ID_PARAM_CHUNK) {
+                        diesel::delete(
+                            sender_keys::table
+                                .filter(sender_keys::device_id.eq(device_id))
+                                .filter(
+                                    sender_keys::address.eq_any(chunk.iter().map(|a| a.as_ref())),
+                                ),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl AppSyncStore for SqliteStore {
+    async fn get_sync_key(&self, key_id: &[u8]) -> Result<Option<AppStateSyncKey>> {
+        self.get_app_state_sync_key_for_device(key_id, self.device_id)
+            .await
+    }
+
+    async fn set_sync_key(&self, key_id: &[u8], key: AppStateSyncKey) -> Result<()> {
+        self.set_app_state_sync_key_for_device(key_id, key, self.device_id)
+            .await
+    }
+
+    async fn get_version(&self, name: &str) -> Result<Option<HashState>> {
+        self.get_app_state_version_for_device(name, self.device_id)
+            .await
+    }
+
+    async fn delete_version(&self, name: &str) -> Result<()> {
+        self.delete_app_state_version_for_device(name, self.device_id)
+            .await
+    }
+
+    async fn set_version(&self, name: &str, state: HashState) -> Result<()> {
+        self.set_app_state_version_for_device(name, state, self.device_id)
+            .await
+    }
+
+    async fn put_mutation_macs(
+        &self,
+        name: &str,
+        version: u64,
+        mutations: &[AppStateMutationMAC],
+    ) -> Result<()> {
+        self.put_app_state_mutation_macs_for_device(name, version, mutations, self.device_id)
+            .await
+    }
+
+    async fn get_mutation_mac(&self, name: &str, index_mac: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.get_app_state_mutation_mac_for_device(name, index_mac, self.device_id)
+            .await
+    }
+
+    async fn get_mutation_macs(
+        &self,
+        name: &str,
+        index_macs: &[[u8; 32]],
+    ) -> Result<std::collections::HashMap<[u8; 32], Vec<u8>>> {
+        self.get_app_state_mutation_macs_batch_for_device(name, index_macs, self.device_id)
+            .await
+    }
+
+    async fn delete_mutation_macs(&self, name: &str, index_macs: &[Vec<u8>]) -> Result<()> {
+        self.delete_app_state_mutation_macs_for_device(name, index_macs, self.device_id)
+            .await
+    }
+
+    async fn commit_patch(
+        &self,
+        name: &str,
+        state: HashState,
+        removed_index_macs: &[Vec<u8>],
+        added: &[AppStateMutationMAC],
+    ) -> Result<()> {
+        self.commit_app_state_patch_for_device(
+            name,
+            &state,
+            removed_index_macs,
+            added,
+            self.device_id,
+        )
+        .await
+    }
+
+    async fn clear_mutation_macs(&self, name: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let name = name.to_string();
+        self.with_retry("clear_mutation_macs", || {
+            let name = name.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    app_state_mutation_macs::table
+                        .filter(app_state_mutation_macs::name.eq(&name))
+                        .filter(app_state_mutation_macs::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn get_latest_sync_key_id(&self) -> Result<Option<Vec<u8>>> {
+        self.get_latest_app_state_sync_key_id_for_device(self.device_id)
+            .await
+    }
+}
+
+/// Single source of the pending-inbound row insert, shared by the single-row
+/// and batch write paths so a schema or conflict-strategy change cannot
+/// silently diverge between them.
+fn insert_pending_inbound_row(
+    conn: &mut SqliteConnection,
+    device_id: i32,
+    chat: &str,
+    sender: &str,
+    id: &str,
+    message: &[u8],
+) -> QueryResult<usize> {
+    diesel::replace_into(pending_inbound_messages::table)
+        .values((
+            pending_inbound_messages::chat.eq(chat),
+            pending_inbound_messages::sender.eq(sender),
+            pending_inbound_messages::id.eq(id),
+            pending_inbound_messages::message.eq(message),
+            pending_inbound_messages::device_id.eq(device_id),
+        ))
+        .execute(conn)
+}
+
+#[derive(QueryableByName)]
+struct BoundedPendingPayload {
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    storage_type: String,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::BigInt>)]
+    byte_len: Option<i64>,
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
+    payload: Option<Vec<u8>>,
+}
+
+#[derive(QueryableByName)]
+struct BoundedPendingSender {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    sender: Option<String>,
+}
+
+fn read_pending_inbound_bounded_row(
+    conn: &mut SqliteConnection,
+    device_id: i32,
+    chat: &str,
+    sender: &str,
+    id: &str,
+    max_bytes: usize,
+    lease: PendingInboundLease,
+) -> QueryResult<Result<Option<PendingInboundRecord>>> {
+    // CASE keeps oversized blobs out of the Diesel value buffer. Both length
+    // and payload come from one row snapshot, never separate racing queries.
+    let row: Option<BoundedPendingPayload> = crate::bounded_pending_query::BoundedPendingQuery {
+        max_bytes: i64::try_from(max_bytes).unwrap_or(i64::MAX),
+        device_id,
+        chat,
+        sender,
+        id,
+    }
+    .get_result(conn)
+    .optional()?;
+    Ok(match row {
+        None => Ok(None),
+        Some(row) if row.storage_type != "blob" => Err(StoreError::Validation(
+            "pending inbound payload is not a BLOB".to_owned(),
+        )),
+        Some(row) => match row.payload {
+            Some(bytes) => Ok(Some(PendingInboundRecord::new(bytes, lease))),
+            None => Err(StoreError::Validation(format!(
+                "pending inbound payload length {:?} exceeds limit {max_bytes}",
+                row.byte_len,
+            ))),
+        },
+    })
+}
+
+/// Batch/single-row shared delete; see [`insert_pending_inbound_row`].
+fn delete_pending_inbound_row(
+    conn: &mut SqliteConnection,
+    device_id: i32,
+    chat: &str,
+    sender: &str,
+    id: &str,
+) -> QueryResult<usize> {
+    diesel::delete(
+        pending_inbound_messages::table
+            .filter(pending_inbound_messages::chat.eq(chat))
+            .filter(pending_inbound_messages::sender.eq(sender))
+            .filter(pending_inbound_messages::id.eq(id))
+            .filter(pending_inbound_messages::device_id.eq(device_id)),
+    )
+    .execute(conn)
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl ProtocolStore for SqliteStore {
+    async fn get_sender_key_devices(&self, group_jid: &str) -> Result<Vec<(String, bool)>> {
+        // On the write queue: the result initializes `sender_key_device_cache`,
+        // so a stale `has_key = true` is cached over a concurrent forget and the
+        // send drops the SKDM for a device that asked for redistribution.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        self.with_semaphore(move || -> Result<Vec<(String, bool)>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let rows: Vec<(String, i32)> = sender_key_devices::table
+                .select((sender_key_devices::device_jid, sender_key_devices::has_key))
+                .filter(sender_key_devices::group_jid.eq(&group_jid))
+                .filter(sender_key_devices::device_id.eq(device_id))
+                .load(&mut *conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(rows
+                .into_iter()
+                .map(|(jid, has_key)| (jid, has_key != 0))
+                .collect())
+        })
+        .await
+    }
+
+    async fn set_sender_key_status(&self, group_jid: &str, entries: &[(&str, bool)]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        let owned_entries: Arc<Vec<(String, bool)>> = Arc::new(
+            entries
+                .iter()
+                .map(|(jid, has_key)| (jid.to_string(), *has_key))
+                .collect(),
+        );
+        let now = wacore::time::now_secs();
+        self.with_retry("set_sender_key_status", || {
+            let group_jid = group_jid.clone();
+            let owned_entries = Arc::clone(&owned_entries);
+            Box::new(move |conn: &mut SqliteConnection| {
+                let values: Vec<_> = owned_entries
+                    .iter()
+                    .map(|(device_jid, has_key)| {
+                        (
+                            sender_key_devices::group_jid.eq(&group_jid),
+                            sender_key_devices::device_jid.eq(device_jid),
+                            sender_key_devices::has_key.eq(i32::from(*has_key)),
+                            sender_key_devices::device_id.eq(device_id),
+                            sender_key_devices::updated_at.eq(now),
+                        )
+                    })
+                    .collect();
+
+                const CHUNK_SIZE: usize = 190;
+
+                conn.transaction(|conn| {
+                    for chunk in values.chunks(CHUNK_SIZE) {
+                        diesel::insert_into(sender_key_devices::table)
+                            .values(chunk)
+                            .on_conflict((
+                                sender_key_devices::group_jid,
+                                sender_key_devices::device_jid,
+                                sender_key_devices::device_id,
+                            ))
+                            .do_update()
+                            .set((
+                                sender_key_devices::has_key
+                                    .eq(excluded(sender_key_devices::has_key)),
+                                sender_key_devices::updated_at.eq(now),
+                            ))
+                            .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn clear_sender_key_devices(&self, group_jid: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        self.with_retry("clear_sender_key_devices", || {
+            let group_jid = group_jid.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    sender_key_devices::table
+                        .filter(sender_key_devices::group_jid.eq(&group_jid))
+                        .filter(sender_key_devices::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn clear_all_sender_key_devices(&self) -> Result<()> {
+        let device_id = self.device_id;
+        self.with_retry("clear_all_sender_key_devices", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::delete(
+                    sender_key_devices::table.filter(sender_key_devices::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn delete_sender_key_device_rows(&self, device_jids: &[&str]) -> Result<()> {
+        if device_jids.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let owned: Arc<Vec<String>> = Arc::new(device_jids.iter().map(|s| s.to_string()).collect());
+        self.with_retry("delete_sender_key_device_rows", || {
+            let owned = Arc::clone(&owned);
+            Box::new(move |conn: &mut SqliteConnection| {
+                const CHUNK: usize = 190;
+                conn.transaction(|conn| {
+                    for chunk in owned.chunks(CHUNK) {
+                        diesel::delete(
+                            sender_key_devices::table
+                                .filter(sender_key_devices::device_jid.eq_any(chunk))
+                                .filter(sender_key_devices::device_id.eq(device_id)),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_lid_mapping(&self, lid: &str) -> Result<Option<LidPnMappingEntry>> {
+        // On the write queue: the alternate-namespace secret lookup resolves the
+        // peer through here with no cache in front, and a miss there is terminal
+        // for the addon. Waiting out a concurrent mapping write costs less.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let lid = lid.to_string();
+        self.with_semaphore(move || -> Result<Option<LidPnMappingEntry>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let row: Option<(String, String, i64, String, i64)> = lid_pn_mapping::table
+                .select((
+                    lid_pn_mapping::lid,
+                    lid_pn_mapping::phone_number,
+                    lid_pn_mapping::created_at,
+                    lid_pn_mapping::learning_source,
+                    lid_pn_mapping::updated_at,
+                ))
+                .filter(lid_pn_mapping::lid.eq(&lid))
+                .filter(lid_pn_mapping::device_id.eq(device_id))
+                .first(&mut *conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(row.map(
+                |(lid, phone_number, created_at, learning_source, updated_at)| LidPnMappingEntry {
+                    lid,
+                    phone_number,
+                    created_at,
+                    updated_at,
+                    learning_source,
+                },
+            ))
+        })
+        .await
+    }
+
+    async fn get_pn_mapping(&self, phone: &str) -> Result<Option<LidPnMappingEntry>> {
+        // On the write queue for the same reason as get_lid_mapping.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let phone = phone.to_string();
+        self.with_semaphore(move || -> Result<Option<LidPnMappingEntry>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let row: Option<(String, String, i64, String, i64)> = lid_pn_mapping::table
+                .select((
+                    lid_pn_mapping::lid,
+                    lid_pn_mapping::phone_number,
+                    lid_pn_mapping::created_at,
+                    lid_pn_mapping::learning_source,
+                    lid_pn_mapping::updated_at,
+                ))
+                .filter(lid_pn_mapping::phone_number.eq(&phone))
+                .filter(lid_pn_mapping::device_id.eq(device_id))
+                .order(lid_pn_mapping::updated_at.desc())
+                .first(&mut *conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(row.map(
+                |(lid, phone_number, created_at, learning_source, updated_at)| LidPnMappingEntry {
+                    lid,
+                    phone_number,
+                    created_at,
+                    updated_at,
+                    learning_source,
+                },
+            ))
+        })
+        .await
+    }
+
+    async fn put_lid_mapping(&self, entry: &LidPnMappingEntry) -> Result<()> {
+        self.put_lid_mappings(std::slice::from_ref(entry)).await
+    }
+
+    async fn put_lid_mappings(&self, entries: &[LidPnMappingEntry]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        // Share the batch across retry attempts via Arc so no retry re-clones
+        // the Vec. `with_retry` invokes `make_op` once per attempt; we only
+        // bump the Arc refcount.
+        let entries: Arc<Vec<LidPnMappingEntry>> = Arc::new(entries.to_vec());
+        self.with_retry("put_lid_mappings", move || {
+            let entries = Arc::clone(&entries);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction::<_, DieselError, _>(|conn| {
+                    for entry in entries.iter() {
+                        diesel::insert_into(lid_pn_mapping::table)
+                            .values((
+                                lid_pn_mapping::lid.eq(&entry.lid),
+                                lid_pn_mapping::phone_number.eq(&entry.phone_number),
+                                lid_pn_mapping::created_at.eq(entry.created_at),
+                                lid_pn_mapping::learning_source.eq(&entry.learning_source),
+                                lid_pn_mapping::updated_at.eq(entry.updated_at),
+                                lid_pn_mapping::device_id.eq(device_id),
+                            ))
+                            .on_conflict((lid_pn_mapping::lid, lid_pn_mapping::device_id))
+                            .do_update()
+                            .set((
+                                lid_pn_mapping::phone_number.eq(&entry.phone_number),
+                                lid_pn_mapping::learning_source.eq(&entry.learning_source),
+                                lid_pn_mapping::updated_at.eq(entry.updated_at),
+                            ))
+                            .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_all_lid_mappings(&self) -> Result<Vec<LidPnMappingEntry>> {
+        // On the write queue: the startup warm-up feeds these rows into
+        // `LidPnCache::add_guarded`, whose LID side replaces unconditionally, so
+        // a stale row read during a live learn reverts reverse resolution.
+        // `put_lid_mappings` takes the permit; at the default `pool_size` the
+        // single connection is what orders them either way.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        self.with_semaphore(move || -> Result<Vec<LidPnMappingEntry>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let rows: Vec<(String, String, i64, String, i64)> = lid_pn_mapping::table
+                .select((
+                    lid_pn_mapping::lid,
+                    lid_pn_mapping::phone_number,
+                    lid_pn_mapping::created_at,
+                    lid_pn_mapping::learning_source,
+                    lid_pn_mapping::updated_at,
+                ))
+                .filter(lid_pn_mapping::device_id.eq(device_id))
+                .load(&mut *conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(lid, phone_number, created_at, learning_source, updated_at)| {
+                        LidPnMappingEntry {
+                            lid,
+                            phone_number,
+                            created_at,
+                            updated_at,
+                            learning_source,
+                        }
+                    },
+                )
+                .collect())
+        })
+        .await
+    }
+
+    async fn save_base_key(&self, address: &str, message_id: &str, base_key: &[u8]) -> Result<()> {
+        let device_id = self.device_id;
+        let address = address.to_string();
+        let message_id = message_id.to_string();
+        let base_key = base_key.to_vec();
+        let now = wacore::time::now_secs() as i32;
+        self.write_blocking(move |conn| {
+            diesel::insert_into(base_keys::table)
+                .values((
+                    base_keys::address.eq(&address),
+                    base_keys::message_id.eq(&message_id),
+                    base_keys::base_key.eq(&base_key),
+                    base_keys::device_id.eq(device_id),
+                    base_keys::created_at.eq(now),
+                ))
+                .on_conflict((
+                    base_keys::address,
+                    base_keys::message_id,
+                    base_keys::device_id,
+                ))
+                .do_update()
+                .set(base_keys::base_key.eq(&base_key))
+                .execute(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn has_same_base_key(
+        &self,
+        address: &str,
+        message_id: &str,
+        current_base_key: &[u8],
+    ) -> Result<bool> {
+        let device_id = self.device_id;
+        let address = address.to_string();
+        let message_id = message_id.to_string();
+        let current_base_key = current_base_key.to_vec();
+        self.read_query(move |conn| {
+            let stored_key: Option<Vec<u8>> = base_keys::table
+                .select(base_keys::base_key)
+                .filter(base_keys::address.eq(&address))
+                .filter(base_keys::message_id.eq(&message_id))
+                .filter(base_keys::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(stored_key.as_ref() == Some(&current_base_key))
+        })
+        .await
+    }
+
+    async fn delete_base_key(&self, address: &str, message_id: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let address = address.to_string();
+        let message_id = message_id.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                base_keys::table
+                    .filter(base_keys::address.eq(&address))
+                    .filter(base_keys::message_id.eq(&message_id))
+                    .filter(base_keys::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn delete_expired_base_keys(&self, cutoff_timestamp: i64) -> Result<u32> {
+        let device_id = self.device_id;
+        self.with_retry("delete_expired_base_keys", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                let deleted = diesel::delete(
+                    base_keys::table
+                        .filter(base_keys::created_at.lt(cutoff_timestamp as i32))
+                        .filter(base_keys::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(deleted as u32)
+            })
+        })
+        .await
+    }
+
+    async fn update_device_list(&self, record: DeviceListRecord) -> Result<()> {
+        let device_id = self.device_id;
+        let devices_json = serde_json::to_string(&*record.devices)
+            .map_err(|e| StoreError::Serialization(Box::new(e)))?;
+        let now = wacore::time::now_secs() as i32;
+        self.write_blocking(move |conn| {
+            let raw_id_i32 = record.raw_id.map(|r| r as i32);
+            crate::upsert_queries::UpsertDeviceRegistry {
+                user_id: record.user.as_ref(),
+                devices_json: &devices_json,
+                timestamp: record.timestamp as i32,
+                phash: record.phash.as_deref(),
+                device_id,
+                updated_at: now,
+                raw_id: raw_id_i32,
+            }
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn update_device_lists(&self, records: Vec<DeviceListRecord>) -> Result<()> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let device_id = self.device_id;
+        let now = wacore::time::now_secs() as i32;
+
+        // Pre-serialize devices_json once (outside the retry loop and outside
+        // spawn_blocking) so retries are zero-allocation. Each row carries its
+        // own json+raw_id alongside the record.
+        struct PreparedRow {
+            user: String,
+            devices_json: String,
+            timestamp: i32,
+            phash: Option<String>,
+            raw_id: Option<i32>,
+        }
+
+        let prepared: Vec<PreparedRow> = records
+            .into_iter()
+            .map(|r| {
+                let devices_json = serde_json::to_string(&*r.devices)
+                    .map_err(|e| StoreError::Serialization(Box::new(e)))?;
+                Ok(PreparedRow {
+                    user: r.user.to_string(),
+                    devices_json,
+                    timestamp: r.timestamp as i32,
+                    phash: r.phash.map(String::from),
+                    raw_id: r.raw_id.map(|v| v as i32),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let prepared = Arc::new(prepared);
+
+        self.with_retry("update_device_lists", move || {
+            let prepared = Arc::clone(&prepared);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.transaction::<_, DieselError, _>(|conn| {
+                    for row in prepared.iter() {
+                        crate::upsert_queries::UpsertDeviceRegistry {
+                            user_id: &row.user,
+                            devices_json: &row.devices_json,
+                            timestamp: row.timestamp,
+                            phash: row.phash.as_deref(),
+                            device_id,
+                            updated_at: now,
+                            raw_id: row.raw_id,
+                        }
+                        .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_devices(&self, user: &str) -> Result<Option<DeviceListRecord>> {
+        // On the write queue: a miss here is promoted into
+        // `device_registry_cache` unconditionally, so a stale row overwrites a
+        // newer entry and later sends omit a linked device until a refresh.
+        // `update_device_list` skips the permit, so at the default `pool_size`
+        // the single connection is what orders them, not the permit itself.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let user = user.to_string();
+        self.with_semaphore(move || -> Result<Option<DeviceListRecord>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let row: Option<DeviceRegistryRow> = device_registry::table
+                .select(DEVICE_REGISTRY_COLUMNS)
+                .filter(device_registry::user_id.eq(&user))
+                .filter(device_registry::device_id.eq(device_id))
+                .first(&mut *conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            row.map(device_registry_row_to_record).transpose()
+        })
+        .await
+    }
+
+    async fn get_devices_batch(&self, users: &[&str]) -> Result<Vec<DeviceListRecord>> {
+        if users.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Same queue as `get_devices`, for the same reason: every row that
+        // comes back is promoted into the registry cache unconditionally.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let users: Vec<String> = users.iter().map(|user| user.to_string()).collect();
+        self.with_semaphore(move || -> Result<Vec<DeviceListRecord>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let mut records = Vec::with_capacity(users.len());
+            for chunk in users.chunks(ID_PARAM_CHUNK) {
+                let rows: Vec<DeviceRegistryRow> = device_registry::table
+                    .select(DEVICE_REGISTRY_COLUMNS)
+                    .filter(device_registry::user_id.eq_any(chunk.iter().map(String::as_str)))
+                    .filter(device_registry::device_id.eq(device_id))
+                    .load(&mut *conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                for row in rows {
+                    records.push(device_registry_row_to_record(row)?);
+                }
+            }
+            Ok(records)
+        })
+        .await
+    }
+
+    async fn delete_devices(&self, user: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let user = user.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                device_registry::table
+                    .filter(device_registry::user_id.eq(&user))
+                    .filter(device_registry::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_group_metadata(&self, group_jid: &str) -> Result<Option<Vec<u8>>> {
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        self.read_query(move |conn| {
+            let row: Option<Vec<u8>> = group_metadata::table
+                .select(group_metadata::info)
+                .filter(group_metadata::group_jid.eq(&group_jid))
+                .filter(group_metadata::device_id.eq(device_id))
+                .first(conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(row)
+        })
+        .await
+    }
+
+    async fn put_group_metadata(&self, group_jid: &str, blob: &[u8]) -> Result<()> {
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        let blob = blob.to_vec();
+        let now = wacore::time::now_secs();
+        self.write_blocking(move |conn| {
+            diesel::insert_into(group_metadata::table)
+                .values((
+                    group_metadata::group_jid.eq(&group_jid),
+                    group_metadata::info.eq(&blob),
+                    group_metadata::device_id.eq(device_id),
+                    group_metadata::updated_at.eq(now),
+                ))
+                .on_conflict((group_metadata::group_jid, group_metadata::device_id))
+                .do_update()
+                .set((
+                    group_metadata::info.eq(&blob),
+                    group_metadata::updated_at.eq(now),
+                ))
+                .execute(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn delete_group_metadata(&self, group_jid: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let group_jid = group_jid.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                group_metadata::table
+                    .filter(group_metadata::group_jid.eq(&group_jid))
+                    .filter(group_metadata::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_tc_token(&self, jid: &str) -> Result<Option<TcTokenEntry>> {
+        // On the write queue: `prepare_privacy_token` schedules off this
+        // timestamp, so reading before a concurrent touch commits issues a
+        // duplicate token and bypasses the configured interval. The touch skips
+        // the permit, so at the default `pool_size` the single connection is
+        // what orders them, not the permit itself.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let jid = jid.to_string();
+        self.with_semaphore(move || -> Result<Option<TcTokenEntry>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let row: Option<(Vec<u8>, i64, Option<i64>)> = tc_tokens::table
+                .select((
+                    tc_tokens::token,
+                    tc_tokens::token_timestamp,
+                    tc_tokens::sender_timestamp,
+                ))
+                .filter(tc_tokens::jid.eq(&jid))
+                .filter(tc_tokens::device_id.eq(device_id))
+                .first(&mut *conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(
+                row.map(|(token, token_timestamp, sender_timestamp)| TcTokenEntry {
+                    token,
+                    token_timestamp,
+                    sender_timestamp,
+                }),
+            )
+        })
+        .await
+    }
+
+    async fn get_tc_tokens(&self, jids: &[String]) -> Result<Vec<Option<TcTokenEntry>>> {
+        if jids.is_empty() {
+            return Ok(Vec::new());
+        }
+        // Same write-queue ordering as the single-JID read above, for the same
+        // reason: one `IN (...)` instead of one query per JID, still behind the
+        // permit that orders it against a concurrent touch.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let wanted = jids.to_vec();
+        self.with_semaphore(move || -> Result<Vec<Option<TcTokenEntry>>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let mut found: std::collections::HashMap<String, TcTokenEntry> =
+                std::collections::HashMap::with_capacity(wanted.len());
+            // Chunked so a large tracked set cannot exceed SQLite's bound-
+            // parameter limit (999 by default, and `device_id` takes one).
+            for chunk in wanted.chunks(500) {
+                let rows: Vec<(String, Vec<u8>, i64, Option<i64>)> = tc_tokens::table
+                    .select((
+                        tc_tokens::jid,
+                        tc_tokens::token,
+                        tc_tokens::token_timestamp,
+                        tc_tokens::sender_timestamp,
+                    ))
+                    .filter(tc_tokens::jid.eq_any(chunk))
+                    .filter(tc_tokens::device_id.eq(device_id))
+                    .load(&mut *conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                for (jid, token, token_timestamp, sender_timestamp) in rows {
+                    found.insert(
+                        jid,
+                        TcTokenEntry {
+                            token,
+                            token_timestamp,
+                            sender_timestamp,
+                        },
+                    );
+                }
+            }
+            Ok(wanted.iter().map(|jid| found.get(jid).cloned()).collect())
+        })
+        .await
+    }
+
+    async fn put_tc_token(&self, jid: &str, entry: &TcTokenEntry) -> Result<()> {
+        let device_id = self.device_id;
+        let jid = jid.to_string();
+        let entry = entry.clone();
+        let now = wacore::time::now_secs();
+        self.write_blocking(move |conn| {
+            diesel::insert_into(tc_tokens::table)
+                .values((
+                    tc_tokens::jid.eq(&jid),
+                    tc_tokens::token.eq(&entry.token),
+                    tc_tokens::token_timestamp.eq(entry.token_timestamp),
+                    tc_tokens::sender_timestamp.eq(entry.sender_timestamp),
+                    tc_tokens::device_id.eq(device_id),
+                    tc_tokens::updated_at.eq(now),
+                ))
+                .on_conflict((tc_tokens::jid, tc_tokens::device_id))
+                .do_update()
+                .set((
+                    tc_tokens::token.eq(&entry.token),
+                    tc_tokens::token_timestamp.eq(entry.token_timestamp),
+                    tc_tokens::sender_timestamp.eq(entry.sender_timestamp),
+                    tc_tokens::updated_at.eq(now),
+                ))
+                .execute(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn delete_tc_token(&self, jid: &str) -> Result<()> {
+        let device_id = self.device_id;
+        let jid = jid.to_string();
+        self.write_blocking(move |conn| {
+            diesel::delete(
+                tc_tokens::table
+                    .filter(tc_tokens::jid.eq(&jid))
+                    .filter(tc_tokens::device_id.eq(device_id)),
+            )
+            .execute(conn)
+            .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_all_tc_token_jids(&self) -> Result<Vec<String>> {
+        let device_id = self.device_id;
+        self.read_query(move |conn| {
+            let jids: Vec<String> = tc_tokens::table
+                .select(tc_tokens::jid)
+                .filter(tc_tokens::device_id.eq(device_id))
+                .load(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(jids)
+        })
+        .await
+    }
+
+    async fn delete_expired_tc_tokens(&self, token_cutoff: i64, sender_cutoff: i64) -> Result<u32> {
+        let device_id = self.device_id;
+        // Through the write queue, like every other retention sweep: a bare
+        // `pool.get()` here would park a blocking thread on r2d2's 30 s
+        // connection timeout behind whatever holds the single connection, and
+        // then fail the sweep outright instead of waiting its turn.
+        self.with_retry("delete_expired_tc_tokens", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Remove a row only when its received token is expired-or-absent AND
+                // its sender bucket is expired-or-absent, so recent sender state
+                // survives an expired received token (and vice versa). A null
+                // sender_timestamp counts as stale.
+                let deleted = diesel::delete(
+                    tc_tokens::table
+                        .filter(
+                            tc_tokens::token
+                                .eq(Vec::<u8>::new())
+                                .or(tc_tokens::token_timestamp.lt(token_cutoff)),
+                        )
+                        .filter(
+                            tc_tokens::sender_timestamp
+                                .is_null()
+                                .or(tc_tokens::sender_timestamp.lt(sender_cutoff)),
+                        )
+                        .filter(tc_tokens::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(deleted as u32)
+            })
+        })
+        .await
+    }
+
+    async fn store_received_tc_token(
+        &self,
+        jid: &str,
+        token: &[u8],
+        token_timestamp: i64,
+    ) -> Result<()> {
+        let device_id = self.device_id;
+        let jid = jid.to_string();
+        let token = token.to_vec();
+        let now = wacore::time::now_secs();
+        // IMMEDIATE so the read + conditional write is atomic against concurrent
+        // writers (WAL + busy_timeout serialize them): this is the lock-free
+        // newer-wins that lets history-sync and the privacy path converge without
+        // clobbering a fresher token. with_retry rides out transient SQLITE_BUSY.
+        self.with_retry("store_received_tc_token", || {
+            let jid = jid.clone();
+            let token = token.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.immediate_transaction(|conn| -> QueryResult<()> {
+                    let existing: Option<(Vec<u8>, i64)> = tc_tokens::table
+                        .filter(tc_tokens::jid.eq(&jid))
+                        .filter(tc_tokens::device_id.eq(device_id))
+                        .select((tc_tokens::token, tc_tokens::token_timestamp))
+                        .first(conn)
+                        .optional()?;
+                    let write = match &existing {
+                        Some((existing_token, existing_ts)) => {
+                            existing_token.is_empty() || token_timestamp >= *existing_ts
+                        }
+                        None => true,
+                    };
+                    if write {
+                        diesel::insert_into(tc_tokens::table)
+                            .values((
+                                tc_tokens::jid.eq(&jid),
+                                tc_tokens::token.eq(&token),
+                                tc_tokens::token_timestamp.eq(token_timestamp),
+                                tc_tokens::sender_timestamp.eq(None::<i64>),
+                                tc_tokens::device_id.eq(device_id),
+                                tc_tokens::updated_at.eq(now),
+                            ))
+                            .on_conflict((tc_tokens::jid, tc_tokens::device_id))
+                            .do_update()
+                            .set((
+                                tc_tokens::token.eq(&token),
+                                tc_tokens::token_timestamp.eq(token_timestamp),
+                                tc_tokens::updated_at.eq(now),
+                            ))
+                            .execute(conn)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn touch_tc_token_sender_timestamp(
+        &self,
+        jid: &str,
+        sender_timestamp: i64,
+    ) -> Result<()> {
+        let device_id = self.device_id;
+        let jid = jid.to_string();
+        let now = wacore::time::now_secs();
+        self.write_blocking(move |conn| {
+            // On conflict touch only sender_timestamp, and only to advance it,
+            // so a concurrently stored real token is never overwritten and the
+            // sender bucket never regresses.
+            diesel::insert_into(tc_tokens::table)
+                .values((
+                    tc_tokens::jid.eq(&jid),
+                    tc_tokens::token.eq(Vec::<u8>::new()),
+                    tc_tokens::token_timestamp.eq(sender_timestamp),
+                    tc_tokens::sender_timestamp.eq(Some(sender_timestamp)),
+                    tc_tokens::device_id.eq(device_id),
+                    tc_tokens::updated_at.eq(now),
+                ))
+                .on_conflict((tc_tokens::jid, tc_tokens::device_id))
+                .do_update()
+                .set((
+                    // MAX(...) keeps the sender bucket advance-only; there is no
+                    // typed Diesel form for a scalar MAX, and `ON CONFLICT ...
+                    // WHERE` isn't expressible via the query builder.
+                    tc_tokens::sender_timestamp.eq(diesel::dsl::sql::<
+                        diesel::sql_types::Nullable<diesel::sql_types::BigInt>,
+                    >(
+                        "MAX(COALESCE(sender_timestamp, "
+                    )
+                    .bind::<diesel::sql_types::BigInt, _>(sender_timestamp)
+                    .sql("), ")
+                    .bind::<diesel::sql_types::BigInt, _>(sender_timestamp)
+                    .sql(")")),
+                    tc_tokens::updated_at.eq(now),
+                ))
+                .execute(conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        })
+        .await
+    }
+
+    async fn store_sent_message(
+        &self,
+        chat_jid: &str,
+        message_id: &str,
+        payload: &[u8],
+    ) -> Result<()> {
+        let chat_jid = chat_jid.to_string();
+        let message_id = message_id.to_string();
+        // Arc avoids cloning the full payload bytes on each retry iteration
+        let payload: Arc<Vec<u8>> = Arc::new(payload.to_vec());
+        let device_id = self.device_id;
+        self.with_retry("store_sent_message", || {
+            let chat_jid = chat_jid.clone();
+            let message_id = message_id.clone();
+            let payload = Arc::clone(&payload);
+            Box::new(move |conn: &mut SqliteConnection| {
+                diesel::replace_into(sent_messages::table)
+                    .values((
+                        sent_messages::chat_jid.eq(&chat_jid),
+                        sent_messages::message_id.eq(&message_id),
+                        sent_messages::payload.eq(payload.as_slice()),
+                        sent_messages::device_id.eq(device_id),
+                    ))
+                    .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn get_sent_message(&self, chat_jid: &str, message_id: &str) -> Result<Option<Vec<u8>>> {
+        let chat_jid = chat_jid.to_string();
+        let message_id = message_id.to_string();
+        let device_id = self.device_id;
+        self.with_read_retry("get_sent_message", || {
+            let chat_jid = chat_jid.clone();
+            let message_id = message_id.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                sent_messages::table
+                    .select(sent_messages::payload)
+                    .filter(sent_messages::chat_jid.eq(&chat_jid))
+                    .filter(sent_messages::message_id.eq(&message_id))
+                    .filter(sent_messages::device_id.eq(device_id))
+                    .first(conn)
+                    .optional()
+            })
+        })
+        .await
+    }
+
+    async fn take_sent_message(&self, chat_jid: &str, message_id: &str) -> Result<Option<Vec<u8>>> {
+        let chat_jid = chat_jid.to_string();
+        let message_id = message_id.to_string();
+        let device_id = self.device_id;
+        // Atomic SELECT+DELETE with retry for SQLITE_BUSY resilience.
+        self.with_retry("take_sent_message", || {
+            let chat_jid = chat_jid.clone();
+            let message_id = message_id.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.immediate_transaction(|conn| {
+                    let row: Option<Vec<u8>> = sent_messages::table
+                        .select(sent_messages::payload)
+                        .filter(sent_messages::chat_jid.eq(&chat_jid))
+                        .filter(sent_messages::message_id.eq(&message_id))
+                        .filter(sent_messages::device_id.eq(device_id))
+                        .first(conn)
+                        .optional()?;
+                    if row.is_some() {
+                        diesel::delete(
+                            sent_messages::table
+                                .filter(sent_messages::chat_jid.eq(&chat_jid))
+                                .filter(sent_messages::message_id.eq(&message_id))
+                                .filter(sent_messages::device_id.eq(device_id)),
+                        )
+                        .execute(conn)?;
+                    }
+                    Ok(row)
+                })
+            })
+        })
+        .await
+    }
+
+    async fn delete_expired_sent_messages(&self, cutoff_timestamp: i64) -> Result<u32> {
+        let device_id = self.device_id;
+        self.with_retry("delete_expired_sent_messages", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                let deleted = diesel::delete(
+                    sent_messages::table
+                        .filter(sent_messages::created_at.lt(cutoff_timestamp))
+                        .filter(sent_messages::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(deleted as u32)
+            })
+        })
+        .await
+    }
+
+    async fn store_pending_inbound(
+        &self,
+        chat: &str,
+        sender: &str,
+        id: &str,
+        message: &[u8],
+    ) -> Result<()> {
+        // Row statement shared with store_pending_inbound_batch via
+        // insert_pending_inbound_row, so the two write paths cannot diverge.
+        let chat = chat.to_string();
+        let sender = sender.to_string();
+        let id = id.to_string();
+        // Arc avoids cloning the payload bytes on each retry iteration.
+        let message: Arc<Vec<u8>> = Arc::new(message.to_vec());
+        let device_id = self.device_id;
+        self.with_retry("store_pending_inbound", || {
+            let chat = chat.clone();
+            let sender = sender.clone();
+            let id = id.clone();
+            let message = Arc::clone(&message);
+            Box::new(move |conn: &mut SqliteConnection| {
+                insert_pending_inbound_row(conn, device_id, &chat, &sender, &id, &message)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn get_pending_inbound(
+        &self,
+        chat: &str,
+        sender: &str,
+        id: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let chat = chat.to_string();
+        let sender = sender.to_string();
+        let id = id.to_string();
+        let device_id = self.device_id;
+        // Retry on SQLITE_BUSY: a transient lock here must not surface as a read
+        // failure, which fails closed and forces an unnecessary redelivery.
+        self.with_read_retry("get_pending_inbound", || {
+            let chat = chat.clone();
+            let sender = sender.clone();
+            let id = id.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                let row: Option<Vec<u8>> = pending_inbound_messages::table
+                    .select(pending_inbound_messages::message)
+                    .filter(pending_inbound_messages::chat.eq(&chat))
+                    .filter(pending_inbound_messages::sender.eq(&sender))
+                    .filter(pending_inbound_messages::id.eq(&id))
+                    .filter(pending_inbound_messages::device_id.eq(device_id))
+                    .first(conn)
+                    .optional()?;
+                Ok(row)
+            })
+        })
+        .await
+    }
+
+    async fn delete_pending_inbound(&self, chat: &str, sender: &str, id: &str) -> Result<()> {
+        let chat = chat.to_string();
+        let sender = sender.to_string();
+        let id = id.to_string();
+        let device_id = self.device_id;
+        self.with_retry("delete_pending_inbound", || {
+            let chat = chat.clone();
+            let sender = sender.clone();
+            let id = id.clone();
+            Box::new(move |conn: &mut SqliteConnection| {
+                delete_pending_inbound_row(conn, device_id, &chat, &sender, &id)?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    async fn read_pending_inbound_bounded(
+        &self,
+        key: PendingInboundKey<'_>,
+        max_bytes: usize,
+        lease: PendingInboundLease,
+    ) -> Result<Option<PendingInboundRecord>> {
+        let (chat, sender, id) = (
+            key.chat.to_owned(),
+            key.sender.to_owned(),
+            key.id.to_owned(),
+        );
+        let device_id = self.device_id;
+        self.with_read_retry("read_pending_inbound_bounded", || {
+            let lease = lease.clone();
+            let (chat, sender, id) = (chat.clone(), sender.clone(), id.clone());
+            Box::new(move |conn| {
+                read_pending_inbound_bounded_row(
+                    conn,
+                    device_id,
+                    &chat,
+                    &sender,
+                    &id,
+                    max_bytes,
+                    lease.clone(),
+                )
+            })
+        })
+        .await?
+    }
+
+    async fn read_pending_inbound_group_bounded(
+        &self,
+        key: PendingInboundKey<'_>,
+        max_bytes: usize,
+        lease: PendingInboundLease,
+    ) -> Result<Option<(String, PendingInboundRecord)>> {
+        if key.sender.len() > 128 {
+            return Err(StoreError::Validation(
+                "group pending sender exceeds bound".into(),
+            ));
+        }
+        let (chat, sender, id) = (
+            key.chat.to_owned(),
+            key.sender.to_owned(),
+            key.id.to_owned(),
+        );
+        let device_id = self.device_id;
+        self.with_read_retry("read_pending_inbound_group_bounded", || {
+            let (chat, sender, id, lease) =
+                (chat.clone(), sender.clone(), id.clone(), lease.clone());
+            Box::new(move |conn| {
+                // One read transaction prevents alias discovery and payload
+                // from observing different external-writer snapshots.
+                conn.transaction(|conn| {
+                    let rows: Vec<BoundedPendingSender> =
+                        crate::bounded_pending_query::BoundedPendingSenders {
+                            device_id,
+                            chat: &chat,
+                            id: &id,
+                        }
+                        .load(conn)?;
+                    let physical = match pending_group_sender(
+                        &mut rows.iter().map(|row| row.sender.as_deref()),
+                        &sender,
+                    ) {
+                        Ok(Some(physical)) => physical,
+                        Ok(None) => return Ok(Ok(None)),
+                        Err(error) => return Ok(Err(error)),
+                    };
+                    Ok(read_pending_inbound_bounded_row(
+                        conn,
+                        device_id,
+                        &chat,
+                        &physical,
+                        &id,
+                        max_bytes,
+                        lease.clone(),
+                    )?
+                    .map(|record| record.map(|record| (physical, record))))
+                })
+            })
+        })
+        .await?
+    }
+
+    async fn replace_pending_inbound_if(
+        &self,
+        key: PendingInboundKey<'_>,
+        expected: PendingInboundRevision,
+        replacement: PendingInboundPayload,
+        max_bytes: usize,
+    ) -> Result<PendingInboundMutation> {
+        if replacement.bytes().len() > max_bytes {
+            return Err(StoreError::Validation(format!(
+                "pending inbound replacement length {} exceeds limit {max_bytes}",
+                replacement.bytes().len(),
+            )));
+        }
+        let revision = replacement.revision();
+        self.mutate_pending_inbound_owned(
+            key,
+            expected,
+            max_bytes,
+            OwnedPendingMutation::Replace {
+                payload: Arc::new(replacement),
+                revision,
+            },
+        )
+        .await
+    }
+
+    async fn delete_pending_inbound_if(
+        &self,
+        key: PendingInboundKey<'_>,
+        expected: PendingInboundRevision,
+        max_bytes: usize,
+        lease: PendingInboundLease,
+    ) -> Result<PendingInboundMutation> {
+        self.mutate_pending_inbound_owned(
+            key,
+            expected,
+            max_bytes,
+            OwnedPendingMutation::Delete(lease),
+        )
+        .await
+    }
+
+    async fn delete_expired_pending_inbound(&self, cutoff_timestamp: i64) -> Result<u32> {
+        let device_id = self.device_id;
+        self.with_retry("delete_expired_pending_inbound", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                let deleted = diesel::delete(
+                    pending_inbound_messages::table
+                        .filter(pending_inbound_messages::inserted_at.lt(cutoff_timestamp))
+                        .filter(pending_inbound_messages::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(deleted as u32)
+            })
+        })
+        .await
+    }
+
+    async fn store_pending_inbound_batch(&self, rows: &[PendingInboundRow<'_>]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        // One owned copy shared across retry attempts; a single transaction
+        // amortizes the WAL commit over the whole batch.
+        let rows: Arc<Vec<(String, String, String, Vec<u8>)>> = Arc::new(
+            rows.iter()
+                .map(|r| {
+                    (
+                        r.chat.to_string(),
+                        r.sender.to_string(),
+                        r.id.to_string(),
+                        r.message.to_vec(),
+                    )
+                })
+                .collect(),
+        );
+        let device_id = self.device_id;
+        self.with_retry("store_pending_inbound_batch", || {
+            let rows = Arc::clone(&rows);
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Per-row statements inside ONE transaction: the WAL commit is
+                // the real per-message cost and it is already amortized. A
+                // multi-row VALUES insert was measurably faster per statement
+                // but cost ~4 KiB of extra monomorphized .text against a
+                // 32 KiB per-PR budget — not worth it for microseconds.
+                conn.transaction(|conn| {
+                    for (chat, sender, id, message) in rows.iter() {
+                        insert_pending_inbound_row(conn, device_id, chat, sender, id, message)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+
+    async fn delete_pending_inbound_batch(&self, keys: &[PendingInboundKey<'_>]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let keys: Arc<Vec<(String, String, String)>> = Arc::new(
+            keys.iter()
+                .map(|k| (k.chat.to_string(), k.sender.to_string(), k.id.to_string()))
+                .collect(),
+        );
+        let device_id = self.device_id;
+        self.with_retry("delete_pending_inbound_batch", || {
+            let keys = Arc::clone(&keys);
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Per-row deletes stay: Diesel's DSL cannot express a composite
+                // `(chat, sender, id) IN (...)` tuple filter, and the single
+                // transaction already amortizes the WAL commit.
+                conn.transaction(|conn| {
+                    for (chat, sender, id) in keys.iter() {
+                        delete_pending_inbound_row(conn, device_id, chat, sender, id)?;
+                    }
+                    Ok(())
+                })
+            })
+        })
+        .await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl MsgSecretStore for SqliteStore {
+    async fn put_msg_secrets(&self, entries: Vec<MsgSecretEntry>) -> Result<usize> {
+        if entries.is_empty() {
+            return Ok(0);
+        }
+
+        let device_id = self.device_id;
+        // Keep the caller's Vec allocation intact across retries. Converting a
+        // Vec to Arc<[T]> allocates a second full-size slice and moves every
+        // item, which is especially costly for large seed batches.
+        let entries = Arc::new(entries);
+        self.with_retry("put_msg_secrets", || {
+            let entries = Arc::clone(&entries);
+            Box::new(move |conn: &mut SqliteConnection| {
+                conn.immediate_transaction(|conn| {
+                    let mut stored = 0usize;
+                    for chunk in entries.chunks(MSG_SECRET_INSERT_CHUNK_SIZE) {
+                        // Materialize only the expressions used by this SQL
+                        // statement. The previous full-batch Vec doubled the
+                        // transient cost before processing these same chunks.
+                        let records: Vec<_> = chunk
+                            .iter()
+                            .map(|entry| {
+                                (
+                                    msg_secrets::chat.eq(entry.chat.as_ref()),
+                                    msg_secrets::sender.eq(entry.sender.as_ref()),
+                                    msg_secrets::msg_id.eq(entry.msg_id.as_ref()),
+                                    msg_secrets::secret.eq(entry.secret.as_ref()),
+                                    msg_secrets::device_id.eq(device_id),
+                                    msg_secrets::expires_at.eq(entry.expires_at),
+                                    msg_secrets::message_ts.eq(entry.message_ts),
+                                )
+                            })
+                            .collect();
+                        stored += diesel::insert_into(msg_secrets::table)
+                            .values(&records)
+                            .on_conflict((
+                                msg_secrets::chat,
+                                msg_secrets::sender,
+                                msg_secrets::msg_id,
+                                msg_secrets::device_id,
+                            ))
+                            .do_update()
+                            .set((
+                                msg_secrets::secret.eq(excluded(msg_secrets::secret)),
+                                // Keep the later deadline; 0 (never) wins. Mirrors
+                                // merge_msg_secret_expiry so a redelivery or edit
+                                // re-persist never shortens an existing window.
+                                msg_secrets::expires_at.eq(diesel::dsl::sql::<
+                                    diesel::sql_types::BigInt,
+                                >(
+                                    "CASE WHEN msg_secrets.expires_at = 0 \
+                                     OR excluded.expires_at = 0 THEN 0 \
+                                     ELSE MAX(msg_secrets.expires_at, excluded.expires_at) END",
+                                )),
+                                // Parent event time is immutable; keep the known
+                                // (non-zero / later) value across redeliveries.
+                                msg_secrets::message_ts.eq(diesel::dsl::sql::<
+                                    diesel::sql_types::BigInt,
+                                >(
+                                    "MAX(msg_secrets.message_ts, excluded.message_ts)",
+                                )),
+                            ))
+                            .execute(conn)?;
+                    }
+                    Ok(stored)
+                })
+            })
+        })
+        .await
+    }
+
+    async fn get_stored_msg_secret(
+        &self,
+        chat: &str,
+        sender: &str,
+        msg_id: &str,
+    ) -> Result<Option<StoredMessageSecret>> {
+        // Stays on the write queue, so a lookup racing a secret write waits for
+        // it instead of reading the snapshot before it. A miss here is terminal
+        // -- the reaction, vote or edit is dropped with no retry -- and history
+        // sync seeds secrets in one large batch straight to the backend.
+        let pool = self.pool.clone();
+        let device_id = self.device_id;
+        let chat = chat.to_string();
+        let sender = sender.to_string();
+        let msg_id = msg_id.to_string();
+        self.with_semaphore(move || -> Result<Option<StoredMessageSecret>> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+            let row: Option<(Vec<u8>, i64)> = msg_secrets::table
+                .select((msg_secrets::secret, msg_secrets::message_ts))
+                .filter(msg_secrets::chat.eq(&chat))
+                .filter(msg_secrets::sender.eq(&sender))
+                .filter(msg_secrets::msg_id.eq(&msg_id))
+                .filter(msg_secrets::device_id.eq(device_id))
+                .first(&mut *conn)
+                .optional()
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+            row.map(|(secret, message_ts)| {
+                StoredMessageSecret::from_stored_bytes(&secret, message_ts)
+            })
+            .transpose()
+        })
+        .await
+    }
+
+    async fn delete_expired_msg_secrets(&self, cutoff_timestamp: i64) -> Result<u32> {
+        let device_id = self.device_id;
+        self.with_retry("delete_expired_msg_secrets", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Rows with expires_at = 0 never expire; only delete passed deadlines.
+                let deleted = diesel::delete(
+                    msg_secrets::table
+                        .filter(msg_secrets::expires_at.ne(0))
+                        .filter(msg_secrets::expires_at.le(cutoff_timestamp))
+                        .filter(msg_secrets::device_id.eq(device_id)),
+                )
+                .execute(conn)?;
+                Ok(deleted as u32)
+            })
+        })
+        .await
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl DeviceStore for SqliteStore {
+    async fn save(&self, device: &CoreDevice) -> Result<()> {
+        SqliteStore::save_device_data_for_device(self, self.device_id, device).await
+    }
+
+    async fn load(&self) -> Result<Option<CoreDevice>> {
+        SqliteStore::load_device_data_for_device(self, self.device_id).await
+    }
+
+    async fn exists(&self) -> Result<bool> {
+        self.device_exists_impl(self.device_id).await
+    }
+
+    async fn create(&self) -> Result<i32> {
+        SqliteStore::create_new_device(self).await
+    }
+
+    async fn snapshot_db(&self, name: &str, extra_content: Option<&[u8]>) -> Result<()> {
+        fn sanitize_snapshot_name(name: &str) -> Result<String> {
+            const MAX_LENGTH: usize = 100;
+
+            let sanitized: String = name
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+
+            let sanitized = sanitized
+                .split('.')
+                .filter(|part| !part.is_empty() && *part != "..")
+                .collect::<Vec<_>>()
+                .join(".");
+
+            let sanitized = sanitized.trim_matches(['/', '\\', '.']);
+
+            if sanitized.is_empty() {
+                return Err(StoreError::InvalidConfig(
+                    "Snapshot name cannot be empty after sanitization".to_string(),
+                ));
+            }
+
+            if sanitized.len() > MAX_LENGTH {
+                return Err(StoreError::InvalidConfig(format!(
+                    "Snapshot name exceeds maximum length of {} characters",
+                    MAX_LENGTH
+                )));
+            }
+
+            Ok(sanitized.to_string())
+        }
+
+        let sanitized_name = sanitize_snapshot_name(name)?;
+
+        let pool = self.pool.clone();
+        let db_path = self.database_path.clone();
+        let extra_data = extra_content.map(|b| b.to_vec());
+
+        crate::pool::spawn_blocking(move || -> Result<()> {
+            let mut conn = pool
+                .get()
+                .map_err(|e| StoreError::Connection(Box::new(e)))?;
+
+            let timestamp = wacore::time::now_secs();
+
+            // Construct target path: db_path.snapshot-TIMESTAMP-SANITIZED_NAME
+            let target_path = format!("{}.snapshot-{}-{}", db_path, timestamp, sanitized_name);
+
+            // Use VACUUM INTO to create a consistent backup
+            // Note: We escape single quotes in the path just in case
+            let query = format!("VACUUM INTO '{}'", target_path.replace("'", "''"));
+
+            diesel::sql_query(query)
+                .execute(&mut *conn)
+                .map_err(|e| StoreError::Database(Box::new(e)))?;
+
+            // Save extra content if provided
+            if let Some(data) = extra_data {
+                let extra_path = format!("{}.json", target_path);
+                std::fs::write(&extra_path, data)?;
+            }
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| StoreError::Database(Box::new(e)))??;
+
+        self.await_commit_barrier().await?;
+        Ok(())
+    }
+
+    async fn maintenance(&self) -> Result<()> {
+        let reclaim_pages = self
+            .incremental_vacuum
+            .then_some(self.incremental_vacuum_pages);
+        self.with_retry("maintenance", || {
+            Box::new(move |conn: &mut SqliteConnection| {
+                // Caps how many index rows each ANALYZE samples. Without it the
+                // first `optimize` over a table with hundreds of thousands of
+                // rows scans whole indexes; with it the pass stays in
+                // milliseconds, which is what makes it safe on a live connection.
+                diesel::sql_query("PRAGMA analysis_limit = 400;").execute(conn)?;
+                // A no-op unless a table has changed materially since the last
+                // ANALYZE, so calling it every pass costs nothing on an idle
+                // database and keeps query plans honest as tables grow past the
+                // sizes the built-in heuristics assume.
+                diesel::sql_query("PRAGMA optimize;").execute(conn)?;
+                // Opportunistic: TRUNCATE is the only checkpoint mode that
+                // returns the -wal file's blocks to the filesystem, and it
+                // declines rather than blocks when a reader still holds a
+                // snapshot (the reader pool, or another process). It reports that
+                // by returning busy in its result row, and on some builds as
+                // SQLITE_BUSY, so a skipped truncate is the normal outcome and
+                // never a reason to fail the pass.
+                //
+                // Only that outcome is swallowed, though: an I/O error, a full
+                // disk or a permission problem says the log could not be
+                // written back at all, which is exactly the condition this pass
+                // exists to catch — and discarding it would hand `with_retry`
+                // and the keepalive a success they could neither retry nor log.
+                if let Err(e) = diesel::sql_query("PRAGMA wal_checkpoint(TRUNCATE);").execute(conn)
+                    && !is_retriable_sqlite_error(&e)
+                {
+                    return Err(e);
+                }
+
+                // Opt-in and mode-gated: reclaim a bounded batch of free pages
+                // only when the database is actually in INCREMENTAL auto_vacuum.
+                // On a default-mode database this is a cheap read of the mode
+                // and no write, so enabling the option can never trigger the
+                // full reorganization this library refuses to run.
+                if let Some(pages) = reclaim_pages {
+                    #[derive(diesel::QueryableByName)]
+                    struct AutoVacuum {
+                        #[diesel(sql_type = diesel::sql_types::BigInt)]
+                        auto_vacuum: i64,
+                    }
+                    let mode: AutoVacuum =
+                        diesel::sql_query("PRAGMA auto_vacuum;").get_result(conn)?;
+                    // 2 = INCREMENTAL.
+                    if mode.auto_vacuum == 2 && pages > 0 {
+                        diesel::sql_query(format!("PRAGMA incremental_vacuum({pages});"))
+                            .execute(conn)?;
+                    }
+                }
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Compatibility whole-pool report, **not** additive per-device memory.
+    /// For multi-account accounting use `SqliteDatabase::resource_report` once
+    /// plus `SqliteStore::scoped_resource_report` for each device scope.
+    ///
+    /// SQLite's exact cache-in-use (`sqlite3_db_status(SQLITE_DBSTATUS_CACHE_USED)`)
+    /// needs the raw `sqlite3*` handle, which Diesel does not expose through a
+    /// safe API. Instead we bound it with PRAGMAs: a connection's page cache
+    /// never holds more than the database's own pages, nor more than the
+    /// configured cap, so `min(cache cap, db size)` is a tight per-connection
+    /// upper bound for the target workload (a fresh per-session DB far smaller
+    /// than the 512 KiB cap). Each pooled connection keeps its OWN cache (no
+    /// shared cache), so the figure is scaled by the number of open connections
+    /// — a no-op for the default single-connection store. `pages` is the
+    /// database page count (a size indicator, shared across connections).
+    ///
+    /// Caveat: this does not account for [`SqliteDatabaseConfig::mmap_size`]. With
+    /// mmap enabled, some reads bypass the heap page cache via an OS-reclaimable
+    /// file mapping, so the estimate can overstate actual process-heap residency
+    /// for that session.
+    async fn resource_report(&self) -> wacore::stats::StorageResourceReport {
+        let pool = self.pool.clone();
+        // Reader connections carry a page cache each, exactly like the write
+        // pool's, so a report that counted only one pool would under-state a
+        // read-enabled store by the whole reader side.
+        let read_pool = self.reads.as_ref().map(|reads| reads.pool.clone());
+        let database_path = self.database_path.clone();
+        crate::pool::spawn_blocking(move || {
+            // Non-blocking checkout: this report is best-effort, so contention
+            // (e.g. a long write holding the only connection) degrades to "not
+            // reported" immediately instead of blocking up to r2d2's connection
+            // timeout.
+            let Some(mut conn) = pool.try_get() else {
+                return wacore::stats::StorageResourceReport::default();
+            };
+            // A failed PRAGMA read means "unavailable", not "zero": fall back to
+            // the all-`None` default so the report never asserts zero usage it
+            // couldn't actually confirm (Some(0) is a positive claim).
+            let (Some(page_size), Some(page_count), Some(cache_size)) = (
+                pragma_i64(&mut conn, "page_size"),
+                pragma_i64(&mut conn, "page_count"),
+                pragma_i64(&mut conn, "cache_size"),
+            ) else {
+                return wacore::stats::StorageResourceReport::default();
+            };
+            let page_size = page_size.max(0) as u64;
+            let page_count = page_count.max(0) as u64;
+            // `PRAGMA cache_size`: negative = KiB, positive = pages.
+            let cache_cap_bytes = if cache_size < 0 {
+                cache_size.unsigned_abs().saturating_mul(1024)
+            } else {
+                (cache_size as u64).saturating_mul(page_size)
+            };
+            let db_bytes = page_count.saturating_mul(page_size);
+            let per_conn_cache = cache_cap_bytes.min(db_bytes);
+            // Open connections (idle + the one just checked out), each with its
+            // own independent page cache. Defaults to 1 for the single-connection
+            // store, so this only widens the bound when pool_size > 1.
+            let open_connections = pool.state().connections.max(1) as u64
+                + read_pool.map_or(0, |reads| reads.state().connections as u64);
+            wacore::stats::StorageResourceReport {
+                memory_bytes: Some(per_conn_cache.saturating_mul(open_connections)),
+                pages: Some(page_count),
+                // Both are separately optional: a missing one is "not reported",
+                // and neither is worth discarding the memory estimate over.
+                free_pages: pragma_i64(&mut conn, "freelist_count").map(|n| n.max(0) as u64),
+                // The WAL is a sidecar file, so its size comes from the
+                // filesystem rather than a pragma. Absent for in-memory and
+                // non-WAL databases, which is exactly the honest answer there.
+                wal_bytes: std::fs::metadata(format!("{}-wal", filesystem_path(&database_path)))
+                    .ok()
+                    .map(|m| m.len()),
+                ..Default::default()
+            }
+        })
+        .await
+        .unwrap_or_default()
+    }
+}
+
+/// Read a single-integer `PRAGMA` off a connection. `pragma` MUST be a bare
+/// identifier (all current callers pass string literals). Returns `None` on any
+/// error so callers degrade to "not reported" instead of failing.
+fn pragma_i64(conn: &mut SqliteConnection, pragma: &str) -> Option<i64> {
+    // The name is interpolated into SQL below, so reject anything that isn't a
+    // bare identifier — defense-in-depth against a future caller passing
+    // non-constant input. Constant callers always pass this.
+    if pragma.is_empty()
+        || !pragma
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        debug_assert!(false, "pragma_i64 requires an identifier, got {pragma:?}");
+        return None;
+    }
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        value: i64,
+    }
+    // The table-valued `pragma_*` function exposes the value in a column named
+    // after the pragma; alias it to a stable name so one struct maps them all.
+    let sql = format!("SELECT {pragma} AS value FROM pragma_{pragma}()");
+    diesel::sql_query(sql)
+        .get_result::<Row>(conn)
+        .ok()
+        .map(|r| r.value)
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+
+    #[test]
+    fn only_busy_and_locked_database_errors_are_retriable() {
+        let busy = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("database is busy".to_string()),
+        );
+        let locked = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("database table is locked".to_string()),
+        );
+        let syntax = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("near SELECT: syntax error".to_string()),
+        );
+        assert!(is_retriable_sqlite_error(&busy));
+        assert!(is_retriable_sqlite_error(&locked));
+        assert!(!is_retriable_sqlite_error(&syntax));
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn native_retry_backoff_waits_on_the_runtime_timer() {
+        let started = wacore::time::Instant::now();
+        retry_backoff(5).await;
+        assert!(started.elapsed() >= Duration::from_millis(4));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn create_test_store() -> SqliteStore {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_name = format!(
+            "file:memdb_test_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+        SqliteStore::open(&db_name)
+            .await
+            .expect("Failed to create test store")
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn shared_retry_accepts_send_only_factory_and_preserves_commit_barrier() {
+        use std::cell::Cell;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        fn assert_send<F: Future + Send>(future: F) -> F {
+            future
+        }
+
+        let mut store = create_test_store().await;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let barriers = Arc::new(AtomicUsize::new(0));
+        store.commit_barrier = Some({
+            let barriers = barriers.clone();
+            let semaphore = store.db_semaphore.clone();
+            Arc::new(move || {
+                let barriers = barriers.clone();
+                let semaphore = semaphore.clone();
+                Box::pin(async move {
+                    assert_eq!(semaphore.available_permits(), 0);
+                    barriers.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
+            })
+        });
+        // Cell is Send but not Sync; sharing the factory must not add Sync.
+        let attempt = Cell::new(0usize);
+        let observed = attempts.clone();
+        let value = assert_send(store.with_retry("send_only_retry", move || {
+            let current = attempt.get();
+            attempt.set(current + 1);
+            observed.fetch_add(1, Ordering::SeqCst);
+            Box::new(move |_| {
+                if current < 2 {
+                    Err(DieselError::DatabaseError(
+                        DatabaseErrorKind::Unknown,
+                        Box::new("database is busy".to_string()),
+                    ))
+                } else {
+                    Ok(42u8)
+                }
+            })
+        }))
+        .await
+        .unwrap();
+        assert_eq!(value, 42);
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(barriers.load(Ordering::SeqCst), 1);
+        assert_eq!(store.db_semaphore.available_permits(), 1);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn shared_retry_keeps_error_classification_and_attempt_limit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let store = create_test_store().await;
+        for (message, expected_attempts) in [("database is busy", 6), ("syntax error", 1)] {
+            let attempts = Arc::new(AtomicUsize::new(0));
+            let observed = attempts.clone();
+            let result = store
+                .with_retry("bounded_retry", move || {
+                    let attempt = observed.fetch_add(1, Ordering::SeqCst) + 1;
+                    Box::new(move |_| -> std::result::Result<(), DieselError> {
+                        Err(DieselError::DatabaseError(
+                            DatabaseErrorKind::Unknown,
+                            Box::new(format!("{message}, attempt {attempt}")),
+                        ))
+                    })
+                })
+                .await;
+            match (expected_attempts, result) {
+                (
+                    6,
+                    Err(StoreError::RetriesExhausted {
+                        op,
+                        attempts,
+                        source,
+                    }),
+                ) => {
+                    assert_eq!(op, "bounded_retry");
+                    assert_eq!(attempts, 6);
+                    let last = source
+                        .downcast_ref::<DieselError>()
+                        .expect("last Diesel cause");
+                    assert!(
+                        matches!(last, DieselError::DatabaseError(DatabaseErrorKind::Unknown, info) if info.message() == format!("{message}, attempt {expected_attempts}"))
+                    );
+                }
+                (1, Err(StoreError::Database(_))) => {}
+                (_, result) => panic!("unexpected retry classification: {result:?}"),
+            }
+            assert_eq!(attempts.load(Ordering::SeqCst), expected_attempts);
+            assert_eq!(store.db_semaphore.available_permits(), 1);
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn shared_retry_cancellation_during_backoff_releases_permit_and_stops_attempts() {
+        use std::future::{Future, poll_fn};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::Poll;
+
+        let store = create_test_store().await;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed = attempts.clone();
+        let mut operation = Box::pin(store.with_retry("cancelled_backoff", move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Box::new(|_| -> std::result::Result<(), DieselError> {
+                Err(DieselError::DatabaseError(
+                    DatabaseErrorKind::Unknown,
+                    Box::new("database is busy".to_string()),
+                ))
+            })
+        }));
+        poll_fn(|cx| {
+            assert!(operation.as_mut().poll(cx).is_pending());
+            if attempts.load(Ordering::SeqCst) == 1 && store.db_semaphore.available_permits() == 1 {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        drop(operation);
+        assert_eq!(store.db_semaphore.available_permits(), 1);
+        assert_eq!(
+            store
+                .with_retry("successor", || Box::new(|_| Ok(7u8)))
+                .await
+                .unwrap(),
+            7
+        );
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(store.db_semaphore.available_permits(), 1);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    struct PendingTestOwner {
+        _lock: tokio::sync::OwnedMutexGuard<()>,
+        charged: Arc<std::sync::atomic::AtomicUsize>,
+        amount: usize,
+        released: std::sync::mpsc::Sender<()>,
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    impl Drop for PendingTestOwner {
+        fn drop(&mut self) {
+            self.charged
+                .fetch_sub(self.amount, std::sync::atomic::Ordering::SeqCst);
+            let _ = self.released.send(());
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn pending_owned_read_result_keeps_budget_and_identity_lock() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let store = create_test_store().await;
+        let key = PendingInboundKey {
+            chat: "test-chat",
+            sender: "test-sender",
+            id: "owned-read",
+        };
+        store
+            .store_pending_inbound(key.chat, key.sender, key.id, b"raw")
+            .await
+            .unwrap();
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let charged = Arc::new(AtomicUsize::new(16));
+        let (released, completion) = std::sync::mpsc::channel();
+        let lease = PendingInboundLease::new(Arc::new(PendingTestOwner {
+            _lock: lock.clone().lock_owned().await,
+            charged: charged.clone(),
+            amount: 16,
+            released,
+        }));
+        let record = store
+            .read_pending_inbound_bounded(key, 16, lease)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.bytes(), b"raw");
+        assert!(
+            lock.try_lock().is_err(),
+            "the returned bytes still own their identity"
+        );
+        assert_eq!(charged.load(Ordering::SeqCst), 16);
+        drop(record);
+        completion.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(lock.try_lock().is_ok());
+        assert_eq!(charged.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn pending_owned_cancelled_cas_keeps_worker_budget_and_excludes_successor() {
+        use std::future::{Future, poll_fn};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::task::Poll;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let store = create_test_store().await;
+            let key = PendingInboundKey {
+                chat: "test-chat",
+                sender: "test-sender",
+                id: "cancelled-cas",
+            };
+            let lock = Arc::new(tokio::sync::Mutex::new(()));
+            let charged = Arc::new(AtomicUsize::new(32));
+            let (released, completion) = std::sync::mpsc::channel();
+            let owner = Arc::new(PendingTestOwner {
+                _lock: lock.clone().lock_owned().await,
+                charged: charged.clone(),
+                amount: 32,
+                released,
+            });
+            let weak = Arc::downgrade(&owner);
+            let request = PendingInboundPayload::new(
+                Bytes::from_static(b"raw"),
+                PendingInboundLease::new(owner),
+            );
+            // One blocking slot makes the actual CAS worker queue deterministic.
+            // No production hook or timing sleep changes the storage path.
+            let (started, entered) = std::sync::mpsc::channel();
+            let (unpark, parked) = std::sync::mpsc::channel();
+            let blocker = crate::pool::spawn_blocking(move || {
+                started.send(()).unwrap();
+                parked.recv_timeout(Duration::from_secs(10)).unwrap();
+            });
+            entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            let mut operation = Box::pin(store.replace_pending_inbound_if(
+                key,
+                PendingInboundRevision::missing(),
+                request,
+                16,
+            ));
+            assert!(poll_fn(|cx| Poll::Ready(operation.as_mut().poll(cx).is_pending())).await);
+            drop(operation);
+            assert!(
+                weak.upgrade().is_some(),
+                "cancelled caller must not release the queued worker"
+            );
+            assert!(
+                lock.try_lock().is_err(),
+                "a successor cannot enter before worker terminal"
+            );
+            assert_eq!(charged.load(Ordering::SeqCst), 32);
+            unpark.send(()).unwrap();
+            completion.recv_timeout(Duration::from_secs(5)).unwrap();
+            blocker.await.unwrap();
+            assert!(weak.upgrade().is_none());
+            assert_eq!(charged.load(Ordering::SeqCst), 0);
+            let successor = lock.clone().lock_owned().await;
+            let record = store
+                .read_pending_inbound_bounded(key, 16, pending_test_lease())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.bytes(), b"raw");
+            assert_eq!(
+                store
+                    .delete_pending_inbound_if(key, record.revision(), 16, pending_test_lease())
+                    .await
+                    .unwrap(),
+                PendingInboundMutation::Applied
+            );
+            drop(successor);
+            assert!(
+                store
+                    .read_pending_inbound_bounded(key, 16, pending_test_lease())
+                    .await
+                    .unwrap()
+                    .is_none()
+            );
+        });
+    }
+
+    #[tokio::test]
+    async fn pending_bounded_group_legacy_alias_preserves_physical_cas_and_lease() {
+        let store = create_test_store().await;
+        let chat = "120363000000000081@g.us";
+        let sender = "200:75@lid";
+        let key = PendingInboundKey {
+            chat,
+            sender,
+            id: "LEGACY_ALIAS",
+        };
+        let logical = PendingInboundKey {
+            sender: "200@lid",
+            ..key
+        };
+        store
+            .store_pending_inbound(chat, sender, key.id, b"old")
+            .await
+            .unwrap();
+        store
+            .store_pending_inbound(chat, "200:75@s.whatsapp.net", key.id, b"other")
+            .await
+            .unwrap();
+        let owner = Arc::new(());
+        let weak = Arc::downgrade(&owner);
+        let (physical, record) = store
+            .read_pending_inbound_group_bounded(
+                logical,
+                16,
+                PendingInboundLease::new(owner.clone()),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        drop(owner);
+        assert!(
+            weak.upgrade().is_some(),
+            "returned record retains the owner"
+        );
+        assert_eq!(physical, sender);
+        assert_eq!(record.bytes(), b"old");
+        let stale = record.revision();
+        drop(record);
+        assert!(weak.upgrade().is_none());
+        store
+            .store_pending_inbound(chat, sender, key.id, b"new")
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(key, stale, 16, PendingInboundLease::new(Arc::new(())))
+                .await
+                .unwrap(),
+            PendingInboundMutation::Conflict
+        );
+        assert!(
+            store
+                .read_pending_inbound_group_bounded(
+                    logical,
+                    2,
+                    PendingInboundLease::new(Arc::new(()))
+                )
+                .await
+                .is_err()
+        );
+        store
+            .store_pending_inbound(chat, logical.sender, key.id, b"ambiguous")
+            .await
+            .unwrap();
+        assert!(
+            store
+                .read_pending_inbound_group_bounded(
+                    logical,
+                    16,
+                    PendingInboundLease::new(Arc::new(()))
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .get_pending_inbound(chat, sender, key.id)
+                .await
+                .unwrap()
+                .unwrap(),
+            b"new"
+        );
+        store
+            .delete_pending_inbound(chat, logical.sender, key.id)
+            .await
+            .unwrap();
+        let (_, record) = store
+            .read_pending_inbound_group_bounded(logical, 16, PendingInboundLease::new(Arc::new(())))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(key, record.revision(), 16, record.lease())
+                .await
+                .unwrap(),
+            PendingInboundMutation::Applied
+        );
+        assert!(
+            store
+                .read_pending_inbound_group_bounded(
+                    logical,
+                    16,
+                    PendingInboundLease::new(Arc::new(()))
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    fn pending_test_lease() -> PendingInboundLease {
+        PendingInboundLease::new(Arc::new(()))
+    }
+
+    #[tokio::test]
+    async fn pending_bounded_empty_is_present_and_delete_requires_revision() {
+        let store = create_test_store().await;
+        let key = PendingInboundKey {
+            chat: "test-chat",
+            sender: "test-sender",
+            id: "empty",
+        };
+        assert!(
+            store
+                .read_pending_inbound_bounded(key, 0, pending_test_lease())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(
+                    key,
+                    PendingInboundRevision::missing(),
+                    0,
+                    pending_test_lease()
+                )
+                .await
+                .unwrap(),
+            PendingInboundMutation::Applied
+        );
+        store
+            .store_pending_inbound(key.chat, key.sender, key.id, b"")
+            .await
+            .unwrap();
+        let row = store
+            .read_pending_inbound_bounded(key, 0, pending_test_lease())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(row.bytes().is_empty());
+        assert_ne!(row.revision(), PendingInboundRevision::missing());
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(
+                    key,
+                    PendingInboundRevision::missing(),
+                    0,
+                    pending_test_lease()
+                )
+                .await
+                .unwrap(),
+            PendingInboundMutation::Conflict
+        );
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(key, row.revision(), 0, pending_test_lease())
+                .await
+                .unwrap(),
+            PendingInboundMutation::Applied
+        );
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(key, row.revision(), 0, pending_test_lease())
+                .await
+                .unwrap(),
+            PendingInboundMutation::Conflict
+        );
+    }
+
+    #[test]
+    fn pending_bounded_group_metadata_sql_limits_copying_and_rebinds_cache() {
+        use diesel::connection::{InstrumentationEvent, SimpleConnection};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut conn = SqliteConnection::establish(":memory:").unwrap();
+        conn.batch_execute("CREATE TABLE pending_inbound_messages (device_id INTEGER, chat TEXT, sender TEXT, id TEXT, message BLOB);
+            INSERT INTO pending_inbound_messages VALUES
+            (1, 'chat-a', '200:75@lid', 'id-a', zeroblob(4194304)),
+            (2, 'chat-a', '300:76@lid', 'id-a', x'01'),
+            (1, 'chat-b', '400@lid', 'id-a', x'01'),
+            (1, 'chat-a', '500@lid', 'id-b', x'01');").unwrap();
+        diesel::sql_query(
+            "INSERT INTO pending_inbound_messages VALUES (1, 'huge', ?, 'id-a', x'01')",
+        )
+        .bind::<diesel::sql_types::Text, _>("2".repeat(4096))
+        .execute(&mut conn)
+        .unwrap();
+        let cached = Arc::new(AtomicUsize::new(0));
+        let observed = cached.clone();
+        conn.set_instrumentation(move |event: InstrumentationEvent<'_>| {
+            if let InstrumentationEvent::CacheQuery { .. } = event {
+                observed.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        for (device_id, chat, id, expected) in [
+            (1, "chat-a", "id-a", Some("200:75@lid")),
+            (2, "chat-a", "id-a", Some("300:76@lid")),
+            (1, "chat-b", "id-a", Some("400@lid")),
+            (1, "chat-a", "id-b", Some("500@lid")),
+            (1, "huge", "id-a", None),
+        ] {
+            let rows: Vec<BoundedPendingSender> =
+                crate::bounded_pending_query::BoundedPendingSenders {
+                    device_id,
+                    chat,
+                    id,
+                }
+                .load(&mut conn)
+                .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].sender.as_deref(), expected);
+        }
+        assert_eq!(cached.load(Ordering::SeqCst), 1);
+        conn.batch_execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<402)
+            INSERT INTO pending_inbound_messages SELECT 1, 'many', x || '@lid', 'id-a', x'01' FROM n;").unwrap();
+        let rows: Vec<BoundedPendingSender> = crate::bounded_pending_query::BoundedPendingSenders {
+            device_id: 1,
+            chat: "many",
+            id: "id-a",
+        }
+        .load(&mut conn)
+        .unwrap();
+        assert_eq!(rows.len(), 401);
+        assert!(
+            pending_group_sender(&mut rows.iter().map(|row| row.sender.as_deref()), "1@lid")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn pending_bounded_statement_reuses_cache_and_rebinds_all_parameters() {
+        use diesel::connection::{InstrumentationEvent, SimpleConnection};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut conn = SqliteConnection::establish(":memory:").unwrap();
+        conn.batch_execute(
+            "CREATE TABLE pending_inbound_messages \
+             (device_id INTEGER, chat TEXT, sender TEXT, id TEXT, message BLOB); \
+             INSERT INTO pending_inbound_messages VALUES \
+             (1, 'chat-a', 'sender-a', 'id-a', x'616161'), \
+             (2, 'chat-a', 'sender-a', 'id-a', x'626262'), \
+             (1, 'chat-b', 'sender-a', 'id-a', x'636363'), \
+             (1, 'chat-a', 'sender-b', 'id-a', x'646464'), \
+             (1, 'chat-a', 'sender-a', 'id-b', x'656565');",
+        )
+        .unwrap();
+        let cached = Arc::new(AtomicUsize::new(0));
+        let observed = cached.clone();
+        conn.set_instrumentation(move |event: InstrumentationEvent<'_>| {
+            if let InstrumentationEvent::CacheQuery { .. } = event {
+                observed.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        for (max_bytes, device_id, chat, sender, id, expected) in [
+            (3, 1, "chat-a", "sender-a", "id-a", Some(b"aaa")),
+            (2, 1, "chat-a", "sender-a", "id-a", None),
+            (3, 2, "chat-a", "sender-a", "id-a", Some(b"bbb")),
+            (3, 1, "chat-b", "sender-a", "id-a", Some(b"ccc")),
+            (3, 1, "chat-a", "sender-b", "id-a", Some(b"ddd")),
+            (3, 1, "chat-a", "sender-a", "id-b", Some(b"eee")),
+            (3, 1, "chat-a", "sender-a", "id-a", Some(b"aaa")),
+        ] {
+            let row: BoundedPendingPayload = crate::bounded_pending_query::BoundedPendingQuery {
+                max_bytes,
+                device_id,
+                chat,
+                sender,
+                id,
+            }
+            .get_result(&mut conn)
+            .unwrap();
+            assert_eq!(row.storage_type, "blob");
+            assert_eq!(row.byte_len, Some(3));
+            assert_eq!(
+                row.payload.as_deref(),
+                expected.map(|value| value.as_slice())
+            );
+        }
+        assert_eq!(cached.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn pending_conditional_updates_preserve_noncanonical_legacy_bytes() {
+        let store = create_test_store().await;
+        let key = PendingInboundKey {
+            chat: "test-chat",
+            sender: "test-sender",
+            id: "legacy",
+        };
+        let compact = [0x0a, 0x01, b'a'];
+        let extended = [0x0a, 0x81, 0x00, b'a'];
+        assert_eq!(
+            waproto::codec::message_decode(&compact)
+                .unwrap()
+                .conversation,
+            waproto::codec::message_decode(&extended)
+                .unwrap()
+                .conversation
+        );
+        store
+            .store_pending_inbound(key.chat, key.sender, key.id, &compact)
+            .await
+            .unwrap();
+        let original = store
+            .read_pending_inbound_bounded(key, 16, pending_test_lease())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(original.bytes(), compact);
+        let replacement =
+            PendingInboundPayload::new(Bytes::copy_from_slice(&extended), pending_test_lease());
+        let installed = replacement.revision();
+        assert_eq!(
+            store
+                .replace_pending_inbound_if(key, original.revision(), replacement, 16)
+                .await
+                .unwrap(),
+            PendingInboundMutation::Applied
+        );
+        let successor = store
+            .read_pending_inbound_bounded(key, 16, pending_test_lease())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(successor.bytes(), extended);
+        assert_eq!(successor.revision(), installed);
+        assert_ne!(successor.revision(), original.revision());
+        assert_eq!(
+            store
+                .replace_pending_inbound_if(
+                    key,
+                    original.revision(),
+                    PendingInboundPayload::new(
+                        Bytes::copy_from_slice(b"stale"),
+                        pending_test_lease()
+                    ),
+                    16
+                )
+                .await
+                .unwrap(),
+            PendingInboundMutation::Conflict
+        );
+        assert_eq!(
+            store
+                .delete_pending_inbound_if(key, original.revision(), 16, pending_test_lease())
+                .await
+                .unwrap(),
+            PendingInboundMutation::Conflict
+        );
+        assert_eq!(
+            store
+                .replace_pending_inbound_if(
+                    key,
+                    original.revision(),
+                    PendingInboundPayload::new(
+                        Bytes::copy_from_slice(&extended),
+                        pending_test_lease()
+                    ),
+                    16
+                )
+                .await
+                .unwrap(),
+            PendingInboundMutation::Applied
+        );
+        assert_eq!(
+            store
+                .get_pending_inbound(key.chat, key.sender, key.id)
+                .await
+                .unwrap()
+                .unwrap(),
+            extended
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_bounded_rejects_oversized_blob_and_large_text_without_mutation() {
+        let store = create_test_store().await;
+        let key = PendingInboundKey {
+            chat: "test-chat",
+            sender: "test-sender",
+            id: "oversized",
+        };
+        let payload = vec![0x7a; 2 * 1024 * 1024];
+        store
+            .store_pending_inbound(key.chat, key.sender, key.id, &payload)
+            .await
+            .unwrap();
+        let revision = PendingInboundRevision::for_bytes(&payload);
+        assert!(
+            store
+                .read_pending_inbound_bounded(key, 16, pending_test_lease())
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .replace_pending_inbound_if(
+                    key,
+                    revision,
+                    PendingInboundPayload::new(
+                        Bytes::copy_from_slice(b"new"),
+                        pending_test_lease()
+                    ),
+                    16
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .delete_pending_inbound_if(key, revision, 16, pending_test_lease())
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .replace_pending_inbound_if(
+                    key,
+                    revision,
+                    PendingInboundPayload::new(
+                        Bytes::copy_from_slice(&payload),
+                        pending_test_lease()
+                    ),
+                    16
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .get_pending_inbound(key.chat, key.sender, key.id)
+                .await
+                .unwrap()
+                .unwrap(),
+            payload
+        );
+        store.write_blocking(|conn| {
+            diesel::sql_query("UPDATE pending_inbound_messages SET message = replace(hex(zeroblob(1048576)), '0', 'x') WHERE id = 'oversized'")
+                .execute(conn).map_err(|e| StoreError::Database(Box::new(e)))?;
+            Ok(())
+        }).await.unwrap();
+        assert!(
+            store
+                .read_pending_inbound_bounded(key, 16, pending_test_lease())
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .replace_pending_inbound_if(
+                    key,
+                    revision,
+                    PendingInboundPayload::new(
+                        Bytes::copy_from_slice(b"new"),
+                        pending_test_lease()
+                    ),
+                    16
+                )
+                .await
+                .is_err()
+        );
+        assert!(
+            store
+                .delete_pending_inbound_if(key, revision, 16, pending_test_lease())
+                .await
+                .is_err()
+        );
+        store.with_read_retry("verify_malformed_pending_unchanged", || Box::new(|conn| {
+            let row: BoundedPendingPayload = diesel::sql_query("SELECT typeof(message) AS storage_type, NULL AS byte_len, NULL AS payload FROM pending_inbound_messages WHERE id = 'oversized'").get_result(conn)?;
+            assert_eq!(row.storage_type, "text");
+            Ok(())
+        })).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn get_sent_message_preserves_payload_expiry_and_device_scope() {
+        let store = create_test_store().await;
+        let chat = "120363000000000001@g.us";
+        store
+            .store_sent_message(chat, "READ", b"payload")
+            .await
+            .unwrap();
+        store
+            .write_blocking(|conn| {
+                diesel::update(sent_messages::table)
+                    .set(sent_messages::created_at.eq(1_i64))
+                    .execute(conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                store
+                    .get_sent_message(chat, "READ")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some(b"payload".as_slice())
+            );
+        }
+        assert!(
+            store
+                .get_sent_message(chat, "MISSING")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .get_sent_message("120363000000000002@g.us", "READ")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .share_for_device(store.device_id + 1)
+                .get_sent_message(chat, "READ")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(store.delete_expired_sent_messages(2).await.unwrap(), 1);
+        assert!(
+            store
+                .get_sent_message(chat, "READ")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// The legacy-spelling normalisation, run against the migration file itself
+    /// so the SQL under test cannot drift from the SQL that ships.
+    ///
+    /// Two halves matter equally: the JID-rendered keys move, and the Signal
+    /// address columns do not. `@c.us` is the correct, current spelling of a
+    /// Signal address (it is what WA Web uses, and `mapped_server` still writes
+    /// it), so rewriting one would orphan every established session -- the
+    /// opposite of what this migration is for.
+    #[tokio::test]
+    async fn the_normalisation_migration_moves_jids_and_leaves_signal_addresses() {
+        use diesel::connection::SimpleConnection;
+
+        const NORMALISE: &str =
+            include_str!("../migrations/2026-08-31-000000_normalize_legacy_user_server/up.sql");
+
+        let store = create_test_store().await;
+        let pool = store.pool.clone();
+        let mut conn = pool.get().expect("a connection");
+
+        conn.batch_execute(
+            "INSERT INTO tc_tokens (jid, token, token_timestamp, device_id, updated_at)
+                  VALUES ('15550000001@c.us', x'01', 0, 1, 0),
+                         ('15550000002@s.whatsapp.net', x'02', 0, 1, 0),
+                         ('120363000000000000@g.us', x'03', 0, 1, 0);
+             INSERT INTO sent_messages (chat_jid, message_id, payload, device_id, created_at)
+                  VALUES ('15550000001@c.us', 'M1', x'01', 1, 0);
+             INSERT INTO device_registry (user_id, devices_json, timestamp, device_id, updated_at)
+                  VALUES ('15550000001@c.us', '[]', 0, 1, 0);
+             INSERT INTO sessions (address, record, device_id)
+                  VALUES ('15550000001@c.us.0', x'01', 1);
+             INSERT INTO sender_keys (address, record, device_id)
+                  VALUES ('120363000000000000@g.us:15550000001@c.us.0', x'01', 1);",
+        )
+        .expect("seed rows");
+
+        conn.batch_execute(NORMALISE).expect("the migration runs");
+
+        let scalar = |conn: &mut _, sql: &str| -> String {
+            diesel::dsl::sql::<diesel::sql_types::Text>(sql)
+                .get_result::<String>(conn)
+                .expect("one row")
+        };
+
+        assert_eq!(
+            scalar(&mut *conn, "SELECT jid FROM tc_tokens WHERE token = x'01'"),
+            "15550000001@s.whatsapp.net"
+        );
+        assert_eq!(
+            scalar(&mut *conn, "SELECT chat_jid FROM sent_messages"),
+            "15550000001@s.whatsapp.net"
+        );
+        assert_eq!(
+            scalar(&mut *conn, "SELECT user_id FROM device_registry"),
+            "15550000001@s.whatsapp.net"
+        );
+        // Untouched: a group is not in this namespace, and one already spelled
+        // the modern way must not be double-rewritten.
+        assert_eq!(
+            scalar(&mut *conn, "SELECT jid FROM tc_tokens WHERE token = x'02'"),
+            "15550000002@s.whatsapp.net"
+        );
+        assert_eq!(
+            scalar(&mut *conn, "SELECT jid FROM tc_tokens WHERE token = x'03'"),
+            "120363000000000000@g.us"
+        );
+        // The Signal addresses, both the plain one and the one that carries an
+        // address in the middle of a longer key.
+        assert_eq!(
+            scalar(&mut *conn, "SELECT address FROM sessions"),
+            "15550000001@c.us.0"
+        );
+        assert_eq!(
+            scalar(&mut *conn, "SELECT address FROM sender_keys"),
+            "120363000000000000@g.us:15550000001@c.us.0"
+        );
+    }
+
+    /// Both spellings of one key collide when the legacy one is rewritten, and
+    /// which row survives decides what the client believes. The rule is that a
+    /// legacy row never displaces a canonical one: the legacy row is dropped,
+    /// the canonical row is left untouched, and only an uncontested legacy row
+    /// is rewritten. The collision must also never abort the migration, which
+    /// would leave the database unopenable.
+    ///
+    /// `UPDATE OR REPLACE` alone gets this backwards -- it keeps the row being
+    /// rewritten, which is the legacy one -- and that is the case with a real
+    /// consequence: a stale device list replacing a current one, which
+    /// `get_devices` would then serve until the next refresh.
+    #[tokio::test]
+    async fn the_normalisation_migration_never_lets_a_legacy_row_displace_a_canonical_one() {
+        use diesel::connection::SimpleConnection;
+
+        const NORMALISE: &str =
+            include_str!("../migrations/2026-08-31-000000_normalize_legacy_user_server/up.sql");
+
+        let store = create_test_store().await;
+        let mut conn = store.pool.get().expect("a connection");
+
+        // Peer 1: both spellings, so the canonical row survives whole.
+        // Peer 2: legacy only, so it is rewritten.
+        // The device_registry pair is the one that matters in practice.
+        // sender_key_devices: the same device under both spellings in group A,
+        // and legacy-only in group B -- the second must survive, because
+        // `group_jid` is part of the key and a counterpart in another group is
+        // not a counterpart at all.
+        conn.batch_execute(
+            r#"INSERT INTO tc_tokens (jid, token, token_timestamp, device_id, updated_at)
+                    VALUES ('15550000001@c.us',           x'01', 0, 1, 99),
+                           ('15550000001@s.whatsapp.net', x'02', 0, 1, 1),
+                           ('15550000002@c.us',           x'03', 0, 1, 5);
+               INSERT INTO device_registry (user_id, devices_json, timestamp, device_id, updated_at)
+                    VALUES ('15550000001@c.us',           '["stale"]', 0, 1, 99),
+                           ('15550000001@s.whatsapp.net', '["live"]',  0, 1, 1);
+               INSERT INTO sender_key_devices (group_jid, device_jid, has_key, device_id, updated_at)
+                    VALUES ('120363000000000001@g.us', '15550000001@c.us',           1, 1, 0),
+                           ('120363000000000001@g.us', '15550000001@s.whatsapp.net', 0, 1, 0),
+                           ('120363000000000002@g.us', '15550000001@c.us',           1, 1, 0);"#,
+        )
+        .expect("seed both spellings of the same keys");
+
+        conn.batch_execute(NORMALISE)
+            .expect("a collision must not abort the migration");
+
+        let scalar = |conn: &mut _, sql: &str| -> String {
+            diesel::dsl::sql::<diesel::sql_types::Text>(sql)
+                .get_result::<String>(conn)
+                .expect("one row")
+        };
+        let count = |conn: &mut _, sql: &str| -> i64 {
+            diesel::dsl::sql::<diesel::sql_types::BigInt>(sql)
+                .get_result::<i64>(conn)
+                .expect("one row")
+        };
+
+        assert_eq!(
+            count(&mut *conn, "SELECT count(*) FROM tc_tokens"),
+            2,
+            "one row per peer"
+        );
+        assert_eq!(
+            count(
+                &mut *conn,
+                "SELECT count(*) FROM tc_tokens WHERE jid LIKE '%@c.us'"
+            ),
+            0,
+            "and none of them spelled the old way"
+        );
+        assert_eq!(
+            scalar(
+                &mut *conn,
+                "SELECT hex(token) FROM tc_tokens WHERE jid = '15550000001@s.whatsapp.net'"
+            ),
+            "02",
+            "the canonical row survives even though the legacy one is newer"
+        );
+        assert_eq!(
+            scalar(
+                &mut *conn,
+                "SELECT hex(token) FROM tc_tokens WHERE jid = '15550000002@s.whatsapp.net'"
+            ),
+            "03",
+            "an uncontested legacy row is just rewritten"
+        );
+
+        // The case with a real consequence: a stale device list must not
+        // displace the current one.
+        assert_eq!(count(&mut *conn, "SELECT count(*) FROM device_registry"), 1);
+        assert_eq!(
+            scalar(
+                &mut *conn,
+                "SELECT devices_json FROM device_registry WHERE user_id = '15550000001@s.whatsapp.net'"
+            ),
+            r#"["live"]"#,
+            "the canonical device list must win"
+        );
+
+        // Both groups keep a row, and both are canonical. The colliding group
+        // keeps its canonical `has_key = 0`, so a forget mark is not undone by
+        // a stale `1`; the other group's legacy-only row is simply rewritten.
+        assert_eq!(
+            count(&mut *conn, "SELECT count(*) FROM sender_key_devices"),
+            2,
+            "a counterpart in another group is not a counterpart"
+        );
+        assert_eq!(
+            count(
+                &mut *conn,
+                "SELECT count(*) FROM sender_key_devices WHERE device_jid = '15550000001@s.whatsapp.net'"
+            ),
+            2,
+            "and both reference the canonical device"
+        );
+        assert_eq!(
+            count(
+                &mut *conn,
+                "SELECT has_key FROM sender_key_devices WHERE group_jid = '120363000000000001@g.us'"
+            ),
+            0,
+            "the canonical forget mark survives the collision"
+        );
+    }
+
+    /// The `created_at` column and the non-partial expiry index are gone, and
+    /// the partial index only covers rows that can actually expire.
+    ///
+    /// The schema is what ships on a fresh database (the migrations ran at
+    /// open); the query plan is the second half of the contract, because an
+    /// index the optimizer ignores would be dead weight the next writer still
+    /// pays for.
+    #[tokio::test]
+    async fn msg_secrets_drops_created_at_and_uses_a_partial_expiry_index() {
+        let store = create_test_store().await;
+        let mut conn = store.pool.get().expect("a connection");
+
+        let columns: String = diesel::dsl::sql::<diesel::sql_types::Text>(
+            "SELECT group_concat(name, ',') FROM pragma_table_info('msg_secrets') ORDER BY cid",
+        )
+        .get_result(&mut *conn)
+        .expect("read columns");
+        assert!(
+            !columns.split(',').any(|c| c == "created_at"),
+            "created_at must be gone from the schema, got {columns:?}"
+        );
+
+        // The index exists, is partial, and its predicate is exactly the
+        // `expires_at <> 0` term the prune relies on.
+        let ddl: String = diesel::dsl::sql::<diesel::sql_types::Text>(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_msg_secrets_expires'",
+        )
+        .get_result(&mut *conn)
+        .expect("read index ddl");
+        assert!(
+            ddl.to_ascii_uppercase().contains("WHERE"),
+            "the expiry index must be partial, got {ddl}"
+        );
+
+        // The plan still localizes the range scan to one device and deadline
+        // range: `SEARCH ... USING INDEX idx_msg_secrets_expires`.
+        let plan = explain_query_plan(
+            &mut conn,
+            "DELETE FROM msg_secrets WHERE device_id = 1 AND expires_at <> 0 AND expires_at <= 1",
+        );
+        assert!(
+            plan.contains("idx_msg_secrets_expires") && plan.contains("SEARCH"),
+            "the prune must use the expiry index, got {plan}"
+        );
+
+        // The primary-key lookup is the one hot read and must keep using the
+        // autoindex, not the expiry index.
+        let lookup = explain_query_plan(
+            &mut conn,
+            "SELECT secret, message_ts FROM msg_secrets \
+             WHERE chat = 'c' AND sender = 's' AND msg_id = 'M' AND device_id = 1",
+        );
+        assert!(
+            lookup.contains("sqlite_autoindex_msg_secrets_1"),
+            "the secret lookup must use the composite primary key, got {lookup}"
+        );
+    }
+
+    /// Render `EXPLAIN QUERY PLAN` as one string, for shape assertions.
+    fn explain_query_plan(conn: &mut SqliteConnection, sql: &str) -> String {
+        #[derive(diesel::QueryableByName)]
+        struct PlanRow {
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            detail: String,
+        }
+        diesel::sql_query(format!("EXPLAIN QUERY PLAN {sql}"))
+            .load::<PlanRow>(conn)
+            .expect("explain")
+            .into_iter()
+            .map(|row| row.detail)
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    /// The upgrade path from a database that still carries `created_at` and the
+    /// non-partial expiry index: the column is dropped, existing rows keep their
+    /// secret, key, deadline and parent time, and the index is rebuilt partial.
+    ///
+    /// Run against the migration file itself so the SQL under test cannot drift
+    /// from the SQL that ships.
+    #[tokio::test]
+    async fn the_msg_secret_migration_preserves_rows_and_rebuilds_the_index() {
+        use diesel::connection::SimpleConnection;
+
+        const DROP_COLUMN: &str =
+            include_str!("../migrations/2026-09-16-000000_drop_msg_secrets_created_at/up.sql");
+        const PARTIAL_INDEX: &str =
+            include_str!("../migrations/2026-09-16-000001_msg_secrets_partial_expiry_index/up.sql");
+
+        let store = create_test_store().await;
+        let mut conn = store.pool.get().expect("a connection");
+
+        // The pre-migration shape, written by hand, including the index the
+        // migration has to replace.
+        conn.batch_execute(
+            "DROP TABLE msg_secrets;
+             CREATE TABLE msg_secrets (
+                 chat TEXT NOT NULL,
+                 sender TEXT NOT NULL,
+                 msg_id TEXT NOT NULL,
+                 secret BLOB NOT NULL,
+                 device_id INTEGER NOT NULL DEFAULT 1,
+                 created_at INTEGER NOT NULL DEFAULT 0,
+                 expires_at INTEGER NOT NULL DEFAULT 0,
+                 message_ts INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (chat, sender, msg_id, device_id));
+             CREATE INDEX idx_msg_secrets_expires ON msg_secrets (device_id, expires_at);
+             INSERT INTO msg_secrets VALUES
+                 ('c', 's', 'NEVER', x'07', 1, 100, 0, 0),
+                 ('c', 's', 'PAST',  x'08', 1, 100, 50, 1700000000),
+                 ('c', 's', 'FUTURE', x'09', 2, 100, 9999999999, 1700000001);",
+        )
+        .expect("seed the pre-migration shape");
+
+        conn.batch_execute(DROP_COLUMN).expect("drop column");
+        conn.batch_execute(PARTIAL_INDEX).expect("partial index");
+
+        let count = |conn: &mut _, sql: &str| -> i64 {
+            diesel::dsl::sql::<diesel::sql_types::BigInt>(sql)
+                .get_result::<i64>(conn)
+                .expect("one row")
+        };
+        assert_eq!(
+            count(&mut *conn, "SELECT count(*) FROM msg_secrets"),
+            3,
+            "the migration must not drop rows"
+        );
+        assert_eq!(
+            count(
+                &mut *conn,
+                "SELECT count(*) FROM pragma_table_info('msg_secrets') WHERE name = 'created_at'"
+            ),
+            0,
+            "created_at must be dropped"
+        );
+        let ddl: String = diesel::dsl::sql::<diesel::sql_types::Text>(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_msg_secrets_expires'",
+        )
+        .get_result(&mut *conn)
+        .expect("index ddl");
+        assert!(
+            ddl.to_ascii_uppercase().contains("WHERE"),
+            "the rebuilt index must be partial, got {ddl}"
+        );
+        // A preserved row still round-trips through the real accessor.
+        assert_eq!(
+            count(
+                &mut *conn,
+                "SELECT message_ts FROM msg_secrets WHERE msg_id = 'FUTURE'"
+            ),
+            1700000001,
+            "message_ts must survive the column drop"
+        );
+    }
+
+    /// The upgrade as diesel would actually run it: a database that recorded
+    /// every migration but this one, carrying the old table shape.
+    ///
+    /// The old shape is reconstructed on a freshly migrated file by adding the
+    /// column back and rebuilding the old index, then deleting this migration's
+    /// row from the ledger. `SqliteStore::open` then runs it for real.
+    #[tokio::test]
+    async fn reopening_an_old_database_runs_the_migration_and_upgrades_it() {
+        use diesel::connection::SimpleConnection;
+
+        let db = read_routing_tests::TempDb::new("upgrade_old_db");
+        let url = db.url();
+        let store = SqliteStore::open(&url).await.expect("fresh store");
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: Arc::from("19045550180@s.whatsapp.net"),
+                sender: Arc::from("19045550180@s.whatsapp.net"),
+                msg_id: Arc::from("OLD_ROW"),
+                secret: [0x42; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: 1_700_000_000,
+            }])
+            .await
+            .expect("seed a row through the new schema");
+        drop(store);
+
+        // Put the file back in the shape a pre-migration process left it in.
+        {
+            let mut conn = SqliteConnection::establish(&url).expect("reopen raw");
+            conn.batch_execute(
+                "ALTER TABLE msg_secrets ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+                 DROP INDEX idx_msg_secrets_expires;
+                 CREATE INDEX idx_msg_secrets_expires ON msg_secrets (device_id, expires_at);
+                 DELETE FROM __diesel_schema_migrations WHERE version IN ('20260916000000', '20260916000001');",
+            )
+            .expect("restore the old shape");
+        }
+
+        // Reopening runs the pending migration for real.
+        let upgraded = SqliteStore::open(&url)
+            .await
+            .expect("the store must migrate an old database");
+
+        #[derive(diesel::QueryableByName)]
+        struct Row {
+            #[diesel(sql_type = diesel::sql_types::Binary)]
+            secret: Vec<u8>,
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            message_ts: i64,
+        }
+        let mut conn = upgraded.pool.get().expect("connection");
+        let row: Option<Row> = diesel::sql_query(
+            "SELECT secret, message_ts FROM msg_secrets WHERE msg_id = 'OLD_ROW'",
+        )
+        .get_result(&mut *conn)
+        .optional()
+        .expect("read the surviving row");
+        let Row { secret, message_ts } =
+            row.expect("the pre-existing row must survive the upgrade");
+        assert_eq!(secret, vec![0x42; 32], "the secret must be preserved");
+        assert_eq!(message_ts, 1_700_000_000);
+
+        let has_created_at: i64 = diesel::dsl::sql::<diesel::sql_types::BigInt>(
+            "SELECT count(*) FROM pragma_table_info('msg_secrets') WHERE name = 'created_at'",
+        )
+        .get_result(&mut *conn)
+        .expect("column probe");
+        assert_eq!(has_created_at, 0, "created_at must be dropped on upgrade");
+
+        let ddl: String = diesel::dsl::sql::<diesel::sql_types::Text>(
+            "SELECT sql FROM sqlite_master WHERE name = 'idx_msg_secrets_expires'",
+        )
+        .get_result(&mut *conn)
+        .expect("index ddl");
+        assert!(
+            ddl.to_ascii_uppercase().contains("WHERE"),
+            "the index must be rebuilt partial, got {ddl}"
+        );
+    }
+
+    /// `delete_version` is how a rebuild is expressed, so what it does to a row
+    /// that is not there, and to another device's row, is load-bearing.
+    #[tokio::test]
+    async fn delete_version_removes_one_device_and_tolerates_a_missing_row() {
+        let store = create_test_store().await;
+        const NAME: &str = "regular_low";
+
+        // A no-op, not an error: a collection that never synced is already in
+        // the state a rebuild wants it in.
+        store
+            .delete_app_state_version_for_device(NAME, 1)
+            .await
+            .expect("deleting a collection that has no row is a no-op");
+
+        for device_id in [1, 2] {
+            store
+                .set_app_state_version_for_device(
+                    NAME,
+                    HashState {
+                        version: 40 + device_id as u64,
+                        ..Default::default()
+                    },
+                    device_id,
+                )
+                .await
+                .expect("the store should accept a version");
+        }
+
+        store
+            .delete_app_state_version_for_device(NAME, 1)
+            .await
+            .expect("the row should delete");
+
+        assert!(
+            store
+                .get_app_state_version_for_device(NAME, 1)
+                .await
+                .expect("readable")
+                .is_none(),
+            "the deleted device's collection reads back as never synced"
+        );
+        assert_eq!(
+            store
+                .get_app_state_version_for_device(NAME, 2)
+                .await
+                .expect("readable")
+                .expect("the other device still has its record")
+                .version,
+            42,
+            "a delete is scoped to one device, or a rebuild on one wipes them all"
+        );
+    }
+
+    #[tokio::test]
+    async fn with_config_custom_tuning_builds_and_operates() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_name = format!(
+            "file:memdb_cfg_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+
+        // Default profile is the opinionated low-memory one (additive API: new() is unchanged).
+        let def = SqliteDatabaseConfig::default();
+        assert_eq!(def.pool_size, 1);
+        assert_eq!(def.cache_size_kib, 512);
+
+        // A non-default config (more concurrency, bigger cache, full durability, injected
+        // thread pool) must build and operate identically — only the resource profile differs.
+        let config = SqliteDatabaseConfig {
+            pool_size: 2,
+            read_pool_size: 0,
+            cache_size_kib: 4096,
+            mmap_size: None,
+            busy_timeout: Duration::from_secs(7),
+            synchronous: Synchronous::Full,
+            thread_pool: Some(Arc::new(
+                scheduled_thread_pool::ScheduledThreadPool::builder()
+                    .num_threads(1)
+                    .build(),
+            )),
+            connection_init: None,
+            commit_barrier: None,
+            incremental_vacuum: false,
+            incremental_vacuum_pages: 400,
+        };
+        let store = crate::SqliteDatabase::open(&db_name, config)
+            .await
+            .expect("custom-config store")
+            .store(1);
+
+        let mac = AppStateMutationMAC {
+            index_mac: vec![1u8; 32],
+            value_mac: vec![2u8; 32],
+        };
+        store
+            .put_app_state_mutation_macs_for_device("c", 1, std::slice::from_ref(&mac), 1)
+            .await
+            .unwrap();
+        let got = store
+            .get_app_state_mutation_mac_for_device("c", &mac.index_mac, 1)
+            .await
+            .unwrap();
+        assert_eq!(got, Some(mac.value_mac));
+
+        // The custom PRAGMAs actually reached SQLite, so the config wiring can't silently
+        // regress.
+        #[derive(diesel::QueryableByName)]
+        struct CacheSync {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            cache: i64,
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            sync: i64,
+        }
+        #[derive(diesel::QueryableByName)]
+        struct Busy {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            timeout: i64,
+        }
+        let mut conn = store.pool.get().unwrap();
+        let cs: CacheSync = diesel::sql_query(
+            "SELECT cs.cache_size AS cache, sy.synchronous AS sync \
+             FROM pragma_cache_size cs, pragma_synchronous sy",
+        )
+        .get_result(&mut *conn)
+        .unwrap();
+        let busy: Busy = diesel::sql_query("PRAGMA busy_timeout")
+            .get_result(&mut *conn)
+            .unwrap();
+        assert_eq!(cs.cache, -4096, "cache_size_kib applied as negative KiB");
+        assert_eq!(cs.sync, 2, "synchronous = FULL");
+        assert_eq!(busy.timeout, 7000, "busy_timeout = 7s");
+    }
+
+    /// The performance-relevant pragmas a default store runs on. The custom-config
+    /// test above pins the tunables when they are overridden; these are the values
+    /// every consumer that never touches `SqliteDatabaseConfig` actually gets, and
+    /// they are the ones a "why is this slow" investigation starts from.
+    #[tokio::test]
+    async fn default_pragmas_are_normal_sync_and_memory_temp_store() {
+        let db_name = format!(
+            "file:memdb_default_pragmas_{}?mode=memory&cache=shared",
+            std::process::id()
+        );
+        let store = SqliteStore::open(&db_name).await.expect("default store");
+
+        #[derive(diesel::QueryableByName)]
+        struct Pragmas {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            sync: i64,
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            temp_store: i64,
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            cache: i64,
+        }
+        let mut conn = store.pool.get().unwrap();
+        let pragmas: Pragmas = diesel::sql_query(
+            "SELECT sy.synchronous AS sync, ts.temp_store AS temp_store, cs.cache_size AS cache \
+             FROM pragma_synchronous sy, pragma_temp_store ts, pragma_cache_size cs",
+        )
+        .get_result(&mut *conn)
+        .unwrap();
+
+        // NORMAL is the chosen default because the store runs its file-backed
+        // databases in WAL, where a commit does not fsync and only a checkpoint
+        // does. `on_acquire` stamps the pragma on every connection whatever the
+        // journal mode, which is the part this in-memory database checks.
+        assert_eq!(pragmas.sync, 1, "default synchronous = NORMAL");
+        // MEMORY: sorters and materialized subqueries never touch the disk.
+        assert_eq!(pragmas.temp_store, 2, "temp_store = MEMORY");
+        assert_eq!(pragmas.cache, -512, "default cache_size = 512 KiB");
+    }
+
+    #[tokio::test]
+    async fn connection_init_runs_before_pragmas_and_migrations() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_name = format!(
+            "file:memdb_init_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+
+        let calls = Arc::new(AtomicU64::new(0));
+        let saw_migrations_table = Arc::new(AtomicBool::new(false));
+        let saw_store_pragmas = Arc::new(AtomicBool::new(false));
+
+        #[derive(diesel::QueryableByName)]
+        struct Count {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            n: i64,
+        }
+        let config = {
+            let calls = calls.clone();
+            let saw_migrations_table = saw_migrations_table.clone();
+            let saw_store_pragmas = saw_store_pragmas.clone();
+            SqliteDatabaseConfig::default().with_connection_init(move |conn| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                let migrated: Count = diesel::sql_query(
+                    "SELECT count(*) AS n FROM sqlite_master \
+                     WHERE name = '__diesel_schema_migrations'",
+                )
+                .get_result(conn)?;
+                if migrated.n > 0 {
+                    saw_migrations_table.store(true, Ordering::Relaxed);
+                }
+                // busy_timeout is still SQLite's default (0) here: the store's own
+                // pragmas (30s default) haven't run yet.
+                let busy: Count = diesel::sql_query("SELECT timeout AS n FROM pragma_busy_timeout")
+                    .get_result(conn)?;
+                if busy.n != 0 {
+                    saw_store_pragmas.store(true, Ordering::Relaxed);
+                }
+                Ok(())
+            })
+        };
+
+        let store = crate::SqliteDatabase::open(&db_name, config)
+            .await
+            .expect("store with connection_init")
+            .store(1);
+
+        assert!(calls.load(Ordering::Relaxed) >= 1, "hook ran");
+        assert!(
+            !saw_migrations_table.load(Ordering::Relaxed),
+            "hook ran before migrations on the first connection"
+        );
+        assert!(
+            !saw_store_pragmas.load(Ordering::Relaxed),
+            "hook ran before the store's own pragmas"
+        );
+
+        // The store still works normally after the hook.
+        let mac = AppStateMutationMAC {
+            index_mac: vec![3u8; 32],
+            value_mac: vec![4u8; 32],
+        };
+        store
+            .put_app_state_mutation_macs_for_device("ci", 1, std::slice::from_ref(&mac), 1)
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .get_app_state_mutation_mac_for_device("ci", &mac.index_mac, 1)
+                .await
+                .unwrap(),
+            Some(mac.value_mac)
+        );
+    }
+
+    #[test]
+    fn connection_init_error_rejects_connection_before_pragmas() {
+        let mut conn = SqliteConnection::establish(":memory:").expect("raw connection");
+        let options = ConnectionOptions {
+            cache_size_kib: 512,
+            mmap_size: None,
+            busy_timeout_ms: 30_000,
+            synchronous: Synchronous::Normal,
+            connection_init: Some(Arc::new(|_conn: &mut SqliteConnection| {
+                Err("wrong key".into())
+            })),
+            query_only: false,
+        };
+
+        use diesel::r2d2::CustomizeConnection;
+        let err = options
+            .on_acquire(&mut conn)
+            .expect_err("hook error surfaces");
+        assert!(err.to_string().contains("wrong key"));
+
+        // The failure short-circuited before the store's pragmas ran.
+        #[derive(diesel::QueryableByName)]
+        struct Busy {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            timeout: i64,
+        }
+        let busy: Busy = diesel::sql_query("PRAGMA busy_timeout")
+            .get_result(&mut conn)
+            .unwrap();
+        assert_eq!(busy.timeout, 0);
+    }
+
+    #[tokio::test]
+    async fn batch_mutation_macs_matches_per_item() {
+        let store = create_test_store().await;
+        let name = "regular";
+        let device_id = 1;
+
+        let macs: Vec<AppStateMutationMAC> = (0..25u8)
+            .map(|i| {
+                let mut index_mac = vec![0u8; 32];
+                index_mac[0] = i;
+                AppStateMutationMAC {
+                    index_mac,
+                    value_mac: vec![i; 32],
+                }
+            })
+            .collect();
+        store
+            .put_app_state_mutation_macs_for_device(name, 1, &macs, device_id)
+            .await
+            .unwrap();
+
+        let mut index_macs: Vec<[u8; 32]> = macs
+            .iter()
+            .map(|m| m.index_mac.as_slice().try_into().unwrap())
+            .collect();
+        // an index that was never stored must be absent from the batch result
+        index_macs.push([0xFF; 32]);
+
+        let batch = store
+            .get_app_state_mutation_macs_batch_for_device(name, &index_macs, device_id)
+            .await
+            .unwrap();
+
+        assert_eq!(batch.len(), macs.len());
+        assert!(!batch.contains_key(&[0xFF; 32]));
+        for m in &macs {
+            let key: [u8; 32] = m.index_mac.as_slice().try_into().unwrap();
+            // parity with the per-item path it replaces
+            let per_item = store
+                .get_app_state_mutation_mac_for_device(name, &m.index_mac, device_id)
+                .await
+                .unwrap();
+            assert_eq!(per_item.as_ref(), batch.get(&key));
+            assert_eq!(batch.get(&key), Some(&m.value_mac));
+        }
+
+        // empty input short-circuits to an empty map
+        let empty = store
+            .get_app_state_mutation_macs_batch_for_device(name, &[], device_id)
+            .await
+            .unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn clear_mutation_macs_wipes_only_named_collection() {
+        let store = create_test_store().await;
+        let mac = |i: u8| AppStateMutationMAC {
+            index_mac: vec![i; 32],
+            value_mac: vec![i; 32],
+        };
+        store
+            .put_mutation_macs("regular", 1, &[mac(1)])
+            .await
+            .unwrap();
+        store
+            .put_mutation_macs("critical", 1, &[mac(2)])
+            .await
+            .unwrap();
+
+        store.clear_mutation_macs("regular").await.unwrap();
+
+        assert!(
+            store
+                .get_mutation_mac("regular", &[1; 32])
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .get_mutation_mac("critical", &[2; 32])
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn put_signal_batches_persist_and_upsert() {
+        use std::sync::Arc;
+        let store = create_test_store().await;
+
+        let sessions: Vec<(Arc<str>, Bytes)> = (0..5u8)
+            .map(|i| {
+                (
+                    Arc::from(format!("user{i}@s.whatsapp.net").as_str()),
+                    Bytes::from(vec![i; 8]),
+                )
+            })
+            .collect();
+        store.put_sessions_batch(&sessions).await.unwrap();
+        for (addr, bytes) in &sessions {
+            assert_eq!(
+                store.get_session(addr).await.unwrap().as_deref(),
+                Some(bytes.as_ref())
+            );
+        }
+
+        let identities: Vec<(Arc<str>, [u8; 32])> = (0..5u8)
+            .map(|i| {
+                (
+                    Arc::from(format!("user{i}@s.whatsapp.net").as_str()),
+                    [i; 32],
+                )
+            })
+            .collect();
+        store.put_identities_batch(&identities).await.unwrap();
+        for (addr, key) in &identities {
+            assert_eq!(store.load_identity(addr).await.unwrap(), Some(*key));
+        }
+
+        let sender_keys: Vec<(Arc<str>, Bytes)> = (0..5u8)
+            .map(|i| {
+                (
+                    Arc::from(format!("g@g.us::user{i}").as_str()),
+                    Bytes::from(vec![i; 16]),
+                )
+            })
+            .collect();
+        store.put_sender_keys_batch(&sender_keys).await.unwrap();
+        for (addr, bytes) in &sender_keys {
+            assert_eq!(
+                store.get_sender_key(addr).await.unwrap().as_deref(),
+                Some(bytes.as_ref())
+            );
+        }
+
+        // Re-batching the same addresses upserts (on_conflict do_update).
+        let updated: Vec<(Arc<str>, Bytes)> = sessions
+            .iter()
+            .map(|(addr, _)| (addr.clone(), Bytes::from(vec![0xAA; 8])))
+            .collect();
+        store.put_sessions_batch(&updated).await.unwrap();
+        for (addr, _) in &sessions {
+            assert_eq!(
+                store.get_session(addr).await.unwrap().as_deref(),
+                Some([0xAA; 8].as_slice())
+            );
+        }
+
+        // Duplicate address within one batch: last value wins via on_conflict
+        // do_update inside the single transaction.
+        let dup: Arc<str> = Arc::from("dup@s.whatsapp.net");
+        store
+            .put_sessions_batch(&[
+                (dup.clone(), Bytes::from(vec![1u8; 4])),
+                (dup.clone(), Bytes::from(vec![2u8; 4])),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_session(&dup).await.unwrap().as_deref(),
+            Some([2u8; 4].as_slice())
+        );
+
+        // Empty batches short-circuit without error.
+        store.put_sessions_batch(&[]).await.unwrap();
+        store.put_identities_batch(&[]).await.unwrap();
+        store.put_sender_keys_batch(&[]).await.unwrap();
+    }
+
+    /// The batch read is one query for the whole fan-out: hits come back keyed
+    /// as requested, misses are omitted (never returned empty), and an empty
+    /// request short-circuits without touching the database.
+    #[tokio::test]
+    async fn get_sessions_batch_reads_hits_in_one_query() {
+        use std::sync::Arc;
+        let store = create_test_store().await;
+
+        let sessions: Vec<(Arc<str>, Bytes)> = (0..5u8)
+            .map(|i| {
+                (
+                    Arc::from(format!("batchuser{i}@s.whatsapp.net").as_str()),
+                    Bytes::from(vec![i; 8]),
+                )
+            })
+            .collect();
+        store.put_sessions_batch(&sessions).await.unwrap();
+
+        let missing: Arc<str> = Arc::from("nobody@s.whatsapp.net");
+        let mut requested: Vec<Arc<str>> = sessions.iter().map(|(addr, _)| addr.clone()).collect();
+        requested.insert(2, missing.clone());
+        let loaded = store.get_sessions_batch(&requested).await.unwrap();
+        assert_eq!(loaded.len(), sessions.len(), "misses are omitted");
+        for (addr, bytes) in &sessions {
+            assert!(
+                loaded.iter().any(|(a, b)| a == addr && b == bytes),
+                "hit for {addr} must come back with its record"
+            );
+        }
+
+        assert!(
+            store
+                .get_sessions_batch(&[missing])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(store.get_sessions_batch(&[]).await.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_database_path_regular_path() {
+        let path = "/var/lib/whatsapp/database.db";
+        let result = parse_database_path(path).unwrap();
+        assert_eq!(result, "/var/lib/whatsapp/database.db");
+    }
+
+    #[test]
+    fn test_parse_database_path_with_sqlite_prefix() {
+        let path = "sqlite:///var/lib/whatsapp/database.db";
+        let result = parse_database_path(path).unwrap();
+        assert_eq!(result, "/var/lib/whatsapp/database.db");
+    }
+
+    #[test]
+    fn test_parse_database_path_with_query_params() {
+        let path = "file:database.db?mode=memory&cache=shared";
+        let result = parse_database_path(path).unwrap();
+        assert_eq!(result, "file:database.db");
+    }
+
+    #[test]
+    fn test_parse_database_path_with_fragment() {
+        let path = "file:database.db#fragment";
+        let result = parse_database_path(path).unwrap();
+        assert_eq!(result, "file:database.db");
+    }
+
+    #[test]
+    fn test_parse_database_path_with_both_query_and_fragment() {
+        let path = "sqlite:///var/lib/database.db?mode=ro#backup";
+        let result = parse_database_path(path).unwrap();
+        assert_eq!(result, "/var/lib/database.db");
+    }
+
+    #[test]
+    fn test_parse_database_path_in_memory_rejected() {
+        let result = parse_database_path(":memory:");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not supported"));
+    }
+
+    #[test]
+    fn test_parse_database_path_in_memory_with_query_rejected() {
+        let result = parse_database_path(":memory:?cache=shared");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn test_device_registry_save_and_get() {
+        let store = create_test_store().await;
+
+        let record = DeviceListRecord {
+            user: "1234567890".into(),
+            devices: [DeviceInfo::new(0, None), DeviceInfo::new(1, Some(42))].into(),
+            timestamp: 1234567890,
+            phash: Some("2:abcdef".into()),
+            raw_id: None,
+        };
+
+        store.update_device_list(record).await.expect("save failed");
+        let loaded = store
+            .get_devices("1234567890")
+            .await
+            .expect("get failed")
+            .expect("record should exist");
+
+        assert_eq!(&*loaded.user, "1234567890");
+        assert_eq!(loaded.devices.len(), 2);
+        assert_eq!(loaded.devices[0].device_id(), 0);
+        assert_eq!(loaded.devices[1].device_id(), 1);
+        assert_eq!(loaded.devices[1].key_index(), Some(42));
+        assert_eq!(loaded.phash.as_deref(), Some("2:abcdef"));
+    }
+
+    #[tokio::test]
+    async fn test_device_registry_update_existing() {
+        let store = create_test_store().await;
+
+        let record1 = DeviceListRecord {
+            user: "1234567890".into(),
+            devices: [DeviceInfo::new(0, None)].into(),
+            timestamp: 1000,
+            phash: Some("2:old".into()),
+            raw_id: None,
+        };
+        store
+            .update_device_list(record1)
+            .await
+            .expect("save1 failed");
+
+        let record2 = DeviceListRecord {
+            user: "1234567890".into(),
+            devices: [DeviceInfo::new(0, None), DeviceInfo::new(2, None)].into(),
+            timestamp: 2000,
+            phash: Some("2:new".into()),
+            raw_id: None,
+        };
+        store
+            .update_device_list(record2)
+            .await
+            .expect("save2 failed");
+
+        let loaded = store
+            .get_devices("1234567890")
+            .await
+            .expect("get failed")
+            .expect("record should exist");
+
+        assert_eq!(loaded.devices.len(), 2);
+        assert_eq!(loaded.phash.as_deref(), Some("2:new"));
+    }
+
+    #[tokio::test]
+    async fn test_device_registry_batch_update_transitions() {
+        let store = create_test_store().await;
+
+        let batch1 = vec![
+            DeviceListRecord {
+                user: "user_a".into(),
+                devices: [DeviceInfo::new(0, None)].into(),
+                timestamp: 1000,
+                phash: Some("phash_a1".into()),
+                raw_id: Some(10),
+            },
+            DeviceListRecord {
+                user: "user_b".into(),
+                devices: [DeviceInfo::new(0, None), DeviceInfo::new(1, Some(2))].into(),
+                timestamp: 1000,
+                phash: None,
+                raw_id: None,
+            },
+        ];
+        store
+            .update_device_lists(batch1)
+            .await
+            .expect("batch1 failed");
+
+        let loaded_a = store.get_devices("user_a").await.unwrap().unwrap();
+        assert_eq!(loaded_a.phash.as_deref(), Some("phash_a1"));
+        assert_eq!(loaded_a.raw_id, Some(10));
+
+        let loaded_b = store.get_devices("user_b").await.unwrap().unwrap();
+        assert_eq!(loaded_b.phash, None);
+        assert_eq!(loaded_b.raw_id, None);
+
+        // Transition: user_a becomes None, user_b becomes Some
+        let batch2 = vec![
+            DeviceListRecord {
+                user: "user_a".into(),
+                devices: [DeviceInfo::new(0, None), DeviceInfo::new(2, None)].into(),
+                timestamp: 2000,
+                phash: None,
+                raw_id: None,
+            },
+            DeviceListRecord {
+                user: "user_b".into(),
+                devices: [DeviceInfo::new(0, None)].into(),
+                timestamp: 2000,
+                phash: Some("phash_b2".into()),
+                raw_id: Some(20),
+            },
+        ];
+        store
+            .update_device_lists(batch2)
+            .await
+            .expect("batch2 failed");
+
+        let loaded_a2 = store.get_devices("user_a").await.unwrap().unwrap();
+        assert_eq!(loaded_a2.phash, None);
+        assert_eq!(loaded_a2.raw_id, None);
+        assert_eq!(loaded_a2.devices.len(), 2);
+
+        let loaded_b2 = store.get_devices("user_b").await.unwrap().unwrap();
+        assert_eq!(loaded_b2.phash.as_deref(), Some("phash_b2"));
+        assert_eq!(loaded_b2.raw_id, Some(20));
+        assert_eq!(loaded_b2.devices.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_device_registry_get_nonexistent() {
+        let store = create_test_store().await;
+        let result = store.get_devices("nonexistent").await.expect("get failed");
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_sender_key_devices_set_and_get() {
+        let store = create_test_store().await;
+
+        let group = "group123@g.us";
+
+        // Set two devices: one has key, one needs SKDM
+        store
+            .set_sender_key_status(group, &[("user1:5@lid", true), ("user2:3@lid", false)])
+            .await
+            .expect("set failed");
+
+        let devices = store
+            .get_sender_key_devices(group)
+            .await
+            .expect("get failed");
+        assert_eq!(devices.len(), 2);
+        assert!(devices.contains(&("user1:5@lid".to_string(), true)));
+        assert!(devices.contains(&("user2:3@lid".to_string(), false)));
+    }
+
+    #[tokio::test]
+    async fn test_sender_key_devices_upsert_overwrites() {
+        let store = create_test_store().await;
+
+        let group = "group123@g.us";
+
+        // Initially mark as needing SKDM
+        store
+            .set_sender_key_status(group, &[("user1:5@lid", false)])
+            .await
+            .expect("set failed");
+
+        // Then mark as having key (simulates successful SKDM delivery)
+        store
+            .set_sender_key_status(group, &[("user1:5@lid", true)])
+            .await
+            .expect("set failed");
+
+        let devices = store
+            .get_sender_key_devices(group)
+            .await
+            .expect("get failed");
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0], ("user1:5@lid".to_string(), true));
+    }
+
+    #[tokio::test]
+    async fn test_sender_key_devices_clear() {
+        let store = create_test_store().await;
+
+        let group = "group123@g.us";
+
+        store
+            .set_sender_key_status(group, &[("user1:5@lid", true), ("user2:3@lid", true)])
+            .await
+            .expect("set failed");
+
+        store
+            .clear_sender_key_devices(group)
+            .await
+            .expect("clear failed");
+
+        let devices = store
+            .get_sender_key_devices(group)
+            .await
+            .expect("get failed");
+        assert!(devices.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_put_and_get() {
+        let store = create_test_store().await;
+
+        let entry = TcTokenEntry {
+            token: vec![1, 2, 3, 4, 5],
+            token_timestamp: 1707000000,
+            sender_timestamp: Some(1707000100),
+        };
+
+        store
+            .put_tc_token("user@lid", &entry)
+            .await
+            .expect("put failed");
+
+        let loaded = store
+            .get_tc_token("user@lid")
+            .await
+            .expect("get failed")
+            .expect("should exist");
+
+        assert_eq!(loaded.token, vec![1, 2, 3, 4, 5]);
+        assert_eq!(loaded.token_timestamp, 1707000000);
+        assert_eq!(loaded.sender_timestamp, Some(1707000100));
+    }
+
+    /// The batched read answers positionally, so a caller can zip it against the
+    /// JIDs it asked for — including the ones the store holds nothing for.
+    #[tokio::test]
+    async fn test_tc_tokens_batched_get_answers_in_the_order_asked() {
+        let store = create_test_store().await;
+
+        for (jid, byte) in [("a@lid", 1u8), ("c@lid", 3u8)] {
+            store
+                .put_tc_token(
+                    jid,
+                    &TcTokenEntry {
+                        token: vec![byte],
+                        token_timestamp: 1000 + i64::from(byte),
+                        sender_timestamp: None,
+                    },
+                )
+                .await
+                .expect("put failed");
+        }
+
+        let asked: Vec<String> = ["c@lid", "b@lid", "a@lid", "c@lid"]
+            .iter()
+            .map(|jid| (*jid).to_string())
+            .collect();
+        let got = store
+            .get_tc_tokens(&asked)
+            .await
+            .expect("batched get failed");
+
+        assert_eq!(
+            got.iter()
+                .map(|entry| entry.as_ref().map(|entry| entry.token.clone()))
+                .collect::<Vec<_>>(),
+            vec![Some(vec![3]), None, Some(vec![1]), Some(vec![3])],
+        );
+        assert!(
+            store
+                .get_tc_tokens(&[])
+                .await
+                .expect("an empty batch is not an error")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_upsert() {
+        let store = create_test_store().await;
+
+        let entry1 = TcTokenEntry {
+            token: vec![1, 2, 3],
+            token_timestamp: 1000,
+            sender_timestamp: None,
+        };
+        store.put_tc_token("user@lid", &entry1).await.unwrap();
+
+        let entry2 = TcTokenEntry {
+            token: vec![4, 5, 6],
+            token_timestamp: 2000,
+            sender_timestamp: Some(1500),
+        };
+        store.put_tc_token("user@lid", &entry2).await.unwrap();
+
+        let loaded = store.get_tc_token("user@lid").await.unwrap().unwrap();
+        assert_eq!(loaded.token, vec![4, 5, 6]);
+        assert_eq!(loaded.token_timestamp, 2000);
+        assert_eq!(loaded.sender_timestamp, Some(1500));
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_delete() {
+        let store = create_test_store().await;
+
+        let entry = TcTokenEntry {
+            token: vec![1, 2, 3],
+            token_timestamp: 1000,
+            sender_timestamp: None,
+        };
+        store.put_tc_token("user@lid", &entry).await.unwrap();
+        store.delete_tc_token("user@lid").await.unwrap();
+
+        let result = store.get_tc_token("user@lid").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_touch_and_store_received_preserve_each_others_field() {
+        let store = create_test_store().await;
+
+        // Issuance writes a placeholder; the notification then stores the real
+        // token. Neither write may clobber the other's field.
+        store
+            .touch_tc_token_sender_timestamp("user@lid", 5000)
+            .await
+            .unwrap();
+        store
+            .store_received_tc_token("user@lid", &[7, 8, 9], 4000)
+            .await
+            .unwrap();
+        let a = store.get_tc_token("user@lid").await.unwrap().unwrap();
+        assert_eq!(a.token, vec![7, 8, 9]);
+        assert_eq!(a.token_timestamp, 4000);
+        assert_eq!(a.sender_timestamp, Some(5000));
+
+        // A later touch advances only the sender bucket.
+        store
+            .touch_tc_token_sender_timestamp("user@lid", 6000)
+            .await
+            .unwrap();
+        let b = store.get_tc_token("user@lid").await.unwrap().unwrap();
+        assert_eq!(b.token, vec![7, 8, 9], "touch must keep the real token");
+        assert_eq!(b.sender_timestamp, Some(6000));
+
+        // An older touch must not regress the sender bucket.
+        store
+            .touch_tc_token_sender_timestamp("user@lid", 1000)
+            .await
+            .unwrap();
+        let c = store.get_tc_token("user@lid").await.unwrap().unwrap();
+        assert_eq!(c.sender_timestamp, Some(6000), "touch is advance-only");
+    }
+
+    #[tokio::test]
+    async fn store_received_tc_token_is_newer_wins() {
+        let store = create_test_store().await;
+
+        // First real token at t=5000.
+        store
+            .store_received_tc_token("c@lid", &[1, 1, 1], 5000)
+            .await
+            .unwrap();
+
+        // A stale write (older timestamp) must not clobber the fresher token —
+        // this is the atomic newer-wins that replaces the tc_token_lock.
+        store
+            .store_received_tc_token("c@lid", &[2, 2, 2], 3000)
+            .await
+            .unwrap();
+        let e = store.get_tc_token("c@lid").await.unwrap().unwrap();
+        assert_eq!(e.token, vec![1, 1, 1], "older write must not overwrite");
+        assert_eq!(e.token_timestamp, 5000);
+
+        // A newer write wins.
+        store
+            .store_received_tc_token("c@lid", &[3, 3, 3], 7000)
+            .await
+            .unwrap();
+        let e = store.get_tc_token("c@lid").await.unwrap().unwrap();
+        assert_eq!(e.token, vec![3, 3, 3]);
+        assert_eq!(e.token_timestamp, 7000);
+
+        // A byte-less placeholder never blocks the first real token, even when
+        // that token's timestamp is older than the placeholder's sender epoch.
+        store
+            .touch_tc_token_sender_timestamp("p@lid", 9000)
+            .await
+            .unwrap();
+        store
+            .store_received_tc_token("p@lid", &[4, 4, 4], 6000)
+            .await
+            .unwrap();
+        let e = store.get_tc_token("p@lid").await.unwrap().unwrap();
+        assert_eq!(e.token, vec![4, 4, 4], "placeholder must accept real token");
+        assert_eq!(e.token_timestamp, 6000);
+        assert_eq!(e.sender_timestamp, Some(9000), "sender bucket preserved");
+    }
+
+    #[tokio::test]
+    async fn test_delete_expired_two_window_pruning() {
+        let store = create_test_store().await;
+        // token_cutoff = 1000, sender_cutoff = 2000.
+
+        // Recent placeholder: sender bucket live → kept.
+        store
+            .touch_tc_token_sender_timestamp("recent_ph@lid", 2500)
+            .await
+            .unwrap();
+        // Stale placeholder: both windows passed → pruned.
+        store
+            .touch_tc_token_sender_timestamp("stale_ph@lid", 100)
+            .await
+            .unwrap();
+        // Expired received token but recent sender bucket → kept.
+        store
+            .put_tc_token(
+                "expired_live_sender@lid",
+                &TcTokenEntry {
+                    token: vec![1],
+                    token_timestamp: 1,
+                    sender_timestamp: Some(2500),
+                },
+            )
+            .await
+            .unwrap();
+        // Expired token, no sender state → pruned.
+        store
+            .put_tc_token(
+                "orphan_expired@lid",
+                &TcTokenEntry {
+                    token: vec![2],
+                    token_timestamp: 1,
+                    sender_timestamp: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let removed = store.delete_expired_tc_tokens(1000, 2000).await.unwrap();
+        assert_eq!(removed, 2);
+        assert!(store.get_tc_token("recent_ph@lid").await.unwrap().is_some());
+        assert!(store.get_tc_token("stale_ph@lid").await.unwrap().is_none());
+        assert!(
+            store
+                .get_tc_token("expired_live_sender@lid")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .get_tc_token("orphan_expired@lid")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_get_all_jids() {
+        let store = create_test_store().await;
+
+        let entry = TcTokenEntry {
+            token: vec![1],
+            token_timestamp: 1000,
+            sender_timestamp: None,
+        };
+        store.put_tc_token("user1@lid", &entry).await.unwrap();
+        store.put_tc_token("user2@lid", &entry).await.unwrap();
+        store.put_tc_token("user3@lid", &entry).await.unwrap();
+
+        let mut jids = store.get_all_tc_token_jids().await.unwrap();
+        jids.sort();
+        assert_eq!(jids, vec!["user1@lid", "user2@lid", "user3@lid"]);
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_delete_expired() {
+        let store = create_test_store().await;
+
+        let old = TcTokenEntry {
+            token: vec![1],
+            token_timestamp: 1000,
+            sender_timestamp: None,
+        };
+        let recent = TcTokenEntry {
+            token: vec![2],
+            token_timestamp: 5000,
+            sender_timestamp: None,
+        };
+        store.put_tc_token("old@lid", &old).await.unwrap();
+        store.put_tc_token("recent@lid", &recent).await.unwrap();
+
+        // Both lack sender state, so the token window alone decides.
+        let deleted = store.delete_expired_tc_tokens(3000, 3000).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        assert!(store.get_tc_token("old@lid").await.unwrap().is_none());
+        assert!(store.get_tc_token("recent@lid").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_tc_token_get_nonexistent() {
+        let store = create_test_store().await;
+        let result = store.get_tc_token("nonexistent@lid").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_sender_key_devices_different_groups() {
+        let store = create_test_store().await;
+
+        let group1 = "group1@g.us";
+        let group2 = "group2@g.us";
+
+        store
+            .set_sender_key_status(group1, &[("user:5@lid", true)])
+            .await
+            .expect("set failed");
+
+        let g1 = store.get_sender_key_devices(group1).await.unwrap();
+        assert_eq!(g1.len(), 1);
+
+        let g2 = store.get_sender_key_devices(group2).await.unwrap();
+        assert!(g2.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_new_device_uses_configured_device_id() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(100);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_name = format!(
+            "file:memdb_devid_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+
+        let device_id = 42;
+        let store = crate::SqliteDatabase::open(&db_name, Default::default())
+            .await
+            .expect("Failed to create test store")
+            .store(device_id);
+
+        assert!(!store.database().device_exists(device_id).await.unwrap());
+        let returned_id = store.create_new_device().await.unwrap();
+        assert_eq!(returned_id, device_id);
+        assert!(store.database().device_exists(device_id).await.unwrap());
+
+        // Row 1 should NOT exist (would if auto-increment was used)
+        if device_id != 1 {
+            assert!(!store.database().device_exists(1).await.unwrap());
+        }
+
+        let loaded = store.load_device_data_for_device(device_id).await.unwrap();
+        assert!(
+            loaded.is_some(),
+            "device data should be loadable by configured id"
+        );
+    }
+
+    /// mark_prekeys_uploaded must be UPDATE-only: a row deleted between the
+    /// upload snapshot and the mark (consumed one-time key) stays deleted.
+    #[tokio::test]
+    async fn mark_prekeys_uploaded_never_resurrects_deleted_rows() {
+        let store = create_test_store().await;
+        store
+            .store_prekey(1, b"record-1", false)
+            .await
+            .expect("store");
+        store
+            .store_prekey(2, b"record-2", false)
+            .await
+            .expect("store");
+        store.remove_prekey(1).await.expect("consume");
+
+        store
+            .mark_prekeys_uploaded(&[1, 2])
+            .await
+            .expect("mark uploaded");
+
+        let gone = store.load_prekey(1).await.expect("load");
+        assert!(gone.is_none(), "consumed key must not be resurrected");
+        let live = store.load_prekey(2).await.expect("load");
+        assert!(live.is_some(), "live key still present");
+    }
+
+    /// The prekey reserve path stores the whole generated window in one call:
+    /// every key lands, re-storing the same ids upserts (record and uploaded
+    /// flag), and the flush-time consume path removes them together. Empty
+    /// batches short-circuit without touching the database.
+    #[tokio::test]
+    async fn store_and_remove_prekeys_batch_round_trip() {
+        let store = create_test_store().await;
+
+        let batch: Vec<(u32, Bytes)> = (1..=4u32)
+            .map(|id| (id, Bytes::from(vec![id as u8; 16])))
+            .collect();
+        store
+            .store_prekeys_batch(&batch, false)
+            .await
+            .expect("store batch");
+
+        // The flag lands with the record: stored with `false`, it reads back
+        // `false` until an upsert flips it.
+        for id in 1..=4u32 {
+            let uploaded = store
+                .read_query(move |conn| {
+                    prekeys::table
+                        .select(prekeys::uploaded)
+                        .filter(prekeys::id.eq(id as i32))
+                        .filter(prekeys::device_id.eq(store.device_id))
+                        .first::<bool>(conn)
+                        .map_err(|e| StoreError::Database(Box::new(e)))
+                })
+                .await
+                .expect("read uploaded flag");
+            assert!(!uploaded, "stored with false must read back false");
+        }
+
+        let mut loaded = store
+            .load_prekeys_batch(&[1, 2, 3, 4])
+            .await
+            .expect("load batch");
+        loaded.sort_unstable_by_key(|(id, _)| *id);
+        assert_eq!(loaded.len(), batch.len(), "every batched key must land");
+        for ((id, record), (expected_id, expected)) in loaded.iter().zip(batch.iter()) {
+            assert_eq!(id, expected_id);
+            assert_eq!(record.as_ref(), expected.as_ref());
+        }
+
+        // Re-storing the same ids upserts instead of conflicting.
+        let updated: Vec<(u32, Bytes)> = (1..=4u32)
+            .map(|id| (id, Bytes::from(vec![0xAA; 16])))
+            .collect();
+        store
+            .store_prekeys_batch(&updated, true)
+            .await
+            .expect("upsert batch");
+        for id in 1..=4u32 {
+            let record = store
+                .load_prekey(id)
+                .await
+                .expect("load")
+                .expect("upserted key must still exist");
+            assert_eq!(
+                record.as_ref(),
+                [0xAA; 16].as_slice(),
+                "re-batch must replace the record"
+            );
+            let uploaded = store
+                .read_query(move |conn| {
+                    prekeys::table
+                        .select(prekeys::uploaded)
+                        .filter(prekeys::id.eq(id as i32))
+                        .filter(prekeys::device_id.eq(store.device_id))
+                        .first::<bool>(conn)
+                        .map_err(|e| StoreError::Database(Box::new(e)))
+                })
+                .await
+                .expect("read uploaded flag");
+            assert!(uploaded, "re-batch with true must flip the flag");
+        }
+
+        store
+            .remove_prekeys_batch(&[1, 2, 3, 4])
+            .await
+            .expect("remove batch");
+        let remaining = store
+            .load_prekeys_batch(&[1, 2, 3, 4])
+            .await
+            .expect("load after remove");
+        assert!(remaining.is_empty(), "batched remove must delete every key");
+
+        store
+            .store_prekeys_batch(&[], false)
+            .await
+            .expect("empty ok");
+        store.remove_prekeys_batch(&[]).await.expect("empty ok");
+    }
+
+    /// Round-trips the prekey watermarks through the SQLite schema: save with
+    /// both counters set, reopen on the same db, load and compare. Exercises
+    /// the `2026-06-10-000000_add_first_unupload_pk_id` migration and the
+    /// column mapping in both upsert paths.
+    #[tokio::test]
+    async fn test_prekey_watermarks_survive_save_load_roundtrip() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+
+        static COUNTER: AtomicU64 = AtomicU64::new(300);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let db_name = format!(
+            "file:memdb_pkwatermark_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+
+        let device_id = 9;
+        let _writer = crate::SqliteDatabase::open(&db_name, Default::default())
+            .await
+            .expect("create store")
+            .store(device_id);
+        _writer.create_new_device().await.expect("create device");
+
+        let mut device = _writer
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("load")
+            .expect("device should exist after create");
+        assert_eq!(
+            device.first_unupload_pre_key_id, 0,
+            "fresh device starts with the watermark unset"
+        );
+        device.next_pre_key_id = 913;
+        device.first_unupload_pre_key_id = 101;
+        _writer
+            .save_device_data_for_device(device_id, &device)
+            .await
+            .expect("save with watermarks");
+
+        let store = crate::SqliteDatabase::open(&db_name, Default::default())
+            .await
+            .expect("reopen store")
+            .store(device_id);
+        let loaded = store
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("load")
+            .expect("device should exist after reopen");
+        assert_eq!(loaded.next_pre_key_id, 913);
+        assert_eq!(
+            loaded.first_unupload_pre_key_id, 101,
+            "first_unupload_pre_key_id must survive a save/load roundtrip"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_privacy_action_survives_device_save_load() {
+        use wacore::store::commands::{DeviceCommand, apply_command_to_device};
+
+        static NEXT_DB: portable_atomic::AtomicU64 = portable_atomic::AtomicU64::new(1);
+        let db = format!(
+            "file:status_privacy_test_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            NEXT_DB.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let store = crate::SqliteDatabase::open(&db, Default::default())
+            .await
+            .unwrap()
+            .store(91);
+        store.create_new_device().await.unwrap();
+        let mut device = store
+            .load_device_data_for_device(91)
+            .await
+            .unwrap()
+            .unwrap();
+        let action = {
+            let mut proto_ = waproto::whatsapp::sync_action_value::StatusPrivacyAction::default();
+            proto_.mode = Some(buffa::EnumValue::Unknown(99));
+            proto_.user_jid = vec!["120363000000000042@lid".into()];
+            proto_.modes = vec![buffa::EnumValue::Unknown(100)];
+            proto_
+        };
+        apply_command_to_device(&mut device, DeviceCommand::SetStatusPrivacy(action.clone()));
+        store
+            .save_device_data_for_device(91, &device)
+            .await
+            .unwrap();
+        let reopened = crate::SqliteDatabase::open(&db, Default::default())
+            .await
+            .unwrap()
+            .store(91);
+        let loaded = reopened
+            .load_device_data_for_device(91)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.status_privacy.as_deref(), Some(&action));
+
+        reopened
+            .with_retry("missing_status_privacy_mode", || {
+                Box::new(|conn: &mut SqliteConnection| {
+                    diesel::update(device::table.filter(device::id.eq(91)))
+                        .set(device::status_privacy.eq(Some(Vec::<u8>::new())))
+                        .execute(conn)?;
+                    Ok(())
+                })
+            })
+            .await
+            .unwrap();
+        let loaded = reopened
+            .load_device_data_for_device(91)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(loaded.status_privacy.is_none());
+
+        reopened
+            .with_retry("corrupt_status_privacy", || {
+                Box::new(|conn: &mut SqliteConnection| {
+                    diesel::update(device::table.filter(device::id.eq(91)))
+                        .set(device::status_privacy.eq(Some(vec![0x0a, 0xff])))
+                        .execute(conn)?;
+                    Ok(())
+                })
+            })
+            .await
+            .unwrap();
+        let loaded = reopened
+            .load_device_data_for_device(91)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(loaded.status_privacy.is_none());
+    }
+
+    /// Round-trips a `CachedServerCertChain` through the SQLite schema:
+    /// save → close store → reopen on the same db_name → load. Exercises
+    /// the `2026-04-26-000000_add_server_cert_chain` migration plus the
+    /// protobuf encode/decode path in `save_device_data_for_device` /
+    /// `load_device_data_for_device` (the part that the in-memory backend
+    /// integration tests don't reach).
+    #[tokio::test]
+    async fn test_server_cert_chain_survives_save_load_roundtrip() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        use wacore::store::device::{CachedNoiseCert, CachedServerCertChain};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(200);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        // shared-cache so a second SqliteStore opened on the same name
+        // sees the same on-disk state — the closest we can get to a real
+        // process restart inside a single test run.
+        let db_name = format!(
+            "file:memdb_certchain_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+
+        let device_id = 7;
+        let chain = CachedServerCertChain {
+            intermediate: CachedNoiseCert {
+                key: [0xAB; 32],
+                not_before: 1_700_000_000,
+                not_after: 1_900_000_000,
+            },
+            leaf: CachedNoiseCert {
+                key: [0xCD; 32],
+                not_before: 1_700_000_500,
+                not_after: 1_899_999_500,
+            },
+            signature_verified: true,
+        };
+
+        // First store: create + populate. Keep it alive until after the
+        // second store opens — `cache=shared` only persists the in-memory
+        // database while at least one connection is open. Dropping the
+        // first store would also drop the schema before the second can
+        // see it.
+        let _writer = crate::SqliteDatabase::open(&db_name, Default::default())
+            .await
+            .expect("create store")
+            .store(device_id);
+        _writer.create_new_device().await.expect("create device");
+
+        let mut device = _writer
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("load")
+            .expect("device should exist after create");
+        device.server_cert_chain = Some(chain.clone());
+        _writer
+            .save_device_data_for_device(device_id, &device)
+            .await
+            .expect("save with cert chain");
+
+        // Second store on the SAME shared-cache db: this exercises the
+        // exact path a fresh-process load would take — schema migration
+        // already applied, BLOB column present, and the protobuf-encoded
+        // chain decoded by the load path.
+        let store = crate::SqliteDatabase::open(&db_name, Default::default())
+            .await
+            .expect("reopen store")
+            .store(device_id);
+        let loaded = store
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("load")
+            .expect("device should exist after reopen");
+        assert_eq!(
+            loaded.server_cert_chain.as_ref(),
+            Some(&chain),
+            "server_cert_chain must survive a save/load roundtrip"
+        );
+
+        // proto3 omits false booleans on the wire, so a chain stored
+        // without provenance is byte-identical to a legacy row: it must
+        // reload as untrusted.
+        let mut device = loaded.clone();
+        device.server_cert_chain = Some(CachedServerCertChain {
+            signature_verified: false,
+            ..chain.clone()
+        });
+        store
+            .save_device_data_for_device(device_id, &device)
+            .await
+            .expect("save with unmarked cert chain");
+
+        let reloaded = store
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("reload")
+            .expect("device should exist");
+        let reloaded_chain = reloaded.server_cert_chain.as_ref().expect("chain present");
+        assert!(
+            !reloaded_chain.signature_verified,
+            "field-less rows must decode as untrusted"
+        );
+
+        // Sanity: clearing the chain and saving leaves the column as NULL,
+        // not as an empty serialized struct.
+        let mut device = loaded;
+        device.server_cert_chain = None;
+        store
+            .save_device_data_for_device(device_id, &device)
+            .await
+            .expect("save with cleared cert chain");
+
+        let reloaded = store
+            .load_device_data_for_device(device_id)
+            .await
+            .expect("reload")
+            .expect("device should exist");
+        assert!(
+            reloaded.server_cert_chain.is_none(),
+            "cleared chain must round-trip as None"
+        );
+    }
+
+    // The migration strategy is self-healing with NO migration: rows written by the
+    // old `bincode` codec can't decode as the new protobuf wire format, so the store
+    // must read them back as ABSENT (never an error) -- then the sync path re-requests
+    // the key / re-syncs the collection, and the protobuf setters overwrite the row.
+    #[tokio::test]
+    async fn legacy_bincode_blobs_self_heal_then_overwrite() {
+        use diesel::{ExpressionMethods, RunQueryDsl, sql_query};
+        use wacore::appstate::hash::HashState;
+        use wacore::store::traits::AppStateSyncKey;
+
+        // Exact bytes `bincode` 2.0.1 (config::standard, via serde) produced for these
+        // domain structs before the migration, captured with the real codec. They must
+        // not parse as the protobuf wire format.
+        // AppStateSyncKey { key_data: [0x11;32], fingerprint: [aa bb cc dd], timestamp: 1_700_000_000 }.
+        let legacy_sync_key = {
+            let mut v = vec![0x20u8]; // bincode varint len 32
+            v.extend([0x11u8; 32]);
+            v.extend([0x04, 0xaa, 0xbb, 0xcc, 0xdd, 0xfc, 0x00, 0xe2, 0xa7, 0xca]);
+            v
+        };
+        // HashState { version: 7, hash: [de ad 00..00 be], index_value_map: {} }.
+        let legacy_hash_state = {
+            let mut v = vec![0x07u8]; // version varint 7
+            v.push(0xde);
+            v.push(0xad);
+            v.extend([0u8; 125]);
+            v.push(0xbe);
+            v.push(0x00); // empty map
+            v
+        };
+
+        let store = create_test_store().await;
+        let device_id = store.device_id;
+
+        // Insert the legacy rows directly (bypassing the protobuf setters), exactly as
+        // an upgraded DB would already hold them.
+        let key_id = b"legacy-key".to_vec();
+        {
+            let kid = key_id.clone();
+            let blob = legacy_sync_key.clone();
+            store
+                .with_retry("insert_legacy_key", move || {
+                    let kid = kid.clone();
+                    let blob = blob.clone();
+                    Box::new(move |conn| {
+                        diesel::insert_into(app_state_keys::table)
+                            .values((
+                                app_state_keys::key_id.eq(kid),
+                                app_state_keys::key_data.eq(blob),
+                                app_state_keys::device_id.eq(device_id),
+                            ))
+                            .execute(conn)
+                            .map(|_| ())
+                    })
+                })
+                .await
+                .expect("insert legacy key row");
+        }
+        let name = "critical_block";
+        {
+            let blob = legacy_hash_state.clone();
+            store
+                .with_retry("insert_legacy_version", move || {
+                    let blob = blob.clone();
+                    Box::new(move |conn| {
+                        diesel::insert_into(app_state_versions::table)
+                            .values((
+                                app_state_versions::name.eq(name),
+                                app_state_versions::state_data.eq(blob),
+                                app_state_versions::device_id.eq(device_id),
+                            ))
+                            .execute(conn)
+                            .map(|_| ())
+                    })
+                })
+                .await
+                .expect("insert legacy version row");
+        }
+
+        // Self-heal: a legacy bincode row reads back as absent / default, NOT an error,
+        // and never as a partially-decoded protobuf with garbage material.
+        assert!(
+            store
+                .get_app_state_sync_key_for_device(&key_id, device_id)
+                .await
+                .expect("legacy sync-key blob must not surface a decode error")
+                .is_none(),
+            "a legacy bincode sync-key row must read back as absent"
+        );
+        assert!(
+            store
+                .get_app_state_version_for_device(name, device_id)
+                .await
+                .expect("legacy version blob must not surface a decode error")
+                .is_none(),
+            "a legacy bincode version row must read back as never-synced, so the \
+             collection rebuilds from a snapshot rather than resuming from a \
+             baseline nothing here can read"
+        );
+
+        // And the protobuf setters overwrite the healed rows: a re-shared key and a
+        // fresh version persist and read back correctly afterwards.
+        store
+            .set_app_state_sync_key_for_device(
+                &key_id,
+                AppStateSyncKey {
+                    key_data: vec![7u8; 32],
+                    fingerprint: vec![1, 2, 3],
+                    timestamp: 99,
+                },
+                device_id,
+            )
+            .await
+            .expect("overwrite key");
+        let healed_key = store
+            .get_app_state_sync_key_for_device(&key_id, device_id)
+            .await
+            .expect("get key")
+            .expect("re-shared key must persist over the legacy row");
+        assert_eq!(healed_key.key_data, vec![7u8; 32]);
+        assert_eq!(healed_key.timestamp, 99);
+
+        store
+            .set_app_state_version_for_device(
+                name,
+                HashState {
+                    version: 5,
+                    ..HashState::default()
+                },
+                device_id,
+            )
+            .await
+            .expect("overwrite version");
+        assert_eq!(
+            store
+                .get_app_state_version_for_device(name, device_id)
+                .await
+                .expect("get version")
+                .expect("the collection has a version record")
+                .version,
+            5,
+            "a re-synced version must persist over the legacy row"
+        );
+
+        // Genuine corruption (not a clean bincode blob) is handled the same way.
+        store
+            .with_retry("corrupt_key", || {
+                Box::new(|conn| {
+                    sql_query("UPDATE app_state_keys SET key_data = X'00ff00ff'")
+                        .execute(conn)
+                        .map(|_| ())
+                })
+            })
+            .await
+            .expect("corrupt key blob");
+        assert!(
+            store
+                .get_app_state_sync_key_for_device(&key_id, device_id)
+                .await
+                .expect("corrupt key blob must not error")
+                .is_none(),
+            "an arbitrarily corrupt sync-key blob must also read back as absent"
+        );
+    }
+
+    // Outbound mutations (chat actions) encrypt with the latest sync key, so the
+    // latest-key selection must skip a legacy bincode row even when it sorts higher --
+    // otherwise build_patch would later fail in get_app_state_key with KeyNotFound.
+    #[tokio::test]
+    async fn latest_sync_key_skips_undecodable_rows() {
+        use diesel::{ExpressionMethods, RunQueryDsl};
+        use wacore::store::traits::AppStateSyncKey;
+
+        // Real bincode 2.0.1 bytes for an AppStateSyncKey -- undecodable as protobuf.
+        let legacy_blob = {
+            let mut v = vec![0x20u8];
+            v.extend([0x11u8; 32]);
+            v.extend([0x04, 0xaa, 0xbb, 0xcc, 0xdd, 0xfc, 0x00, 0xe2, 0xa7, 0xca]);
+            v
+        };
+
+        let store = create_test_store().await;
+        let device_id = store.device_id;
+
+        // A valid (protobuf) key at a LOWER key_id...
+        let good_id = b"key-aaa".to_vec();
+        store
+            .set_app_state_sync_key_for_device(
+                &good_id,
+                AppStateSyncKey {
+                    key_data: vec![7u8; 32],
+                    fingerprint: vec![1],
+                    timestamp: 1,
+                },
+                device_id,
+            )
+            .await
+            .unwrap();
+
+        // ...and a stale bincode row at a lexicographically HIGHER key_id, inserted raw.
+        let bad_id = b"key-zzz".to_vec();
+        {
+            let bid = bad_id.clone();
+            let blob = legacy_blob.clone();
+            store
+                .with_retry("insert_stale_key", move || {
+                    let bid = bid.clone();
+                    let blob = blob.clone();
+                    Box::new(move |conn| {
+                        diesel::insert_into(app_state_keys::table)
+                            .values((
+                                app_state_keys::key_id.eq(bid),
+                                app_state_keys::key_data.eq(blob),
+                                app_state_keys::device_id.eq(device_id),
+                            ))
+                            .execute(conn)
+                            .map(|_| ())
+                    })
+                })
+                .await
+                .unwrap();
+        }
+
+        // The higher-but-undecodable row must be skipped for the usable key.
+        assert_eq!(
+            store
+                .get_latest_app_state_sync_key_id_for_device(device_id)
+                .await
+                .unwrap(),
+            Some(good_id),
+            "latest-key selection must skip undecodable bincode rows"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_metadata_round_trip_sqlite() {
+        use wacore::store::traits::ProtocolStore;
+        let store = create_test_store().await;
+        let jid = "120363000000000001@g.us";
+
+        assert!(store.get_group_metadata(jid).await.unwrap().is_none());
+
+        store.put_group_metadata(jid, b"blob-v1").await.unwrap();
+        assert_eq!(
+            store.get_group_metadata(jid).await.unwrap().as_deref(),
+            Some(&b"blob-v1"[..])
+        );
+
+        // Upsert overwrites the prior blob.
+        store.put_group_metadata(jid, b"blob-v2").await.unwrap();
+        assert_eq!(
+            store.get_group_metadata(jid).await.unwrap().as_deref(),
+            Some(&b"blob-v2"[..])
+        );
+
+        // Delete drops the blob so the next query re-fetches in full.
+        store.delete_group_metadata(jid).await.unwrap();
+        assert!(store.get_group_metadata(jid).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn msg_secret_round_trip_sqlite() {
+        let store = create_test_store().await;
+        let secret = [0xABu8; 32];
+        store
+            .put_msg_secret("12345@s.whatsapp.net", "9999@lid", "MID1", &secret)
+            .await
+            .expect("put");
+        let got = store
+            .get_msg_secret("12345@s.whatsapp.net", "9999@lid", "MID1")
+            .await
+            .expect("get")
+            .expect("must exist");
+        assert_eq!(got, secret.to_vec());
+    }
+
+    #[tokio::test]
+    async fn msg_secret_miss_returns_none_sqlite() {
+        let store = create_test_store().await;
+        assert!(
+            store
+                .get_msg_secret("any@s.whatsapp.net", "any@lid", "NOPE")
+                .await
+                .expect("get")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn msg_secret_upsert_replaces_secret() {
+        let store = create_test_store().await;
+        store
+            .put_msg_secret("c", "s", "M", &[1u8; 32])
+            .await
+            .expect("put 1");
+        store
+            .put_msg_secret("c", "s", "M", &[9u8; 32])
+            .await
+            .expect("put 2");
+        let got = store.get_msg_secret("c", "s", "M").await.unwrap().unwrap();
+        assert_eq!(got, vec![9u8; 32], "ON CONFLICT must overwrite");
+    }
+
+    #[tokio::test]
+    async fn msg_secret_scoped_by_three_columns() {
+        let store = create_test_store().await;
+        store
+            .put_msg_secret("c1", "s1", "M1", &[1u8; 32])
+            .await
+            .unwrap();
+        store
+            .put_msg_secret("c1", "s1", "M2", &[2u8; 32])
+            .await
+            .unwrap();
+        store
+            .put_msg_secret("c1", "s2", "M1", &[3u8; 32])
+            .await
+            .unwrap();
+        store
+            .put_msg_secret("c2", "s1", "M1", &[4u8; 32])
+            .await
+            .unwrap();
+
+        for (chat, sender, msg_id, expected) in [
+            ("c1", "s1", "M1", 1u8),
+            ("c1", "s1", "M2", 2),
+            ("c1", "s2", "M1", 3),
+            ("c2", "s1", "M1", 4),
+        ] {
+            let got = store
+                .get_msg_secret(chat, sender, msg_id)
+                .await
+                .unwrap()
+                .unwrap_or_else(|| panic!("missing ({chat},{sender},{msg_id})"));
+            assert_eq!(got, vec![expected; 32]);
+        }
+    }
+
+    #[tokio::test]
+    async fn msg_secret_batch_upserts_in_one_call() {
+        const ORIGINAL_SECRET_BYTE: u8 = 0x5a;
+        const UPDATED_SECRET_BYTE: u8 = 0xa5;
+
+        let store = create_test_store().await;
+        let mut entries: Vec<_> = (0..=MSG_SECRET_INSERT_CHUNK_SIZE)
+            .map(|index| MsgSecretEntry {
+                chat: "c".into(),
+                sender: "s".into(),
+                msg_id: format!("M{index}").into(),
+                secret: [ORIGINAL_SECRET_BYTE; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: 0,
+            })
+            .collect();
+        // Cross the chunk boundary with an update to a row from the first
+        // statement, proving the enclosing transaction preserves merge order.
+        entries.push(MsgSecretEntry {
+            chat: "c".into(),
+            sender: "s".into(),
+            msg_id: "M0".into(),
+            secret: [UPDATED_SECRET_BYTE; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+            expires_at: 0,
+            message_ts: 0,
+        });
+        let expected_stored = entries.len();
+        let stored = store.put_msg_secrets(entries).await.unwrap();
+
+        assert_eq!(stored, expected_stored);
+        assert_eq!(
+            store.get_msg_secret("c", "s", "M0").await.unwrap().unwrap(),
+            vec![UPDATED_SECRET_BYTE; wacore::reporting_token::MESSAGE_SECRET_SIZE]
+        );
+        assert_eq!(
+            store
+                .get_msg_secret("c", "s", &format!("M{MSG_SECRET_INSERT_CHUNK_SIZE}"))
+                .await
+                .unwrap()
+                .unwrap(),
+            vec![ORIGINAL_SECRET_BYTE; wacore::reporting_token::MESSAGE_SECRET_SIZE]
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_expired_msg_secrets_deletes_only_passed_deadlines() {
+        let store = create_test_store().await;
+        let now = wacore::time::now_secs();
+        store
+            .put_msg_secrets(vec![
+                MsgSecretEntry {
+                    chat: "c".into(),
+                    sender: "s".into(),
+                    msg_id: "NEVER".into(),
+                    secret: [1u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                    expires_at: 0,
+                    message_ts: 0,
+                },
+                MsgSecretEntry {
+                    chat: "c".into(),
+                    sender: "s".into(),
+                    msg_id: "FUTURE".into(),
+                    secret: [2u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                    expires_at: now + 86_400,
+                    message_ts: 0,
+                },
+                MsgSecretEntry {
+                    chat: "c".into(),
+                    sender: "s".into(),
+                    msg_id: "PAST".into(),
+                    secret: [3u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                    expires_at: now - 86_400,
+                    message_ts: 0,
+                },
+            ])
+            .await
+            .unwrap();
+
+        let removed = store.delete_expired_msg_secrets(now).await.unwrap();
+        assert_eq!(
+            removed, 1,
+            "only the row whose deadline has passed is deleted"
+        );
+        assert!(
+            store
+                .get_msg_secret("c", "s", "NEVER")
+                .await
+                .unwrap()
+                .is_some(),
+            "expires_at = 0 never expires"
+        );
+        assert!(
+            store
+                .get_msg_secret("c", "s", "FUTURE")
+                .await
+                .unwrap()
+                .is_some(),
+            "a future deadline survives"
+        );
+        assert!(
+            store
+                .get_msg_secret("c", "s", "PAST")
+                .await
+                .unwrap()
+                .is_none(),
+            "a passed deadline is pruned"
+        );
+    }
+
+    #[tokio::test]
+    async fn put_msg_secrets_keeps_later_deadline_on_conflict() {
+        let store = create_test_store().await;
+        let now = wacore::time::now_secs();
+        // First write a finite deadline, then a re-persist with an EARLIER one:
+        // the window must not shrink.
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: "c".into(),
+                sender: "s".into(),
+                msg_id: "M".into(),
+                secret: [1u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: now + 90 * 86_400,
+                message_ts: 0,
+            }])
+            .await
+            .unwrap();
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: "c".into(),
+                sender: "s".into(),
+                msg_id: "M".into(),
+                secret: [1u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: now + 30 * 86_400,
+                message_ts: 0,
+            }])
+            .await
+            .unwrap();
+        // The 90-day deadline must remain: a cutoff at now+60d deletes nothing.
+        let removed = store
+            .delete_expired_msg_secrets(now + 60 * 86_400)
+            .await
+            .unwrap();
+        assert_eq!(removed, 0, "conflict must keep the later (90d) deadline");
+
+        // A never-expire (0) write must override any finite deadline.
+        store
+            .put_msg_secret("c", "s", "M", &[1u8; 32])
+            .await
+            .unwrap();
+        let removed = store
+            .delete_expired_msg_secrets(now + 200 * 86_400)
+            .await
+            .unwrap();
+        assert_eq!(removed, 0, "a 0 (never) deadline wins over any finite one");
+    }
+
+    #[tokio::test]
+    async fn named_secret_read_round_trips_and_keeps_parent_ts() {
+        let store = create_test_store().await;
+        let parent_ts = 1_700_000_000i64;
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: "c".into(),
+                sender: "s".into(),
+                msg_id: "M".into(),
+                secret: [5u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: parent_ts,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_stored_msg_secret("c", "s", "M").await.unwrap(),
+            Some(StoredMessageSecret::new(
+                MessageSecret::from_bytes([5; 32]),
+                Some(parent_ts)
+            ))
+        );
+
+        // A later write with an unknown ts (0) must not clobber the known one.
+        store
+            .put_msg_secret("c", "s", "M", &[5u8; 32])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_stored_msg_secret("c", "s", "M").await.unwrap(),
+            Some(StoredMessageSecret::new(
+                MessageSecret::from_bytes([5; 32]),
+                Some(parent_ts)
+            )),
+            "message_ts (immutable parent time) must survive a 0-ts redelivery"
+        );
+
+        // Absent row → None.
+        assert_eq!(
+            store
+                .get_stored_msg_secret("c", "s", "MISSING")
+                .await
+                .unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn named_secret_read_reports_unknown_and_invalid_persisted_data() {
+        let store = create_test_store().await;
+        store
+            .put_msg_secret("c", "s", "M", &[177; 32])
+            .await
+            .unwrap();
+        let stored = store
+            .get_stored_msg_secret("c", "s", "M")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.message_ts, None);
+        assert_eq!(stored.secret.as_bytes(), &[177; 32]);
+        assert!(!format!("{stored:#?}").contains("177"));
+        for length in [0, 31, 33] {
+            let pool = store.pool.clone();
+            let device_id = store.device_id;
+            store
+                .with_semaphore(move || {
+                    let mut conn = pool
+                        .get()
+                        .map_err(|e| StoreError::Connection(Box::new(e)))?;
+                    diesel::update(
+                        msg_secrets::table
+                            .filter(msg_secrets::chat.eq("c"))
+                            .filter(msg_secrets::sender.eq("s"))
+                            .filter(msg_secrets::msg_id.eq("M"))
+                            .filter(msg_secrets::device_id.eq(device_id)),
+                    )
+                    .set(msg_secrets::secret.eq(vec![177u8; length]))
+                    .execute(&mut *conn)
+                    .map_err(|e| StoreError::Database(Box::new(e)))?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            let error = store
+                .get_stored_msg_secret("c", "s", "M")
+                .await
+                .unwrap_err();
+            assert!(matches!(error, StoreError::InvalidMessageSecret(_)));
+            let source = std::error::Error::source(&error)
+                .unwrap()
+                .downcast_ref::<InvalidMessageSecret>()
+                .unwrap();
+            assert_eq!(source.actual, length);
+            assert!(!format!("{error:#?}").contains("177"));
+            assert!(matches!(
+                store.get_msg_secret("c", "s", "M").await,
+                Err(StoreError::InvalidMessageSecret(_))
+            ));
+        }
+    }
+
+    /// Multi-account isolation: same DB, different device_id rows must not
+    /// collide on the same logical key.
+    #[tokio::test]
+    async fn msg_secret_isolated_per_device_id() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let shared_url = format!(
+            "file:memdb_msgsecret_iso_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            id
+        );
+        let store_a = crate::SqliteDatabase::open(&shared_url, Default::default())
+            .await
+            .expect("store_a")
+            .store(1);
+        let store_b = crate::SqliteDatabase::open(&shared_url, Default::default())
+            .await
+            .expect("store_b")
+            .store(2);
+
+        store_a
+            .put_msg_secret("c", "s", "M", &[7u8; 32])
+            .await
+            .unwrap();
+        assert!(
+            store_b
+                .get_msg_secret("c", "s", "M")
+                .await
+                .unwrap()
+                .is_none(),
+            "same DB, different device_id must not see each other's secrets"
+        );
+        assert_eq!(
+            store_a
+                .get_msg_secret("c", "s", "M")
+                .await
+                .unwrap()
+                .unwrap(),
+            vec![7u8; 32],
+            "device_a still sees its own write"
+        );
+    }
+
+    /// Workstream A: the storage report bounds the page cache by the actual DB
+    /// size and never exceeds the configured cap.
+    #[tokio::test]
+    async fn resource_report_bounds_cache_by_db_size_and_cap() {
+        let store = create_test_store().await; // default: 512 KiB cache cap
+        let device_id = 1;
+
+        // Seed enough rows to grow the DB past its bare schema pages.
+        let macs: Vec<AppStateMutationMAC> = (0..500u32)
+            .map(|i| {
+                let mut index_mac = vec![0u8; 32];
+                index_mac[..4].copy_from_slice(&i.to_le_bytes());
+                AppStateMutationMAC {
+                    index_mac,
+                    value_mac: vec![(i % 251) as u8; 32],
+                }
+            })
+            .collect();
+        store
+            .put_app_state_mutation_macs_for_device("coll", 1, &macs, device_id)
+            .await
+            .unwrap();
+
+        let report = store.resource_report().await;
+
+        let pages = report.pages.expect("SQLite reports a page count");
+        assert!(pages > 0, "a migrated + seeded DB has pages");
+
+        let mem = report
+            .memory_bytes
+            .expect("SQLite reports a cache estimate");
+        assert!(mem > 0, "cache-in-use estimate is non-zero for a seeded DB");
+        // memory_bytes = min(cache cap, db size); the seeded DB is far under the
+        // 512 KiB cap, so the estimate tracks the DB size and stays under the cap.
+        assert!(
+            mem <= 512 * 1024,
+            "estimate never exceeds the configured 512 KiB cap, got {mem}"
+        );
+        assert_eq!(report.total_bytes(), mem, "total_bytes == memory_bytes");
+        // I/O counters aren't tracked by this backend.
+        assert_eq!(report.io_read_bytes, None);
+        assert_eq!(report.io_write_bytes, None);
+    }
+
+    /// Workstream E: `mmap_size` is an opt-in field + builder — the default is
+    /// `None` (no mmap pragma emitted), and setting it wires `PRAGMA mmap_size`
+    /// through to the connection without breaking the store.
+    #[test]
+    fn mmap_size_config_is_opt_in() {
+        assert_eq!(
+            SqliteDatabaseConfig::default().mmap_size,
+            None,
+            "default leaves mmap off (current behavior)"
+        );
+        assert_eq!(
+            SqliteDatabaseConfig::default()
+                .with_mmap_size(64 * 1024 * 1024)
+                .mmap_size,
+            Some(64 * 1024 * 1024),
+            "builder sets the field"
+        );
+    }
+
+    #[tokio::test]
+    async fn mmap_size_applies_pragma_and_store_operates() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        // A real file DB — memory DBs ignore mmap.
+        let path =
+            std::env::temp_dir().join(format!("wa_mmap_test_{}_{}.db", std::process::id(), id));
+        let url = path.to_str().unwrap().to_string();
+
+        // `PRAGMA mmap_size` statement form: unlike page_count/page_size/cache_size,
+        // SQLite exposes no `pragma_mmap_size()` table-valued function, so read it
+        // directly (its result column is named `mmap_size`).
+        let read_mmap = |store: &SqliteStore| -> i64 {
+            #[derive(diesel::QueryableByName)]
+            struct M {
+                #[diesel(sql_type = diesel::sql_types::BigInt)]
+                mmap_size: i64,
+            }
+            let mut conn = store.pool.get().unwrap();
+            diesel::sql_query("PRAGMA mmap_size")
+                .get_result::<M>(&mut *conn)
+                .map(|m| m.mmap_size)
+                .unwrap_or(-1)
+        };
+
+        // Default config emits no mmap pragma, and SQLITE_DEFAULT_MMAP_SIZE is 0,
+        // so mmap reads back off. Deterministic across environments.
+        let def_store = SqliteStore::open(&url).await.expect("default store");
+        assert_eq!(read_mmap(&def_store), 0, "default keeps mmap off");
+        drop(def_store);
+
+        // Opt-in: the store builds with the pragma applied (on_acquire didn't
+        // error) and stays fully operational.
+        const MMAP: u64 = 64 * 1024 * 1024;
+        let cfg = SqliteDatabaseConfig::default().with_mmap_size(MMAP);
+        let store = crate::SqliteDatabase::open(&url, cfg)
+            .await
+            .expect("mmap store builds")
+            .store(1);
+        store
+            .put_identity("559980000001@s.whatsapp.net", [9u8; 32])
+            .await
+            .expect("store operates with mmap set");
+        // The read-back is the configured limit where the VFS supports mmap, or
+        // 0 where it doesn't (some container filesystems) — never a wiring error.
+        let applied = read_mmap(&store);
+        assert!(
+            applied == MMAP as i64 || applied == 0,
+            "mmap_size is applied when the VFS supports it, got {applied}"
+        );
+        drop(store);
+
+        // Best-effort cleanup of the DB and its WAL sidecars.
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{url}{suffix}"));
+        }
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+#[path = "sqlite_store/reader_lifecycle_tests.rs"]
+mod reader_lifecycle_tests;
+
+/// Routing of read-only work onto the reader connections.
+#[cfg(test)]
+mod read_routing_tests {
+    use super::*;
+
+    /// A file-backed store: reader connections need real WAL, which an
+    /// in-memory database has none of. Removed on drop.
+    pub(super) struct TempDb(std::path::PathBuf);
+
+    impl TempDb {
+        pub(super) fn new(tag: &str) -> Self {
+            use portable_atomic::AtomicU64;
+            use std::sync::atomic::Ordering;
+            static COUNTER: AtomicU64 = AtomicU64::new(0);
+            let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "wa_read_routing_{tag}_{}_{id}.db",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_file(&path);
+            Self(path)
+        }
+
+        pub(super) fn url(&self) -> String {
+            self.0.to_string_lossy().into_owned()
+        }
+    }
+
+    impl Drop for TempDb {
+        fn drop(&mut self) {
+            for suffix in ["", "-wal", "-shm"] {
+                let mut p = self.0.clone().into_os_string();
+                p.push(suffix);
+                let _ = std::fs::remove_file(p);
+            }
+        }
+    }
+
+    async fn store_with(read_pool_size: u32, db: &TempDb) -> SqliteStore {
+        let store = crate::SqliteDatabase::open(
+            &db.url(),
+            SqliteDatabaseConfig {
+                read_pool_size,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("store opens")
+        .store(1);
+        assert_eq!(
+            store.reads.is_some(),
+            read_pool_size > 0,
+            "a file-backed store honours read_pool_size"
+        );
+        store.create_new_device().await.expect("device row");
+        store
+    }
+
+    const ADDR: &str = "559990000001:0@s.whatsapp.net";
+    const GROUP: &str = "1234567890-1111111111@g.us";
+
+    /// Every migrated read answers "absent" before its row exists, and answers
+    /// with the written value immediately after the write returns. The second
+    /// half is the read-your-own-write guarantee the routing relies on: a WAL
+    /// reader opens on the latest committed snapshot, so a read issued after a
+    /// write's `await` observes it even from another connection.
+    async fn exercise_reads(read_pool_size: u32) {
+        let db = TempDb::new(&format!("rw{read_pool_size}"));
+        let store = store_with(read_pool_size, &db).await;
+
+        // Absent everywhere first.
+        assert_eq!(store.load_identity(ADDR).await.unwrap(), None);
+        assert_eq!(store.get_session(ADDR).await.unwrap(), None);
+        assert!(!store.has_session(ADDR).await.unwrap());
+        assert!(
+            !store
+                .has_signal_state_for_user("559990000001")
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.get_sender_key(ADDR).await.unwrap(), None);
+        assert_eq!(store.load_prekey(7).await.unwrap(), None);
+        assert!(store.load_prekeys_batch(&[7]).await.unwrap().is_empty());
+        assert_eq!(store.get_max_prekey_id().await.unwrap(), 0);
+        assert_eq!(store.load_signed_prekey(3).await.unwrap(), None);
+        assert!(store.load_all_signed_prekeys().await.unwrap().is_empty());
+        assert!(
+            store
+                .get_sender_key_devices(GROUP)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(store.get_sync_key(b"k1").await.unwrap().is_none());
+        assert_eq!(store.get_latest_sync_key_id().await.unwrap(), None);
+        assert!(store.get_version("critical").await.unwrap().is_none());
+        assert_eq!(
+            store
+                .get_mutation_mac("critical", &[1u8; 32])
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(
+            store
+                .get_mutation_macs("critical", &[[1u8; 32]])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(store.get_lid_mapping("111@lid").await.unwrap().is_none());
+        assert!(
+            store
+                .get_pn_mapping("559990000002")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.get_all_lid_mappings().await.unwrap().is_empty());
+        assert!(
+            !store
+                .has_same_base_key(ADDR, "m1", &[1, 2, 3])
+                .await
+                .unwrap()
+        );
+        assert!(store.get_devices("559990000001").await.unwrap().is_none());
+        assert_eq!(store.get_group_metadata(GROUP).await.unwrap(), None);
+        assert!(
+            store
+                .get_tc_token("559990000001@s.whatsapp.net")
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.get_all_tc_token_jids().await.unwrap().is_empty());
+        assert_eq!(store.get_msg_secret(GROUP, ADDR, "m1").await.unwrap(), None);
+        assert_eq!(
+            store
+                .get_stored_msg_secret(GROUP, ADDR, "m1")
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(store.database().device_exists(1).await.unwrap());
+        assert!(
+            store
+                .load_device_data_for_device(1)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Write, then read back through the (possibly separate) connection.
+        store.put_identity(ADDR, [4u8; 32]).await.unwrap();
+        assert_eq!(store.load_identity(ADDR).await.unwrap(), Some([4u8; 32]));
+
+        store.put_session(ADDR, b"session-blob").await.unwrap();
+        assert_eq!(
+            store.get_session(ADDR).await.unwrap().as_deref(),
+            Some(&b"session-blob"[..])
+        );
+        assert!(store.has_session(ADDR).await.unwrap());
+        assert!(
+            store
+                .has_signal_state_for_user("559990000001")
+                .await
+                .unwrap()
+        );
+
+        store.put_sender_key(ADDR, b"sk-blob").await.unwrap();
+        assert_eq!(
+            store.get_sender_key(ADDR).await.unwrap(),
+            Some(b"sk-blob".to_vec())
+        );
+
+        store.store_prekey(7, b"pk", false).await.unwrap();
+        assert_eq!(
+            store.load_prekey(7).await.unwrap().as_deref(),
+            Some(&b"pk"[..])
+        );
+        assert_eq!(store.load_prekeys_batch(&[7]).await.unwrap().len(), 1);
+        assert_eq!(store.get_max_prekey_id().await.unwrap(), 7);
+
+        store.store_signed_prekey(3, b"spk").await.unwrap();
+        assert_eq!(
+            store.load_signed_prekey(3).await.unwrap(),
+            Some(b"spk".to_vec())
+        );
+        assert_eq!(store.load_all_signed_prekeys().await.unwrap().len(), 1);
+
+        store
+            .set_sender_key_status(GROUP, &[("559990000003:0@s.whatsapp.net", true)])
+            .await
+            .unwrap();
+        assert_eq!(store.get_sender_key_devices(GROUP).await.unwrap().len(), 1);
+
+        let key = AppStateSyncKey {
+            key_data: vec![1; 32],
+            fingerprint: vec![2; 4],
+            timestamp: 99,
+        };
+        store.set_sync_key(b"k1", key.clone()).await.unwrap();
+        let got = store.get_sync_key(b"k1").await.unwrap().expect("sync key");
+        assert_eq!(got.key_data, key.key_data);
+        assert_eq!(got.fingerprint, key.fingerprint);
+        assert_eq!(got.timestamp, key.timestamp);
+        assert_eq!(
+            store.get_latest_sync_key_id().await.unwrap(),
+            Some(b"k1".to_vec())
+        );
+
+        let state = HashState {
+            version: 42,
+            ..Default::default()
+        };
+        store.set_version("critical", state).await.unwrap();
+        assert_eq!(
+            store
+                .get_version("critical")
+                .await
+                .unwrap()
+                .expect("the collection has a version record")
+                .version,
+            42
+        );
+
+        let mac = AppStateMutationMAC {
+            index_mac: vec![1u8; 32],
+            value_mac: vec![9u8; 32],
+        };
+        store
+            .put_mutation_macs("critical", 1, std::slice::from_ref(&mac))
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .get_mutation_mac("critical", &mac.index_mac)
+                .await
+                .unwrap(),
+            Some(mac.value_mac.clone())
+        );
+        assert_eq!(
+            store
+                .get_mutation_macs("critical", &[[1u8; 32]])
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+
+        store
+            .put_lid_mapping(&LidPnMappingEntry {
+                lid: "111@lid".to_string(),
+                phone_number: "559990000002".to_string(),
+                created_at: 1,
+                updated_at: 1,
+                learning_source: "test".to_string(),
+            })
+            .await
+            .unwrap();
+        assert!(store.get_lid_mapping("111@lid").await.unwrap().is_some());
+        assert!(
+            store
+                .get_pn_mapping("559990000002")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(store.get_all_lid_mappings().await.unwrap().len(), 1);
+
+        store.save_base_key(ADDR, "m1", &[1, 2, 3]).await.unwrap();
+        assert!(
+            store
+                .has_same_base_key(ADDR, "m1", &[1, 2, 3])
+                .await
+                .unwrap()
+        );
+
+        store
+            .update_device_list(DeviceListRecord {
+                user: "559990000001".into(),
+                devices: Box::default(),
+                timestamp: 5,
+                phash: None,
+                raw_id: None,
+            })
+            .await
+            .unwrap();
+        assert!(store.get_devices("559990000001").await.unwrap().is_some());
+
+        store.put_group_metadata(GROUP, b"meta").await.unwrap();
+        assert_eq!(
+            store.get_group_metadata(GROUP).await.unwrap(),
+            Some(b"meta".to_vec())
+        );
+
+        store
+            .put_tc_token(
+                "559990000001@s.whatsapp.net",
+                &TcTokenEntry {
+                    token: vec![7],
+                    token_timestamp: 3,
+                    sender_timestamp: None,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .get_tc_token("559990000001@s.whatsapp.net")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(store.get_all_tc_token_jids().await.unwrap().len(), 1);
+
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: GROUP.into(),
+                sender: ADDR.into(),
+                msg_id: "m1".into(),
+                secret: [5u8; 32],
+                expires_at: 0,
+                message_ts: 11,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_msg_secret(GROUP, ADDR, "m1").await.unwrap(),
+            Some(vec![5u8; 32])
+        );
+        assert_eq!(
+            store
+                .get_stored_msg_secret(GROUP, ADDR, "m1")
+                .await
+                .unwrap(),
+            Some(StoredMessageSecret::new(
+                MessageSecret::from_bytes([5; 32]),
+                Some(11)
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn reads_answer_the_same_without_reader_connections() {
+        exercise_reads(0).await;
+    }
+
+    #[tokio::test]
+    async fn reads_answer_the_same_with_reader_connections() {
+        exercise_reads(4).await;
+    }
+
+    /// The safety net, and its limit. A reader connection is `query_only`, so a
+    /// write that slips into `read_query` fails loudly there. The fallback hands
+    /// out an ordinary write connection and has no such net, which is why the
+    /// routing scan exists; asserted here so the gap is recorded rather than
+    /// assumed away.
+    #[tokio::test]
+    async fn a_write_through_read_query_is_refused_only_on_reader_connections() {
+        let write_a_row = |store: SqliteStore| async move {
+            store
+                .read_query(|conn| {
+                    diesel::delete(sessions::table)
+                        .execute(conn)
+                        .map_err(|e| StoreError::Database(Box::new(e)))?;
+                    Ok(())
+                })
+                .await
+        };
+
+        let with_readers = TempDb::new("query_only_readers");
+        let store = store_with(1, &with_readers).await;
+        assert!(
+            matches!(write_a_row(store).await, Err(StoreError::Database(_))),
+            "query_only must reject a write on a reader connection"
+        );
+
+        let no_readers = TempDb::new("query_only_fallback");
+        let store = store_with(0, &no_readers).await;
+        assert!(
+            write_a_row(store).await.is_ok(),
+            "the fallback has no query_only net; if this ever starts failing the \
+             doc on read_query and this test both need updating"
+        );
+    }
+
+    /// A read must not wait out a write. Holds the write permit and checks the
+    /// migrated reads still answer; without reader connections this is exactly
+    /// the stall the change exists to remove.
+    #[tokio::test]
+    async fn a_read_proceeds_while_the_write_permit_is_held() {
+        let db = TempDb::new("no_wait");
+        let store = store_with(2, &db).await;
+        store.put_session(ADDR, b"blob").await.unwrap();
+
+        let _permit = store
+            .db_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("the only write permit");
+
+        let got = tokio::time::timeout(Duration::from_secs(10), store.get_session(ADDR))
+            .await
+            .expect("a read must not queue behind the write permit")
+            .expect("read succeeds");
+        assert_eq!(got.as_deref(), Some(&b"blob"[..]));
+    }
+
+    /// A reader-pool read proceeds beside a held burst; a write-queue read waits
+    /// for that burst's permit and completes once it is released.
+    #[tokio::test]
+    async fn write_queue_read_completes_beside_a_held_burst() {
+        use std::future::{Future, poll_fn};
+        use std::pin::pin;
+        use std::task::Poll;
+
+        let db = TempDb::new("held_burst");
+        let mut store = store_with(1, &db).await;
+        let rows = vec![AppStateMutationMAC {
+            index_mac: vec![0xA1; 32],
+            value_mac: vec![0xC5; 32],
+        }];
+
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        store.commit_barrier = Some({
+            let entered = entered.clone();
+            let release = release.clone();
+            Arc::new(move || {
+                let entered = entered.clone();
+                let release = release.clone();
+                Box::pin(async move {
+                    entered.notify_one();
+                    release.notified().await;
+                    Ok(())
+                })
+            })
+        });
+
+        let (burst, read) = tokio::time::timeout(Duration::from_secs(30), async {
+            tokio::join!(store.put_mutation_macs("regular", 1, &rows), async {
+                entered.notified().await;
+                assert_eq!(store.db_semaphore.available_permits(), 0);
+                assert_eq!(
+                    store
+                        .get_mutation_mac("regular", &rows[0].index_mac)
+                        .await
+                        .unwrap(),
+                    Some(rows[0].value_mac.clone()),
+                    "the reader connection sees the committed batch while its barrier is held"
+                );
+                let mut read = pin!(store.get_devices("190455501800"));
+                let pending = poll_fn(|cx| Poll::Ready(read.as_mut().poll(cx).is_pending())).await;
+                assert!(pending, "a write-queue read must wait for the held permit");
+                release.notify_one();
+                read.await
+            })
+        })
+        .await
+        .expect("read and burst complete together");
+        burst.expect("write burst");
+        assert!(read.expect("read succeeds").is_none());
+    }
+
+    /// `pool_size > 1` with no reader connections is reachable config, and there
+    /// the permit no longer implies an exclusive connection: the writers that
+    /// check one out directly can commit between a multi-statement read's
+    /// queries. The deferred transaction has to cover that case too.
+    #[tokio::test]
+    async fn a_multi_statement_read_is_snapshot_isolated_with_a_wider_write_pool() {
+        let db = TempDb::new("wide_pool");
+        let store = crate::SqliteDatabase::open(
+            &db.url(),
+            SqliteDatabaseConfig {
+                pool_size: 2,
+                read_pool_size: 0,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("store opens")
+        .store(1);
+        assert!(store.reads.is_none(), "no reader connections requested");
+        store.create_new_device().await.expect("device row");
+        store.put_session(ADDR, b"blob").await.unwrap();
+
+        // Park between the two SELECTs and commit through the pool's *other*
+        // connection while parked. Without the deferred transaction the second
+        // query would pick the write up.
+        let (open_tx, mut open_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let reader = {
+            let store = store.clone();
+            tokio::spawn(async move {
+                store
+                    .read_query(move |conn| {
+                        let read_once = |conn: &mut SqliteConnection| {
+                            sessions::table
+                                .select(sessions::record)
+                                .filter(sessions::address.eq(ADDR))
+                                .first::<Vec<u8>>(conn)
+                                .optional()
+                                .map_err(|e| StoreError::Database(Box::new(e)))
+                        };
+                        let first = read_once(conn)?;
+                        let _ = open_tx.send(());
+                        let _ = release_rx.recv_timeout(Duration::from_secs(20));
+                        let second = read_once(conn)?;
+                        Ok((first, second))
+                    })
+                    .await
+            })
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), open_rx.recv())
+            .await
+            .expect("the read must reach its first query")
+            .expect("reader alive");
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            store.put_session(ADDR, b"committed-mid-read"),
+        )
+        .await
+        .expect("the second connection must be free to write")
+        .expect("write commits");
+
+        let _ = release_tx.send(());
+        let (first, second) = reader.await.expect("join").expect("read");
+        assert_eq!(first.as_deref(), Some(&b"blob"[..]));
+        assert_eq!(
+            second.as_deref(),
+            Some(&b"blob"[..]),
+            "both queries must see one snapshot, not the write that landed between them"
+        );
+
+        // And the committed value is visible to the next read.
+        assert_eq!(
+            store.get_session(ADDR).await.unwrap().as_deref(),
+            Some(&b"committed-mid-read"[..])
+        );
+    }
+
+    /// A shared-cache store declines reader connections because a read
+    /// transaction there holds table locks the writer cannot wait out. The
+    /// wider-write-pool snapshot has to decline for the same reason instead of
+    /// reintroducing exactly that transaction.
+    #[tokio::test]
+    async fn a_shared_cache_store_gets_no_snapshot_even_with_a_wider_write_pool() {
+        use portable_atomic::AtomicU64;
+        use std::sync::atomic::Ordering;
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let url = format!(
+            "file:memdb_snapshot_gate_{}_{id}?mode=memory&cache=shared",
+            std::process::id()
+        );
+        let store = crate::SqliteDatabase::open(
+            &url,
+            SqliteDatabaseConfig {
+                pool_size: 2,
+                read_pool_size: 4,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("store opens")
+        .store(1);
+
+        assert!(store.reads.is_none(), "shared cache declines reader pool");
+        assert!(
+            !store.snapshot_safe,
+            "and must decline the deferred read transaction with it"
+        );
+
+        store.create_new_device().await.expect("device row");
+        store.put_session(ADDR, b"blob").await.unwrap();
+        assert!(
+            store
+                .has_signal_state_for_user("559990000001")
+                .await
+                .unwrap()
+        );
+
+        // The flags above are only the mechanism. What has to hold is that a
+        // write still commits with a read parked mid-flight: on the snapshot
+        // path the writer meets the reader's table lock as
+        // `SQLITE_LOCKED_SHAREDCACHE`, which `busy_timeout` cannot absorb. The
+        // park outlasts `with_retry`'s ~310ms budget, so that lock is fatal
+        // rather than retried away.
+        let (open_tx, mut open_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let reader = {
+            let store = store.clone();
+            tokio::spawn(async move {
+                store
+                    .read_query(move |conn| {
+                        let first = sessions::table
+                            .select(sessions::record)
+                            .filter(sessions::address.eq(ADDR))
+                            .first::<Vec<u8>>(conn)
+                            .optional()
+                            .map_err(|e| StoreError::Database(Box::new(e)))?;
+                        let _ = open_tx.send(());
+                        let _ = release_rx.recv_timeout(Duration::from_secs(20));
+                        Ok(first)
+                    })
+                    .await
+            })
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), open_rx.recv())
+            .await
+            .expect("the read must reach its query")
+            .expect("reader alive");
+
+        let releaser = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+            let _ = release_tx.send(());
+        });
+
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            store.put_session(ADDR, b"committed-under-shared-cache"),
+        )
+        .await
+        .expect("the write must not stall behind the parked read")
+        .expect("the write must commit, not meet a shared-cache lock");
+
+        releaser.await.expect("join releaser");
+        reader.await.expect("join").expect("read");
+        assert_eq!(
+            store.get_session(ADDR).await.unwrap().as_deref(),
+            Some(&b"committed-under-shared-cache"[..])
+        );
+    }
+
+    /// An uncommitted write is not a lock error and not a phantom miss: the
+    /// reader sees the last committed state and returns it. This is the case
+    /// the msg-secret reads were kept on the write queue for, so it has to hold
+    /// with a real write transaction open, not just an idle permit.
+    #[tokio::test]
+    async fn a_read_sees_the_last_commit_while_a_write_transaction_is_open() {
+        let db = TempDb::new("in_flight");
+        let store = store_with(2, &db).await;
+        store.put_session(ADDR, b"committed").await.unwrap();
+
+        let (open_tx, mut open_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let writer = {
+            let shared = store.shared();
+            tokio::spawn(async move {
+                shared
+                    .run(move |conn| {
+                        conn.immediate_transaction(|conn| {
+                            diesel::update(sessions::table)
+                                .set(sessions::record.eq(&b"uncommitted"[..]))
+                                .execute(conn)?;
+                            let _ = open_tx.send(());
+                            // Bounded: a parked blocking task cannot be aborted,
+                            // so an unreleased one would hang shutdown.
+                            let _ = release_rx.recv_timeout(Duration::from_secs(20));
+                            Ok(())
+                        })
+                        .map_err(|e: diesel::result::Error| StoreError::Database(Box::new(e)))
+                    })
+                    .await
+            })
+        };
+
+        tokio::time::timeout(Duration::from_secs(10), open_rx.recv())
+            .await
+            .expect("the write transaction must open")
+            .expect("writer alive");
+
+        let read = tokio::time::timeout(Duration::from_secs(10), store.get_session(ADDR)).await;
+        let _ = release_tx.send(());
+        let got = read
+            .expect("a read must not block on an open write transaction")
+            .expect("a read must not fail on an open write transaction");
+        assert_eq!(
+            got.as_deref(),
+            Some(&b"committed"[..]),
+            "the reader sees the last commit, never the open transaction"
+        );
+        writer.await.expect("join").expect("write commits");
+
+        // And the committed value once the writer lands.
+        assert_eq!(
+            store.get_session(ADDR).await.unwrap().as_deref(),
+            Some(&b"uncommitted"[..])
+        );
+    }
+
+    /// Chunking exists for SQLite's host-parameter limit, not as a commit
+    /// boundary. Once reads stop sharing the write permit a reader can land
+    /// between two chunks, so the batch has to be atomic on its own; racing the
+    /// two is what shows it. Samples the count while the write is in flight and
+    /// fails on any value that is neither the before nor the after.
+    #[tokio::test]
+    async fn a_chunked_batch_write_is_never_observed_half_applied() {
+        // Four chunks at set_sender_key_status's CHUNK_SIZE of 190.
+        const ENTRIES: usize = 760;
+        let db = TempDb::new("chunk_atomic");
+        let store = store_with(4, &db).await;
+        let jids: Arc<Vec<String>> = Arc::new(
+            (0..ENTRIES)
+                .map(|i| format!("55999{i:07}:0@s.whatsapp.net"))
+                .collect(),
+        );
+
+        for _ in 0..8 {
+            store.clear_sender_key_devices(GROUP).await.unwrap();
+            let writer = {
+                let store = store.clone();
+                let jids = Arc::clone(&jids);
+                tokio::spawn(async move {
+                    let entries: Vec<(&str, bool)> =
+                        jids.iter().map(|j| (j.as_str(), true)).collect();
+                    store.set_sender_key_status(GROUP, &entries).await.unwrap();
+                })
+            };
+
+            // Poll rather than sleep, and bound it so a failure reports instead
+            // of hanging the runtime.
+            let sampled = tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    // Straight through read_query, not get_sender_key_devices:
+                    // that one is on the write permit now, which would serialize
+                    // the sample against the writer and hide a torn batch.
+                    let n = store
+                        .read_query(|conn| {
+                            sender_key_devices::table
+                                .filter(sender_key_devices::group_jid.eq(GROUP))
+                                .count()
+                                .get_result::<i64>(conn)
+                                .map(|n| n as usize)
+                                .map_err(|e| StoreError::Database(Box::new(e)))
+                        })
+                        .await
+                        .unwrap();
+                    assert!(
+                        n == 0 || n == ENTRIES,
+                        "a chunked batch was observed {n}/{ENTRIES} applied"
+                    );
+                    if n == ENTRIES {
+                        return;
+                    }
+                    // Both paths use the same blocking pool, so back-to-back
+                    // samples would compete with the writer for threads. Still
+                    // thousands of samples per batch.
+                    tokio::time::sleep(Duration::from_micros(200)).await;
+                }
+            })
+            .await;
+            writer.await.unwrap();
+            sampled.expect("the batch must land");
+        }
+    }
+
+    /// Read-only methods left on the write queue on purpose, with the reason.
+    /// Anything else matching a read-shaped name has to route through
+    /// `read_query` or this test fails.
+    const ON_THE_WRITE_QUEUE: &[(&str, &str)] = &[
+        (
+            "get_sent_message",
+            "retries SQLITE_BUSY on the write queue: a read error skips the repair, \
+             so retain the consuming lookup's retry behavior without deleting the row",
+        ),
+        (
+            "get_pending_inbound",
+            "retries SQLITE_BUSY on the write queue: a read error here fails closed \
+             and forces an unnecessary redelivery",
+        ),
+        (
+            "get_stored_msg_secret",
+            "a miss is terminal for the reaction/vote/edit, so the lookup must wait \
+             out a concurrent secret write rather than read the snapshot before it",
+        ),
+        (
+            "get_lid_mapping",
+            "resolves the alternate namespace for that same secret lookup, with no \
+             cache in front on that path, so a stale miss loses the addon too",
+        ),
+        ("get_pn_mapping", "same as get_lid_mapping"),
+        (
+            "get_app_state_sync_key_for_device",
+            "a stale absent answer is sent on the wire as an orphan reply to a \
+             peer's key request, not retried by the caller",
+        ),
+        (
+            "get_latest_app_state_sync_key_id_for_device",
+            "a stale absent answer becomes InvalidRequest and fails the user's \
+             app-state action outright",
+        ),
+        (
+            "get_all_lid_mappings",
+            "the startup warm-up feeds these into LidPnCache::add_guarded, whose \
+             LID side replaces unconditionally, so a stale row reverts a live learn",
+        ),
+        // The rest share one shape: the row is promoted into a plain in-memory
+        // cache, or suppresses an action, so a stale read sticks instead of
+        // being retried. `SignalStoreCache` reconciles staleness and its reads
+        // do migrate; these caches overwrite whatever they are handed.
+        (
+            "get_sender_key_devices",
+            "initializes sender_key_device_cache: a stale has_key=true is cached \
+             over a concurrent forget and the send drops that device's SKDM",
+        ),
+        (
+            "get_devices",
+            "promoted into device_registry_cache unconditionally, so a stale row \
+             overwrites a newer entry and sends omit a linked device",
+        ),
+        ("get_devices_batch", "same as get_devices"),
+        (
+            "get_tc_token",
+            "prepare_privacy_token schedules off this timestamp, so a stale read \
+             issues a duplicate token and bypasses the configured interval",
+        ),
+        (
+            "get_tc_tokens",
+            "the batched form of get_tc_token, and it answers the same callers, so \
+             it has to order against a concurrent touch the same way",
+        ),
+        (
+            "has_signal_state_for_user",
+            "has_state_for_user gates the PN to LID session migration and has no \
+             cold-load re-check, so a stale absent answer skips a migration that \
+             nothing retries",
+        ),
+    ];
+
+    /// Read-shaped methods that reach the database without going through
+    /// `read_query`: the ones with no excuse, the ones `ON_THE_WRITE_QUEUE`
+    /// excused, and how many were scanned at all so the check cannot pass by
+    /// matching nothing.
+    fn misrouted_reads(source: &str) -> (Vec<String>, Vec<String>, usize) {
+        let source = source
+            .split_once("\n#[cfg(test)]")
+            .map(|(before, _)| before)
+            .unwrap_or(source);
+
+        let mut current: Option<(&str, String)> = None;
+        let mut offenders: Vec<String> = Vec::new();
+        let mut excused: Vec<String> = Vec::new();
+        let mut scanned = 0usize;
+        for line in source.lines() {
+            if let Some((name, body)) = current.as_mut() {
+                if line == "    }" {
+                    let touches_db = [
+                        "self.pool",
+                        "with_semaphore(",
+                        "with_retry(",
+                        "with_read_retry(",
+                        "spawn_blocking(",
+                        // The sibling-crate write path; `shared().read(` is the
+                        // read one and is what `read_query` itself uses.
+                        "shared().run(",
+                    ]
+                    .iter()
+                    .any(|token| body.contains(token));
+                    if touches_db && !body.contains("read_query(") {
+                        if ON_THE_WRITE_QUEUE
+                            .iter()
+                            .any(|(allowed, _)| allowed == name)
+                        {
+                            excused.push((*name).to_string());
+                        } else {
+                            offenders.push((*name).to_string());
+                        }
+                    }
+                    current = None;
+                } else {
+                    // Indentation dropped so a call rustfmt split across lines
+                    // (`self` / `.shared()` / `.run(`) still reads as one token.
+                    body.push_str(line.trim_start());
+                }
+                continue;
+            }
+            let Some(rest) = line
+                .strip_prefix("    pub async fn ")
+                .or_else(|| line.strip_prefix("    async fn "))
+            else {
+                continue;
+            };
+            let name = rest.split(['(', '<']).next().unwrap_or_default();
+            const READ_PREFIXES: &[&str] = &[
+                "get_", "load_", "has_", "is_", "list_", "count_", "find_", "fetch_",
+            ];
+            if READ_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+                || name.ends_with("_exists")
+                || name == "exists"
+            {
+                current = Some((name, String::new()));
+                scanned += 1;
+            }
+        }
+        (offenders, excused, scanned)
+    }
+
+    /// A new read-only method written the old way (raw pool checkout, write
+    /// permit, or the retry loop) silently rejoins the write queue, and nothing
+    /// about it looks wrong at the call site. Scanning our own source is the
+    /// only place that can see the routing decision.
+    #[test]
+    fn read_shaped_methods_route_through_read_query() {
+        let (offenders, mut excused, scanned) = misrouted_reads(include_str!("sqlite_store.rs"));
+        assert!(
+            offenders.is_empty(),
+            "read-only methods must call read_query (or be listed in ON_THE_WRITE_QUEUE \
+             with a reason): {offenders:?}"
+        );
+        assert!(
+            scanned > 20,
+            "the scan saw only {scanned} read-shaped methods"
+        );
+        // The allowlist has to be consumed in full, or an entry left behind by a
+        // later migration would silently excuse the next method of that name and
+        // its reason would be a lie.
+        let mut listed: Vec<String> = ON_THE_WRITE_QUEUE
+            .iter()
+            .map(|(name, _)| (*name).to_string())
+            .collect();
+        listed.sort();
+        excused.sort();
+        assert_eq!(
+            excused, listed,
+            "every ON_THE_WRITE_QUEUE entry must still name a read that bypasses read_query"
+        );
+    }
+
+    /// The scan is worth nothing if it cannot see a violation, so feed it one.
+    #[test]
+    fn the_routing_scan_catches_a_misrouted_read() {
+        let regression = "\
+impl SqliteStore {
+    pub async fn get_something_new(&self) -> Result<()> {
+        let pool = self.pool.clone();
+        crate::pool::spawn_blocking(move || Ok(())).await
+    }
+
+    async fn get_something_routed(&self) -> Result<()> {
+        self.read_query(move |_conn| Ok(())).await
+    }
+
+    async fn load_via_the_shared_write_path(&self) -> Result<()> {
+        self
+            .shared()
+            .run(move |_conn| Ok(()))
+            .await
+    }
+}
+";
+        assert_eq!(
+            misrouted_reads(regression),
+            (
+                vec![
+                    "get_something_new".to_string(),
+                    "load_via_the_shared_write_path".to_string()
+                ],
+                Vec::new(),
+                3
+            )
+        );
+    }
+}
+
+#[cfg(test)]
+mod share_for_device_tests {
+    use super::read_routing_tests::TempDb;
+    use super::*;
+    use std::time::Duration;
+    use wacore::time::Instant;
+
+    /// How many sibling sessions the concurrency tests run. Small enough to
+    /// stay quick, large enough that a serialized queue is visible.
+    const SESSIONS: usize = 8;
+    const WRITES_PER_SESSION: usize = 25;
+
+    async fn base_store(db: &TempDb) -> SqliteStore {
+        crate::SqliteDatabase::open(&db.url(), Default::default())
+            .await
+            .expect("store opens")
+            .store(1)
+    }
+
+    /// Sibling handles are only plumbing: the `device_id` is what separates
+    /// their rows, exactly as it does for two independently-opened stores.
+    #[tokio::test]
+    async fn siblings_share_the_database_but_not_each_other_s_rows() {
+        let db = TempDb::new("share_isolation");
+        let device_1 = base_store(&db).await;
+        let device_2 = device_1.share_for_device(2);
+        assert_eq!(device_2.device_id(), 2);
+
+        device_1
+            .put_session("alice.1:0", b"device-1-record")
+            .await
+            .expect("write through the first handle");
+
+        // Same file: the sibling can read the row by asking for the other
+        // device explicitly.
+        assert_eq!(
+            device_2
+                .get_session_for_device("alice.1:0", 1)
+                .await
+                .expect("read"),
+            Some(b"device-1-record".to_vec()),
+            "both handles must be looking at the same database"
+        );
+        // Its own device scope, however, is empty.
+        assert_eq!(
+            device_2.get_session("alice.1:0").await.expect("read"),
+            None,
+            "a sibling device must not see another device's session"
+        );
+
+        // And a write through the sibling lands in its own scope only.
+        device_2
+            .put_session("alice.1:0", b"device-2-record")
+            .await
+            .expect("write through the sibling handle");
+        assert_eq!(
+            device_1.get_session("alice.1:0").await.expect("read"),
+            Some(Bytes::from_static(b"device-1-record")),
+            "the sibling's write must not clobber the first device's row"
+        );
+    }
+
+    /// The secret prune is scoped by device. The partial expiry index leads
+    /// with `device_id`, so a sweep through one sibling must not touch another
+    /// account's expired rows even when both hold the same key.
+    #[tokio::test]
+    async fn the_secret_prune_is_scoped_to_one_device() {
+        let db = TempDb::new("share_secret_prune");
+        let device_1 = base_store(&db).await;
+        let device_2 = device_1.share_for_device(2);
+        let now = wacore::time::now_secs();
+
+        for (store, marker) in [(&device_1, 1u8), (&device_2, 2u8)] {
+            store
+                .put_msg_secrets(vec![MsgSecretEntry {
+                    chat: Arc::from("19045550180@s.whatsapp.net"),
+                    sender: Arc::from("19045550180@s.whatsapp.net"),
+                    msg_id: Arc::from("SHARED_EXPIRED"),
+                    secret: [marker; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                    expires_at: now - 86_400,
+                    message_ts: 0,
+                }])
+                .await
+                .expect("seed both devices");
+        }
+
+        let removed = device_1
+            .delete_expired_msg_secrets(now)
+            .await
+            .expect("prune device 1");
+        assert_eq!(removed, 1, "only device 1's row is in scope");
+        assert!(
+            device_1
+                .get_msg_secret(
+                    "19045550180@s.whatsapp.net",
+                    "19045550180@s.whatsapp.net",
+                    "SHARED_EXPIRED"
+                )
+                .await
+                .expect("lookup")
+                .is_none(),
+            "device 1's row is gone"
+        );
+        assert!(
+            device_2
+                .get_msg_secret(
+                    "19045550180@s.whatsapp.net",
+                    "19045550180@s.whatsapp.net",
+                    "SHARED_EXPIRED"
+                )
+                .await
+                .expect("lookup")
+                .is_some(),
+            "the sibling device's row must survive another device's sweep"
+        );
+    }
+
+    /// The whole point of the method, asserted the only way that proves it:
+    /// by counting connections. A fleet of handles opens one; a fleet of
+    /// stores opens one each.
+    #[tokio::test]
+    async fn a_fleet_of_handles_opens_one_connection() {
+        let db = TempDb::new("share_conn_count");
+        let base = base_store(&db).await;
+        let mut fleet = vec![base.clone()];
+        for device_id in 2..=SESSIONS as i32 {
+            fleet.push(base.share_for_device(device_id));
+        }
+        // r2d2 opens connections lazily, so make every handle actually use one.
+        for store in &fleet {
+            store.get_session("probe").await.expect("read");
+        }
+        let shared_connections: u32 = fleet
+            .iter()
+            .map(|store| store.pool.state().connections)
+            .max()
+            .expect("non-empty fleet");
+        assert_eq!(
+            shared_connections, 1,
+            "sibling handles must reuse the one pooled connection"
+        );
+        // Same semaphore, so they also share the write queue — the trade-off
+        // the doc comment describes, asserted rather than assumed.
+        assert!(
+            fleet
+                .iter()
+                .all(|store| Arc::ptr_eq(&store.db_semaphore, &base.db_semaphore)),
+            "handles must share the write permit, not just the pool"
+        );
+
+        // The baseline this replaces: one store per session, one connection each.
+        let db = TempDb::new("share_conn_count_baseline");
+        let mut separate = Vec::new();
+        for device_id in 1..=SESSIONS as i32 {
+            let store = crate::SqliteDatabase::open(&db.url(), Default::default())
+                .await
+                .expect("store opens")
+                .store(device_id);
+            store.get_session("probe").await.expect("read");
+            separate.push(store);
+        }
+        let total: u32 = separate
+            .iter()
+            .map(|store| store.pool.state().connections)
+            .sum();
+        assert_eq!(
+            total, SESSIONS as u32,
+            "one store per session is one connection per session"
+        );
+    }
+
+    /// Every session writes at once; returns wall-clock for the whole burst
+    /// and each session's own completion time.
+    async fn write_burst(stores: Vec<SqliteStore>) -> (Duration, Vec<Duration>) {
+        let started = Instant::now();
+        let mut tasks = Vec::new();
+        for (n, store) in stores.into_iter().enumerate() {
+            tasks.push(tokio::spawn(async move {
+                let session_started = Instant::now();
+                for i in 0..WRITES_PER_SESSION {
+                    store
+                        .put_session(&format!("peer.{n}.{i}:0"), &[n as u8; 256])
+                        .await
+                        .expect("write must not fail under contention");
+                }
+                session_started.elapsed()
+            }));
+        }
+        let mut per_session = Vec::new();
+        for task in tasks {
+            per_session.push(task.await.expect("join"));
+        }
+        (started.elapsed(), per_session)
+    }
+
+    /// Sharing a pool means sharing its write permits, and at the default
+    /// `pool_size` there is exactly one — so sibling sessions serialize on
+    /// writes. That is the cost of the memory saving and the reason
+    /// `share_for_device` is not the default shape; it is measured here rather
+    /// than argued about. `pool_size` is set explicitly, because the claim
+    /// holds for that value and not for a wider pool.
+    ///
+    /// The assertions are the two properties that must hold on any machine:
+    /// no write fails, and no session starves. The timings are printed for the
+    /// record; asserting on wall-clock would only buy a flaky test.
+    #[tokio::test]
+    async fn concurrent_writes_serialize_across_siblings_at_the_default_pool_size() {
+        let db = TempDb::new("share_write_contention");
+        let base = crate::SqliteDatabase::open(
+            &db.url(),
+            SqliteDatabaseConfig {
+                pool_size: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("store opens")
+        .store(1);
+        let mut fleet = vec![base.clone()];
+        for device_id in 2..=SESSIONS as i32 {
+            fleet.push(base.share_for_device(device_id));
+        }
+        let (shared_total, shared_sessions) = write_burst(fleet).await;
+
+        let db = TempDb::new("share_write_contention_baseline");
+        let mut separate = Vec::new();
+        for device_id in 1..=SESSIONS as i32 {
+            separate.push(
+                crate::SqliteDatabase::open(&db.url(), Default::default())
+                    .await
+                    .expect("store opens")
+                    .store(device_id),
+            );
+        }
+        let (separate_total, separate_sessions) = write_burst(separate).await;
+
+        let summarize = |label: &str, total: Duration, sessions: &[Duration]| {
+            let slowest = sessions.iter().max().copied().unwrap_or_default();
+            let fastest = sessions.iter().min().copied().unwrap_or_default();
+            println!(
+                "{label}: {SESSIONS} sessions x {WRITES_PER_SESSION} writes in {total:?} \
+                 (session fastest {fastest:?}, slowest {slowest:?})"
+            );
+        };
+        summarize("shared pool", shared_total, &shared_sessions);
+        summarize("pool per session", separate_total, &separate_sessions);
+
+        // Starvation check: a FIFO permit hands every session its turn, so the
+        // slowest cannot be an order of magnitude behind the fastest. A pool
+        // per session leans on SQLite's busy handler instead, which backs off
+        // randomly and offers no such guarantee — so only the shared side is
+        // asserted.
+        let fastest = shared_sessions.iter().min().copied().unwrap_or_default();
+        let slowest = shared_sessions.iter().max().copied().unwrap_or_default();
+        assert!(
+            slowest < fastest * 10 + Duration::from_secs(1),
+            "no sibling may starve on the shared write queue: \
+             fastest {fastest:?}, slowest {slowest:?}"
+        );
+    }
+}
+
+/// Periodic engine maintenance: the WAL cap and the `maintenance()` pass.
+/// Account lifecycle: enumeration, allocation, reset and removal.
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::read_routing_tests::TempDb;
+    use super::*;
+    use std::collections::HashSet;
+
+    async fn store(db: &TempDb) -> SqliteStore {
+        SqliteStore::open(&db.url()).await.expect("store opens")
+    }
+
+    /// Seat one row in every account-scoped table for `device_id`, using each
+    /// table's real columns, so the purge tests exercise every table the
+    /// production list names and not a convenient subset.
+    ///
+    /// Only columns that are `NOT NULL` without a default need a value (plus
+    /// `device_id` itself); everything else is omitted so SQLite applies its
+    /// default or NULL. That keeps the insert valid without the helper having to
+    /// know any table's semantics. Values are chosen from the column's declared
+    /// type. `pragma_table_info` is what makes this track the real schema, so a
+    /// column added later is covered without editing the helper.
+    fn seed_account_scoped_rows(conn: &mut SqliteConnection, device_id: i32) {
+        for table in ACCOUNT_SCOPED_TABLES {
+            #[derive(QueryableByName)]
+            struct Column {
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                name: String,
+                #[diesel(sql_type = diesel::sql_types::Text)]
+                column_type: String,
+                #[diesel(sql_type = diesel::sql_types::Integer)]
+                notnull: i32,
+                #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+                dflt_value: Option<String>,
+            }
+
+            let columns: Vec<Column> = diesel::sql_query(format!(
+                "SELECT name, type AS column_type, \"notnull\", dflt_value \
+                 FROM pragma_table_info('{table}')"
+            ))
+            .load(conn)
+            .expect("column metadata");
+
+            let mut names = Vec::new();
+            let mut values = Vec::new();
+            for column in &columns {
+                let value = if column.name == "device_id" {
+                    device_id.to_string()
+                } else if column.notnull == 1 && column.dflt_value.is_none() {
+                    let upper = column.column_type.to_ascii_uppercase();
+                    if upper == "BLOB" {
+                        "X'00'".to_string()
+                    } else if matches!(upper.as_str(), "INTEGER" | "BIGINT" | "BOOLEAN") {
+                        "0".to_string()
+                    } else {
+                        format!("'seed-{table}-{device_id}'")
+                    }
+                } else {
+                    continue;
+                };
+                names.push(column.name.clone());
+                values.push(value);
+            }
+
+            diesel::sql_query(format!(
+                "INSERT INTO {table} ({}) VALUES ({})",
+                names.join(", "),
+                values.join(", ")
+            ))
+            .execute(conn)
+            .unwrap_or_else(|e| panic!("seed {table}: {e}"));
+        }
+    }
+
+    /// Raw account-scoped row counts for `device_id`, read with the same
+    /// `ACCOUNT_SCOPED_TABLES` the purge uses so the two cannot disagree.
+    fn scoped_row_counts(store: &SqliteStore, device_id: i32) -> Vec<(String, i64)> {
+        let pool = store.pool.clone();
+        let mut conn = pool.get().expect("a connection");
+        ACCOUNT_SCOPED_TABLES
+            .iter()
+            .map(|table| {
+                #[derive(QueryableByName)]
+                struct Count {
+                    #[diesel(sql_type = diesel::sql_types::BigInt)]
+                    n: i64,
+                }
+                let n = diesel::sql_query(format!(
+                    "SELECT count(*) AS n FROM {table} WHERE device_id = ?"
+                ))
+                .bind::<diesel::sql_types::Integer, _>(device_id)
+                .get_result::<Count>(&mut *conn)
+                .unwrap_or_else(|e| panic!("count {table}: {e}"))
+                .n;
+                ((*table).to_string(), n)
+            })
+            .collect()
+    }
+
+    /// The build-time guard the plan asks for: the hand-written
+    /// `ACCOUNT_SCOPED_TABLES` must name every table that has a `device_id`
+    /// column, or a table added later leaks account state through teardown.
+    /// Reading the live schema is what makes this fail on a new table rather
+    /// than on a new entry in the list.
+    #[tokio::test]
+    async fn account_scoped_table_list_covers_the_schema() {
+        let db = TempDb::new("lifecycle_schema_guard");
+        let store = store(&db).await;
+
+        #[derive(QueryableByName)]
+        struct TableName {
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            name: String,
+        }
+
+        let pool = store.pool.clone();
+        let mut conn = pool.get().expect("a connection");
+        let found: Vec<TableName> = diesel::sql_query(
+            "SELECT m.name AS name FROM sqlite_master AS m \
+             WHERE m.type = 'table' \
+               AND m.name NOT LIKE 'sqlite_%' \
+               AND m.name <> 'device' \
+               AND EXISTS (SELECT 1 FROM pragma_table_info(m.name) WHERE name = 'device_id') \
+             ORDER BY m.name",
+        )
+        .load(&mut *conn)
+        .expect("schema scan");
+
+        let found: HashSet<String> = found.into_iter().map(|t| t.name).collect();
+        let listed: HashSet<String> = ACCOUNT_SCOPED_TABLES
+            .iter()
+            .map(|t| (*t).to_string())
+            .collect();
+        assert_eq!(
+            found, listed,
+            "ACCOUNT_SCOPED_TABLES must name exactly the tables carrying device_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_sibling_device_allocates_and_binds() {
+        let db = TempDb::new("lifecycle_create");
+        let base = store(&db).await;
+
+        let first = base.database().create_device().await.expect("create");
+        let first_id = first.device_id();
+        let second = base.database().create_device().await.expect("create");
+        let second_id = second.device_id();
+        assert_eq!(first.device_id(), first_id);
+        assert_eq!(second.device_id(), second_id);
+        assert_ne!(first_id, second_id, "allocated ids must be distinct");
+
+        let listed = base.database().list_devices().await.expect("list");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].id, first_id);
+        assert!(listed.iter().all(|d| !d.linked));
+    }
+
+    #[tokio::test]
+    async fn list_devices_reports_pn_lid_and_push_name() {
+        let db = TempDb::new("lifecycle_list");
+        let base = store(&db).await;
+        base.create_new_device().await.expect("seed device 1");
+
+        // A paired row: pn set, lid set, named.
+        base.with_retry("test_pair", || {
+            Box::new(|conn: &mut SqliteConnection| {
+                diesel::update(device::table.filter(device::id.eq(1)))
+                    .set((
+                        device::pn.eq("559980000001@s.whatsapp.net"),
+                        device::lid.eq("100000012345678@lid"),
+                        device::push_name.eq("Alice"),
+                    ))
+                    .execute(conn)?;
+                Ok(())
+            })
+        })
+        .await
+        .expect("pair device 1");
+
+        let id = base
+            .database()
+            .create_device()
+            .await
+            .expect("create")
+            .device_id();
+        let listed = base.database().list_devices().await.expect("list");
+        assert_eq!(listed.len(), 2);
+
+        let paired = listed.iter().find(|d| d.id == 1).expect("device 1");
+        assert_eq!(paired.push_name, "Alice");
+        assert!(paired.linked);
+        assert_eq!(
+            paired.pn.as_ref().map(|j| j.user.as_str()),
+            Some("559980000001")
+        );
+        assert_eq!(
+            paired.lid.as_ref().map(|j| j.user.as_str()),
+            Some("100000012345678")
+        );
+
+        let fresh = listed.iter().find(|d| d.id == id).expect("fresh device");
+        assert!(!fresh.linked);
+        assert!(fresh.pn.is_none() && fresh.lid.is_none());
+    }
+
+    #[tokio::test]
+    async fn reset_device_clears_state_and_keeps_the_id() {
+        let db = TempDb::new("lifecycle_reset");
+        let base = store(&db).await;
+        let account = base.database().create_device().await.expect("create");
+        let id = account.device_id();
+        {
+            let pool = account.pool.clone();
+            let mut conn = pool.get().expect("a connection");
+            seed_account_scoped_rows(&mut conn, id);
+        }
+        // The state is really there before the reset, or the test proves nothing.
+        // Every table must be seeded: a helper that skipped one would let the
+        // purge assertion pass without covering it.
+        let before = scoped_row_counts(&base, id);
+        let unseeded: Vec<_> = before.iter().filter(|(_, n)| *n == 0).collect();
+        assert!(
+            unseeded.is_empty(),
+            "seed must write a row in every account-scoped table, missing: {unseeded:?}"
+        );
+
+        let reset = base.database().reset_device(id).await.expect("reset");
+        assert_eq!(reset.device_id(), id, "reset keeps the account id");
+
+        let after = scoped_row_counts(&base, id);
+        assert!(
+            after.iter().all(|(_, n)| *n == 0),
+            "reset must purge every account-scoped table, left: {:?}",
+            after.iter().filter(|(_, n)| *n > 0).collect::<Vec<_>>()
+        );
+
+        // The row is back, with fresh keys.
+        let reloaded = base
+            .load_device_data_for_device(id)
+            .await
+            .expect("load after reset")
+            .expect("device row recreated");
+        assert!(reloaded.pn.is_none(), "reset leaves the account unpaired");
+        let listed = base.database().list_devices().await.expect("list");
+        assert!(listed.iter().any(|d| d.id == id));
+    }
+
+    #[tokio::test]
+    async fn remove_device_purges_and_retires_the_id() {
+        let db = TempDb::new("lifecycle_remove");
+        let base = store(&db).await;
+        let account = base.database().create_device().await.expect("create");
+        let id = account.device_id();
+        {
+            let pool = account.pool.clone();
+            let mut conn = pool.get().expect("a connection");
+            seed_account_scoped_rows(&mut conn, id);
+        }
+
+        let seeded = scoped_row_counts(&base, id);
+        assert!(
+            seeded.iter().all(|(_, n)| *n > 0),
+            "seed must write a row in every account-scoped table, missing: {:?}",
+            seeded.iter().filter(|(_, n)| *n == 0).collect::<Vec<_>>()
+        );
+
+        base.database().remove_device(id).await.expect("remove");
+
+        assert!(!base.database().device_exists(id).await.expect("exists"));
+        let after = scoped_row_counts(&base, id);
+        assert!(
+            after.iter().all(|(_, n)| *n == 0),
+            "remove must purge every account-scoped table, left: {:?}",
+            after.iter().filter(|(_, n)| *n > 0).collect::<Vec<_>>()
+        );
+
+        // AUTOINCREMENT retires the id: no later allocation may reuse it.
+        let next_id = base
+            .database()
+            .create_device()
+            .await
+            .expect("create")
+            .device_id();
+        assert_ne!(next_id, id, "a removed id must never be reissued");
+    }
+
+    #[tokio::test]
+    async fn lifecycle_ops_reject_an_unknown_device() {
+        let db = TempDb::new("lifecycle_missing");
+        let base = store(&db).await;
+        base.create_new_device().await.expect("device 1");
+
+        let reset = base.database().reset_device(9_999).await.err();
+        assert!(
+            matches!(reset, Some(StoreError::DeviceNotFound(9_999))),
+            "reset of an unknown device names it, got {reset:?}"
+        );
+        let remove = base.database().remove_device(9_999).await.err();
+        assert!(
+            matches!(remove, Some(StoreError::DeviceNotFound(9_999))),
+            "remove of an unknown device names it, got {remove:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_creates_never_collide() {
+        let db = TempDb::new("lifecycle_concurrent");
+        const CREATES: usize = 16;
+        // A wider write pool so the creates genuinely interleave on separate
+        // connections. At the default pool_size the store's own permit would
+        // serialize them and the test would pass without exercising SQLite's
+        // allocation at all. Each create is a single INSERT, so the
+        // read-then-write deadlock the config warns about does not arise.
+        let base = crate::SqliteDatabase::open(
+            &db.url(),
+            SqliteDatabaseConfig {
+                pool_size: CREATES as u32,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("store opens")
+        .store(1);
+
+        let mut tasks = Vec::new();
+        for _ in 0..CREATES {
+            let base = base.clone();
+            tasks.push(tokio::spawn(async move {
+                base.database()
+                    .create_device()
+                    .await
+                    .expect("create")
+                    .device_id()
+            }));
+        }
+        let mut ids = Vec::new();
+        for task in tasks {
+            ids.push(task.await.expect("join"));
+        }
+
+        let unique: HashSet<i32> = ids.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            CREATES,
+            "concurrent creates returned a duplicate id: {ids:?}"
+        );
+        let listed: HashSet<i32> = base
+            .database()
+            .list_devices()
+            .await
+            .expect("list")
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(listed, unique, "every allocated id has exactly one row");
+    }
+
+    /// The purge contract for tables this crate does not own. A sibling store
+    /// keeps its rows in tables `ACCOUNT_SCOPED_TABLES` cannot name, so it has
+    /// to get them swept by the `DELETE FROM device` both teardown paths run.
+    /// That only happens if the sibling declares `ON DELETE CASCADE`, which is
+    /// what `lid_pn_mapping` already does and what this pins, so a future
+    /// sibling cannot quietly keep account history alive.
+    #[tokio::test]
+    async fn a_sibling_table_cascades_away_with_its_account() {
+        let db = TempDb::new("lifecycle_cascade");
+        let base = store(&db).await;
+        let account = base.database().create_device().await.expect("create");
+        let id = account.device_id();
+
+        // Stand in for a sibling store's table: keyed by device_id, owned by
+        // someone else, declared the way the contract requires.
+        {
+            let pool = account.pool.clone();
+            let mut conn = pool.get().expect("a connection");
+            diesel::sql_query(
+                "CREATE TABLE sibling_chat_store (
+                     chat_jid TEXT NOT NULL,
+                     device_id INTEGER NOT NULL,
+                     PRIMARY KEY (chat_jid, device_id),
+                     FOREIGN KEY(device_id) REFERENCES device(id) ON DELETE CASCADE
+                 )",
+            )
+            .execute(&mut *conn)
+            .expect("sibling table");
+            diesel::sql_query(
+                "INSERT INTO sibling_chat_store (chat_jid, device_id) VALUES ('chat@c.us', ?)",
+            )
+            .bind::<diesel::sql_types::Integer, _>(id)
+            .execute(&mut *conn)
+            .expect("sibling row");
+        }
+
+        let sibling_rows = |store: &SqliteStore| {
+            #[derive(QueryableByName)]
+            struct Count {
+                #[diesel(sql_type = diesel::sql_types::BigInt)]
+                n: i64,
+            }
+            let pool = store.pool.clone();
+            let mut conn = pool.get().expect("a connection");
+            diesel::sql_query("SELECT count(*) AS n FROM sibling_chat_store")
+                .get_result::<Count>(&mut *conn)
+                .expect("count sibling rows")
+                .n
+        };
+
+        assert_eq!(sibling_rows(&base), 1, "the sibling row is really there");
+
+        // reset_device recreates the device row, so the cascade has to run on
+        // the delete in the middle, not on the reinsert.
+        base.database().reset_device(id).await.expect("reset");
+        assert_eq!(
+            sibling_rows(&base),
+            0,
+            "reset must cascade the sibling store's rows away"
+        );
+
+        // And again for remove, on a freshly seeded row.
+        {
+            let pool = account.pool.clone();
+            let mut conn = pool.get().expect("a connection");
+            diesel::sql_query(
+                "INSERT INTO sibling_chat_store (chat_jid, device_id) VALUES ('chat2@c.us', ?)",
+            )
+            .bind::<diesel::sql_types::Integer, _>(id)
+            .execute(&mut *conn)
+            .expect("sibling row again");
+        }
+        base.database().remove_device(id).await.expect("remove");
+        assert_eq!(
+            sibling_rows(&base),
+            0,
+            "remove must cascade the sibling store's rows away"
+        );
+    }
+}
+
+#[cfg(test)]
+mod maintenance_tests {
+    use super::read_routing_tests::TempDb;
+    use super::*;
+
+    /// The `-wal` sidecar's size, or 0 when it has already been truncated away.
+    fn wal_bytes(db: &TempDb) -> u64 {
+        std::fs::metadata(format!("{}-wal", db.url()))
+            .map(|m| m.len())
+            .unwrap_or(0)
+    }
+
+    #[tokio::test]
+    async fn a_fresh_store_runs_maintenance_and_caps_its_wal() {
+        let db = TempDb::new("maintenance_fresh");
+        let store = SqliteStore::open(&db.url()).await.expect("store opens");
+
+        #[derive(diesel::QueryableByName)]
+        struct Limit {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            journal_size_limit: i64,
+        }
+        let mut conn = store.pool.get().expect("connection");
+        let limit: Limit = diesel::sql_query("PRAGMA journal_size_limit")
+            .get_result(&mut *conn)
+            .expect("read journal_size_limit");
+        assert_eq!(
+            limit.journal_size_limit, 33_554_432,
+            "on_acquire caps the WAL at 32 MiB"
+        );
+        drop(conn);
+
+        DeviceStore::maintenance(&store)
+            .await
+            .expect("maintenance succeeds on a fresh store");
+    }
+
+    fn auto_vacuum_mode(store: &SqliteStore) -> i64 {
+        #[derive(diesel::QueryableByName)]
+        struct Mode {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            auto_vacuum: i64,
+        }
+        let mut conn = store.pool.get().expect("connection");
+        diesel::sql_query("PRAGMA auto_vacuum;")
+            .get_result::<Mode>(&mut *conn)
+            .expect("read auto_vacuum")
+            .auto_vacuum
+    }
+
+    /// The opt-in reclaim must never turn into a reorganization:
+    /// - it is off by default, so the mode stays NONE;
+    /// - enabled on a fresh empty file, it sets INCREMENTAL before any table
+    ///   exists (allowed, no rewrite) and maintenance reclaims without error;
+    /// - enabled on an already-populated database it is a no-op, because SQLite
+    ///   ignores `auto_vacuum` after the first table and this library must not
+    ///   run the `VACUUM` that would otherwise be required.
+    #[tokio::test]
+    async fn incremental_vacuum_is_opt_in_and_never_reorganizes_an_existing_db() {
+        // Default: off.
+        let db = TempDb::new("maintenance_av_default");
+        let store = SqliteStore::open(&db.url()).await.expect("store opens");
+        assert_eq!(
+            auto_vacuum_mode(&store),
+            0,
+            "default leaves auto_vacuum off"
+        );
+        DeviceStore::maintenance(&store).await.expect("maintenance");
+        drop(store);
+
+        // Fresh file + opt-in: the mode is set, and the pass reclaims pages
+        // without error.
+        let db = TempDb::new("maintenance_av_fresh");
+        let cfg = SqliteDatabaseConfig::default().with_incremental_vacuum(100);
+        let store = crate::SqliteDatabase::open(&db.url(), cfg)
+            .await
+            .expect("store opens")
+            .store(1);
+        assert_eq!(
+            auto_vacuum_mode(&store),
+            2,
+            "a fresh file can be put in INCREMENTAL mode"
+        );
+        for i in 0..200u64 {
+            store
+                .put_msg_secrets(vec![MsgSecretEntry {
+                    chat: Arc::from(format!("1904555{:04}@s.whatsapp.net", i % 50).as_str()),
+                    sender: Arc::from("100000000000002@lid"),
+                    msg_id: Arc::from(format!("AV{i:016X}").as_str()),
+                    secret: [0x7A; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                    expires_at: if i % 2 == 0 { 0 } else { 1 },
+                    message_ts: 1_700_000_000,
+                }])
+                .await
+                .expect("seed");
+        }
+        // Delete the expired half so there are free pages to reclaim.
+        store
+            .delete_expired_msg_secrets(wacore::time::now_secs())
+            .await
+            .expect("prune");
+        DeviceStore::maintenance(&store)
+            .await
+            .expect("maintenance reclaims without reorganizing");
+        drop(store);
+
+        // Populated database + opt-in: SQLite ignores the mode change, so the
+        // store must leave it at NONE and simply not reclaim. No VACUUM.
+        let db = TempDb::new("maintenance_av_populated");
+        let plain = SqliteStore::open(&db.url()).await.expect("store opens");
+        plain
+            .put_msg_secret("c", "s", "M", &[1u8; 32])
+            .await
+            .expect("populate");
+        drop(plain);
+
+        let cfg = SqliteDatabaseConfig::default().with_incremental_vacuum(100);
+        let reopened = crate::SqliteDatabase::open(&db.url(), cfg)
+            .await
+            .expect("reopen")
+            .store(1);
+        assert_eq!(
+            auto_vacuum_mode(&reopened),
+            0,
+            "an existing database must not be switched out of NONE"
+        );
+        DeviceStore::maintenance(&reopened)
+            .await
+            .expect("maintenance on a NONE-mode database is a no-op, not an error");
+        drop(reopened);
+
+        // `with_incremental_vacuum(0)` disables the option rather than enabling
+        // a pass that reclaims nothing: switching a fresh file into INCREMENTAL
+        // is one-way outside a VACUUM, so it must not happen with no reclaim to
+        // justify the pointer-map overhead.
+        let cfg = SqliteDatabaseConfig::default().with_incremental_vacuum(0);
+        assert!(
+            !cfg.incremental_vacuum,
+            "a zero batch leaves the option off"
+        );
+        let db = TempDb::new("maintenance_av_zero");
+        let zero = crate::SqliteDatabase::open(&db.url(), cfg)
+            .await
+            .expect("store opens")
+            .store(1);
+        assert_eq!(
+            auto_vacuum_mode(&zero),
+            0,
+            "a zero batch must not switch a fresh file into INCREMENTAL"
+        );
+        DeviceStore::maintenance(&zero)
+            .await
+            .expect("maintenance with the option off is a no-op");
+    }
+
+    /// A single large transaction is what leaves a WAL permanently big, so this
+    /// writes one and then checks that the pass hands the space back.
+    /// The parsed path keeps its `file:` scheme for SQLite's sake; the WAL
+    /// sidecar does not carry one, so the report must look beside the file the
+    /// scheme names.
+    #[test]
+    fn the_wal_sidecar_is_looked_up_beside_the_file_the_uri_names() {
+        assert_eq!(filesystem_path("/tmp/db.sqlite"), "/tmp/db.sqlite");
+        assert_eq!(filesystem_path("db.sqlite"), "db.sqlite");
+        assert_eq!(filesystem_path("file:db.sqlite"), "db.sqlite");
+        assert_eq!(filesystem_path("file:/tmp/db.sqlite"), "/tmp/db.sqlite");
+        assert_eq!(filesystem_path("file:///tmp/db.sqlite"), "/tmp/db.sqlite");
+        assert_eq!(
+            filesystem_path("file://localhost/tmp/db.sqlite"),
+            "/tmp/db.sqlite"
+        );
+        // Escapes are a URI feature: decoded behind a scheme, literal without
+        // one (a file really named `my%20db.sqlite` opens by that name).
+        assert_eq!(
+            filesystem_path("file:/tmp/my%20db.sqlite"),
+            "/tmp/my db.sqlite"
+        );
+        assert_eq!(
+            filesystem_path("file:///tmp/a%2Fb%3Fc.sqlite"),
+            "/tmp/a/b?c.sqlite"
+        );
+        assert_eq!(
+            filesystem_path("/tmp/my%20db.sqlite"),
+            "/tmp/my%20db.sqlite"
+        );
+        // A `%` that introduces no hex pair stays as it is, like SQLite's own
+        // parser.
+        assert_eq!(filesystem_path("file:/tmp/100%.sqlite"), "/tmp/100%.sqlite");
+        assert_eq!(filesystem_path("file:/tmp/a%2.sqlite"), "/tmp/a%2.sqlite");
+    }
+
+    /// The escaped counterpart of the test below: SQLite opens the decoded
+    /// name, so the sidecar probe has to decode too or it reports no WAL for a
+    /// database that has one.
+    #[tokio::test]
+    async fn a_percent_encoded_uri_store_reports_its_wal() {
+        let db = TempDb::new("maintenance uri wal");
+        let url = format!("file:{}?mode=rwc", db.url().replace(' ', "%20"));
+        assert!(url.contains("%20"), "the fixture path must carry an escape");
+        let store = SqliteStore::open(&url)
+            .await
+            .expect("store opens by an escaped URI");
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: Arc::from("19045550180@s.whatsapp.net"),
+                sender: Arc::from("100000000000002@lid"),
+                msg_id: Arc::from("MSGURIESCAPED"),
+                secret: [0x7A; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: 1_700_000_000,
+            }])
+            .await
+            .expect("seed one secret");
+
+        let report = DeviceStore::resource_report(&store).await;
+        assert_eq!(
+            report.wal_bytes,
+            Some(wal_bytes(&db)),
+            "an escaped URI must resolve to the same WAL the database wrote"
+        );
+        assert!(
+            report.wal_bytes.is_some_and(|bytes| bytes > 0),
+            "the WAL exists after a write"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_uri_opened_store_reports_its_wal() {
+        let db = TempDb::new("maintenance_uri_wal");
+        let url = format!("file:{}?mode=rwc", db.url());
+        let store = SqliteStore::open(&url).await.expect("store opens by URI");
+        // One write so the WAL exists on disk.
+        store
+            .put_msg_secrets(vec![MsgSecretEntry {
+                chat: Arc::from("19045550180@s.whatsapp.net"),
+                sender: Arc::from("100000000000002@lid"),
+                msg_id: Arc::from("MSGURIWAL"),
+                secret: [0x7A; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: 1_700_000_000,
+            }])
+            .await
+            .expect("seed one secret");
+        let report = DeviceStore::resource_report(&store).await;
+        assert_eq!(
+            report.wal_bytes,
+            Some(wal_bytes(&db)),
+            "a file: URI store must find the WAL beside the file it names"
+        );
+        assert!(
+            report.wal_bytes.is_some_and(|bytes| bytes > 0),
+            "the WAL exists after a write"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_large_batch_leaves_no_oversized_wal_after_maintenance() {
+        const ROWS: u64 = 100_000;
+        const LIMIT: u64 = 33_554_432;
+
+        let db = TempDb::new("maintenance_wal");
+        let store = SqliteStore::open(&db.url()).await.expect("store opens");
+        let entries: Vec<MsgSecretEntry> = (0..ROWS)
+            .map(|i| MsgSecretEntry {
+                chat: Arc::from(format!("1904555{:04}@s.whatsapp.net", i % 10_000).as_str()),
+                sender: Arc::from("100000000000002@lid"),
+                msg_id: Arc::from(format!("MSG{i:016X}").as_str()),
+                secret: [0x7A; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+                expires_at: 0,
+                message_ts: 1_700_000_000,
+            })
+            .collect();
+        store.put_msg_secrets(entries).await.expect("seed secrets");
+
+        DeviceStore::maintenance(&store)
+            .await
+            .expect("maintenance succeeds");
+
+        let after = wal_bytes(&db);
+        assert!(
+            after <= LIMIT,
+            "the WAL must be back under the 32 MiB cap, was {after} bytes"
+        );
+
+        // The same figures an operator would read out of `resource_report`.
+        let report = DeviceStore::resource_report(&store).await;
+        assert!(report.pages.is_some_and(|p| p > 0), "page count reported");
+        assert!(report.free_pages.is_some(), "freelist reported");
+        assert_eq!(
+            report.wal_bytes,
+            Some(after),
+            "the report's WAL size is the file's"
+        );
+    }
+}
+
+/// The keepalive retention sweeps: what they delete, and that a busy write
+/// permit makes them wait their turn rather than fail.
+#[cfg(test)]
+mod retention_sweep_tests {
+    use super::read_routing_tests::TempDb;
+    use super::*;
+
+    /// Backdate one row's age column so a sweep with a "now" cutoff sees it as
+    /// expired. Both columns default to `strftime('%s','now')` on insert, so
+    /// there is no other way to write an old row.
+    async fn backdate(store: &SqliteStore, sql: &'static str) {
+        let pool = store.pool.clone();
+        crate::pool::spawn_blocking(move || {
+            let mut conn = pool.get().expect("connection");
+            diesel::sql_query(sql)
+                .execute(&mut *conn)
+                .expect("backdate");
+        })
+        .await
+        .expect("blocking join");
+    }
+
+    #[tokio::test]
+    async fn each_sweep_deletes_only_its_expired_rows() {
+        let db = TempDb::new("retention_sweeps");
+        let store = SqliteStore::open(&db.url()).await.expect("store opens");
+        let now = wacore::time::now_secs();
+
+        store
+            .store_sent_message("1@s.whatsapp.net", "OLD", b"payload")
+            .await
+            .expect("store old sent");
+        store
+            .store_sent_message("1@s.whatsapp.net", "NEW", b"payload")
+            .await
+            .expect("store new sent");
+        backdate(
+            &store,
+            "UPDATE sent_messages SET created_at = created_at - 86400 WHERE message_id = 'OLD'",
+        )
+        .await;
+
+        store
+            .store_pending_inbound("1@s.whatsapp.net", "2@s.whatsapp.net", "OLD", b"msg")
+            .await
+            .expect("store old pending");
+        store
+            .store_pending_inbound("1@s.whatsapp.net", "2@s.whatsapp.net", "NEW", b"msg")
+            .await
+            .expect("store new pending");
+        backdate(
+            &store,
+            "UPDATE pending_inbound_messages SET inserted_at = inserted_at - 86400 WHERE id = 'OLD'",
+        )
+        .await;
+
+        // tc_tokens carry their own explicit timestamps, so no backdating.
+        store
+            .put_tc_token(
+                "old@lid",
+                &TcTokenEntry {
+                    token: vec![1],
+                    token_timestamp: now - 86_400,
+                    sender_timestamp: None,
+                },
+            )
+            .await
+            .expect("store old token");
+        store
+            .put_tc_token(
+                "new@lid",
+                &TcTokenEntry {
+                    token: vec![2],
+                    token_timestamp: now,
+                    sender_timestamp: None,
+                },
+            )
+            .await
+            .expect("store new token");
+
+        let cutoff = now - 3600;
+        assert_eq!(
+            store
+                .delete_expired_sent_messages(cutoff)
+                .await
+                .expect("sweep sent"),
+            1
+        );
+        assert_eq!(
+            store
+                .delete_expired_pending_inbound(cutoff)
+                .await
+                .expect("sweep pending"),
+            1
+        );
+        assert_eq!(
+            store
+                .delete_expired_tc_tokens(cutoff, cutoff)
+                .await
+                .expect("sweep tokens"),
+            1
+        );
+
+        assert!(
+            store
+                .take_sent_message("1@s.whatsapp.net", "OLD")
+                .await
+                .expect("read sent")
+                .is_none(),
+            "the expired sent message is gone"
+        );
+        assert!(
+            store
+                .take_sent_message("1@s.whatsapp.net", "NEW")
+                .await
+                .expect("read sent")
+                .is_some(),
+            "the fresh sent message survives"
+        );
+        assert!(
+            store
+                .get_pending_inbound("1@s.whatsapp.net", "2@s.whatsapp.net", "OLD")
+                .await
+                .expect("read pending")
+                .is_none()
+        );
+        assert!(
+            store
+                .get_pending_inbound("1@s.whatsapp.net", "2@s.whatsapp.net", "NEW")
+                .await
+                .expect("read pending")
+                .is_some()
+        );
+        assert!(store.get_tc_token("old@lid").await.expect("read").is_none());
+        assert!(store.get_tc_token("new@lid").await.expect("read").is_some());
+    }
+
+    /// `base_keys` had no deletion path for its common case (a peer retries
+    /// once, the resend decrypts, no retry #3 ever arrives), so the row stayed
+    /// for the life of the database.
+    #[tokio::test]
+    async fn the_base_key_sweep_deletes_only_backdated_rows() {
+        let db = TempDb::new("base_key_sweep");
+        let store = SqliteStore::open(&db.url()).await.expect("store opens");
+        let now = wacore::time::now_secs();
+
+        store
+            .save_base_key("1@s.whatsapp.net.0", "OLD", &[0xAA; 32])
+            .await
+            .expect("save old");
+        store
+            .save_base_key("1@s.whatsapp.net.0", "NEW", &[0xBB; 32])
+            .await
+            .expect("save new");
+        backdate(
+            &store,
+            "UPDATE base_keys SET created_at = created_at - 7200 WHERE message_id = 'OLD'",
+        )
+        .await;
+
+        assert_eq!(
+            store
+                .delete_expired_base_keys(now - 3600)
+                .await
+                .expect("sweep base keys"),
+            1
+        );
+        assert!(
+            !store
+                .has_same_base_key("1@s.whatsapp.net.0", "OLD", &[0xAA; 32])
+                .await
+                .expect("read old"),
+            "the expired base key is gone"
+        );
+        assert!(
+            store
+                .has_same_base_key("1@s.whatsapp.net.0", "NEW", &[0xBB; 32])
+                .await
+                .expect("read new"),
+            "a base key inside the retry window survives"
+        );
+    }
+
+    /// The regression this routing exists for: with a bare `pool.get()` a sweep
+    /// issued while the single connection is checked out blocks a blocking
+    /// thread on r2d2's connection timeout and then errors. Through the write
+    /// permit it simply queues, so it completes.
+    #[tokio::test]
+    async fn a_sweep_completes_while_another_writer_holds_the_pool() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use wacore::appstate::processor::AppStateMutationMAC;
+
+        let db = TempDb::new("retention_under_write");
+        let store = Arc::new(SqliteStore::open(&db.url()).await.expect("store opens"));
+        store
+            .store_sent_message("1@s.whatsapp.net", "OLD", b"payload")
+            .await
+            .expect("store sent");
+
+        // Same shape as `benches/store_contention.rs`: back-to-back MAC upserts
+        // that keep the write permit busy for the whole sweep.
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer = {
+            let store = Arc::clone(&store);
+            let stop = Arc::clone(&stop);
+            tokio::spawn(async move {
+                let mut seed = 0u8;
+                while !stop.load(Ordering::Relaxed) {
+                    seed = seed.wrapping_add(1);
+                    let macs: Vec<AppStateMutationMAC> = (0..500)
+                        .map(|i: u64| {
+                            let mut index = [0u8; 32];
+                            index[..8].copy_from_slice(&i.to_be_bytes());
+                            index[8] = seed;
+                            AppStateMutationMAC {
+                                index_mac: index.to_vec(),
+                                value_mac: vec![0xC5; 32],
+                            }
+                        })
+                        .collect();
+                    let _ = store.put_mutation_macs("regular", 1, &macs).await;
+                }
+            })
+        };
+
+        let deleted = store
+            .delete_expired_sent_messages(wacore::time::now_secs() + 1)
+            .await
+            .expect("the sweep queues behind the writer instead of failing");
+        assert_eq!(deleted, 1);
+
+        stop.store(true, Ordering::Relaxed);
+        writer.await.expect("writer task");
+    }
+}

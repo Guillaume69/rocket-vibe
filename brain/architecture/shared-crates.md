@@ -16,8 +16,9 @@ The root `Cargo.toml` is a resolver-3 workspace of `apps/server`, `crates/rv-pro
 | `crates/rv-crypto-web` | The wasm build, with its own release profile (`opt-level = "s"`, LTO, `panic = "abort"`). |
 | `crates/rv-voice-mobile` | A small JNI `cdylib` for Android, built apart like `rv-crypto-mobile`. |
 | `crates/rv-signal` | WhatsApp's Signal protocol, written clean room; checked by its own CI job (`rv-signal.yml`). |
+| `crates/rv-whatsapp` | The vendored WhatsApp engine (whatsapp-rust), a workspace of its own as upstream laid it out; checked by `rv-whatsapp.yml`. |
 
-Eight workspaces mean eight `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
+Nine workspaces mean nine `Cargo.lock`. Within one semver-compatible line (`1.x`, `0.29.x`) a crate must resolve to the same version in all of them, so a fix to a shared dependency (crypto, TLS, tokio) reaches every app: `node scripts/cargo-locks.mjs` checks it (CI `cargo-locks.yml`), and `--sync` raises every lagging lock to the newest version already in use ([operations.md](../operations.md), [decisions.md](../decisions.md)).
 
 ## Who uses what
 
@@ -30,7 +31,8 @@ Eight workspaces mean eight `Cargo.lock`. Within one semver-compatible line (`1.
 | `rv-crypto-mobile` | | | `modules/crypto-native` (Kotlin, UniFFI) | reused by `rv-crypto-web` |
 | `rv-crypto-web` | | | | `src/crypto/wasm/` |
 | `rv-voice-mobile` | | | `modules/voice` (JNI) | |
-| `rv-signal` | | not yet (the WhatsApp engine moves onto it) | not yet | |
+| `rv-signal` | | through `rv-whatsapp` | not yet | |
+| `rv-whatsapp` | | not yet (the GTK app still runs the Go helper) | not yet | |
 
 Cargo unifies features across a workspace: the three desktop crates all get `rv-crypto`'s `native-http` and `system-keystore` once any of them asks.
 
@@ -69,6 +71,18 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 - **Storage stays with the caller.** A `SessionRecord` or `SenderKeyRecord` is loaded, one method runs, and the record is stored again only if it succeeded: a failure leaves it untouched (methods work on a copy). For a `pkmsg` the caller reads its prekey ids (`PreKeySignalMessage::deserialize`), looks up the key pairs, passes them in, deletes the consumed one-time prekey (`Decrypted::used_prekey`) and decides whether to trust the sender's identity key.
 - **Behaviour matched to the other implementations where the specs leave room.** Signatures are made the spec's way (sign bit forced to zero) but verified both ways: other Signal implementations put the Edwards key's sign bit in the top bit of `s` (`curve.rs`). `previousCounter` is the index of the last message sent on the previous chain, not the spec's count. A new ratchet key is drawn only after the message that brings the peer's new key is authenticated.
 - **Checked against an independent implementation.** `tests/oracle.rs` talks to a black-box oracle wrapping another library, in both directions (pairwise sessions with and without a one-time prekey, out of order, groups, curve operations), ignored unless `RV_SIGNAL_ORACLE` names the binary; the oracle is never committed. `tests/vectors.rs` replays its recorded runs (`tests/vectors/`, 109 steps) with both parties played by this crate, requiring the same ciphertexts byte for byte and the same random bytes drawn at the same steps.
+
+## `rv-whatsapp`: the WhatsApp engine
+
+[whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) at `d73c3cc1`, MIT parts only, vendored to replace the Go helper (`apps/desktop/whatsapp/`) and later reshaped to the apps' architecture; `VENDOR.md` lists what was left out, what was added and why ([decisions.md](../decisions.md)). It keeps upstream's layout: the client (`src/`), the sans-IO core (`wacore`), the binary node codec, the Noise transport, the protobuf schema (`waproto`), SQLite storage, a Tokio transport and an HTTP client. Three crates are ours:
+
+- **`wacore-signal`** is the Signal interface the engine calls, on `rv-signal` (re-exported as `wacore::libsignal`, the path the engine's code uses). Records are kept as WhatsApp's protobuf structures (a partial one is valid until it encrypts) and become `rv-signal` records for each operation. It carries two storage contracts of the engine's write-back cache:
+  - **the counter lease**: a sending chain reserves its counters 64 at a time before one goes on the wire, and the raised lease must be stored first (`has_pending_reservation`, `is_wire_gated`); a record reloaded by the store instance that wrote it (same incarnation) is exact, any other reload moves the chain to the reserved ceiling, refused past 2,000. A record with no lease is stored as the bare `RecordStructure`;
+  - **the session checkout**: an encrypt or decrypt takes the session out of the cache and works on a copy; success hands the new record back, failure or a dropped call (an aborted task) hands the original back unchanged.
+- **`wacore-crypto`**: AES-GCM (the transport, in place), AES-CBC (in place), HMAC and SHA-2.
+- **`wacore-appstate`**: the settings sync (app state), rewritten with WhatsApp Web's MAC rules; only its action catalogue is upstream's.
+
+Upstream's test suite runs as is: 5,449 tests.
 
 ## The bridges
 
@@ -114,6 +128,11 @@ X3DH, the Double Ratchet and sender keys, with WhatsApp's wire messages (`msg`, 
 - `crates/rv-crypto-web/docker/Dockerfile`
 - `crates/rv-voice-mobile/Cargo.toml`
 - `crates/rv-signal/src/lib.rs`
+- `crates/rv-whatsapp/VENDOR.md`
+- `crates/rv-whatsapp/wacore/signal/src/protocol/session.rs`
+- `crates/rv-whatsapp/wacore/signal/src/protocol/storage.rs`
+- `crates/rv-whatsapp/wacore/appstate/src/processor.rs`
+- `.github/workflows/rv-whatsapp.yml`
 - `crates/rv-signal/src/curve.rs`
 - `crates/rv-signal/src/session.rs`
 - `crates/rv-signal/src/group.rs`

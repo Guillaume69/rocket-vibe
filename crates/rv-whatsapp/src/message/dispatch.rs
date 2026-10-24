@@ -1,0 +1,629 @@
+//! Post-decrypt dispatch: event emission, acks and delivery receipts.
+
+use super::*;
+
+#[inline]
+fn delivery_receipt_burst_warning(
+    result: &crate::socket::error::EncryptSendResult,
+) -> Option<&crate::socket::error::EncryptSendError> {
+    match result {
+        Err(error) if !error.is_transport_unavailable() => Some(error),
+        Ok(()) | Err(_) => None,
+    }
+}
+
+impl Client {
+    fn with_message_dispatch(
+        &self,
+        info: &Arc<MessageInfo>,
+        pdo: bool,
+        mut update: impl FnMut(&mut DispatchClaim) -> bool,
+    ) -> bool {
+        self.with_message_dispatch_inner(info, pdo, &mut update)
+    }
+
+    // All callers return a claim decision. Erase only their stack callback,
+    // sharing the locked lookup without allocating or extending the guard.
+    #[inline(never)]
+    fn with_message_dispatch_inner(
+        &self,
+        info: &Arc<MessageInfo>,
+        pdo: bool,
+        update: &mut dyn FnMut(&mut DispatchClaim) -> bool,
+    ) -> bool {
+        let key = Self::dispatch_key(info);
+        self.dispatched_messages.with(|cache| {
+            if cache.get(&key).is_some_and(|claim| {
+                claim.prune();
+                claim.payloads.is_empty()
+            }) {
+                // A claim left with no live payloads is absent: every owner
+                // rolled back. Drop the stale key so the alternate-spelling
+                // lookup below still runs instead of treating the empty claim
+                // as authoritative.
+                cache.remove(&key);
+            }
+            if let Some(claim) = cache.get(&key) {
+                claim.prune();
+                if !pdo && claim.alias.is_none() {
+                    claim.alias = Self::dispatch_alias(info);
+                }
+                return update(claim);
+            }
+            let mut alias = None;
+            let recovery_key = if pdo {
+                // Only PDO misses scan. A claim's alias is the identity its
+                // message carries under the alternate spelling, so naming this
+                // recovery is the whole match. Two claims naming it are
+                // ambiguous, so neither may suppress the recovered event.
+                cache.find_unique_key(|_, claim| claim.has_deliveries() && claim.alias == Some(key))
+            } else {
+                alias = Self::dispatch_alias(info);
+                alias.and_then(|alternate| {
+                    let claim = cache.get(&alternate)?;
+                    claim.prune();
+                    if !claim.has_recovery() || claim.alias.is_some_and(|bound| bound != key) {
+                        return None;
+                    }
+                    // Bind only the direct evidence in this stanza. A later
+                    // conflicting primary cannot reuse the PDO claim.
+                    claim.alias.get_or_insert(key);
+                    Some(alternate)
+                })
+            };
+            if let Some(claim) = recovery_key.as_ref().and_then(|key| cache.get(key)) {
+                claim.prune();
+                return update(claim);
+            }
+            let mut claim = DispatchClaim {
+                alias: alias.or_else(|| Self::dispatch_alias(info)),
+                ..Default::default()
+            };
+            let result = update(&mut claim);
+            if !claim.payloads.is_empty() {
+                cache.insert(key, claim);
+            }
+            result
+        })
+    }
+
+    pub(crate) fn admit_message_dispatch(
+        &self,
+        info: &Arc<MessageInfo>,
+        pdo: bool,
+        fingerprint: Option<DispatchFingerprint>,
+        hook_committed: bool,
+        publication: &mut PublicationGuard,
+    ) -> bool {
+        self.admit_producer_dispatch(info, pdo, fingerprint, hook_committed, None, publication)
+    }
+
+    pub(crate) fn admit_producer_dispatch(
+        &self,
+        info: &Arc<MessageInfo>,
+        pdo: bool,
+        fingerprint: Option<DispatchFingerprint>,
+        hook_committed: bool,
+        producer: Option<DispatchKey>,
+        publication: &mut PublicationGuard,
+    ) -> bool {
+        let Some(fingerprint) = fingerprint else {
+            return false;
+        };
+        self.with_message_dispatch(info, pdo, |claim| {
+            claim.admit(fingerprint, pdo, hook_committed, producer, publication)
+        })
+    }
+
+    pub(super) fn completed_hook_publication(
+        &self,
+        info: &Arc<MessageInfo>,
+        fingerprint: &DispatchFingerprint,
+    ) -> bool {
+        self.with_message_dispatch(info, false, |claim| {
+            claim.payloads.iter().any(|payload| {
+                payload.fingerprint == *fingerprint
+                    && payload.hook_committed
+                    && payload.publication.load(Ordering::Acquire) == PUBLICATION_COMPLETE
+            })
+        })
+    }
+
+    pub(super) fn hook_publication_from_producer(
+        &self,
+        info: &Arc<MessageInfo>,
+        origin: raw_pending::StanzaOrigin,
+    ) -> bool {
+        let producer = Some(DispatchKey::new(origin));
+        self.with_message_dispatch(info, false, |claim| {
+            claim.payloads.iter().any(|payload| {
+                payload.producer == producer
+                    && payload.hook_committed
+                    && payload.publication.load(Ordering::Acquire) == PUBLICATION_COMPLETE
+            })
+        })
+    }
+
+    pub(crate) async fn probe_message_dispatch(
+        self: &Arc<Self>,
+        info: &Arc<MessageInfo>,
+        message: &wa::Message,
+        producer: Option<DispatchKey>,
+    ) -> ProbeOutcome {
+        if !self.dispatch_gate_enabled()
+            || !self.with_message_dispatch(info, false, |claim| claim.has_deliveries())
+        {
+            return ProbeOutcome::Proceed { decrypted: None };
+        }
+        // A message we cannot materialize compares as its envelope; dispatch
+        // retries the lookup after capturing, so an undecryptable probe must
+        // not suppress.
+        let decrypted = if crate::features::message_edit::carries_secret_encrypted(message) {
+            match self
+                .materialize_secret_encrypted_message(message, info)
+                .await
+            {
+                Some(inner) => Some(inner),
+                None => return ProbeOutcome::Proceed { decrypted: None },
+            }
+        } else {
+            None
+        };
+        let candidate = decrypted.as_ref().map_or(message, |inner| inner);
+        let fingerprint = MessageDispatch::fingerprint(candidate);
+        if self.with_message_dispatch(info, false, |claim| {
+            let sibling = self.inbound_journal_enabled()
+                && producer.is_some()
+                && claim.payloads.iter().any(|payload| {
+                    payload.fingerprint == fingerprint
+                        && payload.producer == producer
+                        && payload.state == MessageDispatch::Decrypted
+                        && payload.publication.load(Ordering::Acquire) == PUBLICATION_COMPLETE
+                });
+            !sibling
+                && claim.state(&fingerprint).is_some_and(|state| {
+                    state != MessageDispatch::Recovered || !self.inbound_journal_enabled()
+                })
+        }) {
+            ProbeOutcome::Suppress { decrypted }
+        } else {
+            ProbeOutcome::Proceed { decrypted }
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn message_already_dispatched(&self, info: &Arc<MessageInfo>) -> bool {
+        self.dispatched_messages
+            .get(&Self::dispatch_key(info))
+            .is_some_and(|claim| claim.has_deliveries())
+    }
+
+    /// Whether the dispatch-once gate is on. Capacity 0 is its documented off
+    /// switch, and it has to turn off the batch collapse too, or the switch
+    /// would restore the old behaviour for live traffic only.
+    pub(crate) fn dispatch_gate_enabled(&self) -> bool {
+        self.dispatched_messages.configured_capacity() != Some(0)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn mark_message_dispatched(
+        &self,
+        info: &Arc<MessageInfo>,
+        message: &wa::Message,
+    ) {
+        let mut publication = PublicationGuard::default();
+        self.admit_message_dispatch(
+            info,
+            false,
+            Some(MessageDispatch::fingerprint(message)),
+            false,
+            &mut publication,
+        );
+        publication.complete();
+    }
+
+    /// The message's identity includes direction and, outside DMs, its author.
+    ///
+    /// Dropping the device matches WA Web, whose `MsgKey` for a group message
+    /// takes `participant: asUserWidOrThrow(author)`, a device-less wid. It
+    /// also has to: the server sends `skmsg` with a bare participant and
+    /// `pkmsg` with a device-qualified one, so a resend bundling a rotated
+    /// SKDM would otherwise be spelled differently from the delivery it
+    /// repeats and slip past the gate.
+    ///
+    /// The PN/LID namespace stays as it arrived, deliberately unresolved, for
+    /// the reasons [`Self::dispatch_undecryptable_event`] states at length.
+    /// PDO alternate evidence is stored beside the claim, never folded into
+    /// this primary key or followed through another claim.
+    pub(crate) fn dispatch_key(info: &Arc<MessageInfo>) -> DispatchKey {
+        let source = &info.source;
+        let participant = Self::dispatch_participant(info);
+        DispatchKey::new((&source.chat, &info.id, &participant, source.is_from_me))
+    }
+
+    /// The author an identity carries outside DMs, device dropped.
+    fn dispatch_participant(info: &Arc<MessageInfo>) -> Option<Jid> {
+        let chat = &info.source.chat;
+        (chat.is_group() || chat.is_broadcast_list() || chat.is_status_broadcast())
+            .then(|| info.source.sender.to_non_ad())
+    }
+
+    /// The identity this same message carries under the alternate PN/LID
+    /// spelling, when the stanza spelled both out.
+    ///
+    /// Substituting the spelling here rather than retaining the alternate
+    /// `Jid` is what lets every later comparison be one identity equality: the
+    /// PDO scan asks whether a claim names the recovery it is holding, and the
+    /// ordinary path asks whether the claim it found names this stanza. Both
+    /// asked the same question of a `Jid` before, spelled out field by field.
+    fn dispatch_alias(info: &Arc<MessageInfo>) -> Option<DispatchKey> {
+        let source = &info.source;
+        let participant = Self::dispatch_participant(info);
+        let (primary, alternate) = if let Some(participant) = &participant {
+            (participant, source.sender_alt.as_ref()?)
+        } else if source.is_from_me {
+            (&source.chat, source.recipient_alt.as_ref()?)
+        } else {
+            let alternate = source.sender_alt.as_ref()?;
+            if source.sender.to_non_ad() != source.chat {
+                return None;
+            }
+            (&source.chat, alternate)
+        };
+        if !(primary.server.is_pn_family() && alternate.server.is_lid_family()
+            || primary.server.is_lid_family() && alternate.server.is_pn_family())
+        {
+            return None;
+        }
+        let alternate = alternate.to_non_ad();
+        Some(if participant.is_some() {
+            DispatchKey::new((&source.chat, &info.id, &Some(alternate), source.is_from_me))
+        } else {
+            DispatchKey::new((&alternate, &info.id, &None::<Jid>, source.is_from_me))
+        })
+    }
+
+    /// Dispatches a successfully parsed message to the event bus and sends a delivery receipt.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.recv.dispatch", level = "debug", skip_all, fields(chat = %info.source.chat.observe(), sender = %info.source.sender.observe(), msg_id = %info.id)))]
+    pub(crate) async fn dispatch_parsed_message(
+        self: &Arc<Self>,
+        msg: wa::Message,
+        info: &Arc<MessageInfo>,
+        track_commit: bool,
+    ) -> InboundCommitState {
+        self.dispatch_shared_message_with_decrypted(Arc::new(msg), info, track_commit, None)
+            .await
+    }
+
+    /// Ordinary messages do not need this state machine: resolving a secret
+    /// envelope holds a decoded Message across storage/resolver awaits. Keep
+    /// that state off the inline receive future, allocating only for envelopes
+    /// and returning the final event handle rather than a large value.
+    async fn materialize_secret_encrypted_message(
+        self: &Arc<Self>,
+        message: &wa::Message,
+        info: &Arc<MessageInfo>,
+    ) -> Option<Arc<wa::Message>> {
+        if !crate::features::message_edit::carries_secret_encrypted(message) {
+            return None;
+        }
+        Box::pin(async {
+            self.maybe_decrypt_secret_encrypted_message(message, info)
+                .await
+                .map(Arc::new)
+        })
+        .await
+    }
+
+    /// Dispatch an already-shared plaintext, reusing any envelope the duplicate
+    /// probe materialized instead of resolving the parent secret a second time.
+    pub(crate) async fn dispatch_shared_message_with_decrypted(
+        self: &Arc<Self>,
+        msg: Arc<wa::Message>,
+        info: &Arc<MessageInfo>,
+        track_commit: bool,
+        pre_decrypted: Option<Arc<wa::Message>>,
+    ) -> InboundCommitState {
+        self.dispatch_shared_message_with_carrier(
+            msg,
+            info,
+            track_commit,
+            pre_decrypted,
+            None,
+            (None, None),
+        )
+        .await
+    }
+
+    pub(super) async fn dispatch_shared_message_with_carrier(
+        self: &Arc<Self>,
+        msg: Arc<wa::Message>,
+        info: &Arc<MessageInfo>,
+        track_commit: bool,
+        pre_decrypted: Option<Arc<wa::Message>>,
+        carrier: Option<(Option<u32>, bytes::Bytes)>,
+        (origin, receipt): (
+            Option<raw_pending::DeliveryOrigin>,
+            Option<Arc<live_retention::ReceiptScope>>,
+        ),
+    ) -> InboundCommitState {
+        let item = self
+            .prepare_shared_inbound_message(msg, info, pre_decrypted)
+            .await;
+        // Newsletters were already transport-acked before the processing permit.
+        if info.source.chat.is_newsletter() {
+            self.core.event_bus.dispatch(Event::Messages(
+                wacore::types::events::MessageBatch::builder()
+                    .messages(Arc::from([item]))
+                    .origin(wacore::types::events::BatchOrigin::Live)
+                    .build(),
+            ));
+            return InboundCommitState::Durable;
+        }
+        self.commit_or_batch_pending(
+            raw_pending::PendingDelivery {
+                item,
+                carrier,
+                origin,
+                retention: None,
+                receipt,
+                storage_sender: None,
+                consumer_claimed: false,
+            },
+            track_commit,
+        )
+        .await
+    }
+
+    /// Prepare the consumer projection before entering the existing commit path.
+    pub(crate) async fn prepare_shared_inbound_message(
+        self: &Arc<Self>,
+        msg: Arc<wa::Message>,
+        info: &Arc<MessageInfo>,
+        pre_decrypted: Option<Arc<wa::Message>>,
+    ) -> wacore::types::events::InboundMessage {
+        use wacore::proto_helpers::MessageExt;
+        wacore::telemetry::recv("decrypted");
+        self.stats.record_message_received();
+
+        // Both ride on the `InboundMessage`, not the shared `MessageInfo`:
+        // writing them into the `Arc` every `<enc>` of the stanza holds
+        // deep-copied the whole info on every disappearing-chat message.
+        let ephemeral_expiration = msg.get_base_message().get_ephemeral_expiration();
+
+        // Keep this ordered with dispatch; add-on messages can immediately
+        // reference the secret from the stanza just processed.
+        self.maybe_capture_inbound_msg_secret(&msg, info).await;
+        let decrypted = match pre_decrypted {
+            Some(inner) => Some(inner),
+            None => self.materialize_secret_encrypted_message(&msg, info).await,
+        };
+        // A decrypted comment surfaces as its inner body Message, which has no
+        // slot for the parent post key; carry the threading link beside it.
+        let comment_target = if decrypted.is_some() {
+            msg.enc_comment_message
+                .as_option()
+                .and_then(|c| c.target_message_key.as_option().cloned())
+                .map(Box::new)
+        } else {
+            None
+        };
+        let dispatch_msg = decrypted.unwrap_or(msg);
+
+        wacore::types::events::InboundMessage::builder()
+            .message(dispatch_msg)
+            .info(Arc::clone(info))
+            .maybe_ephemeral_expiration(ephemeral_expiration)
+            .maybe_comment_target(comment_target)
+            .build()
+    }
+
+    /// Acknowledge a received message so the server drops it from the offline
+    /// queue: a delivery receipt when applicable (incl. the `type="sender"`
+    /// receipt for own-account self-fanouts), else a transport ack. status is
+    /// acked by the `should_ack` gate, newsletters/empty ids need nothing here.
+    pub(crate) fn ack_received_message(self: &Arc<Self>, info: &Arc<MessageInfo>) {
+        if self.inbound_journal_enabled()
+            && self.inbound_commit_batch.live_retention.defer_receipt(info)
+        {
+            return;
+        }
+        self.ack_received_message_unscoped(info);
+    }
+
+    pub(super) fn ack_received_message_unscoped(self: &Arc<Self>, info: &Arc<MessageInfo>) {
+        if info.id.is_empty() || info.source.chat.is_newsletter() {
+            return;
+        }
+        // WA Web `sendAggregateReceipts`: for a DELIVERY where the chat is NOT
+        // a bot but the author IS a bot (a bot reply inside a group), it emits
+        // a bare `<ack class="message">` via `sendBotInvokeResponseAcks`, not a
+        // `<receipt>`. A 1:1 bot chat keeps the normal receipt (chat.isBot() →
+        // the branch's `v` is false). Our transport ack is that bare
+        // `<ack class="message">` (group form carries `participant`).
+        if info.source.is_bot_authored_non_bot_chat() {
+            self.spawn_message_ack(info);
+            return;
+        }
+        if Self::should_send_delivery_receipt(info) {
+            self.spawn_delivery_receipt(info);
+        } else if !info.source.chat.is_status_broadcast() {
+            self.spawn_message_ack(info);
+        }
+    }
+
+    /// Queue a delivery receipt, tracked so `disconnect()` can flush it (issue #571).
+    ///
+    /// Live receipts feed a single persistent worker instead of one spawned
+    /// task each: the per-message cost drops to a channel slot plus a
+    /// [`crate::flush_scope::FlushGuard`], and `flush()` still waits because
+    /// the guard rides the queue until the send completes.
+    ///
+    /// Offline-drained messages are buffered until a durable drain flush.
+    /// Ordinary receipts aggregate per (chat, author) (WA Web
+    /// `sendAggregateOfflineReceipts`); peer receipts and live messages stay 1:1.
+    fn spawn_delivery_receipt(self: &Arc<Self>, info: &Arc<MessageInfo>) {
+        if info.is_offline && self.try_buffer_offline_receipt(info) {
+            return;
+        }
+        // A closed scope (disconnect in progress) drops the receipt, exactly
+        // like the previous spawn-per-receipt path.
+        let Some(guard) = self.outbound_flush.try_track() else {
+            return;
+        };
+        let tx = self
+            .delivery_receipt_queue
+            .get_or_init(|| self.start_delivery_receipt_worker());
+        // Only fails if the worker exited (client teardown); dropping the
+        // guard here keeps `flush()` honest.
+        let _ = tx.try_send((Arc::clone(info), guard));
+    }
+
+    /// How many queued receipts one burst may take; mirrors the ack worker's
+    /// [`MAX_ACK_BURST`](Client::MAX_ACK_BURST), where the tradeoff is measured.
+    const MAX_RECEIPT_BURST: usize = 4;
+
+    /// Worker task shared by every live delivery receipt. Holds only a `Weak`
+    /// so a dropped `Client` closes the channel and ends the task instead of
+    /// keeping the client alive.
+    fn start_delivery_receipt_worker(
+        self: &Arc<Self>,
+    ) -> async_channel::Sender<(Arc<MessageInfo>, crate::flush_scope::FlushGuard)> {
+        let (tx, rx) =
+            async_channel::unbounded::<(Arc<MessageInfo>, crate::flush_scope::FlushGuard)>();
+        let client = Arc::downgrade(self);
+        self.runtime
+            .spawn(Box::pin(async move {
+                // Reuse the bounded control buffers for the worker's lifetime.
+                // Encoded payload allocations still move into `Bytes`; only
+                // the outer storage stays here.
+                let mut batch = Vec::with_capacity(Self::MAX_RECEIPT_BURST);
+                let mut frames = Vec::with_capacity(Self::MAX_RECEIPT_BURST);
+                let mut guards = Vec::with_capacity(Self::MAX_RECEIPT_BURST);
+                let mut results = Vec::with_capacity(Self::MAX_RECEIPT_BURST);
+                while let Ok(first) = rx.recv().await {
+                    let Some(client) = client.upgrade() else {
+                        break;
+                    };
+
+                    // Same reasoning as the ack worker: awaiting each receipt
+                    // before reading the next means the noise sender never has
+                    // two frames to coalesce. `try_recv` only, so nothing waits
+                    // on work that has not arrived.
+                    batch.push(first);
+                    while batch.len() < Self::MAX_RECEIPT_BURST
+                        && let Ok(next) = rx.try_recv()
+                    {
+                        batch.push(next);
+                    }
+
+                    // No teardown gate here, unlike the ack worker: the
+                    // single-receipt path never had one either (it relies on
+                    // the socket reporting NotConnected), and adding one for
+                    // symmetry would silently start dropping receipts that
+                    // today still go out.
+                    for (info, guard) in batch.drain(..) {
+                        // Building the node is synchronous, so the burst is
+                        // fully prepared before anything reaches the socket.
+                        if let Some(frame) = client.prepare_delivery_receipt(&info) {
+                            frames.push(frame);
+                            guards.push(guard);
+                        }
+                    }
+                    if frames.is_empty() {
+                        continue;
+                    }
+
+                    // Spans the await *and* the result inspection: a receipt
+                    // that stalls or fails in the transport has to show up
+                    // inside the span, not after it closed. The per-receipt
+                    // `wa.receipt.send_delivery` span stays on the
+                    // single-receipt path, which this one does not use.
+                    let frame_count = frames.len();
+                    let send_and_report = async {
+                        match client.send_raw_bytes_burst(&mut frames, &mut results).await {
+                            Ok(()) => {
+                                for result in results.drain(..) {
+                                    if let Some(error) = delivery_receipt_burst_warning(&result) {
+                                        log::warn!(target: "Client/Receipt", "Failed to send delivery receipt: {error:?}");
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if !matches!(e, crate::client::ClientError::NotConnected) {
+                                    log::warn!(target: "Client/Receipt", "Failed to send delivery receipt burst: {e:?}");
+                                }
+                            }
+                        }
+                    };
+                    #[cfg(feature = "tracing")]
+                    {
+                        use tracing::Instrument;
+                        send_and_report
+                            .instrument(tracing::debug_span!(
+                                "wa.receipt.delivery_burst",
+                                frames = frame_count
+                            ))
+                            .await;
+                    }
+                    #[cfg(not(feature = "tracing"))]
+                    {
+                        let _ = frame_count;
+                        send_and_report.await;
+                    }
+                    debug_assert!(
+                        frames.is_empty(),
+                        "send_raw_bytes_burst must always drain its input"
+                    );
+                    guards.clear();
+                }
+            }))
+            .detach();
+        tx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::delivery_receipt_burst_warning;
+    use crate::socket::error::EncryptSendError;
+
+    #[test]
+    fn receipt_burst_logging_is_quiet_for_success_and_reconnect_failures() {
+        let reconnect_failures = [
+            Ok(()),
+            Err(EncryptSendError::transport(anyhow::anyhow!(
+                "transport unavailable"
+            ))),
+            Err(EncryptSendError::channel_closed()),
+            Err(EncryptSendError::poisoned()),
+        ];
+
+        for result in &reconnect_failures {
+            assert!(
+                delivery_receipt_burst_warning(result).is_none(),
+                "success and reconnect-related failures must stay quiet: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn receipt_burst_logging_keeps_actionable_local_failures_visible() {
+        let actionable_failures = [
+            Err(EncryptSendError::crypto(anyhow::anyhow!(
+                "encryption failed"
+            ))),
+            Err(EncryptSendError::framing(anyhow::anyhow!("framing failed"))),
+            Err(EncryptSendError::join(anyhow::anyhow!(
+                "sender join failed"
+            ))),
+        ];
+
+        for result in &actionable_failures {
+            assert!(
+                delivery_receipt_burst_warning(result).is_some(),
+                "local send failures must remain visible: {result:?}"
+            );
+        }
+    }
+}

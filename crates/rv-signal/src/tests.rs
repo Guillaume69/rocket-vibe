@@ -187,3 +187,49 @@ fn group_messages_out_of_order_and_duplicate() {
     forged[3] ^= 1;
     assert!(theirs.decrypt(&forged).is_err());
 }
+
+#[test]
+fn a_state_survives_serialization_alone() {
+    let (_alice, a, _bob, _b) = pair(true);
+    let state = a.current().unwrap();
+    let copy = SessionState::deserialize(&state.serialize()).unwrap();
+    assert_eq!(copy.remote_identity(), state.remote_identity());
+    assert_eq!(copy.alice_base_key(), state.alice_base_key());
+    assert_eq!(
+        copy.sender_chain_key().unwrap().index,
+        state.sender_chain_key().unwrap().index
+    );
+    assert_eq!(copy.pending_prekey(), state.pending_prekey());
+}
+
+#[test]
+fn moving_the_sender_chain_forward_skips_counters_the_peer_still_accepts() {
+    let (_alice, mut a, bob, mut b) = pair(true);
+    let (kind, first) = a.encrypt(b"0").unwrap();
+    bob.receive(&mut b, kind, &first).unwrap();
+    let state = a.current_mut().unwrap();
+    let mut chain = state.sender_chain_key().unwrap().clone();
+    while chain.index < 64 {
+        chain = chain.next();
+    }
+    state.set_sender_chain_key(chain).unwrap();
+    let (kind, after) = a.encrypt(b"after").unwrap();
+    assert_eq!(bob.receive(&mut b, kind, &after).unwrap(), b"after");
+}
+
+#[test]
+fn a_sender_key_fast_forwards_and_receivers_follow() {
+    let mut rng = rand::rng();
+    let mut mine = SenderKeyRecord::default();
+    let distribution = mine.distribution(&mut rng);
+    let mut theirs = SenderKeyRecord::default();
+    theirs.process(&distribution);
+    mine.fast_forward(40).unwrap();
+    assert_eq!(mine.state().unwrap().chain_key().index, 40);
+    let message = mine.encrypt(b"later", &mut rng).unwrap();
+    assert_eq!(theirs.decrypt(&message).unwrap(), b"later");
+    assert!(matches!(
+        mine.fast_forward(40 + 2001 + 1),
+        Err(Error::TooFarAhead(_))
+    ));
+}

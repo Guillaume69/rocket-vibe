@@ -1,0 +1,105 @@
+//! Compile-shaped proof that a downstream crate can build message literals and
+//! implement the async traits using only this crate's re-exports (no direct
+//! buffa/bytes/anyhow/async-trait/chrono dependency of its own).
+#![cfg(test)]
+// Tests/benches exercise the raw buffa API.
+#![allow(clippy::disallowed_methods)]
+// The `whatsapp_rust::` prefixes ARE the assertion here — spelling a path the way
+// a downstream consumer would is the only thing this file checks. Shortening them
+// to the direct dependency would leave the test passing with the re-exports gone.
+#![allow(unused_qualifications)]
+
+use crate as whatsapp_rust;
+use whatsapp_rust::waproto::whatsapp as wa;
+
+#[test]
+fn message_literals_build_from_reexports_only() {
+    // Explicit MessageField path, as a consumer would write it.
+    let explicit = {
+        let mut proto = wa::Message::default();
+        proto.extended_text_message = whatsapp_rust::buffa::MessageField::some({
+            let mut proto = wa::message::ExtendedTextMessage::default();
+            proto.text = Some("hi".into());
+            proto
+        });
+        proto
+    };
+    // The From<T> route: no MessageField naming at all.
+    let via_into = {
+        let mut proto = wa::Message::default();
+        proto.extended_text_message = {
+            let mut proto = wa::message::ExtendedTextMessage::default();
+            proto.text = Some("hi".into());
+            proto
+        }
+        .into();
+        proto
+    };
+    assert_eq!(explicit, via_into);
+
+    // Encode/decode through the re-exported Message trait.
+    use whatsapp_rust::buffa::Message as _;
+    let bytes = explicit.encode_to_vec();
+    let back = wa::Message::decode_from_slice(&bytes).unwrap();
+    assert_eq!(back, via_into);
+}
+
+// An implementable trait built purely from re-exports, the veloz shape.
+struct NoopHook;
+
+#[whatsapp_rust::async_trait]
+impl whatsapp_rust::InboundDurabilityHook for NoopHook {
+    async fn on_messages(
+        &self,
+        _client: std::sync::Arc<whatsapp_rust::Client>,
+        _batch: &[whatsapp_rust::types::events::InboundMessage],
+    ) -> whatsapp_rust::anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn hook_impl_is_object_safe_and_constructible() {
+    let hook: Box<dyn whatsapp_rust::InboundDurabilityHook> = Box::new(NoopHook);
+    let _ = &hook;
+}
+
+// A RetryAdmission policy built purely from re-exports.
+struct AdmitAll;
+
+impl whatsapp_rust::RetryAdmission for AdmitAll {
+    fn decide(&self, _: &whatsapp_rust::RetryContext<'_>) -> whatsapp_rust::RetryDecision {
+        whatsapp_rust::RetryDecision::Accept
+    }
+}
+
+#[test]
+fn retry_admission_is_object_safe_and_constructible() {
+    let policy: Box<dyn whatsapp_rust::RetryAdmission> = Box::new(AdmitAll);
+    let _ = &policy;
+}
+
+#[test]
+fn bytes_and_chrono_reexports_are_usable() {
+    let b = whatsapp_rust::bytes::Bytes::from_static(b"frame");
+    assert_eq!(b.len(), 5);
+    let _ts: whatsapp_rust::chrono::DateTime<whatsapp_rust::chrono::Utc> =
+        whatsapp_rust::wacore::time::now_utc();
+}
+
+struct AdmitAllDecryptFailures;
+
+impl whatsapp_rust::DecryptFailureAdmission for AdmitAllDecryptFailures {
+    fn decide(
+        &self,
+        _: &whatsapp_rust::DecryptFailureContext<'_>,
+    ) -> whatsapp_rust::DecryptFailureDecision {
+        whatsapp_rust::DecryptFailureDecision::RequestRetry
+    }
+}
+
+#[test]
+fn decrypt_failure_admission_is_object_safe_and_constructible() {
+    let policy: Box<dyn whatsapp_rust::DecryptFailureAdmission> = Box::new(AdmitAllDecryptFailures);
+    let _ = &policy;
+}

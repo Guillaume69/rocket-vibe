@@ -1,0 +1,439 @@
+use std::borrow::Cow;
+use std::str::FromStr;
+
+use crate::error::{BinaryError, Result};
+use crate::jid::Jid;
+use crate::node::{Attrs, Node, NodeRef, NodeStr, NodeValue, ValueRef};
+
+/// Coerces a wire boolean. WhatsApp/XMPP serialize flags as `"1"`/`"0"` as well
+/// as `"true"`/`"false"`; `str::parse::<bool>()` only accepts the latter and
+/// would silently reject `"1"`. Mirrors whatsmeow's `strconv.ParseBool` and WA
+/// Web's gating coercion. Returns `None` for any other value.
+fn coerce_protocol_bool(s: &str) -> Option<bool> {
+    match s {
+        "1" | "true" | "True" | "t" | "T" | "TRUE" => Some(true),
+        "0" | "false" | "False" | "f" | "F" | "FALSE" => Some(false),
+        _ => None,
+    }
+}
+
+pub struct AttrParser<'a> {
+    pub attrs: &'a Attrs,
+    pub errors: Vec<BinaryError>,
+}
+
+pub struct AttrParserRef<'a> {
+    pub(crate) attrs: &'a [(NodeStr<'a>, ValueRef<'a>)],
+    pub errors: Vec<BinaryError>,
+}
+
+impl<'a> AttrParserRef<'a> {
+    pub fn new(node: &'a NodeRef<'a>) -> Self {
+        Self {
+            attrs: node.attrs.as_slice(),
+            errors: Vec::new(),
+        }
+    }
+
+    pub fn ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn finish(&self) -> Result<()> {
+        if self.ok() {
+            Ok(())
+        } else {
+            Err(BinaryError::AttrList(self.errors.clone()))
+        }
+    }
+
+    fn get_raw(&mut self, key: &str, require: bool) -> Option<&'a ValueRef<'a>> {
+        let val = self.attrs.iter().find(|(k, _)| **k == *key).map(|(_, v)| v);
+
+        if require && val.is_none() {
+            self.errors.push(BinaryError::AttrParse(format!(
+                "Required attribute '{key}' not found"
+            )));
+        }
+
+        val
+    }
+
+    /// Get string from the value. Works for both String and JID variants.
+    /// - String variant: Cow::Borrowed — zero copy
+    /// - JID variant: Cow::Owned — allocates only when needed
+    pub fn optional_string(&mut self, key: &str) -> Option<Cow<'a, str>> {
+        self.get_raw(key, false).map(|v| v.as_str())
+    }
+
+    /// Get a required string attribute, returning an error if missing.
+    ///
+    /// Prefer this over `string()` for required attributes as it makes
+    /// the error explicit rather than silently defaulting to empty string.
+    pub fn required_string(&mut self, key: &str) -> Result<Cow<'a, str>> {
+        self.optional_string(key)
+            .ok_or_else(|| BinaryError::MissingAttr(key.to_string()))
+    }
+
+    /// Get JID from the value.
+    /// If the value is a JidRef, returns it directly without parsing (zero allocation).
+    /// If the value is a string, parses it as a JID.
+    pub fn optional_jid(&mut self, key: &str) -> Option<Jid> {
+        self.get_jid(key, false)
+    }
+
+    /// Shared by `optional_jid` and `jid`, so the required variant can record a
+    /// missing attribute and read the present one from the same lookup instead
+    /// of scanning the attribute list a second time to fetch what it just
+    /// proved was there.
+    fn get_jid(&mut self, key: &str, require: bool) -> Option<Jid> {
+        self.get_raw(key, require).and_then(|v| match v.to_jid() {
+            Some(jid) => Some(jid),
+            None => {
+                // to_jid() only returns None if it's a String that failed to parse
+                if let ValueRef::String(s) = v {
+                    self.errors
+                        .push(BinaryError::AttrParse(format!("Invalid JID: {s}")));
+                }
+                None
+            }
+        })
+    }
+
+    /// Get an optional JID attribute, failing when a present value is invalid.
+    pub fn optional_jid_result(&mut self, key: &str) -> Result<Option<Jid>> {
+        match self.get_raw(key, false) {
+            None => Ok(None),
+            Some(ValueRef::Jid(jid)) => Ok(Some(jid.to_owned())),
+            Some(ValueRef::String(value)) => {
+                Jid::from_str(value).map(Some).map_err(BinaryError::from)
+            }
+        }
+    }
+
+    /// Get a required JID attribute, failing immediately when it is missing or invalid.
+    ///
+    /// Structured JIDs are converted directly from their decoded representation;
+    /// string attributes are parsed exactly once.
+    pub fn required_jid(&mut self, key: &str) -> Result<Jid> {
+        self.optional_jid_result(key)?
+            .ok_or_else(|| BinaryError::MissingAttr(key.to_string()))
+    }
+
+    pub fn jid(&mut self, key: &str) -> Jid {
+        self.get_jid(key, true).unwrap_or_default()
+    }
+
+    pub fn non_ad_jid(&mut self, key: &str) -> Jid {
+        self.jid(key).to_non_ad()
+    }
+
+    fn get_string_value(&mut self, key: &str, require: bool) -> Option<Cow<'a, str>> {
+        self.get_raw(key, require).map(|v| v.as_str())
+    }
+
+    fn get_bool(&mut self, key: &str, require: bool) -> Option<bool> {
+        self.get_string_value(key, require)
+            .and_then(|s| match coerce_protocol_bool(&s) {
+                Some(val) => Some(val),
+                None => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse bool from '{s}' for key '{key}'"
+                    )));
+                    None
+                }
+            })
+    }
+
+    /// Parse an optional protocol boolean while preserving absence.
+    pub fn optional_bool_value(&mut self, key: &str) -> Option<bool> {
+        self.get_bool(key, false)
+    }
+
+    pub fn optional_bool(&mut self, key: &str) -> bool {
+        self.optional_bool_value(key).unwrap_or(false)
+    }
+
+    pub fn bool(&mut self, key: &str) -> bool {
+        self.get_bool(key, true).unwrap_or(false)
+    }
+
+    pub fn optional_u64(&mut self, key: &str) -> Option<u64> {
+        self.get_string_value(key, false)
+            .and_then(|s| match s.parse::<u64>() {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse u64 from '{s}' for key '{key}': {e}"
+                    )));
+                    None
+                }
+            })
+    }
+
+    pub fn unix_time(&mut self, key: &str) -> i64 {
+        self.get_i64(key, true).unwrap_or_default()
+    }
+
+    pub fn optional_unix_time(&mut self, key: &str) -> Option<i64> {
+        self.get_i64(key, false)
+    }
+
+    pub fn unix_milli(&mut self, key: &str) -> i64 {
+        self.get_i64(key, true).unwrap_or_default()
+    }
+
+    pub fn optional_unix_milli(&mut self, key: &str) -> Option<i64> {
+        self.get_i64(key, false)
+    }
+
+    fn get_i64(&mut self, key: &str, require: bool) -> Option<i64> {
+        self.get_string_value(key, require)
+            .and_then(|s| match s.parse::<i64>() {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse i64 from '{s}' for key '{key}': {e}"
+                    )));
+                    None
+                }
+            })
+    }
+}
+
+impl<'a> AttrParser<'a> {
+    pub fn new(node: &'a Node) -> Self {
+        Self {
+            attrs: &node.attrs,
+            errors: Vec::new(),
+        }
+    }
+
+    pub fn ok(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn finish(&self) -> Result<()> {
+        if self.ok() {
+            Ok(())
+        } else {
+            Err(BinaryError::AttrList(self.errors.clone()))
+        }
+    }
+
+    fn get_raw(&mut self, key: &str, require: bool) -> Option<&'a NodeValue> {
+        let val = self.attrs.get(key);
+        if require && val.is_none() {
+            self.errors.push(BinaryError::AttrParse(format!(
+                "Required attribute '{key}' not found"
+            )));
+        }
+        val
+    }
+
+    /// Get the string representation of the value (for numeric parsing, etc.)
+    fn get_string_value(&mut self, key: &str, require: bool) -> Option<Cow<'a, str>> {
+        self.get_raw(key, require).map(|v| match v {
+            NodeValue::String(s) => Cow::Borrowed(s.as_str()),
+            NodeValue::Jid(j) => Cow::Owned(j.to_string()),
+        })
+    }
+
+    // --- String ---
+    /// Get string from the value. Works for both String and JID variants.
+    /// - String variant: Cow::Borrowed — zero copy
+    /// - JID variant: Cow::Owned — allocates only when needed
+    pub fn optional_string(&mut self, key: &str) -> Option<Cow<'a, str>> {
+        self.get_raw(key, false).map(|v| v.as_str())
+    }
+
+    /// Get a required string attribute, returning an error if missing.
+    ///
+    /// Prefer this over `string()` for required attributes as it makes
+    /// the error explicit rather than silently defaulting to empty string.
+    pub fn required_string(&mut self, key: &str) -> Result<Cow<'a, str>> {
+        self.optional_string(key)
+            .ok_or_else(|| BinaryError::MissingAttr(key.to_string()))
+    }
+
+    // --- JID ---
+    /// Get JID from the value.
+    /// If the value is a JID variant, returns it directly without parsing (zero allocation clone).
+    /// If the value is a string, parses it as a JID.
+    pub fn optional_jid(&mut self, key: &str) -> Option<Jid> {
+        self.get_jid(key, false)
+    }
+
+    /// Shared by `optional_jid` and `jid`, so the required variant can record a
+    /// missing attribute and read the present one from the same lookup instead
+    /// of scanning the attribute list a second time to fetch what it just
+    /// proved was there.
+    fn get_jid(&mut self, key: &str, require: bool) -> Option<Jid> {
+        self.get_raw(key, require).and_then(|v| match v {
+            NodeValue::Jid(j) => Some(j.clone()),
+            NodeValue::String(s) => match Jid::from_str(s) {
+                Ok(jid) => Some(jid),
+                Err(e) => {
+                    self.errors.push(BinaryError::from(e));
+                    None
+                }
+            },
+        })
+    }
+
+    /// Get a required JID attribute, failing immediately when it is missing or invalid.
+    pub fn required_jid(&mut self, key: &str) -> Result<Jid> {
+        match self
+            .get_raw(key, false)
+            .ok_or_else(|| BinaryError::MissingAttr(key.to_string()))?
+        {
+            NodeValue::Jid(jid) => Ok(jid.clone()),
+            NodeValue::String(value) => Jid::from_str(value).map_err(BinaryError::from),
+        }
+    }
+
+    pub fn jid(&mut self, key: &str) -> Jid {
+        self.get_jid(key, true).unwrap_or_default()
+    }
+
+    pub fn non_ad_jid(&mut self, key: &str) -> Jid {
+        self.jid(key).to_non_ad()
+    }
+
+    // --- Boolean ---
+    fn get_bool(&mut self, key: &str, require: bool) -> Option<bool> {
+        self.get_string_value(key, require)
+            .and_then(|s| match coerce_protocol_bool(&s) {
+                Some(val) => Some(val),
+                None => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse bool from '{s}' for key '{key}'"
+                    )));
+                    None
+                }
+            })
+    }
+
+    /// Parse an optional protocol boolean while preserving absence.
+    pub fn optional_bool_value(&mut self, key: &str) -> Option<bool> {
+        self.get_bool(key, false)
+    }
+
+    pub fn optional_bool(&mut self, key: &str) -> bool {
+        self.optional_bool_value(key).unwrap_or(false)
+    }
+
+    pub fn bool(&mut self, key: &str) -> bool {
+        self.get_bool(key, true).unwrap_or(false)
+    }
+
+    // --- u64 ---
+    pub fn optional_u64(&mut self, key: &str) -> Option<u64> {
+        self.get_string_value(key, false)
+            .and_then(|s| match s.parse::<u64>() {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse u64 from '{s}' for key '{key}': {e}"
+                    )));
+                    None
+                }
+            })
+    }
+
+    pub fn unix_time(&mut self, key: &str) -> i64 {
+        self.get_i64(key, true).unwrap_or_default()
+    }
+
+    pub fn optional_unix_time(&mut self, key: &str) -> Option<i64> {
+        self.get_i64(key, false)
+    }
+
+    pub fn unix_milli(&mut self, key: &str) -> i64 {
+        self.get_i64(key, true).unwrap_or_default()
+    }
+
+    pub fn optional_unix_milli(&mut self, key: &str) -> Option<i64> {
+        self.get_i64(key, false)
+    }
+
+    fn get_i64(&mut self, key: &str, require: bool) -> Option<i64> {
+        self.get_string_value(key, require)
+            .and_then(|s| match s.parse::<i64>() {
+                Ok(val) => Some(val),
+                Err(e) => {
+                    self.errors.push(BinaryError::AttrParse(format!(
+                        "Failed to parse i64 from '{s}' for key '{key}': {e}"
+                    )));
+                    None
+                }
+            })
+    }
+}
+
+#[cfg(test)]
+mod required_getter_tests {
+    use super::*;
+    use crate::builder::NodeBuilder;
+
+    /// The required getters used to look the attribute up once to report it
+    /// missing and again to read it. Folding that into one lookup must not move
+    /// which error comes out: absent still reports "not found", and a present
+    /// but unparsable value still reports the parse failure rather than being
+    /// swallowed as absent.
+    #[test]
+    fn required_getters_keep_reporting_missing_and_invalid_separately() {
+        let node = NodeBuilder::new("message")
+            .attr("from", "5511999998888@s.whatsapp.net")
+            .attr("bad_jid", "@@@")
+            .attr("t", "1700000000")
+            .attr("bad_t", "not-a-number")
+            .build();
+
+        // Present and valid: no error, value read.
+        let mut p = AttrParser::new(&node);
+        assert_eq!(p.jid("from").user, "5511999998888");
+        assert_eq!(p.unix_time("t"), 1700000000);
+        assert!(p.ok(), "clean parse should not record errors");
+
+        // Absent: reported as missing, not as a parse failure.
+        let mut p = AttrParser::new(&node);
+        assert_eq!(p.jid("nope"), Jid::default());
+        assert!(format!("{:?}", p.errors).contains("not found"));
+
+        let mut p = AttrParser::new(&node);
+        assert_eq!(p.unix_time("nope"), 0);
+        assert!(format!("{:?}", p.errors).contains("not found"));
+
+        // Present but invalid: reported as a parse failure, not as missing.
+        let mut p = AttrParser::new(&node);
+        assert_eq!(p.jid("bad_jid"), Jid::default());
+        assert!(!p.ok());
+        assert!(!format!("{:?}", p.errors).contains("not found"));
+
+        let mut p = AttrParser::new(&node);
+        assert_eq!(p.unix_time("bad_t"), 0);
+        assert!(!p.ok());
+        assert!(!format!("{:?}", p.errors).contains("not found"));
+    }
+}
+
+#[cfg(test)]
+mod bool_coercion_tests {
+    use super::coerce_protocol_bool;
+
+    #[test]
+    fn coerce_protocol_bool_accepts_wire_forms() {
+        // "1"/"0" are the WhatsApp wire forms str::parse::<bool> used to reject.
+        for t in ["1", "true", "True", "t", "T", "TRUE"] {
+            assert_eq!(coerce_protocol_bool(t), Some(true), "{t}");
+        }
+        for f in ["0", "false", "False", "f", "F", "FALSE"] {
+            assert_eq!(coerce_protocol_bool(f), Some(false), "{f}");
+        }
+        // Matches whatsmeow strconv.ParseBool: on/off and junk are not booleans.
+        for bad in ["", "yes", "no", "2", "on", "off"] {
+            assert_eq!(coerce_protocol_bool(bad), None, "{bad}");
+        }
+    }
+}

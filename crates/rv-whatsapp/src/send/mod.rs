@@ -1,0 +1,11241 @@
+//! Outgoing message pipeline.
+//!
+//! Cost model, clock reads: one per send operation, sampled as `SendInstant`
+//! and carried to every stamp. A new timestamp here should take that instant
+//! rather than read again, or the path silently accumulates reads the way it
+//! had accumulated four.
+
+use crate::client::Client;
+use crate::types::message::EditAttribute;
+use anyhow::anyhow;
+use log::debug;
+use wacore::libsignal::protocol::SignalProtocolError;
+use wacore::send::{RecipientFanout, StanzaType};
+use wacore::types::jid::JidExt;
+use wacore::types::message::AddressingMode;
+#[cfg(test)]
+use wacore_binary::DeviceKey;
+use wacore_binary::builder::NodeBuilder;
+use wacore_binary::{Jid, JidExt as _, Server};
+use wacore_binary::{Node, NodeContent};
+use waproto::whatsapp as wa;
+
+use crate::client::ClientError;
+use crate::features::GroupError;
+use crate::request::IqError;
+use thiserror::Error;
+
+mod actions;
+mod requests;
+pub use requests::{EditRequest, SendRequest};
+pub(crate) mod group_repair;
+mod tctoken_lifecycle;
+pub(crate) use tctoken_lifecycle::is_own_identity;
+
+/// Error returned by the message send path ([`Client::send_message`],
+/// [`Client::send_text`], [`Client::forward_message`], reactions, edits,
+/// revokes, pins, polls, events, comments, status) and the bot
+/// [`crate::bot::MessageContext`] helpers.
+///
+/// Wraps the shared [`ClientError`] (transport/connection/IQ) and surfaces the
+/// actionable send-time failure modes explicitly. `Internal` is the last-resort
+/// catch-all for crypto/encoding paths that still thread `anyhow` internally.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum SendError {
+    /// Invalid or incomplete target addressing, rejected before sending.
+    #[error("{0}")]
+    MessageRef(#[from] crate::MessageRefError),
+    /// Malformed raw message-secret material, rejected before encryption.
+    #[error("{0}")]
+    InvalidSecret(#[from] crate::InvalidMessageSecret),
+    /// Connection/transport/IQ failure (embeds the shared base error).
+    // No `#[from]`: the manual `From<ClientError>` impl flattens a bare `?` so
+    // `NotLoggedIn`/`Iq` stay matchable instead of nesting under `Client(..)`.
+    #[error("{0}")]
+    Client(#[source] ClientError),
+    /// The client has no PN/LID identity yet (not paired / mid LID migration).
+    #[error("client is not logged in")]
+    NotLoggedIn,
+    /// An IQ issued as part of the send (e.g. a group-info query) failed.
+    #[error("IQ request failed: {0}")]
+    Iq(#[from] IqError),
+    /// The recipient JID or send arguments are invalid for this operation
+    /// (e.g. a newsletter JID on the E2E path, an empty status recipient list).
+    #[error("invalid send request: {0}")]
+    InvalidRequest(String),
+    /// A DM could not be encrypted for a single device of the recipient, so
+    /// nothing was sent. Distinct from a transport failure: the connection is
+    /// fine and the message id was never on the wire, so the useful retry is
+    /// one that resolves the device list again
+    /// ([`crate::cache::Freshness::Refresh`]) rather than an immediate resend.
+    #[error("{0}")]
+    NoRecipientDevice(#[source] wacore::send::NoRecipientDeviceError),
+    /// The server rejected a primary device (device 0) while the send was
+    /// establishing its sessions, so nothing was built or sent. The device
+    /// lists it names have been refreshed by the time this returns, so an
+    /// immediate retry resolves them again rather than repeating the question.
+    #[error("{0}")]
+    PrimaryDeviceRejected(#[source] wacore::send::PrimaryDeviceRejected),
+    /// Catch-all for internal send failures (Signal encrypt, protobuf, group
+    /// resolution) that have no dedicated variant yet. `Display` forwards to
+    /// the inner error while `source()` still exposes it for downcast.
+    #[error("{0}")]
+    Internal(#[from] anyhow::Error),
+}
+
+impl SendError {
+    /// Map an `anyhow::Error` bubbled up from a helper that still threads
+    /// `anyhow` (e.g. `send_message_impl`, `require_pn`) into a typed
+    /// `SendError`, recovering the concrete [`ClientError`]. Without this the
+    /// blanket `#[from] anyhow::Error` would funnel a logged-out
+    /// `ClientError::NotLoggedIn` into the un-matchable `Internal` catch-all.
+    pub(crate) fn from_anyhow(err: anyhow::Error) -> Self {
+        // A validation deeper in the pipeline may already be a typed `SendError`
+        // (e.g. send_message_impl's newsletter/status guards); recover it so it
+        // stays matchable instead of collapsing into `Internal`.
+        let err = match err.downcast::<SendError>() {
+            Ok(send) => return send,
+            Err(other) => other,
+        };
+        // A DM that reached no device of its recipient is not an internal
+        // failure: the caller decides whether to refresh devices and retry, so
+        // it must be able to match on it instead of parsing a message.
+        let err = match err.downcast::<wacore::send::NoRecipientDeviceError>() {
+            Ok(no_recipient) => return SendError::NoRecipientDevice(no_recipient),
+            Err(other) => other,
+        };
+        // Same reasoning one layer down: the send never reached the wire, and
+        // the caller's answer is a device-refreshing retry rather than a resend.
+        let err = match err.downcast::<wacore::send::PrimaryDeviceRejected>() {
+            Ok(rejected) => return SendError::PrimaryDeviceRejected(rejected),
+            Err(other) => other,
+        };
+        // A group-metadata IQ in the send path (e.g. routing_info) bubbles up as
+        // `GroupError`; flatten it before the `ClientError` check so an IQ
+        // failure surfaces as `SendError::Iq`, not the `Internal` catch-all.
+        let err = match err.downcast::<GroupError>() {
+            Ok(group) => return group.into(),
+            Err(other) => other,
+        };
+        match err.downcast::<ClientError>() {
+            Ok(client) => client.into(),
+            Err(other) => match other.downcast::<IqError>() {
+                Ok(iq) => SendError::Iq(iq),
+                Err(other) => SendError::Internal(other),
+            },
+        }
+    }
+}
+
+impl From<ClientError> for SendError {
+    fn from(err: ClientError) -> Self {
+        match err {
+            ClientError::NotLoggedIn => SendError::NotLoggedIn,
+            ClientError::Iq(iq) => SendError::Iq(iq),
+            client => SendError::Client(client),
+        }
+    }
+}
+
+impl From<GroupError> for SendError {
+    fn from(err: GroupError) -> Self {
+        match err {
+            GroupError::Iq(iq) => SendError::Iq(iq),
+            GroupError::InvalidRequest(msg) => SendError::InvalidRequest(msg),
+            GroupError::Internal(e) => SendError::from_anyhow(e),
+            // Preserve domain errors without a dedicated send variant as typed
+            // sources rather than flattening their Display text.
+            group @ (GroupError::Mex(_)
+            | GroupError::DescriptionConflict
+            | GroupError::EmptyPicture) => SendError::Internal(group.into()),
+        }
+    }
+}
+
+pub(crate) fn same_group_user(
+    left: &Jid,
+    right: &Jid,
+    info: &wacore::client::context::GroupRoutingInfo,
+) -> bool {
+    if left.user == right.user && left.server == right.server {
+        return true;
+    }
+    (left.is_lid()
+        && info
+            .phone_jid_for_lid_user(&left.user)
+            .is_some_and(|phone| phone.user == right.user && right.is_pn()))
+        || (right.is_lid()
+            && info
+                .phone_jid_for_lid_user(&right.user)
+                .is_some_and(|phone| phone.user == left.user && left.is_pn()))
+        || (left.is_pn()
+            && info
+                .lid_user_for_phone_user(&left.user)
+                .is_some_and(|lid_user| right.is_lid() && lid_user == right.user))
+        || (right.is_pn()
+            && info
+                .lid_user_for_phone_user(&right.user)
+                .is_some_and(|lid_user| left.is_lid() && lid_user == left.user))
+}
+
+fn require_history_device_coverage(requested: &[Jid], devices: &[Jid]) -> anyhow::Result<()> {
+    if requested.iter().any(|user| {
+        !devices.iter().any(|device| {
+            !device.is_hosted() && device.user == user.user && device.server == user.server
+        })
+    }) {
+        anyhow::bail!("group history device resolution omitted a requested identity");
+    }
+    Ok(())
+}
+
+/// Returns a `GroupRoutingInfo` whose participant list is guaranteed to contain our own
+/// sending JID, without deep-cloning the shared (cached) metadata in the common
+/// case where the server's participant list already includes us.
+fn ensure_self_in_group(
+    info: std::sync::Arc<wacore::client::context::GroupRoutingInfo>,
+    own_sending_jid: &Jid,
+) -> std::sync::Arc<wacore::client::context::GroupRoutingInfo> {
+    if info
+        .participants
+        .iter()
+        .any(|participant| participant.is_same_user_as(own_sending_jid))
+    {
+        info
+    } else {
+        let mut owned = (*info).clone();
+        owned.participants.push(own_sending_jid.to_non_ad());
+        std::sync::Arc::new(owned)
+    }
+}
+
+/// Whether a loaded `skdm_warm_memo` entry still describes this send, and if
+/// not, which term ruled it out.
+///
+/// Its own function so the check has exactly one definition. The tests that
+/// pin the memo's behaviour need the same predicate, and a second copy of it
+/// would keep answering "valid" if a fifth term were ever added here — the
+/// tests would pass while every send missed the memo, with nothing reporting
+/// it. Pure comparison over an already-loaded tuple, so it adds nothing to the
+/// send path.
+///
+/// The terms are checked in the same order the original `&&` chain
+/// short-circuited them, and the answer names the FIRST one that failed rather
+/// than "some term failed": with four terms, an aggregate miss count cannot
+/// tell a cascading device-set change from an in-place cold flip, and those
+/// two have opposite implications.
+pub(crate) fn skdm_memo_entry_stale_term(
+    memo: &crate::client::SkdmWarmMemoEntry,
+    devices: &std::sync::Arc<wacore::send::ResolvedGroupDevices>,
+    cached_map: &std::sync::Arc<crate::sender_key_device_cache::SenderKeyDeviceMap>,
+    cached_map_generation: u64,
+    own_sending_jid: &Jid,
+) -> Option<crate::client::SkdmTargetsMemoOutcome> {
+    use crate::client::SkdmTargetsMemoOutcome as Term;
+    let (memo_devices, memo_map, memo_generation, memo_sender, _) = memo;
+    if !std::ptr::eq(memo_devices.as_ptr(), std::sync::Arc::as_ptr(devices)) {
+        return Some(Term::MissDevices);
+    }
+    if !std::ptr::eq(memo_map.as_ptr(), std::sync::Arc::as_ptr(cached_map)) {
+        return Some(Term::MissMap);
+    }
+    if *memo_generation != cached_map_generation {
+        return Some(Term::MissMapGeneration);
+    }
+    if memo_sender != own_sending_jid {
+        return Some(Term::MissSender);
+    }
+    None
+}
+
+/// SKDM update data — only populated for group sends, deferred until after
+/// send_node(). This matches WhatsApp Web which only calls markHasSenderKey()
+/// after server ACK.
+struct SkdmUpdate {
+    topology_generation: u64,
+    group_info: std::sync::Arc<wacore::client::context::GroupRoutingInfo>,
+    to_str: String,
+    devices: Vec<Jid>,
+    stale_users: Vec<String>,
+}
+
+/// One send branch's result: the wire stanza plus the state the shared
+/// epilogue of `send_message_impl` consumes. Each branch runs as its own
+/// boxed future, so a DM send never pays for the group branch's frame.
+struct SendBranchOutput {
+    node: Node,
+    /// Generated `MessageContextInfo.message_secret`, persisted after send_node.
+    msg_secret: Option<[u8; 32]>,
+    /// Group sends: the identity (LID or PN) the secret must be keyed under,
+    /// matching what `<meta target_sender_jid>` echoes back.
+    group_sender_identity: Option<Jid>,
+    skdm_update: Option<SkdmUpdate>,
+    /// Single-flight for cold group sends: held from SKDM target resolution
+    /// through `update_sender_key_devices` in the epilogue so a concurrent
+    /// cold send re-resolves against the winner's warm marking.
+    distribution_guard: Option<async_lock::MutexGuardArc<()>>,
+    issue_tc_token_after_send: bool,
+    /// The phash this stanza carries, when it carries one. The server echoes
+    /// its own on the ack and a disagreement is the only signal a send gets
+    /// that its participant device set is stale.
+    ack_phash: Option<wacore_binary::CompactString>,
+    /// DM branch only: what the recipient half of the fan-out reached.
+    recipient_fanout: Option<RecipientFanout>,
+    /// DM branch only: the device set the stanza covered, shared with the memo
+    /// entry it came from. Handed to the phash waiter as its exclude list.
+    dm_devices: Option<std::sync::Arc<wacore::send::ResolvedDmDevices>>,
+    group_devices: Option<std::sync::Arc<wacore::send::ResolvedGroupDevices>>,
+    /// Pairwise group-direct sends refresh the group/device topology too, so
+    /// they must not cross a connection generation while preparing encryption.
+    requires_connection_generation_check: bool,
+    /// Of those, the ones that produced no `<enc>`. Empty on a complete fan-out.
+    dm_unreached: Vec<Jid>,
+}
+
+struct GroupBranchRequest<'a> {
+    to: Jid,
+    message: &'a wa::Message,
+    request_id: &'a str,
+    edit: Option<EditAttribute>,
+    extra_stanza_nodes: &'a [Node],
+    group_metadata_freshness: crate::cache::Freshness,
+    device_freshness: crate::cache::Freshness,
+    borrowed_message_id: bool,
+}
+
+struct DmBranchRequest<'a> {
+    to: Jid,
+    message: &'a wa::Message,
+    request_id: &'a str,
+    sent_at: SendInstant,
+    edit: Option<EditAttribute>,
+    extra_stanza_nodes: Vec<Node>,
+    is_status_addon: bool,
+    device_freshness: crate::cache::Freshness,
+    borrowed_message_id: bool,
+    creation_sender: Option<&'a mut Option<Jid>>,
+}
+
+struct GroupDirectBranchRequest<'a> {
+    to: Jid,
+    message: &'a wa::Message,
+    request_id: &'a str,
+    recipients: &'a [Jid],
+}
+
+enum GroupDeviceSnapshot {
+    Owned(wacore::send::ResolvedGroupDevices),
+    Shared(std::sync::Arc<wacore::send::ResolvedGroupDevices>),
+}
+
+impl AsRef<wacore::send::ResolvedGroupDevices> for GroupDeviceSnapshot {
+    fn as_ref(&self) -> &wacore::send::ResolvedGroupDevices {
+        match self {
+            Self::Owned(devices) => devices,
+            Self::Shared(devices) => devices,
+        }
+    }
+}
+
+/// Keep each branch future out of the shared send frame. In tracing builds the
+/// dedicated span lets allocation profilers distinguish this deliberate box
+/// from work performed while polling the selected branch.
+#[inline]
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(
+        name = "wa.send.branch_box",
+        level = "debug",
+        skip_all,
+        fields(future_bytes = size_of::<F>())
+    )
+)]
+fn box_send_branch<F>(future: F) -> std::pin::Pin<Box<F>>
+where
+    F: Future,
+{
+    Box::pin(future)
+}
+
+/// Sort and deduplicate session lock keys into the one acquisition order.
+/// INVARIANT: every caller of `session_guards_for` passes keys that went
+/// through here, which is what keeps two sends overlapping on a device from
+/// deadlocking; the DM memo stores the sorted result and serves it as is.
+fn sort_session_lock_keys(keys: &mut Vec<Jid>) {
+    keys.sort_unstable_by(wacore::types::jid::cmp_for_lock_order);
+    keys.dedup_by(|a, b| wacore::types::jid::cmp_for_lock_order(a, b).is_eq());
+}
+
+/// Bounds repeated refreshes when the server keeps rejecting the same device set.
+const GROUP_DEVICE_RESYNC_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(60);
+/// Short backoff after a failed refresh (network error, retired connection):
+/// the next mismatch is likely legitimate, so it must not wait out the full
+/// cooldown, which exists for a divergence the refresh could not settle.
+const GROUP_DEVICE_RESYNC_RETRY_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn group_distribution_targets(devices: &wacore::send::ResolvedGroupDevices, own: &Jid) -> Vec<Jid> {
+    let mut targets = devices.devices().to_vec();
+    wacore::send::retain_skdm_distribution_targets(&mut targets, own);
+    targets
+}
+
+/// True when every SKDM target belongs to our own account (PN or LID user).
+/// Own devices are never memoized warm (WA Web's `!isMeDevice` guard on
+/// `markHasSenderKey`), so an own-only `needs` set is the permanent
+/// warm-send steady state — not a cold-group signal.
+fn skdm_needs_only_own_devices(needs: &[Jid], own_pn: Option<&Jid>, own_lid: Option<&Jid>) -> bool {
+    !needs.is_empty()
+        && needs.iter().all(|j| {
+            own_pn.is_some_and(|p| j.is_same_user_as(p))
+                || own_lid.is_some_and(|l| j.is_same_user_as(l))
+        })
+}
+
+const RESERVED_EXTRA_STANZA_CHILDREN: &[&str] =
+    &["enc", "participants", "device-identity", "plaintext"];
+
+fn validate_extra_stanza_nodes(nodes: &[Node]) -> Result<(), SendError> {
+    if let Some(node) = nodes.iter().find(|node| {
+        RESERVED_EXTRA_STANZA_CHILDREN
+            .iter()
+            .any(|reserved| node.tag == *reserved)
+    }) {
+        return Err(SendError::InvalidRequest(format!(
+            "extra stanza child <{}> is reserved by the send pipeline",
+            node.tag
+        )));
+    }
+    Ok(())
+}
+
+impl SendBranchOutput {
+    fn stanza_only(node: Node) -> Self {
+        Self {
+            node,
+            msg_secret: None,
+            group_sender_identity: None,
+            skdm_update: None,
+            distribution_guard: None,
+            issue_tc_token_after_send: false,
+            ack_phash: None,
+            recipient_fanout: None,
+            dm_devices: None,
+            group_devices: None,
+            requires_connection_generation_check: false,
+            dm_unreached: Vec::new(),
+        }
+    }
+}
+
+/// Options for [`SendRequest`] passed to [`Client::send`].
+///
+/// Start from [`SendOptions::default`] and chain the `with_*` setters; the
+/// struct is `#[non_exhaustive]` so new knobs can be added without breaking
+/// consumers.
+///
+/// ```
+/// # use whatsapp_rust::send::SendOptions;
+/// # use whatsapp_rust::MessageId;
+/// let options = SendOptions::default().with_message_id(MessageId::new("3EB0ABCDEF")?);
+/// # Ok::<(), whatsapp_rust::MessageRefError>(())
+/// ```
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct SendOptions {
+    /// Override the auto-generated message ID.
+    /// Useful for resending a failed message with the same ID or idempotency.
+    pub message_id: Option<crate::MessageId>,
+    /// Extra XML child nodes on the message stanza. A node the send already
+    /// derives from the message content — `<biz>`, and `<bot>` on a DM — is
+    /// refused with [`SendError::InvalidRequest`] rather than stacked next to
+    /// the derived one, which the receiving client renders as nothing.
+    pub extra_stanza_nodes: Vec<Node>,
+    /// Ephemeral duration in seconds. Sets `contextInfo.expiration` on the
+    /// message (WA Web `EProtoGenerator.js:183` parity).
+    /// Common values: 86400 (24h), 604800 (7d), 7776000 (90d).
+    pub ephemeral_expiration: Option<u32>,
+    /// Force the `<message type="...">` attribute instead of deriving it from
+    /// content. Escape hatch for a type the classifier can't infer.
+    pub stanza_type_override: Option<StanzaType>,
+    /// Freshness policy for group metadata used by this send.
+    pub group_metadata_freshness: crate::cache::Freshness,
+    /// Freshness policy for recipient device lists used by this send.
+    pub device_freshness: crate::cache::Freshness,
+}
+
+impl SendOptions {
+    /// See [`SendOptions::message_id`].
+    #[must_use]
+    pub fn with_message_id(mut self, message_id: crate::MessageId) -> Self {
+        self.message_id = Some(message_id);
+        self
+    }
+
+    /// See [`SendOptions::extra_stanza_nodes`].
+    #[must_use]
+    pub fn with_extra_stanza_nodes(mut self, nodes: Vec<Node>) -> Self {
+        self.extra_stanza_nodes = nodes;
+        self
+    }
+
+    /// See [`SendOptions::ephemeral_expiration`].
+    #[must_use]
+    pub fn with_ephemeral_expiration(mut self, seconds: u32) -> Self {
+        self.ephemeral_expiration = Some(seconds);
+        self
+    }
+
+    /// See [`SendOptions::stanza_type_override`].
+    #[must_use]
+    pub fn with_stanza_type_override(mut self, stanza_type: StanzaType) -> Self {
+        self.stanza_type_override = Some(stanza_type);
+        self
+    }
+
+    /// See [`SendOptions::group_metadata_freshness`].
+    #[must_use]
+    pub fn with_group_metadata_freshness(mut self, freshness: crate::cache::Freshness) -> Self {
+        self.group_metadata_freshness = freshness;
+        self
+    }
+
+    /// See [`SendOptions::device_freshness`].
+    #[must_use]
+    pub fn with_device_freshness(mut self, freshness: crate::cache::Freshness) -> Self {
+        self.device_freshness = freshness;
+        self
+    }
+}
+
+/// Options for [`EditRequest`] passed to [`Client::edit_message`].
+///
+/// Start from [`EditOptions::default`] and chain the `with_*` setters; the
+/// struct is `#[non_exhaustive]` so new knobs can be added without breaking
+/// consumers.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct EditOptions {
+    /// Override the outer stanza id (default: a fresh id, like
+    /// [`Client::edit_message`]). Pinning it to an **existing** message's id is
+    /// a best-effort, side-effect-aware operation:
+    /// - No id-keyed local state is bound to the borrowed id — the edit does not
+    ///   persist an outbound message secret or a retry-cache entry under it, so
+    ///   the original message's secret and retry content are left intact.
+    /// - Whether the wire-level collision is honored is server- and
+    ///   client-dependent (the server may dedupe against the outer id), so treat
+    ///   the visible outcome as non-guaranteed.
+    pub stanza_id: Option<crate::StanzaId>,
+}
+
+impl EditOptions {
+    /// See [`EditOptions::stanza_id`].
+    #[must_use]
+    pub fn with_stanza_id(mut self, stanza_id: crate::StanzaId) -> Self {
+        self.stanza_id = Some(stanza_id);
+        self
+    }
+}
+
+/// The wall-clock second one send operation is stamped with.
+///
+/// Sampled once where the operation starts and carried down, so the message id,
+/// the biz node, the privacy-token decision and the outbound message secret
+/// describe one instant instead of four reads that can straddle a second
+/// boundary, on a path where a clock read is not always cheap.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SendInstant(i64);
+
+impl SendInstant {
+    pub(crate) fn now() -> Self {
+        Self(wacore::time::now_secs())
+    }
+
+    pub(crate) fn unix_secs(self) -> i64 {
+        self.0
+    }
+
+    /// Saturated at 0 for the encodings that carry unsigned seconds.
+    pub(crate) fn unix_secs_u64(self) -> u64 {
+        self.0.max(0) as u64
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GroupDirectAcknowledgement {
+    Accepted,
+    Rejected {
+        error: Option<String>,
+        code: Option<String>,
+    },
+    /// The ACK timed out, was malformed, or did not match this exact stanza.
+    /// The server may still have accepted the message; callers must not send a
+    /// follow-up notice on this outcome.
+    Indeterminate,
+}
+
+#[derive(Debug)]
+pub(crate) enum GroupDirectSendError {
+    /// Another send with this message ID already owns the ACK waiter; it may
+    /// still be in flight, so the result is indeterminate rather than unsent.
+    AckAlreadyPending,
+    Send(SendError),
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct GroupDirectSendOutcome {
+    /// For group-direct sends, counts both opted-in receivers and the sender's
+    /// relevant companion devices (the sender's active device is excluded).
+    pub recipient_fanout: Option<RecipientFanout>,
+    pub acknowledgement: GroupDirectAcknowledgement,
+}
+
+fn parse_group_direct_ack(
+    ack: &wacore_binary::OwnedNodeRef,
+    message_id: &str,
+    group: &Jid,
+    expected_phash: Option<&str>,
+) -> GroupDirectAcknowledgement {
+    let node = ack.get();
+    let group = group.to_string();
+    if node.tag != "ack"
+        || node
+            .get_attr("id")
+            .is_none_or(|value| value.as_str() != message_id)
+        || node
+            .get_attr("class")
+            .is_none_or(|value| value.as_str() != "message")
+        || node
+            .get_attr("from")
+            .is_none_or(|value| value.as_str() != group)
+    {
+        return GroupDirectAcknowledgement::Indeterminate;
+    }
+
+    let error = node.get_attr("error").map(|value| value.to_string());
+    let code = node
+        .get_attr("code")
+        .map(|value| value.to_string())
+        .or_else(|| {
+            error
+                .as_ref()
+                .filter(|value| value.parse::<u16>().is_ok())
+                .cloned()
+        });
+    if error.is_some() || code.is_some() {
+        GroupDirectAcknowledgement::Rejected { error, code }
+    } else if node
+        .get_attr("phash")
+        .is_some_and(|server| expected_phash.is_none_or(|ours| ours != server.as_str()))
+    {
+        // A device added after resolution cannot be declared covered. A retry
+        // refreshes only the same authorized audience, with the same ID.
+        GroupDirectAcknowledgement::Indeterminate
+    } else {
+        GroupDirectAcknowledgement::Accepted
+    }
+}
+
+#[cfg(test)]
+mod group_direct_tests {
+    use super::*;
+    use wacore_binary::builder::NodeBuilder;
+
+    fn owned_node(node: Node) -> wacore_binary::OwnedNodeRef {
+        let packed = wacore_binary::marshal::marshal_ref(&node.as_node_ref()).expect("marshal");
+        wacore_binary::OwnedNodeRef::new(
+            wacore_binary::util::unpack(&packed)
+                .expect("unpack")
+                .into_owned(),
+        )
+        .expect("owned protocol node")
+    }
+
+    #[test]
+    fn group_direct_ack_requires_matching_class_id_and_group() {
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        let accepted = owned_node(
+            NodeBuilder::new("ack")
+                .attr("id", "SYNTHETIC-ID")
+                .attr("class", "message")
+                .attr("from", &group)
+                .build(),
+        );
+        assert_eq!(
+            parse_group_direct_ack(&accepted, "SYNTHETIC-ID", &group, None),
+            GroupDirectAcknowledgement::Accepted
+        );
+
+        for (id, class, from) in [
+            ("OTHER-ID", "message", group.to_string()),
+            ("SYNTHETIC-ID", "receipt", group.to_string()),
+            (
+                "SYNTHETIC-ID",
+                "message",
+                "120363000000000002@g.us".to_string(),
+            ),
+        ] {
+            let malformed = owned_node(
+                NodeBuilder::new("ack")
+                    .attr("id", id)
+                    .attr("class", class)
+                    .attr("from", from)
+                    .build(),
+            );
+            assert_eq!(
+                parse_group_direct_ack(&malformed, "SYNTHETIC-ID", &group, None),
+                GroupDirectAcknowledgement::Indeterminate
+            );
+        }
+
+        let mismatched_phash = owned_node(
+            NodeBuilder::new("ack")
+                .attr("id", "SYNTHETIC-ID")
+                .attr("class", "message")
+                .attr("from", &group)
+                .attr("phash", "server-devices")
+                .build(),
+        );
+        assert_eq!(
+            parse_group_direct_ack(
+                &mismatched_phash,
+                "SYNTHETIC-ID",
+                &group,
+                Some("sent-devices")
+            ),
+            GroupDirectAcknowledgement::Indeterminate
+        );
+        assert_eq!(
+            parse_group_direct_ack(
+                &mismatched_phash,
+                "SYNTHETIC-ID",
+                &group,
+                Some("server-devices")
+            ),
+            GroupDirectAcknowledgement::Accepted
+        );
+
+        let rejected = owned_node(
+            NodeBuilder::new("ack")
+                .attr("id", "SYNTHETIC-ID")
+                .attr("class", "message")
+                .attr("from", &group)
+                .attr("error", "500")
+                .attr("code", "500")
+                .build(),
+        );
+        assert_eq!(
+            parse_group_direct_ack(&rejected, "SYNTHETIC-ID", &group, None),
+            GroupDirectAcknowledgement::Rejected {
+                error: Some("500".into()),
+                code: Some("500".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn group_history_ack_normalizes_numeric_rejection_codes() {
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        for (error, code, expected) in [
+            (Some("503"), None, Some("503")),
+            (Some("429"), None, Some("429")),
+            (Some("403"), None, Some("403")),
+            (Some("unavailable"), None, None),
+            (None, Some("503"), Some("503")),
+            (Some("unavailable"), Some("503"), Some("503")),
+            (Some("503"), Some("403"), Some("403")),
+        ] {
+            let mut ack = NodeBuilder::new("ack")
+                .attr("id", "SYNTHETIC-ID")
+                .attr("class", "message")
+                .attr("from", &group);
+            if let Some(error) = error {
+                ack = ack.attr("error", error);
+            }
+            if let Some(code) = code {
+                ack = ack.attr("code", code);
+            }
+            let ack = owned_node(ack.build());
+            assert_eq!(
+                parse_group_direct_ack(&ack, "SYNTHETIC-ID", &group, None),
+                GroupDirectAcknowledgement::Rejected {
+                    error: error.map(str::to_owned),
+                    code: expected.map(str::to_owned),
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn group_direct_ack_waiters_do_not_replace_or_remove_a_newer_retry() {
+        let client = crate::test_utils::create_test_client().await;
+        let (first_receiver, first_generation) = client
+            .try_register_ack_waiter("SYNTHETIC-ID")
+            .expect("first ACK waiter");
+        assert!(client.try_register_ack_waiter("SYNTHETIC-ID").is_none());
+
+        drop(first_receiver);
+        client.response_waiters_guard().remove("SYNTHETIC-ID");
+        let (second_receiver, second_generation) = client
+            .try_register_ack_waiter("SYNTHETIC-ID")
+            .expect("retry waiter after the first ACK was consumed");
+        assert_ne!(first_generation, second_generation);
+        client
+            .response_waiters_guard()
+            .remove_guarded("SYNTHETIC-ID", first_generation);
+        assert!(client.response_waiters_guard().contains_key("SYNTHETIC-ID"));
+        client
+            .response_waiters_guard()
+            .remove_guarded("SYNTHETIC-ID", second_generation);
+        drop(second_receiver);
+    }
+
+    #[tokio::test]
+    async fn raw_group_history_cannot_fall_through_to_sender_key_broadcast() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        for message in [
+            {
+                let mut proto = wa::Message::default();
+                proto.message_history_bundle = buffa::MessageField::some(Default::default());
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.message_history_notice = buffa::MessageField::some(Default::default());
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.ephemeral_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.message_history_bundle =
+                            buffa::MessageField::some(Default::default());
+                        proto
+                    });
+                    proto
+                });
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.edited_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.message_history_bundle =
+                            buffa::MessageField::some(Default::default());
+                        proto
+                    });
+                    proto
+                });
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.bot_task_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.message_history_bundle =
+                            buffa::MessageField::some(Default::default());
+                        proto
+                    });
+                    proto
+                });
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.newsletter_admin_profile_status_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.message_history_bundle =
+                            buffa::MessageField::some(Default::default());
+                        proto
+                    });
+                    proto
+                });
+                proto
+            },
+            {
+                let mut proto = wa::Message::default();
+                proto.bot_platform_registration_success_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.message_history_bundle =
+                            buffa::MessageField::some(Default::default());
+                        proto
+                    });
+                    proto
+                });
+                proto
+            },
+        ] {
+            let error = client
+                .send_message_impl(group.clone(), &message, SendPipelineOptions::default())
+                .await
+                .expect_err("raw group send must not broadcast history");
+            assert!(error.to_string().contains("add-with-history"));
+        }
+    }
+
+    #[tokio::test]
+    async fn group_direct_send_rejects_empty_or_non_user_audiences() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        let message = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("synthetic history test".into());
+            proto
+        };
+        let invalid_group_recipient = [group.clone()];
+
+        for recipients in [&[][..], &invalid_group_recipient[..]] {
+            let result = client
+                .send_group_direct_branch(GroupDirectBranchRequest {
+                    to: group.clone(),
+                    message: &message,
+                    request_id: "SYNTHETIC-ID",
+                    recipients,
+                })
+                .await;
+            let Err(error) = result else {
+                panic!("invalid pairwise audience must be rejected before sending");
+            };
+            assert!(error.to_string().contains("group-direct"));
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SendPipelineOptions<'a> {
+    /// Instant this operation is stamped with, when the caller already sampled
+    /// one. `None` makes [`Client::send_message_impl`] sample its own.
+    pub(crate) sent_at: Option<SendInstant>,
+    /// Borrowed on purpose: the caller that already owns an id (because it
+    /// returns it, or stamped state with it) lends it for the whole send
+    /// instead of handing over a copy.
+    pub(crate) request_id: Option<&'a str>,
+    pub(crate) peer: bool,
+    /// A peer recovery must use the socket its request generation names.
+    pub(crate) send_scope: Option<(u64, std::sync::Arc<crate::socket::NoiseSocket>)>,
+    pub(crate) send_observer: Option<Box<dyn wacore::socket::noise_socket::SendObserver>>,
+    pub(crate) edit: Option<EditAttribute>,
+    pub(crate) extra_stanza_nodes: Vec<Node>,
+    pub(crate) stanza_type: Option<StanzaType>,
+    pub(crate) group_metadata_freshness: crate::cache::Freshness,
+    pub(crate) device_freshness: crate::cache::Freshness,
+    /// The outer stanza id is borrowed from another message (caller-forced
+    /// `request_id`), so id-keyed state must NOT be bound to it: skip
+    /// `add_recent_message` (retry cache) and `persist_outbound_msg_secret`.
+    /// Without this, the borrowed id clobbers the original message's retry
+    /// content and outbound secret.
+    pub(crate) borrowed_message_id: bool,
+    /// Internal pairwise audience for group-history bundles. Ordinary sends
+    /// continue through sender-key fanout.
+    pub(crate) group_direct_recipients: Option<&'a [Jid]>,
+    /// An ACK-gated, group-wide notice sent after its bundle was accepted.
+    pub(crate) group_history_notice: bool,
+    /// Capture the exact fanout phash before registering an ACK waiter.
+    pub(crate) history_expected_phash: Option<&'a mut Option<wacore_binary::CompactString>>,
+    /// Capture the identity actually selected by the encryption branch, not a
+    /// later metadata lookup that can change namespaces after the send.
+    pub(crate) creation_sender: Option<&'a mut Option<Jid>>,
+}
+
+/// The devices a freshly resolved fan-out holds that the sent stanza did not.
+///
+/// The other direction is deliberately not reported: a device the send covered
+/// and the refresh dropped has already received its copy, and the refresh is
+/// the whole repair it needs.
+fn devices_missed_by_send(addressed: &[Jid], unreached: &[Jid], fresh: &[Jid]) -> Vec<Jid> {
+    // Linear scans rather than sets: both sides are one user's devices plus our
+    // own, which is single digits, and this runs only on a mismatch.
+    fresh
+        .iter()
+        .filter(|device| !addressed.contains(device) || unreached.contains(device))
+        .cloned()
+        .collect()
+}
+
+/// What a DM phash mismatch needs to deliver the message to the devices its
+/// stanza missed: the id to resend under, and the set it already covered.
+pub(crate) struct DmDeltaResend<'a> {
+    pub(crate) message_id: &'a str,
+    pub(crate) addressed: std::sync::Arc<wacore::send::ResolvedDmDevices>,
+    /// The subset of `addressed` that produced no `<enc>`, so holds no copy.
+    pub(crate) unreached: Vec<Jid>,
+}
+
+/// Result of a successfully sent message.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct SendResult {
+    pub message_id: crate::MessageId,
+    pub to: Jid,
+    /// The message this send encoded, exactly as the pipeline handed it to
+    /// the encoder: after every change the send applied on the caller's
+    /// behalf ([`SendOptions::ephemeral_expiration`], forward preparation) and
+    /// including the whole of what this crate built for an edit, a revoke, a
+    /// pin, a poll or a status.
+    ///
+    /// Not a copy of the wire bytes: when the message carries no
+    /// `message_context_info` of its own, the plaintext the recipient decrypts
+    /// additionally carries the reporting-token context (a `message_secret`
+    /// and its version) the pipeline splices onto the encoding, and the copy
+    /// for our own devices is wrapped in a `DeviceSentMessage`. Both are
+    /// delivery metadata rather than content; reporting them here would cost a
+    /// decode of the plaintext we just encoded, so a caller that needs the
+    /// exact wire form reads it from the echo the account's other devices
+    /// receive.
+    ///
+    /// Shared rather than owned so that a host publishing the send to several
+    /// consumers hands out the pointer, the same shape an inbound
+    /// message arrives in, and so that cloning the result stays cheap.
+    pub message: std::sync::Arc<wa::Message>,
+    /// For a DM, what the recipient half of the fan-out actually encrypted for.
+    /// `None` for every other send shape: a group, a status, a peer sync and a
+    /// newsletter plaintext each answer a different question about who was
+    /// reached, and answering it with a DM's numbers would be a lie the caller
+    /// cannot see through.
+    ///
+    /// A send that dropped devices still returns `Ok`, matching what WA Web
+    /// itself sends, so a caller that treats delivery as more than "the server
+    /// took it" reads [`RecipientFanout::is_partial`] and
+    /// [`RecipientFanout::skipped_primary`] here and decides its own policy.
+    pub recipient_fanout: Option<RecipientFanout>,
+}
+
+impl SendResult {
+    /// Reference the emitted message, not the original target of an edit,
+    /// revoke or add-on. Its body stays in the existing Arc, untouched. For
+    /// newsletter plaintext sends use `newsletter_ref` instead.
+    pub fn message_ref(&self) -> Result<crate::MessageRef<'_>, crate::MessageRefError> {
+        crate::MessageRef::new(&self.to, self.message_id.clone(), None, true)
+    }
+
+    /// A freshly sent newsletter post has a client id but no server id until
+    /// learned from the server. This result does not manufacture that id.
+    pub fn newsletter_ref(
+        &self,
+    ) -> Result<crate::NewsletterMessageRef<'_>, crate::MessageRefError> {
+        crate::NewsletterMessageRef::new(&self.to, Some(self.message_id.clone()), None)
+            .map(|r| r.with_from_me(true))
+    }
+
+    /// Outer operation id for ACK correlation. For edits/revokes this is NOT
+    /// the original target id; an ACK match does not prove recipient delivery.
+    pub fn stanza_id(&self) -> crate::StanzaId {
+        crate::StanzaId::from_message_id(&self.message_id)
+    }
+
+    /// `participant` is `None` -- only valid for the sender's own messages.
+    pub fn message_key(&self) -> wa::MessageKey {
+        {
+            let mut proto = wa::MessageKey::default();
+            proto.remote_jid = Some(self.to.to_string());
+            proto.from_me = Some(true);
+            proto.id = Some(self.message_id.to_string());
+            proto.participant = None;
+            proto
+        }
+    }
+}
+
+/// Duration for pinned messages. Default is 7 days (matches WA Web).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum PinDuration {
+    Hours24,
+    #[default]
+    Days7,
+    Days30,
+}
+
+impl PinDuration {
+    fn as_secs(self) -> u32 {
+        match self {
+            Self::Hours24 => 86_400,
+            Self::Days7 => 604_800,
+            Self::Days30 => 2_592_000,
+        }
+    }
+}
+
+/// Specifies who is revoking (deleting) the message.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum RevokeType {
+    /// The message sender deleting their own message.
+    #[default]
+    Sender,
+    /// A group admin deleting another user's message.
+    /// `original_sender` is the JID of the user who sent the message being deleted.
+    Admin { original_sender: Jid },
+}
+
+/// Derive stanza-level edit attribute and meta node from message content.
+///
+/// The `edit` attribute and the `<meta>` child are independent in WA Web: the
+/// edit attribute comes from `editAttribute(msg, subtype)` and the meta node
+/// from `genMetaNode(...)`. A message can carry both (e.g. a poll vote sets
+/// `polltype=vote` meta; an event edit sets both `event_type=edit` meta and
+/// `edit="1"` attribute).
+pub(crate) fn infer_stanza_metadata(msg: &wa::Message) -> (Option<EditAttribute>, Option<Node>) {
+    (
+        EditAttribute::infer_from_message(msg),
+        wacore::send::message_meta_from_message(msg),
+    )
+}
+
+// Status posts use the outer wire ID as their content ID. Revokes/reactions
+// instead carry their target in an embedded key and need an operation ID.
+fn status_id_override<'a>(
+    message: &wa::Message,
+    options: &'a crate::features::status::StatusSendOptions,
+) -> Result<Option<&'a str>, SendError> {
+    let is_content = wacore::send::status_carries_privacy_meta(message);
+    if (is_content && options.stanza_id.is_some()) || (!is_content && options.message_id.is_some())
+    {
+        return Err(SendError::InvalidRequest(
+            "status posts do not accept a stanza_id override; revokes/reactions do not accept a message_id override".into(),
+        ));
+    }
+    let outer_id = if is_content {
+        options.message_id.as_ref().map(crate::MessageId::as_str)
+    } else {
+        options.stanza_id.as_ref().map(crate::StanzaId::as_str)
+    };
+    validate_status_message_id(message, outer_id)?;
+    Ok(outer_id)
+}
+
+fn validate_status_message_id(
+    message: &wa::Message,
+    outer_id: Option<&str>,
+) -> Result<(), SendError> {
+    let Some(outer_id) = outer_id else {
+        return Ok(());
+    };
+    if outer_id.is_empty() {
+        return Err(SendError::InvalidRequest(
+            "status message ID must not be empty".into(),
+        ));
+    }
+    if wacore::send::status_revoke_target_id(message) == Some(outer_id) {
+        return Err(SendError::InvalidRequest(
+            "status revoke stanza ID must differ from the revoked message ID".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Offset subtracted from the current unix timestamp to produce the
+/// `privacy_mode_ts` attr value on a `<biz>` stanza. Empirically confirmed
+/// against live WhatsApp servers.
+const BIZ_PRIVACY_MODE_TS_OFFSET: u64 = 77_980_457;
+
+enum BizCategory<'a> {
+    /// `<biz actual_actors host_storage privacy_mode_ts native_flow_name=X/>` — no children.
+    /// The one shape WA Web also emits attrs-only: `createFanoutMsgStanza`
+    /// builds exactly these four attrs (and never a child) when the peer
+    /// contact carries a `privacyMode`.
+    PaymentSimple(&'a str),
+    /// Nested form with `name="mixed"`.
+    Mixed,
+}
+
+/// Pick the `<biz>` shape for a native-flow message from its first button.
+///
+/// Only the payment family keeps a literal flow name. Every other name routes
+/// through `mixed`, because live probes (issue #1132: fifteen sends from a
+/// Business account to a consumer handset) found that every one of the named
+/// nested shapes is refused — `cta_url`, `call_permission_request` and
+/// `payment_info` with a 473, `open_webview` and `galaxy_message` with a 405 —
+/// while `mixed` delivered on all ten of its attempts. Leading an otherwise
+/// byte-identical message with a `quick_reply` re-classified it to `mixed` and
+/// it went through, so the name is the only variable.
+///
+/// The name is very likely not the whole story, and the rest is worth a live
+/// probe before anyone reinstates the named form. The WA Web bundle
+/// (`WAWebSendMsgFanout.createFanoutMsgStanza`) builds a `<biz>` in exactly one
+/// of three mutually exclusive shapes, and our nested form matches none of
+/// them: it merges the privacy attrs with the nested child, stamps a `v="9"` on
+/// `<native_flow>` that WA Web never emits (all three of its builders pass
+/// `name` alone), and adds a `<quality_control>` child that appears in the
+/// bundle only in the INCOMING parser. `mixed` may simply be the one name the
+/// server does not validate strictly enough to notice.
+fn classify_button(button_name: &str) -> BizCategory<'_> {
+    match button_name {
+        // Untouched by the collapse: #1132 probed only `payment_info` of the
+        // six, and a merchant-provisioned account on real payment rails may
+        // legitimately answer differently than the test account did.
+        "payment_info" => BizCategory::PaymentSimple("payment_info"),
+        "review_and_pay" => BizCategory::PaymentSimple("order_details"),
+        "review_order" | "order_status" => BizCategory::PaymentSimple("order_status"),
+        "payment_status" => BizCategory::PaymentSimple("payment_status"),
+        "payment_method" => BizCategory::PaymentSimple("payment_method"),
+        "payment_reminder" => BizCategory::PaymentSimple("payment_reminder"),
+
+        _ => BizCategory::Mixed,
+    }
+}
+
+/// Does this interactive message carry something a client can render on its
+/// own, independent of native-flow buttons?
+///
+/// WA Web's rule verbatim (the `f` term of `getNativeFlowNameFromMsg`): a body,
+/// a header title, a footer, or a header image. `hasMediaAttachment` and the
+/// non-image header media are deliberately not part of it.
+fn has_renderable_envelope(im: &wa::message::InteractiveMessage) -> bool {
+    let non_empty = |text: Option<&str>| text.is_some_and(|t| !t.is_empty());
+
+    if non_empty(im.body.as_option().and_then(|b| b.text.as_deref()))
+        || non_empty(im.footer.as_option().and_then(|f| f.text.as_deref()))
+    {
+        return true;
+    }
+    let Some(header) = im.header.as_option() else {
+        return false;
+    };
+    non_empty(header.title.as_deref())
+        || matches!(
+            header.media,
+            Some(wa::message::interactive_message::header::Media::ImageMessage(_))
+        )
+}
+
+/// Classify an interactive payload into the `<biz>` shape it should carry,
+/// mirroring WA Web's `getNativeFlowNameFromMsg`: the first native-flow
+/// button's name decides when there is one, otherwise a payload that renders
+/// on its own is announced as `mixed`.
+///
+/// That second arm is what makes a carousel work (issue #1133): its buttons
+/// live on the cards, not at the top level, so the button rule never fires and
+/// the message used to leave without a `<biz>` at all — accepted, acked, and
+/// then invisible on the handset. A `shopStorefrontMessage` is excluded, as it
+/// is in WA Web.
+fn classify_interactive(im: &wa::message::InteractiveMessage) -> Option<BizCategory<'_>> {
+    use wa::message::interactive_message::InteractiveMessage as Payload;
+    match im.interactive_message.as_ref()? {
+        Payload::NativeFlowMessage(nf) if !nf.buttons.is_empty() => {
+            nf.buttons.first()?.name.as_deref().map(classify_button)
+        }
+        Payload::ShopStorefrontMessage(_) => None,
+        _ => has_renderable_envelope(im).then_some(BizCategory::Mixed),
+    }
+}
+
+/// Derive the `<biz>` stanza child for interactive messages.
+///
+/// Returns `None` when the message has no interactive payload, or one that
+/// announces nothing (a storefront, or a payload with neither buttons nor any
+/// renderable envelope). Otherwise returns the assembled `<biz>` node. The
+/// caller is responsible for prepending `<bot biz_bot="1"/>` for DM-bound
+/// sends (see `build_extra_stanza_nodes`).
+///
+/// `now_unix_secs` is the current wall-clock time in unix seconds. Taking it
+/// as a parameter keeps the function pure and lets tests pin the resulting
+/// `privacy_mode_ts` deterministically without touching the global time
+/// provider.
+fn infer_biz_node(msg: &wa::Message, now_unix_secs: u64) -> Option<Node> {
+    let category = classify_interactive(extract_interactive_message(msg)?)?;
+    let privacy_mode_ts = now_unix_secs
+        .saturating_sub(BIZ_PRIVACY_MODE_TS_OFFSET)
+        .to_string();
+
+    Some(match category {
+        BizCategory::PaymentSimple(flow_name) => NodeBuilder::new("biz")
+            .attr("actual_actors", "2")
+            .attr("host_storage", "2")
+            .attr("privacy_mode_ts", &privacy_mode_ts)
+            .attr("native_flow_name", flow_name)
+            .build(),
+        BizCategory::Mixed => build_nested_biz(&privacy_mode_ts, "mixed"),
+    })
+}
+
+fn build_nested_biz(privacy_mode_ts: &str, flow_name: &str) -> Node {
+    NodeBuilder::new("biz")
+        .attr("actual_actors", "2")
+        .attr("host_storage", "2")
+        .attr("privacy_mode_ts", privacy_mode_ts)
+        .children([
+            NodeBuilder::new("interactive")
+                .attr("type", "native_flow")
+                .attr("v", "1")
+                .children([NodeBuilder::new("native_flow")
+                    .attr("v", "9")
+                    .attr("name", flow_name)
+                    .build()])
+                .build(),
+            NodeBuilder::new("quality_control")
+                .attr("source_type", "third_party")
+                .build(),
+        ])
+        .build()
+}
+
+fn extract_interactive_message(msg: &wa::Message) -> Option<&wa::message::InteractiveMessage> {
+    // Only checks documentWithCaptionMessage wrapper (for media headers) and direct field.
+    // Does not use unwrap_message() since we need the InteractiveMessage specifically.
+    if let Some(doc) = msg.document_with_caption_message.as_option()
+        && let Some(inner) = doc.message.as_option()
+        && let Some(im) = inner.interactive_message.as_option()
+    {
+        return Some(im);
+    }
+    msg.interactive_message.as_option()
+}
+
+/// Refuse a caller node that repeats one this send already derives.
+///
+/// A `<message>` carries at most one `<biz>` and one `<bot>`: WA Web's outgoing
+/// builders declare both non-repeating and its message parser reads them with a
+/// single-child accessor, so a second copy is a shape no client produces and
+/// none of them agrees on how to read. Which one the server honours is not
+/// observable from here, so neither side silently wins the other's slot; the
+/// caller hears about the conflict instead of watching a message get acked,
+/// delivered and then rendered as nothing.
+fn reject_duplicate_extra_stanza_node(tag: &str, user_nodes: &[Node]) -> Result<(), SendError> {
+    if user_nodes.iter().any(|node| node.tag == tag) {
+        return Err(SendError::InvalidRequest(format!(
+            "extra stanza child <{tag}> conflicts with the one this send derives from the message"
+        )));
+    }
+    Ok(())
+}
+
+/// Assemble the `extra_stanza_nodes` vector for a non-newsletter send.
+///
+/// Order: `inferred_meta`, optional `<bot biz_bot="1"/>` (DM only), `<biz>`,
+/// then any user-provided extra nodes. Pure so the caller stays trivial and
+/// the assembly logic is unit-testable.
+///
+/// `<meta>` is deliberately not covered by the duplicate check: WA Web's own
+/// fanout builder emits two of them in one message, so a caller adding a second
+/// is asking for a shape the protocol already carries.
+fn build_extra_stanza_nodes(
+    to: &Jid,
+    inferred_meta: Option<Node>,
+    biz: Option<Node>,
+    user_nodes: Vec<Node>,
+) -> Result<Vec<Node>, SendError> {
+    if inferred_meta.is_none() && biz.is_none() {
+        return Ok(user_nodes);
+    }
+    let bot_emitted = biz.is_some() && !to.is_group();
+    if biz.is_some() {
+        reject_duplicate_extra_stanza_node("biz", &user_nodes)?;
+        if bot_emitted {
+            reject_duplicate_extra_stanza_node("bot", &user_nodes)?;
+        }
+    }
+    let extra = inferred_meta.is_some() as usize + biz.is_some() as usize + bot_emitted as usize;
+    let mut nodes = Vec::with_capacity(user_nodes.len() + extra);
+    nodes.extend(inferred_meta);
+    if let Some(node) = biz {
+        if bot_emitted {
+            nodes.push(NodeBuilder::new("bot").attr("biz_bot", "1").build());
+        }
+        nodes.push(node);
+    }
+    nodes.extend(user_nodes);
+    Ok(nodes)
+}
+
+fn build_revoke_message(
+    remote_jid: &Jid,
+    from_me: bool,
+    message_id: String,
+    participant: Option<String>,
+) -> wa::Message {
+    {
+        let mut proto_ = wa::Message::default();
+        proto_.protocol_message = buffa::MessageField::some({
+            let mut proto_ = wa::message::ProtocolMessage::default();
+            proto_.key = buffa::MessageField::some({
+                let mut proto = wa::MessageKey::default();
+                proto.remote_jid = Some(remote_jid.to_string());
+                proto.from_me = Some(from_me);
+                proto.id = Some(message_id);
+                proto.participant = participant;
+                proto
+            });
+            proto_.r#type = Some(wa::message::protocol_message::Type::Revoke);
+            proto_
+        });
+        proto_
+    }
+}
+
+/// A newsletter (channel) admin op on an existing message: edit (with the
+/// replacement body) or revoke. Keeping content tied to the variant makes the
+/// invalid edit-without-body / revoke-with-body states unrepresentable.
+pub(crate) enum NewsletterEdit<'a> {
+    Edit(&'a wa::Message),
+    Revoke,
+}
+
+/// Build a newsletter (channel) plaintext edit/revoke stanza. The target is keyed
+/// by `message_id` (the original message's stanza id string, the wire `id`), NOT
+/// by `server_id`: WA Web (mergeNewsletterClientIDMixin -> `id`) and whatsmeow
+/// (sendNewsletter, req.ID = protocolMessage.key.id) both reference edit/revoke by
+/// the message id and emit no `server_id` (that attr is reaction-only).
+pub(crate) fn build_newsletter_edit_node(
+    to: &Jid,
+    message_id: &str,
+    op: NewsletterEdit<'_>,
+) -> Node {
+    use crate::types::message::EditAttribute;
+    let mut plaintext = NodeBuilder::new("plaintext");
+    let (edit, stanza_type, body) = match op {
+        NewsletterEdit::Edit(m) => {
+            if let Some(mt) = wacore::send::media_type_from_message(m) {
+                plaintext = plaintext.attr("mediatype", mt);
+            }
+            (
+                EditAttribute::AdminEdit,
+                wacore::send::stanza_type_from_message(m),
+                waproto::codec::message_to_vec(m),
+            )
+        }
+        NewsletterEdit::Revoke => (EditAttribute::AdminRevoke, "text", Vec::new()),
+    };
+    NodeBuilder::new("message")
+        .attr("to", to)
+        .attr("id", message_id)
+        .attr("type", stanza_type)
+        .attr("edit", edit.to_string_val())
+        .children([plaintext.bytes(body).build()])
+        .build()
+}
+
+/// Build a message edit in WA Web's wire shape: a top-level
+/// protocolMessage(type=MESSAGE_EDIT) carrying the new content under
+/// editedMessage, same as build_revoke_message and our own receive path. The
+/// top-level Message.editedMessage FutureProofMessage is the history/storage
+/// form, not what WA Web sends on the wire.
+pub(crate) fn build_edit_message(
+    remote_jid: &Jid,
+    message_id: String,
+    participant: Option<String>,
+    new_content: wa::Message,
+    timestamp_ms: i64,
+) -> wa::Message {
+    {
+        let mut proto_ = wa::Message::default();
+        proto_.protocol_message = buffa::MessageField::some({
+            let mut proto_ = wa::message::ProtocolMessage::default();
+            proto_.key = buffa::MessageField::some({
+                let mut proto = wa::MessageKey::default();
+                proto.remote_jid = Some(remote_jid.to_string());
+                proto.from_me = Some(true);
+                proto.id = Some(message_id);
+                proto.participant = participant;
+                proto
+            });
+            proto_.r#type = Some(wa::message::protocol_message::Type::MessageEdit);
+            proto_.edited_message = buffa::MessageField::some(new_content);
+            proto_.timestamp_ms = Some(timestamp_ms);
+            proto_
+        });
+        proto_
+    }
+}
+
+impl Client {
+    /// Canonical send entry point. All content shortcuts use this implementation.
+    ///
+    /// Newsletter content remains plaintext; status uses the dedicated facade.
+    pub async fn send(&self, request: SendRequest) -> Result<SendResult, SendError> {
+        Box::pin(self.send_message_with_options_inner(
+            request.to,
+            request.message,
+            request.options,
+            None,
+        ))
+        .await
+    }
+
+    /// Send a message to a user, group, or newsletter with default options.
+    /// For configurable sends use [`Self::send`] with [`SendRequest`].
+    ///
+    /// Newsletter messages are sent as plaintext (no E2E encryption).
+    /// For status/story updates use [`Client::status()`] instead.
+    pub fn send_message(
+        &self,
+        to: impl Into<Jid>,
+        message: wa::Message,
+    ) -> impl Future<Output = Result<SendResult, SendError>> + '_ {
+        self.send(SendRequest::from_owned(to.into(), message))
+    }
+
+    /// Plain-text convenience over [`Client::send_message`].
+    pub fn send_text(
+        &self,
+        to: impl Into<Jid>,
+        text: impl Into<String>,
+    ) -> impl Future<Output = Result<SendResult, SendError>> + '_ {
+        use wacore::proto_helpers::MessageBuilderExt;
+        self.send(SendRequest::from_owned(to.into(), wa::Message::text(text)))
+    }
+
+    /// Forward an existing message to a chat.
+    ///
+    /// Builds a forward-ready copy of `message` (sets `is_forwarded`, bumps the
+    /// forwarding score, strips the reply/quote chain, and drops the source
+    /// `message_secret`) via
+    /// [`MessageExt::prepare_for_forward`](wacore::proto_helpers::MessageExt::prepare_for_forward),
+    /// then sends it.
+    /// `message` may be a received body or a wrapper (ephemeral/view-once); the
+    /// inner content is unwrapped before forwarding. Existing media is relayed
+    /// from the same CDN blob rather than re-uploaded.
+    pub fn forward_message(
+        &self,
+        to: impl Into<Jid>,
+        message: &wa::Message,
+    ) -> impl Future<Output = Result<SendResult, SendError>> + '_ {
+        use wacore::proto_helpers::MessageExt;
+        self.send(SendRequest::from_owned(
+            to.into(),
+            message.get_base_message().prepare_for_forward(),
+        ))
+    }
+
+    // Fixture adapter for pre-existing directed send controls. Production and
+    // external hosts use only the canonical request or the default shortcuts.
+    #[cfg(test)]
+    fn send_message_with_options(
+        &self,
+        to: impl Into<Jid>,
+        message: wa::Message,
+        options: SendOptions,
+    ) -> impl Future<Output = Result<SendResult, SendError>> + '_ {
+        self.send(SendRequest::from_owned(to.into(), message).with_options(options))
+    }
+
+    pub(crate) async fn send_creation_message(
+        &self,
+        to: &Jid,
+        message: wa::Message,
+    ) -> Result<(SendResult, Jid), SendError> {
+        // These references address E2E creations. Raw newsletter publication
+        // remains available through send_message and the newsletter facade.
+        if to.is_newsletter() || to.is_broadcast_list() || to.is_status_broadcast() {
+            return Err(SendError::InvalidRequest(
+                "creation requires an E2E chat".into(),
+            ));
+        }
+        let mut creator = None;
+        let result = Box::pin(self.send_message_with_options_inner(
+            to.clone(),
+            std::sync::Arc::new(message),
+            SendOptions::default(),
+            Some(&mut creator),
+        ))
+        .await?;
+        let creator = creator.ok_or_else(|| {
+            SendError::InvalidRequest("creation send did not report a sender identity".into())
+        })?;
+        Ok((result, creator.to_non_ad()))
+    }
+
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(
+            name = "wa.send.message",
+            level = "debug",
+            skip_all,
+            fields(
+                to = %to.observe(),
+                lid = tracing::field::Empty,
+                pn = tracing::field::Empty
+            ),
+            err(Debug)
+        )
+    )]
+    async fn send_message_with_options_inner(
+        &self,
+        to: Jid,
+        mut message: std::sync::Arc<wa::Message>,
+        options: SendOptions,
+        creation_sender: Option<&mut Option<Jid>>,
+    ) -> Result<SendResult, SendError> {
+        #[cfg(feature = "tracing")]
+        self.record_identity_on_span(&tracing::Span::current());
+
+        validate_extra_stanza_nodes(&options.extra_stanza_nodes)?;
+        let _t = wacore::telemetry::timer(wacore::telemetry::SEND_DURATION);
+        self.stats.record_message_sent();
+        wacore::telemetry::send(match to.server {
+            Server::Group => "group",
+            Server::Broadcast => "status",
+            Server::Newsletter => "newsletter",
+            _ => "dm",
+        });
+        if let Some(exp) = options.ephemeral_expiration
+            && exp > 0
+        {
+            use wacore::proto_helpers::MessageExt;
+            // The shim above created this `Arc` and nothing else holds it, so
+            // `make_mut` edits in place and never clones.
+            if !std::sync::Arc::make_mut(&mut message).set_ephemeral_expiration(exp) {
+                // Bare `conversation` messages have no contextInfo field.
+                log::warn!("Could not set contextInfo.expiration on this message type");
+            }
+        }
+
+        let stanza_type_override = options.stanza_type_override;
+        let group_metadata_freshness = options.group_metadata_freshness;
+        let device_freshness = options.device_freshness;
+        let sent_at = SendInstant::now();
+        let request_id = match options.message_id {
+            Some(id) => id.into_string(),
+            None => self.generate_message_id_at(sent_at.unix_secs_u64()),
+        };
+        // Both paths below consume `to`, so save a copy for the result. The id
+        // is not copied: it is lent to the pipeline as `&str` and moved into
+        // the result once the send returns.
+        let result_to = to.clone();
+
+        // Newsletters are not E2E encrypted — send as plaintext via SMAX stanza.
+        // Matches WA Web's OutMessagePublishNewsletterRequest + ContentType mixins.
+        if to.is_newsletter() {
+            let stanza_type = stanza_type_override
+                .map(StanzaType::as_wire)
+                .unwrap_or_else(|| wacore::send::stanza_type_from_message(&message));
+            let (_, mut meta_node) = infer_stanza_metadata(&message);
+            // Newsletter publication adds contenttype to the poll creation meta.
+            // E2E metadata does not carry this newsletter-specific attribute.
+            if let Some(poll) = message
+                .poll_creation_message_v3
+                .as_option()
+                .or_else(|| message.poll_creation_message.as_option())
+                && let Some(meta) = meta_node.as_mut()
+            {
+                let content_type =
+                    if poll.poll_content_type == Some(wa::message::PollContentType::IMAGE) {
+                        "image"
+                    } else {
+                        "text"
+                    };
+                meta.attrs.insert("contenttype", content_type);
+            }
+            let mut plaintext_builder = NodeBuilder::new("plaintext");
+            if let Some(mt) = wacore::send::media_type_from_message(&message) {
+                plaintext_builder = plaintext_builder.attr("mediatype", mt);
+            }
+            let mut children = vec![
+                plaintext_builder
+                    .bytes(waproto::codec::message_to_vec(&message))
+                    .build(),
+            ];
+            children.extend(meta_node);
+            children.extend(options.extra_stanza_nodes);
+            let stanza = NodeBuilder::new("message")
+                .attr("to", to)
+                .attr("type", stanza_type)
+                .attr("id", &request_id)
+                .children(children)
+                .build();
+            self.send_node(stanza).await?;
+            return Ok(SendResult {
+                message_id: crate::MessageId::try_from(request_id)?,
+                to: result_to,
+                recipient_fanout: None,
+                message,
+            });
+        }
+
+        let (edit, inferred_meta) = infer_stanza_metadata(&message);
+        let biz = infer_biz_node(&message, sent_at.unix_secs_u64());
+
+        let extra_nodes =
+            build_extra_stanza_nodes(&to, inferred_meta, biz, options.extra_stanza_nodes)?;
+        // send_message_impl now boxes each branch future itself, so its own
+        // frame (prologue + epilogue) embeds here without a second box; the
+        // shim's Box::pin above still keeps `send_message`'s future
+        // pointer-sized for callers embedding it in their own futures.
+        let recipient_fanout = self
+            .send_message_impl(
+                to,
+                &message,
+                SendPipelineOptions {
+                    sent_at: Some(sent_at),
+                    request_id: Some(&request_id),
+                    edit,
+                    extra_stanza_nodes: extra_nodes,
+                    stanza_type: stanza_type_override,
+                    group_metadata_freshness,
+                    device_freshness,
+                    creation_sender,
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(SendError::from_anyhow)?;
+        Ok(SendResult {
+            message_id: crate::MessageId::try_from(request_id)?,
+            to: result_to,
+            recipient_fanout,
+            message,
+        })
+    }
+
+    /// Send a status/story update using sender-key encryption.
+    ///
+    /// Status uses LID addressing (matches `WAWebEncryptAndSendStatusMsg`):
+    /// LID recipients pass through, PN recipients are resolved to LID via
+    /// `Client::get_lid_pn_entry` (cache-aside), and unresolvable recipients
+    /// are skipped silently. The resulting `GroupRoutingInfo` carries
+    /// `AddressingMode::Lid`; `prepare_group_stanza` signs with `own_lid`
+    /// and emits `addressing_mode="lid"` on the stanza. Errors only if no
+    /// recipient could be resolved.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.status", level = "debug", skip_all, fields(count = recipients.len()), err(Debug)))]
+    pub(crate) async fn send_status_message(
+        &self,
+        message: wa::Message,
+        recipients: &[Jid],
+        options: crate::features::status::StatusSendOptions,
+    ) -> Result<SendResult, SendError> {
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore_binary::builder::NodeBuilder;
+        let topology_generation = self.device_topology.current();
+
+        if recipients.is_empty() {
+            return Err(SendError::InvalidRequest(
+                "cannot send status with no recipients".into(),
+            ));
+        }
+        validate_extra_stanza_nodes(&options.extra_stanza_nodes)?;
+        let id_override = status_id_override(&message, &options)?.map(str::to_owned);
+
+        // Status posts don't go through send_message_with_options, so count them here.
+        let _t = wacore::telemetry::timer(wacore::telemetry::SEND_DURATION);
+        self.stats.record_message_sent();
+        wacore::telemetry::send("status");
+
+        let to = Jid::status_broadcast();
+        let request_id = id_override
+            .unwrap_or_else(|| self.generate_message_id_at(wacore::time::now_secs_u64()));
+
+        // Borrow from the held snapshot: no field clones, the Arc keeps it alive.
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        let account_info = &device_snapshot.account;
+        let own_jid = device_snapshot.pn.as_ref().ok_or(SendError::NotLoggedIn)?;
+        // Status is LID-addressed (matches WA Web post-LID-migration). Without
+        // a real device LID we can't sign or fan out correctly; refuse rather
+        // than silently emit `addressing_mode="lid"` with a PN sender.
+        let own_lid = device_snapshot.lid.as_ref().ok_or_else(|| {
+            SendError::InvalidRequest(
+                "cannot send status: device has no LID yet. Finish pairing / LID \
+                 migration before posting status."
+                    .into(),
+            )
+        })?;
+
+        // Fail fast for any JID that isn't a user (PN or LID). Mirrors WA
+        // Web's `asUserWidOrThrow` inside `toUserLid`: non-user inputs are a
+        // programming bug, not something to silently drop during resolution.
+        for jid in recipients {
+            if !(jid.is_pn() || jid.is_lid()) {
+                return Err(SendError::InvalidRequest(format!(
+                    "invalid status recipient {jid}: must be a user JID (PN or LID), \
+                     not a group/broadcast/newsletter/hosted/etc."
+                )));
+            }
+        }
+
+        use futures::StreamExt;
+        use std::collections::HashMap;
+        // Resolve recipient LIDs concurrently (a status audience can be hundreds of
+        // contacts, each a cold-cache DB read). Stream over indices and rebuild
+        // `resolved` in order — assemble_status_participants is position-sensitive.
+        const STATUS_LID_RESOLVE_CONCURRENCY: usize = 16;
+        let resolved_indexed: Vec<(usize, Option<Jid>)> =
+            futures::stream::iter(0..recipients.len())
+                .map(|i| async move { (i, self.resolve_recipient_to_lid(&recipients[i]).await) })
+                .buffer_unordered(STATUS_LID_RESOLVE_CONCURRENCY)
+                .collect()
+                .await;
+        let mut resolved: Vec<Option<Jid>> = vec![None; recipients.len()];
+        let mut lid_to_pn_map: HashMap<wacore_binary::CompactString, Jid> =
+            HashMap::with_capacity(recipients.len() + 1);
+        for (i, lid) in resolved_indexed {
+            if let Some(lid_jid) = lid {
+                if recipients[i].is_pn() {
+                    lid_to_pn_map.insert(lid_jid.user.clone(), recipients[i].to_non_ad());
+                }
+                resolved[i] = Some(lid_jid);
+            }
+        }
+        lid_to_pn_map.insert(own_lid.user.clone(), own_jid.to_non_ad());
+
+        let participants = wacore::send::assemble_status_participants(resolved, own_lid)?;
+        let mut group_info =
+            GroupRoutingInfo::with_lid_to_pn_map(participants, AddressingMode::Lid, lid_to_pn_map);
+
+        // One encode feeds retry cache and wire; mci-hoist re-encodes (folded context).
+        let shared_content = message
+            .message_context_info
+            .is_unset()
+            .then(|| std::sync::Arc::new(waproto::codec::message_to_vec(&message)));
+        self.add_recent_message(&to, &request_id, &message, shared_content.clone())
+            .await;
+
+        let device_store_arc = self.persistence_manager.clone();
+        let to_str = to.to_string();
+        let distribution_guard = self.group_distribution_lock(&to).await;
+
+        let force_skdm = {
+            use wacore::libsignal::store::sender_key_name::SenderKeyName;
+            // Sender key name tracks the addressing mode of the group stanza.
+            // Since status now uses LID addressing (see send_status_message
+            // header), the key is stored under own_lid, matching the address
+            // prepare_group_stanza derives internally.
+            let sender_address = own_lid.to_protocol_address();
+            let sender_key_name = SenderKeyName::from_parts(&to_str, sender_address.as_str());
+
+            let key_exists = self
+                .signal_cache
+                .get_sender_key(&sender_key_name, &*device_snapshot.backend)
+                .await?
+                .is_some();
+
+            if !key_exists {
+                self.reset_sender_key_device_tracking(&to_str).await?;
+            }
+
+            !key_exists
+        };
+
+        let mut store_adapter = self.signal_adapter_from(device_store_arc.clone());
+        let mut stores = store_adapter.as_signal_stores();
+
+        // Determine which devices need SKDM using the unified per-device map.
+        // Status keeps the prior phash behavior, so we drop the full device set
+        // and only use the SKDM-target subset.
+        let skdm_target_devices =
+            if !force_skdm || options.device_freshness == crate::cache::Freshness::Refresh {
+                self.resolve_status_skdm_targets(
+                    &to_str,
+                    &group_info,
+                    own_lid,
+                    options.device_freshness,
+                    force_skdm,
+                )
+                .await?
+            } else {
+                None
+            };
+
+        // prepare_group_stanza and ensure_status_participants both read the
+        // participant list and expect self present. Done after SKDM resolution
+        // to preserve the prior ordering (resolve ran without self appended).
+        let own_status_base = own_lid.to_non_ad();
+        if !group_info
+            .participants
+            .iter()
+            .any(|participant| participant.is_same_user_as(&own_status_base))
+        {
+            group_info.participants.push(own_status_base);
+        }
+
+        // `<meta status_setting>` describes the POSTER's privacy on their own
+        // status. Reactions go through WA Web's addon path and never visit
+        // `WAWebEncryptAndSendStatusMsg`; attaching the meta on a reaction
+        // gets the stanza NACK'd with 479 (SmaxInvalid). Revokes also skip it.
+        let mut extra_stanza_nodes = options.extra_stanza_nodes;
+        if wacore::send::status_carries_privacy_meta(&message) {
+            extra_stanza_nodes.push(
+                NodeBuilder::new("meta")
+                    .attr("status_setting", options.privacy.as_str())
+                    .build(),
+            );
+        }
+
+        let prepared = match wacore::send::prepare_group_stanza(
+            &*self.runtime,
+            &mut stores,
+            self,
+            wacore::send::GroupStanzaRequest {
+                group: &group_info,
+                own_jid,
+                own_lid,
+                account: account_info.as_deref(),
+                to: &to,
+                message: &message,
+                message_id: &request_id,
+                force_distribution: force_skdm,
+                distribution_targets: skdm_target_devices,
+                distribution_policy: wacore::send::SenderKeyDistributionPolicy::BestEffort,
+                phash_devices: None,
+                edit: None,
+                extra_nodes: &extra_stanza_nodes,
+                pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+            },
+        )
+        .await
+        {
+            Ok(prepared) => prepared,
+            Err(e) => {
+                if let Some(SignalProtocolError::NoSenderKeyState(_)) =
+                    e.downcast_ref::<SignalProtocolError>()
+                {
+                    log::warn!("No sender key for status broadcast, forcing distribution.");
+
+                    self.reset_sender_key_device_tracking(&to_str).await?;
+
+                    let mut store_adapter_retry =
+                        self.signal_adapter_from(device_store_arc.clone());
+                    let mut stores_retry = store_adapter_retry.as_signal_stores();
+
+                    wacore::send::prepare_group_stanza(
+                        &*self.runtime,
+                        &mut stores_retry,
+                        self,
+                        wacore::send::GroupStanzaRequest {
+                            group: &group_info,
+                            own_jid,
+                            own_lid,
+                            account: account_info.as_deref(),
+                            to: &to,
+                            message: &message,
+                            message_id: &request_id,
+                            force_distribution: true,
+                            distribution_targets: None,
+                            distribution_policy:
+                                wacore::send::SenderKeyDistributionPolicy::BestEffort,
+                            phash_devices: None,
+                            edit: None,
+                            extra_nodes: &extra_stanza_nodes,
+                            pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+                        },
+                    )
+                    .await?
+                } else {
+                    return Err(e.into());
+                }
+            }
+        };
+
+        let stanza = self
+            .ensure_status_participants(prepared.node, &group_info)
+            .await?;
+
+        // Gate the stanza on the sender-key ratchet advance being durable
+        // (same rule as the DM/group send path); a failure aborts the send.
+        self.persist_signal_state_pre_wire().await?;
+
+        let ack = stanza
+            .attrs()
+            .optional_string("phash")
+            .map(|s| wacore_binary::CompactString::from(s.as_ref()));
+        if let Some(phash) = ack.clone() {
+            self.register_phash_waiter(&request_id, phash, to.clone(), true, None, Vec::new());
+        }
+
+        if let Err(e) = self.send_node(stanza).await {
+            if ack.is_some() {
+                self.response_waiters_guard().remove(&request_id);
+            }
+            return Err(e.into());
+        }
+
+        self.update_sender_key_devices(
+            &to_str,
+            &prepared.skdm_devices,
+            topology_generation,
+            Some(&group_info),
+        )
+        .await;
+        drop(distribution_guard);
+
+        for user in &prepared.stale_device_users {
+            self.invalidate_device_cache(user).await;
+        }
+
+        Ok(SendResult {
+            message_id: crate::MessageId::try_from(request_id)?,
+            to,
+            recipient_fanout: None,
+            message: std::sync::Arc::new(message),
+        })
+    }
+
+    /// Resolve the group's device set for a warm/partial send. Returns
+    /// `None` when device resolution fails (caller falls back to the full
+    /// `force_skdm` path), otherwise `Some((all_devices, needs_skdm))` where
+    /// `all_devices` is the complete resolved set (feeds the phash) and
+    /// `needs_skdm` is the subset still missing the sender key (feeds SKDM
+    /// distribution). `needs_skdm` may be empty (fully warm send).
+    ///
+    /// For LID mode, uses `group_info.phone_jid_for_lid_user` to query devices
+    /// via PN when available (LID usync is unreliable for own JID), then
+    /// converts the result back to LID. Same fallback as `prepare_group_stanza`.
+    /// Load (or lazily build) the per-group sender-key device map.
+    ///
+    /// Atomic get-or-init: if another task invalidated the cache during our
+    /// DB read, get_or_init's single-flight guarantee means the stale data
+    /// won't be inserted — the invalidation wins and the next caller re-inits.
+    pub(crate) async fn skdm_device_map(
+        &self,
+        group_jid: &str,
+    ) -> std::sync::Arc<crate::sender_key_device_cache::SenderKeyDeviceMap> {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+        let pm = self.persistence_manager.clone();
+        self.sender_key_device_cache
+            .get_or_init(group_jid, async {
+                let db_rows = pm
+                    .get_sender_key_devices(group_jid)
+                    .await
+                    .unwrap_or_else(|e| {
+                        log::warn!(
+                            "Failed to read sender key devices for {}: {:?}",
+                            group_jid,
+                            e
+                        );
+                        vec![]
+                    });
+                std::sync::Arc::new(SenderKeyDeviceMap::from_db_rows(&db_rows))
+            })
+            .await
+    }
+
+    /// Filter the resolved device set down to the subset still needing SKDM.
+    ///
+    /// No empty-cache early-exit: WA Web iterates an empty `senderKey` Map
+    /// as `false` per participant, so the filter must run unconditionally.
+    pub(crate) fn filter_skdm_targets(
+        &self,
+        group_jid: &str,
+        all_devices: &[Jid],
+        cached_map: &crate::sender_key_device_cache::SenderKeyDeviceMap,
+        own_sending_jid: &Jid,
+    ) -> Vec<Jid> {
+        let needs_skdm: Vec<Jid> = all_devices
+            .iter()
+            .filter(|device| {
+                if device.is_hosted() {
+                    return false;
+                }
+                if device.user == own_sending_jid.user && device.device == own_sending_jid.device {
+                    return false;
+                }
+                // WA Web parity (ParticipantStore.js skDistribList): a device is
+                // warm only when it AND its primary (device 0) hold the key, so a
+                // forgotten primary redistributes the whole user while a forgotten
+                // companion redistributes only itself. One inner-map resolution
+                // per device (single user-string hash) instead of two.
+                !cached_map.device_and_primary_warm(&device.user, device.device)
+            })
+            .cloned()
+            .collect();
+
+        log::debug!(
+            "Resolved {} devices ({} need SKDM) for {}",
+            all_devices.len(),
+            needs_skdm.len(),
+            group_jid
+        );
+        needs_skdm
+    }
+
+    /// SKDM target resolution for the status path, whose `GroupRoutingInfo` is built
+    /// fresh per send (no stable identity to memoize against).
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.resolve_skdm_targets", level = "debug", skip_all, fields(group = %wacore_binary::jid::observe_str(group_jid))))]
+    async fn resolve_status_skdm_targets(
+        &self,
+        group_jid: &str,
+        group_info: &wacore::client::context::GroupRoutingInfo,
+        own_sending_jid: &Jid,
+        freshness: crate::cache::Freshness,
+        force_distribution: bool,
+    ) -> Result<Option<Vec<Jid>>, anyhow::Error> {
+        let cached_map = if force_distribution {
+            None
+        } else {
+            Some(self.skdm_device_map(group_jid).await)
+        };
+
+        let is_lid_mode = group_info.addressing_mode == AddressingMode::Lid;
+        let jids_to_resolve: Vec<Jid> = group_info
+            .participants
+            .iter()
+            .map(|jid| {
+                if is_lid_mode
+                    && jid.is_lid()
+                    && let Some(pn) = group_info.phone_jid_for_lid_user(&jid.user)
+                {
+                    return pn.to_non_ad();
+                }
+                jid.to_non_ad()
+            })
+            .collect();
+
+        let resolved = match freshness {
+            crate::cache::Freshness::CachePreferred => {
+                self.get_user_devices_owned(jids_to_resolve).await
+            }
+            crate::cache::Freshness::Refresh => self.refresh_user_devices(jids_to_resolve).await,
+        };
+        match resolved {
+            Ok(mut devices) => {
+                if is_lid_mode {
+                    for device in &mut devices {
+                        *device = group_info.phone_device_jid_into_lid(std::mem::take(device));
+                    }
+                }
+                if force_distribution {
+                    wacore::send::retain_skdm_distribution_targets(&mut devices, own_sending_jid);
+                } else if let Some(cached_map) = cached_map {
+                    devices.retain(|device| {
+                        !device.is_hosted()
+                            && !(device.user == own_sending_jid.user
+                                && device.device == own_sending_jid.device)
+                            && !cached_map.device_and_primary_warm(&device.user, device.device)
+                    });
+                }
+                log::debug!(
+                    "Resolved {} status devices needing SKDM for {}",
+                    devices.len(),
+                    group_jid
+                );
+                Ok(Some(devices))
+            }
+            Err(error) if freshness == crate::cache::Freshness::CachePreferred => {
+                log::warn!(
+                    "Failed to resolve devices for SKDM check in {}: {:?}",
+                    group_jid,
+                    error
+                );
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// SKDM target resolution for cached-group sends: the full device set
+    /// comes from the per-group memo (`resolve_group_devices_memoized`), so a
+    /// warm repeat send skips the per-member registry fan-out entirely.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.resolve_skdm_targets_memoized", level = "debug", skip_all, fields(group = %group_jid)))]
+    pub(crate) async fn resolve_skdm_targets_memoized(
+        &self,
+        group: &Jid,
+        group_jid: &str,
+        group_info: &std::sync::Arc<wacore::client::context::GroupRoutingInfo>,
+        own_sending_jid: &Jid,
+    ) -> Option<(std::sync::Arc<wacore::send::ResolvedGroupDevices>, Vec<Jid>)> {
+        use crate::client::SkdmTargetsMemoOutcome as Outcome;
+        let cached_map = self.skdm_device_map(group_jid).await;
+        match self
+            .resolve_group_devices_memoized(group, group_info, own_sending_jid)
+            .await
+        {
+            Ok(all_devices) => {
+                // Load after the resolve await (so a cold flip during it is
+                // visible to the hit check below) but BEFORE the filter: a
+                // flip racing the filter stamps the inserted memo as already
+                // stale (its stored generation lags the map's), so the next
+                // read re-runs it. A flip after this load and before the send
+                // is the same bounded one-send window the unmemoized filter
+                // has, recovered by the retry-receipt resend.
+                let cached_map_gen = cached_map.generation();
+                // Skip the O(devices) filter_skdm_targets scan when the same
+                // (devices, sender-key-map) Arc pair, generation AND sending
+                // identity were already warm, reusing the memoized targets
+                // (empty, or the own devices that re-receive their SKDM every
+                // send). The devices Arc swaps on membership change; the
+                // cached-map Arc swaps on a warm-mark invalidation; the
+                // generation catches an in-place cold flip that keeps the
+                // same Arc; the memoized needs are a pure function of that
+                // identity.
+                if !self.device_memos_enabled {
+                    self.device_memo_counters
+                        .record_skdm_targets(Outcome::Bypassed);
+                } else {
+                    // Recorded on the deciding branch, and the entry is never
+                    // moved out of the `Some` arm: it is an owned clone of a
+                    // five-field tuple carrying a `Jid` and a `Vec<Jid>`, so
+                    // shuffling it around to classify first is not free.
+                    match self.skdm_warm_memo.get(group).await {
+                        Some(memo) => {
+                            match skdm_memo_entry_stale_term(
+                                &memo,
+                                &all_devices,
+                                &cached_map,
+                                cached_map_gen,
+                                own_sending_jid,
+                            ) {
+                                None => {
+                                    self.device_memo_counters.record_skdm_targets(Outcome::Hit);
+                                    // `Cache::get` already cloned the stored
+                                    // slice, and that clone is exact, so
+                                    // reclaiming it as a `Vec` reuses its
+                                    // buffer instead of adding a second one.
+                                    // The hit still pays that one clone —
+                                    // same as the `Vec` this replaced; what
+                                    // the boxed form buys is retention, not a
+                                    // cheaper hit.
+                                    return Some((all_devices, memo.4.into_vec()));
+                                }
+                                Some(term) => self.device_memo_counters.record_skdm_targets(term),
+                            }
+                        }
+                        None => self
+                            .device_memo_counters
+                            .record_skdm_targets(Outcome::MissAbsent),
+                    }
+                }
+                let needs_skdm = self.filter_skdm_targets(
+                    group_jid,
+                    all_devices.devices(),
+                    &cached_map,
+                    own_sending_jid,
+                );
+                // Still inside the `device_memos_enabled` guard, and still
+                // short-circuiting: a client with store-backed caches must not
+                // pay the snapshot read for a memo it will never write.
+                if self.device_memos_enabled {
+                    let memoizable = needs_skdm.is_empty() || {
+                        let snapshot = self.persistence_manager.get_device_snapshot();
+                        skdm_needs_only_own_devices(
+                            &needs_skdm,
+                            snapshot.pn.as_ref(),
+                            snapshot.lid.as_ref(),
+                        )
+                    };
+                    if memoizable {
+                        self.skdm_warm_memo
+                            .insert(
+                                group.clone(),
+                                (
+                                    std::sync::Arc::downgrade(&all_devices),
+                                    std::sync::Arc::downgrade(&cached_map),
+                                    cached_map_gen,
+                                    own_sending_jid.clone(),
+                                    // Frozen only here, on the one path that
+                                    // retains it: what the filter returns
+                                    // carries the growth capacity of a scan
+                                    // over every device, and the entry keeps
+                                    // it for the life of the group. Built
+                                    // straight from the slice, so storing
+                                    // costs the one exact allocation a
+                                    // `Vec` clone would have cost anyway —
+                                    // and the send keeps its own `Vec`
+                                    // untouched.
+                                    Box::from(needs_skdm.as_slice()),
+                                ),
+                            )
+                            .await;
+                    } else {
+                        // Nothing stored, so the next call cannot hit. Any
+                        // stale entry is deliberately left in place rather
+                        // than cleared: it can never become valid again (the
+                        // map generation only moves forward, and the `Weak`
+                        // keeps the old device allocation alive so no
+                        // `ptr::eq` can spuriously match), so removing it
+                        // would buy a cache write and change nothing.
+                        self.device_memo_counters.record_skdm_not_stored();
+                    }
+                }
+                Some((all_devices, needs_skdm))
+            }
+            Err(e) => {
+                // Recorded so `SkdmTargetsMemoStats::calls()` really is one
+                // per call: a client failing here would otherwise report a
+                // healthy hit rate over a denominator that quietly shrank.
+                self.device_memo_counters
+                    .record_skdm_targets(Outcome::ResolveFailed);
+                log::warn!(
+                    "Failed to resolve devices for SKDM check in {}: {:?}",
+                    group_jid,
+                    e
+                );
+                None
+            }
+        }
+    }
+
+    /// Update sender key device tracking after a successful group/status send.
+    ///
+    /// Called AFTER `send_node()` succeeds (WA Web: `markHasSenderKey` after server ACK).
+    /// On full distribution, clears old state and marks the provided device list.
+    /// On partial, marks only the specific SKDM recipients.
+    ///
+    /// The `all_resolved_devices` parameter carries the exact device list resolved
+    /// for the stanza, avoiding a redundant `resolve_devices` call and preventing
+    /// the clear-then-fail race where a transient resolver failure leaves the map empty.
+    /// Mark devices as `has_key=true` after successful SKDM distribution.
+    ///
+    /// Excludes our own devices (`exclude_own_devices=true`), mirroring WA Web's
+    /// `ParticipantStore` helper, which guards every `markHasSenderKey` mutation
+    /// with `!isMeDevice`. Own companions are therefore never memoized as warm, so
+    /// `filter_skdm_targets` re-distributes their SKDM on every send — the same
+    /// reason WA Web can't orphan its own companions. Marking them here instead
+    /// would be one-directional: the retry-receipt forget path also excludes own
+    /// devices (to stop an inbound retry tearing down our own session), so an own
+    /// companion whose one SKDM encryption failed could never be re-sent one.
+    pub(crate) async fn update_sender_key_devices(
+        &self,
+        group_jid: &str,
+        devices: &[Jid],
+        topology_generation: u64,
+        group_info: Option<&wacore::client::context::GroupRoutingInfo>,
+    ) {
+        if devices.is_empty() {
+            return;
+        }
+
+        // Callers retain the distribution lock. Registry cleanup must finish either
+        // before this check or after the warm writes, never between them.
+        let _registry = self.device_topology.lock_registry().await;
+        if self.device_topology.current() != topology_generation {
+            let mut members = crate::client::member_index::MemberIndex::builder(devices.len() * 3);
+            for device in devices {
+                members.insert(&device.user);
+                if let Some(pn) =
+                    group_info.and_then(|info| info.phone_jid_for_lid_user(&device.user))
+                {
+                    members.insert(&pn.user);
+                }
+                if device.is_lid()
+                    && let Some(alias) = self.lid_pn_cache.get_phone_number(&device.user).await
+                {
+                    members.insert(&alias);
+                } else if !device.is_lid()
+                    && let Some(alias) = self.lid_pn_cache.get_current_lid(&device.user).await
+                {
+                    members.insert(&alias);
+                }
+            }
+            if !self
+                .device_topology
+                .unchanged_for(topology_generation, &members.build())
+            {
+                return;
+            }
+        }
+
+        // No invalidation on success: set_sender_key_status_for_devices
+        // already drops the cached map when it actually writes new warm marks,
+        // and an own-devices-only set (never memoized) writes nothing —
+        // invalidating for it would force a DB re-read on every warm send.
+        if let Err(e) = self
+            .set_sender_key_status_for_devices(group_jid, devices, true, true)
+            .await
+        {
+            log::warn!(
+                "Failed to update sender key devices for {}: {:?}",
+                group_jid,
+                e
+            );
+            // A failed write may still have partially landed (backend
+            // implementations are not required to be atomic), so drop the
+            // cached map rather than risk serving pre-write state.
+            self.sender_key_device_cache.invalidate(group_jid).await;
+        }
+    }
+
+    /// Cold path of the phash check: the server's phash disagreed with ours, so
+    /// re-resolve whatever produced it. Spawned only on a mismatch, which is why
+    /// the common path costs a string comparison on the read loop.
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.phash_mismatch", level = "debug", skip_all, fields(jid = %jid.observe())))]
+    pub(crate) async fn handle_phash_mismatch(
+        self: &std::sync::Arc<Self>,
+        jid: &Jid,
+        our_phash: &str,
+        server_phash: &str,
+        invalidate_group_cache: bool,
+        resend: Option<DmDeltaResend<'_>>,
+    ) {
+        // The one signal a bot gets that its participant device set disagrees
+        // with the server's, whatever the cause. What follows repairs the
+        // participant-level divergence and, for a DM, delivers the message to
+        // the devices the divergence hid.
+        log::warn!(
+            "Phash mismatch for {}: ours={our_phash}, server={server_phash}",
+            jid.observe()
+        );
+        // DM phash covers both recipient + own devices
+        // (WA Web: syncDeviceListJob([recipient, me]))
+        if !jid.is_group() && !jid.is_status_broadcast() {
+            self.invalidate_device_cache(&jid.user).await;
+            if let Some(own_pn) = &self.persistence_manager.get_device_snapshot().pn {
+                self.invalidate_device_cache(&own_pn.user).await;
+            }
+        }
+        let jid_str = jid.to_string();
+        // Group repair preserves sender keys and replaces device rows only after refresh.
+        let mut flush_fallback = false;
+        if jid.is_status_broadcast() {
+            let distribution_guard = self.group_distribution_lock(jid).await;
+            if let Err(e) = self.reset_sender_key_device_tracking(&jid_str).await {
+                log::warn!(
+                    "phash mismatch: clear_sender_key_devices failed: {e} — \
+                     deleting own sender key as fallback to force redistribution"
+                );
+                use wacore::libsignal::store::sender_key_name::SenderKeyName;
+                use wacore::types::jid::JidExt;
+                let snapshot = self.persistence_manager.get_device_snapshot();
+                for own in snapshot.lid.iter().chain(snapshot.pn.iter()) {
+                    let sk =
+                        SenderKeyName::from_parts(&jid_str, own.to_protocol_address().as_str());
+                    self.signal_cache.delete_sender_key(sk.cache_key()).await;
+                }
+                flush_fallback = true;
+            }
+            drop(distribution_guard);
+        } else if !jid.is_group() {
+            self.sender_key_device_cache.invalidate(&jid_str).await;
+        }
+        if flush_fallback {
+            let _ = self
+                .flush_signal_cache_batch_safe_logged("phash-mismatch-fallback", None)
+                .await;
+        }
+        if invalidate_group_cache && !jid.is_group() {
+            self.lock_group_metadata(jid).await.invalidate().await;
+        }
+        if jid.is_group() {
+            let client = std::sync::Arc::clone(self);
+            let group = jid.clone();
+            let generation = self
+                .connection_generation
+                .load(std::sync::atomic::Ordering::Acquire);
+            let shutdown = self.connection_shutdown_signal();
+            self.runtime.spawn_detached(Box::pin(async move {
+                let refresh = client.refresh_group_for_repair(&group, generation);
+                let cancelled = wacore::runtime::wait_for_shutdown(&shutdown);
+                futures::pin_mut!(refresh, cancelled);
+                let _ = futures::future::select(cancelled, refresh).await;
+            }));
+        }
+        // Last, so the re-resolve below reads through the invalidations above
+        // rather than racing them.
+        if let Some(resend) = resend {
+            self.resend_dm_to_uncovered_devices(jid, resend).await;
+        }
+    }
+
+    /// Deliver a DM to the devices a refreshed list holds and the sent stanza
+    /// did not.
+    ///
+    /// The mismatch says the server saw a device set we did not, and the caller
+    /// already has an `Ok` for this message id, so the repair is a resend to
+    /// the difference rather than an error or a full re-send: WA Web answers
+    /// the same ack by enqueueing `resendUserMsg` with an `excludeList` of the
+    /// devices that already hold a copy. Each device is retransmitted
+    /// pairwise, under the original message id, so a device that receives both
+    /// copies deduplicates on it.
+    async fn resend_dm_to_uncovered_devices(
+        self: &std::sync::Arc<Self>,
+        chat: &Jid,
+        resend: DmDeltaResend<'_>,
+    ) {
+        let DmDeltaResend {
+            message_id,
+            addressed,
+            unreached,
+        } = resend;
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        let Some(own_jid) = device_snapshot.pn.as_ref() else {
+            return;
+        };
+        let recipient_bare = self.resolve_dm_wire_jid(chat).await;
+        let fresh = match self
+            .resolve_dm_devices_memoized(
+                chat,
+                &recipient_bare,
+                own_jid,
+                device_snapshot.lid.as_ref(),
+                crate::cache::Freshness::Refresh,
+            )
+            .await
+        {
+            Ok(fresh) => fresh,
+            Err(e) => {
+                log::warn!(
+                    "phash mismatch for {}: could not re-resolve devices: {e:?}",
+                    chat.observe()
+                );
+                return;
+            }
+        };
+
+        let uncovered = devices_missed_by_send(addressed.devices(), &unreached, fresh.devices());
+        if uncovered.is_empty() {
+            // The set disagreed with the server's without gaining a device:
+            // the divergence was a device we sent to and the server no longer
+            // counts, which the refresh above has already fixed.
+            log::debug!(
+                "phash mismatch for {}: refreshed list holds no device the send missed",
+                chat.observe()
+            );
+            return;
+        }
+
+        log::info!(
+            "phash mismatch for {}: resending {message_id} to {} device(s) the send missed",
+            chat.observe(),
+            uncovered.len()
+        );
+        // Read once, after the refresh: repairing the device list is worth
+        // doing even when the plaintext has aged out of the retry cache.
+        let Some(bytes) = self.recent_message_bytes(chat, message_id).await else {
+            log::debug!(
+                "phash mismatch for {}: message {message_id} is no longer held; \
+                 the device list is refreshed, so the next send reaches everyone",
+                chat.observe()
+            );
+            return;
+        };
+
+        for device in uncovered {
+            // Decoded per device rather than cloned: a `wa::Message` clone is
+            // its own ~66 KiB of instantiated code, while the decode is code
+            // the retry cache already instantiates, and this runs only on a
+            // mismatch.
+            let owned = match waproto::codec::message_decode(bytes.as_slice()) {
+                Ok(message) => message,
+                Err(e) => {
+                    log::warn!(
+                        "phash mismatch for {}: cached {message_id} does not decode: {e}",
+                        chat.observe()
+                    );
+                    return;
+                }
+            };
+            // Our own companion needs the chat named as the recipient, or the
+            // copy it receives has no destination to file itself under; a peer
+            // device is its own routing identity.
+            let is_own = device.user == own_jid.user
+                || device_snapshot
+                    .lid
+                    .as_ref()
+                    .is_some_and(|lid| device.user == lid.user);
+            // Straight to the prepared form rather than through
+            // `retransmit_message`: its validation guards a caller-supplied
+            // request, and every jid here was built from our own resolved
+            // device list. The route is known to be `Direct`, so its
+            // group-metadata query would answer a question this cannot ask.
+            let outcome = self
+                .retransmit_message_prepared(crate::retry::PreparedRetransmission {
+                    route: crate::retry::RetransmissionRoute::Direct,
+                    chat: chat.clone(),
+                    wire_requester: device.clone(),
+                    // The session address, which is LID wherever a mapping is
+                    // known: the same rule `retransmit_message` applies for
+                    // this route, and the one the fan-out encrypted under.
+                    encryption_jid: self.resolve_encryption_jid(&device).await,
+                    message: owned,
+                    message_id: message_id.to_string(),
+                    retry_count: 1,
+                    recipient: is_own.then(|| chat.clone()),
+                    group_info: None,
+                    pre_encoded: Some(std::sync::Arc::clone(&bytes)),
+                })
+                .await;
+            if let Err(e) = outcome {
+                log::warn!(
+                    "phash mismatch for {}: resend of {message_id} to {} failed: {e}",
+                    chat.observe(),
+                    device.observe()
+                );
+            }
+        }
+    }
+
+    /// Ensure the status stanza has a <participants> node listing all recipient
+    /// user JIDs. WhatsApp Web's `participantList` uses bare USER JIDs (not
+    /// device JIDs) — `<to jid="user@s.whatsapp.net"/>` — to tell the server
+    /// which users should receive the skmsg. The SKDM distribution list
+    /// (already in <participants>) uses device JIDs with <enc> children.
+    async fn ensure_status_participants(
+        &self,
+        stanza: Node,
+        group_info: &wacore::client::context::GroupRoutingInfo,
+    ) -> Result<Node, anyhow::Error> {
+        Ok(wacore::send::ensure_status_participants(stanza, group_info))
+    }
+
+    /// Pairwise-encrypt a group-history message for an explicit group-member
+    /// audience and await its correlated server ACK. The audience is rechecked
+    /// against fresh group routing data by the send branch; ordinary group
+    /// messages continue through sender-key fanout.
+    pub(crate) async fn send_group_direct_message(
+        &self,
+        to: &Jid,
+        recipients: &[Jid],
+        message: &wa::Message,
+        message_id: &str,
+    ) -> Result<GroupDirectSendOutcome, GroupDirectSendError> {
+        self.send_group_history_message(to, Some(recipients), message, message_id)
+            .await
+    }
+
+    /// Notices contain no media key and must use the normal group sender-key
+    /// path so existing members see the announcement too.
+    pub(crate) async fn send_group_history_notice(
+        &self,
+        to: &Jid,
+        message: &wa::Message,
+        message_id: &str,
+    ) -> Result<GroupDirectSendOutcome, GroupDirectSendError> {
+        self.send_group_history_message(to, None, message, message_id)
+            .await
+    }
+
+    async fn send_group_history_message(
+        &self,
+        to: &Jid,
+        recipients: Option<&[Jid]>,
+        message: &wa::Message,
+        message_id: &str,
+    ) -> Result<GroupDirectSendOutcome, GroupDirectSendError> {
+        if !to.is_group() || recipients.is_some_and(|recipients| recipients.is_empty()) {
+            return Err(GroupDirectSendError::Send(SendError::InvalidRequest(
+                "group-direct send requires a group and at least one recipient".into(),
+            )));
+        }
+        // Record the payload kind before any await: a later retry receipt
+        // on a cache miss must still know bundles are pairwise.
+        self.note_history_payload(
+            message_id.to_owned(),
+            if message.message_history_bundle.is_unset() {
+                crate::retry::HistoryPayloadKind::Notice
+            } else {
+                crate::retry::HistoryPayloadKind::Bundle
+            },
+        );
+        let sent_at = SendInstant::now();
+        let request_id = message_id.to_owned();
+        let Some((ack_receiver, ack_generation)) = self.try_register_ack_waiter(&request_id) else {
+            return Err(GroupDirectSendError::AckAlreadyPending);
+        };
+        let _ack_guard = crate::request::ResponseWaiterGuard::new(
+            self.response_waiters.clone(),
+            request_id.clone(),
+            ack_generation,
+        );
+        let mut expected_phash = None;
+        let recipient_fanout = match self
+            .send_message_impl(
+                to.clone(),
+                message,
+                SendPipelineOptions {
+                    sent_at: Some(sent_at),
+                    request_id: Some(&request_id),
+                    group_direct_recipients: recipients,
+                    // The normal group branch also computes a phash; the
+                    // ACK-capture path below must not replace our waiter.
+                    group_history_notice: recipients.is_none(),
+                    history_expected_phash: Some(&mut expected_phash),
+                    group_metadata_freshness: crate::cache::Freshness::Refresh,
+                    device_freshness: crate::cache::Freshness::Refresh,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
+            Ok(fanout) => fanout,
+            Err(error) => {
+                return Err(GroupDirectSendError::Send(SendError::from_anyhow(error)));
+            }
+        };
+
+        let ack_result = wacore::runtime::timeout(
+            &*self.runtime,
+            std::time::Duration::from_secs(30),
+            ack_receiver,
+        )
+        .await;
+        let acknowledgement = match ack_result {
+            Ok(Ok(ack)) => parse_group_direct_ack(
+                &ack,
+                &request_id,
+                to,
+                expected_phash.as_ref().map(|phash| phash.as_str()),
+            ),
+            Ok(Err(_)) | Err(_) => GroupDirectAcknowledgement::Indeterminate,
+        };
+        Ok(GroupDirectSendOutcome {
+            recipient_fanout,
+            acknowledgement,
+        })
+    }
+
+    /// Send a message built by this crate with an explicit stanza `edit`
+    /// attribute and return the message in its [`SendResult`].
+    ///
+    /// `borrowed_stanza_id` names the outer stanza after another message, so
+    /// the pipeline binds no ID-keyed state to it. `None` uses a fresh ID.
+    pub(crate) fn send_built_message(
+        &self,
+        to: Jid,
+        message: wa::Message,
+        edit: EditAttribute,
+        borrowed_stanza_id: Option<String>,
+    ) -> impl Future<Output = Result<SendResult, SendError>> + '_ {
+        // Own the protobuf outside the coroutine. Edit/revoke callers otherwise
+        // retain its inline tree in every enclosing send future.
+        let message = std::sync::Arc::new(message);
+        self.send_shared_built_message(to, message, edit, borrowed_stanza_id)
+    }
+
+    async fn send_shared_built_message(
+        &self,
+        to: Jid,
+        message: std::sync::Arc<wa::Message>,
+        edit: EditAttribute,
+        borrowed_stanza_id: Option<String>,
+    ) -> Result<SendResult, SendError> {
+        // Sampled here and lent down, the way `send_message_with_options_inner`
+        // does it, so the send still names its message and stamps its instant
+        // exactly once.
+        let sent_at = SendInstant::now();
+        let borrowed_message_id = borrowed_stanza_id.is_some();
+        let request_id = borrowed_stanza_id
+            .unwrap_or_else(|| self.generate_message_id_at(sent_at.unix_secs_u64()));
+        let result_to = to.clone();
+        let recipient_fanout = self
+            .send_message_impl(
+                to,
+                &message,
+                SendPipelineOptions {
+                    sent_at: Some(sent_at),
+                    request_id: Some(&request_id),
+                    edit: Some(edit),
+                    extra_stanza_nodes: wacore::send::message_meta_from_message(&message)
+                        .into_iter()
+                        .collect(),
+                    borrowed_message_id,
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(SendError::from_anyhow)?;
+        Ok(SendResult {
+            message_id: crate::MessageId::try_from(request_id)?,
+            to: result_to,
+            recipient_fanout,
+            message,
+        })
+    }
+
+    // Keep the policy IQ and metadata future out of the ordinary DM/group
+    // send frame: all normal sends share send_message_impl's boxed future.
+    async fn validate_history_publication(
+        &self,
+        group: &Jid,
+        message: &wa::Message,
+        recipients: Option<&[Jid]>,
+    ) -> Result<(), SendError> {
+        let (metadata, limits) = crate::features::Groups::new(self)
+            .group_history_context(group)
+            .await
+            .map_err(|_| {
+                SendError::InvalidRequest(
+                    "group history authorization changed before publication".into(),
+                )
+            })?;
+        if !message.message_history_bundle.is_unset() {
+            if !recipients.is_some_and(|recipients| {
+                crate::features::group_history_audience_is_current(
+                    &metadata.participants,
+                    recipients,
+                )
+            }) {
+                return Err(SendError::InvalidRequest(
+                    "group history recipient is no longer a group member".into(),
+                ));
+            }
+            if !crate::features::group_history_bundle_fits_current_limits(
+                message,
+                limits,
+                wacore::time::now_secs_u64(),
+            ) {
+                return Err(SendError::InvalidRequest(
+                    "group history expired before publication".into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg_attr(feature = "tracing", tracing::instrument(name = "wa.send.impl", level = "debug", skip_all, fields(to = %to.observe()), err(Debug)))]
+    pub(crate) async fn send_message_impl(
+        &self,
+        to: Jid,
+        message: &wa::Message,
+        options: SendPipelineOptions<'_>,
+    ) -> Result<Option<RecipientFanout>, anyhow::Error> {
+        Box::pin(self.send_message_impl_inner(to, message, options)).await
+    }
+
+    async fn send_message_impl_inner(
+        &self,
+        to: Jid,
+        message: &wa::Message,
+        options: SendPipelineOptions<'_>,
+    ) -> Result<Option<RecipientFanout>, anyhow::Error> {
+        let SendPipelineOptions {
+            sent_at,
+            request_id: request_id_override,
+            peer,
+            send_scope,
+            send_observer,
+            edit,
+            extra_stanza_nodes,
+            stanza_type: stanza_type_override,
+            group_metadata_freshness,
+            device_freshness,
+            borrowed_message_id,
+            group_direct_recipients,
+            group_history_notice,
+            history_expected_phash,
+            mut creation_sender,
+        } = options;
+        // Callers that already stamped their message hand the instant down; the
+        // rest sample here so the pipeline below still has exactly one.
+        let sent_at = sent_at.unwrap_or_else(SendInstant::now);
+        let send_generation = self
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let group_identity = if to.is_group() {
+            group_repair::GroupIdentitySnapshot::capture(self)
+        } else {
+            group_repair::GroupIdentitySnapshot::default()
+        };
+        validate_extra_stanza_nodes(&extra_stanza_nodes)?;
+        if request_id_override.is_some_and(str::is_empty) {
+            return Err(SendError::InvalidRequest("message ID must not be empty".into()).into());
+        }
+        if (wacore::send::contains_group_history_payload(message)
+            && message.message_history_bundle.is_unset()
+            && message.message_history_notice.is_unset())
+            || (!message.message_history_bundle.is_unset() && group_direct_recipients.is_none())
+            || (!message.message_history_notice.is_unset() && !group_history_notice)
+        {
+            return Err(SendError::InvalidRequest(
+                "group history requires the add-with-history API and its authorized audience"
+                    .into(),
+            )
+            .into());
+        }
+        if to.is_group()
+            && let Some(protocol) = message.protocol_message.as_option()
+            && protocol.r#type == Some(wa::message::protocol_message::Type::REVOKE)
+            && let Some(key) = protocol.key.as_option()
+            && key.from_me == Some(true)
+            && let Some(id) = key.id.as_deref()
+        {
+            self.cancel_group_message_repair(&to, id);
+        }
+        // Newsletters are plaintext channels and never use the E2E path. Text
+        // sends go through the <plaintext> branch in send_message_with_options;
+        // edit/revoke have dedicated plaintext methods (newsletter().edit_message
+        // / revoke_message). A newsletter JID here is a mis-routed pin/edit/revoke
+        // (pin is not a channel op), so reject it.
+        if to.is_newsletter() {
+            return Err(SendError::InvalidRequest(
+                "newsletter JIDs are not valid on the E2E send path; use \
+                 newsletter().edit_message/revoke_message (pin is unsupported on channels)"
+                    .into(),
+            )
+            .into());
+        }
+
+        // status@broadcast reactions fan out pairwise to the author's devices;
+        // status posts keep going through send_status_message (owns recipients).
+        let (to, is_status_addon) = if to.is_status_broadcast() {
+            let author = message
+                .reaction_message
+                .as_option()
+                .and_then(|rm| rm.key.as_option())
+                .and_then(|k| k.participant.as_ref())
+                .and_then(|p| p.parse::<Jid>().ok())
+                .filter(|jid| jid.is_pn() || jid.is_lid())
+                .ok_or_else(|| {
+                    SendError::InvalidRequest(
+                        "send_message to status@broadcast requires \
+                         reaction_message.key.participant = status author (user JID). \
+                         Use client.status() for posting new statuses."
+                            .into(),
+                    )
+                })?;
+            (author, true)
+        } else {
+            (to, false)
+        };
+
+        // Generate request ID early (doesn't need lock). This frame owns the
+        // only copy for the whole send: the branch builders, the phash waiter
+        // and the messageSecret persistence all borrow it, so a send names its
+        // message exactly once no matter how many stages read that name.
+        let generated_request_id;
+        let request_id: &str = match request_id_override {
+            Some(id) => id,
+            None => {
+                generated_request_id = self.generate_message_id_at(sent_at.unix_secs_u64());
+                &generated_request_id
+            }
+        };
+        let tc_issue_target = to.clone();
+
+        // Dispatch to a concrete boxed future per branch: this function's own
+        // frame stays small (prologue + epilogue), and a DM send never
+        // allocates the group branch's state machine, which dominated the old
+        // single-future layout.
+        let SendBranchOutput {
+            node: stanza_to_send,
+            msg_secret: outbound_msg_secret,
+            group_sender_identity: outbound_group_sender_identity,
+            skdm_update,
+            distribution_guard,
+            issue_tc_token_after_send: should_issue_tc_token_after_send,
+            ack_phash,
+            recipient_fanout,
+            dm_devices: covered_dm_devices,
+            group_devices,
+            requires_connection_generation_check,
+            dm_unreached,
+        } = if peer && !to.is_group() {
+            box_send_branch(self.send_peer_branch(to, message, request_id)).await?
+        } else if let Some(recipients) = group_direct_recipients {
+            if !to.is_group() {
+                return Err(SendError::InvalidRequest(
+                    "group-direct fanout requires a group JID".into(),
+                )
+                .into());
+            }
+            box_send_branch(self.send_group_direct_branch(GroupDirectBranchRequest {
+                to,
+                message,
+                request_id,
+                recipients,
+            }))
+            .await?
+        } else if to.is_group() {
+            box_send_branch(self.send_group_branch(GroupBranchRequest {
+                to,
+                message,
+                request_id,
+                edit,
+                extra_stanza_nodes: &extra_stanza_nodes,
+                group_metadata_freshness,
+                device_freshness,
+                borrowed_message_id,
+            }))
+            .await?
+        } else {
+            box_send_branch(self.send_dm_branch(DmBranchRequest {
+                to,
+                message,
+                request_id,
+                sent_at,
+                edit,
+                extra_stanza_nodes,
+                is_status_addon,
+                device_freshness,
+                borrowed_message_id,
+                creation_sender: creation_sender.as_deref_mut(),
+            }))
+            .await?
+        };
+
+        if let Some(capture) = creation_sender
+            && let Some(sender) = outbound_group_sender_identity.as_ref()
+        {
+            *capture = Some(sender.clone());
+        }
+
+        // The outbound advance must be durable BEFORE the stanza hits the wire:
+        // reusing an outbound counter reuses its message key + IV. Counters are
+        // leased in batches (see `SessionRecord::reserve_sender_chain_counters`),
+        // so most sends are already covered by a durable lease and only
+        // schedule the coalesced write-behind; a send that raised either lease
+        // flushes synchronously, and a persistence failure must abort the send
+        // rather than transmit an advance we couldn't save.
+        Box::pin(self.persist_signal_state_pre_wire()).await?;
+
+        // A borrowed id must not register a phash ack-waiter: the waiter map is
+        // keyed by outer stanza id, so it would overwrite the original send's
+        // waiter (either ack could resolve the wrong send, and the older timeout
+        // could remove the replacement). The edit's own ack is best-effort.
+        // Registered before the stanza goes out: the ack can arrive while
+        // send_node is still returning, and a waiter installed afterwards would
+        // miss it.
+        // Keying the waiter off `request_id` rather than re-reading the stanza
+        // is only sound while every branch stamps the id it was handed; assert
+        // that instead of paying an owned copy of an attribute we already have.
+        debug_assert_eq!(
+            stanza_to_send.attrs().optional_string("id").as_deref(),
+            Some(request_id),
+            "branch stanza must carry the id this send was named with"
+        );
+        if !message.message_history_bundle.is_unset() || !message.message_history_notice.is_unset()
+        {
+            Box::pin(self.validate_history_publication(
+                &tc_issue_target,
+                message,
+                group_direct_recipients,
+            ))
+            .await?;
+        }
+        if (group_devices.is_some() || requires_connection_generation_check)
+            && self
+                .connection_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                != send_generation
+        {
+            anyhow::bail!("connection changed while preparing group message");
+        }
+        let awaiting_history_ack = history_expected_phash.is_some();
+        if let Some(slot) = history_expected_phash {
+            *slot = ack_phash.clone();
+        }
+        let ack_message_id = if !borrowed_message_id
+            && !awaiting_history_ack
+            && let Some(phash) = ack_phash
+        {
+            // Group refresh and message resend have separate lifetimes.
+            let invalidate_group = tc_issue_target.is_group();
+            if let Some(devices) = group_devices {
+                let mut waiters = self.response_waiters_guard();
+                let registered_epoch = waiters.current_epoch();
+                waiters.insert(
+                    request_id.to_string(),
+                    crate::client::ResponseWaiter::GroupPhash(
+                        crate::client::PhashWaiter {
+                            expected: phash,
+                            jid: tc_issue_target.clone(),
+                            invalidate_group_cache: true,
+                            dm_devices: None,
+                            dm_unreached: Vec::new(),
+                            registered_epoch,
+                        },
+                        group_repair::GroupSendSnapshot {
+                            connection_generation: send_generation,
+                            identity: group_identity,
+                            devices,
+                            message_secret: outbound_msg_secret,
+                            addressing_mode: if outbound_group_sender_identity
+                                .as_ref()
+                                .is_some_and(Jid::is_lid)
+                            {
+                                AddressingMode::Lid
+                            } else {
+                                AddressingMode::Pn
+                            },
+                        },
+                    ),
+                );
+            } else {
+                self.register_phash_waiter(
+                    request_id,
+                    phash,
+                    tc_issue_target.clone(),
+                    invalidate_group,
+                    covered_dm_devices,
+                    dm_unreached,
+                );
+            }
+            Some(request_id)
+        } else {
+            None
+        };
+
+        // Server expects the outer `to` as the broadcast chat even though
+        // encryption targeted the author's devices (mirrors incoming `from`).
+        let mut stanza_to_send = stanza_to_send;
+        if is_status_addon {
+            stanza_to_send.attrs.insert("to", Jid::status_broadcast());
+        }
+        if let Some(t) = stanza_type_override {
+            stanza_to_send.attrs.insert("type", t.as_wire());
+        }
+
+        let send = match send_scope {
+            Some((generation, socket)) => {
+                Box::pin(self.send_node_observed_in_scope(
+                    stanza_to_send,
+                    send_observer,
+                    generation,
+                    socket,
+                ))
+                .await
+            }
+            None => Box::pin(self.send_node_observed(stanza_to_send, send_observer)).await,
+        };
+        if let Err(e) = send {
+            if let Some(msg_id) = ack_message_id {
+                self.response_waiters_guard().remove(msg_id);
+            }
+            return Err(e.into());
+        }
+        // Skip when the stanza id is borrowed from another message: binding the
+        // outbound secret under the borrowed id would overwrite the original
+        // message's secret (breaking later reactions/poll votes on it).
+        if !borrowed_message_id && let Some(secret) = outbound_msg_secret.as_ref() {
+            let sender = match outbound_group_sender_identity {
+                Some(s) => Some(s),
+                None => self.dm_sender_identity_for(&tc_issue_target).await,
+            };
+            if let Some(sender) = sender {
+                let is_bot_chat = tc_issue_target.is_bot();
+                let class = wacore::msg_secret::classify(message, is_bot_chat);
+                Box::pin(self.persist_outbound_msg_secret(
+                    &tc_issue_target,
+                    &sender,
+                    request_id,
+                    secret,
+                    class,
+                    sent_at,
+                ))
+                .await;
+            }
+        }
+
+        if let Some(update) = skdm_update {
+            Box::pin(self.update_sender_key_devices(
+                &update.to_str,
+                &update.devices,
+                update.topology_generation,
+                Some(&update.group_info),
+            ))
+            .await;
+            for user in &update.stale_users {
+                Box::pin(self.invalidate_device_cache(user)).await;
+            }
+        }
+        // Warm marking is visible; a waiting cold send may now re-resolve.
+        drop(distribution_guard);
+
+        // Issue new tc token after send if a bucket boundary was crossed.
+        // Fire-and-forget so send_message returns without waiting for the IQ
+        if should_issue_tc_token_after_send {
+            if let Some(client) = self.self_weak.get().and_then(|w| w.upgrade()) {
+                let target = tc_issue_target;
+                self.runtime
+                    .spawn(Box::pin(async move {
+                        client.issue_tc_token_after_send(&target).await;
+                    }))
+                    .detach();
+            } else {
+                log::debug!(target: "Client/TcToken", "Skipping fire-and-forget issuance: client dropped");
+            }
+        }
+
+        Ok(recipient_fanout)
+    }
+
+    /// Peer branch of [`Self::send_message_impl`]: own-device sync messages,
+    /// never groups.
+    async fn send_peer_branch(
+        &self,
+        to: Jid,
+        message: &wa::Message,
+        request_id: &str,
+    ) -> Result<SendBranchOutput, anyhow::Error> {
+        let node = {
+            // Peer messages are only valid for individual users, not groups
+            // Resolve encryption JID and acquire lock ONLY for encryption
+            let encryption_jid = self.resolve_encryption_jid(&to).await;
+            let signal_addr = encryption_jid.to_protocol_address();
+
+            let session_mutex = self.session_lock_for(signal_addr.as_str()).await;
+            let _session_guard = session_mutex.lock().await;
+
+            let mut store_adapter = self.signal_adapter();
+
+            let device_snapshot = self.persistence_manager.get_device_snapshot();
+            wacore::send::prepare_peer_stanza(
+                &mut store_adapter.session_store,
+                &mut store_adapter.identity_store,
+                to,
+                &signal_addr,
+                message,
+                request_id,
+                device_snapshot.account.as_deref(),
+            )
+            .await?
+        };
+        Ok(SendBranchOutput::stanza_only(node))
+    }
+
+    /// Group branch of [`Self::send_message_impl`]: sender-key encryption,
+    /// SKDM distribution and the cold/rotation single-flight.
+    async fn send_group_branch(
+        &self,
+        request: GroupBranchRequest<'_>,
+    ) -> Result<SendBranchOutput, anyhow::Error> {
+        let GroupBranchRequest {
+            to,
+            message,
+            request_id,
+            edit,
+            extra_stanza_nodes,
+            group_metadata_freshness,
+            device_freshness,
+            borrowed_message_id,
+        } = request;
+        let topology_generation = self.device_topology.current();
+        // Every arm of the prepare match below assigns these four.
+        let outbound_msg_secret: Option<[u8; 32]>;
+        let outbound_group_sender_identity: Option<Jid>;
+        let skdm_update: Option<SkdmUpdate>;
+        // A group stanza carries a phash on every send, and the server answers
+        // with its own. `WAWebSendGroupSkmsgJob` compares them and, on a
+        // mismatch, re-queries the group and resends to the devices it missed;
+        // this is the only signal a bot gets that its participant device set is
+        // stale without a member sending something first.
+        let group_ack_phash: Option<wacore_binary::CompactString>;
+        let group_devices;
+        let mut distribution_guard: Option<async_lock::MutexGuardArc<()>> = None;
+        let node = {
+            // No send-level lock: encrypt_group_message serializes the
+            // sender-key chain advance per (group, sender) at the cipher.
+            let group_info = self
+                .groups()
+                .routing_info_with_freshness(&to, group_metadata_freshness)
+                .await?;
+
+            // Borrow from the held snapshot: no field clones, the Arc keeps it alive.
+            let device_snapshot = self.persistence_manager.get_device_snapshot();
+            let account_info = &device_snapshot.account;
+            let own_jid = device_snapshot
+                .pn
+                .as_ref()
+                .ok_or(ClientError::NotLoggedIn)?;
+            let own_lid = device_snapshot
+                .lid
+                .as_ref()
+                .ok_or_else(|| anyhow!("LID not set, cannot send to group"))?;
+
+            // One encode feeds retry cache and wire; mci-hoist re-encodes (folded context).
+            let shared_content = message
+                .message_context_info
+                .is_unset()
+                .then(|| std::sync::Arc::new(waproto::codec::message_to_vec(message)));
+            // Store serialized message bytes for retry (lightweight). Skip when
+            // the id is borrowed: it would replace the original message's
+            // retry-cache entry, so a retry receipt for it returns this edit.
+            if !borrowed_message_id {
+                self.add_recent_message(&to, request_id, message, shared_content.clone())
+                    .await;
+            }
+
+            let device_store_arc = self.persistence_manager.clone();
+            let to_str = to.to_string();
+
+            let (own_sending_jid, _) = match group_info.addressing_mode {
+                AddressingMode::Lid => (own_lid.clone(), "lid"),
+                AddressingMode::Pn => (own_jid.clone(), "pn"),
+            };
+
+            // Memo identity must be the CACHED Arc: ensure_self_in_group clones
+            // a fresh GroupRoutingInfo whenever self is absent from the snapshot, which
+            // would make the memo miss on every send to such groups. The memoized
+            // resolver applies the same self-append internally.
+            let group_info_for_memo = std::sync::Arc::clone(&group_info);
+            let refreshed_devices = if device_freshness == crate::cache::Freshness::Refresh {
+                Some(
+                    self.resolve_group_devices_uncached(
+                        &group_info_for_memo,
+                        &own_sending_jid,
+                        crate::cache::Freshness::Refresh,
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            // resolve_skdm_targets and prepare_group_stanza both read the
+            // participant list and expect self to be present.
+            let group_info = ensure_self_in_group(group_info, &own_sending_jid);
+
+            // Side-effect-free cold check: does the sender key record exist,
+            // and has its chain advanced past the rotation threshold? Reads
+            // the record without deleting anything, so a false positive (a
+            // concurrent send already rotating/recreating) costs only the
+            // re-check under the lock below.
+            use wacore::libsignal::store::sender_key_name::SenderKeyName;
+            let sender_address = own_sending_jid.to_protocol_address();
+            let sender_key_name = SenderKeyName::from_parts(&to_str, sender_address.as_str());
+            // WA Web posts SenderKeyExpired with `PERIODIC_ROTATION` after
+            // a chain advances past a threshold. Captured-js doesn't show
+            // the value; 1000 mirrors common Signal hygiene defaults.
+            const SENDER_KEY_ROTATION_THRESHOLD: u32 = 1000;
+            let read_sender_key_state = || async {
+                let record = self
+                    .signal_cache
+                    .get_sender_key(&sender_key_name, &*device_snapshot.backend)
+                    .await?;
+                let key_exists = record.is_some();
+                // Read the chain iteration through the shared `Arc` without cloning
+                // the record: borrow the current state instead of `*_mut().cloned()`.
+                let needs_rotation = record
+                    .as_ref()
+                    .and_then(|r| r.sender_key_state().ok())
+                    .and_then(|state| state.sender_chain_key())
+                    .map(|ck| ck.iteration())
+                    .is_some_and(|iter| iter >= SENDER_KEY_ROTATION_THRESHOLD);
+                Ok::<(bool, bool), anyhow::Error>((key_exists, needs_rotation))
+            };
+
+            let (key_exists, needs_rotation) = read_sender_key_state().await?;
+            let mut force_skdm = !key_exists || needs_rotation;
+            if force_skdm {
+                // Serialize the whole rotation/redistribution under the
+                // per-group guard and RE-CHECK once inside it: a send that
+                // merely raced the winner's delete->recreate window sees the
+                // fresh record here and downgrades to a warm send instead of
+                // redistributing to every member again.
+                distribution_guard = Some(self.group_distribution_lock(&to).await);
+                let (key_exists, needs_rotation) = read_sender_key_state().await?;
+                force_skdm = !key_exists || needs_rotation;
+                if force_skdm {
+                    self.reset_sender_key_device_tracking(&to_str).await?;
+                    if needs_rotation {
+                        log::info!(
+                            "Periodic sender-key rotation for {} (chain iteration >= {SENDER_KEY_ROTATION_THRESHOLD})",
+                            to.observe()
+                        );
+                        self.signal_cache
+                            .delete_sender_key(sender_key_name.cache_key())
+                            .await;
+                    }
+                } else {
+                    distribution_guard = None;
+                }
+            }
+
+            let mut store_adapter = self.signal_adapter_from(device_store_arc.clone());
+
+            let mut stores = store_adapter.as_signal_stores();
+
+            // Determine which devices need SKDM distribution using the unified
+            // per-device sender key map (matches WA Web's participant.senderKey Map).
+            // `all_devices_for_phash` carries the FULL resolved set so the phash
+            // covers every device + self even on a warm send (WA Web sends a
+            // phash on every group send); `skdm_target_devices` is the subset
+            // still missing the key. Cold sends derive both from the same snapshot.
+            let (all_devices_for_phash, skdm_target_devices): (
+                Option<GroupDeviceSnapshot>,
+                Option<Vec<Jid>>,
+            ) = if force_skdm {
+                (
+                    refreshed_devices.map(|all| {
+                        GroupDeviceSnapshot::Owned(wacore::send::ResolvedGroupDevices::new(all))
+                    }),
+                    None,
+                )
+            } else {
+                let initial_targets = match refreshed_devices {
+                    Some(all) => {
+                        let all = GroupDeviceSnapshot::Owned(
+                            wacore::send::ResolvedGroupDevices::new(all),
+                        );
+                        let cached_map = self.skdm_device_map(&to_str).await;
+                        let needs = self.filter_skdm_targets(
+                            &to_str,
+                            all.as_ref().devices(),
+                            &cached_map,
+                            &own_sending_jid,
+                        );
+                        Some((all, needs))
+                    }
+                    None => self
+                        .resolve_skdm_targets_memoized(
+                            &to,
+                            &to_str,
+                            &group_info_for_memo,
+                            &own_sending_jid,
+                        )
+                        .await
+                        .map(|(all, needs)| (GroupDeviceSnapshot::Shared(all), needs)),
+                };
+                match initial_targets {
+                    Some((all, needs)) if needs.is_empty() => (Some(all), Some(needs)),
+                    // Own devices are never memoized warm, so they re-receive
+                    // their SKDM on every send by design — own-only needs IS
+                    // the warm steady state, not a cold group: no distribution
+                    // guard, no cache invalidation, no re-resolve.
+                    Some((all, needs))
+                        if skdm_needs_only_own_devices(&needs, Some(own_jid), Some(own_lid)) =>
+                    {
+                        (Some(all), Some(needs))
+                    }
+                    Some((first_all, first_needs)) => {
+                        // Cold: wait for any in-flight distribution, then
+                        // re-resolve. The loser usually finds every device
+                        // already marked warm by the winner and downgrades to a
+                        // plain skmsg send; if the winner failed, the targets
+                        // are still cold and this send distributes normally.
+                        distribution_guard = Some(self.group_distribution_lock(&to).await);
+                        // Force a DB re-read: a concurrent warm send may have
+                        // started the cache init before the winner's marking
+                        // landed and then published that stale (empty) map,
+                        // which would otherwise turn this into a full
+                        // re-distribution to every member.
+                        self.sender_key_device_cache.invalidate(&to_str).await;
+                        match self
+                            .resolve_skdm_targets_memoized(
+                                &to,
+                                &to_str,
+                                &group_info_for_memo,
+                                &own_sending_jid,
+                            )
+                            .await
+                        {
+                            Some((all, needs)) => {
+                                // Fully warm OR down to the own-only steady
+                                // state: nothing left that needs the
+                                // single-flight, release it before the send.
+                                if needs.is_empty()
+                                    || skdm_needs_only_own_devices(
+                                        &needs,
+                                        Some(own_jid),
+                                        Some(own_lid),
+                                    )
+                                {
+                                    distribution_guard = None;
+                                }
+                                (Some(GroupDeviceSnapshot::Shared(all)), Some(needs))
+                            }
+                            // Transient re-resolve failure: keep the first
+                            // resolve's targets rather than silently sending
+                            // without the distribution it already knew was
+                            // needed.
+                            None => (Some(first_all), Some(first_needs)),
+                        }
+                    }
+                    None => (None, None),
+                }
+            };
+
+            let addressed = match all_devices_for_phash {
+                Some(GroupDeviceSnapshot::Shared(all)) => all,
+                Some(GroupDeviceSnapshot::Owned(all)) => std::sync::Arc::new(all),
+                None => std::sync::Arc::new(wacore::send::ResolvedGroupDevices::new(
+                    self.resolve_group_devices_uncached(
+                        &group_info,
+                        &own_sending_jid,
+                        crate::cache::Freshness::CachePreferred,
+                    )
+                    .await?,
+                )),
+            };
+            let skdm_target_devices = match skdm_target_devices {
+                Some(targets) => targets,
+                None if force_skdm => group_distribution_targets(&addressed, &own_sending_jid),
+                None => {
+                    let cached_map = self.skdm_device_map(&to_str).await;
+                    self.filter_skdm_targets(
+                        &to_str,
+                        addressed.devices(),
+                        &cached_map,
+                        &own_sending_jid,
+                    )
+                }
+            };
+            match wacore::send::prepare_group_stanza(
+                &*self.runtime,
+                &mut stores,
+                self,
+                wacore::send::GroupStanzaRequest {
+                    group: &group_info,
+                    own_jid,
+                    own_lid,
+                    account: account_info.as_deref(),
+                    to: &to,
+                    message,
+                    message_id: request_id,
+                    force_distribution: force_skdm,
+                    distribution_targets: Some(skdm_target_devices),
+                    distribution_policy: wacore::send::SenderKeyDistributionPolicy::BestEffort,
+                    phash_devices: Some(&addressed),
+                    edit: edit.as_ref(),
+                    extra_nodes: extra_stanza_nodes,
+                    pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+                },
+            )
+            .await
+            {
+                Ok(prepared) => {
+                    // Own devices are never marked warm (see
+                    // `update_sender_key_devices`), so an own-only SKDM set —
+                    // every warm send — would only be filtered back to nothing
+                    // after a device snapshot; skip building the update for it.
+                    let devices = if skdm_needs_only_own_devices(
+                        &prepared.skdm_devices,
+                        Some(own_jid),
+                        Some(own_lid),
+                    ) {
+                        Vec::new()
+                    } else {
+                        prepared.skdm_devices
+                    };
+                    skdm_update = (!devices.is_empty() || !prepared.stale_device_users.is_empty())
+                        .then(|| SkdmUpdate {
+                            topology_generation,
+                            group_info: std::sync::Arc::clone(&group_info_for_memo),
+                            to_str,
+                            devices,
+                            stale_users: prepared.stale_device_users,
+                        });
+                    outbound_msg_secret = prepared.message_secret;
+                    outbound_group_sender_identity = Some(prepared.sender_identity);
+                    group_ack_phash = prepared.phash;
+                    group_devices = Some(addressed);
+                    prepared.node
+                }
+                Err(e) => {
+                    if let Some(SignalProtocolError::NoSenderKeyState(_)) =
+                        e.downcast_ref::<SignalProtocolError>()
+                    {
+                        log::warn!(
+                            "No sender key for group {}, forcing distribution.",
+                            to.observe()
+                        );
+
+                        // This retry redistributes, so it needs the same
+                        // single-flight guard as a cold send (a warm send that
+                        // lost its sender key arrives here without one).
+                        if distribution_guard.is_none() {
+                            distribution_guard = Some(self.group_distribution_lock(&to).await);
+                        }
+
+                        // Re-check under the guard: a concurrent retry may have
+                        // already recreated the key and marked the devices, in
+                        // which case this send retries warm instead of clearing
+                        // the tracking and redistributing to every member again.
+                        let (key_recreated, _) = read_sender_key_state().await?;
+                        let warm_targets = if key_recreated {
+                            self.sender_key_device_cache.invalidate(&to_str).await;
+                            self.resolve_skdm_targets_memoized(
+                                &to,
+                                &to_str,
+                                &group_info_for_memo,
+                                &own_sending_jid,
+                            )
+                            .await
+                        } else {
+                            None
+                        };
+                        let (retry_force, retry_targets, retry_addressed) = match warm_targets {
+                            Some((all, needs)) => (false, Some(needs), all),
+                            None => {
+                                self.reset_sender_key_device_tracking(&to_str).await?;
+                                let targets =
+                                    group_distribution_targets(&addressed, &own_sending_jid);
+                                (true, Some(targets), addressed)
+                            }
+                        };
+
+                        let mut store_adapter_retry =
+                            self.signal_adapter_from(device_store_arc.clone());
+                        let mut stores_retry = store_adapter_retry.as_signal_stores();
+
+                        let retry_prepared = wacore::send::prepare_group_stanza(
+                            &*self.runtime,
+                            &mut stores_retry,
+                            self,
+                            wacore::send::GroupStanzaRequest {
+                                group: &group_info,
+                                own_jid,
+                                own_lid,
+                                account: account_info.as_deref(),
+                                to: &to,
+                                message,
+                                message_id: request_id,
+                                force_distribution: retry_force,
+                                distribution_targets: retry_targets,
+                                distribution_policy:
+                                    wacore::send::SenderKeyDistributionPolicy::BestEffort,
+                                phash_devices: Some(&retry_addressed),
+                                edit: edit.as_ref(),
+                                extra_nodes: extra_stanza_nodes,
+                                pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+                            },
+                        )
+                        .await?;
+
+                        skdm_update = Some(SkdmUpdate {
+                            topology_generation,
+                            group_info: std::sync::Arc::clone(&group_info_for_memo),
+                            to_str,
+                            devices: retry_prepared.skdm_devices,
+                            stale_users: retry_prepared.stale_device_users,
+                        });
+                        outbound_msg_secret = retry_prepared.message_secret;
+                        outbound_group_sender_identity = Some(retry_prepared.sender_identity);
+                        group_ack_phash = retry_prepared.phash;
+                        group_devices = Some(retry_addressed);
+                        retry_prepared.node
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        };
+        Ok(SendBranchOutput {
+            node,
+            msg_secret: outbound_msg_secret,
+            group_sender_identity: outbound_group_sender_identity,
+            skdm_update,
+            distribution_guard,
+            issue_tc_token_after_send: false,
+            ack_phash: group_ack_phash,
+            group_devices,
+            requires_connection_generation_check: false,
+            recipient_fanout: None,
+            dm_devices: None,
+            dm_unreached: Vec::new(),
+        })
+    }
+
+    /// DM branch of [`Self::send_message_impl`]: pairwise Signal encryption
+    /// with device fan-out (also used by status-reaction add-ons).
+    async fn send_dm_branch(
+        &self,
+        request: DmBranchRequest<'_>,
+    ) -> Result<SendBranchOutput, anyhow::Error> {
+        let DmBranchRequest {
+            to,
+            message,
+            request_id,
+            sent_at,
+            edit,
+            extra_stanza_nodes,
+            is_status_addon,
+            device_freshness,
+            borrowed_message_id,
+            creation_sender,
+        } = request;
+        let mut should_issue_tc_token_after_send = false;
+        let (prepared, dm_devices) = {
+            // Per-device locking to match decrypt path (message.rs:684),
+            // preventing ratchet desync on concurrent send/receive.
+
+            // One encode feeds retry cache and wire; mci-hoist re-encodes (folded context).
+            let shared_content = message
+                .message_context_info
+                .is_unset()
+                .then(|| std::sync::Arc::new(waproto::codec::message_to_vec(message)));
+            // Status reaction retries arrive with `from=status@broadcast`;
+            // cache under the broadcast chat so take_recent_message hits. Skip
+            // for a borrowed id: it would replace the original message's
+            // retry-cache entry (a retry receipt for it would return this edit).
+            if !borrowed_message_id {
+                if is_status_addon {
+                    self.add_recent_message(
+                        &Jid::status_broadcast(),
+                        request_id,
+                        message,
+                        shared_content.clone(),
+                    )
+                    .await;
+                } else {
+                    self.add_recent_message(&to, request_id, message, shared_content.clone())
+                        .await;
+                }
+            }
+
+            let device_snapshot = self.persistence_manager.get_device_snapshot();
+            let own_jid = device_snapshot
+                .pn
+                .as_ref()
+                .ok_or(ClientError::NotLoggedIn)?;
+
+            if let Some(capture) = creation_sender {
+                *capture = Some(if to.is_bot() {
+                    device_snapshot
+                        .lid
+                        .as_ref()
+                        .ok_or(ClientError::NotLoggedIn)?
+                        .clone()
+                } else {
+                    own_jid.clone()
+                });
+            }
+
+            // PN→LID mapping (WA Web: ManagePhoneNumberMappingJob)
+            if to.is_pn() && self.lid_pn_cache.get_current_lid(&to.user).await.is_none() {
+                let sid = self.generate_request_id();
+                let spec = wacore::iq::usync::LidQuerySpec::new(vec![to.to_non_ad()], sid);
+                // Best-effort: WA Web also catches and warns on failure
+                match self.execute(spec).await {
+                    Ok(resp) => {
+                        for mapping in &resp.lid_mappings {
+                            if let Err(e) = self
+                                .add_lid_pn_mapping(
+                                    &mapping.lid,
+                                    &mapping.phone_number,
+                                    crate::lid_pn_cache::LearningSource::Usync,
+                                )
+                                .await
+                            {
+                                log::warn!(
+                                    "Failed to persist LID mapping {} -> {}: {e:?}",
+                                    mapping.phone_number,
+                                    mapping.lid
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "LID query failed for {}, falling back to PN: {e:?}",
+                            to.observe()
+                        );
+                    }
+                }
+            }
+
+            // The LID-vs-PN wire namespace is an account-level decision: the
+            // server 400-nacks LID-addressed DMs from accounts that are not
+            // 1:1-LID-migrated (issue #941).
+            let recipient_bare = self.resolve_dm_wire_jid(&to).await;
+
+            let stanza_to = dm_stanza_to(&recipient_bare, &to);
+
+            // DM fanout, memoized per recipient: a warm repeat DM skips both
+            // registry lookups, the list rebuild and the phash. See
+            // `resolve_dm_devices_memoized` for its freshness contract.
+            let dm_devices = self
+                .resolve_dm_devices_memoized(
+                    &to,
+                    &recipient_bare,
+                    own_jid,
+                    device_snapshot.lid.as_ref(),
+                    device_freshness,
+                )
+                .await?;
+
+            // Resolved once per memo entry: the session pre-check, the lock
+            // keys and the encrypt fan-out all address the same devices. The
+            // list is built from `devices()` itself, so it is parallel by
+            // construction and the memo accepts it; a refusal still serves
+            // this send from the local value.
+            let resolved_here;
+            let addressing = match dm_devices.signal_addressing() {
+                Some(addressing) => addressing,
+                None => {
+                    let encryption = self.resolve_encryption_jids(dm_devices.devices()).await;
+                    let mut lock_keys = encryption.clone();
+                    sort_session_lock_keys(&mut lock_keys);
+                    let built = wacore::send::DmSignalAddressing::new(encryption, lock_keys);
+                    match dm_devices.signal_addressing_or_init(built) {
+                        Ok(memoized) => memoized,
+                        Err(refused) => {
+                            resolved_here = refused;
+                            &resolved_here
+                        }
+                    }
+                }
+            };
+            self.ensure_e2e_sessions_resolved(addressing.encryption())
+                .await?;
+
+            let mut extra_stanza_nodes = extra_stanza_nodes;
+            // tctoken applies to 1:1 chats; status reactions share the fanout
+            // path but WA Web does not attach tctokens to them.
+            if !to.is_group() && !to.is_newsletter() && !is_status_addon {
+                should_issue_tc_token_after_send = self
+                    .maybe_include_tc_token(&to, &mut extra_stanza_nodes, sent_at)
+                    .await;
+            }
+            if should_issue_tc_token_after_send {
+                debug!(target: "Client/TcToken", "Scheduled tc token issuance after send for {}", to.observe());
+            }
+
+            let _session_guards = self.session_guards_for(addressing.lock_keys()).await;
+
+            let mut store_adapter = self.signal_adapter();
+
+            let mut stores = store_adapter.as_signal_stores();
+
+            let prepared = wacore::send::prepare_dm_stanza(
+                &*self.runtime,
+                &mut stores,
+                self,
+                wacore::send::DmStanzaRequest {
+                    own_jid,
+                    own_lid: device_snapshot.lid.as_ref(),
+                    account: device_snapshot.account.as_deref(),
+                    to: &stanza_to,
+                    message,
+                    message_id: request_id,
+                    edit: edit.as_ref(),
+                    extra_nodes: &extra_stanza_nodes,
+                    devices: &dm_devices,
+                    pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+                },
+            )
+            .await?;
+            (prepared, dm_devices)
+        };
+        Ok(SendBranchOutput {
+            node: prepared.node,
+            msg_secret: prepared.message_secret,
+            group_sender_identity: None,
+            skdm_update: None,
+            distribution_guard: None,
+            issue_tc_token_after_send: should_issue_tc_token_after_send,
+            ack_phash: prepared.phash,
+            // A status reaction borrows this branch but keeps `status@broadcast`
+            // as the result's `to`, and the devices below are the status
+            // author's. Reporting either would describe a status send in a DM's
+            // terms, and the delta resend would route the retransmission as a
+            // status message rather than to the device it names.
+            recipient_fanout: (!is_status_addon).then_some(prepared.recipient_fanout),
+            dm_devices: (!is_status_addon).then_some(dm_devices),
+            group_devices: None,
+            requires_connection_generation_check: false,
+            dm_unreached: if is_status_addon {
+                Vec::new()
+            } else {
+                prepared.unreached_devices
+            },
+        })
+    }
+
+    /// Pairwise fanout for group-history bundles. This never advances a sender
+    /// key. It refreshes devices only for the supplied, current group members
+    /// and our own account, then uses the DM Signal path inside a
+    /// group-addressed stanza. Notices use [`Self::send_group_history_notice`].
+    async fn send_group_direct_branch(
+        &self,
+        request: GroupDirectBranchRequest<'_>,
+    ) -> Result<SendBranchOutput, anyhow::Error> {
+        let GroupDirectBranchRequest {
+            to,
+            message,
+            request_id,
+            recipients,
+        } = request;
+        if recipients.is_empty()
+            || recipients
+                .iter()
+                .any(|jid| !matches!(jid.server, Server::Pn | Server::Lid))
+        {
+            anyhow::bail!("group-direct audience must contain user JIDs");
+        }
+
+        let group_info = self
+            .groups()
+            .routing_info_with_freshness(&to, crate::cache::Freshness::Refresh)
+            .await?;
+        let device_snapshot = self.persistence_manager.get_device_snapshot();
+        let own_jid = device_snapshot
+            .pn
+            .as_ref()
+            .ok_or(ClientError::NotLoggedIn)?;
+        let own_lid = device_snapshot
+            .lid
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("LID not set, cannot send to group"))?;
+
+        let mut group_recipients = Vec::with_capacity(recipients.len());
+        for requested in recipients {
+            let Some(member) = group_info
+                .participants
+                .iter()
+                .find(|member| same_group_user(member, requested, &group_info))
+            else {
+                anyhow::bail!("group-direct recipient is no longer a group member");
+            };
+            if !group_recipients
+                .iter()
+                .any(|jid: &Jid| same_group_user(jid, member, &group_info))
+            {
+                group_recipients.push(member.to_non_ad());
+            }
+        }
+        if group_recipients.is_empty() {
+            anyhow::bail!("group-direct audience became empty");
+        }
+
+        let mut device_queries = Vec::with_capacity(group_recipients.len() + 1);
+        for recipient in &group_recipients {
+            device_queries.push(
+                if recipient.is_lid()
+                    && let Some(phone) = group_info.phone_jid_for_lid_user(&recipient.user)
+                {
+                    phone.to_non_ad()
+                } else {
+                    recipient.to_non_ad()
+                },
+            );
+        }
+        device_queries.push(own_jid.to_non_ad());
+        wacore::types::jid::sort_dedup_by_user(&mut device_queries);
+
+        let mut devices = self.refresh_user_devices(device_queries.clone()).await?;
+        require_history_device_coverage(&device_queries, &devices)?;
+        if group_info.addressing_mode == AddressingMode::Lid {
+            devices = devices
+                .into_iter()
+                .map(|device| {
+                    if device.is_pn() && device.user == own_jid.user {
+                        own_lid.with_device(device.device)
+                    } else {
+                        group_info.phone_device_jid_into_lid(device)
+                    }
+                })
+                .collect();
+        }
+        devices.retain(|device| !device.is_hosted());
+        wacore::types::jid::sort_dedup_by_device(&mut devices);
+        let dm_devices = std::sync::Arc::new(wacore::send::ResolvedDmDevices::new(
+            devices,
+            own_jid,
+            Some(own_lid),
+        ));
+
+        let resolved_here;
+        let addressing = match dm_devices.signal_addressing() {
+            Some(addressing) => addressing,
+            None => {
+                let encryption = self.resolve_encryption_jids(dm_devices.devices()).await;
+                let mut lock_keys = encryption.clone();
+                sort_session_lock_keys(&mut lock_keys);
+                let built = wacore::send::DmSignalAddressing::new(encryption, lock_keys);
+                match dm_devices.signal_addressing_or_init(built) {
+                    Ok(addressing) => addressing,
+                    Err(refused) => {
+                        resolved_here = refused;
+                        &resolved_here
+                    }
+                }
+            }
+        };
+        self.ensure_e2e_sessions_resolved(addressing.encryption())
+            .await?;
+        let _session_guards = self.session_guards_for(addressing.lock_keys()).await;
+
+        let shared_content = message
+            .message_context_info
+            .is_unset()
+            .then(|| std::sync::Arc::new(waproto::codec::message_to_vec(message)));
+        self.add_recent_message(&to, request_id, message, shared_content.clone())
+            .await;
+        let mut store_adapter = self.signal_adapter();
+        let mut stores = store_adapter.as_signal_stores();
+        let mut prepared = wacore::send::prepare_dm_stanza(
+            &*self.runtime,
+            &mut stores,
+            self,
+            wacore::send::DmStanzaRequest {
+                own_jid,
+                own_lid: Some(own_lid),
+                account: device_snapshot.account.as_deref(),
+                to: &to,
+                message,
+                message_id: request_id,
+                edit: None,
+                extra_nodes: &[],
+                devices: &dm_devices,
+                pre_encoded: shared_content.as_deref().map(Vec::as_slice),
+            },
+        )
+        .await?;
+
+        prepared
+            .node
+            .attrs
+            .insert("addressing_mode", group_info.addressing_mode.as_str());
+        let mut marker = NodeBuilder::new("enc").attr("v", "2").attr("type", "skmsg");
+        if let Some(media_type) = wacore::send::media_type_from_message(message) {
+            marker = marker.attr("mediatype", media_type);
+        }
+        match prepared.node.content.as_mut() {
+            Some(NodeContent::Nodes(children)) => children.push(marker.build()),
+            _ => anyhow::bail!("group-direct message lost its participant fanout"),
+        }
+
+        let sender_identity = match group_info.addressing_mode {
+            AddressingMode::Lid => own_lid.clone(),
+            AddressingMode::Pn => own_jid.clone(),
+        };
+        let mut direct_fanout = prepared.recipient_fanout;
+        direct_fanout.addressed = dm_devices.devices().len();
+        direct_fanout.encrypted = direct_fanout
+            .addressed
+            .saturating_sub(prepared.unreached_devices.len());
+        Ok(SendBranchOutput {
+            node: prepared.node,
+            msg_secret: prepared.message_secret,
+            group_sender_identity: Some(sender_identity),
+            skdm_update: None,
+            distribution_guard: None,
+            issue_tc_token_after_send: false,
+            // Group-direct ACKs are awaited by this operation. The ordinary
+            // group phash repair path is sender-key-specific and must not run.
+            ack_phash: prepared.phash,
+            recipient_fanout: Some(direct_fanout),
+            dm_devices: None,
+            group_devices: None,
+            requires_connection_generation_check: true,
+            dm_unreached: prepared.unreached_devices,
+        })
+    }
+
+    /// Persist a generated `MessageContextInfo.message_secret` keyed by
+    /// `(chat_non_ad, sender_non_ad, msg_id)`. The sender identity must
+    /// match what `<meta target_sender_jid>` echoes back at GET time —
+    /// LID for bot chats and LID-mode groups, PN otherwise.
+    pub(crate) async fn persist_outbound_msg_secret(
+        &self,
+        chat: &Jid,
+        sender: &Jid,
+        msg_id: &str,
+        secret: &[u8; wacore::reporting_token::MESSAGE_SECRET_SIZE],
+        class: wacore::msg_secret::RetentionClass,
+        sent_at: SendInstant,
+    ) {
+        let policy = self.cache_config.msg_secret_policy;
+        if !policy.persists() {
+            return;
+        }
+        // BotOnly keeps only bot-context secrets; a group message that invokes a
+        // bot classifies as Bot, so its reply can still be decrypted.
+        if policy.bot_only() && class != wacore::msg_secret::RetentionClass::Bot {
+            return;
+        }
+        // Outbound secrets are minted with the parent event, so the send's own
+        // instant IS the parent event time.
+        let now = sent_at.unix_secs();
+        let expires_at = wacore::msg_secret::expires_at(
+            policy,
+            &self.cache_config.msg_secret_retention,
+            class,
+            u64::try_from(now).ok(),
+            now,
+        );
+        let entry = wacore::store::traits::MsgSecretEntry::new(
+            chat, sender, msg_id, *secret, expires_at, now,
+        );
+        // Same write-behind buffer as inbound captures: visible immediately,
+        // flushed off the send path (msmsg replies read buffer-first).
+        self.msg_secret_buffer.queue_one(entry).await;
+    }
+
+    /// Decide the identity (LID vs PN) under which an outbound DM's
+    /// `messageSecret` should be persisted. Group sends should use
+    /// `PreparedGroupStanza.sender_identity` directly instead of this.
+    pub(crate) async fn dm_sender_identity_for(&self, to: &Jid) -> Option<Jid> {
+        if to.server == Server::Bot {
+            self.lid()
+        } else {
+            self.pn()
+        }
+    }
+
+    /// Build sorted, deduplicated per-device session lock keys.
+    /// INVARIANT: Keys are sorted to prevent deadlocks when acquiring multiple
+    /// session locks (e.g. DM sends that encrypt for recipient + own devices).
+    /// Resolve encryption JIDs and sort for deadlock-free lock acquisition.
+    pub(crate) async fn build_session_lock_keys(&self, device_jids: &[Jid]) -> Vec<Jid> {
+        let mut keys = self.resolve_encryption_jids(device_jids).await;
+        sort_session_lock_keys(&mut keys);
+        keys
+    }
+
+    /// [`Self::resolve_encryption_jid`] over a device list, in order.
+    pub(crate) async fn resolve_encryption_jids(&self, device_jids: &[Jid]) -> Vec<Jid> {
+        let mut keys: Vec<Jid> = Vec::with_capacity(device_jids.len());
+        for jid in device_jids {
+            keys.push(self.resolve_encryption_jid(jid).await);
+        }
+        keys
+    }
+
+    /// Take every per-device session lock, in `jids` order.
+    ///
+    /// INVARIANT: acquisition order IS `jids` order, and callers pass keys from
+    /// [`Self::build_session_lock_keys`], which sorts them. That single order is
+    /// what keeps two sends overlapping on a device from deadlocking, so a
+    /// change here has to preserve it.
+    ///
+    /// Each mutex is locked as it is resolved rather than resolving the whole
+    /// set first: the handles exist only to be locked, so the vector holding
+    /// them was pure staging. The guards themselves must still be collected —
+    /// they are what keeps the locks held for the caller's scope.
+    pub(crate) async fn session_guards_for(
+        &self,
+        jids: &[Jid],
+    ) -> Vec<async_lock::MutexGuardArc<()>> {
+        // A duplicate key would have this loop await a lock it already holds,
+        // which is a silent self-deadlock rather than a panic: the send just
+        // never returns. Every caller goes through `build_session_lock_keys`,
+        // which sorts and dedups, so this only fires if a future path forgets
+        // to.
+        debug_assert!(
+            jids.windows(2).all(|pair| pair[0] != pair[1]),
+            "session lock keys must be deduped before acquisition, or the loop deadlocks on itself"
+        );
+
+        let mut guards = Vec::with_capacity(jids.len());
+        // A `ProtocolAddress` IS the "{name}.0" string the lock map is keyed by,
+        // and it holds it inline, so the whole loop names its keys without
+        // allocating a formatting buffer.
+        let mut addr = wacore::types::jid::make_reusable_protocol_address();
+        for jid in jids {
+            jid.reset_protocol_address(&mut addr);
+            let mutex = self.session_lock_for(addr.as_str()).await;
+            guards.push(mutex.lock_arc().await);
+        }
+        guards
+    }
+
+    /// The mutexes [`Self::session_guards_for`] would take, without taking
+    /// them. Only tests need this: production code always wants the guards, and
+    /// resolving handles it does not lock is what this commit removed.
+    #[cfg(test)]
+    pub(crate) async fn session_mutexes_for(
+        &self,
+        jids: &[Jid],
+    ) -> Vec<std::sync::Arc<async_lock::Mutex<()>>> {
+        let mut mutexes = Vec::with_capacity(jids.len());
+        let mut addr = wacore::types::jid::make_reusable_protocol_address();
+        for jid in jids {
+            jid.reset_protocol_address(&mut addr);
+            mutexes.push(self.session_lock_for(addr.as_str()).await);
+        }
+        mutexes
+    }
+}
+
+/// Self-DM detection: appending an own-device lookup on top of the
+/// recipient's list would address each physical device twice (LID + PN),
+/// which the server rejects with `ack error="400"`.
+/// WAWebDBDeviceListFanout never re-fetches the own list for the same account.
+pub(crate) fn is_self_dm_recipient(
+    recipient_bare: &Jid,
+    own_pn: &Jid,
+    own_lid: Option<&Jid>,
+) -> bool {
+    match recipient_bare.server {
+        Server::Lid => own_lid.is_some_and(|lid| recipient_bare.user == lid.user),
+        Server::Pn => recipient_bare.user == own_pn.user,
+        _ => false,
+    }
+}
+
+/// The outer `<message to>`, the DeviceSentMessage destinationJid, and the
+/// reporting-token remote jid must share the participants' namespace.
+/// WAWebSendMsgCreateFanoutStanza builds the whole stanza from one CHAT_JID
+/// (always a bare user wid), so the `to` is the resolved wire jid whenever
+/// the caller's namespace differs from it (LID upgrade, or PN downgrade on
+/// an unmigrated account), and a device-qualified caller jid is normalized
+/// to the bare chat jid. A `to` mixing namespaces with the participants is
+/// rejected wholesale by the server with `ack error="400"`.
+pub(crate) fn dm_stanza_to(recipient_bare: &Jid, to: &Jid) -> Jid {
+    if recipient_bare.is_lid() || to.is_lid() {
+        recipient_bare.clone()
+    } else {
+        to.to_non_ad()
+    }
+}
+
+// This suite shares native Tokio/SQLite fixtures and blocking Signal-session setup.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::disallowed_methods)]
+mod tests {
+    mod action_identity_tests;
+    mod creation_tests;
+    mod message_reference_tests;
+    mod privacy_tokens;
+    mod request_tests;
+
+    use super::*;
+    use crate::test_utils::wait_for_lock_waiter;
+    use std::mem::size_of_val;
+    use std::str::FromStr;
+    use wacore::proto_helpers::MessageBuilderExt;
+
+    #[tokio::test]
+    async fn boxed_send_future_layout_is_bounded() {
+        let client = crate::test_utils::create_test_client().await;
+        let message = wa::Message::default();
+        let future = client.send_message_impl_inner(
+            "559900000001@s.whatsapp.net".parse().unwrap(),
+            &message,
+            SendPipelineOptions::default(),
+        );
+        let size = size_of_val(&future);
+        assert!(size <= 2048, "boxed send phase grew to {size} B");
+    }
+
+    #[test]
+    fn group_history_device_coverage_rejects_omitted_users_and_own_account() {
+        let a: Jid = "10001@s.whatsapp.net".parse().unwrap();
+        let b: Jid = "10002@s.whatsapp.net".parse().unwrap();
+        let own: Jid = "10003@s.whatsapp.net".parse().unwrap();
+        let requested = vec![a.clone(), b.clone(), own.clone()];
+        assert!(
+            require_history_device_coverage(&requested, &[a.clone(), b.clone(), own.clone()])
+                .is_ok()
+        );
+        assert!(require_history_device_coverage(&requested, &[a.clone(), own]).is_err());
+        assert!(require_history_device_coverage(&requested, &[a, b]).is_err());
+        assert!(require_history_device_coverage(&requested, &[]).is_err());
+    }
+
+    #[tokio::test]
+    async fn group_history_ack_waiter_is_removed_on_cancellation() {
+        let client =
+            crate::test_utils::create_test_client_with_failing_http("history_cancel").await;
+        let (receiver, generation) = client.try_register_ack_waiter("history-id").unwrap();
+        let guard = crate::request::ResponseWaiterGuard::new(
+            client.response_waiters.clone(),
+            "history-id".into(),
+            generation,
+        );
+        let pending = async move {
+            let _guard = guard;
+            let _ = receiver.await;
+        };
+        let mut pending = Box::pin(pending);
+        assert!(futures::poll!(pending.as_mut()).is_pending());
+        drop(pending);
+        assert!(client.try_register_ack_waiter("history-id").is_some());
+    }
+
+    #[test]
+    fn status_revoke_requires_a_distinct_outer_stanza_id() {
+        let target_id = "3EB0REVOKETARGET";
+        let revoke = {
+            let mut proto_ = wa::Message::default();
+            proto_.protocol_message = buffa::MessageField::some({
+                let mut proto_ = wa::message::ProtocolMessage::default();
+                proto_.r#type = Some(wa::message::protocol_message::Type::Revoke);
+                proto_.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.id = Some(target_id.into());
+                    proto
+                });
+                proto_
+            });
+            proto_
+        };
+
+        assert!(matches!(
+            validate_status_message_id(&revoke, Some(target_id)),
+            Err(SendError::InvalidRequest(_))
+        ));
+        assert!(validate_status_message_id(&revoke, Some("3EB0NEWSTANZAID")).is_ok());
+        assert!(validate_status_message_id(&revoke, None).is_ok());
+        assert!(matches!(
+            validate_status_message_id(&revoke, Some("")),
+            Err(SendError::InvalidRequest(_))
+        ));
+
+        let collision = crate::StatusSendOptions::default()
+            .with_stanza_id(crate::StanzaId::new(target_id).unwrap());
+        assert!(matches!(
+            status_id_override(&revoke, &collision),
+            Err(SendError::InvalidRequest(_))
+        ));
+    }
+
+    #[test]
+    fn status_overrides_keep_content_and_operation_domains_distinct() {
+        use crate::{MessageId, StanzaId, StatusSendOptions};
+        let post = wa::Message::default();
+        let revoke = {
+            let mut proto_ = wa::Message::default();
+            proto_.protocol_message = buffa::MessageField::some({
+                let mut proto_ = wa::message::ProtocolMessage::default();
+                proto_.r#type = Some(wa::message::protocol_message::Type::Revoke);
+                proto_.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.id = Some("TARGET".into());
+                    proto
+                });
+                proto_
+            });
+            proto_
+        };
+        let reaction = {
+            let mut proto = wa::Message::default();
+            proto.reaction_message =
+                buffa::MessageField::some(wa::message::ReactionMessage::default());
+            proto
+        };
+        let content =
+            StatusSendOptions::default().with_message_id(MessageId::new("CONTENT").unwrap());
+        let operation =
+            StatusSendOptions::default().with_stanza_id(StanzaId::new("OPERATION").unwrap());
+        assert_eq!(
+            status_id_override(&post, &content).unwrap(),
+            Some("CONTENT")
+        );
+        for message in [&revoke, &reaction] {
+            assert_eq!(
+                status_id_override(message, &operation).unwrap(),
+                Some("OPERATION")
+            );
+            assert!(matches!(
+                status_id_override(message, &content),
+                Err(SendError::InvalidRequest(_))
+            ));
+        }
+        assert!(matches!(
+            status_id_override(&post, &operation),
+            Err(SendError::InvalidRequest(_))
+        ));
+        let both = content.with_stanza_id(StanzaId::new("OPERATION").unwrap());
+        for message in [&post, &revoke, &reaction] {
+            assert!(
+                status_id_override(message, &StatusSendOptions::default())
+                    .unwrap()
+                    .is_none()
+            );
+            assert!(matches!(
+                status_id_override(message, &both),
+                Err(SendError::InvalidRequest(_))
+            ));
+            assert!(matches!(
+                validate_status_message_id(message, Some("")),
+                Err(SendError::InvalidRequest(_))
+            ));
+        }
+        assert!(MessageId::new("").is_err());
+        assert!(StanzaId::new("").is_err());
+    }
+
+    /// A DM that reached none of the recipient's devices must arrive at the
+    /// caller as its own variant. Folded into `Internal`, a gateway can only
+    /// tell it from a protobuf bug by matching on a message string.
+    #[test]
+    fn a_dm_with_no_recipient_device_stays_typed_through_the_send_path() {
+        use wacore::send::NoRecipientDeviceError;
+
+        let failed: anyhow::Error = NoRecipientDeviceError::EncryptionFailed {
+            attempted: 2,
+            source: anyhow!("session with 5511900000099:1 not found"),
+        }
+        .into();
+        // Wrapped the way the send path bubbles it: through `?` under context.
+        let mapped = SendError::from_anyhow(failed.context("sending dm"));
+        let SendError::NoRecipientDevice(NoRecipientDeviceError::EncryptionFailed {
+            attempted,
+            ..
+        }) = &mapped
+        else {
+            panic!("expected NoRecipientDevice, got {mapped:?}");
+        };
+        assert_eq!(*attempted, 2);
+
+        let unresolved = SendError::from_anyhow(NoRecipientDeviceError::Unresolved.into());
+        assert!(matches!(
+            unresolved,
+            SendError::NoRecipientDevice(NoRecipientDeviceError::Unresolved)
+        ));
+        assert!(
+            std::error::Error::source(&unresolved).is_some(),
+            "the typed cause must stay in the source chain"
+        );
+    }
+
+    #[test]
+    fn dm_stanza_to_follows_resolved_wire_namespace() {
+        let pn: Jid = "5511987650001@s.whatsapp.net".parse().unwrap();
+        let lid: Jid = "111000011112222@lid".parse().unwrap();
+
+        // PN caller, PN wire (unmigrated or unmapped): caller jid preserved.
+        assert_eq!(dm_stanza_to(&pn, &pn), pn);
+        // PN caller upgraded to LID wire: `to` must be the LID.
+        assert_eq!(dm_stanza_to(&lid, &pn), lid);
+        // LID caller kept on LID wire: unchanged.
+        assert_eq!(dm_stanza_to(&lid, &lid), lid);
+        // LID caller downgraded to PN wire (unmigrated account): `to` must be
+        // the PN — reusing the caller's LID would mix namespaces.
+        assert_eq!(dm_stanza_to(&pn, &lid), pn);
+        // Device-qualified caller jid is normalized to the bare chat jid.
+        let pn_device: Jid = "5511987650001:5@s.whatsapp.net".parse().unwrap();
+        assert_eq!(dm_stanza_to(&pn, &pn_device), pn);
+    }
+
+    #[test]
+    fn ensure_self_in_group_shares_when_present_and_appends_when_absent() {
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore::types::message::AddressingMode;
+
+        let own: Jid = "999999999999@s.whatsapp.net".parse().unwrap();
+        let other: Jid = "111111111111@s.whatsapp.net".parse().unwrap();
+
+        // Self already a member (the common case): the shared Arc passes through
+        // untouched, with no deep clone of the participant list.
+        let with_self = Arc::new(GroupRoutingInfo::new(
+            vec![other.to_non_ad(), own.to_non_ad()],
+            AddressingMode::Pn,
+        ));
+        let out = ensure_self_in_group(with_self.clone(), &own);
+        assert!(Arc::ptr_eq(&with_self, &out));
+
+        // Self missing: a fresh GroupRoutingInfo is built with self appended.
+        let without_self = Arc::new(GroupRoutingInfo::new(
+            vec![other.to_non_ad()],
+            AddressingMode::Pn,
+        ));
+        let out = ensure_self_in_group(without_self.clone(), &own);
+        assert!(!Arc::ptr_eq(&without_self, &out));
+        assert_eq!(out.participants.len(), 2);
+        assert!(out.participants.iter().any(|p| p.is_same_user_as(&own)));
+    }
+
+    /// The resync exists to run once per divergence, not once per message: a
+    /// group whose phash keeps disagreeing would otherwise ask the server for
+    /// every member's device list on every send.
+    #[tokio::test]
+    async fn a_group_device_resync_in_flight_is_not_scheduled_again() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+
+        client.refresh_group_for_repair(&group, 0).await;
+        client.refresh_group_for_repair(&group, 0).await;
+        assert_eq!(client.pending_group_device_resync.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_group_resync_holds_its_mark_until_disconnect() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000003@g.us".parse().unwrap();
+
+        client.refresh_group_for_repair(&group, 0).await;
+        // No socket here, so the work ends at once: what holds the mark now is
+        // the cooldown, not a query still running.
+        tokio::task::yield_now().await;
+        assert_eq!(client.pending_group_device_resync.len(), 1);
+        client.shutdown().await;
+        assert_eq!(client.pending_group_device_resync.len(), 0);
+    }
+
+    /// The two queues are separate on purpose: the offline drain resolves every
+    /// entry of `pending_device_sync` with a usync for a contact, and a group
+    /// JID there would be queried as if it were one.
+    #[tokio::test]
+    async fn a_group_resync_never_enters_the_contact_sync_queue() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000002@g.us".parse().unwrap();
+
+        client.refresh_group_for_repair(&group, 0).await;
+
+        assert!(
+            client.pending_device_sync.take_all().is_empty(),
+            "the contact queue must stay empty when a group is resynced"
+        );
+    }
+
+    // The group SKDM pairwise fan-out must hold the SAME per-device session mutex
+    // the DM path locks, so the two can't advance a shared device's ratchet at
+    // once. Acquiring the group lock must block the DM per-device lock.
+    #[tokio::test]
+    async fn group_skdm_lock_shares_dm_per_device_session_mutex() {
+        use wacore::client::context::SendContextResolver;
+
+        let client = crate::test_utils::create_test_client().await;
+        let device: Jid = "15551234567:3@s.whatsapp.net".parse().unwrap();
+
+        // The exact mutex the DM send path would lock for this device.
+        let keys = client
+            .build_session_lock_keys(std::slice::from_ref(&device))
+            .await;
+        let dm_mutexes = client.session_mutexes_for(&keys).await;
+        assert_eq!(dm_mutexes.len(), 1);
+        assert!(
+            dm_mutexes[0].try_lock().is_some(),
+            "uncontended before the group lock"
+        );
+
+        // Hold the group SKDM lock for the same device.
+        let guard = client
+            .lock_device_sessions(std::slice::from_ref(&device))
+            .await;
+        assert!(
+            dm_mutexes[0].try_lock().is_none(),
+            "group SKDM fan-out must block the DM per-device session lock"
+        );
+
+        drop(guard);
+        assert!(
+            dm_mutexes[0].try_lock().is_some(),
+            "the per-device session lock releases when the group guard drops"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_message_to_status_without_reaction_errors() {
+        let client = crate::test_utils::create_test_client().await;
+        let to = Jid::status_broadcast();
+        let err = client
+            .send_message(to, {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("hi".into());
+                proto
+            })
+            .await
+            .expect_err("status@broadcast without reaction must error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("reaction_message") || msg.contains("status"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn status_send_waits_for_distribution_guard() {
+        let client = crate::test_utils::create_test_client().await;
+        let own_pn: Jid = "15551234001@s.whatsapp.net".parse().unwrap();
+        let own_lid: Jid = "100000000000001@lid".parse().unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(own_pn)))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid)))
+            .await;
+
+        let status = Jid::status_broadcast();
+        let held = client.group_distribution_lock(&status).await;
+        let lock = client
+            .group_distribution_locks
+            .get(&status)
+            .await
+            .expect("cached distribution lock");
+        let lock_refs = Arc::strong_count(&lock);
+        let mut task = tokio::spawn({
+            let client = client.clone();
+            async move {
+                let recipient: Jid = "100000000000002@lid".parse().unwrap();
+                client
+                    .send_status_message(
+                        {
+                            let mut proto = wa::Message::default();
+                            proto.conversation = Some("serialized status".into());
+                            proto
+                        },
+                        std::slice::from_ref(&recipient),
+                        crate::features::status::StatusSendOptions::default(),
+                    )
+                    .await
+            }
+        });
+
+        wait_for_lock_waiter(&lock, lock_refs).await;
+        assert!(!task.is_finished(), "status send must wait for the lane");
+        drop(held);
+
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
+            .await
+            .expect("status send must resume")
+            .expect("status task");
+    }
+
+    // A logged-out send goes through send_message_impl, whose internal
+    // `ClientError::NotLoggedIn` is threaded as `anyhow`. The wrapper must
+    // surface the typed `SendError::NotLoggedIn`, not the `Internal` catch-all,
+    // so callers can match it (regression test for r3432644890).
+    #[tokio::test]
+    async fn send_message_logged_out_dm_returns_not_logged_in() {
+        let client = crate::test_utils::create_test_client().await;
+        let to: Jid = "111111111111@s.whatsapp.net".parse().unwrap();
+        let err = client
+            .send_message(to, {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("hi".into());
+                proto
+            })
+            .await
+            .expect_err("logged-out DM send must error");
+        assert!(
+            matches!(err, SendError::NotLoggedIn),
+            "expected SendError::NotLoggedIn, got: {err:?}"
+        );
+    }
+
+    // Edit path resolves the sender before the wire, so a logged-out DM edit
+    // must surface the typed NotLoggedIn (not the Internal catch-all).
+    #[tokio::test]
+    async fn edit_message_logged_out_dm_returns_not_logged_in() {
+        let client = crate::test_utils::create_test_client().await;
+        let to: Jid = "111111111111@s.whatsapp.net".parse().unwrap();
+        let err = client
+            .edit_message_raw(
+                to,
+                "ORIG_ID",
+                {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("x".into());
+                    proto
+                },
+                EditOptions::default(),
+            )
+            .await
+            .expect_err("logged-out DM edit must error");
+        assert!(
+            matches!(err, SendError::NotLoggedIn),
+            "expected SendError::NotLoggedIn, got: {err:?}"
+        );
+    }
+
+    // Invalid operation IDs now fail before an EditOptions can carry them.
+    #[test]
+    fn edit_options_cannot_carry_an_empty_stanza_id() {
+        assert_eq!(
+            crate::StanzaId::new(""),
+            Err(crate::MessageRefError::EmptyStanzaId)
+        );
+    }
+
+    #[tokio::test]
+    async fn send_message_to_status_reaction_rejects_non_user_participant() {
+        let client = crate::test_utils::create_test_client().await;
+        let to = Jid::status_broadcast();
+        let err = client
+            .send_message(to, {
+                let mut proto = wa::Message::default();
+                proto.reaction_message = buffa::MessageField::some({
+                    let mut proto = wa::message::ReactionMessage::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.remote_jid = Some("status@broadcast".into());
+                        proto.from_me = Some(false);
+                        proto.id = Some("ORIGID".into());
+                        proto.participant = Some("120363040237990503@g.us".into());
+                        proto
+                    });
+                    proto.text = Some("❤️".into());
+                    proto.sender_timestamp_ms = Some(1);
+                    proto
+                });
+                proto
+            })
+            .await
+            .expect_err("group JID as participant must error");
+        assert!(
+            format!("{err}").contains("user JID"),
+            "expected user-JID error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_message_to_status_reaction_without_participant_errors() {
+        let client = crate::test_utils::create_test_client().await;
+        let to = Jid::status_broadcast();
+        let err = client
+            .send_message(to, {
+                let mut proto = wa::Message::default();
+                proto.reaction_message = buffa::MessageField::some({
+                    let mut proto = wa::message::ReactionMessage::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.remote_jid = Some("status@broadcast".into());
+                        proto.from_me = Some(false);
+                        proto.id = Some("ORIGID".into());
+                        proto.participant = None;
+                        proto
+                    });
+                    proto.text = Some("❤️".into());
+                    proto.sender_timestamp_ms = Some(1);
+                    proto
+                });
+                proto
+            })
+            .await
+            .expect_err("reaction without key.participant must error");
+        assert!(
+            format!("{err}").contains("participant"),
+            "expected participant error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_revoke_type_default_is_sender() {
+        // RevokeType::Sender is the default (for deleting own messages)
+        let revoke_type = RevokeType::default();
+        assert_eq!(revoke_type, RevokeType::Sender);
+    }
+
+    /// A group whose metadata, device lists and pairwise sessions are all
+    /// primed, so a send reaches the wire without a single IQ and the captured
+    /// frames are exactly the message stanzas the test asked for.
+    use wacore::types::message::AddressingMode;
+
+    struct GroupSendFixture {
+        client: Arc<Client>,
+        transport: Arc<crate::transport::mock::CapturingMockTransport>,
+        group: Jid,
+        member: Jid,
+        /// The identity this group addresses us by: our LID in a LID group,
+        /// our phone JID otherwise. Companion devices and their sessions have
+        /// to live under it, or a warm send's own-device SKDM target has no
+        /// session and the send blocks on a prekey fetch.
+        own_sending: Jid,
+        /// Every recipient device the group resolves to (own device excluded).
+        recipient_devices: usize,
+    }
+
+    impl GroupSendFixture {
+        async fn new() -> Self {
+            Self::with_addressing(AddressingMode::Pn, 2).await
+        }
+
+        /// A group whose participants are LID-addressed, with the LID↔PN pairs
+        /// both in the group metadata's map and durably in the client's LID-PN
+        /// cache — the state a client that has already synced the group is in.
+        ///
+        /// Not a cosmetic variant of the PN fixture: LID mode is what puts
+        /// `GroupRoutingInfo::phone_jid_for_lid_user` on the resolve path (once per
+        /// participant, on the way in and on the way back), so it is the mode
+        /// where a device-memo miss is most expensive. PR #1283 named it as
+        /// the largest gap in its own coverage.
+        async fn new_lid(member_count: usize) -> Self {
+            Self::with_addressing(AddressingMode::Lid, member_count).await
+        }
+
+        async fn with_addressing(addressing_mode: AddressingMode, member_count: usize) -> Self {
+            use wacore::client::context::GroupRoutingInfo;
+            use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+
+            let is_lid = addressing_mode == AddressingMode::Lid;
+            let (client, transport) = crate::test_utils::create_iq_test_client().await;
+            client
+                .persistence_manager
+                .process_command(DeviceCommand::SetAccount(Some(peer_test_account_proto())))
+                .await;
+            let own = Jid::from_str("5511000000001@s.whatsapp.net").unwrap();
+            let own_lid = Jid::from_str("100000000000001@lid").unwrap();
+            client
+                .persistence_manager
+                .process_command(DeviceCommand::SetId(Some(own.clone())))
+                .await;
+            client
+                .persistence_manager
+                .process_command(DeviceCommand::SetLid(Some(own_lid.clone())))
+                .await;
+
+            // Deterministic in the index so the same fixture at 2 members is a
+            // prefix of the one at 64: reserved fictional numbers, and LIDs
+            // from a range no real allocation uses.
+            let member_users: Vec<String> = (0..member_count)
+                .map(|index| format!("55110000{:05}", 10 + index))
+                .collect();
+            let member_lids: Vec<String> = (0..member_count)
+                .map(|index| format!("2000000000{:05}", 10 + index))
+                .collect();
+
+            // Registry records go in under the PN key in both modes: the LID
+            // resolve maps each participant back to its PN before querying
+            // (LID usync is unreliable), then converts the answer to LID.
+            // `raw_insert_for_tests` rather than `insert` — a seeded cache fill
+            // must not look like a topology change, or the fixture would start
+            // every memo one generation behind for reasons no client has.
+            for user in [own.user.as_str()]
+                .into_iter()
+                .chain(member_users.iter().map(String::as_str))
+            {
+                let record = DeviceListRecord {
+                    user: user.into(),
+                    devices: [DeviceInfo::new(0, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                };
+                client
+                    .device_registry_cache
+                    .raw_insert_for_tests(Arc::from(user), Arc::new(record))
+                    .await;
+            }
+
+            let participants: Vec<Jid> = if is_lid {
+                member_lids
+                    .iter()
+                    .map(|lid| Jid::from_str(&format!("{lid}@lid")).unwrap())
+                    .collect()
+            } else {
+                member_users
+                    .iter()
+                    .map(|user| Jid::from_str(&format!("{user}@s.whatsapp.net")).unwrap())
+                    .collect()
+            };
+            for participant in &participants {
+                crate::test_utils::seed_peer_session(&client, participant).await;
+            }
+
+            let group_info = if is_lid {
+                let lid_to_pn = member_lids
+                    .iter()
+                    .zip(&member_users)
+                    .map(|(lid, pn)| {
+                        (
+                            lid.as_str().into(),
+                            Jid::from_str(&format!("{pn}@s.whatsapp.net")).unwrap(),
+                        )
+                    })
+                    .collect();
+                // Persist the pairs the way a synced client holds them, so the
+                // receive path's `can_skip_relearn` fast exit is reachable.
+                // Without this every inbound message re-learns the mapping and
+                // the fixture would report a topology write that a real warm
+                // client does not perform.
+                for (lid, pn) in member_lids.iter().zip(&member_users) {
+                    client
+                        .add_lid_pn_mapping(lid, pn, crate::lid_pn_cache::LearningSource::Usync)
+                        .await
+                        .expect("seeding a lid-pn pair must succeed against the test backend");
+                }
+                client
+                    .add_lid_pn_mapping(
+                        &own_lid.user,
+                        &own.user,
+                        crate::lid_pn_cache::LearningSource::Usync,
+                    )
+                    .await
+                    .expect("seeding our own lid-pn pair must succeed");
+                GroupRoutingInfo::with_lid_to_pn_map(
+                    participants.clone(),
+                    addressing_mode,
+                    lid_to_pn,
+                )
+            } else {
+                GroupRoutingInfo::new(participants.clone(), addressing_mode)
+            };
+
+            let group = Jid::from_str("120363000000000042@g.us").unwrap();
+            client
+                .get_group_cache()
+                .insert(group.clone(), Arc::new(group_info))
+                .await;
+
+            Self {
+                client,
+                transport,
+                group,
+                member: participants[0].clone(),
+                own_sending: if is_lid { own_lid } else { own },
+                recipient_devices: participants.len(),
+            }
+        }
+
+        /// Give our own account a companion device and a pairwise session for
+        /// it, and return its JID.
+        ///
+        /// The default fixture has only our primary, which `filter_skdm_targets`
+        /// excludes as the sender — so without this the warm steady state has
+        /// nothing to distribute and the own-device half of the partition is
+        /// never exercised. Production almost always has one (the phone plus
+        /// this linked client), and WA Web never marks own devices warm, so a
+        /// warm send re-targets it every time.
+        async fn add_own_companion(&self, device_id: u16) -> Jid {
+            use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+
+            let own = self
+                .client
+                .persistence_manager
+                .get_device_snapshot()
+                .pn
+                .clone()
+                .expect("own pn");
+            // The registry record stays PN-keyed in both modes, matching how
+            // the fixture seeds every other user; the LID resolve reaches it
+            // through the mapping.
+            let record = DeviceListRecord {
+                user: own.user.as_str().into(),
+                devices: [DeviceInfo::new(0, None), DeviceInfo::new(device_id, None)].into(),
+                timestamp: wacore::time::now_secs(),
+                phash: None,
+                raw_id: None,
+            };
+            self.client
+                .device_registry_cache
+                .raw_insert_for_tests(Arc::from(own.user.as_str()), Arc::new(record))
+                .await;
+            let companion = self.own_sending.with_device(device_id);
+            crate::test_utils::seed_peer_session(&self.client, &companion).await;
+            companion
+        }
+
+        /// `send_text` under a caller-chosen id, so a test can address the ack
+        /// the send registers its phash waiter under.
+        async fn send_with_id(&self, message_id: &str) {
+            self.client
+                .send_message_with_options(
+                    self.group.clone(),
+                    wa::Message::text("hi"),
+                    SendOptions::default()
+                        .with_message_id(crate::MessageId::new(message_id).unwrap()),
+                )
+                .await
+                .expect("group text send should reach the wire");
+        }
+
+        /// Feed the server's `<ack>` back through the read loop's own entry
+        /// point. Returns whether a waiter claimed it.
+        /// The id of the first IQ sent from `from` onward carrying `xmlns`,
+        /// waiting for the frame to appear: the sender is a detached task, so
+        /// the frame is not on the wire when the caller reaches this point.
+        async fn next_iq_id_with_xmlns(&self, from: usize, xmlns: &str) -> Option<String> {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                for index in from..self.transport.sent_count() {
+                    let node = crate::test_utils::decode_sent_iq(&self.transport, index).await;
+                    let node = node.get();
+                    if node.attrs().optional_string("xmlns").as_deref() == Some(xmlns) {
+                        return node.attrs().optional_string("id").map(|id| id.to_string());
+                    }
+                }
+                if std::time::Instant::now() >= deadline {
+                    return None;
+                }
+                tokio::task::yield_now().await;
+            }
+        }
+
+        async fn deliver_ack(&self, message_id: &str, phash: Option<&str>) -> bool {
+            let mut builder = NodeBuilder::new("ack")
+                .attr("id", message_id)
+                .attr("from", "s.whatsapp.net");
+            if let Some(phash) = phash {
+                builder = builder.attr("phash", phash);
+            }
+            let marshaled = wacore_binary::marshal::marshal_ref(&builder.build().as_node_ref())
+                .expect("valid node");
+            let node = wacore_binary::OwnedNodeRef::new(
+                wacore_binary::util::unpack(&marshaled)
+                    .expect("packed payload")
+                    .into_owned(),
+            )
+            .expect("valid node");
+            self.client.handle_ack_response_arc(&Arc::new(node))
+        }
+
+        async fn send_text(&self, text: &str) {
+            self.client
+                .send_message(self.group.clone(), wa::Message::text(text))
+                .await
+                .expect("group text send should reach the wire");
+        }
+
+        /// The topology-visible half of receiving a group message from
+        /// `member`: the LID↔PN pair its stanza carries, fed through the same
+        /// entry point the receive path uses.
+        ///
+        /// LID-mode groups only — a PN-addressed group's messages carry no
+        /// second identifier, so there is nothing for the receive path to
+        /// learn and nothing that could move the topology generation.
+        async fn receive_from_member(&self) {
+            let pn = self
+                .client
+                .get_group_cache()
+                .get(&self.group)
+                .await
+                .expect("group metadata")
+                .phone_jid_for_lid_user(&self.member.user)
+                .cloned()
+                .expect("the LID fixture maps every participant to a phone number");
+            self.client
+                .cache_lid_pn_from_message(&self.member, Some(&pn), false)
+                .await;
+        }
+
+        async fn revoke(&self, message_id: &str, revoke_type: RevokeType) -> SendResult {
+            self.client
+                .revoke_message_raw(self.group.clone(), message_id, revoke_type)
+                .await
+                .expect("revoke should reach the wire")
+        }
+
+        fn admin_revoke(&self) -> RevokeType {
+            RevokeType::Admin {
+                original_sender: self.member.clone(),
+            }
+        }
+
+        async fn stanza(&self, index: usize) -> Arc<wacore_binary::OwnedNodeRef> {
+            crate::test_utils::decode_sent_iq(&self.transport, index).await
+        }
+
+        /// Wire bytes of the `index`-th frame, the number the amplification is
+        /// measured in.
+        fn frame_len(&self, index: usize) -> usize {
+            self.transport.sent()[index].len()
+        }
+    }
+
+    #[tokio::test]
+    async fn normal_group_and_retry_preserve_content_meta_without_copying_user_nodes() {
+        for fixture in [
+            GroupSendFixture::new().await,
+            GroupSendFixture::new_lid(2).await,
+        ] {
+            let message = {
+                let mut proto = wa::Message::default();
+                proto.view_once_message_v2_extension = Some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = Some({
+                        let mut proto = wa::Message::default();
+                        proto.audio_message = Some({
+                            let mut proto = wa::message::AudioMessage::default();
+                            proto.ptt = Some(true);
+                            proto.view_once = Some(true);
+                            proto
+                        })
+                        .into();
+                        proto
+                    })
+                    .into();
+                    proto
+                })
+                .into();
+                proto
+            };
+            let id = "GROUP_VIEW_ONCE_META";
+            fixture
+                .client
+                .send_message_with_options(
+                    fixture.group.clone(),
+                    message.clone(),
+                    SendOptions::default()
+                        .with_message_id(crate::MessageId::new(id).unwrap())
+                        .with_extra_stanza_nodes(vec![
+                            NodeBuilder::new("meta").attr("origin", "synthetic").build(),
+                        ]),
+                )
+                .await
+                .unwrap();
+            let normal = fixture.stanza(0).await;
+            let normal = normal.get();
+            assert_eq!(
+                normal.get_children_by_tag("meta").count(),
+                2,
+                "legitimate extra meta is not deduplicated"
+            );
+            assert_eq!(
+                normal
+                    .get_optional_child("meta")
+                    .unwrap()
+                    .attrs()
+                    .required_string("view_once")
+                    .unwrap(),
+                "true"
+            );
+            assert_eq!(
+                normal
+                    .get_optional_child("enc")
+                    .unwrap()
+                    .attrs()
+                    .required_string("mediatype")
+                    .unwrap(),
+                "ptt"
+            );
+            assert_eq!(
+                normal
+                    .get_optional_child("enc")
+                    .unwrap()
+                    .attrs()
+                    .required_string("type")
+                    .unwrap(),
+                "skmsg"
+            );
+
+            // Exercise the public API, then the automatic receipt path against
+            // the same cached semantic content and group addressing mode.
+            fixture
+                .client
+                .retransmit_message(crate::features::MessageRetransmission::new(
+                    fixture.group.clone(),
+                    fixture.member.clone(),
+                    message.clone(),
+                    crate::MessageId::new(id).unwrap(),
+                    1,
+                ))
+                .await
+                .unwrap();
+            let receipt = wacore::types::events::Receipt::builder()
+                .source(crate::types::message::MessageSource {
+                    chat: fixture.group.clone(),
+                    sender: fixture.member.clone(),
+                    is_group: true,
+                    ..Default::default()
+                })
+                .message_ids(vec![id.into()])
+                .timestamp(wacore::time::now_utc())
+                .r#type(wacore::types::presence::ReceiptType::Retry)
+                .offline(false)
+                .build();
+            let node = NodeBuilder::new("receipt")
+                .attr("participant", &fixture.member)
+                .children([NodeBuilder::new("retry")
+                    .attr("id", id)
+                    .attr("count", "1")
+                    .build()])
+                .build();
+            fixture
+                .client
+                .handle_retry_receipt(&receipt, &crate::test_utils::node_to_owned_ref(&node))
+                .await
+                .unwrap();
+            for index in [1, 2] {
+                let retried = fixture.stanza(index).await;
+                let retried = retried.get();
+                assert_eq!(retried.get_children_by_tag("meta").count(), 1);
+                let meta = retried.get_optional_child("meta").unwrap();
+                assert_eq!(meta.attrs().required_string("view_once").unwrap(), "true");
+                assert!(
+                    meta.attrs().optional_string("origin").is_none(),
+                    "do not replay consumer/context nodes"
+                );
+                assert!(retried.get_optional_child("participants").is_none());
+                assert_eq!(
+                    retried.attrs().required_jid("participant").unwrap(),
+                    fixture.member
+                );
+                assert_eq!(retried.attrs().required_jid("to").unwrap(), fixture.group);
+                assert_eq!(
+                    retried.attrs().optional_string("addressing_mode"),
+                    normal.attrs().optional_string("addressing_mode")
+                );
+                let enc = retried.get_optional_child("enc").unwrap();
+                assert_eq!(enc.attrs().required_string("mediatype").unwrap(), "ptt");
+                assert_eq!(enc.attrs().required_string("count").unwrap(), "1");
+                assert!(enc.attrs().required_string("type").unwrap() != "skmsg");
+            }
+        }
+    }
+
+    /// Devices the stanza carries a pairwise sender-key copy for. `None` is the
+    /// stronger claim than `Some(0)`: a send with nothing to distribute omits
+    /// the `<participants>` node entirely rather than emitting an empty one.
+    fn skdm_targets(stanza: &wacore_binary::OwnedNodeRef) -> Option<usize> {
+        stanza
+            .get()
+            .get_optional_child_by_tag(&["participants"])
+            .map(|participants| participants.get_children_by_tag("to").count())
+    }
+
+    fn attr_value(stanza: &wacore_binary::OwnedNodeRef, key: &str) -> Option<String> {
+        stanza
+            .get()
+            .get_attr(key)
+            .map(|value| value.as_str().into_owned())
+    }
+
+    /// The regression: an admin revoke in a group whose members already hold the
+    /// sender key re-sent it to every device, turning a 1-recipient stanza into
+    /// one `<enc>` per device.
+    #[tokio::test]
+    async fn admin_revoke_does_not_redistribute_a_warm_sender_key() {
+        let fixture = GroupSendFixture::new().await;
+
+        fixture.send_text("first message warms the group").await;
+        let first = fixture.stanza(0).await;
+        assert_eq!(
+            skdm_targets(&first),
+            Some(fixture.recipient_devices),
+            "the first send is cold and must distribute to every device"
+        );
+
+        fixture
+            .revoke("3EB0FAKEREVOKED01", fixture.admin_revoke())
+            .await;
+        let revoke = fixture.stanza(1).await;
+        assert_eq!(
+            skdm_targets(&revoke),
+            None,
+            "every device is warm, so the revoke has nothing to distribute"
+        );
+        assert!(
+            fixture.frame_len(1) < fixture.frame_len(0),
+            "a revoke that distributes nothing must be smaller than the cold send"
+        );
+    }
+
+    /// A group revoke's result is named by the stanza it went out under and
+    /// carries the key the admin revoke was built with: the original sender
+    /// exactly as given, since the receiving side matches it against the
+    /// target's own key.
+    #[tokio::test]
+    async fn a_group_revoke_result_names_the_stanza_it_sent() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("first message warms the group").await;
+
+        let result = fixture
+            .revoke("3EB0FAKEREVOKED02", fixture.admin_revoke())
+            .await;
+        let revoke = fixture.stanza(1).await;
+        assert_eq!(
+            attr_value(&revoke, "id").as_deref(),
+            Some(result.message_id.as_str()),
+            "the result is named by the stanza the revoke went out under"
+        );
+        assert_eq!(result.to, fixture.group);
+        assert!(
+            result.recipient_fanout.is_none(),
+            "a group send does not describe itself in a DM's terms"
+        );
+        let key = result
+            .message
+            .protocol_message
+            .as_option()
+            .and_then(|pm| pm.key.as_option())
+            .expect("the revoke is keyed by the target");
+        assert_eq!(key.id.as_deref(), Some("3EB0FAKEREVOKED02"));
+        assert_eq!(key.from_me, Some(false));
+        assert_eq!(
+            key.participant.as_deref(),
+            Some(fixture.member.to_non_ad_string().as_str())
+        );
+    }
+
+    /// Whether the next send would take the memoized path: the entry exists and
+    /// all four of `resolve_skdm_targets_memoized`'s validity conditions still
+    /// hold. Re-derived here rather than counted inside the production path,
+    /// which would mean adding a hit counter to a hot function just to observe
+    /// it.
+    async fn skdm_memo_would_hit(client: &Arc<Client>, group: &Jid) -> Option<Vec<Jid>> {
+        let cached_map = client.skdm_device_map(&group.to_string()).await;
+        let group_info = client
+            .get_group_cache()
+            .get(group)
+            .await
+            .expect("group metadata must be cached");
+        let own = client
+            .persistence_manager
+            .get_device_snapshot()
+            .pn
+            .clone()
+            .expect("own pn");
+        // Panics rather than reading as a miss:
+        // `skdm_warm_memo_misses_after_a_device_is_forgotten` asserts on
+        // `None`, so a resolve failure would satisfy it without ever
+        // exercising the generation term it exists to pin.
+        let devices = client
+            .resolve_group_devices_memoized(group, &group_info, &own)
+            .await
+            .expect("device resolution must succeed against the seeded fixture");
+        let generation = cached_map.generation();
+        let memo = client.skdm_warm_memo.get(group).await?;
+        // The same predicate the send path applies, not a second copy of it.
+        skdm_memo_entry_stale_term(&memo, &devices, &cached_map, generation, &own)
+            .is_none()
+            .then(|| memo.4.into_vec())
+    }
+
+    /// The premise of every "the warm group send is flat in group size" claim:
+    /// once the group is warm, `resolve_skdm_targets_memoized` really does take
+    /// the memo and skip `filter_skdm_targets`. If it did not, each send would
+    /// pay one hash lookup per device — measured at 655 instructions per member
+    /// by `skdm_target_resolution_memo_cold`, which is the exact shape an
+    /// external profile attributed to this path.
+    ///
+    /// Repeat sends are what has to hold, not just the second one, and the
+    /// memoized `needs` must stay NON-EMPTY: our own companions are never
+    /// marked warm (WA Web `!isMeDevice`), so a warm send re-targets them every
+    /// time and the memo has to survive being re-inserted carrying them. An
+    /// own companion is seeded here for exactly that reason — with only our
+    /// primary device (which the filter excludes as the sender) every send
+    /// would memoize an empty list, and a regression that stopped retaining the
+    /// own-companion memo would still pass.
+    #[tokio::test]
+    async fn skdm_warm_memo_hits_on_every_repeat_send() {
+        let fixture = GroupSendFixture::new().await;
+        let companion = fixture.add_own_companion(1).await;
+
+        // The first send is cold: it distributes to every device, so there is
+        // nothing warm to memoize against yet.
+        fixture.send_text("cold send").await;
+        for round in 0..4 {
+            fixture.send_text("warm send").await;
+            let needs = skdm_memo_would_hit(&fixture.client, &fixture.group)
+                .await
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the warm memo must be live after warm send {round}; a miss here \
+                         puts filter_skdm_targets back on every send"
+                    )
+                });
+            assert_eq!(
+                needs,
+                vec![companion.clone()],
+                "the steady state re-targets our own companion, so the memoized \
+                 targets must carry it (round {round})"
+            );
+        }
+    }
+
+    /// Sends the external `group-send` profile ran inside its window. Matched
+    /// so a hit rate measured here is comparable to the one that profile
+    /// implies, rather than to a number of rounds picked for convenience.
+    const REGIME_SENDS: u64 = 30;
+
+    /// The question two benchmark PRs left open: over a run of ordinary repeat
+    /// sends, which outcome do the two device memos actually take?
+    ///
+    /// `skdm_target_resolution_warm` and `skdm_target_resolution_memo_cold`
+    /// bound the cost of a hit and of a miss, but both force their outcome, so
+    /// neither can say which one a client gets once the group is warm — and an
+    /// external profile of a different client implied "miss, on all 30 of 30".
+    /// This is the missing middle: N consecutive sends through the real
+    /// `send_message`, reading the per-term counters over the window.
+    ///
+    /// Asserted on the terms and not just on a rate, because the two memos are
+    /// chained: `resolve_skdm_targets_memoized` compares the `Arc` the group
+    /// memo returned, so a group-memo recompute forces an SKDM miss whatever
+    /// the other three SKDM terms say. A rate would show two failures where
+    /// there is one cause.
+    #[tokio::test]
+    async fn repeat_group_sends_hit_both_device_memos_on_every_send() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.add_own_companion(1).await;
+        // Two sends before the window, for two different reasons. Send one is
+        // cold: `force_skdm` short-circuits the whole memoized path, so it
+        // never so much as looks the memos up. Send two is the first that
+        // does, and it necessarily misses — there is nothing stored yet. The
+        // steady state starts at send three, which is also where
+        // `bench_support`'s fixture starts measuring.
+        fixture.send_text("cold send").await;
+        fixture
+            .send_text("first warm send, populates both memos")
+            .await;
+        let before = fixture.client.device_memo_stats();
+
+        for _ in 0..REGIME_SENDS {
+            fixture.send_text("warm send").await;
+        }
+
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.hits, REGIME_SENDS,
+            "every warm send must take the group memo outright: {window}"
+        );
+        assert_eq!(
+            window.skdm_targets.hits, REGIME_SENDS,
+            "every warm send must skip filter_skdm_targets: {window}"
+        );
+        // Named individually rather than through the rate: which term fires is
+        // the diagnosis, and a rate assertion would pass a run that swapped
+        // one miss cause for another.
+        assert_eq!(window.group_devices.miss_absent, 0, "{window}");
+        assert_eq!(window.group_devices.miss_group_info, 0, "{window}");
+        assert_eq!(window.group_devices.miss_topology, 0, "{window}");
+        assert_eq!(window.group_devices.restamps, 0, "{window}");
+        assert_eq!(window.skdm_targets.miss_devices, 0, "{window}");
+        assert_eq!(window.skdm_targets.miss_map, 0, "{window}");
+        assert_eq!(window.skdm_targets.miss_map_generation, 0, "{window}");
+        assert_eq!(window.skdm_targets.miss_sender, 0, "{window}");
+        assert_eq!(
+            window.skdm_targets.not_stored, 0,
+            "a target set that cannot be memoized makes the next send miss by \
+             construction: {window}"
+        );
+    }
+
+    /// The same window in a LID-addressed group — the mode the external
+    /// profile ran, and the one PR #1283's PN fixture could not reach.
+    ///
+    /// It matters beyond coverage: LID mode is what puts
+    /// `GroupRoutingInfo::phone_jid_for_lid_user` on the resolve path, once per
+    /// participant mapping in and once per resolved device mapping back. That
+    /// function only ever runs inside the uncached resolve, so it is a cost
+    /// the memo either pays in full or removes entirely — never something in
+    /// between, and never a target of its own while the memo hits.
+    #[tokio::test]
+    async fn repeat_lid_group_sends_hit_both_device_memos_on_every_send() {
+        let fixture = GroupSendFixture::new_lid(8).await;
+        fixture.add_own_companion(1).await;
+        fixture.send_text("cold send").await;
+        fixture
+            .send_text("first warm send, populates both memos")
+            .await;
+        let before = fixture.client.device_memo_stats();
+
+        for _ in 0..REGIME_SENDS {
+            fixture.send_text("warm send").await;
+        }
+
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.hits, REGIME_SENDS,
+            "LID addressing must not cost the group memo a single hit: {window}"
+        );
+        assert_eq!(
+            window.skdm_targets.hits, REGIME_SENDS,
+            "LID addressing must not cost the SKDM memo a single hit: {window}"
+        );
+    }
+
+    /// The server-paced shape: the client receives from the group and answers,
+    /// which is what a group bot does and what the external profile's harness
+    /// drove. If handling an inbound message writes device topology, a memo
+    /// keyed on that topology misses once per round by construction, and the
+    /// finding would be about production rather than about any harness.
+    ///
+    /// The inbound side here is the LID↔PN learning an inbound group message
+    /// performs (`cache_lid_pn_from_message`, called from the receive path for
+    /// every message whose sender carries both identifiers) — not a full
+    /// decode. That is the only part of an inbound message that reaches the
+    /// topology tracker on a steady-state receive; decryption, dispatch and
+    /// receipts are not covered, and a regression that made some *other* part
+    /// of the receive path write topology would not be caught here.
+    #[tokio::test]
+    async fn a_send_answering_an_inbound_group_message_still_hits_both_memos() {
+        let fixture = GroupSendFixture::new_lid(8).await;
+        fixture.add_own_companion(1).await;
+        fixture.send_text("cold send").await;
+        fixture
+            .send_text("first warm send, populates both memos")
+            .await;
+        let before = fixture.client.device_memo_stats();
+
+        for _ in 0..REGIME_SENDS {
+            fixture.receive_from_member().await;
+            fixture.send_text("reply").await;
+        }
+
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.hits, REGIME_SENDS,
+            "a mapping the client already holds durably must not be re-learned, \
+             and re-learning it would bump the topology generation once per \
+             inbound message: {window}"
+        );
+        assert_eq!(window.skdm_targets.hits, REGIME_SENDS, "{window}");
+    }
+
+    /// A warm DM resolves each device's Signal address once, memoizes it on
+    /// the device-memo entry, and serves it to every later send; a mapping
+    /// change for the peer produces a fresh entry re-resolved under the new
+    /// LID rather than a stale address. The lock keys the entry carries are in
+    /// the one acquisition order `session_guards_for` requires.
+    #[tokio::test]
+    async fn repeat_dm_sends_serve_memoized_signal_addressing() {
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        use wacore::types::jid::cmp_for_lock_order;
+
+        // Startup can publish persisted mappings after a send and invalidate
+        // its memo. Keep that publication separate from the warm-send checks.
+        let (mut backend, _dropped) = crate::store::release::tests::ProbeBackend::new();
+        backend.backend = crate::test_utils::create_test_backend().await;
+        let (release_startup, parked) = async_channel::bounded(1);
+        let (entered, startup_read) = async_channel::bounded(1);
+        backend.gate_method = "get_all_lid_mappings";
+        backend.gate = Some(parked);
+        backend.entered = Some(entered);
+        let (client, _transport) =
+            crate::test_utils::create_iq_test_client_with_backend(Arc::new(backend)).await;
+        tokio::time::timeout(std::time::Duration::from_secs(5), startup_read.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let own = Jid::from_str("5511000000001@s.whatsapp.net").unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(own.clone())))
+            .await;
+
+        // An unmigrated account sending to a PN whose LID it knows: the wire
+        // stays PN, every device's Signal address upgrades to LID.
+        let peer = Jid::from_str("5511000000020@s.whatsapp.net").unwrap();
+        let peer_lid = "200000000000020";
+        for (user, devices) in [
+            (own.user.as_str(), &[0u16][..]),
+            (peer.user.as_str(), &[0, 1]),
+        ] {
+            let record = DeviceListRecord {
+                user: user.into(),
+                devices: devices.iter().map(|d| DeviceInfo::new(*d, None)).collect(),
+                timestamp: wacore::time::now_secs(),
+                phash: None,
+                raw_id: None,
+            };
+            client
+                .device_registry_cache
+                .raw_insert_for_tests(Arc::from(user), Arc::new(record))
+                .await;
+        }
+        client
+            .add_lid_pn_mapping(
+                peer_lid,
+                &peer.user,
+                crate::lid_pn_cache::LearningSource::Usync,
+            )
+            .await
+            .expect("seeding the peer's lid-pn pair");
+        let sessions_under = |lid: &str| {
+            let client = Arc::clone(&client);
+            let lid = Jid::from_str(&format!("{lid}@lid")).unwrap();
+            async move {
+                for device in [0, 1] {
+                    crate::test_utils::seed_peer_session(&client, &lid.with_device(device)).await;
+                }
+            }
+        };
+        sessions_under(peer_lid).await;
+
+        let resolve = || async {
+            client
+                .resolve_dm_devices_memoized(
+                    &peer,
+                    &peer,
+                    &own,
+                    None,
+                    crate::cache::Freshness::CachePreferred,
+                )
+                .await
+                .expect("memoized DM resolve")
+        };
+
+        client
+            .send_message(peer.clone(), wa::Message::text("first"))
+            .await
+            .expect("first DM");
+        let first = resolve().await;
+        let addressing = first
+            .signal_addressing()
+            .expect("a send memoizes the Signal addressing on the entry it used");
+        assert_eq!(addressing.encryption().len(), first.devices().len());
+        for (device, address) in first.devices().iter().zip(addressing.encryption()) {
+            assert!(device.is_pn(), "the fan-out is PN-addressed: {device}");
+            assert!(
+                address.is_lid(),
+                "the Signal address upgrades to LID: {address}"
+            );
+            assert_eq!(address.user.as_str(), peer_lid);
+            assert_eq!(address.device, device.device);
+        }
+        assert!(
+            addressing
+                .lock_keys()
+                .windows(2)
+                .all(|pair| cmp_for_lock_order(&pair[0], &pair[1]).is_lt()),
+            "lock keys must be sorted and deduplicated in lock order"
+        );
+
+        client
+            .send_message(peer.clone(), wa::Message::text("second"))
+            .await
+            .expect("second DM");
+        let second = resolve().await;
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "a repeat DM must serve the same memo entry, addressing included"
+        );
+
+        // The peer remaps to a new LID: the mapping change bumps the topology
+        // the entry is stamped with, so the next send re-resolves under it.
+        let new_lid = "200000000000021";
+        client
+            .add_lid_pn_mapping(
+                new_lid,
+                &peer.user,
+                crate::lid_pn_cache::LearningSource::Usync,
+            )
+            .await
+            .expect("remapping the peer");
+        sessions_under(new_lid).await;
+        client
+            .send_message(peer.clone(), wa::Message::text("third"))
+            .await
+            .expect("third DM");
+        let third = resolve().await;
+        assert!(
+            !Arc::ptr_eq(&first, &third),
+            "a mapping change must produce a fresh entry"
+        );
+        let addressing = third
+            .signal_addressing()
+            .expect("re-resolved on the fresh entry");
+        assert!(
+            addressing
+                .encryption()
+                .iter()
+                .all(|address| address.user.as_str() == new_lid),
+            "the fresh entry addresses the new LID: {:?}",
+            addressing.encryption()
+        );
+
+        // A delayed startup read sees the mappings persisted above. Even when
+        // their values match the cache, publication invalidates this topology.
+        let before_startup = client.device_topology.current();
+        release_startup.send(()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while client.device_topology.current() == before_startup {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("startup publishes its mapping snapshot");
+        let after_startup = resolve().await;
+        assert!(
+            !Arc::ptr_eq(&third, &after_startup),
+            "startup publication must invalidate the previous memo"
+        );
+        assert!(after_startup.signal_addressing().is_none());
+        client
+            .send_message(peer.clone(), wa::Message::text("after startup"))
+            .await
+            .expect("DM after startup publication");
+        let fourth = resolve().await;
+        assert!(Arc::ptr_eq(&after_startup, &fourth));
+        assert!(
+            fourth
+                .signal_addressing()
+                .expect("the next send warms the new entry")
+                .encryption()
+                .iter()
+                .all(|address| address.user.as_str() == new_lid)
+        );
+    }
+
+    /// The counters would be worthless if they only ever reported hits, so
+    /// each miss term is driven once and checked to be the one that fires.
+    /// This is also what pins the terms against each other: three of these
+    /// four causes are indistinguishable in an aggregate miss count, and the
+    /// whole point of the instrumentation is telling them apart.
+    #[tokio::test]
+    async fn each_miss_term_is_reported_as_itself() {
+        use wacore::client::context::GroupRoutingInfo;
+
+        let fixture = GroupSendFixture::new().await;
+        fixture.add_own_companion(1).await;
+        fixture.send_text("cold send").await;
+        fixture.send_text("warm send").await;
+
+        // 1. An in-place cold flip (a retry receipt's markForgetSenderKey)
+        //    keeps both Arcs and advances the map generation.
+        let before = fixture.client.device_memo_stats();
+        fixture
+            .client
+            .sender_key_device_cache
+            .mark_forgotten(
+                &fixture.group.to_string(),
+                std::iter::once(&fixture.member.with_device(0)),
+            )
+            .await;
+        fixture.send_text("after a forget").await;
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.skdm_targets.miss_map_generation, 1,
+            "a cold flip is the generation term, and nothing else: {window}"
+        );
+        // Two resolves, not one: the re-cold device puts a non-own target in
+        // the needs set, which takes the single-flight branch — it invalidates
+        // the sender-key map and resolves again. That second resolve is the
+        // MissMap, and the group memo hits both times because none of this
+        // touched the device topology.
+        assert_eq!(window.skdm_targets.miss_map, 1, "{window}");
+        assert_eq!(window.group_devices.hits, 2, "{window}");
+
+        // 2. A group metadata refresh publishes a new Arc, which is the group
+        //    memo's identity term and cascades into the SKDM memo's first.
+        fixture.send_text("re-warm").await;
+        let before = fixture.client.device_memo_stats();
+        let participants = fixture
+            .client
+            .get_group_cache()
+            .get(&fixture.group)
+            .await
+            .expect("group metadata")
+            .participants
+            .clone();
+        fixture
+            .client
+            .get_group_cache()
+            .insert(
+                fixture.group.clone(),
+                Arc::new(GroupRoutingInfo::new(participants, AddressingMode::Pn)),
+            )
+            .await;
+        fixture.send_text("after a metadata refresh").await;
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.miss_group_info, 1,
+            "a fresh GroupRoutingInfo Arc is the identity term: {window}"
+        );
+        assert_eq!(
+            window.skdm_targets.miss_devices, 1,
+            "and the SKDM memo misses on the device Arc it cascades into, not \
+             on one of its own three terms: {window}"
+        );
+
+        // 3. A registry write touching a member is the topology term. The
+        //    scoped log can only clear a change that provably missed the
+        //    group, and this one does not.
+        //
+        //    Recorded straight on the tracker rather than through
+        //    `invalidate_device_cache`: every registry write funnels into
+        //    `record_registry` by construction (that is the whole design of
+        //    `DeviceRegistryCache`), so this is the same signal — and it
+        //    leaves the member's device record in place, where invalidating
+        //    would delete it and make every later resolve in this test reach
+        //    for a usync the fixture has no server for.
+        fixture.send_text("re-warm").await;
+        let before = fixture.client.device_memo_stats();
+        fixture
+            .client
+            .device_topology
+            .record([&*fixture.member.user]);
+        fixture.send_text("after a member's devices changed").await;
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.miss_topology, 1,
+            "a write touching a member must not be provable as clean: {window}"
+        );
+        assert_eq!(
+            window.skdm_targets.miss_devices, 1,
+            "the recompute hands out a new device Arc, which is the cascade: {window}"
+        );
+
+        // 4. A write touching a stranger is the re-stamp: the generation
+        //    moved, and the log proves the change missed this group.
+        fixture.send_text("re-warm").await;
+        let before = fixture.client.device_memo_stats();
+        fixture.client.device_topology.record(["12025550111"]);
+        fixture.send_text("after an unrelated user changed").await;
+        let window = fixture.client.device_memo_stats().since(&before);
+        assert_eq!(
+            window.group_devices.restamps, 1,
+            "an unrelated write must re-stamp, not recompute: {window}"
+        );
+        assert_eq!(
+            window.group_devices.miss_topology, 0,
+            "and it must not read as a topology miss: {window}"
+        );
+        assert_eq!(
+            window.skdm_targets.hits, 1,
+            "a re-stamp serves the same device Arc, so the SKDM memo still \
+             hits behind it: {window}"
+        );
+    }
+
+    /// The counterpart: a forgotten device (a retry receipt's
+    /// `markForgetSenderKey`) flips the map in place, which keeps the `Arc` but
+    /// advances the generation — the one signal pointer identity cannot carry.
+    /// The memo must miss, or the send would skip a distribution the peer is
+    /// asking for. This is why the generation is part of the key, and why an
+    /// optimization must not drop it.
+    #[tokio::test]
+    async fn skdm_warm_memo_misses_after_a_device_is_forgotten() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("cold send").await;
+        fixture.send_text("warm send").await;
+        assert!(
+            skdm_memo_would_hit(&fixture.client, &fixture.group)
+                .await
+                .is_some()
+        );
+
+        let forgotten = fixture.member.with_device(0);
+        fixture
+            .client
+            .sender_key_device_cache
+            .mark_forgotten(&fixture.group.to_string(), std::iter::once(&forgotten))
+            .await;
+
+        assert!(
+            skdm_memo_would_hit(&fixture.client, &fixture.group)
+                .await
+                .is_none(),
+            "an in-place cold flip must invalidate the memo through the generation"
+        );
+    }
+
+    /// The contrast: removing the force must not remove the distribution. A
+    /// revoke sent before anything warmed the group is still cold and still
+    /// reaches every device.
+    #[tokio::test]
+    async fn admin_revoke_on_a_cold_group_still_distributes_to_every_device() {
+        let fixture = GroupSendFixture::new().await;
+
+        fixture
+            .revoke("3EB0FAKEREVOKED02", fixture.admin_revoke())
+            .await;
+        let revoke = fixture.stanza(0).await;
+        assert_eq!(
+            skdm_targets(&revoke),
+            Some(fixture.recipient_devices),
+            "a cold revoke must still hand the sender key to every device"
+        );
+    }
+
+    /// The operator's report, end to end over the client's own tracker: the bot
+    /// sends into a closed group, a member sits on "waiting for this message",
+    /// and it never clears because nobody in that group ever sends anything.
+    ///
+    /// A cold group send whose pre-key fetch fails distributes no sender key at
+    /// all, yet reports its whole target set as keyed. Every later send then
+    /// filters those devices out (`device_and_primary_warm`) and distributes to
+    /// nobody. The only thing that undoes it is the member's own retry receipt,
+    /// which is what "she sent a message, or even just a reaction" produces.
+    #[tokio::test]
+    async fn a_send_that_distributed_nothing_reports_nobody_as_keyed() {
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+
+        let client = crate::test_utils::create_test_client_with_name("unkeyed_group").await;
+        let own = Jid::from_str("5511000000001@s.whatsapp.net").unwrap();
+        let own_lid = Jid::from_str("100000000000001@lid").unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(own.clone())))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid)))
+            .await;
+        client.enter_live_mode_for_tests();
+
+        let members = ["5511000000010", "5511000000011"];
+        for user in [own.user.as_str()].into_iter().chain(members) {
+            client
+                .device_registry_cache
+                .raw_insert_for_tests(
+                    user.into(),
+                    Arc::new(DeviceListRecord {
+                        user: user.into(),
+                        devices: [DeviceInfo::new(0, None)].into(),
+                        timestamp: wacore::time::now_secs(),
+                        phash: None,
+                        raw_id: None,
+                    }),
+                )
+                .await;
+        }
+        let participants: Vec<Jid> = members
+            .iter()
+            .map(|user| Jid::from_str(&format!("{user}@s.whatsapp.net")).unwrap())
+            .collect();
+        // Only the first member has a session; establishing the second one's
+        // needs a pre-key fetch, and this client has no socket to fetch over:
+        // the transient failure a real cold send hits on a bad connection.
+        crate::test_utils::seed_peer_session(&client, &participants[0]).await;
+
+        let group = Jid::from_str("120363000000000077@g.us").unwrap();
+        let group_str = group.to_string();
+        let group_info = Arc::new(GroupRoutingInfo::new(
+            participants.clone(),
+            AddressingMode::Pn,
+        ));
+        client
+            .get_group_cache()
+            .insert(group.clone(), Arc::clone(&group_info))
+            .await;
+
+        let prepared = {
+            let device_snapshot = client.persistence_manager.get_device_snapshot();
+            let mut adapter = client.signal_adapter();
+            let mut stores = adapter.as_signal_stores();
+            wacore::send::prepare_group_stanza(
+                &*client.runtime,
+                &mut stores,
+                &*client,
+                wacore::send::GroupStanzaRequest {
+                    group: &group_info,
+                    own_jid: device_snapshot.pn.as_ref().expect("own pn"),
+                    own_lid: device_snapshot.lid.as_ref().expect("own lid"),
+                    account: None,
+                    to: &group,
+                    message: &wa::Message::text("hi"),
+                    message_id: "COLDGROUPSEND1",
+                    force_distribution: true,
+                    distribution_targets: None,
+                    distribution_policy: wacore::send::SenderKeyDistributionPolicy::BestEffort,
+                    phash_devices: None,
+                    edit: None,
+                    extra_nodes: &[],
+                    pre_encoded: None,
+                },
+            )
+            .await
+            .expect("a best-effort group send survives a failed pre-key fetch")
+        };
+
+        assert!(
+            prepared.node.get_optional_child("participants").is_none(),
+            "the fixture's point: this send handed out no sender key at all"
+        );
+        assert!(
+            prepared.skdm_devices.is_empty(),
+            "a send that distributed nothing must report nobody as keyed; it reported {:?}",
+            prepared.skdm_devices
+        );
+
+        // The client half of the loop: what the send reports is what gets
+        // persisted, and what is persisted decides the next send's targets.
+        client
+            .update_sender_key_devices(
+                &group_str,
+                &prepared.skdm_devices,
+                client.device_topology.current(),
+                Some(&group_info),
+            )
+            .await;
+        let (_all, needs) = client
+            .resolve_skdm_targets_memoized(&group, &group_str, &group_info, &own)
+            .await
+            .expect("device resolution is cache-backed here");
+        let targeted: std::collections::HashSet<String> =
+            needs.iter().map(Jid::to_string).collect();
+        for participant in &participants {
+            assert!(
+                targeted.contains(&participant.to_string()),
+                "{participant} got no sender key, so the next send must still target it"
+            );
+        }
+    }
+
+    /// The repair the report describes: the member sends anything at all, her
+    /// retry receipt marks her cold again, and the next send hands her the key.
+    /// It is the only repair a closed group ever gets, which is why the group
+    /// stays dark until someone speaks.
+    #[tokio::test]
+    async fn a_retry_receipt_puts_a_keyed_member_back_on_the_distribution_list() {
+        let fixture = GroupSendFixture::new().await;
+        let group_str = fixture.group.to_string();
+        fixture.send_text("cold send").await;
+
+        let group_info = fixture
+            .client
+            .get_group_cache()
+            .get(&fixture.group)
+            .await
+            .expect("group metadata");
+        let warm = fixture
+            .client
+            .resolve_skdm_targets_memoized(
+                &fixture.group,
+                &group_str,
+                &group_info,
+                &fixture.own_sending,
+            )
+            .await
+            .expect("device resolution is cache-backed here")
+            .1;
+        assert!(
+            warm.is_empty(),
+            "after a cold send every member holds the key"
+        );
+
+        // What handle_retry_receipt does for a member that could not decrypt.
+        let member = fixture.member.clone();
+        fixture
+            .client
+            .mark_forget_sender_key(&group_str, std::slice::from_ref(&member))
+            .await
+            .expect("marking a member cold must succeed");
+
+        let needs = fixture
+            .client
+            .resolve_skdm_targets_memoized(
+                &fixture.group,
+                &group_str,
+                &group_info,
+                &fixture.own_sending,
+            )
+            .await
+            .expect("device resolution is cache-backed here")
+            .1;
+        assert!(
+            needs.contains(&member),
+            "the member that spoke must be back on the distribution list"
+        );
+    }
+
+    /// The server answers a group send with its own view of the participant
+    /// device set, and disagreement is the only signal a bot gets that its
+    /// member list is stale without anyone in the group speaking first.
+    /// `WAWebSendGroupSkmsgJob` reads `phash` off the ack and, on a mismatch,
+    /// re-queries the group and resends to the devices it had missed; the group
+    /// branch here dropped the ack's phash on the floor, so
+    /// `handle_phash_mismatch`'s group half could never run.
+    #[tokio::test]
+    async fn a_group_send_registers_its_phash_ack_waiter() {
+        let fixture = GroupSendFixture::new().await;
+        let message_id = "GROUPPHASHWAITER1";
+        fixture.send_with_id(message_id).await;
+
+        let stanza = fixture.stanza(0).await;
+        let on_wire = attr_value(&stanza, "phash").expect("groups carry a phash on every send");
+
+        let mut waiters = fixture.client.response_waiters_guard();
+        let waiter = waiters
+            .remove(message_id)
+            .expect("a group send must wait on the ack's phash");
+        match waiter {
+            crate::client::ResponseWaiter::GroupPhash(waiter, _) => {
+                assert_eq!(
+                    waiter.expected.as_str(),
+                    on_wire,
+                    "the waiter must expect exactly what went on the wire"
+                );
+                assert_eq!(waiter.jid, fixture.group);
+                assert!(
+                    waiter.invalidate_group_cache,
+                    "a disagreeing server also means our participant list is stale"
+                );
+            }
+            _ => panic!("a group send registers a phash waiter, not an IQ waiter"),
+        }
+    }
+
+    /// Refresh preserves the last usable metadata snapshot until its replacement arrives.
+    #[tokio::test]
+    async fn a_disagreeing_ack_phash_re_queries_the_group() {
+        let fixture = GroupSendFixture::new().await;
+        let message_id = "GROUPPHASHMISMATCH1";
+        fixture.send_with_id(message_id).await;
+        assert!(
+            fixture
+                .client
+                .get_group_cache()
+                .get(&fixture.group)
+                .await
+                .is_some(),
+            "the send warmed the group snapshot"
+        );
+
+        assert!(
+            fixture
+                .deliver_ack(message_id, Some("2:notwhatwesent"))
+                .await,
+            "the send's waiter must claim its own ack"
+        );
+
+        fixture
+            .next_iq_id_with_xmlns(1, "w:g2")
+            .await
+            .expect("a disagreeing phash must refresh group metadata");
+        assert!(
+            fixture
+                .client
+                .get_group_cache()
+                .get(&fixture.group)
+                .await
+                .is_some(),
+            "the previous snapshot remains usable until refresh succeeds"
+        );
+    }
+
+    /// The repair has to act on the membership the server returns, not on the
+    /// snapshot that produced the divergence. The task is scheduled after the
+    /// metadata invalidation and reads the list authoritatively, so a member the
+    /// warm snapshot never had is still asked about.
+    #[tokio::test]
+    async fn a_group_resync_asks_about_a_member_the_stale_snapshot_lacked() {
+        use wacore_binary::builder::NodeBuilder;
+
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("warm the stale snapshot").await;
+        let newcomer: Jid = "5511000000099@s.whatsapp.net".parse().unwrap();
+        let frames_before = fixture.transport.sent_count();
+
+        let client = Arc::clone(&fixture.client);
+        let group = fixture.group.clone();
+        let handler = tokio::spawn(async move {
+            client
+                .handle_phash_mismatch(&group, "2:a", "2:b", true, None)
+                .await
+        });
+
+        // The group query the task issues, answered with a participant list the
+        // warm snapshot does not contain.
+        let request_id = fixture
+            .next_iq_id_with_xmlns(frames_before, "w:g2")
+            .await
+            .expect("the repair must query the group before touching devices");
+        let response = NodeBuilder::new("iq")
+            .attr("type", "result")
+            .attr("id", request_id.clone())
+            .attr("from", fixture.group.to_string())
+            .children([NodeBuilder::new("group")
+                .attr("id", fixture.group.to_string())
+                .attr("subject", "Test Group")
+                .children([
+                    NodeBuilder::new("participant")
+                        .attr("jid", fixture.member.to_string())
+                        .build(),
+                    NodeBuilder::new("participant")
+                        .attr("jid", newcomer.to_string())
+                        .build(),
+                ])
+                .build()])
+            .build();
+        crate::test_utils::answer_iq(&fixture.client, &request_id, &response).await;
+
+        let usync_id = fixture
+            .next_iq_id_with_xmlns(frames_before, "usync")
+            .await
+            .expect("the refreshed membership must reach a device query");
+        let mut asked = Vec::new();
+        for index in frames_before..fixture.transport.sent_count() {
+            let node = crate::test_utils::decode_sent_iq(&fixture.transport, index).await;
+            let node = node.get();
+            if node.attrs().optional_string("id").as_deref() != Some(usync_id.as_str()) {
+                continue;
+            }
+            let Some(list) = node
+                .get_optional_child("usync")
+                .and_then(|usync| usync.get_optional_child("list"))
+            else {
+                continue;
+            };
+            for user in list.children().into_iter().flatten() {
+                if let Some(jid) = user.attrs().optional_jid("jid") {
+                    asked.push(jid);
+                }
+            }
+        }
+
+        assert!(
+            asked.iter().any(|jid| jid.user == newcomer.user),
+            "the device query must cover the member the server just returned: {asked:?}"
+        );
+        handler.await.expect("the handler completes");
+    }
+
+    /// In a LID group the delta must resolve through the refreshed
+    /// membership's maps: a bare participant list has an empty map, so LID
+    /// members would be queried by raw LID while PN-keyed answers could not
+    /// convert back, and the namespace mismatch would empty the delta.
+    ///
+    /// The mocked usync answers like the real server: phone queries get the
+    /// device list, LID queries get an error. A repair that asks by LID
+    /// therefore resolves nothing and emits nothing.
+    #[tokio::test]
+    async fn a_lid_group_repair_finds_a_missed_device_through_the_maps() {
+        use buffa::Message as _;
+        use std::collections::HashMap;
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        use wacore_binary::builder::NodeBuilder;
+
+        let (client, transport) = crate::test_utils::create_iq_test_client().await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetAccount(Some(peer_test_account_proto())))
+            .await;
+        let own: Jid = "5511000000001@s.whatsapp.net".parse().unwrap();
+        let own_lid: Jid = "100000000000001@lid".parse().unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(own.clone())))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid.clone())))
+            .await;
+        let member: Jid = "20000000000010@lid".parse().unwrap();
+        let member_pn: Jid = "5511000000010@s.whatsapp.net".parse().unwrap();
+        let group: Jid = "120363000000000042@g.us".parse().unwrap();
+        client
+            .get_group_cache()
+            .insert(
+                group.clone(),
+                Arc::new(GroupRoutingInfo::with_lid_to_pn_map(
+                    vec![member.clone()],
+                    AddressingMode::Lid,
+                    HashMap::from([(member.user.clone(), member_pn.clone())]),
+                )),
+            )
+            .await;
+        client
+            .device_registry_cache
+            .raw_insert_for_tests(
+                Arc::from(member_pn.user.as_str()),
+                Arc::new(DeviceListRecord {
+                    user: member_pn.user.as_str().into(),
+                    devices: [DeviceInfo::new(0, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                }),
+            )
+            .await;
+        // Our own record under the LID key, so neither the send nor the
+        // repair spends a usync on ourselves; the member is the only miss.
+        client
+            .device_registry_cache
+            .raw_insert_for_tests(
+                Arc::from(own_lid.user.as_str()),
+                Arc::new(DeviceListRecord {
+                    user: own_lid.user.as_str().into(),
+                    devices: [DeviceInfo::new(0, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                }),
+            )
+            .await;
+        crate::test_utils::seed_peer_session(&client, &member.with_device(0)).await;
+        client
+            .send_message_with_options(
+                group.clone(),
+                wa::Message::text("hi"),
+                SendOptions::default()
+                    .with_message_id(crate::MessageId::new("LIDREPAIR1").unwrap()),
+            )
+            .await
+            .expect("group text send should reach the wire");
+        let Some(crate::client::ResponseWaiter::GroupPhash(_, snapshot)) =
+            client.response_waiters_guard().remove("LIDREPAIR1")
+        else {
+            panic!("group waiter missing");
+        };
+        // The divergence: the member linked a companion the registry never
+        // saw, and the registry itself is empty again, so the repair must go
+        // back to the wire for it.
+        let mut missed = member.clone();
+        missed.device = 2;
+        crate::test_utils::seed_peer_session(&client, &missed).await;
+        let guard = client.device_topology.lock_registry().await;
+        client
+            .device_registry_cache
+            .invalidate(&guard, member_pn.user.as_str())
+            .await;
+        drop(guard);
+        let generation = client
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let refresh = client
+            .pending_group_device_resync
+            .refresh(generation, &group);
+        *refresh.lock().await = Some(true);
+        let before = transport.sent_count();
+        let repair = tokio::spawn({
+            let client = Arc::clone(&client);
+            let group = group.clone();
+            async move {
+                client
+                    .repair_group_message(&group, "LIDREPAIR1", snapshot, generation)
+                    .await
+            }
+        });
+        // Answer the repair's usync the way the server would: PN queries get
+        // the new companion, LID queries fail.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut answered = false;
+        while !answered {
+            for index in before..transport.sent_count() {
+                let owned = crate::test_utils::decode_sent_iq(&transport, index).await;
+                let frame = owned.get();
+                if frame.attrs().optional_string("xmlns").as_deref() != Some("usync") {
+                    continue;
+                }
+                let id = frame.attrs().optional_string("id").unwrap().to_string();
+                let asked: Vec<Jid> = frame
+                    .get_optional_child("usync")
+                    .and_then(|usync| usync.get_optional_child("list"))
+                    .into_iter()
+                    .flat_map(|list| list.children().into_iter().flatten())
+                    .filter_map(|user| user.attrs().optional_jid("jid"))
+                    .collect();
+                assert!(
+                    !asked.is_empty(),
+                    "the repair must ask about the member: {asked:?}"
+                );
+                // Companions without a signed key-index-list are dropped, so
+                // the answer carries one with device 2 valid.
+                let index = {
+                    let mut proto = wa::ADVKeyIndexList::default();
+                    proto.raw_id = Some(1);
+                    proto.timestamp = Some(1000);
+                    proto.current_index = Some(2);
+                    proto.valid_indexes = vec![0, 2];
+                    proto
+                };
+                let signed = {
+                    let mut proto = wa::ADVSignedKeyIndexList::default();
+                    proto.details = Some(index.encode_to_vec());
+                    proto
+                };
+                let answer = NodeBuilder::new("iq")
+                    .attr("type", "result")
+                    .attr("id", id.clone())
+                    .children([NodeBuilder::new("usync")
+                        .children([NodeBuilder::new("list")
+                            .children(asked.iter().map(|asked| {
+                                let user = NodeBuilder::new("user").attr("jid", asked);
+                                if asked.is_lid() {
+                                    user.children([NodeBuilder::new("devices")
+                                        .children([NodeBuilder::new("error")
+                                            .attr("code", "500")
+                                            .build()])
+                                        .build()])
+                                        .build()
+                                } else {
+                                    user.children([NodeBuilder::new("devices")
+                                        .children([
+                                            NodeBuilder::new("device-list")
+                                                .children([
+                                                    NodeBuilder::new("device")
+                                                        .attr("id", "0")
+                                                        .build(),
+                                                    NodeBuilder::new("device")
+                                                        .attr("id", "2")
+                                                        .attr("key-index", "2")
+                                                        .build(),
+                                                ])
+                                                .build(),
+                                            NodeBuilder::new("key-index-list")
+                                                .attr("ts", "1000")
+                                                .bytes(signed.encode_to_vec())
+                                                .build(),
+                                        ])
+                                        .build()])
+                                        .build()
+                                }
+                            }))
+                            .build()])
+                        .build()])
+                    .build();
+                crate::test_utils::answer_iq(&client, &id, &answer).await;
+                answered = true;
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                panic!("the repair never reached a device query");
+            }
+            tokio::task::yield_now().await;
+        }
+        repair.await.expect("repair task").expect("the repair runs");
+        assert_eq!(
+            transport.sent_count(),
+            before + 2,
+            "a missed LID companion must produce exactly one device query and one direct repair"
+        );
+        let owned = crate::test_utils::decode_sent_iq(&transport, before + 1).await;
+        let node = owned.get();
+        let participants = node.get_optional_child("participants").unwrap();
+        let targets: Vec<_> = participants
+            .children()
+            .unwrap()
+            .iter()
+            .map(|child| child.attrs().optional_jid("jid").unwrap())
+            .collect();
+        assert_eq!(
+            targets,
+            vec![missed.clone()],
+            "the delta keeps the original LID namespace: {targets:?}"
+        );
+    }
+
+    /// The other half, and the reason the repair cannot storm: the members that
+    /// already hold the key keep holding it, and their device rows stay put.
+    /// `resendGroupMsg` sends only to the devices a refreshed fan-out newly
+    /// reveals; it never calls `markForgetSenderKey`, and it never touches the
+    /// device table (`<notification type="devices">` is what keeps that fresh).
+    /// Doing either here would cost a full fan-out, or a full re-resolve, on
+    /// every message for as long as the divergence lasts.
+    ///
+    /// Drives `handle_phash_mismatch` directly rather than through the ack: the
+    /// ack path spawns it detached, and polling for one of its effects would
+    /// read the tracker before a later step could touch it.
+    #[tokio::test]
+    async fn a_group_phash_mismatch_forgets_no_sender_key_and_no_device_row() {
+        let fixture = GroupSendFixture::new().await;
+        let group_str = fixture.group.to_string();
+        fixture.send_text("cold send").await;
+
+        let before = fixture.client.skdm_device_map(&group_str).await;
+        assert_eq!(
+            before.device_has_key(&fixture.member.user, 0),
+            Some(true),
+            "the cold send keyed this member"
+        );
+
+        fixture
+            .client
+            .handle_phash_mismatch(&fixture.group, "2:ours", "2:theirs", true, None)
+            .await;
+
+        let after = fixture.client.skdm_device_map(&group_str).await;
+        assert_eq!(
+            after.device_has_key(&fixture.member.user, 0),
+            Some(true),
+            "a mismatch must not forget a member that already holds the key: \
+             clearing the tracker costs a full fan-out per message while the \
+             divergence lasts"
+        );
+        assert!(
+            fixture
+                .client
+                .get_devices_from_registry(&fixture.member)
+                .await
+                .is_some(),
+            "nor may it drop device rows: a device notification owns that, and \
+             dropping them costs a full re-resolve per message instead"
+        );
+    }
+
+    /// An ack that agrees is the ordinary case and must cost nothing: no device
+    /// rows dropped, no re-query, no redistribution.
+    #[tokio::test]
+    async fn an_agreeing_ack_phash_leaves_the_group_warm() {
+        let fixture = GroupSendFixture::new().await;
+        let group_str = fixture.group.to_string();
+        let message_id = "GROUPPHASHMATCH1";
+        fixture.send_with_id(message_id).await;
+        let sent = fixture.stanza(0).await;
+        let on_wire = attr_value(&sent, "phash").expect("groups carry a phash");
+
+        assert!(
+            fixture
+                .deliver_ack(message_id, Some(on_wire.as_str()))
+                .await,
+            "the send's waiter must claim its own ack"
+        );
+
+        assert!(
+            fixture
+                .client
+                .get_devices_from_registry(&fixture.member)
+                .await
+                .is_some(),
+            "an agreeing server must not cost a device re-resolve"
+        );
+        let group_info = fixture
+            .client
+            .get_group_cache()
+            .get(&fixture.group)
+            .await
+            .expect("group metadata");
+        assert!(
+            fixture
+                .client
+                .resolve_skdm_targets_memoized(
+                    &fixture.group,
+                    &group_str,
+                    &group_info,
+                    &fixture.own_sending,
+                )
+                .await
+                .expect("device resolution is cache-backed here")
+                .1
+                .is_empty(),
+            "an agreeing server must not cost a redistribution"
+        );
+    }
+
+    /// Non-regression for the group whose members all resolve: the cold send
+    /// hands the key to every device and marks every device, the warm send that
+    /// follows distributes nothing, and both carry a phash.
+    #[tokio::test]
+    async fn a_group_whose_members_all_resolve_sends_and_marks_exactly_as_before() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("cold send").await;
+        fixture.send_text("warm send").await;
+
+        let cold = fixture.stanza(0).await;
+        let warm = fixture.stanza(1).await;
+        assert_eq!(
+            skdm_targets(&cold),
+            Some(fixture.recipient_devices),
+            "a cold send hands the key to every resolvable device"
+        );
+        assert_eq!(
+            skdm_targets(&warm),
+            None,
+            "the warm send distributes nothing"
+        );
+        for stanza in [&cold, &warm] {
+            assert!(
+                attr_value(stanza, "phash").is_some_and(|phash| !phash.is_empty()),
+                "groups carry a phash on every send"
+            );
+        }
+
+        let map = fixture
+            .client
+            .skdm_device_map(&fixture.group.to_string())
+            .await;
+        for index in 0..fixture.recipient_devices {
+            let user = format!("55110000{:05}", 10 + index);
+            assert_eq!(
+                map.device_has_key(&user, 0),
+                Some(true),
+                "{user} received its distribution and stays marked"
+            );
+        }
+    }
+
+    /// `edit`, `phash` and the `skmsg` payload are built by the group path
+    /// itself, with or without a distribution list, so a revoke that hands out
+    /// no sender key still carries the whole structure.
+    #[tokio::test]
+    async fn warm_admin_revoke_keeps_the_full_group_stanza_structure() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("warm the group").await;
+        fixture
+            .revoke("3EB0FAKEREVOKED03", fixture.admin_revoke())
+            .await;
+
+        let revoke = fixture.stanza(1).await;
+        assert_eq!(attr_value(&revoke, "edit").as_deref(), Some("8"));
+        assert!(
+            attr_value(&revoke, "phash").is_some_and(|phash| !phash.is_empty()),
+            "groups carry a phash on every send, distribution or not"
+        );
+        let enc = revoke
+            .get()
+            .get_optional_child_by_tag(&["enc"])
+            .expect("the revoke payload itself is always one skmsg");
+        assert_eq!(
+            enc.get_attr("type")
+                .map(|value| value.as_str().into_owned()),
+            Some("skmsg".to_string())
+        );
+    }
+
+    /// Neither revoke type forces distribution: both go out on the ordinary
+    /// group path, like every other message.
+    #[tokio::test]
+    async fn no_revoke_type_forces_sender_key_redistribution() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_text("warm the group").await;
+
+        fixture
+            .revoke("3EB0FAKEREVOKED04", RevokeType::Sender)
+            .await;
+        fixture
+            .revoke("3EB0FAKEREVOKED05", fixture.admin_revoke())
+            .await;
+
+        let sender_revoke = fixture.stanza(1).await;
+        let admin_revoke = fixture.stanza(2).await;
+        assert_eq!(attr_value(&sender_revoke, "edit").as_deref(), Some("7"));
+        assert_eq!(attr_value(&admin_revoke, "edit").as_deref(), Some("8"));
+        assert_eq!(skdm_targets(&sender_revoke), None);
+        assert_eq!(skdm_targets(&admin_revoke), None);
+    }
+
+    #[test]
+    fn test_sender_revoke_message_key_structure() {
+        // Sender revoke (edit="7"): from_me=true, participant=None
+        // The sender is identified by from_me=true, no participant field needed
+        let to = Jid::from_str("120363040237990503@g.us").unwrap();
+        let message_id = "3EB0ABC123".to_string();
+
+        let (from_me, participant, edit_attr) = match RevokeType::Sender {
+            RevokeType::Sender => (true, None, EditAttribute::SenderRevoke),
+            RevokeType::Admin { original_sender } => (
+                false,
+                Some(original_sender.to_non_ad_string()),
+                EditAttribute::AdminRevoke,
+            ),
+        };
+
+        assert!(from_me, "Sender revoke must have from_me=true");
+        assert!(
+            participant.is_none(),
+            "Sender revoke must NOT set participant"
+        );
+        assert_eq!(edit_attr.to_string_val(), "7");
+
+        let revoke_message = build_revoke_message(&to, from_me, message_id.clone(), participant);
+
+        let proto_msg = revoke_message.protocol_message.into_option().unwrap();
+        let key = proto_msg.key.into_option().unwrap();
+        assert_eq!(key.from_me, Some(true));
+        assert_eq!(key.participant, None);
+        assert_eq!(key.id, Some(message_id));
+    }
+
+    #[test]
+    fn test_admin_revoke_message_key_structure() {
+        // Admin revoke (edit="8"): from_me=false, participant=original_sender
+        // The participant field identifies whose message is being deleted
+        let to = Jid::from_str("120363040237990503@g.us").unwrap();
+        let message_id = "3EB0ABC123".to_string();
+        let original_sender = Jid::from_str("236395184570386:22@lid").unwrap();
+
+        let revoke_type = RevokeType::Admin {
+            original_sender: original_sender.clone(),
+        };
+        let (from_me, participant, edit_attr) = match revoke_type {
+            RevokeType::Sender => (true, None, EditAttribute::SenderRevoke),
+            RevokeType::Admin { original_sender } => (
+                false,
+                Some(original_sender.to_non_ad_string()),
+                EditAttribute::AdminRevoke,
+            ),
+        };
+
+        assert!(!from_me, "Admin revoke must have from_me=false");
+        assert!(
+            participant.is_some(),
+            "Admin revoke MUST set participant to original sender"
+        );
+        assert_eq!(edit_attr.to_string_val(), "8");
+
+        let revoke_message =
+            build_revoke_message(&to, from_me, message_id.clone(), participant.clone());
+
+        let proto_msg = revoke_message.protocol_message.into_option().unwrap();
+        let key = proto_msg.key.into_option().unwrap();
+        assert_eq!(key.from_me, Some(false));
+        // Participant should be the original sender with device number stripped
+        assert_eq!(key.participant, Some("236395184570386@lid".to_string()));
+        assert_eq!(key.id, Some(message_id));
+    }
+
+    // Fictitious JIDs (not real PII):
+    //   own PN user = "5500000000000"
+    //   own LID user = "111111111111111"
+    //   other LID user = "222222222222222"
+    const SELF_PN: &str = "5500000000000";
+    const SELF_LID: &str = "111111111111111";
+    const SELF_DEVICE: u16 = 7;
+    const OTHER_LID: &str = "222222222222222";
+    const OTHER_PN: &str = "5500000000001";
+
+    #[test]
+    fn self_dm_lid_recipient_matches_own_lid() {
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient = Jid::lid(SELF_LID);
+
+        assert!(is_self_dm_recipient(&recipient, &own_pn, Some(&own_lid)));
+    }
+
+    #[test]
+    fn self_dm_pn_recipient_matches_own_pn() {
+        // Self-DM addressed in PN namespace (no LID mapping resolved yet).
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient = Jid::pn(SELF_PN);
+
+        assert!(is_self_dm_recipient(&recipient, &own_pn, Some(&own_lid)));
+    }
+
+    #[test]
+    fn self_dm_pn_recipient_self_dm_even_without_own_lid() {
+        // PN-keyed self-detection does not require an own_lid to be known.
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let recipient = Jid::pn(SELF_PN);
+
+        assert!(is_self_dm_recipient(&recipient, &own_pn, None));
+    }
+
+    /// A note to self addressed in the legacy spelling is still a note to self.
+    /// Read as a third party it takes the recipient path and asks the server
+    /// for our own pre-key bundles, which is the shape the reporter of #1361
+    /// saw on every failing send. Nothing here special-cases the spelling any
+    /// more: parsing resolves it to the phone namespace, and this asserts the
+    /// resolution actually reaches the check.
+    #[test]
+    fn self_dm_legacy_recipient_matches_own_pn() {
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient: Jid = format!("{SELF_PN}@c.us").parse().unwrap();
+
+        assert_eq!(recipient.server, Server::Pn);
+        assert!(is_self_dm_recipient(&recipient, &own_pn, Some(&own_lid)));
+    }
+
+    #[test]
+    fn non_self_legacy_recipient_is_not_self_dm() {
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let recipient: Jid = format!("{OTHER_PN}@c.us").parse().unwrap();
+
+        assert!(!is_self_dm_recipient(&recipient, &own_pn, None));
+    }
+
+    #[test]
+    fn non_self_lid_recipient_is_not_self_dm() {
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient = Jid::lid(OTHER_LID);
+
+        assert!(!is_self_dm_recipient(&recipient, &own_pn, Some(&own_lid)));
+    }
+
+    #[test]
+    fn lid_recipient_without_own_lid_is_not_self_dm() {
+        // WAWebUserPrefsMeUser.isMeAccount keys on isSameAccountAndAddressingMode;
+        // PN-string equality across namespaces must NOT trigger.
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let recipient = Jid::lid(SELF_PN);
+
+        assert!(!is_self_dm_recipient(&recipient, &own_pn, None));
+    }
+
+    #[test]
+    fn group_or_broadcast_recipient_is_not_self_dm() {
+        // Defensive: only PN/LID DMs ever take the self-DM short-circuit.
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+
+        assert!(!is_self_dm_recipient(
+            &Jid::group("120363000000000000"),
+            &own_pn,
+            Some(&own_lid),
+        ));
+        assert!(!is_self_dm_recipient(
+            &Jid::status_broadcast(),
+            &own_pn,
+            Some(&own_lid),
+        ));
+    }
+
+    #[test]
+    fn self_dm_with_no_recipient_cache_still_appends_own_devices() {
+        // Edge case raised in PR review: if `recipient_cached` ends up `None`
+        // (cache eviction + warmup failed), the self-DM short-circuit must
+        // still let `own_cached` populate the fanout. Otherwise the bare-JID
+        // fallback drops every companion device.
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient_bare = Jid::lid(SELF_LID);
+        assert!(is_self_dm_recipient(
+            &recipient_bare,
+            &own_pn,
+            Some(&own_lid)
+        ));
+
+        let recipient_cached: Option<Vec<Jid>> = None;
+        let own_cached_pn: Vec<Jid> = [0u16, 3, SELF_DEVICE]
+            .into_iter()
+            .map(|d| Jid::pn_device(SELF_PN, d))
+            .collect();
+
+        // Mirrors the call-site logic: we keep own_cached when recipient_cached is None
+        // even in a self-DM.
+        let keep_own = recipient_cached.is_none();
+        assert!(keep_own);
+
+        let mut all_dm_jids = match recipient_cached {
+            Some(devices) => devices,
+            None => vec![recipient_bare],
+        };
+        if keep_own {
+            all_dm_jids.extend(own_cached_pn.iter().cloned());
+        }
+        all_dm_jids.retain(|j| {
+            let is_sender = (j.is_same_user_as(&own_pn) && j.device == own_pn.device)
+                || (j.is_same_user_as(&own_lid) && j.device == own_lid.device);
+            !is_sender
+        });
+        wacore::types::jid::sort_dedup_by_device(&mut all_dm_jids);
+
+        // Must contain the bare LID plus the two non-sender PN companion devices.
+        assert!(
+            all_dm_jids.iter().any(|j| j.is_lid()),
+            "bare recipient LID must remain"
+        );
+        assert_eq!(
+            all_dm_jids.iter().filter(|j| j.is_pn()).count(),
+            2,
+            "companion PN devices must survive when recipient_cached is None"
+        );
+    }
+
+    #[test]
+    fn old_merge_produced_lid_pn_duplicates_for_self_dm() {
+        // Pinning regression: the OLD merge path (recipient_cached LID ++
+        // own_cached PN, then sort_dedup_by_device) left every device listed
+        // twice for a self-DM, which the server rejects with ack error="400".
+        let own_pn = Jid::pn_device(SELF_PN, SELF_DEVICE);
+        let own_lid = Jid::lid_device(SELF_LID, SELF_DEVICE);
+        let recipient_bare = Jid::lid(SELF_LID);
+
+        let devices = [0u16, 3, 5, SELF_DEVICE];
+        let recipient_cached: Vec<Jid> = devices
+            .iter()
+            .map(|&d| Jid::lid_device(SELF_LID, d))
+            .collect();
+        let own_cached: Vec<Jid> = devices
+            .iter()
+            .map(|&d| Jid::pn_device(SELF_PN, d))
+            .collect();
+
+        let retain_non_sender = |j: &Jid| {
+            let is_sender = (j.is_same_user_as(&own_pn) && j.device == own_pn.device)
+                || (j.is_same_user_as(&own_lid) && j.device == own_lid.device);
+            !is_sender
+        };
+
+        let mut buggy = recipient_cached.clone();
+        buggy.extend(own_cached.clone());
+        buggy.retain(retain_non_sender);
+        wacore::types::jid::sort_dedup_by_device(&mut buggy);
+        assert_eq!(buggy.len(), (devices.len() - 1) * 2);
+
+        assert!(is_self_dm_recipient(
+            &recipient_bare,
+            &own_pn,
+            Some(&own_lid)
+        ));
+
+        let mut fixed = recipient_cached;
+        fixed.retain(retain_non_sender);
+        wacore::types::jid::sort_dedup_by_device(&mut fixed);
+        assert_eq!(fixed.len(), devices.len() - 1);
+        for j in &fixed {
+            assert!(j.is_lid());
+        }
+    }
+
+    #[test]
+    fn test_admin_revoke_preserves_lid_format() {
+        // LID JIDs must NOT be converted to PN (phone number) format.
+        // This was a bug that caused error 479 - the participant field must
+        // preserve the original JID format exactly (with device stripped).
+        let lid_sender = Jid::from_str("236395184570386:22@lid").unwrap();
+        let participant_str = lid_sender.to_non_ad_string();
+
+        // Must preserve @lid suffix, device number stripped
+        assert_eq!(participant_str, "236395184570386@lid");
+        assert!(
+            participant_str.ends_with("@lid"),
+            "LID participant must preserve @lid suffix"
+        );
+    }
+
+    // SKDM Recipient Filtering Tests - validates DeviceKey-based filtering
+
+    #[test]
+    fn test_skdm_recipient_filtering_basic() {
+        use std::collections::HashSet;
+
+        let known_recipients: Vec<Jid> = [
+            "1234567890:0@s.whatsapp.net",
+            "1234567890:5@s.whatsapp.net",
+            "9876543210:0@s.whatsapp.net",
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let all_devices: Vec<Jid> = [
+            "1234567890:0@s.whatsapp.net",
+            "1234567890:5@s.whatsapp.net",
+            "9876543210:0@s.whatsapp.net",
+            "5555555555:0@s.whatsapp.net", // new
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let known_set: HashSet<DeviceKey<'_>> =
+            known_recipients.iter().map(|j| j.device_key()).collect();
+
+        let new_devices: Vec<Jid> = all_devices
+            .into_iter()
+            .filter(|device| !known_set.contains(&device.device_key()))
+            .collect();
+
+        assert_eq!(new_devices.len(), 1);
+        assert_eq!(new_devices[0].user, "5555555555");
+    }
+
+    #[test]
+    fn test_skdm_recipient_filtering_lid_jids() {
+        use std::collections::HashSet;
+
+        let known_recipients: Vec<Jid> = [
+            "236395184570386:91@lid",
+            "129171292463295:0@lid",
+            "45857667830004:14@lid",
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let all_devices: Vec<Jid> = [
+            "236395184570386:91@lid",
+            "129171292463295:0@lid",
+            "45857667830004:14@lid",
+            "45857667830004:15@lid", // new
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let known_set: HashSet<DeviceKey<'_>> =
+            known_recipients.iter().map(|j| j.device_key()).collect();
+
+        let new_devices: Vec<Jid> = all_devices
+            .into_iter()
+            .filter(|device| !known_set.contains(&device.device_key()))
+            .collect();
+
+        assert_eq!(new_devices.len(), 1);
+        assert_eq!(new_devices[0].user, "45857667830004");
+        assert_eq!(new_devices[0].device, 15);
+    }
+
+    #[test]
+    fn test_skdm_recipient_filtering_all_known() {
+        use std::collections::HashSet;
+
+        let known_recipients: Vec<Jid> =
+            ["1234567890:0@s.whatsapp.net", "1234567890:5@s.whatsapp.net"]
+                .into_iter()
+                .map(|s| Jid::from_str(s).unwrap())
+                .collect();
+
+        let all_devices: Vec<Jid> = ["1234567890:0@s.whatsapp.net", "1234567890:5@s.whatsapp.net"]
+            .into_iter()
+            .map(|s| Jid::from_str(s).unwrap())
+            .collect();
+
+        let known_set: HashSet<DeviceKey<'_>> =
+            known_recipients.iter().map(|j| j.device_key()).collect();
+
+        let new_devices: Vec<Jid> = all_devices
+            .into_iter()
+            .filter(|device| !known_set.contains(&device.device_key()))
+            .collect();
+
+        assert!(new_devices.is_empty());
+    }
+
+    #[test]
+    fn test_skdm_recipient_filtering_all_new() {
+        use std::collections::HashSet;
+
+        let known_recipients: Vec<Jid> = vec![];
+
+        let all_devices: Vec<Jid> = ["1234567890:0@s.whatsapp.net", "9876543210:0@s.whatsapp.net"]
+            .into_iter()
+            .map(|s| Jid::from_str(s).unwrap())
+            .collect();
+
+        let known_set: HashSet<DeviceKey<'_>> =
+            known_recipients.iter().map(|j| j.device_key()).collect();
+
+        let new_devices: Vec<Jid> = all_devices
+            .clone()
+            .into_iter()
+            .filter(|device| !known_set.contains(&device.device_key()))
+            .collect();
+
+        assert_eq!(new_devices.len(), all_devices.len());
+    }
+
+    #[test]
+    fn test_device_key_comparison() {
+        // Jid parse/display normalizes :0 (omitted in Display, missing ':N' parses as device 0).
+        // This test ensures DeviceKey comparisons work correctly under that normalization.
+        let test_cases = [
+            (
+                "1234567890:0@s.whatsapp.net",
+                "1234567890@s.whatsapp.net",
+                true,
+            ),
+            (
+                "1234567890:5@s.whatsapp.net",
+                "1234567890:5@s.whatsapp.net",
+                true,
+            ),
+            (
+                "1234567890:5@s.whatsapp.net",
+                "1234567890:6@s.whatsapp.net",
+                false,
+            ),
+            ("236395184570386:91@lid", "236395184570386:91@lid", true),
+            ("236395184570386:0@lid", "236395184570386@lid", true),
+            ("user1@s.whatsapp.net", "user2@s.whatsapp.net", false),
+        ];
+
+        for (jid1_str, jid2_str, should_match) in test_cases {
+            let jid1: Jid = jid1_str.parse().expect("should parse jid1");
+            let jid2: Jid = jid2_str.parse().expect("should parse jid2");
+
+            let key1 = jid1.device_key();
+            let key2 = jid2.device_key();
+
+            assert_eq!(
+                key1 == key2,
+                should_match,
+                "DeviceKey comparison failed for '{}' vs '{}': expected match={}, got match={}",
+                jid1_str,
+                jid2_str,
+                should_match,
+                key1 == key2
+            );
+
+            assert_eq!(
+                jid1.device_eq(&jid2),
+                should_match,
+                "device_eq failed for '{}' vs '{}'",
+                jid1_str,
+                jid2_str
+            );
+        }
+    }
+
+    #[test]
+    fn empty_sender_key_device_map_marks_all_devices_for_skdm() {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+
+        let map = SenderKeyDeviceMap::from_db_rows(&[]);
+        assert_eq!(map.device_has_key("271060335329480", 0), None);
+
+        let all_resolved_devices: Vec<Jid> = [
+            "271060335329480@lid",
+            "77610646245392@lid",
+            "276661023027320:5@lid",
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let needs_skdm: Vec<&Jid> = all_resolved_devices
+            .iter()
+            .filter(|device| {
+                !map.device_has_key(&device.user, device.device)
+                    .unwrap_or(false)
+                    || !map.device_has_key(&device.user, 0).unwrap_or(false)
+            })
+            .collect();
+
+        assert_eq!(needs_skdm.len(), all_resolved_devices.len());
+    }
+
+    /// Fails if the empty-cache early-exit is reintroduced.
+    #[tokio::test]
+    async fn resolve_skdm_targets_distributes_when_cache_empty_but_devices_known() {
+        use wacore::client::context::GroupRoutingInfo;
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        use wacore::types::message::AddressingMode;
+
+        let client = crate::test_utils::create_test_client().await;
+        let group_jid = "120363161500776365@g.us";
+        let own_lid = Jid::from_str("193832511623409:13@lid").unwrap();
+
+        let participant_users = ["271060335329480", "77610646245392", "276661023027320"];
+
+        // Pre-populate so `resolve_devices` succeeds without a transport.
+        for user in &participant_users {
+            let record = DeviceListRecord {
+                user: (*user).into(),
+                devices: [DeviceInfo::new(0, None)].into(),
+                timestamp: wacore::time::now_secs(),
+                phash: None,
+                raw_id: None,
+            };
+            client
+                .device_registry_cache
+                .raw_insert_for_tests((*user).into(), Arc::new(record))
+                .await;
+        }
+
+        let participants: Vec<Jid> = participant_users
+            .iter()
+            .map(|u| Jid::from_str(&format!("{u}@lid")).unwrap())
+            .collect();
+
+        let group_info = GroupRoutingInfo::new(participants.clone(), AddressingMode::Lid);
+
+        let needs_skdm = client
+            .resolve_status_skdm_targets(
+                group_jid,
+                &group_info,
+                &own_lid,
+                crate::cache::Freshness::CachePreferred,
+                false,
+            )
+            .await
+            .expect("device resolution must succeed")
+            .expect("missing targets means device resolution failed");
+
+        // Empty cache → every participant needs SKDM, and the full set equals
+        // the target set on this cold path.
+        assert_eq!(needs_skdm.len(), participants.len());
+        for user in &participant_users {
+            assert!(needs_skdm.iter().any(|j| j.user == *user));
+        }
+    }
+
+    #[test]
+    fn single_forgotten_row_keeps_full_distribution() {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+
+        let map = SenderKeyDeviceMap::from_db_rows(&[("271060335329480@lid".to_string(), false)]);
+        assert_eq!(map.device_has_key("271060335329480", 0), Some(false));
+
+        let all_resolved_devices: Vec<Jid> = [
+            "271060335329480@lid",
+            "77610646245392@lid",
+            "276661023027320:5@lid",
+        ]
+        .into_iter()
+        .map(|s| Jid::from_str(s).unwrap())
+        .collect();
+
+        let needs_skdm: Vec<&Jid> = all_resolved_devices
+            .iter()
+            .filter(|device| {
+                !map.device_has_key(&device.user, device.device)
+                    .unwrap_or(false)
+                    || !map.device_has_key(&device.user, 0).unwrap_or(false)
+            })
+            .collect();
+
+        assert_eq!(
+            needs_skdm.len(),
+            3,
+            "after retry inserts one row, ALL devices correctly flagged for SKDM \
+             (this is what unblocks redistribution on the SECOND message)"
+        );
+    }
+
+    /// WA Web primary-device gate (ParticipantStore.js): a companion is warm only
+    /// when it AND its primary (device 0) hold the key. A forgotten companion
+    /// redistributes only itself (no per-user amplification); a forgotten primary
+    /// redistributes the whole user. Drives the real `filter_skdm_targets`.
+    #[tokio::test]
+    async fn filter_skdm_targets_uses_primary_device_gate() {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+
+        let client = crate::test_utils::create_test_client().await;
+        let group = "120363161500776365@g.us";
+        let own = Jid::from_str("999999999999999:1@lid").unwrap();
+
+        // Companion forgotten, primary warm: only the companion redistributes.
+        let map = SenderKeyDeviceMap::from_db_rows(&[
+            ("100100100100100@lid".to_string(), true),
+            ("100100100100100:5@lid".to_string(), false),
+        ]);
+        let devices = [
+            Jid::from_str("100100100100100@lid").unwrap(),
+            Jid::from_str("100100100100100:5@lid").unwrap(),
+        ];
+        let needs = client.filter_skdm_targets(group, &devices, &map, &own);
+        assert_eq!(needs.len(), 1, "warm primary keeps the keyed companion out");
+        assert_eq!(needs[0].device, 5);
+
+        // Primary forgotten, companion warm: the whole user redistributes (WA Web
+        // marks a companion cold when its primary is cold).
+        let map = SenderKeyDeviceMap::from_db_rows(&[
+            ("200200200200200@lid".to_string(), false),
+            ("200200200200200:5@lid".to_string(), true),
+        ]);
+        let devices = [
+            Jid::from_str("200200200200200@lid").unwrap(),
+            Jid::from_str("200200200200200:5@lid").unwrap(),
+        ];
+        let needs = client.filter_skdm_targets(group, &devices, &map, &own);
+        assert_eq!(needs.len(), 2, "cold primary redistributes the whole user");
+
+        // Companion warm but the primary row is absent (None): WA Web's `?? false`
+        // treats a missing primary as cold, so the companion still redistributes.
+        let map = SenderKeyDeviceMap::from_db_rows(&[("300300300300300:5@lid".to_string(), true)]);
+        let devices = [Jid::from_str("300300300300300:5@lid").unwrap()];
+        let needs = client.filter_skdm_targets(group, &devices, &map, &own);
+        assert_eq!(
+            needs.len(),
+            1,
+            "absent primary is cold, companion redistributes"
+        );
+    }
+
+    /// End-to-end: after a send marks its SKDM targets, our own companion is NOT
+    /// memoized (WA Web `!isMeDevice` guard on `markHasSenderKey`), so the next send
+    /// re-distributes its SKDM — it can't be orphaned by a one-off encryption
+    /// failure (the retry/forget path also excludes own devices). An external member
+    /// stays warm and is not re-targeted.
+    #[tokio::test]
+    async fn own_companion_is_never_memoized_so_it_redistributes_every_send() {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+
+        let client = crate::test_utils::create_test_client().await;
+        let own_lid = Jid::from_str("888000888000888:1@lid").unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid.clone())))
+            .await;
+
+        let group = "120363000000000009@g.us";
+        let own_companion = Jid::from_str("888000888000888:5@lid").unwrap();
+        let member = Jid::from_str("111000111000111@lid").unwrap();
+
+        // A send marks its full target set warm (own companion + external member).
+        client
+            .update_sender_key_devices(
+                group,
+                &[own_companion.clone(), member.clone()],
+                client.device_topology.current(),
+                None,
+            )
+            .await;
+
+        // Persisted: the external member is warm; our own companion was skipped.
+        let rows = client
+            .persistence_manager
+            .get_sender_key_devices(group)
+            .await
+            .unwrap();
+        let map = SenderKeyDeviceMap::from_db_rows(&rows);
+        assert_eq!(
+            map.device_has_key("111000111000111", 0),
+            Some(true),
+            "external member is memoized warm"
+        );
+        assert_eq!(
+            map.device_has_key("888000888000888", 5),
+            None,
+            "own companion is never memoized (re-distributed every send)"
+        );
+
+        // Next send: only the own companion is re-targeted; the member stays warm.
+        let devices = [own_companion.clone(), member];
+        let needs = client.filter_skdm_targets(group, &devices, &map, &own_lid);
+        assert_eq!(
+            needs,
+            vec![own_companion],
+            "own companion redistributes; external member stays warm"
+        );
+    }
+
+    /// The own-only re-distribution set is the warm steady state (WA Web:
+    /// `getGroupSenderKeyList` reads the in-memory map with no storage
+    /// re-read), so marking it after a send must NOT drop the cached device
+    /// map. A set with an external member writes a new warm mark and must.
+    #[tokio::test]
+    async fn own_only_skdm_mark_keeps_device_map_cached() {
+        use crate::sender_key_device_cache::SenderKeyDeviceMap;
+        use std::sync::Arc;
+
+        let client = crate::test_utils::create_test_client().await;
+        let own_lid = Jid::from_str("888000888000888:1@lid").unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid.clone())))
+            .await;
+
+        let group = "120363000000000010@g.us";
+        let own_primary = Jid::from_str("888000888000888:0@lid").unwrap();
+        let member = Jid::from_str("111000111000111:0@lid").unwrap();
+
+        client
+            .sender_key_device_cache
+            .get_or_init(group, async {
+                Arc::new(SenderKeyDeviceMap::from_db_rows(&[]))
+            })
+            .await;
+
+        // Own-only mark (the every-send steady state): nothing written, cache kept.
+        client
+            .update_sender_key_devices(
+                group,
+                std::slice::from_ref(&own_primary),
+                client.device_topology.current(),
+                None,
+            )
+            .await;
+        client
+            .sender_key_device_cache
+            .get_or_init(group, async {
+                panic!("own-only SKDM mark must not invalidate the device map")
+            })
+            .await;
+
+        // An external member writes a warm mark: the cached map must drop so
+        // the next send re-reads the new state.
+        client
+            .update_sender_key_devices(
+                group,
+                &[own_primary, member],
+                client.device_topology.current(),
+                None,
+            )
+            .await;
+        let rebuilt = std::sync::atomic::AtomicBool::new(false);
+        client
+            .sender_key_device_cache
+            .get_or_init(group, async {
+                rebuilt.store(true, std::sync::atomic::Ordering::Relaxed);
+                Arc::new(SenderKeyDeviceMap::from_db_rows(&[]))
+            })
+            .await;
+        assert!(
+            rebuilt.load(std::sync::atomic::Ordering::Relaxed),
+            "a new external warm mark must invalidate the device map"
+        );
+    }
+
+    /// `skdm_needs_only_own_devices` gates the warm fast path in
+    /// `send_group_branch`: own-only sets qualify, anything external (or an
+    /// empty set, which has its own arm) does not.
+    #[test]
+    fn skdm_needs_only_own_devices_classification() {
+        let own_pn = Jid::from_str("5511999990000:2@s.whatsapp.net").unwrap();
+        let own_lid = Jid::from_str("888000888000888:2@lid").unwrap();
+        let own_primary_lid = Jid::from_str("888000888000888:0@lid").unwrap();
+        let own_primary_pn = Jid::from_str("5511999990000:0@s.whatsapp.net").unwrap();
+        let member = Jid::from_str("111000111000111:0@lid").unwrap();
+
+        assert!(skdm_needs_only_own_devices(
+            &[own_primary_lid.clone(), own_primary_pn],
+            Some(&own_pn),
+            Some(&own_lid)
+        ));
+        assert!(
+            !skdm_needs_only_own_devices(
+                &[own_primary_lid, member.clone()],
+                Some(&own_pn),
+                Some(&own_lid)
+            ),
+            "an external member must take the cold path"
+        );
+        assert!(
+            !skdm_needs_only_own_devices(&[], Some(&own_pn), Some(&own_lid)),
+            "the empty set is handled by its own (fully warm) arm"
+        );
+        assert!(
+            !skdm_needs_only_own_devices(&[member], Some(&own_pn), Some(&own_lid)),
+            "external-only must take the cold path"
+        );
+    }
+
+    #[test]
+    fn test_skdm_filtering_large_group() {
+        use std::collections::HashSet;
+
+        let mut known_recipients: Vec<Jid> = Vec::with_capacity(1000);
+        let mut all_devices: Vec<Jid> = Vec::with_capacity(1010);
+
+        for i in 0..1000i64 {
+            let jid_str = format!("{}:1@lid", 100000000000000i64 + i);
+            let jid = Jid::from_str(&jid_str).unwrap();
+            known_recipients.push(jid.clone());
+            all_devices.push(jid);
+        }
+
+        for i in 1000i64..1010i64 {
+            let jid_str = format!("{}:1@lid", 100000000000000i64 + i);
+            all_devices.push(Jid::from_str(&jid_str).unwrap());
+        }
+
+        let known_set: HashSet<DeviceKey<'_>> =
+            known_recipients.iter().map(|j| j.device_key()).collect();
+
+        let new_devices: Vec<Jid> = all_devices
+            .into_iter()
+            .filter(|device| !known_set.contains(&device.device_key()))
+            .collect();
+
+        assert_eq!(new_devices.len(), 10);
+    }
+
+    mod infer_stanza {
+        use super::*;
+
+        #[test]
+        fn regular_message_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("hello".into());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            assert!(node.is_none());
+        }
+
+        #[test]
+        fn pin_returns_edit_attribute() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.pin_in_chat_message = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::PinInChat));
+            assert!(node.is_none());
+        }
+
+        #[test]
+        fn poll_creation_v3_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_creation_message_v3 = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("polltype").unwrap().as_ref(),
+                "creation"
+            );
+        }
+
+        #[test]
+        fn event_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.event_message = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("event_type").unwrap().as_ref(),
+                "creation"
+            );
+        }
+
+        #[test]
+        fn empty_message_returns_none() {
+            let (edit, node) = infer_stanza_metadata(&wa::Message::default());
+            assert!(edit.is_none());
+            assert!(node.is_none());
+        }
+
+        #[test]
+        fn member_label_set_returns_member_tag_user_update() {
+            let msg = wacore::send::build_member_label_message("VIP".to_string(), 1_700_000_000);
+            let (_, node) = infer_stanza_metadata(&msg);
+            let node = node.expect("member_label should have meta node");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("appdata").unwrap().as_ref(),
+                "member_tag"
+            );
+            assert_eq!(
+                attrs.optional_string("tag_reason").unwrap().as_ref(),
+                "user_update"
+            );
+        }
+
+        #[test]
+        fn member_label_clear_returns_user_delete() {
+            // Empty label = clearing the tag → tag_reason "user_delete".
+            let msg = wacore::send::build_member_label_message(String::new(), 1_700_000_000);
+            let (_, node) = infer_stanza_metadata(&msg);
+            let node = node.expect("member_label should have meta node");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("appdata").unwrap().as_ref(),
+                "member_tag"
+            );
+            assert_eq!(
+                attrs.optional_string("tag_reason").unwrap().as_ref(),
+                "user_delete"
+            );
+        }
+
+        #[test]
+        fn poll_creation_v1_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_creation_message = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("polltype").unwrap().as_ref(),
+                "creation"
+            );
+        }
+
+        #[test]
+        fn poll_creation_v2_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_creation_message_v2 = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("polltype").unwrap().as_ref(),
+                "creation"
+            );
+        }
+
+        #[test]
+        fn poll_vote_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_update_message = buffa::MessageField::some({
+                    let mut proto = wa::message::PollUpdateMessage::default();
+                    proto.vote = buffa::MessageField::some(wa::message::PollEncValue::default());
+                    proto
+                });
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(attrs.optional_string("polltype").unwrap().as_ref(), "vote");
+        }
+
+        #[test]
+        fn view_once_image_emits_view_once_meta() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.image_message = buffa::MessageField::some({
+                    let mut proto = wa::message::ImageMessage::default();
+                    proto.view_once = Some(true);
+                    proto
+                });
+                proto
+            };
+            let (_, node) = infer_stanza_metadata(&msg);
+            let node = node.expect("view-once image should emit meta");
+            assert_eq!(node.tag, "meta");
+            assert_eq!(
+                node.attrs().optional_string("view_once").unwrap().as_ref(),
+                "true"
+            );
+        }
+
+        #[test]
+        fn plain_image_emits_no_meta() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.image_message =
+                    buffa::MessageField::some(wa::message::ImageMessage::default());
+                proto
+            };
+            assert!(infer_stanza_metadata(&msg).1.is_none());
+        }
+
+        #[test]
+        fn event_response_returns_meta_node() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.enc_event_response_message = buffa::MessageField::some(Default::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            let node = node.expect("should have meta node");
+            assert_eq!(node.tag, "meta");
+            let mut attrs = node.attrs();
+            assert_eq!(
+                attrs.optional_string("event_type").unwrap().as_ref(),
+                "response"
+            );
+        }
+
+        #[test]
+        fn poll_update_without_vote_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_update_message =
+                    buffa::MessageField::some(wa::message::PollUpdateMessage::default());
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert!(edit.is_none());
+            assert!(node.is_none());
+        }
+
+        #[test]
+        fn revoked_reaction_returns_sender_revoke() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.reaction_message = buffa::MessageField::some({
+                    let mut proto = wa::message::ReactionMessage::default();
+                    proto.text = Some(String::new());
+                    proto
+                });
+                proto
+            };
+            let (edit, _) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::SenderRevoke));
+        }
+
+        #[test]
+        fn keep_in_chat_undo_returns_sender_revoke() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.keep_in_chat_message = buffa::MessageField::some({
+                    let mut proto = wa::message::KeepInChatMessage::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.from_me = Some(true);
+                        proto
+                    });
+                    proto.keep_type = Some(wa::KeepType::UndoKeepForAll);
+                    proto
+                });
+                proto
+            };
+            let (edit, _) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::SenderRevoke));
+        }
+
+        #[test]
+        fn secret_encrypted_message_edit_returns_message_edit() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.secret_encrypted_message = buffa::MessageField::some({
+                    let mut proto = wa::message::SecretEncryptedMessage::default();
+                    proto.secret_enc_type =
+                        Some(wa::message::secret_encrypted_message::SecretEncType::MessageEdit);
+                    proto
+                });
+                proto
+            };
+            let (edit, _) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::MessageEdit));
+        }
+
+        #[test]
+        fn secret_encrypted_event_edit_emits_both_edit_attr_and_meta_node() {
+            // EVENT_EDIT is the one case where the edit attribute AND the
+            // meta node both fire: `event_type=edit` meta + `edit="1"` attr.
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.secret_encrypted_message = buffa::MessageField::some({
+                    let mut proto = wa::message::SecretEncryptedMessage::default();
+                    proto.secret_enc_type =
+                        Some(wa::message::secret_encrypted_message::SecretEncType::EventEdit);
+                    proto
+                });
+                proto
+            };
+            let (edit, node) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::MessageEdit));
+            let node = node.expect("should have meta node");
+            assert_eq!(
+                node.attrs().optional_string("event_type").unwrap().as_ref(),
+                "edit"
+            );
+        }
+
+        #[test]
+        fn top_level_edited_message_returns_message_edit() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.edited_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some(wa::Message::default());
+                    proto
+                });
+                proto
+            };
+            let (edit, _) = infer_stanza_metadata(&msg);
+            assert_eq!(edit, Some(EditAttribute::MessageEdit));
+        }
+
+        #[test]
+        fn build_edit_message_uses_top_level_protocol_message() {
+            use std::str::FromStr;
+            let to = Jid::from_str("5511999999999@s.whatsapp.net").unwrap();
+            let new_content = {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("edited".to_string());
+                proto
+            };
+            let msg = build_edit_message(
+                &to,
+                "ORIG_ID".to_string(),
+                None,
+                new_content,
+                1_700_000_000_000,
+            );
+
+            // Canonical WA Web shape: top-level protocolMessage(type=MESSAGE_EDIT),
+            // not the Message.editedMessage FutureProofMessage history wrapper.
+            assert!(
+                msg.edited_message.is_unset(),
+                "edit must not use the FutureProofMessage wrapper"
+            );
+            let pm = msg
+                .protocol_message
+                .as_option()
+                .expect("top-level protocol_message");
+            assert_eq!(
+                pm.r#type,
+                Some(wa::message::protocol_message::Type::MessageEdit)
+            );
+            assert_eq!(
+                pm.key.as_option().and_then(|k| k.id.as_deref()),
+                Some("ORIG_ID")
+            );
+            assert_eq!(pm.key.as_option().and_then(|k| k.from_me), Some(true));
+            assert_eq!(
+                pm.edited_message
+                    .as_option()
+                    .and_then(|m| m.conversation.as_deref()),
+                Some("edited")
+            );
+            // The send path still derives the edit attribute from this shape.
+            assert_eq!(
+                infer_stanza_metadata(&msg).0,
+                Some(EditAttribute::MessageEdit)
+            );
+        }
+    }
+
+    mod biz_node_tests {
+        use super::*;
+        use std::str::FromStr;
+        use wa::message::interactive_message::{
+            self, NativeFlowMessage, native_flow_message::NativeFlowButton,
+        };
+
+        // Fixed unix seconds for deterministic privacy_mode_ts assertions.
+        const FIXED_NOW: u64 = 1_700_000_000;
+        // FIXED_NOW - BIZ_PRIVACY_MODE_TS_OFFSET = 1_700_000_000 - 77_980_457
+        const EXPECTED_PRIVACY_TS: &str = "1622019543";
+
+        fn msg_with_native_flow_button(button_name: &str) -> wa::Message {
+            {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::NativeFlowMessage(Box::new({
+                            let mut proto = NativeFlowMessage::default();
+                            proto.buttons = vec![{
+                                let mut proto = NativeFlowButton::default();
+                                proto.name = Some(button_name.to_string());
+                                proto.button_params_json = None;
+                                proto
+                            }];
+                            proto.message_version = Some(1);
+                            proto.message_params_json = None;
+                            proto
+                        })),
+                    );
+                    proto
+                });
+                proto
+            }
+        }
+
+        fn assert_biz_common_attrs(node: &Node, ctx: &str) {
+            assert_eq!(node.tag, "biz", "{ctx}");
+            let mut a = node.attrs();
+            assert_eq!(
+                a.optional_string("actual_actors").unwrap().as_ref(),
+                "2",
+                "{ctx}"
+            );
+            assert_eq!(
+                a.optional_string("host_storage").unwrap().as_ref(),
+                "2",
+                "{ctx}"
+            );
+            assert_eq!(
+                a.optional_string("privacy_mode_ts").unwrap().as_ref(),
+                EXPECTED_PRIVACY_TS,
+                "{ctx}"
+            );
+        }
+
+        fn assert_nested_biz(node: &Node, expected_flow_name: &str, ctx: &str) {
+            assert_biz_common_attrs(node, ctx);
+            assert!(
+                node.attrs().optional_string("native_flow_name").is_none(),
+                "{ctx}: nested form has no native_flow_name attr"
+            );
+            let interactive = node
+                .get_optional_child("interactive")
+                .unwrap_or_else(|| panic!("{ctx}: missing <interactive>"));
+            let mut ia = interactive.attrs();
+            assert_eq!(
+                ia.optional_string("type").unwrap().as_ref(),
+                "native_flow",
+                "{ctx}"
+            );
+            assert_eq!(ia.optional_string("v").unwrap().as_ref(), "1", "{ctx}");
+
+            let nf = interactive
+                .get_optional_child("native_flow")
+                .unwrap_or_else(|| panic!("{ctx}: missing <native_flow>"));
+            let mut nfa = nf.attrs();
+            assert_eq!(nfa.optional_string("v").unwrap().as_ref(), "9", "{ctx}");
+            assert_eq!(
+                nfa.optional_string("name").unwrap().as_ref(),
+                expected_flow_name,
+                "{ctx}"
+            );
+
+            let qc = node
+                .get_optional_child("quality_control")
+                .unwrap_or_else(|| panic!("{ctx}: missing <quality_control>"));
+            assert_eq!(
+                qc.attrs().optional_string("source_type").unwrap().as_ref(),
+                "third_party",
+                "{ctx}"
+            );
+        }
+
+        /// Payment-family buttons emit the flat `<biz>` form with
+        /// `native_flow_name` as an attr and NO children.
+        #[test]
+        fn payment_simple_form() {
+            let cases: &[(&str, &str)] = &[
+                ("payment_info", "payment_info"),
+                ("review_and_pay", "order_details"),
+                ("review_order", "order_status"),
+                ("order_status", "order_status"),
+                ("payment_status", "payment_status"),
+                ("payment_method", "payment_method"),
+                ("payment_reminder", "payment_reminder"),
+            ];
+            for (button, expected_flow) in cases {
+                let biz = infer_biz_node(&msg_with_native_flow_button(button), FIXED_NOW)
+                    .unwrap_or_else(|| panic!("{button}: should produce biz"));
+                assert_biz_common_attrs(&biz, button);
+                assert_eq!(
+                    biz.attrs()
+                        .optional_string("native_flow_name")
+                        .unwrap()
+                        .as_ref(),
+                    *expected_flow,
+                    "{button}: native_flow_name attr"
+                );
+                assert!(
+                    biz.children().unwrap_or(&[]).is_empty(),
+                    "{button}: PaymentSimple has no children"
+                );
+            }
+        }
+
+        /// Every non-payment button name announces itself as `mixed`. The
+        /// eight names that used to keep their own flow name are the ones
+        /// #1132 measured as universally refused (473/405), so they must not
+        /// regain a bespoke shape without fresh live evidence.
+        #[test]
+        fn formerly_named_buttons_now_route_through_mixed() {
+            let cases: &[&str] = &[
+                "cta_url",
+                "cta_catalog",
+                "catalog_message",
+                "galaxy_message",
+                "booking_confirmation",
+                "call_permission_request",
+                "open_webview",
+                "message_with_link_status",
+            ];
+            for button in cases {
+                let biz = infer_biz_node(&msg_with_native_flow_button(button), FIXED_NOW)
+                    .unwrap_or_else(|| panic!("{button}: should produce biz"));
+                assert_nested_biz(&biz, "mixed", button);
+            }
+        }
+
+        /// quick_reply / cta_copy / cta_call / single_select / send_location
+        /// and unknown future button names route through `name="mixed"`.
+        #[test]
+        fn mixed_form_for_dropped_buttons() {
+            let cases: &[&str] = &[
+                "quick_reply",
+                "cta_copy",
+                "cta_call",
+                "single_select",
+                "send_location",
+                "future_button_xyz",
+            ];
+            for button in cases {
+                let biz = infer_biz_node(&msg_with_native_flow_button(button), FIXED_NOW)
+                    .unwrap_or_else(|| panic!("{button}: should produce biz"));
+                assert_nested_biz(&biz, "mixed", button);
+            }
+        }
+
+        /// Non-interactive messages produce no `<biz>` (no fan-out into the
+        /// extra_stanza_nodes path).
+        #[test]
+        fn no_interactive_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("hello".into());
+                proto
+            };
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        fn carousel_msg(im: wa::message::InteractiveMessage) -> wa::Message {
+            {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = im;
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::CarouselMessage(Default::default()),
+                    );
+                    proto
+                });
+                proto
+            }
+        }
+
+        fn body(text: &str) -> buffa::MessageField<interactive_message::Body> {
+            buffa::MessageField::some({
+                let mut proto = interactive_message::Body::default();
+                proto.text = Some(text.to_string());
+                proto
+            })
+        }
+
+        /// #1133: a carousel's buttons live on its cards, so the button rule
+        /// never fires. Without this the message left with no `<biz>` at all —
+        /// accepted, acked, and then invisible on the recipient's handset.
+        #[test]
+        fn carousel_with_body_emits_mixed_biz() {
+            let msg = carousel_msg({
+                let mut proto = wa::message::InteractiveMessage::default();
+                proto.body = body("pick a plan");
+                proto
+            });
+            let biz = infer_biz_node(&msg, FIXED_NOW).expect("carousel should produce biz");
+            assert_nested_biz(&biz, "mixed", "carousel");
+        }
+
+        /// A header title alone is enough, and so is a footer — WA Web's rule
+        /// is a disjunction over body / title / footer / header image.
+        #[test]
+        fn carousel_envelope_variants_emit_mixed_biz() {
+            let title = carousel_msg({
+                let mut proto = wa::message::InteractiveMessage::default();
+                proto.header = buffa::MessageField::some({
+                    let mut proto = interactive_message::Header::default();
+                    proto.title = Some("Our menu".into());
+                    proto
+                });
+                proto
+            });
+            assert_nested_biz(
+                &infer_biz_node(&title, FIXED_NOW).expect("title should produce biz"),
+                "mixed",
+                "header title",
+            );
+
+            let footer = carousel_msg({
+                let mut proto = wa::message::InteractiveMessage::default();
+                proto.footer = buffa::MessageField::some({
+                    let mut proto = interactive_message::Footer::default();
+                    proto.text = Some("tap to order".into());
+                    proto
+                });
+                proto
+            });
+            assert_nested_biz(
+                &infer_biz_node(&footer, FIXED_NOW).expect("footer should produce biz"),
+                "mixed",
+                "footer",
+            );
+
+            let image = carousel_msg({
+                let mut proto = wa::message::InteractiveMessage::default();
+                proto.header = buffa::MessageField::some({
+                    let mut proto = interactive_message::Header::default();
+                    proto.media = Some(interactive_message::header::Media::ImageMessage(
+                        Default::default(),
+                    ));
+                    proto
+                });
+                proto
+            });
+            assert_nested_biz(
+                &infer_biz_node(&image, FIXED_NOW).expect("header image should produce biz"),
+                "mixed",
+                "header image",
+            );
+        }
+
+        /// An empty envelope announces nothing, so there is nothing to mark.
+        #[test]
+        fn carousel_without_envelope_returns_none() {
+            assert!(infer_biz_node(&carousel_msg(Default::default()), FIXED_NOW).is_none());
+        }
+
+        /// An empty-string body is not an envelope: WA Web tests `length > 0`,
+        /// not presence.
+        #[test]
+        fn empty_body_text_is_not_an_envelope() {
+            let msg = carousel_msg({
+                let mut proto = wa::message::InteractiveMessage::default();
+                proto.body = body("");
+                proto
+            });
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        /// Storefronts are excluded from the envelope rule, as in WA Web.
+        #[test]
+        fn shop_storefront_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.body = body("visit our shop");
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::ShopStorefrontMessage(
+                            Default::default(),
+                        ),
+                    );
+                    proto
+                });
+                proto
+            };
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        /// Interactive but not native-flow (e.g. CollectionMessage) yields None.
+        #[test]
+        fn interactive_without_native_flow_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.interactive_message =
+                        Some(interactive_message::InteractiveMessage::CollectionMessage(
+                            Default::default(),
+                        ));
+                    proto
+                });
+                proto
+            };
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        /// NativeFlow with empty button list yields None — no signal to classify.
+        #[test]
+        fn native_flow_without_buttons_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::NativeFlowMessage(Box::new({
+                            let mut proto = NativeFlowMessage::default();
+                            proto.buttons = vec![];
+                            proto.message_version = Some(1);
+                            proto.message_params_json = None;
+                            proto
+                        })),
+                    );
+                    proto
+                });
+                proto
+            };
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        /// Button with `name = None` is treated as missing classifier → None.
+        #[test]
+        fn button_without_name_returns_none() {
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::NativeFlowMessage(Box::new({
+                            let mut proto = NativeFlowMessage::default();
+                            proto.buttons = vec![{
+                                let mut proto = NativeFlowButton::default();
+                                proto.name = None;
+                                proto.button_params_json = None;
+                                proto
+                            }];
+                            proto.message_version = Some(1);
+                            proto.message_params_json = None;
+                            proto
+                        })),
+                    );
+                    proto
+                });
+                proto
+            };
+            assert!(infer_biz_node(&msg, FIXED_NOW).is_none());
+        }
+
+        /// Messages wrapped in `documentWithCaptionMessage` still pick up the
+        /// native_flow payload from the inner message.
+        #[test]
+        fn document_with_caption_wrapper() {
+            let inner = {
+                let mut proto = wa::Message::default();
+                proto.interactive_message = buffa::MessageField::some({
+                    let mut proto = wa::message::InteractiveMessage::default();
+                    proto.interactive_message = Some(
+                        interactive_message::InteractiveMessage::NativeFlowMessage(Box::new({
+                            let mut proto = NativeFlowMessage::default();
+                            proto.buttons = vec![{
+                                let mut proto = NativeFlowButton::default();
+                                proto.name = Some("quick_reply".into());
+                                proto.button_params_json = None;
+                                proto
+                            }];
+                            proto.message_version = Some(1);
+                            proto.message_params_json = None;
+                            proto
+                        })),
+                    );
+                    proto
+                });
+                proto
+            };
+            let msg = {
+                let mut proto = wa::Message::default();
+                proto.document_with_caption_message = buffa::MessageField::some({
+                    let mut proto = wa::message::FutureProofMessage::default();
+                    proto.message = buffa::MessageField::some(inner);
+                    proto
+                });
+                proto
+            };
+            let biz = infer_biz_node(&msg, FIXED_NOW)
+                .expect("doc-with-caption wrapper should propagate the inner native_flow");
+            assert_nested_biz(&biz, "mixed", "doc-with-caption/quick_reply");
+        }
+
+        // -- build_extra_stanza_nodes assembly tests --
+
+        fn quick_reply_biz() -> Node {
+            infer_biz_node(&msg_with_native_flow_button("quick_reply"), FIXED_NOW)
+                .expect("quick_reply produces biz")
+        }
+
+        fn payment_biz() -> Node {
+            infer_biz_node(&msg_with_native_flow_button("payment_info"), FIXED_NOW)
+                .expect("payment_info produces biz")
+        }
+
+        fn jid(s: &str) -> Jid {
+            Jid::from_str(s).expect("valid jid in test")
+        }
+
+        fn assemble(
+            to: &Jid,
+            inferred_meta: Option<Node>,
+            biz: Option<Node>,
+            user_nodes: Vec<Node>,
+        ) -> Vec<Node> {
+            build_extra_stanza_nodes(to, inferred_meta, biz, user_nodes)
+                .expect("no caller node conflicts here")
+        }
+
+        /// DM: `<bot biz_bot="1"/>` is prepended before the `<biz>`. The
+        /// order matters because it is part of the wire shape.
+        #[test]
+        fn dm_emits_bot_before_biz() {
+            let nodes = assemble(
+                &jid("5511999999999@s.whatsapp.net"),
+                None,
+                Some(quick_reply_biz()),
+                vec![],
+            );
+            assert_eq!(nodes.len(), 2, "expected [<bot>, <biz>]");
+            assert_eq!(nodes[0].tag, "bot");
+            assert_eq!(
+                nodes[0]
+                    .attrs()
+                    .optional_string("biz_bot")
+                    .unwrap()
+                    .as_ref(),
+                "1"
+            );
+            assert_eq!(nodes[1].tag, "biz");
+        }
+
+        /// Group: `<bot>` is NOT emitted; only `<biz>`.
+        #[test]
+        fn group_omits_bot() {
+            let nodes = assemble(
+                &jid("120363000000000001@g.us"),
+                None,
+                Some(quick_reply_biz()),
+                vec![],
+            );
+            assert_eq!(nodes.len(), 1);
+            assert_eq!(nodes[0].tag, "biz");
+        }
+
+        /// LID DM (non-group): `<bot>` is still emitted.
+        #[test]
+        fn lid_dm_emits_bot() {
+            let nodes = assemble(
+                &jid("100000000000001@lid"),
+                None,
+                Some(payment_biz()),
+                vec![],
+            );
+            assert_eq!(nodes.len(), 2);
+            assert_eq!(nodes[0].tag, "bot");
+        }
+
+        /// No biz + no meta → user nodes pass through untouched.
+        #[test]
+        fn no_biz_no_meta_passthrough() {
+            let user_nodes = vec![NodeBuilder::new("custom").build()];
+            let nodes = assemble(&jid("X@s.whatsapp.net"), None, None, user_nodes.clone());
+            assert_eq!(nodes.len(), 1);
+            assert_eq!(nodes[0].tag, "custom");
+        }
+
+        /// Full ordering: [meta, bot, biz, user_nodes...].
+        #[test]
+        fn full_ordering_meta_bot_biz_user() {
+            let meta = NodeBuilder::new("meta").attr("appdata", "default").build();
+            let user_a = NodeBuilder::new("user_a").build();
+            let user_b = NodeBuilder::new("user_b").build();
+            let nodes = assemble(
+                &jid("X@s.whatsapp.net"),
+                Some(meta),
+                Some(quick_reply_biz()),
+                vec![user_a, user_b],
+            );
+            assert_eq!(nodes.len(), 5);
+            assert_eq!(nodes[0].tag, "meta");
+            assert_eq!(nodes[1].tag, "bot");
+            assert_eq!(nodes[2].tag, "biz");
+            assert_eq!(nodes[3].tag, "user_a");
+            assert_eq!(nodes[4].tag, "user_b");
+        }
+
+        /// Meta-only (no biz) preserves order: meta then user nodes; no bot.
+        #[test]
+        fn meta_only_preserves_order() {
+            let meta = NodeBuilder::new("meta").build();
+            let user = NodeBuilder::new("u").build();
+            let nodes = assemble(&jid("X@s.whatsapp.net"), Some(meta), None, vec![user]);
+            assert_eq!(nodes.len(), 2);
+            assert_eq!(nodes[0].tag, "meta");
+            assert_eq!(nodes[1].tag, "u");
+        }
+
+        fn conflict(to: &str, user_nodes: Vec<Node>) -> SendError {
+            build_extra_stanza_nodes(&jid(to), None, Some(payment_biz()), user_nodes)
+                .expect_err("caller node duplicating a derived one must be refused")
+        }
+
+        /// A caller that hands us its own `<biz>` next to the one we derive
+        /// used to get both on the wire, and the button rendered nowhere.
+        #[test]
+        fn caller_biz_next_to_derived_biz_is_refused() {
+            for to in ["120363000000000001@g.us", "5511999999999@s.whatsapp.net"] {
+                let error = conflict(
+                    to,
+                    vec![
+                        NodeBuilder::new("biz")
+                            .attr("native_flow_name", "payment_info")
+                            .build(),
+                    ],
+                );
+                assert!(matches!(error, SendError::InvalidRequest(_)), "{to}");
+                assert!(error.to_string().contains("<biz>"), "{to}: {error}");
+            }
+        }
+
+        /// A caller asking for a different flow name than the button implies is
+        /// the same conflict: we cannot tell which one the server honours, so
+        /// the send is refused rather than picking a winner.
+        #[test]
+        fn caller_biz_with_a_diverging_flow_name_is_refused() {
+            let error = conflict(
+                "120363000000000001@g.us",
+                vec![
+                    NodeBuilder::new("biz")
+                        .attr("native_flow_name", "review_and_pay")
+                        .build(),
+                ],
+            );
+            assert!(error.to_string().contains("<biz>"), "{error}");
+        }
+
+        /// DM: the derived `<bot biz_bot="1"/>` collides the same way.
+        #[test]
+        fn caller_bot_next_to_derived_bot_is_refused() {
+            let error = conflict(
+                "5511999999999@s.whatsapp.net",
+                vec![NodeBuilder::new("bot").attr("biz_bot", "1").build()],
+            );
+            assert!(error.to_string().contains("<bot>"), "{error}");
+        }
+
+        /// Groups get no `<bot>`, so a caller's own `<bot>` collides with
+        /// nothing and still reaches the stanza.
+        #[test]
+        fn caller_bot_reaches_a_group_stanza() {
+            let nodes = assemble(
+                &jid("120363000000000001@g.us"),
+                None,
+                Some(payment_biz()),
+                vec![NodeBuilder::new("bot").build()],
+            );
+            assert_eq!(nodes.len(), 2);
+            assert_eq!(nodes[0].tag, "biz");
+            assert_eq!(nodes[1].tag, "bot");
+        }
+
+        /// Nothing derived means nothing to collide with: a caller driving a
+        /// shape we do not infer keeps its escape hatch.
+        #[test]
+        fn caller_biz_alone_passes_through() {
+            let nodes = assemble(
+                &jid("5511999999999@s.whatsapp.net"),
+                None,
+                None,
+                vec![NodeBuilder::new("biz").attr("campaign_id", "x").build()],
+            );
+            assert_eq!(nodes.len(), 1);
+            assert_eq!(nodes[0].tag, "biz");
+        }
+
+        /// The case that already worked: derived `<biz>` alone, attrs intact,
+        /// exactly one on the stanza.
+        #[test]
+        fn derived_biz_alone_is_unchanged() {
+            let nodes = assemble(
+                &jid("120363000000000001@g.us"),
+                None,
+                Some(payment_biz()),
+                vec![],
+            );
+            assert_eq!(nodes.iter().filter(|node| node.tag == "biz").count(), 1);
+            assert_biz_common_attrs(&nodes[0], "derived biz");
+            assert_eq!(
+                nodes[0]
+                    .attrs()
+                    .optional_string("native_flow_name")
+                    .unwrap()
+                    .as_ref(),
+                "payment_info"
+            );
+        }
+
+        /// A caller node on a tag we do not emit keeps its slot after the
+        /// derived ones.
+        #[test]
+        fn non_colliding_caller_node_keeps_its_position() {
+            let nodes = assemble(
+                &jid("5511999999999@s.whatsapp.net"),
+                Some(NodeBuilder::new("meta").build()),
+                Some(payment_biz()),
+                vec![NodeBuilder::new("custom-extension").build()],
+            );
+            assert_eq!(nodes.len(), 4);
+            assert_eq!(nodes[3].tag, "custom-extension");
+        }
+
+        /// `<meta>` is not part of the rule: WA Web itself puts two of them on
+        /// one message, so a caller adding one is not a conflict.
+        #[test]
+        fn caller_meta_is_not_a_conflict() {
+            let nodes = assemble(
+                &jid("120363000000000001@g.us"),
+                Some(NodeBuilder::new("meta").attr("appdata", "default").build()),
+                Some(payment_biz()),
+                vec![NodeBuilder::new("meta").attr("origin", "x").build()],
+            );
+            assert_eq!(nodes.iter().filter(|node| node.tag == "meta").count(), 2);
+        }
+    }
+
+    #[test]
+    fn structural_extra_children_are_rejected_before_send_work() {
+        for tag in RESERVED_EXTRA_STANZA_CHILDREN {
+            let error = validate_extra_stanza_nodes(&[NodeBuilder::new(tag).build()])
+                .expect_err("send-owned child must be rejected");
+            assert!(error.to_string().contains(tag));
+        }
+
+        validate_extra_stanza_nodes(&[
+            NodeBuilder::new("meta").build(),
+            NodeBuilder::new("biz").build(),
+            NodeBuilder::new("custom-extension").build(),
+        ])
+        .expect("non-structural protocol extensions remain available");
+    }
+
+    /// Regression tests for #462: send path session lock keys must match decrypt path.
+    mod session_lock_regression {
+        use super::*;
+
+        #[tokio::test]
+        async fn per_device_lock_keys_cover_all_devices() {
+            let client = crate::test_utils::create_test_client().await;
+
+            let devices: Vec<Jid> = [
+                "100000012345678@lid",
+                "100000012345678:5@lid",
+                "100000012345678:33@lid",
+            ]
+            .iter()
+            .map(|s| Jid::from_str(s).unwrap())
+            .collect();
+
+            // Uses the production helper (resolve_encryption_jid + sort + dedup)
+            let send_lock_keys = client.build_session_lock_keys(&devices).await;
+
+            assert_eq!(send_lock_keys.len(), 3);
+            // Sorted by (server, user, device_numeric): 0, 5, 33
+            assert_eq!(send_lock_keys[0].device, 0);
+            assert_eq!(send_lock_keys[1].device, 5);
+            assert_eq!(send_lock_keys[2].device, 33);
+
+            // Send keys must cover every device
+            for device_jid in &devices {
+                assert!(
+                    send_lock_keys.contains(device_jid),
+                    "device {device_jid} not in send keys: {send_lock_keys:?}"
+                );
+            }
+
+            // Bare JID key alone wouldn't protect linked devices
+            let bare_key = devices[0].to_protocol_address_string();
+            let device5_key = devices[1].to_protocol_address_string();
+            assert_ne!(bare_key, device5_key);
+        }
+
+        #[tokio::test]
+        async fn per_device_lock_serializes_concurrent_session_access() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicU32, Ordering};
+
+            let session_locks: crate::cache::Cache<String, Arc<async_lock::Mutex<()>>> =
+                crate::cache::Cache::builder().max_capacity(100).build();
+
+            let lock_key = "100000012345678:5@lid.0".to_string();
+            let access_counter = Arc::new(AtomicU32::new(0));
+            let max_concurrent = Arc::new(AtomicU32::new(0));
+
+            let mut handles = Vec::new();
+            for _ in 0..10 {
+                let locks = session_locks.clone();
+                let key = lock_key.clone();
+                let counter = access_counter.clone();
+                let max = max_concurrent.clone();
+
+                handles.push(tokio::spawn(async move {
+                    let mutex: Arc<async_lock::Mutex<()>> = locks
+                        .get_with_by_ref(&key, async { Arc::new(async_lock::Mutex::new(())) })
+                        .await;
+                    // lock_arc() needed: guard must own the Arc since mutex is a local
+                    // (production uses lock() with a separate Vec keeping Arcs alive)
+                    let _guard = mutex.lock_arc().await;
+
+                    let active = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                    max.fetch_max(active, Ordering::SeqCst);
+                    tokio::task::yield_now().await;
+                    counter.fetch_sub(1, Ordering::SeqCst);
+                }));
+            }
+
+            for handle in handles {
+                handle.await.unwrap();
+            }
+
+            assert_eq!(max_concurrent.load(Ordering::SeqCst), 1);
+        }
+
+        #[tokio::test]
+        async fn different_device_locks_are_independent() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicU32, Ordering};
+
+            let session_locks: crate::cache::Cache<String, Arc<async_lock::Mutex<()>>> =
+                crate::cache::Cache::builder().max_capacity(100).build();
+
+            let max_concurrent = Arc::new(AtomicU32::new(0));
+            let counter = Arc::new(AtomicU32::new(0));
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+            let keys = ["100000012345678@lid.0", "100000012345678:5@lid.0"];
+
+            let mut handles = Vec::new();
+            for key in keys {
+                let locks = session_locks.clone();
+                let key = key.to_string();
+                let c = counter.clone();
+                let m = max_concurrent.clone();
+                let b = barrier.clone();
+
+                handles.push(tokio::spawn(async move {
+                    let mutex: Arc<async_lock::Mutex<()>> = locks
+                        .get_with_by_ref(&key, async { Arc::new(async_lock::Mutex::new(())) })
+                        .await;
+                    // lock_arc(): same reason as above
+                    let _guard = mutex.lock_arc().await;
+
+                    let active = c.fetch_add(1, Ordering::SeqCst) + 1;
+                    m.fetch_max(active, Ordering::SeqCst);
+                    b.wait().await;
+                    c.fetch_sub(1, Ordering::SeqCst);
+                }));
+            }
+
+            for handle in handles {
+                handle.await.unwrap();
+            }
+
+            assert_eq!(max_concurrent.load(Ordering::SeqCst), 2);
+        }
+
+        /// Regression: 1:1 DM recipient must use bare Signal address matching
+        /// the receive path. Starts from device-specific JID and verifies
+        /// to_non_ad() normalization produces the correct bare key.
+        #[tokio::test]
+        async fn dm_recipient_uses_bare_address() {
+            let client = crate::test_utils::create_test_client().await;
+
+            // Start from device-specific JID, exercise the production path
+            let recipient_device33 = Jid::from_str("100000012345678:33@lid").unwrap();
+            let own_device_5 = Jid::from_str("999999999999:5@s.whatsapp.net").unwrap();
+
+            // Same normalization as send_message_impl
+            let recipient_bare = client
+                .resolve_encryption_jid(&recipient_device33)
+                .await
+                .to_non_ad();
+
+            let all_dm_jids = vec![recipient_bare.clone(), own_device_5.clone()];
+            let lock_jids = client.build_session_lock_keys(&all_dm_jids).await;
+
+            // Recipient lock key must be BARE (device 0), matching decrypt path
+            assert_eq!(
+                recipient_bare.to_protocol_address_string(),
+                "100000012345678@lid.0"
+            );
+            assert!(lock_jids.contains(&recipient_bare));
+
+            // Own device lock key must be device-specific
+            assert!(lock_jids.contains(&own_device_5));
+
+            // Device-specific recipient key must NOT be present
+            assert!(
+                !lock_jids.contains(&recipient_device33),
+                "recipient must NOT use device-specific address"
+            );
+        }
+
+        /// Verify bare normalization deduplicates multiple recipient devices.
+        #[test]
+        fn bare_normalization_deduplicates_recipient_devices() {
+            let devices: Vec<Jid> = [
+                "100000012345678@lid",
+                "100000012345678:5@lid",
+                "100000012345678:33@lid",
+            ]
+            .iter()
+            .map(|s| Jid::from_str(s).unwrap())
+            .collect();
+
+            // All collapse to the same bare JID
+            let bare: Vec<Jid> = devices.iter().map(|j| j.to_non_ad()).collect();
+            assert!(bare.windows(2).all(|w| w[0] == w[1]));
+            assert_eq!(
+                bare[0].to_protocol_address_string(),
+                "100000012345678@lid.0"
+            );
+        }
+
+        /// Every key handed in ends up locked, and every one is released when
+        /// the guards are dropped. The device counts are the three the DM path
+        /// actually produces: none (a fan-out that resolved to nothing), one
+        /// (a steady 1:1) and several (companion devices in play).
+        #[tokio::test]
+        async fn taking_guards_locks_every_key_and_releasing_them_frees_every_key() {
+            let client = crate::test_utils::create_test_client_with_name("guards_cover").await;
+
+            for count in [0usize, 1, 3] {
+                let devices: Vec<Jid> = (0..count)
+                    .map(|i| Jid::from_str(&format!("10000001234567{i}:5@lid")).unwrap())
+                    .collect();
+                let keys = client.build_session_lock_keys(&devices).await;
+                assert_eq!(keys.len(), count, "one key per device at count {count}");
+                let mutexes = client.session_mutexes_for(&keys).await;
+
+                let guards = client.session_guards_for(&keys).await;
+                assert_eq!(guards.len(), count, "one guard per key at count {count}");
+                for (i, mutex) in mutexes.iter().enumerate() {
+                    assert!(
+                        mutex.try_lock().is_none(),
+                        "key {i} of {count} must be held while the guards live"
+                    );
+                }
+
+                drop(guards);
+                for (i, mutex) in mutexes.iter().enumerate() {
+                    assert!(
+                        mutex.try_lock().is_some(),
+                        "key {i} of {count} must be free once the guards are dropped"
+                    );
+                }
+            }
+        }
+
+        /// The keys are locked in the order given, which is the sorted order
+        /// `build_session_lock_keys` produces. That single global order is the
+        /// only thing keeping two sends that overlap on a device from
+        /// deadlocking, so acquiring out of order must be observable.
+        ///
+        /// Blocking the SECOND key and then waiting for the FIRST to become
+        /// contended is what pins the order down: a taker that went second-first
+        /// would park on the blocked key and never touch the first one.
+        #[tokio::test]
+        async fn keys_are_locked_in_the_order_they_are_given() {
+            let client = crate::test_utils::create_test_client_with_name("guards_order").await;
+
+            let devices: Vec<Jid> = ["100000012345670:5@lid", "100000012345671:5@lid"]
+                .iter()
+                .map(|s| Jid::from_str(s).unwrap())
+                .collect();
+            let keys = client.build_session_lock_keys(&devices).await;
+            assert_eq!(keys.len(), 2);
+            let mutexes = client.session_mutexes_for(&keys).await;
+
+            let blocker = mutexes[1].lock_arc().await;
+
+            let mut taker = tokio::spawn({
+                let client = client.clone();
+                let keys = keys.clone();
+                async move { client.session_guards_for(&keys).await.len() }
+            });
+
+            // Bounded work, not a deadline: yield until the first key is taken.
+            let mut polls = 0;
+            while mutexes[0].try_lock().is_some() {
+                polls += 1;
+                assert!(
+                    polls < 10_000,
+                    "the first key was never taken, so acquisition did not start there"
+                );
+                tokio::task::yield_now().await;
+            }
+            assert!(
+                futures::poll!(&mut taker).is_pending(),
+                "the taker must still be parked on the second key"
+            );
+
+            drop(blocker);
+            assert_eq!(taker.await.expect("taker finishes"), 2);
+        }
+    }
+
+    // ---- outbound messageSecret capture ---------------------------------
+
+    use crate::store::commands::DeviceCommand;
+    use std::sync::Arc;
+
+    async fn seed_pn(client: &Arc<Client>, pn: &str) {
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(pn.parse().expect("pn"))))
+            .await;
+    }
+
+    async fn seed_pn_and_lid(client: &Arc<Client>, pn: &str, lid: &str) {
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(pn.parse().expect("pn"))))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(lid.parse().expect("lid"))))
+            .await;
+    }
+
+    pub(super) fn peer_test_account_proto() -> wa::ADVSignedDeviceIdentity {
+        {
+            let mut proto = wa::ADVSignedDeviceIdentity::default();
+            proto.details = Some(vec![0u8; 32]);
+            proto.account_signature_key = Some(vec![0u8; 32]);
+            proto.account_signature = Some(vec![0u8; 64]);
+            proto.device_signature = Some(vec![0u8; 64]);
+            proto
+        }
+    }
+
+    async fn seed_peer_send_state(client: &Arc<Client>, peer: &Jid) {
+        use wacore::libsignal::protocol::{
+            IdentityKeyPair, KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet,
+            process_prekey_bundle,
+        };
+
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetAccount(Some(peer_test_account_proto())))
+            .await;
+
+        let bundle =
+            tokio::task::spawn_blocking(|| -> Result<PreKeyBundle, SignalProtocolError> {
+                let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+                let receiver = IdentityKeyPair::generate(&mut rng);
+                let spk = KeyPair::generate(&mut rng);
+                let opk = KeyPair::generate(&mut rng);
+                let sig = receiver
+                    .private_key()
+                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
+
+                PreKeyBundle::new(
+                    1,
+                    1u32.into(),
+                    Some((1u32.into(), opk.public_key)),
+                    1u32.into(),
+                    spk.public_key,
+                    sig,
+                    *receiver.identity_key(),
+                )
+            })
+            .await
+            .expect("prekey bundle task")
+            .expect("prekey bundle");
+
+        let mut adapter = client.signal_adapter();
+        let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+        process_prekey_bundle(
+            &peer.to_protocol_address(),
+            &mut adapter.session_store,
+            &mut adapter.identity_store,
+            &bundle,
+            &mut rng,
+            UsePQRatchet::No,
+        )
+        .await
+        .expect("peer session");
+    }
+
+    fn pdo_request_message(request_type: wa::message::PeerDataOperationRequestType) -> wa::Message {
+        {
+            let mut proto_ = wa::Message::default();
+            proto_.protocol_message = buffa::MessageField::some({
+                let mut proto_ = wa::message::ProtocolMessage::default();
+                proto_.r#type =
+                    Some(wa::message::protocol_message::Type::PeerDataOperationRequestMessage);
+                proto_.peer_data_operation_request_message = buffa::MessageField::some({
+                    let mut proto = wa::message::PeerDataOperationRequestMessage::default();
+                    proto.peer_data_operation_request_type = Some(request_type);
+                    proto
+                });
+                proto_
+            });
+            proto_
+        }
+    }
+
+    #[tokio::test]
+    async fn peer_pdo_send_path_stamps_history_sync_options() {
+        let client = crate::test_utils::create_test_client_with_name("peer_pdo_attrs").await;
+        let peer: Jid = "100000000000001@s.whatsapp.net".parse().unwrap();
+        seed_peer_send_state(&client, &peer).await;
+
+        let request_id = "PDO_PEER_ATTRS_1";
+        let waiter = client
+            .wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("id", request_id));
+        let msg =
+            pdo_request_message(wa::message::PeerDataOperationRequestType::HistorySyncOnDemand);
+
+        let result = client
+            .send_message_impl(
+                peer,
+                &msg,
+                SendPipelineOptions {
+                    request_id: Some(request_id),
+                    peer: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "test client has no socket; send should fail after stanza capture"
+        );
+
+        let node = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("sent node should be captured")
+            .expect("sent node waiter should resolve");
+        assert_eq!(
+            node.attrs().optional_string("category").unwrap().as_ref(),
+            "peer"
+        );
+        assert_eq!(
+            node.attrs()
+                .optional_string("push_priority")
+                .unwrap()
+                .as_ref(),
+            "high_force"
+        );
+        assert_eq!(
+            node.attrs()
+                .optional_string("privacy_sensitive")
+                .unwrap()
+                .as_ref(),
+            "1"
+        );
+    }
+
+    #[tokio::test]
+    async fn stanza_type_override_sets_wire_type_attr() {
+        let client = crate::test_utils::create_test_client_with_name("stanza_type_override").await;
+        let peer: Jid = "100000000000003@s.whatsapp.net".parse().unwrap();
+        seed_peer_send_state(&client, &peer).await;
+
+        let request_id = "STANZA_TYPE_OVERRIDE_1";
+        let waiter = client
+            .wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("id", request_id));
+        let msg =
+            pdo_request_message(wa::message::PeerDataOperationRequestType::HistorySyncOnDemand);
+
+        // Poll is never the type for this message; it can only come from the override.
+        let result = client
+            .send_message_impl(
+                peer,
+                &msg,
+                SendPipelineOptions {
+                    request_id: Some(request_id),
+                    peer: true,
+                    stanza_type: Some(StanzaType::Poll),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "test client has no socket; send should fail after stanza capture"
+        );
+
+        let node = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("sent node should be captured")
+            .expect("sent node waiter should resolve");
+        assert_eq!(
+            node.attrs().optional_string("type").unwrap().as_ref(),
+            StanzaType::Poll.as_wire()
+        );
+    }
+
+    /// Shared setup for the DM wire-namespace regression tests: own PN/LID +
+    /// account, the peer's LID mapping, device-registry entries for both peer
+    /// namespaces and self, offline-sync completion, and a seeded Signal
+    /// session for the peer's LID device so the offline fanout can encrypt
+    /// without a socket. Returns `(peer_pn, peer_lid)`.
+    async fn seed_dm_wire_namespace_state(client: &Arc<Client>) -> (Jid, Jid) {
+        let peer_lid: Jid = "555000000000777@lid".parse().unwrap();
+        seed_dm_wire_namespace_state_for_peer_lid(client, peer_lid).await
+    }
+
+    async fn seed_dm_wire_namespace_state_for_peer_lid(
+        client: &Arc<Client>,
+        peer_lid: Jid,
+    ) -> (Jid, Jid) {
+        use wacore::libsignal::protocol::{
+            IdentityKeyPair, KeyPair, PreKeyBundle, SignalProtocolError, UsePQRatchet,
+            process_prekey_bundle,
+        };
+
+        // A LID-addressed DM requires the device's own PN and LID to be known.
+        let own_pn: Jid = "111111111111@s.whatsapp.net".parse().unwrap();
+        let own_lid: Jid = "222222222222@lid".parse().unwrap();
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(own_pn.clone())))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(own_lid)))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetAccount(Some(peer_test_account_proto())))
+            .await;
+
+        // The peer is LID-mapped: the wire namespace is then decided solely by
+        // the account's migration state.
+        let peer_pn: Jid = "100000000000777@s.whatsapp.net".parse().unwrap();
+        client
+            .add_lid_pn_mapping(
+                peer_lid.user.as_str(),
+                peer_pn.user.as_str(),
+                crate::lid_pn_cache::LearningSource::Usync,
+            )
+            .await
+            .expect("seed lid mapping");
+
+        // Pre-seed the device registry for the peer (both namespaces) and self
+        // so the offline send resolves the fanout from cache instead of
+        // blocking on a network device-list fetch (which would time out with
+        // no socket).
+        for user in [
+            Arc::from(peer_lid.user.as_str()),
+            Arc::from(peer_pn.user.as_str()),
+            Arc::<str>::from(own_pn.user.as_str()),
+        ] {
+            client
+                .update_device_list(wacore::store::traits::DeviceListRecord {
+                    user,
+                    devices: [wacore::store::traits::DeviceInfo::new(0, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                })
+                .await
+                .expect("seed device registry");
+        }
+
+        // The test client never connects, so the send's `ensure_e2e_sessions`
+        // would otherwise block on `wait_for_offline_delivery_end` until
+        // timeout. Enter live state synchronously (the real finisher now runs
+        // as a spawned task).
+        client.enter_live_mode_for_tests();
+
+        // Seed a Signal session for the peer's LID device so the offline fanout
+        // can encrypt without fetching prekeys over the (absent) socket. The
+        // session lives under the LID address in both tests: Signal addressing
+        // is LID-first regardless of the wire namespace (WAWebSignalAddress).
+        let lid_addr = peer_lid.to_non_ad();
+        let bundle =
+            tokio::task::spawn_blocking(|| -> Result<PreKeyBundle, SignalProtocolError> {
+                let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+                let receiver = IdentityKeyPair::generate(&mut rng);
+                let spk = KeyPair::generate(&mut rng);
+                let opk = KeyPair::generate(&mut rng);
+                let sig = receiver
+                    .private_key()
+                    .calculate_signature(&spk.public_key.serialize(), &mut rng)?;
+                PreKeyBundle::new(
+                    1,
+                    1u32.into(),
+                    Some((1u32.into(), opk.public_key)),
+                    1u32.into(),
+                    spk.public_key,
+                    sig,
+                    *receiver.identity_key(),
+                )
+            })
+            .await
+            .expect("prekey bundle task")
+            .expect("prekey bundle");
+        {
+            let mut adapter = client.signal_adapter();
+            let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+            process_prekey_bundle(
+                &lid_addr.to_protocol_address(),
+                &mut adapter.session_store,
+                &mut adapter.identity_store,
+                &bundle,
+                &mut rng,
+                UsePQRatchet::No,
+            )
+            .await
+            .expect("peer lid session");
+        }
+
+        (peer_pn, peer_lid)
+    }
+
+    /// Regression for #730: on a 1:1-LID-migrated account, a DM to a
+    /// LID-mapped peer must address the outer `<message to>` by LID, matching
+    /// the LID `<participants>`. Pre-fix the outer `to` kept the caller's PN,
+    /// so a PN-to over LID participants was rejected wholesale by the server
+    /// with `ack error="400"` and never delivered (while the send still
+    /// returned Ok). WAWebSendMsgCreateFanoutStanza builds the whole stanza
+    /// from one CHAT_JID (the LID after migration).
+    #[tokio::test]
+    async fn dm_to_lid_mapped_peer_addresses_outer_to_by_lid() {
+        let client = crate::test_utils::create_test_client_with_name("lid_dm_to").await;
+        let (peer_pn, peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        // LID wire addressing is gated on the account being 1:1-LID-migrated.
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLidMigrated(true))
+            .await;
+
+        let request_id = "LID_DM_TO_1";
+        let waiter = client
+            .wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("id", request_id));
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi".into());
+            proto
+        };
+        // Caller passes the PN form; the resolved namespace must win on the wire.
+        let result = client
+            .send_message_impl(
+                peer_pn,
+                &msg,
+                SendPipelineOptions {
+                    request_id: Some(request_id),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "test client has no socket; send captures the stanza then errors"
+        );
+
+        let node = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("sent node should be captured")
+            .expect("sent node waiter should resolve");
+
+        // The fix: outer `<message to>` is the LID, not the caller's PN.
+        let to_str = node
+            .attrs()
+            .optional_string("to")
+            .expect("message has a to")
+            .into_owned();
+        let to_jid: Jid = to_str.parse().expect("to parses");
+        assert!(
+            to_jid.is_lid(),
+            "outer <message to> must be LID to match the LID participants, got {to_str}"
+        );
+        assert_eq!(
+            to_jid.user.as_str(),
+            peer_lid.user.as_str(),
+            "outer to user must be the peer LID"
+        );
+
+        // Uniformity guard: every <participants>/<to> is LID too (no mix).
+        let participants = node
+            .get_optional_child("participants")
+            .expect("stanza has participants");
+        let entries = participants.children().expect("participants has children");
+        assert!(
+            !entries.is_empty(),
+            "fanout must target at least the recipient"
+        );
+        for entry in entries {
+            let pj: Jid = entry
+                .attrs()
+                .optional_string("jid")
+                .expect("participant jid")
+                .parse()
+                .expect("participant jid parses");
+            assert!(
+                pj.is_lid(),
+                "participant {pj} must be LID (uniform namespace)"
+            );
+        }
+    }
+
+    /// Regression for #941: an account that is NOT 1:1-LID-migrated must keep
+    /// DM wire addressing on PN even with a cached LID mapping — the server
+    /// 400-nacks LID-addressed DMs from unmigrated accounts. WA Web only
+    /// addresses 1:1 chats by LID once `Lid1X1MigrationUtils.isLidMigrated()`.
+    #[tokio::test]
+    async fn dm_from_unmigrated_account_addresses_outer_to_by_pn() {
+        let client = crate::test_utils::create_test_client_with_name("pn_dm_to").await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let request_id = "PN_DM_TO_1";
+        let waiter = client
+            .wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("id", request_id));
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi".into());
+            proto
+        };
+        let result = client
+            .send_message_impl(
+                peer_pn.clone(),
+                &msg,
+                SendPipelineOptions {
+                    request_id: Some(request_id),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(
+            result.is_err(),
+            "test client has no socket; send captures the stanza then errors"
+        );
+
+        let node = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("sent node should be captured")
+            .expect("sent node waiter should resolve");
+
+        let to_str = node
+            .attrs()
+            .optional_string("to")
+            .expect("message has a to")
+            .into_owned();
+        let to_jid: Jid = to_str.parse().expect("to parses");
+        assert!(
+            to_jid.is_pn(),
+            "outer <message to> must stay PN on an unmigrated account, got {to_str}"
+        );
+        assert_eq!(
+            to_jid.user.as_str(),
+            peer_pn.user.as_str(),
+            "outer to user must be the peer PN"
+        );
+
+        // Uniformity guard: every <participants>/<to> is PN too (no mix).
+        let participants = node
+            .get_optional_child("participants")
+            .expect("stanza has participants");
+        let entries = participants.children().expect("participants has children");
+        assert!(
+            !entries.is_empty(),
+            "fanout must target at least the recipient"
+        );
+        for entry in entries {
+            let pj: Jid = entry
+                .attrs()
+                .optional_string("jid")
+                .expect("participant jid")
+                .parse()
+                .expect("participant jid parses");
+            assert!(
+                pj.is_pn(),
+                "participant {pj} must be PN (uniform namespace)"
+            );
+        }
+    }
+
+    /// Newsletter JIDs must be rejected at the E2E send path root (covers the
+    /// mis-routed pin/edit/revoke producers that call send_message_impl directly).
+    #[tokio::test]
+    async fn newsletter_jid_rejected_on_e2e_send_path() {
+        let client = crate::test_utils::create_test_client_with_name("newsletter_e2e_guard").await;
+        let channel: Jid = "120363000000000001@newsletter".parse().unwrap();
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("x".to_string());
+            proto
+        };
+        let err = client
+            .send_message_impl(channel, &msg, SendPipelineOptions::default())
+            .await
+            .expect_err("newsletter JID must be rejected on the E2E send path");
+        assert!(
+            err.to_string().to_lowercase().contains("newsletter"),
+            "error should name the newsletter mis-route, got: {err}"
+        );
+    }
+
+    /// The pin producer routes through send_message_impl, so a newsletter pin is
+    /// rejected rather than building an encrypted fanout against a channel.
+    #[tokio::test]
+    async fn pin_message_rejects_newsletter() {
+        let client = crate::test_utils::create_test_client_with_name("newsletter_pin_guard").await;
+        let channel: Jid = "120363000000000002@newsletter".parse().unwrap();
+        let key = {
+            let mut proto = wa::MessageKey::default();
+            proto.remote_jid = Some(channel.to_string());
+            proto.from_me = Some(true);
+            proto.id = Some("MID".to_string());
+            proto.participant = None;
+            proto
+        };
+        let err = client
+            .pin_message_raw(channel, key, PinDuration::Days7)
+            .await
+            .expect_err("pinning a newsletter message must be rejected");
+        assert!(
+            err.to_string().to_lowercase().contains("newsletter"),
+            "error should name the newsletter mis-route, got: {err}"
+        );
+    }
+
+    /// Newsletter edit: plaintext `<message edit="3">` keyed by server_id, with the
+    /// new content in `<plaintext>`. Keyed by the message id STRING (not server_id),
+    /// and a text edit carries no mediatype.
+    #[test]
+    fn build_newsletter_edit_node_emits_plaintext_edit() {
+        use buffa::Message as _;
+        let to: Jid = "120363000000000001@newsletter".parse().unwrap();
+        let content = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("edited text".to_string());
+            proto
+        };
+        let node =
+            build_newsletter_edit_node(&to, "3EB0EDITTARGET", NewsletterEdit::Edit(&content));
+
+        let mut a = node.attrs();
+        assert_eq!(a.optional_string("id").unwrap().as_ref(), "3EB0EDITTARGET");
+        assert_eq!(a.optional_string("type").unwrap().as_ref(), "text");
+        assert_eq!(a.optional_string("edit").unwrap().as_ref(), "3");
+
+        let pt = node
+            .get_optional_child("plaintext")
+            .expect("plaintext child");
+        assert!(
+            pt.attrs().optional_string("mediatype").is_none(),
+            "a text edit must not carry a mediatype attr"
+        );
+        let bytes = match pt.content.as_ref() {
+            Some(NodeContent::Bytes(b)) => b.clone(),
+            other => panic!("expected plaintext bytes, got {other:?}"),
+        };
+        let decoded = wa::Message::decode_from_slice(bytes.as_slice()).expect("decode plaintext");
+        assert_eq!(decoded.conversation.as_deref(), Some("edited text"));
+    }
+
+    /// Media newsletter edit: type="media" + `<plaintext mediatype="image">`.
+    #[test]
+    fn build_newsletter_edit_node_media_edit() {
+        let to: Jid = "120363000000000001@newsletter".parse().unwrap();
+        let content = {
+            let mut proto = wa::Message::default();
+            proto.image_message = buffa::MessageField::some({
+                let mut proto = wa::message::ImageMessage::default();
+                proto.caption = Some("new caption".to_string());
+                proto
+            });
+            proto
+        };
+        let node = build_newsletter_edit_node(&to, "3EB0MEDIA", NewsletterEdit::Edit(&content));
+
+        let mut a = node.attrs();
+        assert_eq!(a.optional_string("id").unwrap().as_ref(), "3EB0MEDIA");
+        assert_eq!(a.optional_string("type").unwrap().as_ref(), "media");
+        assert_eq!(a.optional_string("edit").unwrap().as_ref(), "3");
+        let pt = node
+            .get_optional_child("plaintext")
+            .expect("plaintext child");
+        assert_eq!(
+            pt.attrs().optional_string("mediatype").unwrap().as_ref(),
+            "image"
+        );
+    }
+
+    /// Newsletter revoke: plaintext `<message type="text" edit="8">` keyed by the
+    /// message id STRING, with an empty `<plaintext>`.
+    #[test]
+    fn build_newsletter_edit_node_revoke_is_empty_plaintext() {
+        let to: Jid = "120363000000000002@newsletter".parse().unwrap();
+        let node = build_newsletter_edit_node(&to, "3EB0REVOKETARGET", NewsletterEdit::Revoke);
+
+        let mut a = node.attrs();
+        assert_eq!(
+            a.optional_string("id").unwrap().as_ref(),
+            "3EB0REVOKETARGET"
+        );
+        assert_eq!(a.optional_string("type").unwrap().as_ref(), "text");
+        assert_eq!(a.optional_string("edit").unwrap().as_ref(), "8");
+
+        let pt = node
+            .get_optional_child("plaintext")
+            .expect("plaintext child");
+        let empty = match pt.content.as_ref() {
+            None => true,
+            Some(NodeContent::Bytes(b)) => b.is_empty(),
+            _ => false,
+        };
+        assert!(empty, "revoke must carry an empty plaintext");
+    }
+
+    /// The public newsletter().edit_message wrapper emits the plaintext edit stanza
+    /// keyed by the message id it was given.
+    #[tokio::test]
+    async fn newsletter_edit_message_wrapper_sends_plaintext_edit() {
+        let client = crate::test_utils::create_test_client_with_name("nl_edit_wrap").await;
+        let channel: Jid = "120363000000000001@newsletter".parse().unwrap();
+        let waiter =
+            client.wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("edit", "3"));
+        let content = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("edited".to_string());
+            proto
+        };
+        // No socket on the test client: send_node captures the node, then errors.
+        let _ = client
+            .newsletter()
+            .edit_message_raw(&channel, "TARGETMID", content)
+            .await;
+
+        let node = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("sent node captured")
+            .expect("waiter resolves");
+        let mut a = node.attrs();
+        assert_eq!(a.optional_string("id").unwrap().as_ref(), "TARGETMID");
+        assert_eq!(a.optional_string("edit").unwrap().as_ref(), "3");
+    }
+
+    /// The newsletter edit/revoke methods reject non-newsletter JIDs, so a misuse
+    /// cannot send plaintext content to a DM/group (it would not be E2E-encrypted).
+    #[tokio::test]
+    async fn newsletter_edit_revoke_reject_non_newsletter_jid() {
+        let client = crate::test_utils::create_test_client_with_name("nl_reject_nonchannel").await;
+        let dm: Jid = "5511999999999@s.whatsapp.net".parse().unwrap();
+        let group: Jid = "120363000000000009@g.us".parse().unwrap();
+
+        let e1 = client
+            .newsletter()
+            .edit_message_raw(&dm, "MID", {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("x".to_string());
+                proto
+            })
+            .await
+            .expect_err("edit_message must reject a DM JID");
+        assert!(e1.to_string().to_lowercase().contains("newsletter"));
+
+        let e2 = client
+            .newsletter()
+            .revoke_message_raw(&group, "MID")
+            .await
+            .expect_err("revoke_message must reject a group JID");
+        assert!(e2.to_string().to_lowercase().contains("newsletter"));
+    }
+
+    /// An empty message_id (NewsletterMessage.message_id may be empty if the server
+    /// omitted the id) is rejected rather than sending a target-less id="" stanza.
+    #[tokio::test]
+    async fn newsletter_edit_revoke_reject_empty_message_id() {
+        let client = crate::test_utils::create_test_client_with_name("nl_reject_empty_id").await;
+        let channel: Jid = "120363000000000001@newsletter".parse().unwrap();
+
+        let e1 = client
+            .newsletter()
+            .edit_message_raw(&channel, "", {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("x".to_string());
+                proto
+            })
+            .await
+            .expect_err("edit_message must reject an empty message_id");
+        assert!(e1.to_string().to_lowercase().contains("message_id"));
+
+        let e2 = client
+            .newsletter()
+            .revoke_message_raw(&channel, "")
+            .await
+            .expect_err("revoke_message must reject an empty message_id");
+        assert!(e2.to_string().to_lowercase().contains("message_id"));
+    }
+
+    #[tokio::test]
+    async fn persist_outbound_msg_secret_writes_under_chat_sender_id() {
+        let client = crate::test_utils::create_test_client_with_name("secret_chat_id").await;
+        seed_pn(&client, "5511000000001:0@s.whatsapp.net").await;
+        let chat: Jid = "5511777776666@s.whatsapp.net".parse().unwrap();
+        let sender: Jid = "5511000000001:0@s.whatsapp.net".parse().unwrap();
+        let secret = [0x55u8; 32];
+        client
+            .persist_outbound_msg_secret(
+                &chat,
+                &sender,
+                "MID_1",
+                &secret,
+                wacore::msg_secret::RetentionClass::Text,
+                SendInstant::now(),
+            )
+            .await;
+        client.msg_secret_buffer.wait_flushed().await;
+        let got = client
+            .persistence_manager
+            .backend()
+            .get_msg_secret(
+                "5511777776666@s.whatsapp.net",
+                "5511000000001@s.whatsapp.net",
+                "MID_1",
+            )
+            .await
+            .expect("get");
+        assert_eq!(got.as_deref(), Some(&secret[..]));
+    }
+
+    #[tokio::test]
+    async fn persist_outbound_msg_secret_strips_devices_in_key() {
+        let client = crate::test_utils::create_test_client_with_name("secret_strip").await;
+        let chat_with_dev: Jid = "5511777776666:7@s.whatsapp.net".parse().unwrap();
+        let sender_with_dev: Jid = "5511000000001:3@s.whatsapp.net".parse().unwrap();
+        client
+            .persist_outbound_msg_secret(
+                &chat_with_dev,
+                &sender_with_dev,
+                "MID_4",
+                &[2u8; 32],
+                wacore::msg_secret::RetentionClass::Text,
+                SendInstant::now(),
+            )
+            .await;
+        client.msg_secret_buffer.wait_flushed().await;
+        let got = client
+            .persistence_manager
+            .backend()
+            .get_msg_secret(
+                "5511777776666@s.whatsapp.net",
+                "5511000000001@s.whatsapp.net",
+                "MID_4",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            got.as_deref(),
+            Some(&[2u8; 32][..]),
+            "chat and sender must be stored non-AD"
+        );
+    }
+
+    #[tokio::test]
+    async fn dm_sender_identity_picks_lid_for_bot_else_pn() {
+        let client = crate::test_utils::create_test_client_with_name("dm_id_pick").await;
+        seed_pn_and_lid(
+            &client,
+            "5511000000001:0@s.whatsapp.net",
+            "999888777666555:0@lid",
+        )
+        .await;
+        let bot_chat: Jid = "867051314767696@bot".parse().unwrap();
+        let pn_chat: Jid = "5511777776666@s.whatsapp.net".parse().unwrap();
+        let lid_chat: Jid = "111222333444555@lid".parse().unwrap();
+        assert_eq!(
+            client
+                .dm_sender_identity_for(&bot_chat)
+                .await
+                .map(|j| j.to_non_ad_string()),
+            Some("999888777666555@lid".to_string()),
+            "bot chats must resolve to our LID"
+        );
+        assert_eq!(
+            client
+                .dm_sender_identity_for(&pn_chat)
+                .await
+                .map(|j| j.to_non_ad_string()),
+            Some("5511000000001@s.whatsapp.net".to_string()),
+            "PN chats must resolve to our PN"
+        );
+        // LID-DM is presently routed under PN; flagged as a follow-up only
+        // because production hasn't surfaced it. Documented behaviour.
+        assert_eq!(
+            client
+                .dm_sender_identity_for(&lid_chat)
+                .await
+                .map(|j| j.to_non_ad_string()),
+            Some("5511000000001@s.whatsapp.net".to_string()),
+        );
+    }
+
+    /// Regression for Codex P2 (LID-mode group bot replies): the persisted
+    /// sender must match whatever `prepare_group_stanza` picked for the
+    /// group's addressing_mode, surfaced via `PreparedGroupStanza.sender_identity`.
+    #[tokio::test]
+    async fn persist_uses_group_sender_identity_for_lid_mode_groups() {
+        let client = crate::test_utils::create_test_client_with_name("secret_lid_group").await;
+        seed_pn_and_lid(
+            &client,
+            "5511000000001:0@s.whatsapp.net",
+            "999888777666555:0@lid",
+        )
+        .await;
+        // Simulate a LID-mode group: addressing identity is our LID, not PN.
+        let group_chat: Jid = "120363021033254949@g.us".parse().unwrap();
+        let lid_sender: Jid = "999888777666555:0@lid".parse().unwrap();
+        let secret = [0x4Du8; 32];
+        client
+            .persist_outbound_msg_secret(
+                &group_chat,
+                &lid_sender,
+                "GROUP_MID",
+                &secret,
+                wacore::msg_secret::RetentionClass::Text,
+                SendInstant::now(),
+            )
+            .await;
+        client.msg_secret_buffer.wait_flushed().await;
+        let got = client
+            .persistence_manager
+            .backend()
+            .get_msg_secret(
+                "120363021033254949@g.us",
+                "999888777666555@lid",
+                "GROUP_MID",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            got.as_deref(),
+            Some(&secret[..]),
+            "LID-mode group secrets must key under our LID, not PN"
+        );
+        let under_pn = client
+            .persistence_manager
+            .backend()
+            .get_msg_secret(
+                "120363021033254949@g.us",
+                "5511000000001@s.whatsapp.net",
+                "GROUP_MID",
+            )
+            .await
+            .unwrap();
+        assert!(
+            under_pn.is_none(),
+            "LID-mode group must NOT key under our PN"
+        );
+    }
+
+    /// Regression: `wacore::send::prepare_dm_stanza` mints the
+    /// `message_secret` on a CLONE of the caller's message. Verify the secret
+    /// is surfaced via `PreparedDmStanza.message_secret` so the post-send hook
+    /// can persist it -- without this an original-message-based check would
+    /// miss every ordinary outbound bot prompt.
+    #[test]
+    fn prepared_dm_stanza_exposes_generated_message_secret() {
+        use wacore::reporting_token::generate_reporting_token;
+
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi bot".into());
+            proto
+        };
+        let to: Jid = "867051314767696@bot".parse().unwrap();
+        let result = generate_reporting_token(&msg, "MID_X", &to, &to, None);
+        assert!(
+            result.is_some(),
+            "ordinary text messages must produce a reporting token + secret"
+        );
+        let result = result.unwrap();
+        // PreparedDmStanza/PreparedGroupStanza carry this exact array through to
+        // send_message_impl, which calls persist_outbound_msg_secret with it.
+        assert_eq!(result.message_secret.len(), 32);
+    }
+
+    /// A send names its message once and every downstream stage reads that same
+    /// name: the wire stanza, the phash ack-waiter, the outbound messageSecret
+    /// and the returned `SendResult`. A non-ASCII id is used on purpose — a
+    /// truncating or byte-indexing copy anywhere in that chain would show up
+    /// here and nowhere else.
+    #[tokio::test]
+    async fn one_id_names_the_stanza_the_waiter_the_secret_and_the_result() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let message_id = "ID_ünïcødé_✅_ONE";
+        let result = client
+            .send_message_with_options(
+                peer_pn.clone(),
+                {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendOptions::default().with_message_id(crate::MessageId::new(message_id).unwrap()),
+            )
+            .await
+            .expect("connected test client should complete the send");
+
+        assert_eq!(
+            result.message_id, message_id,
+            "result carries the caller id"
+        );
+        assert_eq!(result.to, peer_pn, "result carries the caller target");
+
+        let waiters = client.response_waiters_guard();
+        assert!(
+            waiters.contains_key(message_id),
+            "the phash ack-waiter must be keyed by the send's own id"
+        );
+        assert_eq!(waiters.len(), 1, "no second entry under another spelling");
+        drop(waiters);
+
+        let secret = client.msg_secret_buffer.lookup(
+            &peer_pn.to_non_ad_string(),
+            &client.pn().expect("own pn").to_non_ad_string(),
+            message_id,
+        );
+        assert!(
+            secret.is_some(),
+            "the outbound messageSecret must be bound to the same id"
+        );
+    }
+
+    /// A DM's `SendResult` carries the recipient fan-out; every other send
+    /// shape leaves it `None` rather than reporting a DM's numbers for a
+    /// question it did not ask. The count itself is covered in wacore, against
+    /// the real fan-out; what this pins is that it survives the trip out
+    /// through `send_message_impl` instead of being dropped at the boundary.
+    #[tokio::test]
+    async fn a_dm_result_carries_its_recipient_fanout() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let result = client
+            .send_message(peer_pn.clone(), {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("hi".into());
+                proto
+            })
+            .await
+            .expect("connected test client should complete the send");
+
+        let fanout = result
+            .recipient_fanout
+            .expect("a DM must report what its recipient half reached");
+        assert_eq!(
+            fanout.encrypted, fanout.addressed,
+            "this fixture keys every device, so nothing was lost"
+        );
+        assert!(!fanout.is_partial());
+        assert!(!fanout.skipped_primary);
+    }
+
+    /// A status reaction borrows the DM branch but keeps `status@broadcast` as
+    /// the result's chat, so the fan-out it happens to compute describes the
+    /// status author's devices and not the send the caller made. Reporting it
+    /// would invite a caller to apply a DM's delivery policy to a status.
+    #[tokio::test]
+    async fn a_status_reaction_reports_no_recipient_fanout() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let reaction = {
+            let mut proto = wa::Message::default();
+            proto.reaction_message = buffa::MessageField::some({
+                let mut proto = wa::message::ReactionMessage::default();
+                proto.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.remote_jid = Some(Jid::status_broadcast().to_string());
+                    proto.from_me = Some(false);
+                    proto.id = Some("STATUSPOST1".into());
+                    proto.participant = Some(peer_pn.to_string());
+                    proto
+                });
+                proto.text = Some("\u{1f44d}".into());
+                proto
+            });
+            proto
+        };
+
+        let result = client
+            .send_message(Jid::status_broadcast(), reaction)
+            .await
+            .expect("a status reaction fans out to the author's devices");
+
+        assert_eq!(result.to, Jid::status_broadcast(), "the chat is the status");
+        assert!(
+            result.recipient_fanout.is_none(),
+            "a status send must not describe itself in a DM's terms"
+        );
+    }
+
+    /// `SendResult::message` is the message as the pipeline encoded it: the
+    /// caller's content plus what the send applied on the caller's behalf
+    /// (here the expiration from `SendOptions`), and without the
+    /// reporting-token context the wire plaintext gains, which the outbound
+    /// secret buffer holds instead. A host that shares one client between
+    /// several consumers reads this to show the others what one of them sent,
+    /// because WhatsApp echoes a send to every device except the sending one.
+    #[tokio::test]
+    async fn a_result_carries_the_message_as_the_send_encoded_it() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let result = client
+            .send_message_with_options(
+                peer_pn.clone(),
+                {
+                    let mut proto = wa::Message::default();
+                    proto.extended_text_message = buffa::MessageField::some({
+                        let mut proto = wa::message::ExtendedTextMessage::default();
+                        proto.text = Some("hi".into());
+                        proto
+                    });
+                    proto
+                },
+                SendOptions::default().with_ephemeral_expiration(86_400),
+            )
+            .await
+            .expect("connected test client should complete the send");
+
+        let sent = result
+            .message
+            .extended_text_message
+            .as_option()
+            .expect("the content the caller passed");
+        assert_eq!(sent.text.as_deref(), Some("hi"));
+        assert_eq!(
+            sent.context_info.as_option().and_then(|c| c.expiration),
+            Some(86_400),
+            "what the send applied on the caller's behalf is part of what it reports"
+        );
+        assert!(
+            result.message.message_context_info.is_unset(),
+            "the reporting-token context is spliced onto the wire plaintext, \
+             not onto the reported message"
+        );
+        assert!(
+            client
+                .msg_secret_buffer
+                .lookup(
+                    &peer_pn.to_non_ad_string(),
+                    &client.pn().expect("own pn").to_non_ad_string(),
+                    result.message_id.as_str(),
+                )
+                .is_some(),
+            "the secret the wire copy carries is still held for the message's add-ons"
+        );
+    }
+
+    /// An edit's result describes the edit: the stanza it went out under and
+    /// the protocol message this crate wrapped the caller's content in. The
+    /// stanza id is the edit's own (the original's would be deduplicated away
+    /// by the server) unless the caller borrowed one through `EditOptions`.
+    #[tokio::test]
+    async fn an_edit_reports_its_own_stanza_and_the_container_it_built() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+        let waiter = client.wait_for_sent_node(
+            crate::client::NodeFilter::tag("message")
+                .attr("edit", EditAttribute::MessageEdit.to_string_val()),
+        );
+
+        let result = client
+            .edit_message_raw(
+                peer_pn.clone(),
+                "ORIGINAL",
+                wa::Message::text("new"),
+                EditOptions::default(),
+            )
+            .await
+            .expect("connected test client should complete the edit");
+
+        let stanza = tokio::time::timeout(std::time::Duration::from_secs(1), waiter)
+            .await
+            .expect("the edit reaches the wire")
+            .expect("sent node waiter resolves");
+        assert_eq!(
+            stanza.attrs().optional_string("id").as_deref(),
+            Some(result.message_id.as_str()),
+            "the result is named by the stanza the edit went out under"
+        );
+        assert_ne!(
+            result.message_id, "ORIGINAL",
+            "an edit is named by its own id, or the server drops it as a duplicate"
+        );
+        assert_eq!(result.to, peer_pn);
+        let container = result
+            .message
+            .protocol_message
+            .as_option()
+            .expect("the edit is a protocol message");
+        assert_eq!(
+            container.r#type,
+            Some(wa::message::protocol_message::Type::MessageEdit)
+        );
+        assert_eq!(
+            container.key.as_option().and_then(|k| k.id.as_deref()),
+            Some("ORIGINAL"),
+            "keyed by the message being edited"
+        );
+        assert_eq!(
+            container
+                .edited_message
+                .as_option()
+                .and_then(|m| m.conversation.as_deref()),
+            Some("new"),
+            "carrying the caller's replacement content"
+        );
+
+        let borrowed = client
+            .edit_message_raw(
+                peer_pn.clone(),
+                "ORIGINAL",
+                wa::Message::text("newer"),
+                EditOptions {
+                    stanza_id: Some(crate::StanzaId::new("BORROWED").unwrap()),
+                },
+            )
+            .await
+            .expect("connected test client should complete the edit");
+        assert_eq!(
+            borrowed.message_id, "BORROWED",
+            "a borrowed stanza id is what the edit was named with"
+        );
+    }
+
+    /// The sends that build their whole message inside this crate (a revoke,
+    /// a pin, a poll) report it the same way, so a caller sees what each put in
+    /// the chat without re-implementing the builder that made it.
+    #[tokio::test]
+    async fn a_revoke_a_pin_and_a_poll_report_the_message_this_crate_built() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let revoke = client
+            .revoke_message_raw(peer_pn.clone(), "TARGET", RevokeType::Sender)
+            .await
+            .expect("connected test client should complete the revoke");
+        assert_ne!(
+            revoke.message_id, "TARGET",
+            "a revoke is named by its own id, not the target's"
+        );
+        assert_eq!(revoke.to, peer_pn);
+        let container = revoke
+            .message
+            .protocol_message
+            .as_option()
+            .expect("the revoke is a protocol message");
+        assert_eq!(
+            container.r#type,
+            Some(wa::message::protocol_message::Type::Revoke)
+        );
+        let key = container.key.as_option().expect("keyed by the target");
+        assert_eq!(key.id.as_deref(), Some("TARGET"));
+        assert_eq!(key.from_me, Some(true));
+        assert_eq!(
+            key.remote_jid.as_deref(),
+            Some(peer_pn.to_string().as_str())
+        );
+
+        let target = {
+            let mut proto = wa::MessageKey::default();
+            proto.remote_jid = Some(peer_pn.to_string());
+            proto.from_me = Some(true);
+            proto.id = Some("TARGET".into());
+            proto.participant = None;
+            proto
+        };
+        let pin = client
+            .pin_message_raw(peer_pn.clone(), target.clone(), PinDuration::Days30)
+            .await
+            .expect("connected test client should complete the pin");
+        let pinned = pin
+            .message
+            .pin_in_chat_message
+            .as_option()
+            .expect("the pin is a pinInChatMessage");
+        assert_eq!(
+            pinned.r#type,
+            Some(wa::message::pin_in_chat_message::Type::PinForAll)
+        );
+        assert_eq!(pinned.key.as_option(), Some(&target));
+        assert_eq!(
+            pin.message
+                .message_context_info
+                .as_option()
+                .and_then(|c| c.message_add_on_duration_in_secs),
+            Some(PinDuration::Days30.as_secs()),
+            "the duration the pin was sent with"
+        );
+
+        let options = ["yes".to_string(), "no".to_string()];
+        let created = client
+            .polls()
+            .create(peer_pn.clone(), "lunch?", &options, 1)
+            .await
+            .expect("connected test client should complete the poll");
+        let poll = created.send_result();
+        let secret = created.secret();
+        let creation = poll
+            .message
+            .poll_creation_message_v3
+            .as_option()
+            .expect("a single-select poll is the v3 shape");
+        assert_eq!(creation.name.as_deref(), Some("lunch?"));
+        assert_eq!(creation.options.len(), 2);
+        assert_eq!(
+            poll.message
+                .message_context_info
+                .as_option()
+                .and_then(|c| c.message_secret.as_deref()),
+            Some(secret.as_bytes().as_slice()),
+            "a poll's own secret is part of the message it built, so the wire \
+             copy and the reported one agree on it"
+        );
+    }
+
+    /// `@c.us` is a spelling of the phone namespace; a caller that names a
+    /// recipient that way is naming a PN user, and the send must treat it as
+    /// one end to end. Left alone it misses `is_pn()` everywhere that matters,
+    /// most damagingly in the pre-key fetch, whose response is matched back by
+    /// whole jid and so reports every bundle as absent.
+    #[tokio::test]
+    async fn a_legacy_namespace_recipient_is_sent_as_a_phone_user() {
+        let (client, transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+        let legacy: Jid = format!("{}@c.us", peer_pn.user).parse().unwrap();
+
+        let message_id = "LEGACYNSDM1";
+        client
+            .send_message_with_options(
+                legacy,
+                {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendOptions::default().with_message_id(crate::MessageId::new(message_id).unwrap()),
+            )
+            .await
+            .expect("a legacy-spelled recipient is a recipient");
+
+        let stanza = crate::test_utils::decode_sent_iq(&transport, 0).await;
+        let stanza = stanza.get();
+        assert_eq!(stanza.tag, "message");
+        // The raw attribute, before parsing: `optional_jid` would resolve
+        // `@c.us` back to `Server::Pn` and pass on a stanza that still spelled
+        // it the old way, which is the regression this is here to catch.
+        let to_raw = stanza
+            .attrs()
+            .optional_string("to")
+            .expect("the stanza names its chat")
+            .to_string();
+        assert_eq!(
+            to_raw,
+            format!("{}@s.whatsapp.net", peer_pn.user),
+            "the legacy spelling must not reach the wire"
+        );
+    }
+
+    /// The exclude list: only what the refresh added is resent. A device the
+    /// send reached has its copy, and one the refresh dropped is not worth a
+    /// second attempt, so neither belongs in the delta.
+    #[test]
+    fn only_the_devices_a_refresh_adds_are_resent() {
+        let peer_primary: Jid = "5511900000090:0@s.whatsapp.net".parse().unwrap();
+        let peer_new: Jid = "5511900000090:4@s.whatsapp.net".parse().unwrap();
+        let peer_gone: Jid = "5511900000090:9@s.whatsapp.net".parse().unwrap();
+        let own_companion: Jid = "5511900000091:2@s.whatsapp.net".parse().unwrap();
+
+        let addressed = [peer_primary.clone(), peer_gone.clone()];
+        let fresh = [
+            peer_primary.clone(),
+            peer_new.clone(),
+            own_companion.clone(),
+        ];
+
+        assert_eq!(
+            devices_missed_by_send(&addressed, &[], &fresh),
+            vec![peer_new, own_companion],
+            "a device the send reached stays out, and one it lost is not chased"
+        );
+        assert!(
+            devices_missed_by_send(&addressed, &[], &addressed).is_empty(),
+            "an unchanged list resends nothing"
+        );
+        assert!(
+            devices_missed_by_send(&fresh, &[], &[]).is_empty(),
+            "a refresh that found nothing resends nothing"
+        );
+    }
+
+    /// Addressed is not reached. A device the fan-out named but could not
+    /// encrypt for holds no copy of the message, so excluding it from the
+    /// delta would leave it with nothing on exactly the send this PR exists
+    /// to make visible.
+    #[test]
+    fn a_device_the_fanout_could_not_encrypt_for_is_still_resent() {
+        let peer_primary: Jid = "5511900000092:0@s.whatsapp.net".parse().unwrap();
+        let peer_companion: Jid = "5511900000092:5@s.whatsapp.net".parse().unwrap();
+
+        let addressed = [peer_primary.clone(), peer_companion.clone()];
+        let unreached = [peer_primary.clone()];
+
+        assert_eq!(
+            devices_missed_by_send(&addressed, &unreached, &addressed),
+            vec![peer_primary],
+            "the device that never got ciphertext is the one to resend to"
+        );
+        assert!(
+            devices_missed_by_send(&addressed, &[], &addressed).is_empty(),
+            "and it is excluded again once it has encrypted"
+        );
+    }
+
+    /// A DM whose ack disagrees on the phash re-resolves the peer's device list
+    /// from the server, which is the first half of the repair: WA Web answers
+    /// the same ack with `fetchResendMissingKeys` + `syncDeviceListJob` before
+    /// enqueueing its resend. Before this the mismatch only dropped caches, so
+    /// the divergence was not acted on until some later send happened to
+    /// re-resolve.
+    #[tokio::test]
+    async fn a_dm_phash_mismatch_re_resolves_the_peer_device_list() {
+        let (client, transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let message_id = "DMPHASHMISMATCH1";
+        client
+            .send_message_with_options(
+                peer_pn.clone(),
+                {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendOptions::default().with_message_id(crate::MessageId::new(message_id).unwrap()),
+            )
+            .await
+            .expect("the send itself succeeds");
+
+        assert!(
+            deliver_dm_ack(&client, message_id, "2:notwhatwesent"),
+            "the send's waiter must claim its own ack"
+        );
+
+        let usync = wait_for_usync_request(&transport, 8).await;
+        assert!(
+            usync,
+            "a disagreeing phash must ask the server for the device list again"
+        );
+    }
+
+    /// Group repair retains a group snapshot rather than taking the DM retry route.
+    #[tokio::test]
+    async fn a_group_phash_mismatch_arms_no_dm_resend() {
+        let fixture = GroupSendFixture::new().await;
+        let message_id = "GROUPPHASHNODMRESEND";
+        fixture.send_with_id(message_id).await;
+
+        let waiter = fixture
+            .client
+            .response_waiters_guard()
+            .remove(message_id)
+            .expect("the group send registered its phash waiter");
+        let crate::client::ResponseWaiter::GroupPhash(waiter, devices) = waiter else {
+            panic!("a phash send registers a phash waiter");
+        };
+        assert!(
+            waiter.dm_devices.is_none(),
+            "a group send must not carry a DM exclude list"
+        );
+        assert!(!devices.devices.devices().is_empty());
+    }
+
+    #[tokio::test]
+    async fn group_repairs_each_original_id_only_to_missed_devices() {
+        use wacore::libsignal::protocol::{
+            CiphertextMessage, GenericSignedPreKey, IdentityKey, PreKeyBundle, PreKeySignalMessage,
+            SignalMessage, SignedPreKeyStore, UsePQRatchet, message_decrypt, process_prekey_bundle,
+        };
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        let fixture = GroupSendFixture::new().await;
+        let ids = ["GROUPREPAIR1", "GROUPREPAIR2"];
+        let mut snapshots = Vec::new();
+        for id in ids {
+            fixture
+                .client
+                .send_message_with_options(
+                    fixture.group.clone(),
+                    wa::Message::text(id),
+                    SendOptions::default().with_message_id(crate::MessageId::new(id).unwrap()),
+                )
+                .await
+                .unwrap();
+            let Some(crate::client::ResponseWaiter::GroupPhash(_, devices)) =
+                fixture.client.response_waiters_guard().remove(id)
+            else {
+                panic!("group waiter missing");
+            };
+            snapshots.push(devices);
+        }
+        let mut missed = fixture.member.clone();
+        missed.device = 2;
+        let receiver = crate::test_utils::create_test_client().await;
+        receiver
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(missed.clone())))
+            .await;
+        let receiver_device = receiver.persistence_manager.get_device_snapshot();
+        let mut receiver_stores = receiver.signal_adapter();
+        let signed_key = receiver_stores
+            .signed_pre_key_store
+            .get_signed_pre_key(1.into())
+            .await
+            .unwrap();
+        let bundle = PreKeyBundle::new(
+            receiver_device.core.registration_id,
+            u32::from(missed.device).into(),
+            None,
+            1.into(),
+            signed_key.public_key().unwrap(),
+            signed_key.signature().unwrap(),
+            IdentityKey::new(receiver_device.core.identity_key.public_key),
+        )
+        .unwrap();
+        let mut sender_stores = fixture.client.signal_adapter();
+        let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+        process_prekey_bundle(
+            &missed.to_protocol_address(),
+            &mut sender_stores.session_store,
+            &mut sender_stores.identity_store,
+            &bundle,
+            &mut rng,
+            UsePQRatchet::No,
+        )
+        .await
+        .unwrap();
+        fixture
+            .client
+            .device_registry_cache
+            .raw_insert_for_tests(
+                Arc::from(fixture.member.user.as_str()),
+                Arc::new(DeviceListRecord {
+                    user: fixture.member.user.as_str().into(),
+                    devices: [DeviceInfo::new(0, None), DeviceInfo::new(2, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                }),
+            )
+            .await;
+        let generation = fixture
+            .client
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let refresh = fixture
+            .client
+            .pending_group_device_resync
+            .refresh(generation, &fixture.group);
+        *refresh.lock().await = Some(true);
+        let before = fixture.transport.sent_count();
+        let device = fixture.client.persistence_manager.get_device_snapshot();
+        let key_name = wacore::libsignal::store::sender_key_name::SenderKeyName::from_parts(
+            &fixture.group.to_string(),
+            fixture.own_sending.to_protocol_address().as_str(),
+        );
+        let sender_key_before = fixture
+            .client
+            .signal_cache
+            .get_sender_key(&key_name, &*device.backend)
+            .await
+            .unwrap()
+            .unwrap();
+        let (first, second) = futures::join!(
+            fixture.client.repair_group_message(
+                &fixture.group,
+                ids[0],
+                snapshots[0].clone(),
+                generation
+            ),
+            fixture.client.repair_group_message(
+                &fixture.group,
+                ids[1],
+                snapshots[1].clone(),
+                generation
+            ),
+        );
+        first.unwrap();
+        second.unwrap();
+        let sender_key_after = fixture
+            .client
+            .signal_cache
+            .get_sender_key(&key_name, &*device.backend)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            sender_key_before.serialize().unwrap(),
+            sender_key_after.serialize().unwrap(),
+            "direct repair must not rotate, advance, or redistribute the sender key"
+        );
+        let mut seen = std::collections::HashSet::new();
+        for index in before..before + 2 {
+            let owned = fixture.stanza(index).await;
+            let node = owned.get();
+            seen.insert(node.attrs().optional_string("id").unwrap().to_string());
+            assert_eq!(node.attrs().optional_jid("to"), Some(fixture.group.clone()));
+            assert_eq!(
+                node.attrs().optional_string("device_fanout").as_deref(),
+                Some("false")
+            );
+            let participants = node.get_optional_child("participants").unwrap();
+            let targets: Vec<_> = participants
+                .children()
+                .unwrap()
+                .iter()
+                .map(|child| child.attrs().optional_jid("jid").unwrap())
+                .collect();
+            assert_eq!(targets, vec![missed.clone()]);
+            let encrypted = participants.children().unwrap()[0]
+                .get_optional_child("enc")
+                .unwrap();
+            let ciphertext = match encrypted.attrs().optional_string("type").as_deref() {
+                Some("pkmsg") => CiphertextMessage::PreKeySignalMessage(
+                    PreKeySignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                ),
+                Some("msg") => CiphertextMessage::SignalMessage(
+                    SignalMessage::try_from(encrypted.content_bytes().unwrap()).unwrap(),
+                ),
+                other => panic!("unexpected direct encryption type {other:?}"),
+            };
+            let plaintext = message_decrypt(
+                &ciphertext,
+                &fixture.own_sending.to_protocol_address(),
+                &mut receiver_stores.session_store,
+                &mut receiver_stores.identity_store,
+                &mut receiver_stores.pre_key_store,
+                &receiver_stores.signed_pre_key_store,
+                &mut rng,
+                UsePQRatchet::No,
+            )
+            .await
+            .unwrap()
+            .plaintext;
+            let unpadded = wacore::messages::unpad_plaintext(plaintext, 2).unwrap();
+            let decoded = waproto::codec::message_decode(&unpadded).unwrap();
+            let id = node.attrs().optional_string("id").unwrap();
+            let original = ids
+                .iter()
+                .position(|original| *original == id.as_ref())
+                .unwrap();
+            let expected = {
+                let mut proto = wa::Message::default();
+                proto.conversation = Some(ids[original].into());
+                proto.message_context_info = buffa::MessageField::some({
+                    let mut proto = wa::MessageContextInfo::default();
+                    proto.message_secret =
+                        Some(snapshots[original].message_secret.unwrap().to_vec());
+                    proto.reporting_token_version =
+                        Some(wacore::reporting_token::REPORTING_TOKEN_VERSION);
+                    proto
+                });
+                proto
+            };
+            assert_eq!(
+                waproto::codec::message_to_vec(&decoded),
+                waproto::codec::message_to_vec(&expected),
+                "direct repair must decrypt to the original protobuf and message secret"
+            );
+            let marker = node.get_optional_child("enc").unwrap();
+            assert_eq!(
+                marker.attrs().optional_string("type").as_deref(),
+                Some("skmsg")
+            );
+            assert!(marker.content_bytes().is_none_or(|bytes| bytes.is_empty()));
+        }
+        assert_eq!(
+            seen,
+            ids.into_iter()
+                .map(str::to_owned)
+                .collect::<std::collections::HashSet<_>>()
+        );
+        assert!(fixture.client.response_waiters_guard().is_empty());
+    }
+
+    #[tokio::test]
+    async fn forced_refresh_cold_send_uses_one_snapshot_for_skdm_phash_and_waiter() {
+        use buffa::Message;
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        let fixture = GroupSendFixture::with_addressing(AddressingMode::Pn, 1).await;
+        let mut refreshed = fixture.member.clone();
+        refreshed.device = 2;
+        crate::test_utils::seed_peer_session(&fixture.client, &refreshed).await;
+        let guard = fixture.client.group_distribution_lock(&fixture.group).await;
+        let mutex = fixture
+            .client
+            .group_distribution_locks
+            .get(&fixture.group)
+            .await
+            .unwrap();
+        let owners = Arc::strong_count(&mutex);
+        let client = Arc::clone(&fixture.client);
+        let group = fixture.group.clone();
+        let send = tokio::spawn(async move {
+            client
+                .send_message_with_options(
+                    group,
+                    wa::Message::text("snapshot"),
+                    SendOptions::default()
+                        .with_message_id(crate::MessageId::new("FROZENGROUPDEVICES").unwrap())
+                        .with_device_freshness(crate::cache::Freshness::Refresh),
+                )
+                .await
+        });
+        let iq_id = fixture.next_iq_id_with_xmlns(0, "usync").await.unwrap();
+        let users = [&fixture.member, &fixture.own_sending]
+            .into_iter()
+            .map(|jid| {
+                let mut devices = vec![NodeBuilder::new("device").attr("id", "0").build()];
+                if jid == &fixture.member {
+                    devices.push(
+                        NodeBuilder::new("device")
+                            .attr("id", "2")
+                            .attr("key-index", "2")
+                            .build(),
+                    );
+                }
+                let index = {
+                    let mut proto = wa::ADVKeyIndexList::default();
+                    proto.raw_id = Some(1);
+                    proto.timestamp = Some(1000);
+                    proto.current_index = Some(2);
+                    proto.valid_indexes = if jid == &fixture.member {
+                        vec![0, 2]
+                    } else {
+                        vec![0]
+                    };
+                    proto
+                };
+                let signed = {
+                    let mut proto = wa::ADVSignedKeyIndexList::default();
+                    proto.details = Some(index.encode_to_vec());
+                    proto
+                };
+                NodeBuilder::new("user")
+                    .attr("jid", jid.clone())
+                    .children([NodeBuilder::new("devices")
+                        .children([
+                            NodeBuilder::new("device-list").children(devices).build(),
+                            NodeBuilder::new("key-index-list")
+                                .attr("ts", "1000")
+                                .bytes(signed.encode_to_vec())
+                                .build(),
+                        ])
+                        .build()])
+                    .build()
+            })
+            .collect::<Vec<_>>();
+        let response = NodeBuilder::new("iq")
+            .attr("type", "result")
+            .attr("id", iq_id.clone())
+            .children([NodeBuilder::new("usync")
+                .children([NodeBuilder::new("list").children(users).build()])
+                .build()])
+            .build();
+        crate::test_utils::answer_iq(&fixture.client, &iq_id, &response).await;
+        crate::test_utils::poll_until("the cold send to hold its refreshed snapshot", || {
+            Arc::strong_count(&mutex) > owners
+        })
+        .await;
+        fixture
+            .client
+            .device_registry_cache
+            .raw_insert_for_tests(
+                Arc::from(fixture.member.user.as_str()),
+                Arc::new(DeviceListRecord {
+                    user: fixture.member.user.as_str().into(),
+                    devices: [DeviceInfo::new(0, None), DeviceInfo::new(3, None)].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                }),
+            )
+            .await;
+        drop(guard);
+        send.await.unwrap().unwrap();
+        let Some(crate::client::ResponseWaiter::GroupPhash(waiter, sent)) = fixture
+            .client
+            .response_waiters_guard()
+            .remove("FROZENGROUPDEVICES")
+        else {
+            panic!("group waiter missing");
+        };
+        assert!(sent.devices.devices().contains(&refreshed));
+        assert!(!sent.devices.devices().iter().any(|jid| jid.device == 3));
+        assert_eq!(
+            Some(waiter.expected.clone()),
+            sent.devices.phash(&fixture.own_sending)
+        );
+        let stanza = fixture.stanza(fixture.transport.sent_count() - 1).await;
+        let node = stanza.get();
+        assert_eq!(
+            node.attrs().optional_string("phash").as_deref(),
+            Some(waiter.expected.as_str())
+        );
+        let targets = node
+            .get_optional_child("participants")
+            .unwrap()
+            .children()
+            .unwrap()
+            .iter()
+            .map(|child| child.attrs().optional_jid("jid").unwrap())
+            .collect::<Vec<_>>();
+        assert!(targets.contains(&refreshed));
+        assert!(!targets.iter().any(|jid| jid.device == 3));
+    }
+
+    #[tokio::test]
+    async fn registry_device_reuse_during_socket_send_cannot_restore_warm_marks() {
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        struct PausedTransport {
+            capture: Arc<crate::transport::mock::CapturingMockTransport>,
+            entered: tokio::sync::Notify,
+            release: tokio::sync::Semaphore,
+        }
+        #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+        impl crate::transport::Transport for PausedTransport {
+            async fn send(&self, data: bytes::Bytes) -> anyhow::Result<()> {
+                crate::transport::Transport::send(self.capture.as_ref(), data).await?;
+                self.entered.notify_one();
+                self.release.acquire().await.unwrap().forget();
+                Ok(())
+            }
+            async fn disconnect(&self) {}
+        }
+
+        for changed_member in [true, false] {
+            let fixture = GroupSendFixture::with_addressing(AddressingMode::Pn, 1).await;
+            let companion = fixture.member.with_device(7);
+            crate::test_utils::seed_peer_session(&fixture.client, &companion).await;
+            fixture
+                .client
+                .update_device_list(DeviceListRecord {
+                    user: fixture.member.user.as_str().into(),
+                    devices: [DeviceInfo::new(0, None), DeviceInfo::new(7, Some(7))].into(),
+                    timestamp: wacore::time::now_secs(),
+                    phash: None,
+                    raw_id: None,
+                })
+                .await
+                .unwrap();
+            let transport = Arc::new(PausedTransport {
+                capture: Arc::clone(&fixture.transport),
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Semaphore::new(0),
+            });
+            let socket = crate::socket::NoiseSocket::with_observers(
+                Arc::clone(&fixture.client.runtime),
+                transport.clone() as Arc<dyn crate::transport::Transport>,
+                wacore::handshake::NoiseCipher::new(&[0; 32]).unwrap(),
+                wacore::handshake::NoiseCipher::new(&[0; 32]).unwrap(),
+                crate::socket::noise_socket::SendObservers::with_stats(
+                    fixture.client.stats.clone(),
+                )
+                .with_sent_frames(fixture.client.sent_frame_tap.clone()),
+            );
+            *fixture.client.noise_socket.lock().unwrap() = Some(Arc::new(socket));
+            let client = Arc::clone(&fixture.client);
+            let group = fixture.group.clone();
+            let send = tokio::spawn(async move {
+                client
+                    .send_message(group, wa::Message::text("in flight"))
+                    .await
+            });
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                transport.entered.notified(),
+            )
+            .await
+            .unwrap();
+            assert!(!send.is_finished());
+            let wire = fixture.stanza(0).await;
+            assert!(
+                wire.get()
+                    .get_optional_child("participants")
+                    .unwrap()
+                    .children()
+                    .unwrap()
+                    .iter()
+                    .any(|node| node.attrs().optional_jid("jid") == Some(companion.clone()))
+            );
+            let distribution = fixture
+                .client
+                .group_distribution_locks
+                .get(&fixture.group)
+                .await
+                .unwrap();
+            assert!(
+                distribution.try_lock().is_none(),
+                "send retains distribution ownership through the socket await"
+            );
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                if changed_member {
+                    fixture
+                        .client
+                        .patch_device_remove(&fixture.member.user, 7)
+                        .await;
+                    fixture
+                        .client
+                        .update_device_list(DeviceListRecord {
+                            user: fixture.member.user.as_str().into(),
+                            devices: [DeviceInfo::new(0, None), DeviceInfo::new(7, Some(8))].into(),
+                            timestamp: wacore::time::now_secs(),
+                            phash: None,
+                            raw_id: None,
+                        })
+                        .await
+                        .unwrap();
+                } else {
+                    fixture
+                        .client
+                        .update_device_list(DeviceListRecord {
+                            user: "155500000099".into(),
+                            devices: [DeviceInfo::new(0, None)].into(),
+                            timestamp: wacore::time::now_secs(),
+                            phash: None,
+                            raw_id: None,
+                        })
+                        .await
+                        .unwrap();
+                }
+            })
+            .await
+            .expect("registry cleanup must not acquire the distribution lock");
+            transport.release.add_permits(1);
+            tokio::time::timeout(std::time::Duration::from_secs(5), send)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let group_str = fixture.group.to_string();
+            let map = fixture.client.skdm_device_map(&group_str).await;
+            if changed_member {
+                assert_ne!(map.device_has_key(&fixture.member.user, 7), Some(true));
+                let info = fixture
+                    .client
+                    .get_group_cache()
+                    .get(&fixture.group)
+                    .await
+                    .unwrap();
+                let (_, targets) = fixture
+                    .client
+                    .resolve_skdm_targets_memoized(
+                        &fixture.group,
+                        &group_str,
+                        &info,
+                        &fixture.own_sending,
+                    )
+                    .await
+                    .unwrap();
+                assert!(
+                    targets.contains(&companion),
+                    "reused device id must remain an SKDM target"
+                );
+            } else {
+                assert_eq!(
+                    map.device_has_key(&fixture.member.user, 7),
+                    Some(true),
+                    "unrelated-user topology changes must not discard successful distribution marks"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn warm_mark_revalidation_uses_the_original_group_phone_alias() {
+        let client = crate::test_utils::create_test_client().await;
+        let group: Jid = "120363000000000001@g.us".parse().unwrap();
+        let lid: Jid = "100000000000001@lid".parse().unwrap();
+        let pn: Jid = "155500000001@s.whatsapp.net".parse().unwrap();
+        let info = wacore::client::context::GroupRoutingInfo::with_lid_to_pn_map(
+            vec![lid.clone()],
+            AddressingMode::Lid,
+            [(lid.user.clone(), pn.clone())].into_iter().collect(),
+        );
+        let generation = client.device_topology.current();
+        {
+            let registry = client.device_topology.lock_registry().await;
+            client
+                .device_topology
+                .record_registry(&registry, [pn.user.as_str()]);
+        }
+        let _distribution = client.group_distribution_lock(&group).await;
+        client
+            .update_sender_key_devices(
+                &group.to_string(),
+                &[lid.with_device(7)],
+                generation,
+                Some(&info),
+            )
+            .await;
+        assert_ne!(
+            client
+                .skdm_device_map(&group.to_string())
+                .await
+                .device_has_key(&lid.user, 7),
+            Some(true),
+            "a PN registry change must invalidate a LID distribution even without a global alias cache entry"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expired_group_repair_does_not_resend() {
+        let fixture = GroupSendFixture::new().await;
+        fixture.send_with_id("GROUPREPAIREXPIRED").await;
+        let generation = fixture
+            .client
+            .connection_generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let refresh = fixture
+            .client
+            .pending_group_device_resync
+            .refresh(generation, &fixture.group);
+        let _blocked_refresh = refresh.lock().await;
+        assert!(
+            fixture
+                .deliver_ack("GROUPREPAIREXPIRED", Some("2:mismatch"))
+                .await
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fixture
+                .client
+                .pending_group_device_resync
+                .active_message_count(),
+            1
+        );
+        tokio::time::advance(std::time::Duration::from_secs(301)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            fixture
+                .client
+                .pending_group_device_resync
+                .active_message_count(),
+            0
+        );
+        assert_eq!(fixture.transport.sent_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn inbound_revoke_blocks_pending_group_resend_only_for_our_original() {
+        use wacore::store::traits::{DeviceInfo, DeviceListRecord};
+        use wacore::types::message::{MessageInfo, MessageSource};
+
+        for (from_self, admin, wrong_chat, should_cancel) in [
+            (true, false, false, true),
+            (false, true, false, true),
+            (false, false, false, false),
+            (true, false, true, false),
+        ] {
+            let fixture = GroupSendFixture::new().await;
+            let id = "GROUPREPAIRREVOKED";
+            fixture.send_with_id(id).await;
+            let mut missed = fixture.member.clone();
+            missed.device = 2;
+            crate::test_utils::seed_peer_session(&fixture.client, &missed).await;
+            fixture
+                .client
+                .device_registry_cache
+                .raw_insert_for_tests(
+                    Arc::from(fixture.member.user.as_str()),
+                    Arc::new(DeviceListRecord {
+                        user: fixture.member.user.as_str().into(),
+                        devices: [DeviceInfo::new(0, None), DeviceInfo::new(2, None)].into(),
+                        timestamp: wacore::time::now_secs(),
+                        phash: None,
+                        raw_id: None,
+                    }),
+                )
+                .await;
+            let generation = fixture
+                .client
+                .connection_generation
+                .load(std::sync::atomic::Ordering::Acquire);
+            let refresh = fixture
+                .client
+                .pending_group_device_resync
+                .refresh(generation, &fixture.group);
+            let mut blocked_refresh = refresh.lock().await;
+            assert!(fixture.deliver_ack(id, Some("2:mismatch")).await);
+            tokio::task::yield_now().await;
+            assert_eq!(
+                fixture
+                    .client
+                    .pending_group_device_resync
+                    .active_message_count(),
+                1
+            );
+
+            let revoke = {
+                let mut proto_ = wa::Message::default();
+                proto_.protocol_message = buffa::MessageField::some({
+                    let mut proto_ = wa::message::ProtocolMessage::default();
+                    proto_.r#type = Some(wa::message::protocol_message::Type::REVOKE);
+                    proto_.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.remote_jid = Some(if wrong_chat {
+                            "120363000000000099@g.us".into()
+                        } else {
+                            fixture.group.to_string()
+                        });
+                        proto.id = Some(id.into());
+                        proto.from_me = Some(!admin);
+                        proto.participant = admin.then(|| fixture.own_sending.to_non_ad_string());
+                        proto
+                    });
+                    proto_
+                });
+                proto_
+            };
+            let incoming = if from_self {
+                {
+                    let mut proto = wa::Message::default();
+                    proto.device_sent_message = buffa::MessageField::some({
+                        let mut proto = wa::message::DeviceSentMessage::default();
+                        proto.destination_jid = Some(fixture.group.to_string());
+                        proto.message = buffa::MessageField::some(revoke);
+                        proto
+                    });
+                    proto
+                }
+            } else {
+                revoke
+            };
+            let info = Arc::new(MessageInfo {
+                id: "INBOUNDREVOKE".into(),
+                source: MessageSource {
+                    chat: fixture.group.clone(),
+                    sender: if from_self {
+                        fixture.own_sending.clone()
+                    } else {
+                        fixture.member.clone()
+                    },
+                    is_from_me: from_self,
+                    is_group: true,
+                    ..Default::default()
+                },
+                edit: if admin {
+                    EditAttribute::AdminRevoke
+                } else {
+                    EditAttribute::SenderRevoke
+                },
+                ..Default::default()
+            });
+            fixture
+                .client
+                .handle_decrypted_plaintext(
+                    "msg",
+                    wacore::messages::MessageUtils::encode_and_pad(&incoming),
+                    2,
+                    0,
+                    Default::default(),
+                    &info,
+                )
+                .await
+                .unwrap();
+            *blocked_refresh = Some(true);
+            drop(blocked_refresh);
+            crate::test_utils::poll_until("the pending group repair to finish", || {
+                fixture
+                    .client
+                    .pending_group_device_resync
+                    .active_message_count()
+                    == 0
+            })
+            .await;
+            let mut copies = 0;
+            for index in 0..fixture.transport.sent_count() {
+                let stanza = fixture.stanza(index).await;
+                if stanza.get().tag == "message"
+                    && stanza.get().attrs().optional_string("id").as_deref() == Some(id)
+                {
+                    copies += 1;
+                }
+            }
+            assert_eq!(
+                copies,
+                if should_cancel { 1 } else { 2 },
+                "from_self={from_self}, admin={admin}, wrong_chat={wrong_chat}"
+            );
+        }
+    }
+
+    /// Deliver an ack carrying `phash` to whatever waiter claims `message_id`.
+    fn deliver_dm_ack(client: &Arc<Client>, message_id: &str, phash: &str) -> bool {
+        let node = NodeBuilder::new("ack")
+            .attr("id", message_id)
+            .attr("from", "s.whatsapp.net")
+            .attr("phash", phash)
+            .build();
+        let marshaled =
+            wacore_binary::marshal::marshal_ref(&node.as_node_ref()).expect("valid node");
+        let owned = wacore_binary::OwnedNodeRef::new(
+            wacore_binary::util::unpack(&marshaled)
+                .expect("packed payload")
+                .into_owned(),
+        )
+        .expect("valid node");
+        client.handle_ack_response_arc(&Arc::new(owned))
+    }
+
+    /// True once one of the first `limit` frames the client wrote is a usync
+    /// device query. Frames decrypt in order, so they are read in order.
+    async fn wait_for_usync_request(
+        transport: &Arc<crate::transport::mock::CapturingMockTransport>,
+        limit: usize,
+    ) -> bool {
+        for index in 0..limit {
+            let Ok(node) = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                crate::test_utils::decode_sent_iq(transport, index),
+            )
+            .await
+            else {
+                return false;
+            };
+            let node = node.get();
+            if node.tag == "iq"
+                && node
+                    .get_attr("xmlns")
+                    .is_some_and(|ns| ns.as_str() == "usync")
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The waiter is installed before the stanza reaches the socket (a fast ack
+    /// can land while `send_node` is still returning), so a send that fails on
+    /// the wire has to take it back out — under the id it registered. Removing
+    /// under anything else leaks an entry that a later ack could resolve.
+    #[tokio::test]
+    async fn a_failed_send_takes_its_phash_waiter_back_out() {
+        let client = crate::test_utils::create_test_client_with_name("phash_waiter_rollback").await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let message_id = "ID_ünïcødé_✅_ROLLBACK";
+        let result = client
+            .send_message_impl(
+                peer_pn,
+                &{
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendPipelineOptions {
+                    request_id: Some(message_id),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(result.is_err(), "no socket: the send must fail on the wire");
+        assert_eq!(
+            client.response_waiters_guard().len(),
+            0,
+            "a failed send must leave no waiter behind, under any key"
+        );
+    }
+
+    /// A borrowed id belongs to another message: registering a waiter under it
+    /// would overwrite the original send's waiter, and binding a secret under it
+    /// would overwrite the original's secret.
+    #[tokio::test]
+    async fn a_borrowed_id_registers_no_waiter_and_binds_no_secret() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let (peer_pn, _peer_lid) = seed_dm_wire_namespace_state(&client).await;
+
+        let message_id = "ID_BORROWED_1";
+        client
+            .send_message_impl(
+                peer_pn.clone(),
+                &{
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendPipelineOptions {
+                    request_id: Some(message_id),
+                    borrowed_message_id: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("connected test client should complete the send");
+
+        assert_eq!(
+            client.response_waiters_guard().len(),
+            0,
+            "a borrowed id must not claim the waiter slot"
+        );
+        assert!(
+            client
+                .msg_secret_buffer
+                .lookup(
+                    &peer_pn.to_non_ad_string(),
+                    &client.pn().expect("own pn").to_non_ad_string(),
+                    message_id,
+                )
+                .is_none(),
+            "a borrowed id must not claim the secret slot"
+        );
+    }
+
+    /// An empty id would name nothing: it must be refused at both entry points
+    /// before any state is stamped with it.
+    #[tokio::test]
+    async fn an_empty_id_is_refused_at_both_entry_points() {
+        let client = crate::test_utils::create_test_client_with_name("empty_send_id").await;
+        let peer: Jid = "100000000000777@s.whatsapp.net".parse().unwrap();
+        let msg = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi".into());
+            proto
+        };
+
+        assert_eq!(
+            crate::MessageId::new(""),
+            Err(crate::MessageRefError::EmptyMessageId)
+        );
+
+        let internal = client
+            .send_message_impl(
+                peer,
+                &msg,
+                SendPipelineOptions {
+                    request_id: Some(""),
+                    ..Default::default()
+                },
+            )
+            .await;
+        let internal = internal.expect_err("internal send must reject an empty id");
+        assert!(
+            internal
+                .to_string()
+                .contains("message ID must not be empty"),
+            "unexpected error: {internal}"
+        );
+    }
+
+    /// The plaintext newsletter branch returns before the E2E pipeline, so it
+    /// builds its own result; it must still hand back the id it stamped and the
+    /// channel it addressed.
+    #[tokio::test]
+    async fn the_newsletter_branch_returns_the_id_and_target_it_stamped() {
+        let (client, _transport) = crate::test_utils::create_iq_test_client().await;
+        let channel: Jid = "123456789@newsletter".parse().unwrap();
+
+        let message_id = "ID_ünïcødé_✅_NEWS";
+        let waiter = client
+            .wait_for_sent_node(crate::client::NodeFilter::tag("message").attr("id", message_id));
+        let result = client
+            .send_message_with_options(
+                channel.clone(),
+                {
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("hi".into());
+                    proto
+                },
+                SendOptions::default().with_message_id(crate::MessageId::new(message_id).unwrap()),
+            )
+            .await
+            .expect("newsletter send is plaintext and needs no session");
+
+        assert_eq!(result.message_id, message_id);
+        assert_eq!(result.to, channel);
+
+        let node = waiter.await.expect("the stanza should be captured");
+        assert_eq!(
+            node.attrs().optional_string("id").as_deref(),
+            Some(message_id),
+            "the wire id must be the same one the result reports"
+        );
+    }
+}
+
+#[cfg(test)]
+mod jid_into_convention {
+    use super::*;
+
+    /// Compile-time guard for the `impl Into<Jid>` convention: every core
+    /// method must accept BOTH an owned `Jid` (move, zero copy) and a `&Jid`
+    /// (one clone via `From<&Jid>`). Never executed; compilation is the test.
+    #[allow(dead_code)]
+    async fn both_call_styles_compile(client: &Client, jid: Jid) {
+        let msg = wa::Message::default();
+        let _ = client.send_message(&jid, msg.clone()).await;
+        let _ = client
+            .send_message_with_options(&jid, msg.clone(), SendOptions::default())
+            .await;
+        let _ = client.forward_message(&jid, &msg).await;
+        let _ = client
+            .edit_message_raw(&jid, "ID", wa::Message::default(), EditOptions::default())
+            .await;
+        let _ = client
+            .revoke_message_raw(&jid, "ID", RevokeType::Sender)
+            .await;
+        let _ = client
+            .pin_message_raw(&jid, wa::MessageKey::default(), PinDuration::default())
+            .await;
+        let _ = client
+            .unpin_message_raw(&jid, wa::MessageKey::default())
+            .await;
+        let _ = client
+            .send_reaction_raw(&jid, wa::MessageKey::default(), "x")
+            .await;
+        let _ = client
+            .keep_message_raw(&jid, wa::MessageKey::default(), true)
+            .await;
+        // Owned style: moves, no clone. Each method consumes its own copy so
+        // the whole core surface is pinned, not just send_message.
+        let _ = client.send_message(jid.clone(), msg.clone()).await;
+        let _ = client
+            .send_message_with_options(jid.clone(), msg.clone(), SendOptions::default())
+            .await;
+        let _ = client.forward_message(jid.clone(), &msg).await;
+        let _ = client
+            .edit_message_raw(
+                jid.clone(),
+                "ID",
+                wa::Message::default(),
+                EditOptions::default(),
+            )
+            .await;
+        let _ = client
+            .revoke_message_raw(jid.clone(), "ID", RevokeType::Sender)
+            .await;
+        let _ = client
+            .pin_message_raw(
+                jid.clone(),
+                wa::MessageKey::default(),
+                PinDuration::default(),
+            )
+            .await;
+        let _ = client
+            .unpin_message_raw(jid.clone(), wa::MessageKey::default())
+            .await;
+        let _ = client
+            .send_reaction_raw(jid.clone(), wa::MessageKey::default(), "x")
+            .await;
+        let _ = client
+            .keep_message_raw(jid, wa::MessageKey::default(), true)
+            .await;
+    }
+}
+
+#[cfg(test)]
+mod future_size_tests {
+    /// The public send futures embed in every event-handler and spawned-task
+    /// frame, so their size is a per-event heap cost. Keep them pointer-scale
+    /// (measured 64-128 B; the bound leaves slack only for layout drift).
+    /// Budget: rebaseline per [layout asserts](../../agent_docs/testing.md).
+    #[tokio::test]
+    async fn send_futures_stay_small() {
+        let client = crate::test_utils::create_test_client().await;
+        let jid: wacore_binary::jid::Jid = "5511999990000@s.whatsapp.net".parse().unwrap();
+        let msg = waproto::whatsapp::Message::default();
+
+        let f = client.send_message(jid.clone(), msg.clone());
+        assert!(
+            size_of_val(&f) <= 192,
+            "send_message future grew to {} B (budget 192)",
+            size_of_val(&f)
+        );
+        drop(f);
+        let f = client.send_text(jid.clone(), "x");
+        assert!(
+            size_of_val(&f) <= 192,
+            "send_text future grew to {} B (budget 192)",
+            size_of_val(&f)
+        );
+        drop(f);
+        let f = client.forward_message(jid.clone(), &msg);
+        assert!(
+            size_of_val(&f) <= 192,
+            "forward_message future grew to {} B (budget 192)",
+            size_of_val(&f)
+        );
+        drop(f);
+        let f = client.send(super::SendRequest::new(&jid, msg));
+        assert!(
+            size_of_val(&f) <= 192,
+            "canonical send future grew to {} B (budget 192)",
+            size_of_val(&f)
+        );
+        drop(f);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod clock_budget_tests {
+    use super::*;
+    use crate::store::commands::DeviceCommand;
+    use std::sync::Arc;
+    use wacore::time::clock_reads;
+
+    const OWN_PN: &str = "15551234001";
+    const PEER_PN: &str = "5511900000001";
+    const PEER_LID: &str = "100000000000079";
+
+    /// Budget for one steady-state DM send, in clock reads. On wasm32 and
+    /// embedded targets every read leaves the module, so this is a real cost of
+    /// the send path and not just an instruction count.
+    const SEND_WALL_READS: u64 = 1;
+    const SEND_MONOTONIC_READS: u64 = 2;
+
+    async fn seed_devices(client: &Arc<Client>, user: &str) {
+        client
+            .update_device_list(wacore::store::traits::DeviceListRecord {
+                user: user.into(),
+                devices: [wacore::store::traits::DeviceInfo::new(0, None)].into(),
+                timestamp: wacore::time::now_secs(),
+                phash: None,
+                raw_id: None,
+            })
+            .await
+            .expect("seed device list");
+    }
+
+    /// Registry, LID mapping and Signal sessions already seeded, so a send
+    /// queries nothing over the wire.
+    async fn cold_send_client() -> (
+        Arc<Client>,
+        Arc<crate::transport::mock::CapturingMockTransport>,
+        Jid,
+    ) {
+        let (client, transport) = crate::test_utils::create_iq_test_client().await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetId(Some(
+                format!("{OWN_PN}@s.whatsapp.net").parse().expect("own pn"),
+            )))
+            .await;
+        client
+            .persistence_manager
+            .process_command(DeviceCommand::SetLid(Some(
+                "100000000000001@lid".parse().expect("own lid"),
+            )))
+            .await;
+
+        let peer = Jid::pn(PEER_PN);
+        seed_devices(&client, PEER_PN).await;
+        seed_devices(&client, OWN_PN).await;
+        seed_devices(&client, PEER_LID).await;
+        client
+            .add_lid_pn_mapping(
+                PEER_LID,
+                PEER_PN,
+                crate::lid_pn_cache::LearningSource::Usync,
+            )
+            .await
+            .expect("lid mapping");
+        crate::test_utils::seed_peer_session(&client, &peer).await;
+        crate::test_utils::seed_peer_session(
+            &client,
+            &format!("{PEER_LID}@lid").parse().expect("lid jid"),
+        )
+        .await;
+
+        (client, transport, peer)
+    }
+
+    /// [`cold_send_client`] plus a first send, which drains the once-per-peer
+    /// privacy-token issuance so the next send is steady state.
+    async fn warm_send_client() -> (
+        Arc<Client>,
+        Arc<crate::transport::mock::CapturingMockTransport>,
+        Jid,
+    ) {
+        let (client, transport, peer) = cold_send_client().await;
+        client.send_text(peer.clone(), "warm").await.expect("warm");
+        // The privacy token is issued off the send path, so wait for its frame
+        // rather than let it land inside the measured window.
+        crate::test_utils::poll_until("the privacy token to be issued", || {
+            transport.sent_count() >= 2
+        })
+        .await;
+        crate::test_utils::wait_for_outbound_tasks(&client).await;
+        (client, transport, peer)
+    }
+
+    /// Paused time so the unanswered IQs this harness leaves behind do not cost
+    /// their real timeouts.
+    #[tokio::test(start_paused = true)]
+    async fn dm_send_stays_within_its_clock_budget() {
+        let (client, transport, peer) = warm_send_client().await;
+        let frames_before = transport.sent_count();
+
+        let base = clock_reads::snapshot();
+        client.send_text(peer, "hello").await.expect("send");
+        let reads = clock_reads::since(base);
+
+        assert_eq!(
+            transport.sent_count() - frames_before,
+            1,
+            "the budget only describes a send that writes exactly one frame"
+        );
+        assert!(
+            reads.total() > 0,
+            "a zero count means the flow did not run, not that it got free"
+        );
+        assert!(
+            reads.wall <= SEND_WALL_READS,
+            "wall-clock reads per DM send rose to {} (budget {SEND_WALL_READS})",
+            reads.wall
+        );
+        assert!(
+            reads.monotonic <= SEND_MONOTONIC_READS,
+            "monotonic reads per DM send rose to {} (budget {SEND_MONOTONIC_READS})",
+            reads.monotonic
+        );
+
+        client.shutdown().await;
+    }
+
+    /// One send, one instant: the message id, the biz node, the privacy-token
+    /// decision and the outbound secret are stamped from a single read, so they
+    /// cannot end up describing different seconds for the same message.
+    #[tokio::test(start_paused = true)]
+    async fn a_send_reads_the_clock_once() {
+        let (client, _transport, peer) = warm_send_client().await;
+
+        let base = clock_reads::snapshot();
+        let sent = client.send_text(peer.clone(), "hello").await.expect("send");
+        assert_eq!(
+            clock_reads::since(base).wall,
+            1,
+            "every stamp on the send path must come from the same read"
+        );
+
+        // The outbound secret is one of the stamps, so its presence proves the
+        // measured window really covered that write.
+        client.msg_secret_buffer.wait_flushed().await;
+        let stored = client
+            .persistence_manager
+            .backend()
+            .get_msg_secret(
+                &peer.to_non_ad_string(),
+                &format!("{OWN_PN}@s.whatsapp.net"),
+                sent.message_id.as_str(),
+            )
+            .await
+            .expect("msg secret lookup");
+        assert!(
+            stored.is_some(),
+            "the send persisted an outbound secret under the measured instant"
+        );
+
+        client.shutdown().await;
+    }
+
+    /// The wire timestamp is the one thing the budget must never buy: the
+    /// privacy-token IQ a first send emits still carries the real second.
+    #[tokio::test(start_paused = true)]
+    async fn wire_timestamp_keeps_real_time() {
+        let (client, transport, peer) = cold_send_client().await;
+
+        let before = wacore::time::now_secs();
+        client.send_text(peer, "hello").await.expect("send");
+        crate::test_utils::poll_until("the privacy token to be issued", || {
+            transport.sent_count() >= 2
+        })
+        .await;
+        let after = wacore::time::now_secs();
+
+        let mut seen = None;
+        for index in 0..transport.sent_count() {
+            let node = crate::test_utils::decode_sent_iq(&transport, index).await;
+            let node = node.get();
+            if node.attrs().optional_string("xmlns").as_deref() != Some("privacy") {
+                continue;
+            }
+            let token = node
+                .get_optional_child("tokens")
+                .and_then(|t| t.get_optional_child("token"))
+                .expect("the privacy IQ carries a <token>");
+            seen = token
+                .attrs()
+                .optional_string("t")
+                .and_then(|t| t.parse::<i64>().ok());
+            break;
+        }
+
+        let stamped = seen.expect("a first send issues a privacy token");
+        assert!(
+            (before..=after).contains(&stamped),
+            "wire timestamp {stamped} outside [{before}, {after}]"
+        );
+
+        client.shutdown().await;
+    }
+}

@@ -1,0 +1,2195 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use thiserror::Error;
+
+use super::Client;
+#[cfg(feature = "client-lifecycle")]
+use super::{ClientLifecycle, LifecycleRegistration};
+use crate::HistorySyncDurabilityHook;
+use crate::cache_config::CacheConfig;
+use crate::features::PresencePolicy;
+use crate::http::HttpClient;
+#[cfg(feature = "plugins")]
+use crate::plugins::{
+    ClientPlugin, PluginHost, PluginHostConfig, PluginPlan, PluginPlanError, PluginRegistration,
+    UntypedClientPlugin,
+};
+use crate::store::error::StoreError;
+use crate::store::persistence_manager::PersistenceManager;
+use crate::sync_task::MajorSyncTask;
+use crate::transport::TransportFactory;
+use crate::types::connect_admission::ConnectAdmission;
+use crate::types::durability_hook::{HistorySyncCaptureHook, InboundDurabilityHook};
+use crate::types::enc_handler::EncHandler;
+use crate::types::group_notification_durability::GroupNotificationDurabilityHook;
+use crate::types::history_sync_admission::HistorySyncAdmission;
+use wacore::handshake::NoiseCertPolicy;
+use wacore::iq::abprops::AbProp;
+use wacore::runtime::Runtime;
+
+/// Result of constructing a [`Client`].
+///
+/// Consume with [`ClientBuild::into_client`] for the standard worker or
+/// [`ClientBuild::into_parts`] when the host owns that worker itself.
+pub struct ClientBuild {
+    client: Arc<Client>,
+    sync_task_receiver: async_channel::Receiver<MajorSyncTask>,
+}
+
+impl ClientBuild {
+    pub(crate) fn new(
+        client: Arc<Client>,
+        sync_task_receiver: async_channel::Receiver<MajorSyncTask>,
+    ) -> Self {
+        Self {
+            client,
+            sync_task_receiver,
+        }
+    }
+
+    /// Transfer the client and start its default major-sync worker.
+    pub fn into_client(self) -> Arc<Client> {
+        let (client, sync_task_receiver) = self.into_parts();
+        client.start_sync_task_worker(sync_task_receiver);
+        client
+    }
+
+    /// Transfer ownership of the client and its sole sync-task receiver.
+    /// No major-sync worker is started on this path. The caller must drain the
+    /// receiver and call [`Client::process_sync_task`] for history sync to keep
+    /// working. Ordinary services already started by `build()` are unaffected;
+    /// this is not an inert-client constructor.
+    ///
+    /// ```no_run
+    /// # async fn example(build: whatsapp_rust::ClientBuild) {
+    /// let (client, receiver) = build.into_parts();
+    /// while let Ok(task) = receiver.recv().await {
+    ///     // Type-erase the instrumented sync future inside the host worker.
+    ///     let processing: whatsapp_rust::wacore::runtime::BoxFuture<'_, ()> =
+    ///         Box::pin(client.process_sync_task(task));
+    ///     processing.await;
+    /// }
+    /// # }
+    /// ```
+    pub fn into_parts(self) -> (Arc<Client>, async_channel::Receiver<MajorSyncTask>) {
+        (self.client, self.sync_task_receiver)
+    }
+}
+
+/// A validated client-construction failure.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ClientBuilderError {
+    #[error("missing async runtime")]
+    MissingRuntime,
+    #[error("missing persistence manager")]
+    MissingPersistenceManager,
+    #[error("missing transport factory")]
+    MissingTransportFactory,
+    #[error("missing HTTP client")]
+    MissingHttpClient,
+    #[error("background saver interval must be greater than zero")]
+    InvalidBackgroundSaverInterval,
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    #[error("plugin install timeout must be greater than zero")]
+    InvalidPluginInstallTimeout,
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    #[error("plugin callback timeout must be greater than zero")]
+    InvalidPluginCallbackTimeout,
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    #[error("plugin task-drain timeout must be greater than zero")]
+    InvalidPluginTaskDrainTimeout,
+    #[error(
+        "the configured backend does not support the pending-inbound journal required by durability hooks: {0}"
+    )]
+    UnsupportedDurabilityBackend(String),
+    /// Two media backends were installed, or one was installed after assembly already bound the
+    /// registry's. Silently ignoring the requested backend would leave a caller running on one it
+    /// did not ask for, so the conflict is an error.
+    #[cfg(feature = "voip-control")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "voip-control")))]
+    #[error("a VoIP media backend is already installed on this client")]
+    VoipMediaBackendAlreadyInstalled,
+    #[cfg(feature = "client-lifecycle")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "client-lifecycle")))]
+    #[error("client lifecycle installation failed: {0}")]
+    LifecycleInstall(#[source] anyhow::Error),
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    #[error("plugin host installation failed: {0}")]
+    PluginInstall(#[source] anyhow::Error),
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    #[error("invalid plugin plan: {0}")]
+    PluginPlan(#[from] PluginPlanError),
+}
+
+/// Shared runtime, cache and sync configuration for both construction facades.
+///
+/// Start with [`Default`] and change the fields you need. Applying options replaces
+/// the entire configuration, including the saver policy: the low-level default is
+/// no saver, whereas [`crate::bot::BotBuilder`] starts with a 30-second saver.
+/// Host dependencies and Bot callbacks are deliberately not part of this value.
+#[derive(Clone, Debug)]
+#[non_exhaustive]
+pub struct ClientOptions {
+    /// `None` keeps the client's automatic version selection.
+    pub override_version: Option<(u32, u32, u32)>,
+    /// Cache TTLs, capacities, resource pools and optional shared cache stores.
+    pub cache_config: CacheConfig,
+    /// Acknowledge history-sync notifications without processing their payloads.
+    pub skip_history_sync: bool,
+    /// Fetch server A/B props on connect; see [`ClientBuilder::with_ab_props_fetch`].
+    pub ab_props_fetch: bool,
+    /// Additional props to retain; see [`ClientBuilder::with_watched_ab_props`].
+    pub watched_ab_props: Vec<AbProp>,
+    /// Ownership of the account's own available-presence announcement.
+    pub presence_policy: PresencePolicy,
+    /// Server certificate verification for every Noise handshake.
+    pub noise_cert_policy: NoiseCertPolicy,
+    /// `None` keeps the client's default prekey batch size.
+    pub wanted_pre_key_count: Option<usize>,
+    /// Optional `(burst, refill_per_minute)` override for outbound retry resends.
+    pub resend_rate_limit: Option<(u32, u32)>,
+    /// `None` disables periodic persistence; zero is rejected during build.
+    pub background_saver_interval: Option<Duration>,
+}
+
+impl Default for ClientOptions {
+    fn default() -> Self {
+        Self {
+            override_version: None,
+            cache_config: CacheConfig::default(),
+            skip_history_sync: false,
+            ab_props_fetch: true,
+            watched_ab_props: Vec::new(),
+            presence_policy: PresencePolicy::default(),
+            noise_cert_policy: NoiseCertPolicy::default(),
+            wanted_pre_key_count: None,
+            resend_rate_limit: None,
+            background_saver_interval: None,
+        }
+    }
+}
+
+/// Runtime-validated, low-level builder for [`Client`].
+///
+/// Unlike [`crate::bot::BotBuilder`], this builder deliberately does not use
+/// typestate. FFI and embedded hosts can populate dependencies dynamically and
+/// receive a typed error without encoding Rust generic state in their wrapper.
+#[must_use = "call .build() to produce the Client; the builder does nothing on its own"]
+pub struct ClientBuilder {
+    runtime: Option<Arc<dyn Runtime>>,
+    persistence_manager: Option<Arc<PersistenceManager>>,
+    transport_factory: Option<Arc<dyn TransportFactory>>,
+    http_client: Option<Arc<dyn HttpClient>>,
+    options: ClientOptions,
+    // Keep unused extension configuration to one null pointer. The typed
+    // assembly payload is allocated only when an extension is registered.
+    extensions: Option<Box<ClientExtensions>>,
+    task_instrument: Option<Arc<dyn wacore::stats::TaskInstrument>>,
+    alloc_meter: Option<Arc<wacore::stats::AllocMeter>>,
+    #[cfg(feature = "client-lifecycle")]
+    lifecycle: Option<Arc<dyn ClientLifecycle>>,
+    #[cfg(feature = "plugins")]
+    plugins: Vec<PluginRegistration>,
+    #[cfg(feature = "plugins")]
+    plugin_host_config: PluginHostConfig,
+    /// The media backend the call subsystem reserves sessions from, when the application wants a
+    /// foreign implementation. `None` means "use whatever this build defaults to": the resident
+    /// `WacoreVoipMediaBackend` on a `voip-engine-wacore` build, or none at all.
+    #[cfg(feature = "voip-control")]
+    voip_media_backend: Option<Arc<dyn wacore::voip_control::VoipMediaBackend>>,
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClientBuilder {
+    /// Create an empty builder. All four platform dependencies are required.
+    pub fn new() -> Self {
+        Self {
+            runtime: None,
+            persistence_manager: None,
+            transport_factory: None,
+            http_client: None,
+            options: ClientOptions::default(),
+            extensions: None,
+            task_instrument: None,
+            alloc_meter: None,
+            #[cfg(feature = "client-lifecycle")]
+            lifecycle: None,
+            #[cfg(feature = "plugins")]
+            plugins: Vec::new(),
+            #[cfg(feature = "plugins")]
+            plugin_host_config: PluginHostConfig::default(),
+            #[cfg(feature = "voip-control")]
+            voip_media_backend: None,
+        }
+    }
+
+    fn extensions_mut(&mut self) -> &mut ClientExtensions {
+        self.extensions.get_or_insert_default()
+    }
+
+    pub(crate) fn task_instrument(&self) -> Option<Arc<dyn wacore::stats::TaskInstrument>> {
+        self.task_instrument.clone()
+    }
+
+    /// Replace all shared options without changing injected dependencies.
+    pub fn with_options(mut self, options: ClientOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Borrow the effective shared construction options.
+    pub fn options(&self) -> &ClientOptions {
+        &self.options
+    }
+
+    /// Move a concrete runtime into this builder; use the Arc variant to share it.
+    pub fn with_runtime<R>(mut self, runtime: R) -> Self
+    where
+        R: Runtime,
+    {
+        self.runtime = Some(Arc::new(runtime));
+        self
+    }
+
+    /// Reuse an already-shared runtime without another Arc allocation.
+    pub fn with_runtime_arc(mut self, runtime: Arc<dyn Runtime>) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    /// Set the persistence manager for this session.
+    pub fn with_persistence_manager(
+        mut self,
+        persistence_manager: Arc<PersistenceManager>,
+    ) -> Self {
+        self.persistence_manager = Some(persistence_manager);
+        self
+    }
+
+    /// Move a concrete connection factory into this builder.
+    pub fn with_transport_factory<T>(mut self, transport_factory: T) -> Self
+    where
+        T: TransportFactory + 'static,
+    {
+        self.transport_factory = Some(Arc::new(transport_factory));
+        self
+    }
+
+    /// Reuse an already-shared connection factory.
+    pub fn with_transport_factory_arc(
+        mut self,
+        transport_factory: Arc<dyn TransportFactory>,
+    ) -> Self {
+        self.transport_factory = Some(transport_factory);
+        self
+    }
+
+    /// Move a concrete HTTP client into this builder, without requiring Clone.
+    pub fn with_http_client<H>(mut self, http_client: H) -> Self
+    where
+        H: HttpClient + 'static,
+    {
+        self.http_client = Some(Arc::new(http_client));
+        self
+    }
+
+    /// Reuse an already-shared HTTP client and its pool across sessions.
+    pub fn with_http_client_arc(mut self, http_client: Arc<dyn HttpClient>) -> Self {
+        self.http_client = Some(http_client);
+        self
+    }
+
+    /// Install the media backend the call subsystem reserves sessions from.
+    ///
+    /// The call registry never names a concrete media implementation; it asks this backend to
+    /// `reserve` one session per call. Supplying one is what lets a caller run calls on a foreign
+    /// engine instead of the resident one, and a `voip-control`-only build has no other way to get
+    /// media at all.
+    #[cfg(feature = "voip-control")]
+    pub fn with_voip_media_backend<B>(mut self, backend: B) -> Self
+    where
+        B: wacore::voip_control::VoipMediaBackend + 'static,
+    {
+        self.voip_media_backend = Some(Arc::new(backend));
+        self
+    }
+
+    /// [`with_voip_media_backend`](Self::with_voip_media_backend) for an already-shared backend.
+    #[cfg(feature = "voip-control")]
+    pub fn with_voip_media_backend_arc(
+        mut self,
+        backend: Arc<dyn wacore::voip_control::VoipMediaBackend>,
+    ) -> Self {
+        self.voip_media_backend = Some(backend);
+        self
+    }
+
+    /// Override automatic WhatsApp version selection.
+    pub fn with_version_override(mut self, version: (u32, u32, u32)) -> Self {
+        self.options.override_version = Some(version);
+        self
+    }
+
+    /// Replace cache/resource settings, preserving other shared options.
+    pub fn with_cache_config(mut self, cache_config: CacheConfig) -> Self {
+        self.options.cache_config = cache_config;
+        self
+    }
+
+    /// Register a handler for one encrypted payload type before the client starts.
+    /// The last registration for the same type wins. Custom handlers take
+    /// precedence over built-in handlers; the registry is frozen at build time.
+    pub fn with_enc_handler<H>(mut self, payload_type: impl Into<String>, handler: H) -> Self
+    where
+        H: EncHandler + 'static,
+    {
+        self.extensions_mut()
+            .custom_enc_handlers
+            .get_or_insert_default()
+            .insert(payload_type.into(), Arc::new(handler));
+        self
+    }
+
+    /// Register an already-shared encrypted payload handler, preserving its Arc
+    /// identity. Uses the same last-registration-wins rule as
+    /// [`Self::with_enc_handler`].
+    pub fn with_enc_handler_arc(
+        mut self,
+        payload_type: impl Into<String>,
+        handler: Arc<dyn EncHandler>,
+    ) -> Self {
+        self.extensions_mut()
+            .custom_enc_handlers
+            .get_or_insert_default()
+            .insert(payload_type.into(), handler);
+        self
+    }
+
+    /// Install the durable-inbound hook after verifying backend support.
+    pub fn with_inbound_durability_hook<H>(mut self, hook: H) -> Self
+    where
+        H: InboundDurabilityHook + 'static,
+    {
+        self.extensions_mut().inbound_durability_hook = Some(Arc::new(hook));
+        self
+    }
+
+    /// Install an already-shared durable-inbound hook.
+    pub fn with_inbound_durability_hook_arc(
+        mut self,
+        hook: Arc<dyn InboundDurabilityHook>,
+    ) -> Self {
+        self.extensions_mut().inbound_durability_hook = Some(hook);
+        self
+    }
+
+    /// Persist each complete group notification before effects and ACK.
+    /// See [`GroupNotificationDurabilityHook`] for cancellation and replay limits.
+    pub fn with_group_notification_durability_hook<Gh>(mut self, hook: Gh) -> Self
+    where
+        Gh: GroupNotificationDurabilityHook + 'static,
+    {
+        self.extensions_mut().group_notification_durability_hook = Some(Arc::new(hook));
+        self
+    }
+
+    /// Register an already-shared hook. The last registration wins.
+    pub fn with_group_notification_durability_hook_arc(
+        mut self,
+        hook: Arc<dyn GroupNotificationDurabilityHook>,
+    ) -> Self {
+        self.extensions_mut().group_notification_durability_hook = Some(hook);
+        self
+    }
+
+    /// Retain self-sent history notifications and chunks before ACK/receipt.
+    /// See [`HistorySyncDurabilityHook`] for backend requirements and replay.
+    pub fn with_history_sync_durability_hook<H>(mut self, hook: H) -> Self
+    where
+        H: HistorySyncDurabilityHook + 'static,
+    {
+        self.extensions_mut().history_sync_durability_hook = Some(Arc::new(hook));
+        self
+    }
+
+    /// Register a shared history recovery hook. The last registration wins.
+    pub fn with_history_sync_durability_hook_arc(
+        mut self,
+        hook: Arc<dyn HistorySyncDurabilityHook>,
+    ) -> Self {
+        self.extensions_mut().history_sync_durability_hook = Some(hook);
+        self
+    }
+
+    /// Await history capture before its receipt, independently of message durability.
+    /// See [`HistorySyncCaptureHook`] for input, cancellation and replay limits.
+    pub fn with_history_sync_capture_hook<H>(mut self, hook: H) -> Self
+    where
+        H: HistorySyncCaptureHook + 'static,
+    {
+        self.extensions_mut().history_sync_capture_hook = Some(Arc::new(hook));
+        self
+    }
+
+    /// Register an already-shared capture hook, preserving its Arc identity.
+    /// The last registration wins, as with [`Self::with_history_sync_capture_hook`].
+    pub fn with_history_sync_capture_hook_arc(
+        mut self,
+        hook: Arc<dyn HistorySyncCaptureHook>,
+    ) -> Self {
+        self.extensions_mut().history_sync_capture_hook = Some(hook);
+        self
+    }
+
+    /// Register a synchronous policy that can reject inbound history-sync
+    /// notifications before they create history-sync work.
+    pub fn with_history_sync_admission<A>(mut self, admission: A) -> Self
+    where
+        A: HistorySyncAdmission + 'static,
+    {
+        self.extensions_mut().history_sync_admission = Some(Arc::new(admission));
+        self
+    }
+
+    /// Register an already-shared history-sync admission policy.
+    pub fn with_history_sync_admission_arc(
+        mut self,
+        admission: Arc<dyn HistorySyncAdmission>,
+    ) -> Self {
+        self.extensions_mut().history_sync_admission = Some(admission);
+        self
+    }
+
+    /// Configure the synchronous retry admission policy before services start.
+    /// The last registration wins. Live tuning belongs inside the policy.
+    pub fn with_retry_admission<A: crate::RetryAdmission + 'static>(self, policy: A) -> Self {
+        self.with_retry_admission_arc(Arc::new(policy))
+    }
+
+    /// Share a policy across clients. The last registration wins.
+    pub fn with_retry_admission_arc(mut self, policy: Arc<dyn crate::RetryAdmission>) -> Self {
+        self.extensions_mut().retry_admission = Some(policy);
+        self
+    }
+
+    /// Configure the synchronous decrypt failure admission policy before services start.
+    /// The last registration wins. Live tuning belongs inside the policy.
+    pub fn with_decrypt_failure_admission<A: crate::DecryptFailureAdmission + 'static>(
+        self,
+        policy: A,
+    ) -> Self {
+        self.with_decrypt_failure_admission_arc(Arc::new(policy))
+    }
+
+    /// Share a policy across clients. The last registration wins.
+    pub fn with_decrypt_failure_admission_arc(
+        mut self,
+        policy: Arc<dyn crate::DecryptFailureAdmission>,
+    ) -> Self {
+        self.extensions_mut().decrypt_failure_admission = Some(policy);
+        self
+    }
+
+    /// Pace first and reconnect run-loop dials with a synchronous host policy.
+    /// See [`ConnectAdmission`] for cancellation and reservation limits.
+    pub fn with_connect_admission<A>(mut self, admission: A) -> Self
+    where
+        A: ConnectAdmission + 'static,
+    {
+        self.extensions_mut().connect_admission = Some(Arc::new(admission));
+        self
+    }
+
+    /// Share a host's dial budget across clients. Manual `connect()` is unaffected.
+    pub fn with_connect_admission_arc(mut self, admission: Arc<dyn ConnectAdmission>) -> Self {
+        self.extensions_mut().connect_admission = Some(admission);
+        self
+    }
+
+    /// Acknowledge history-sync notifications without processing them when true.
+    pub fn with_skip_history_sync(mut self, skip: bool) -> Self {
+        self.options.skip_history_sync = skip;
+        self
+    }
+
+    /// Whether to fetch the server's A/B props catalog on connect, as WA Web
+    /// does. On by default.
+    ///
+    /// The catalog is the largest frame of an ordinary login (a few thousand
+    /// props, ~30 KB compressed) and the client keeps a couple of dozen of
+    /// them. It is consumed as a stream, so on a host it costs nothing worth
+    /// turning off; the switch exists for a client on a heap of a few hundred
+    /// KB that cannot afford even the compressed frame plus the inflate state
+    /// (~80 KB together) at the moment it arrives.
+    ///
+    /// Turned off, every flag reads as its registry default, the value WA Web
+    /// itself uses before its first fetch: the server sees no `abt` request
+    /// (whatsmeow never sends one) and accepts the client either way, but an
+    /// account the server has 1:1-LID-migrated is not recognised as such from
+    /// the props (`lid_one_on_one_migration_enabled` defaults to off), and
+    /// privacy-token and trusted-contact-token gates run on their defaults.
+    pub fn with_ab_props_fetch(mut self, enabled: bool) -> Self {
+        self.options.ab_props_fetch = enabled;
+        self
+    }
+
+    /// A/B props to keep from the server's catalog, on top of the ones the
+    /// library reads itself, so the application can read them with
+    /// [`Client::ab_prop_enabled`]. The client discards every prop it does not
+    /// watch while the catalog streams in, so the set is fixed here, before
+    /// the first fetch. Accumulates across calls.
+    pub fn with_watched_ab_props(mut self, props: impl IntoIterator<Item = AbProp>) -> Self {
+        self.options.watched_ab_props.extend(props);
+        self
+    }
+
+    /// Choose who announces the account's own `available` presence; see
+    /// [`PresencePolicy`].
+    pub fn with_presence_policy(mut self, policy: PresencePolicy) -> Self {
+        self.options.presence_policy = policy;
+        self
+    }
+
+    /// Select the Noise server-cert verification policy for handshakes made
+    /// by the built client. Defaults to strict (explicit `Strict` always
+    /// verifies); pass
+    /// [`NoiseCertPolicy::DangerSkipCertChainVerify`] only for testing
+    /// against a mock server that cannot produce a WhatsApp-rooted chain.
+    /// Fixed at build time and applied to every connect, including reconnects.
+    pub fn with_noise_cert_policy(mut self, policy: NoiseCertPolicy) -> Self {
+        self.options.noise_cert_policy = policy;
+        self
+    }
+
+    /// Override the prekey batch size (clamped to protocol limits at upload).
+    pub fn with_wanted_pre_key_count(mut self, count: usize) -> Self {
+        self.options.wanted_pre_key_count = Some(count);
+        self
+    }
+
+    /// Override the outbound retry token bucket's burst and per-minute refill.
+    pub fn with_resend_rate_limit(mut self, burst: u32, refill_per_min: u32) -> Self {
+        self.options.resend_rate_limit = Some((burst, refill_per_min));
+        self
+    }
+
+    /// Instrument every task spawned through the configured runtime.
+    pub fn with_task_instrument(
+        mut self,
+        instrument: Arc<dyn wacore::stats::TaskInstrument>,
+    ) -> Self {
+        self.task_instrument = Some(instrument);
+        self.alloc_meter = None;
+        self
+    }
+
+    /// Install allocation attribution as the task instrument.
+    pub fn with_alloc_meter(mut self, meter: Arc<wacore::stats::AllocMeter>) -> Self {
+        self.task_instrument = Some(meter.clone());
+        self.alloc_meter = Some(meter);
+        self
+    }
+
+    /// Run periodic device persistence for the lifetime of the client.
+    pub fn with_background_saver_interval(mut self, interval: Duration) -> Self {
+        self.options.background_saver_interval = Some(interval);
+        self
+    }
+
+    /// Install the aggregate lifecycle used by extensions of this client.
+    #[cfg(feature = "client-lifecycle")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "client-lifecycle")))]
+    pub fn with_lifecycle<L>(mut self, lifecycle: L) -> Self
+    where
+        L: ClientLifecycle + 'static,
+    {
+        self.lifecycle = Some(Arc::new(lifecycle));
+        self
+    }
+
+    /// Install an already-shared aggregate lifecycle.
+    #[cfg(feature = "client-lifecycle")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "client-lifecycle")))]
+    pub fn with_lifecycle_arc(mut self, lifecycle: Arc<dyn ClientLifecycle>) -> Self {
+        self.lifecycle = Some(lifecycle);
+        self
+    }
+
+    /// Register a native plugin for transactional installation before services start.
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    pub fn with_plugin<P: ClientPlugin>(mut self, plugin: P) -> Self {
+        self.plugins.push(PluginRegistration::new(plugin));
+        self
+    }
+
+    /// Register an already-shared native plugin without changing its marker type.
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    pub fn with_plugin_arc<P: ClientPlugin>(mut self, plugin: Arc<P>) -> Self {
+        self.plugins.push(PluginRegistration::new_arc(plugin));
+        self
+    }
+
+    /// Register a manifest-ID-keyed plugin that exposes no Rust typed API.
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    pub fn with_untyped_plugin<P: UntypedClientPlugin>(mut self, plugin: P) -> Self {
+        self.plugins.push(PluginRegistration::new_untyped(plugin));
+        self
+    }
+
+    /// Register an already-shared manifest-ID-keyed plugin.
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    pub fn with_untyped_plugin_arc<P: UntypedClientPlugin + ?Sized>(
+        mut self,
+        plugin: Arc<P>,
+    ) -> Self {
+        self.plugins
+            .push(PluginRegistration::new_untyped_arc(plugin));
+        self
+    }
+
+    /// Configure plugin lifecycle and tracked-task deadlines.
+    #[cfg(feature = "plugins")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "plugins")))]
+    pub fn with_plugin_host_config(mut self, config: PluginHostConfig) -> Self {
+        self.plugin_host_config = config;
+        self
+    }
+
+    /// Validate dependencies, assemble an inert client, then start its services.
+    pub async fn build(self) -> Result<ClientBuild, ClientBuilderError> {
+        self.build_boxed().await
+    }
+
+    #[inline(never)]
+    fn build_boxed(
+        self,
+    ) -> wacore::runtime::BoxFuture<'static, Result<ClientBuild, ClientBuilderError>> {
+        Box::pin(async move {
+            let runtime = self
+                .runtime
+                .as_ref()
+                .cloned()
+                .ok_or(ClientBuilderError::MissingRuntime)?;
+            let persistence_manager = self
+                .persistence_manager
+                .as_ref()
+                .cloned()
+                .ok_or(ClientBuilderError::MissingPersistenceManager)?;
+            let transport_factory = self
+                .transport_factory
+                .as_ref()
+                .cloned()
+                .ok_or(ClientBuilderError::MissingTransportFactory)?;
+            let http_client = self
+                .http_client
+                .as_ref()
+                .cloned()
+                .ok_or(ClientBuilderError::MissingHttpClient)?;
+
+            if self.options.background_saver_interval == Some(Duration::ZERO) {
+                return Err(ClientBuilderError::InvalidBackgroundSaverInterval);
+            }
+
+            #[cfg(feature = "plugins")]
+            if self.plugin_host_config.install_timeout() == Duration::ZERO {
+                return Err(ClientBuilderError::InvalidPluginInstallTimeout);
+            }
+            #[cfg(feature = "plugins")]
+            if self.plugin_host_config.callback_timeout() == Duration::ZERO {
+                return Err(ClientBuilderError::InvalidPluginCallbackTimeout);
+            }
+            #[cfg(feature = "plugins")]
+            if self.plugin_host_config.task_drain_timeout() == Duration::ZERO {
+                return Err(ClientBuilderError::InvalidPluginTaskDrainTimeout);
+            }
+
+            if self.extensions.as_deref().is_some_and(|extensions| {
+                extensions.inbound_durability_hook.is_some()
+                    || extensions.history_sync_durability_hook.is_some()
+            }) {
+                probe_durability_backend(&persistence_manager.backend(), &runtime).await?;
+            }
+
+            self.finish(runtime, persistence_manager, transport_factory, http_client)
+                .await
+        })
+    }
+
+    async fn finish(
+        self,
+        runtime: Arc<dyn Runtime>,
+        persistence_manager: Arc<PersistenceManager>,
+        transport_factory: Arc<dyn TransportFactory>,
+        http_client: Arc<dyn HttpClient>,
+    ) -> Result<ClientBuild, ClientBuilderError> {
+        let options = self.options;
+        #[cfg(feature = "plugins")]
+        let plugin_plan = PluginPlan::prepare(self.plugins)?;
+        let runtime: Arc<dyn Runtime> = match self.task_instrument {
+            Some(instrument) => {
+                Arc::new(wacore::stats::InstrumentedRuntime::new(runtime, instrument))
+            }
+            None => runtime,
+        };
+
+        #[cfg(feature = "client-lifecycle")]
+        let lifecycle_handler = self.lifecycle;
+        #[cfg(feature = "plugins")]
+        let (lifecycle_handler, plugin_host) = {
+            let mut lifecycle_handler = lifecycle_handler;
+            let plugin_host = plugin_plan.map(|plan| {
+                let host = PluginHost::new(plan, lifecycle_handler.take(), self.plugin_host_config);
+                lifecycle_handler = Some(host.clone());
+                host
+            });
+            (lifecycle_handler, plugin_host)
+        };
+        #[cfg(feature = "client-lifecycle")]
+        let lifecycle = lifecycle_handler.map(|handler| {
+            #[cfg(feature = "plugins")]
+            if let Some(plugin_host) = &plugin_host {
+                return Arc::new(LifecycleRegistration::new_with_timeout(
+                    handler,
+                    Arc::clone(&runtime),
+                    plugin_host.lifecycle_callback_timeout(),
+                ));
+            }
+            Arc::new(LifecycleRegistration::new(handler, Arc::clone(&runtime)))
+        });
+        let assembly = Client::assemble(
+            Arc::clone(&runtime),
+            Arc::clone(&persistence_manager),
+            transport_factory,
+            http_client,
+            options.override_version,
+            options.cache_config,
+            ClientExtensions {
+                #[cfg(feature = "client-lifecycle")]
+                lifecycle,
+                #[cfg(feature = "plugins")]
+                plugin_host,
+                noise_cert_policy: options.noise_cert_policy,
+                ..self
+                    .extensions
+                    .map(|extensions| *extensions)
+                    .unwrap_or_default()
+            },
+        );
+        let client = assembly.client();
+        #[cfg(feature = "voip-control")]
+        {
+            // A caller-supplied backend wins; otherwise the resident one is the default when the
+            // engine feature is on. The resident backend owns the runtime and holds the client
+            // weakly, so the control plane never has to be handed either. A `voip-control`-only
+            // build with no backend injected leaves the registry with none, and starting media
+            // reports the typed `MediaSetupError::NoBackend`.
+            #[allow(unused_mut)]
+            let mut backend: Option<Arc<dyn wacore::voip_control::VoipMediaBackend>> =
+                self.voip_media_backend.clone();
+            #[cfg(feature = "voip-engine-wacore")]
+            if backend.is_none() {
+                backend = Some(Arc::new(
+                    crate::voip_control::wacore_backend::WacoreVoipMediaBackend::new(
+                        Arc::clone(&runtime),
+                        Arc::downgrade(&client),
+                    ),
+                ));
+            }
+            if let Some(backend) = backend
+                && !client.call_registry().install_backend(backend)
+            {
+                // A caller that asked for a specific backend must never end up on another. The only
+                // way this fails is a second install, which is a programming error, not a runtime
+                // condition, so it is surfaced rather than dropped.
+                return Err(ClientBuilderError::VoipMediaBackendAlreadyInstalled);
+            }
+        }
+        #[cfg(feature = "client-lifecycle")]
+        let mut construction = ClientConstructionGuard::new(Arc::clone(&client));
+
+        if options.skip_history_sync {
+            client.set_skip_history_sync(true);
+        }
+        if !options.ab_props_fetch {
+            client.set_ab_props_fetch(false);
+        }
+        if !options.watched_ab_props.is_empty() {
+            client.ab_props.watch_many(&options.watched_ab_props).await;
+        }
+        client.set_presence_policy(options.presence_policy);
+        if let Some(count) = options.wanted_pre_key_count {
+            client.set_wanted_pre_key_count(count);
+        }
+        if let Some((burst, refill_per_min)) = options.resend_rate_limit {
+            client.set_resend_rate_limit(burst, refill_per_min);
+        }
+        if let Some(meter) = self.alloc_meter {
+            let _ = client.alloc_meter.set(meter);
+        }
+        #[cfg(feature = "client-lifecycle")]
+        if let Some(lifecycle) = &client.lifecycle
+            && let Err(error) = lifecycle.install(Arc::downgrade(&client)).await
+        {
+            #[cfg(feature = "plugins")]
+            if client.plugin_host.is_some() {
+                return Err(ClientBuilderError::PluginInstall(error));
+            }
+            return Err(ClientBuilderError::LifecycleInstall(error));
+        }
+
+        let build = assembly.start();
+        if let Some(interval) = options.background_saver_interval {
+            let saver_handle = persistence_manager.run_background_saver(
+                runtime,
+                interval,
+                build.client.shutdown_signal(),
+            );
+            let _ = build.client.saver_handle.set(saver_handle);
+        }
+        #[cfg(feature = "client-lifecycle")]
+        if let Some(lifecycle) = &client.lifecycle {
+            #[cfg(feature = "plugins")]
+            let activated = if let Some(plugin_host) = &client.plugin_host {
+                lifecycle.activate_with(|| plugin_host.commit())
+            } else {
+                lifecycle.activate()
+            };
+            #[cfg(not(feature = "plugins"))]
+            let activated = lifecycle.activate();
+            if !activated {
+                client.signal_shutdown_sync();
+                client.shutdown_lifecycle().await;
+                #[cfg(feature = "plugins")]
+                if client.plugin_host.is_some() {
+                    return Err(ClientBuilderError::PluginInstall(anyhow::anyhow!(
+                        "client shutdown raced plugin publication"
+                    )));
+                }
+                return Err(ClientBuilderError::LifecycleInstall(anyhow::anyhow!(
+                    "client shutdown raced lifecycle activation"
+                )));
+            }
+        }
+        #[cfg(feature = "client-lifecycle")]
+        construction.disarm();
+        Ok(build)
+    }
+}
+
+async fn probe_durability_backend(
+    backend: &Arc<dyn crate::store::traits::Backend>,
+    runtime: &Arc<dyn Runtime>,
+) -> Result<(), ClientBuilderError> {
+    let backend = Arc::clone(backend);
+    let (send, receive) = futures::channel::oneshot::channel();
+    // Construction cancellation must not abandon a probe that a backend
+    // worker may already have inserted. The runtime owns its entire lifetime.
+    runtime.spawn_detached(Box::pin(async move {
+        let result = probe_durability_backend_owned(&backend).await;
+        let _ = send.send(result);
+    }));
+    receive.await.map_err(|_| {
+        ClientBuilderError::UnsupportedDurabilityBackend(
+            "pending-inbound probe worker stopped".to_string(),
+        )
+    })?
+}
+
+async fn probe_durability_backend_owned(
+    backend: &Arc<dyn crate::store::traits::Backend>,
+) -> Result<(), ClientBuilderError> {
+    const PROBE_JID: &str = "0@s.whatsapp.net";
+    const PROBE_PAYLOAD: &[u8] = b"probe";
+    let probe_id = super::durability_probe_id::next();
+    let map_err =
+        |error: StoreError| ClientBuilderError::UnsupportedDurabilityBackend(error.to_string());
+
+    use wacore::store::traits::{
+        PendingInboundKey, PendingInboundLease, PendingInboundMutation, PendingInboundPayload,
+        PendingInboundRevision,
+    };
+    let key = PendingInboundKey {
+        chat: "0@g.us",
+        sender: "0:1@s.whatsapp.net",
+        id: &probe_id,
+    };
+    let lease = PendingInboundLease::new(Arc::new(()));
+    let bound = PROBE_PAYLOAD.len();
+    if backend
+        .read_pending_inbound_bounded(key, bound, lease.clone())
+        .await
+        .map_err(map_err)?
+        .is_some()
+    {
+        return Err(ClientBuilderError::UnsupportedDurabilityBackend(
+            "pending-inbound probe identity already exists".to_string(),
+        ));
+    }
+    let revision = PendingInboundRevision::for_bytes(PROBE_PAYLOAD);
+    let payload =
+        PendingInboundPayload::new(bytes::Bytes::from_static(PROBE_PAYLOAD), lease.clone());
+    let replaced = backend
+        .replace_pending_inbound_if(key, PendingInboundRevision::missing(), payload, bound)
+        .await;
+    if replaced
+        .as_ref()
+        .is_ok_and(|mutation| *mutation != PendingInboundMutation::Applied)
+    {
+        return Err(ClientBuilderError::UnsupportedDurabilityBackend(
+            "pending-inbound conditional insert did not apply".to_string(),
+        ));
+    }
+    // Attempt conditional cleanup even if the round-trip read fails. Never
+    // delete a replacement or an unrelated row through an unconditional path.
+    let stored = backend
+        .read_pending_inbound_bounded(key, bound, lease.clone())
+        .await;
+    let grouped = if replaced.is_ok() {
+        backend
+            .read_pending_inbound_group_bounded(
+                PendingInboundKey {
+                    chat: key.chat,
+                    sender: PROBE_JID,
+                    id: key.id,
+                },
+                bound,
+                lease.clone(),
+            )
+            .await
+    } else {
+        Ok(None)
+    };
+    // A reported insertion error can follow a visible commit. Its cleanup
+    // shares the successful probe's conditional-delete path, but only after
+    // the exact probe revision became visible. Never delete a successor.
+    let deleted = if replaced.is_ok()
+        || stored.as_ref().is_ok_and(|record| {
+            record
+                .as_ref()
+                .is_some_and(|record| record.revision() == revision)
+        }) {
+        backend
+            .delete_pending_inbound_if(key, revision, bound, lease.clone())
+            .await
+    } else {
+        Ok(PendingInboundMutation::Conflict)
+    };
+    replaced.map_err(map_err)?;
+    let stored = stored.map_err(map_err)?;
+    let grouped = grouped.map_err(map_err)?;
+    if grouped
+        .as_ref()
+        .map(|(sender, record)| (sender.as_str(), record.bytes()))
+        != Some((key.sender, PROBE_PAYLOAD))
+        || stored.as_ref().map(|record| record.bytes()) != Some(PROBE_PAYLOAD)
+        || stored.as_ref().map(|record| record.revision()) != Some(revision)
+        || deleted.map_err(map_err)? != PendingInboundMutation::Applied
+        || backend
+            .read_pending_inbound_bounded(key, bound, lease)
+            .await
+            .map_err(map_err)?
+            .is_some()
+    {
+        return Err(ClientBuilderError::UnsupportedDurabilityBackend(
+            "bounded pending-inbound CAS did not round-trip and clean up".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Owns the only path from a fully allocated client to started background
+/// services, preventing callers from publishing a partially configured client.
+pub(super) struct ClientAssembly {
+    client: Arc<Client>,
+    sync_task_receiver: async_channel::Receiver<MajorSyncTask>,
+}
+
+#[cfg(feature = "client-lifecycle")]
+struct ClientConstructionGuard {
+    client: Arc<Client>,
+    armed: bool,
+}
+
+#[cfg(feature = "client-lifecycle")]
+impl ClientConstructionGuard {
+    fn new(client: Arc<Client>) -> Self {
+        Self {
+            client,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(feature = "client-lifecycle")]
+impl Drop for ClientConstructionGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.client.signal_shutdown_sync();
+        }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct ClientExtensions {
+    pub(super) inbound_durability_hook: Option<Arc<dyn InboundDurabilityHook>>,
+    pub(super) history_sync_capture_hook: Option<Arc<dyn HistorySyncCaptureHook>>,
+    pub(super) history_sync_durability_hook: Option<Arc<dyn HistorySyncDurabilityHook>>,
+    pub(super) group_notification_durability_hook: Option<Arc<dyn GroupNotificationDurabilityHook>>,
+    pub(super) custom_enc_handlers: Option<HashMap<String, Arc<dyn EncHandler>>>,
+    pub(super) retry_admission: Option<Arc<dyn crate::RetryAdmission>>,
+    pub(super) decrypt_failure_admission: Option<Arc<dyn crate::DecryptFailureAdmission>>,
+
+    #[cfg(feature = "client-lifecycle")]
+    pub(super) lifecycle: Option<Arc<LifecycleRegistration>>,
+    #[cfg(feature = "plugins")]
+    pub(super) plugin_host: Option<Arc<PluginHost>>,
+    pub(super) noise_cert_policy: NoiseCertPolicy,
+    pub(super) history_sync_admission: Option<Arc<dyn HistorySyncAdmission>>,
+    pub(super) connect_admission: Option<Arc<dyn ConnectAdmission>>,
+}
+
+impl ClientAssembly {
+    pub(super) fn new(
+        client: Arc<Client>,
+        sync_task_receiver: async_channel::Receiver<MajorSyncTask>,
+    ) -> Self {
+        Self {
+            client,
+            sync_task_receiver,
+        }
+    }
+
+    pub(super) fn start(self) -> ClientBuild {
+        self.client.start_services();
+        ClientBuild::new(self.client, self.sync_task_receiver)
+    }
+
+    fn client(&self) -> Arc<Client> {
+        Arc::clone(&self.client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use super::*;
+    use crate::runtime_impl::TokioRuntime;
+    use crate::test_utils::MockHttpClient;
+    use crate::transport::mock::MockTransportFactory;
+    use wacore::runtime::AbortHandle;
+
+    #[cfg(feature = "client-lifecycle")]
+    struct FailingLifecycle {
+        spawns: Arc<AtomicUsize>,
+        installed_client: std::sync::Mutex<Option<std::sync::Weak<Client>>>,
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    struct RunDuringInstallLifecycle {
+        client: async_channel::Sender<Arc<Client>>,
+        release: async_channel::Receiver<()>,
+        run_finished: async_channel::Sender<()>,
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    struct ConnectDuringInstallLifecycle {
+        client: async_channel::Sender<Arc<Client>>,
+        release: async_channel::Receiver<()>,
+        connect_invoked: async_channel::Sender<()>,
+        connect_finished: async_channel::Sender<bool>,
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    struct BlockingTransportFactory {
+        started: async_channel::Sender<()>,
+        release: async_channel::Receiver<()>,
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    impl TransportFactory for BlockingTransportFactory {
+        async fn create_transport(
+            &self,
+        ) -> Result<
+            (
+                Arc<dyn crate::transport::Transport>,
+                async_channel::Receiver<crate::transport::TransportEvent>,
+            ),
+            anyhow::Error,
+        > {
+            self.started
+                .send(())
+                .await
+                .map_err(|_| anyhow::anyhow!("transport-start receiver closed"))?;
+            self.release
+                .recv()
+                .await
+                .map_err(|_| anyhow::anyhow!("transport release closed"))?;
+            Err(anyhow::anyhow!("injected transport stop"))
+        }
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    impl ClientLifecycle for RunDuringInstallLifecycle {
+        fn install<'a>(
+            &'a self,
+            client: std::sync::Weak<Client>,
+        ) -> wacore::runtime::BoxFuture<'a, anyhow::Result<()>> {
+            Box::pin(async move {
+                let client = client
+                    .upgrade()
+                    .ok_or_else(|| anyhow::anyhow!("client unavailable during install"))?;
+                let run_client = client.clone();
+                let run_finished = self.run_finished.clone();
+                client
+                    .runtime
+                    .spawn(Box::pin(async move {
+                        run_client.run().await;
+                        let _ = run_finished.send(()).await;
+                    }))
+                    .detach();
+                self.client
+                    .send(client)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("test client receiver closed"))?;
+                self.release
+                    .recv()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("test install release closed"))?;
+                Ok(())
+            })
+        }
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    impl ClientLifecycle for ConnectDuringInstallLifecycle {
+        fn install<'a>(
+            &'a self,
+            client: std::sync::Weak<Client>,
+        ) -> wacore::runtime::BoxFuture<'a, anyhow::Result<()>> {
+            Box::pin(async move {
+                let client = client
+                    .upgrade()
+                    .ok_or_else(|| anyhow::anyhow!("client unavailable during install"))?;
+                let connect_client = client.clone();
+                let connect_invoked = self.connect_invoked.clone();
+                let connect_finished = self.connect_finished.clone();
+                client
+                    .runtime
+                    .spawn(Box::pin(async move {
+                        let _ = connect_invoked.send(()).await;
+                        let failed = connect_client.connect().await.is_err();
+                        let _ = connect_finished.send(failed).await;
+                    }))
+                    .detach();
+                self.client
+                    .send(client)
+                    .await
+                    .map_err(|_| anyhow::anyhow!("test client receiver closed"))?;
+                self.release
+                    .recv()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("test install release closed"))?;
+                Ok(())
+            })
+        }
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    impl ClientLifecycle for FailingLifecycle {
+        fn install<'a>(
+            &'a self,
+            client: std::sync::Weak<Client>,
+        ) -> wacore::runtime::BoxFuture<'a, anyhow::Result<()>> {
+            Box::pin(async move {
+                assert_eq!(self.spawns.load(Ordering::SeqCst), 0);
+                *self
+                    .installed_client
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(client);
+                Err(anyhow::anyhow!("injected install failure"))
+            })
+        }
+    }
+
+    struct CountingRuntime {
+        spawns: Arc<AtomicUsize>,
+    }
+
+    struct CountingHistorySyncAdmission {
+        decisions: Arc<AtomicUsize>,
+    }
+
+    impl HistorySyncAdmission for CountingHistorySyncAdmission {
+        fn decide(&self, _metadata: &crate::HistorySyncMetadata<'_>) -> crate::HistorySyncDecision {
+            self.decisions.fetch_add(1, Ordering::SeqCst);
+            crate::HistorySyncDecision::Accept
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Runtime for CountingRuntime {
+        fn spawn(&self, future: Pin<Box<dyn Future<Output = ()> + Send + 'static>>) -> AbortHandle {
+            self.spawns.fetch_add(1, Ordering::SeqCst);
+            TokioRuntime.spawn(future)
+        }
+
+        fn sleep(&self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            TokioRuntime.sleep(duration)
+        }
+
+        fn spawn_blocking(
+            &self,
+            f: Box<dyn FnOnce() + Send + 'static>,
+        ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+            TokioRuntime.spawn_blocking(f)
+        }
+
+        fn yield_now(&self) -> Option<Pin<Box<dyn Future<Output = ()> + Send>>> {
+            TokioRuntime.yield_now()
+        }
+    }
+
+    async fn complete_builder() -> ClientBuilder {
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(crate::test_utils::create_test_backend().await)
+                .await
+                .expect("persistence manager"),
+        );
+        ClientBuilder::new()
+            .with_runtime(TokioRuntime)
+            .with_persistence_manager(persistence_manager)
+            .with_transport_factory(MockTransportFactory::new())
+            .with_http_client(MockHttpClient)
+    }
+
+    struct RetryPolicy;
+    impl crate::RetryAdmission for RetryPolicy {
+        fn decide(&self, _: &crate::RetryContext<'_>) -> crate::RetryDecision {
+            crate::RetryDecision::Drop
+        }
+    }
+    struct DecryptPolicy;
+    impl crate::DecryptFailureAdmission for DecryptPolicy {
+        fn decide(&self, _: &crate::DecryptFailureContext<'_>) -> crate::DecryptFailureDecision {
+            crate::DecryptFailureDecision::AcknowledgeWithoutRetry
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_policies_are_assembled_with_last_registration_winning() {
+        let retry: Arc<dyn crate::RetryAdmission> = Arc::new(RetryPolicy);
+        let decrypt: Arc<dyn crate::DecryptFailureAdmission> = Arc::new(DecryptPolicy);
+        let client = complete_builder()
+            .await
+            .with_retry_admission(RetryPolicy)
+            .with_retry_admission_arc(retry.clone())
+            .with_decrypt_failure_admission(DecryptPolicy)
+            .with_decrypt_failure_admission_arc(decrypt.clone())
+            .build()
+            .await
+            .unwrap()
+            .into_client();
+        assert!(Arc::ptr_eq(
+            client.retry_admission.as_ref().unwrap(),
+            &retry
+        ));
+        assert!(Arc::ptr_eq(
+            client.decrypt_failure_admission.as_ref().unwrap(),
+            &decrypt
+        ));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn durability_probes_round_trip_and_clean_up_without_deleting_other_rows() {
+        let backend: Arc<dyn crate::store::traits::Backend> =
+            Arc::new(wacore::store::in_memory::InMemoryBackend::new());
+        backend
+            .store_pending_inbound("0@s.whatsapp.net", "0@s.whatsapp.net", "existing", b"keep")
+            .await
+            .expect("seed unrelated row");
+
+        let runtime: Arc<dyn Runtime> = Arc::new(TokioRuntime);
+        let (first, second) = futures::join!(
+            probe_durability_backend(&backend, &runtime),
+            probe_durability_backend(&backend, &runtime)
+        );
+        first.expect("first probe");
+        second.expect("second probe");
+        assert_eq!(
+            backend
+                .get_pending_inbound("0@s.whatsapp.net", "0@s.whatsapp.net", "existing")
+                .await
+                .expect("read unrelated row"),
+            Some(b"keep".to_vec())
+        );
+        assert_eq!(
+            backend
+                .delete_expired_pending_inbound(i64::MAX)
+                .await
+                .expect("count remaining rows"),
+            1,
+            "only the unrelated row should remain"
+        );
+    }
+
+    #[tokio::test]
+    async fn durability_probe_cleans_visible_insert_errors_and_cancelled_cleanup() {
+        use wacore::store::traits::ProtocolStore;
+        for cancel in [false, true] {
+            let backend = Arc::new(wacore::store::in_memory::InMemoryBackend::new());
+            let erased: Arc<dyn crate::store::traits::Backend> = backend.clone();
+            let runtime: Arc<dyn Runtime> = Arc::new(TokioRuntime);
+            let gate = Arc::new(async_lock::Barrier::new(2));
+            if cancel {
+                backend.park_pending_delete(0, gate.clone());
+            } else {
+                backend.fail_next_pending_replace_after_commit();
+            }
+            let worker =
+                tokio::spawn(async move { probe_durability_backend(&erased, &runtime).await });
+            if cancel {
+                tokio::time::timeout(Duration::from_secs(5), gate.wait())
+                    .await
+                    .unwrap();
+                worker.abort();
+                assert!(matches!(worker.await, Err(error) if error.is_cancelled()));
+                backend.set_fail_pending_delete(None);
+                gate.wait().await;
+            } else {
+                assert!(worker.await.unwrap().is_err());
+            }
+            assert_eq!(
+                backend
+                    .delete_expired_pending_inbound(i64::MAX)
+                    .await
+                    .unwrap(),
+                0,
+                "a failed or cancelled construction must not strand its probe"
+            );
+        }
+    }
+
+    struct CaptureOnly;
+
+    #[async_trait::async_trait]
+    impl HistorySyncCaptureHook for CaptureOnly {
+        async fn on_history_sync(
+            &self,
+            _: Arc<Client>,
+            _: &str,
+            _: Option<waproto::whatsapp::message::HistorySyncType>,
+            _: &[u8],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct HistoryRecovery;
+
+    #[async_trait::async_trait]
+    impl HistorySyncDurabilityHook for HistoryRecovery {
+        async fn on_notification(
+            &self,
+            _: &crate::HistorySyncKey,
+            _: &crate::HistorySyncMetadata<'_>,
+            _: &[u8],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn on_compressed_chunk(
+            &self,
+            _: &crate::HistorySyncKey,
+            _: &crate::HistorySyncMetadata<'_>,
+            _: &[u8],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn history_recovery_requires_a_capable_backend_and_preserves_registration() {
+        let hook: Arc<dyn HistorySyncDurabilityHook> = Arc::new(HistoryRecovery);
+        let (client, _) = complete_builder()
+            .await
+            .with_history_sync_durability_hook(HistoryRecovery)
+            .with_history_sync_durability_hook_arc(hook.clone())
+            .build()
+            .await
+            .unwrap()
+            .into_parts();
+        assert!(client.inbound_journal_enabled());
+        assert!(client.inbound_durability_hook.get().is_none());
+        assert!(client.history_sync_capture_hook.get().is_none());
+        assert!(Arc::ptr_eq(
+            client.history_sync_durability_hook.get().unwrap(),
+            &hook
+        ));
+
+        use diesel::{Connection, RunQueryDsl, SqliteConnection};
+        let db = format!(
+            "file:history_no_pending_{}?mode=memory&cache=shared",
+            std::process::id()
+        );
+        let backend = Arc::new(crate::store::SqliteStore::open(&db).await.unwrap());
+        let mut sql = SqliteConnection::establish(&db).unwrap();
+        diesel::sql_query("ALTER TABLE pending_inbound_messages RENAME TO unavailable_pending")
+            .execute(&mut sql)
+            .unwrap();
+        let persistence = Arc::new(PersistenceManager::new(backend).await.unwrap());
+        let result = ClientBuilder::new()
+            .with_runtime(TokioRuntime)
+            .with_persistence_manager(persistence)
+            .with_transport_factory(MockTransportFactory::new())
+            .with_http_client(MockHttpClient)
+            .with_history_sync_durability_hook(HistoryRecovery)
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(ClientBuilderError::UnsupportedDurabilityBackend(_))
+        ));
+    }
+
+    struct MessageCommit;
+
+    #[async_trait::async_trait]
+    impl InboundDurabilityHook for MessageCommit {
+        async fn on_messages(
+            &self,
+            _: Arc<Client>,
+            _: &[crate::types::events::InboundMessage],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn capture_only_builds_without_pending_inbound_operations() {
+        use diesel::{Connection, RunQueryDsl, SqliteConnection};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let db = format!(
+            "file:capture_only_{}_{}?mode=memory&cache=shared",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::SeqCst)
+        );
+        let backend: Arc<dyn crate::store::traits::Backend> =
+            Arc::new(crate::store::SqliteStore::open(&db).await.unwrap());
+        let mut sql = SqliteConnection::establish(&db).unwrap();
+        // Disable only pending-inbound operations in this synthetic database.
+        // Capture has no dependency on that table, whereas message commit does.
+        diesel::sql_query("ALTER TABLE pending_inbound_messages RENAME TO unavailable_pending")
+            .execute(&mut sql)
+            .unwrap();
+        assert!(
+            backend
+                .store_pending_inbound("chat", "sender", "id", b"body")
+                .await
+                .is_err()
+        );
+        assert!(
+            backend
+                .get_pending_inbound("chat", "sender", "id")
+                .await
+                .is_err()
+        );
+        assert!(
+            backend
+                .delete_pending_inbound("chat", "sender", "id")
+                .await
+                .is_err()
+        );
+        let persistence = Arc::new(PersistenceManager::new(backend).await.unwrap());
+        let hook: Arc<dyn HistorySyncCaptureHook> = Arc::new(CaptureOnly);
+        let builder = || {
+            ClientBuilder::new()
+                .with_runtime(TokioRuntime)
+                .with_persistence_manager(persistence.clone())
+                .with_transport_factory(MockTransportFactory::new())
+                .with_http_client(MockHttpClient)
+        };
+        let build = builder()
+            .with_history_sync_capture_hook(CaptureOnly)
+            .with_history_sync_capture_hook_arc(hook.clone())
+            .build()
+            .await
+            .expect("capture-only must not probe pending-inbound storage");
+        let (client, _receiver) = build.into_parts();
+        assert!(client.inbound_durability_hook.get().is_none());
+        assert!(Arc::ptr_eq(
+            client.history_sync_capture_hook.get().unwrap(),
+            &hook
+        ));
+        assert!(matches!(
+            builder()
+                .with_history_sync_capture_hook_arc(hook)
+                .with_inbound_durability_hook(MessageCommit)
+                .build()
+                .await,
+            Err(ClientBuilderError::UnsupportedDurabilityBackend(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn validates_required_dependencies_before_assembly() {
+        assert!(matches!(
+            ClientBuilder::new().build().await,
+            Err(ClientBuilderError::MissingRuntime)
+        ));
+
+        assert!(matches!(
+            ClientBuilder::new()
+                .with_runtime(TokioRuntime)
+                .build()
+                .await,
+            Err(ClientBuilderError::MissingPersistenceManager)
+        ));
+
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(crate::test_utils::create_test_backend().await)
+                .await
+                .expect("persistence manager"),
+        );
+        assert!(matches!(
+            ClientBuilder::new()
+                .with_runtime(TokioRuntime)
+                .with_persistence_manager(Arc::clone(&persistence_manager))
+                .build()
+                .await,
+            Err(ClientBuilderError::MissingTransportFactory)
+        ));
+
+        assert!(matches!(
+            ClientBuilder::new()
+                .with_runtime(TokioRuntime)
+                .with_persistence_manager(persistence_manager)
+                .with_transport_factory(MockTransportFactory::new())
+                .build()
+                .await,
+            Err(ClientBuilderError::MissingHttpClient)
+        ));
+    }
+
+    #[test]
+    fn noise_cert_policy_setter_stores_per_builder_value() {
+        let strict = ClientBuilder::new();
+        assert_eq!(
+            strict.options.noise_cert_policy,
+            NoiseCertPolicy::default(),
+            "fresh builder carries the default policy"
+        );
+        let bypass =
+            ClientBuilder::new().with_noise_cert_policy(NoiseCertPolicy::DangerSkipCertChainVerify);
+        assert_eq!(
+            bypass.options.noise_cert_policy,
+            NoiseCertPolicy::DangerSkipCertChainVerify
+        );
+        // No shared state: opting one builder in leaves the other alone.
+        assert_eq!(strict.options.noise_cert_policy, NoiseCertPolicy::default());
+    }
+
+    #[test]
+    fn noise_cert_policy_default_is_strict() {
+        assert_eq!(NoiseCertPolicy::default(), NoiseCertPolicy::Strict);
+    }
+
+    #[tokio::test]
+    async fn noise_cert_policy_reaches_the_built_client() {
+        let strict = complete_builder()
+            .await
+            .build()
+            .await
+            .expect("build")
+            .into_client();
+        assert_eq!(strict.noise_cert_policy, NoiseCertPolicy::default());
+        strict.signal_shutdown_sync();
+
+        let bypass = complete_builder()
+            .await
+            .with_noise_cert_policy(NoiseCertPolicy::DangerSkipCertChainVerify)
+            .build()
+            .await
+            .expect("build")
+            .into_client();
+        assert_eq!(
+            bypass.noise_cert_policy,
+            NoiseCertPolicy::DangerSkipCertChainVerify
+        );
+        bypass.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    async fn watched_ab_props_are_kept_and_readable() {
+        use wacore::iq::abprops::web::{
+            AURA_PINNED_CHATS_BENEFIT_ACTIVE, AURA_PINNED_CHATS_ENABLED,
+        };
+
+        let client = complete_builder()
+            .await
+            .with_watched_ab_props([AURA_PINNED_CHATS_BENEFIT_ACTIVE])
+            .build()
+            .await
+            .expect("build")
+            .into_client();
+        // Nothing fetched yet: absent, not the registry default.
+        assert_eq!(
+            client
+                .ab_prop_enabled(AURA_PINNED_CHATS_BENEFIT_ACTIVE)
+                .await,
+            None
+        );
+
+        client
+            .ab_props()
+            .apply_props(
+                false,
+                [
+                    (AURA_PINNED_CHATS_BENEFIT_ACTIVE.code, "1".into()),
+                    (AURA_PINNED_CHATS_ENABLED.code, "1".into()),
+                ]
+                .into_iter(),
+            )
+            .await;
+        assert_eq!(
+            client
+                .ab_prop_enabled(AURA_PINNED_CHATS_BENEFIT_ACTIVE)
+                .await,
+            Some(true)
+        );
+        // Sent by the server but never watched, so discarded on arrival.
+        assert_eq!(
+            client.ab_prop_enabled(AURA_PINNED_CHATS_ENABLED).await,
+            None
+        );
+        client.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    async fn history_sync_admission_reaches_the_built_client() {
+        let decisions = Arc::new(AtomicUsize::new(0));
+        let client = complete_builder()
+            .await
+            .with_history_sync_admission(CountingHistorySyncAdmission {
+                decisions: Arc::clone(&decisions),
+            })
+            .build()
+            .await
+            .expect("build")
+            .into_parts()
+            .0;
+
+        let admission = client
+            .history_sync_admission
+            .as_ref()
+            .expect("builder-installed history-sync admission");
+        assert_eq!(
+            admission.decide(&crate::HistorySyncMetadata {
+                sync_type: None,
+                chunk_order: None,
+                progress: None,
+                file_length: None,
+                inline_payload_len: None,
+                peer_data_request_session_id: None,
+            }),
+            crate::HistorySyncDecision::Accept
+        );
+        assert_eq!(decisions.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn unused_extension_configuration_allocates_nothing() {
+        assert_eq!(
+            crate::test_alloc::min_allocs(0, ClientExtensions::default),
+            0
+        );
+        assert_eq!(crate::test_alloc::min_allocs(0, ClientBuilder::new), 0);
+        assert_eq!(
+            crate::test_alloc::min_allocs(2, || ClientBuilder::new()
+                .with_retry_admission(RetryPolicy)),
+            2
+        );
+        let shared: Arc<dyn crate::RetryAdmission> = Arc::new(RetryPolicy);
+        assert_eq!(
+            crate::test_alloc::min_allocs(1, || ClientBuilder::new()
+                .with_retry_admission_arc(shared.clone())),
+            1
+        );
+        let builder = ClientBuilder::new();
+        assert!(builder.extensions.is_none());
+        assert_eq!(size_of_val(&builder.extensions), size_of::<usize>());
+        eprintln!(
+            "ClientBuilder={} B; optional extension config={} B; configured payload={} B",
+            size_of::<ClientBuilder>(),
+            size_of_val(&builder.extensions),
+            size_of::<ClientExtensions>()
+        );
+        let extensions = ClientExtensions::default();
+        assert!(extensions.retry_admission.is_none());
+        assert!(extensions.decrypt_failure_admission.is_none());
+        assert!(extensions.custom_enc_handlers.is_none());
+        #[cfg(feature = "plugins")]
+        assert!(extensions.plugin_host.is_none());
+        #[cfg(feature = "client-lifecycle")]
+        assert!(extensions.lifecycle.is_none());
+        // Positive control: an owned opt-in policy does allocate its Arc.
+        assert_eq!(
+            crate::test_alloc::min_allocs(1, || ClientExtensions {
+                retry_admission: Some(Arc::new(RetryPolicy)),
+                ..Default::default()
+            }),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn assembly_is_inert_until_started() {
+        struct Policy(Arc<AtomicUsize>);
+        impl crate::RetryAdmission for Policy {
+            fn decide(&self, _: &crate::RetryContext<'_>) -> crate::RetryDecision {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                crate::RetryDecision::Accept
+            }
+        }
+        impl crate::DecryptFailureAdmission for Policy {
+            fn decide(
+                &self,
+                _: &crate::DecryptFailureContext<'_>,
+            ) -> crate::DecryptFailureDecision {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                crate::DecryptFailureDecision::RequestRetry
+            }
+        }
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(crate::test_utils::create_test_backend().await)
+                .await
+                .expect("persistence manager"),
+        );
+        for configured in [false, true] {
+            let spawns = Arc::new(AtomicUsize::new(0));
+            let decisions = Arc::new(AtomicUsize::new(0));
+            let runtime = Arc::new(CountingRuntime {
+                spawns: spawns.clone(),
+            }) as Arc<dyn Runtime>;
+            let mut extensions = ClientExtensions::default();
+            if configured {
+                let policy = Arc::new(Policy(decisions.clone()));
+                extensions.retry_admission = Some(policy.clone());
+                extensions.decrypt_failure_admission = Some(policy);
+            }
+            let assembly = Client::assemble(
+                runtime,
+                persistence_manager.clone(),
+                Arc::new(MockTransportFactory::new()),
+                Arc::new(MockHttpClient),
+                None,
+                CacheConfig::default(),
+                extensions,
+            );
+            assert_eq!(spawns.load(Ordering::SeqCst), 0);
+            let build = assembly.start();
+            // Existing LID-PN warm-up and startup retention sweep only, with or
+            // without synchronous policies. Construction never dispatches them.
+            assert_eq!(spawns.load(Ordering::SeqCst), 2);
+            assert_eq!(decisions.load(Ordering::SeqCst), 0);
+            build.into_client().signal_shutdown_sync();
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn run_leaked_during_install_waits_for_complete_construction() {
+        let (client_tx, client_rx) = async_channel::bounded(1);
+        let (release_tx, release_rx) = async_channel::bounded(1);
+        let (run_finished_tx, run_finished_rx) = async_channel::bounded(1);
+        let builder = complete_builder()
+            .await
+            .with_lifecycle(RunDuringInstallLifecycle {
+                client: client_tx,
+                release: release_rx,
+                run_finished: run_finished_tx,
+            });
+        let build = tokio::spawn(async move { builder.build().await });
+        let leaked_client = client_rx
+            .recv()
+            .await
+            .expect("client leaked during install");
+        tokio::task::yield_now().await;
+        assert!(!leaked_client.is_running.load(Ordering::Acquire));
+
+        release_tx.send(()).await.expect("release installation");
+        let client = build
+            .await
+            .expect("builder task")
+            .expect("successful build")
+            .into_client();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !client.is_running.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("run released after activation");
+        client.signal_shutdown_sync();
+        tokio::time::timeout(Duration::from_secs(5), run_finished_rx.recv())
+            .await
+            .expect("run stop timeout")
+            .expect("run stopped");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn connect_leaked_during_install_waits_for_complete_construction() {
+        let (client_tx, client_rx) = async_channel::bounded(1);
+        let (install_release_tx, install_release_rx) = async_channel::bounded(1);
+        let (connect_invoked_tx, connect_invoked_rx) = async_channel::bounded(1);
+        let (connect_finished_tx, connect_finished_rx) = async_channel::bounded(1);
+        let (transport_started_tx, transport_started_rx) = async_channel::bounded(1);
+        let (transport_release_tx, transport_release_rx) = async_channel::bounded(1);
+        let builder = complete_builder()
+            .await
+            .with_transport_factory(BlockingTransportFactory {
+                started: transport_started_tx,
+                release: transport_release_rx,
+            })
+            .with_lifecycle(ConnectDuringInstallLifecycle {
+                client: client_tx,
+                release: install_release_rx,
+                connect_invoked: connect_invoked_tx,
+                connect_finished: connect_finished_tx,
+            });
+        let build = tokio::spawn(async move { builder.build().await });
+        let leaked_client = client_rx
+            .recv()
+            .await
+            .expect("client leaked during install");
+        connect_invoked_rx
+            .recv()
+            .await
+            .expect("direct connect invoked");
+
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), transport_started_rx.recv())
+                .await
+                .is_err(),
+            "transport started before construction activation"
+        );
+        assert!(!leaked_client.is_connecting.load(Ordering::Acquire));
+
+        install_release_tx
+            .send(())
+            .await
+            .expect("release installation");
+        let client = build
+            .await
+            .expect("builder task")
+            .expect("successful build")
+            .into_client();
+        tokio::time::timeout(Duration::from_secs(1), transport_started_rx.recv())
+            .await
+            .expect("connect remained gated after activation")
+            .expect("transport-start sender closed");
+        transport_release_tx
+            .send(())
+            .await
+            .expect("release transport");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), connect_finished_rx.recv())
+                .await
+                .expect("direct connect did not finish")
+                .expect("connect-finished sender closed")
+        );
+        client.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn shutdown_during_install_rejects_leaked_connect() {
+        let (client_tx, client_rx) = async_channel::bounded(1);
+        let (_install_release_tx, install_release_rx) = async_channel::bounded(1);
+        let (connect_invoked_tx, connect_invoked_rx) = async_channel::bounded(1);
+        let (connect_finished_tx, connect_finished_rx) = async_channel::bounded(1);
+        let (transport_started_tx, transport_started_rx) = async_channel::bounded(1);
+        let (_transport_release_tx, transport_release_rx) = async_channel::bounded(1);
+        let builder = complete_builder()
+            .await
+            .with_transport_factory(BlockingTransportFactory {
+                started: transport_started_tx,
+                release: transport_release_rx,
+            })
+            .with_lifecycle(ConnectDuringInstallLifecycle {
+                client: client_tx,
+                release: install_release_rx,
+                connect_invoked: connect_invoked_tx,
+                connect_finished: connect_finished_tx,
+            });
+        let build = tokio::spawn(async move { builder.build().await });
+        let leaked_client = client_rx
+            .recv()
+            .await
+            .expect("client leaked during install");
+        connect_invoked_rx
+            .recv()
+            .await
+            .expect("direct connect invoked");
+        leaked_client.signal_shutdown_sync();
+
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), build)
+                .await
+                .expect("lifecycle install ignored terminal shutdown")
+                .expect("builder task"),
+            Err(ClientBuilderError::LifecycleInstall(_))
+        ));
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), connect_finished_rx.recv())
+                .await
+                .expect("direct connect did not observe rejection")
+                .expect("connect-finished sender closed")
+        );
+        assert!(transport_started_rx.try_recv().is_err());
+        assert!(!leaked_client.is_connecting.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn shutdown_during_install_rejects_leaked_run_and_the_build() {
+        let (client_tx, client_rx) = async_channel::bounded(1);
+        let (_release_tx, release_rx) = async_channel::bounded(1);
+        let (run_finished_tx, run_finished_rx) = async_channel::bounded(1);
+        let builder = complete_builder()
+            .await
+            .with_lifecycle(RunDuringInstallLifecycle {
+                client: client_tx,
+                release: release_rx,
+                run_finished: run_finished_tx,
+            });
+        let build = tokio::spawn(async move { builder.build().await });
+        let leaked_client = client_rx
+            .recv()
+            .await
+            .expect("client leaked during install");
+        leaked_client.signal_shutdown_sync();
+
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), build)
+                .await
+                .expect("lifecycle install ignored terminal shutdown")
+                .expect("builder task"),
+            Err(ClientBuilderError::LifecycleInstall(_))
+        ));
+        tokio::time::timeout(Duration::from_secs(5), run_finished_rx.recv())
+            .await
+            .expect("rejected run stop timeout")
+            .expect("rejected run stopped");
+        assert!(!leaked_client.is_running.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn low_level_builder_installs_options_and_owned_services() {
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(crate::test_utils::create_test_backend().await)
+                .await
+                .expect("persistence manager"),
+        );
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let meter = Arc::new(wacore::stats::AllocMeter::new());
+
+        let build = ClientBuilder::new()
+            .with_runtime(CountingRuntime {
+                spawns: Arc::clone(&spawns),
+            })
+            .with_persistence_manager(persistence_manager)
+            .with_transport_factory(MockTransportFactory::new())
+            .with_http_client(MockHttpClient)
+            .with_skip_history_sync(true)
+            .with_presence_policy(PresencePolicy::Manual)
+            .with_wanted_pre_key_count(123)
+            .with_alloc_meter(Arc::clone(&meter))
+            .with_background_saver_interval(Duration::from_secs(3600))
+            .build()
+            .await
+            .expect("complete builder");
+        let client = build.into_client();
+
+        assert!(client.skip_history_sync_enabled());
+        assert_eq!(client.presence_policy(), PresencePolicy::Manual);
+        assert_eq!(client.wanted_pre_key_count(), 123);
+        assert!(
+            client
+                .alloc_meter
+                .get()
+                .is_some_and(|installed| Arc::ptr_eq(installed, &meter))
+        );
+        assert!(client.saver_handle.get().is_some());
+        // LID-PN warm-up, the startup retention sweep, and the background
+        // saver.
+        assert_eq!(spawns.load(Ordering::SeqCst), 4);
+        client.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    async fn consuming_build_as_client_keeps_major_sync_worker_alive() {
+        let client = complete_builder()
+            .await
+            .build()
+            .await
+            .expect("complete builder")
+            .into_client();
+
+        assert!(!client.major_sync_task_sender.is_closed());
+        client.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    async fn sync_receiver_has_one_owner_and_into_client_starts_one_worker() {
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let build = complete_builder()
+            .await
+            .with_runtime(CountingRuntime {
+                spawns: spawns.clone(),
+            })
+            .build()
+            .await
+            .expect("manual build");
+        let before = spawns.load(Ordering::SeqCst);
+        let (client, receiver) = build.into_parts();
+        assert_eq!(spawns.load(Ordering::SeqCst), before);
+        assert_eq!(receiver.receiver_count(), 1);
+        drop(receiver);
+        assert!(
+            client.major_sync_task_sender.is_closed(),
+            "no hidden receiver clone or consumer"
+        );
+        client.signal_shutdown_sync();
+
+        let build = complete_builder()
+            .await
+            .with_runtime(CountingRuntime {
+                spawns: spawns.clone(),
+            })
+            .build()
+            .await
+            .expect("automatic build");
+        let before = spawns.load(Ordering::SeqCst);
+        let client = build.into_client();
+        assert_eq!(spawns.load(Ordering::SeqCst), before + 1);
+        assert!(!client.major_sync_task_sender.is_closed());
+        client.signal_shutdown_sync();
+    }
+
+    #[tokio::test]
+    async fn rejects_zero_background_saver_interval() {
+        let result = complete_builder()
+            .await
+            .with_background_saver_interval(Duration::ZERO)
+            .build()
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ClientBuilderError::InvalidBackgroundSaverInterval)
+        ));
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    struct PanickingInstallLifecycle {
+        when_polled: bool,
+    }
+
+    #[cfg(feature = "client-lifecycle")]
+    impl ClientLifecycle for PanickingInstallLifecycle {
+        fn install(
+            &self,
+            _client: std::sync::Weak<Client>,
+        ) -> wacore::runtime::BoxFuture<'_, anyhow::Result<()>> {
+            if !self.when_polled {
+                panic!("injected synchronous install panic");
+            }
+            Box::pin(async { panic!("injected asynchronous install panic") })
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn lifecycle_install_panics_are_typed_build_errors() {
+        for when_polled in [false, true] {
+            let result = complete_builder()
+                .await
+                .with_lifecycle(PanickingInstallLifecycle { when_polled })
+                .build()
+                .await;
+            assert!(matches!(
+                result,
+                Err(ClientBuilderError::LifecycleInstall(_))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "client-lifecycle")]
+    async fn lifecycle_install_failure_publishes_nothing_and_starts_no_tasks() {
+        let persistence_manager = Arc::new(
+            PersistenceManager::new(crate::test_utils::create_test_backend().await)
+                .await
+                .expect("persistence manager"),
+        );
+        let spawns = Arc::new(AtomicUsize::new(0));
+        let lifecycle = Arc::new(FailingLifecycle {
+            spawns: Arc::clone(&spawns),
+            installed_client: std::sync::Mutex::new(None),
+        });
+
+        let result = ClientBuilder::new()
+            .with_runtime(CountingRuntime {
+                spawns: Arc::clone(&spawns),
+            })
+            .with_persistence_manager(persistence_manager)
+            .with_transport_factory(MockTransportFactory::new())
+            .with_http_client(MockHttpClient)
+            .with_lifecycle_arc(lifecycle.clone())
+            .build()
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(ClientBuilderError::LifecycleInstall(_))
+        ));
+        assert_eq!(spawns.load(Ordering::SeqCst), 0);
+        assert!(
+            lifecycle
+                .installed_client
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_ref()
+                .is_some_and(|client| client.upgrade().is_none())
+        );
+    }
+}

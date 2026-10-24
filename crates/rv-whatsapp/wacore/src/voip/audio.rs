@@ -1,0 +1,604 @@
+//! Audio format and I/O contracts shared by the sans-I/O engine and platform drivers.
+
+use super::rtp::RTP_PAYLOAD_TYPE_MLOW_RED;
+
+// The fundamental format types now live in the neutral contract, so the control plane can name
+// them without the engine. Re-exported here so every historical `crate::voip::audio::*` (and
+// `crate::voip::*`) path resolves to the one type. The payload-inspecting helpers below are a
+// second inherent `impl` on `AudioFormat`, allowed because it is the same crate.
+pub use crate::voip_control::audio_format::{
+    AudioCodec, AudioFormat, AudioIo, AudioRtpProfile, RTP_PAYLOAD_TYPE_MLOW, is_mlow_embedded_opus,
+};
+
+impl AudioFormat {
+    /// Identify the actual inbound codec after the negotiated RTP profile is known.
+    ///
+    /// The separate MLOW type (`mlow-1`, 122) is read exactly like the shared one: its first byte is
+    /// an MLOW TOC, and the escape marker (SID and VAD both set) is not a TOC any MLOW frame can
+    /// have, so it means the same thing on either type. Only the redundancy type differs, because
+    /// its first byte is the RED framing rather than a TOC.
+    pub fn inbound_codec(self, payload_type: u8, payload: &[u8]) -> AudioCodec {
+        match self.rtp_profile {
+            AudioRtpProfile::StandardOpus => AudioCodec::Opus,
+            AudioRtpProfile::Mlow
+                if payload_type != RTP_PAYLOAD_TYPE_MLOW_RED && is_mlow_embedded_opus(payload) =>
+            {
+                AudioCodec::Opus
+            }
+            AudioRtpProfile::Mlow => AudioCodec::Mlow,
+        }
+    }
+
+    /// Whether this payload is MLOW's escape, as opposed to native Opus that merely looks like one.
+    ///
+    /// The marker alone cannot answer it: `is_mlow_embedded_opus` tests the top two bits, and every
+    /// native Opus CELT config (24..=31) sets them -- a native 60 ms CELT packet starts 0xC3. Read
+    /// on the marker alone, native CELT is called an escape and has a TOC that was never rewritten
+    /// rewritten again, which does not decode.
+    ///
+    /// What separates them is the same arithmetic the content probe rests on. An escape's low TOC
+    /// bit means "multiple frames", not an Opus frame count, so read back as Opus it is code 0 or
+    /// code 1 -- one or two CELT frames, at most 40 ms. It can therefore never claim the negotiated
+    /// packet duration, while native CELT at that duration claims it exactly. Parsing as Opus at
+    /// this format's own cadence is thus a property only the native packet has.
+    #[must_use]
+    pub fn payload_is_mlow_escape(self, payload: &[u8]) -> bool {
+        matches!(self.rtp_profile, AudioRtpProfile::Mlow)
+            && is_mlow_embedded_opus(payload)
+            && crate::voip::opus_packet_shape(payload)
+                .and_then(|shape| shape.total_samples(self.rtp_clock_rate))
+                != Some(self.rtp_timestamp_step)
+    }
+
+    /// Reject raw Opus that the MLOW receiver would parse as proprietary codec data.
+    pub fn accepts_encoded_payload(self, payload: &[u8]) -> bool {
+        !payload.is_empty()
+            && (!matches!(
+                (self.codec, self.rtp_profile),
+                (AudioCodec::Opus, AudioRtpProfile::Mlow)
+            ) || is_mlow_embedded_opus(payload)
+                || payload == [0x90])
+    }
+}
+
+impl AudioFormat {
+    /// Validate a neutral format as an engine format.
+    ///
+    /// Same type now; returns `None` when the result would be invalid (a zero timing or channel
+    /// value), matching the old conversion's contract.
+    #[must_use]
+    pub(crate) fn from_neutral(format: crate::voip_control::MediaAudioFormat) -> Option<Self> {
+        format.is_valid().then_some(format)
+    }
+}
+
+/// An audio codec the core cannot implement, supplied by the platform.
+///
+/// `wacore` is sans-io and builds for wasm32 and ESP32, so it cannot link libopus. MLow is pure
+/// Rust and lives here; standard Opus does not. This is the seam: a runtime that has libopus hands
+/// one of these to the engine, and one that does not passes `None` and gets an honest
+/// [`crate::voip::CallEvent::AudioSilent`] instead of a call that pretends.
+///
+/// Implementations are stateful and per call. The engine owns exactly one and drives it from a
+/// single task, so the bound is `Send` and not `Send + Sync`: nothing here is ever shared by
+/// reference, and requiring `Sync` would exclude every real codec binding (libopus's decoder is
+/// `Send` but not `Sync`) for a guarantee no caller needs.
+pub trait ForeignAudioCodec: crate::sync_marker::MaybeSend {
+    /// Decode one payload, appending samples to `out`. `out` is reused across calls and arrives
+    /// empty; append rather than assigning so the caller keeps its allocation.
+    fn decode(&mut self, payload: &[u8], out: &mut Vec<i16>) -> Result<(), ForeignCodecError>;
+
+    /// Append `samples` of concealment for a packet that was lost or could not be decoded.
+    fn conceal(&mut self, samples: usize, out: &mut Vec<i16>);
+
+    /// Encode one frame of PCM, appending to `out` under the same contract as `decode`.
+    fn encode(&mut self, pcm: &[i16], out: &mut Vec<u8>) -> Result<(), ForeignCodecError>;
+}
+
+/// Makes one [`ForeignAudioCodec`] per stream that needs one.
+///
+/// A group call needs a decoder PER PARTICIPANT: these codecs carry inter-frame state, so feeding
+/// two speakers through one instance corrupts both. A single injected codec cannot serve them, and
+/// the engine cannot clone one, so a runtime that has libopus supplies this instead and the engine
+/// mints a decoder the first time each participant is heard from.
+pub trait ForeignAudioCodecFactory: crate::sync_marker::MaybeSend {
+    /// A fresh decoder, or `None` if one cannot be built right now. `None` is reported the same way
+    /// a missing codec is on the direct path: honest silence, never a pretend decode.
+    fn create(&self) -> Option<Box<dyn ForeignAudioCodec>>;
+}
+
+/// Why an injected codec refused a frame. Deliberately opaque: the engine counts and conceals, and
+/// the specific complaint belongs in the implementation's own log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ForeignCodecError {
+    #[error("the payload is not valid for this codec")]
+    InvalidPayload,
+    #[error("the frame size is not one this codec accepts")]
+    BadFrameSize,
+}
+
+/// Failure while translating between RFC Opus and MLOW's CELT packet header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum OpusMlowPacketError {
+    #[error("empty Opus packet")]
+    Empty,
+    #[error("Opus config {0} is not CELT-only")]
+    NotCelt(u8),
+    #[error("invalid Opus frame packing")]
+    InvalidFramePacking,
+    #[error("packet is not an MLOW CELT escape")]
+    NotMlowEscape,
+}
+
+/// Rewrite one RFC Opus CELT packet for MLOW's in-profile escape.
+///
+/// Code-0 and code-3 packets are changed in place without allocation. The two-frame RFC shorthand
+/// forms need one inserted descriptor byte. Codec payload bytes are never transcoded.
+pub fn packetize_opus_for_mlow(packet: &mut Vec<u8>) -> Result<(), OpusMlowPacketError> {
+    let Some(&toc) = packet.first() else {
+        return Err(OpusMlowPacketError::Empty);
+    };
+    // libopus uses packets of at most two bytes for DTX, including a repacketized 60 ms frame.
+    // MLOW needs its SID token so the peer does not consume the speech-resume RTP marker.
+    if packet.len() <= 2 {
+        packet[0] = 0x90;
+        packet.truncate(1);
+        return Ok(());
+    }
+    let config = toc >> 3;
+    if config < 16 {
+        return Err(OpusMlowPacketError::NotCelt(config));
+    }
+    // General Opus DTX has a hangover. Its canonical CELT silence frames still carry the MLOW VAD
+    // bit after a TOC rewrite, which can consume the receiver's speech-resume marker before speech.
+    if opus_celt_packet_is_silence(packet) {
+        packet.clear();
+        packet.push(0x90);
+        return Ok(());
+    }
+
+    let packing = toc & 0x03;
+    match packing {
+        0 => {}
+        1 => {
+            let body_len = packet.len() - 1;
+            if body_len == 0 || !body_len.is_multiple_of(2) {
+                return Err(OpusMlowPacketError::InvalidFramePacking);
+            }
+            packet.insert(1, 2);
+        }
+        2 => {
+            if !valid_two_frame_vbr_body(&packet[1..]) {
+                return Err(OpusMlowPacketError::InvalidFramePacking);
+            }
+            packet.insert(1, 0x82);
+        }
+        3 => {
+            if packet.get(1).is_none_or(|descriptor| {
+                let frame_count = descriptor & 0x3F;
+                frame_count == 0 || frame_count > 48
+            }) {
+                return Err(OpusMlowPacketError::InvalidFramePacking);
+            }
+        }
+        _ => unreachable!(),
+    }
+
+    let mode = config - 16;
+    let stereo = (toc >> 2) & 1;
+    packet[0] = 0xC0 | mode << 2 | stereo << 1 | u8::from(packing != 0);
+    Ok(())
+}
+
+/// Restore the RFC Opus TOC before passing an escaped MLOW payload to a stock Opus decoder.
+pub fn depacketize_opus_from_mlow(packet: &mut [u8]) -> Result<(), OpusMlowPacketError> {
+    let Some(&toc) = packet.first() else {
+        return Err(OpusMlowPacketError::Empty);
+    };
+    if toc & 0xC0 != 0xC0 {
+        return Err(OpusMlowPacketError::NotMlowEscape);
+    }
+    let multiple = toc & 1 != 0;
+    if multiple
+        && packet.get(1).is_none_or(|descriptor| {
+            let frame_count = descriptor & 0x3F;
+            frame_count == 0 || frame_count > 48
+        })
+    {
+        return Err(OpusMlowPacketError::InvalidFramePacking);
+    }
+
+    let config = 16 + ((toc >> 2) & 0x0F);
+    let stereo = (toc >> 1) & 1;
+    packet[0] = config << 3 | stereo << 2 | if multiple { 3 } else { 0 };
+    Ok(())
+}
+
+fn valid_two_frame_vbr_body(body: &[u8]) -> bool {
+    let Some(&first) = body.first() else {
+        return false;
+    };
+    let (size, field_len) = if first < 252 {
+        (usize::from(first), 1)
+    } else {
+        let Some(&second) = body.get(1) else {
+            return false;
+        };
+        (usize::from(first) + 4 * usize::from(second), 2)
+    };
+    size > 0 && body.len().saturating_sub(field_len + size) > 0
+}
+
+fn opus_celt_packet_is_silence(packet: &[u8]) -> bool {
+    fn frame_is_silence(frame: &[u8]) -> bool {
+        frame.is_empty() || frame == [0xFF, 0xFE]
+    }
+
+    fn parse_size(packet: &[u8], offset: &mut usize) -> Option<usize> {
+        let first = *packet.get(*offset)?;
+        *offset += 1;
+        if first < 252 {
+            return Some(usize::from(first));
+        }
+        let second = *packet.get(*offset)?;
+        *offset += 1;
+        Some(usize::from(first) + 4 * usize::from(second))
+    }
+
+    let Some(&toc) = packet.first() else {
+        return false;
+    };
+    match toc & 0x03 {
+        0 => frame_is_silence(&packet[1..]),
+        1 => {
+            let body = &packet[1..];
+            body.len().is_multiple_of(2)
+                && frame_is_silence(&body[..body.len() / 2])
+                && frame_is_silence(&body[body.len() / 2..])
+        }
+        2 => {
+            let mut offset = 1;
+            let Some(first_len) = parse_size(packet, &mut offset) else {
+                return false;
+            };
+            let Some(split) = offset.checked_add(first_len) else {
+                return false;
+            };
+            split <= packet.len()
+                && frame_is_silence(&packet[offset..split])
+                && frame_is_silence(&packet[split..])
+        }
+        3 => {
+            let Some(&descriptor) = packet.get(1) else {
+                return false;
+            };
+            let frame_count = usize::from(descriptor & 0x3F);
+            if frame_count == 0 || frame_count > 48 {
+                return false;
+            }
+            let mut offset = 2;
+            let mut padding = 0usize;
+            if descriptor & 0x40 != 0 {
+                loop {
+                    let Some(&byte) = packet.get(offset) else {
+                        return false;
+                    };
+                    offset += 1;
+                    let added = if byte == 255 { 254 } else { usize::from(byte) };
+                    let Some(total) = padding.checked_add(added) else {
+                        return false;
+                    };
+                    padding = total;
+                    if byte != 255 {
+                        break;
+                    }
+                }
+            }
+            let Some(payload_end) = packet.len().checked_sub(padding) else {
+                return false;
+            };
+            if offset > payload_end {
+                return false;
+            }
+            if descriptor & 0x80 == 0 {
+                let body = &packet[offset..payload_end];
+                if !body.len().is_multiple_of(frame_count) {
+                    return false;
+                }
+                let frame_len = body.len() / frame_count;
+                return frame_len == 0 || body.chunks(frame_len).all(frame_is_silence);
+            }
+
+            let mut lengths = [0usize; 48];
+            let mut encoded_len = 0usize;
+            for length in &mut lengths[..frame_count - 1] {
+                let Some(parsed) = parse_size(packet, &mut offset) else {
+                    return false;
+                };
+                let Some(total) = encoded_len.checked_add(parsed) else {
+                    return false;
+                };
+                encoded_len = total;
+                *length = parsed;
+            }
+            let Some(last_len) = payload_end
+                .checked_sub(offset)
+                .and_then(|remaining| remaining.checked_sub(encoded_len))
+            else {
+                return false;
+            };
+            lengths[frame_count - 1] = last_len;
+            lengths[..frame_count].iter().all(|&length| {
+                let Some(end) = offset.checked_add(length) else {
+                    return false;
+                };
+                let silence = end <= payload_end && frame_is_silence(&packet[offset..end]);
+                offset = end;
+                silence
+            }) && offset == payload_end
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Audio configuration owned by a call engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AudioConfig {
+    pub format: AudioFormat,
+    pub io: AudioIo,
+}
+
+impl AudioConfig {
+    pub const MLOW_PCM: Self = Self {
+        format: AudioFormat::MLOW_16KHZ_60MS,
+        io: AudioIo::Pcm,
+    };
+
+    /// The other half of the swappable pair, for a peer outside the MLOW rollout.
+    ///
+    /// PCM I/O admits exactly these two formats, so they are named rather than left to a general
+    /// constructor: this one needs a [`ForeignAudioCodec`], since standard Opus is not something
+    /// `wacore` can implement, and the engine reports [`crate::voip::CallEvent::AudioSilent`]
+    /// rather than pretending when none was installed.
+    pub const OPUS_PCM: Self = Self {
+        format: AudioFormat::OPUS_16KHZ_60MS,
+        io: AudioIo::Pcm,
+    };
+
+    pub const fn encoded(format: AudioFormat) -> Self {
+        Self {
+            format,
+            io: AudioIo::Encoded,
+        }
+    }
+
+    /// Build a config from the neutral seam's flat [`MediaAudioSpec`].
+    ///
+    /// Counterpart to [`AudioFormat::from_neutral`]: `AudioConfig` is also `#[non_exhaustive]`, so a
+    /// backend outside this crate cannot assemble one from fields.
+    ///
+    /// [`MediaAudioSpec`]: crate::voip_control::MediaAudioSpec
+    #[must_use]
+    pub(crate) fn from_neutral(spec: crate::voip_control::MediaAudioSpec) -> Option<Self> {
+        use crate::voip_control::MediaAudioIo;
+
+        let format = AudioFormat::from_neutral(spec.format)?;
+        Some(Self {
+            format,
+            io: match spec.io {
+                MediaAudioIo::Pcm => AudioIo::Pcm,
+                MediaAudioIo::Encoded => AudioIo::Encoded,
+            },
+        })
+    }
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self::MLOW_PCM
+    }
+}
+
+/// One decrypted codec payload received from the peer.
+///
+/// This is the neutral [`MediaEncodedFrame`](crate::voip_control::MediaEncodedFrame) under its
+/// historical engine name: one definition, so the engine's payload and the public event's payload
+/// cannot drift.
+pub use crate::voip_control::MediaEncodedFrame as EncodedAudioFrame;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The comparison exists so that "nothing to re-signal" stays true of any pair it admits. It
+    // checked every RTP timing field and not the signalling rate -- which is the one thing in an
+    // `AudioFormat` the peer learns from the `<audio rate>` rather than from the packets. A format
+    // on this payload type signalled at another rate could therefore be switched live to the
+    // built-in 16 kHz sibling, mid-call, against a peer that was told something else.
+    #[test]
+    fn a_sibling_has_to_agree_on_the_rate_the_peer_was_signalled() {
+        let standard = AudioFormat::MLOW_16KHZ_60MS;
+        assert_eq!(
+            standard.sibling_for(AudioCodec::Opus),
+            Some(AudioFormat::OPUS_16KHZ_60MS),
+            "the one documented interchangeable pair still swaps"
+        );
+
+        let resignalled = AudioFormat {
+            signaling_rate: 8_000,
+            ..AudioFormat::MLOW_16KHZ_60MS
+        };
+        assert_eq!(
+            resignalled.sibling_for(AudioCodec::Opus),
+            None,
+            "but not into a format the peer was never told about"
+        );
+    }
+
+    #[test]
+    fn native_opus_codec_selection_is_independent_from_rtp_clock_profile() {
+        let native = AudioFormat::OPUS_16KHZ_60MS;
+        assert_eq!(native.rtp_profile, AudioRtpProfile::StandardOpus);
+        assert_eq!(
+            native.rtp_payload_type,
+            crate::voip::rtp::RTP_PAYLOAD_TYPE_WHATSAPP_AUDIO
+        );
+        assert_eq!(native.rtp_clock_rate, 16_000);
+        assert_eq!(native.rtp_timestamp_step, 960);
+
+        let rfc7587 = AudioFormat::OPUS_RFC7587_16KHZ_60MS;
+        assert_eq!(rfc7587.rtp_profile, AudioRtpProfile::StandardOpus);
+        assert_eq!(
+            rfc7587.rtp_payload_type,
+            crate::voip::rtp::RTP_PAYLOAD_TYPE_OPUS
+        );
+        assert_eq!(rfc7587.rtp_clock_rate, 48_000);
+        assert_eq!(rfc7587.rtp_timestamp_step, 2_880);
+    }
+
+    #[test]
+    fn mlow_profile_accepts_primary_and_redundancy_payload_types() {
+        assert!(AudioFormat::OPUS_MLOW_16KHZ_60MS.accepts_rtp_payload_type(RTP_PAYLOAD_TYPE_MLOW));
+        assert!(
+            AudioFormat::OPUS_MLOW_16KHZ_60MS.accepts_rtp_payload_type(RTP_PAYLOAD_TYPE_MLOW_RED)
+        );
+        assert!(
+            !AudioFormat::OPUS_MLOW_16KHZ_60MS
+                .accepts_rtp_payload_type(crate::voip::rtp::RTP_PAYLOAD_TYPE_OPUS)
+        );
+    }
+
+    // A video offer announces capability 38, `enable_mlow_separate_pt_tx`, and a WhatsApp peer that
+    // takes it at its word moves every MLOW frame to `mlow-1` (122). Read only as 120 and 121, that
+    // is a video call in which the peer's audio is discarded whole as an unexpected payload type.
+    #[test]
+    fn the_mlow_profile_takes_mlow_on_its_separate_payload_type() {
+        use crate::voip::rtp::RTP_PAYLOAD_TYPE_MLOW_SEPARATE;
+        assert_eq!(RTP_PAYLOAD_TYPE_MLOW_SEPARATE, 122);
+        for format in [
+            AudioFormat::MLOW_16KHZ_60MS,
+            AudioFormat::OPUS_MLOW_16KHZ_60MS,
+        ] {
+            assert!(format.accepts_rtp_payload_type(RTP_PAYLOAD_TYPE_MLOW_SEPARATE));
+            assert_eq!(
+                format.inbound_codec(RTP_PAYLOAD_TYPE_MLOW_SEPARATE, &[0x50, 1, 2]),
+                AudioCodec::Mlow
+            );
+            // The escape marker is no MLOW TOC, so it means the same thing on 122 as on 120.
+            assert_eq!(
+                format.inbound_codec(RTP_PAYLOAD_TYPE_MLOW_SEPARATE, &[0xF8, 1, 2]),
+                AudioCodec::Opus
+            );
+        }
+        // Standard Opus has no MLOW to carry: the type stays outside its profile.
+        for format in [
+            AudioFormat::OPUS_16KHZ_60MS,
+            AudioFormat::OPUS_RFC7587_16KHZ_60MS,
+        ] {
+            assert!(!format.accepts_rtp_payload_type(RTP_PAYLOAD_TYPE_MLOW_SEPARATE));
+        }
+    }
+
+    #[test]
+    fn mlow_profile_classifies_embedded_opus_only_on_primary_pt() {
+        let format = AudioFormat::OPUS_MLOW_16KHZ_60MS;
+        assert_eq!(
+            format.inbound_codec(RTP_PAYLOAD_TYPE_MLOW, &[0xF8, 1, 2]),
+            AudioCodec::Opus
+        );
+        assert_eq!(
+            format.inbound_codec(RTP_PAYLOAD_TYPE_MLOW, &[0x50, 1, 2]),
+            AudioCodec::Mlow
+        );
+        assert_eq!(
+            format.inbound_codec(RTP_PAYLOAD_TYPE_MLOW_RED, &[0xC0, 1, 2]),
+            AudioCodec::Mlow
+        );
+    }
+
+    #[test]
+    fn opus_in_mlow_requires_the_escape_toc() {
+        let format = AudioFormat::OPUS_MLOW_16KHZ_60MS;
+        assert!(format.accepts_encoded_payload(&[0xF8, 1, 2]));
+        assert!(format.accepts_encoded_payload(&[0x90]));
+        assert!(!format.accepts_encoded_payload(&[0x08, 1, 2]));
+        assert!(!format.accepts_encoded_payload(&[]));
+    }
+
+    #[test]
+    fn opus_celt_packet_round_trips_through_mlow_toc() {
+        // RFC Opus: CELT-WB 20 ms, mono, arbitrary three-frame packet.
+        let original = vec![0xBB, 0x03, 1, 2, 3, 4, 5, 6];
+        let mut packet = original.clone();
+
+        packetize_opus_for_mlow(&mut packet).unwrap();
+        assert_eq!(packet[0], 0xDD);
+        assert_eq!(&packet[1..], &original[1..]);
+        depacketize_opus_from_mlow(&mut packet).unwrap();
+        assert_eq!(packet, original);
+    }
+
+    #[test]
+    fn two_frame_opus_shorthand_gets_an_explicit_descriptor() {
+        let mut cbr = vec![0xB9, 1, 2, 3, 4];
+        packetize_opus_for_mlow(&mut cbr).unwrap();
+        assert_eq!(&cbr[..2], &[0xDD, 2]);
+
+        let mut vbr = vec![0xBA, 2, 1, 2, 3];
+        packetize_opus_for_mlow(&mut vbr).unwrap();
+        assert_eq!(&vbr[..3], &[0xDD, 0x82, 2]);
+    }
+
+    #[test]
+    fn opus_dtx_maps_to_mlow_sid() {
+        let mut packet = vec![0xB8];
+        packetize_opus_for_mlow(&mut packet).unwrap();
+        assert_eq!(packet, [0x90]);
+
+        let mut repacketized_60_ms = vec![0xBB, 0x03];
+        packetize_opus_for_mlow(&mut repacketized_60_ms).unwrap();
+        assert_eq!(repacketized_60_ms, [0x90]);
+    }
+
+    #[test]
+    fn opus_celt_hangover_silence_maps_to_mlow_sid() {
+        let mut cbr = vec![0xBB, 0x03, 0xFF, 0xFE, 0xFF, 0xFE, 0xFF, 0xFE];
+        packetize_opus_for_mlow(&mut cbr).unwrap();
+        assert_eq!(cbr, [0x90]);
+
+        let mut vbr_refresh = vec![0xBB, 0x83, 0x02, 0x00, 0xFF, 0xFE];
+        packetize_opus_for_mlow(&mut vbr_refresh).unwrap();
+        assert_eq!(vbr_refresh, [0x90]);
+
+        let mut active = vec![0xBB, 0x03, 0xFF, 0xFD, 0xFF, 0xFE, 0xFF, 0xFE];
+        packetize_opus_for_mlow(&mut active).unwrap();
+        assert_eq!(active[0], 0xDD);
+    }
+
+    #[test]
+    fn silk_opus_cannot_use_mlow_celt_escape() {
+        let mut silk = vec![0x08, 1, 2, 3];
+        assert_eq!(
+            packetize_opus_for_mlow(&mut silk),
+            Err(OpusMlowPacketError::NotCelt(1))
+        );
+    }
+
+    #[test]
+    fn opus_escape_rejects_more_than_48_frames() {
+        let mut packet = vec![0xBB, 49, 1, 2, 3];
+        assert_eq!(
+            packetize_opus_for_mlow(&mut packet),
+            Err(OpusMlowPacketError::InvalidFramePacking)
+        );
+
+        let mut escaped = [0xDD, 49, 1, 2, 3];
+        assert_eq!(
+            depacketize_opus_from_mlow(&mut escaped),
+            Err(OpusMlowPacketError::InvalidFramePacking)
+        );
+    }
+}

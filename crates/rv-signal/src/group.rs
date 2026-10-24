@@ -18,9 +18,18 @@ pub const MAX_MESSAGE_KEYS: usize = 2000;
 
 const INFO_GROUP: &[u8] = b"WhisperGroup";
 
-struct GroupKeys {
-    iv: [u8; 16],
-    cipher_key: [u8; 32],
+/// A group message's keys.
+#[derive(Clone, Debug)]
+pub struct GroupKeys {
+    pub iv: [u8; 16],
+    pub cipher_key: [u8; 32],
+}
+
+impl ChainKey {
+    /// The keys of the group message at this sender chain position.
+    pub fn group_keys(&self) -> GroupKeys {
+        GroupKeys::derive(&self.message_seed())
+    }
 }
 
 impl GroupKeys {
@@ -34,7 +43,7 @@ impl GroupKeys {
 }
 
 #[derive(Clone, Debug)]
-struct SenderKeyState {
+pub struct SenderKeyState {
     chain_id: u32,
     chain: ChainKey,
     signing_public: PublicKey,
@@ -44,6 +53,23 @@ struct SenderKeyState {
 }
 
 impl SenderKeyState {
+    pub fn chain_id(&self) -> u32 {
+        self.chain_id
+    }
+
+    /// The chain the next message is sent or expected on.
+    pub fn chain_key(&self) -> &ChainKey {
+        &self.chain
+    }
+
+    pub fn signing_public(&self) -> &PublicKey {
+        &self.signing_public
+    }
+
+    pub fn signing_private(&self) -> Option<&PrivateKey> {
+        self.signing_private.as_ref()
+    }
+
     fn take_seed(&mut self, iteration: u32) -> Result<[u8; 32]> {
         if iteration < self.chain.index {
             let at = self.message_seeds.iter().position(|(i, _)| *i == iteration);
@@ -77,6 +103,46 @@ pub struct SenderKeyRecord {
 }
 
 impl SenderKeyRecord {
+    /// The newest state: mine to send with, or the last a sender distributed.
+    pub fn state(&self) -> Option<&SenderKeyState> {
+        self.states.first()
+    }
+
+    pub fn states(&self) -> &[SenderKeyState] {
+        &self.states
+    }
+
+    /// Adds a state as the newest one, for a storage layer building records.
+    pub fn add_state(
+        &mut self,
+        chain_id: u32,
+        chain: ChainKey,
+        signing_public: PublicKey,
+        signing_private: Option<PrivateKey>,
+    ) {
+        self.push(SenderKeyState {
+            chain_id,
+            chain,
+            signing_public,
+            signing_private,
+            message_seeds: Vec::new(),
+        });
+    }
+
+    /// Moves the newest state's chain forward to `iteration` without keeping
+    /// the skipped keys: counters a crash may have used are never reused.
+    pub fn fast_forward(&mut self, iteration: u32) -> Result<()> {
+        let state = self.states.first_mut().ok_or(Error::NoSenderKey)?;
+        let jump = iteration.saturating_sub(state.chain.index);
+        if jump > MAX_JUMP {
+            return Err(Error::TooFarAhead(jump));
+        }
+        while state.chain.index < iteration {
+            state.chain = state.chain.next();
+        }
+        Ok(())
+    }
+
     pub fn is_empty(&self) -> bool {
         self.states.is_empty()
     }

@@ -1,0 +1,571 @@
+//! Contact information feature.
+//!
+//! For profile-picture lookup across domains, use [`Client::pictures`].
+//! Usync types are defined in `wacore::iq::usync`.
+
+use crate::client::Client;
+use crate::request::IqError;
+use log::debug;
+use std::collections::HashMap;
+use thiserror::Error;
+use wacore::iq::usync::{
+    IsOnWhatsAppQueryType, IsOnWhatsAppSpec, IsOnWhatsAppUser, UserInfoSpec, UsernameLookupSpec,
+};
+use wacore_binary::{Jid, JidExt};
+
+// Re-export types from wacore
+pub use wacore::iq::usync::{
+    IsOnWhatsAppResult, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, UserInfo, UsernameLookup,
+    UsernameLookupError, UsernameLookupUser, UsyncSubprotocolError,
+};
+pub use wacore::stanza::business::VerifiedName;
+
+/// Error returned by contact-information operations (existence checks,
+/// profile pictures, user info).
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum ContactError {
+    /// The usync/profile IQ to the server failed.
+    #[error("{0}")]
+    Iq(#[from] IqError),
+    /// An input JID is not supported for this query (only PN and LID are).
+    #[error("unsupported contact JID: {0}")]
+    InvalidJid(String),
+    /// The username lookup could not be built from the given handle.
+    #[error("{0}")]
+    Username(#[from] UsernameLookupError),
+}
+
+fn ensure_is_on_whatsapp_jids_supported(jids: &[Jid]) -> Result<(), ContactError> {
+    if let Some(jid) = jids.iter().find(|jid| !jid.is_pn() && !jid.is_lid()) {
+        return Err(ContactError::InvalidJid(format!(
+            "is_on_whatsapp only supports PN and LID JIDs, got {jid}"
+        )));
+    }
+    Ok(())
+}
+
+/// Mapping extractors as fn items, NOT closures. A closure returning
+/// references tied to its argument is inferred at a concrete lifetime, and
+/// because its type is embedded in the public methods' future types, callers
+/// that box those futures (`#[async_trait]`, `Box<dyn Future + Send>`) hit
+/// "implementation of `FnOnce` is not general enough" (issue #825). Fn items
+/// implement `Fn` for every lifetime by construction.
+/// PN-primary result -> (PN, LID mapping).
+fn forward_lid_pair(r: &IsOnWhatsAppResult) -> (&Jid, Option<&Jid>) {
+    (&r.jid, r.lid.as_ref())
+}
+
+/// LID-primary result inverted to (PN, LID); None when not LID-primary.
+fn reverse_lid_pair(r: &IsOnWhatsAppResult) -> Option<(&Jid, Option<&Jid>)> {
+    if r.jid.server.is_lid_family() {
+        r.pn_jid.as_ref().map(|pn| (pn, Some(&r.jid)))
+    } else {
+        None
+    }
+}
+
+fn valid_mapping_user(jid: &Jid) -> bool {
+    !jid.user.is_empty()
+        && jid.user != "0"
+        && jid.user.bytes().all(|byte| byte.is_ascii_digit())
+        && jid.integrator == 0
+}
+
+/// WhatsApp Web renders a username as `@handle` but never sends the `@`
+/// (`WAWebUsernameTypes.asUsername` strips one and logs it), so accept the
+/// display form callers will have copied out of a chat.
+fn display_to_bare_username(username: &str) -> &str {
+    username.strip_prefix('@').unwrap_or(username)
+}
+
+/// UserInfo entry -> (queried JID, LID mapping).
+fn user_info_lid_pair(entry: &UserInfo) -> (&Jid, Option<&Jid>) {
+    (&entry.jid, entry.lid.as_ref())
+}
+
+fn user_info_reverse_lid_pair(entry: &UserInfo) -> Option<(&Jid, Option<&Jid>)> {
+    entry.jid.server.is_lid_family().then_some(())?;
+    entry.pn_jid.as_ref().map(|pn| (pn, Some(&entry.jid)))
+}
+
+pub struct Contacts<'a> {
+    client: &'a Client,
+}
+
+impl<'a> Contacts<'a> {
+    pub(crate) fn new(client: &'a Client) -> Self {
+        Self { client }
+    }
+
+    /// Callers must pass `fn` items (e.g. [`forward_lid_pair`]), NOT
+    /// closures: a closure returning borrowed pairs embeds a non-HRTB type in
+    /// the public caller's future and breaks `#[async_trait]` consumers
+    /// (issue #825, guarded by tests/async_trait_boxed_future_compat.rs).
+    async fn persist_lid_mappings<'b, I>(&self, entries: I)
+    where
+        I: IntoIterator<Item = (&'b Jid, Option<&'b Jid>)>,
+    {
+        for (jid, lid) in entries {
+            let Some(lid) = lid else {
+                continue;
+            };
+            if !jid.server.is_pn_family()
+                || !lid.server.is_lid_family()
+                || !valid_mapping_user(jid)
+                || !valid_mapping_user(lid)
+            {
+                continue;
+            }
+            if let Err(err) = self
+                .client
+                .add_lid_pn_mapping(
+                    &lid.user,
+                    &jid.user,
+                    crate::lid_pn_cache::LearningSource::Usync,
+                )
+                .await
+            {
+                log::warn!(
+                    "Failed to persist usync LID mapping {} -> {}: {err}",
+                    jid,
+                    lid
+                );
+            }
+        }
+    }
+
+    /// Check if JIDs are registered on WhatsApp.
+    ///
+    /// Accepts both PN JIDs (`Jid::pn("1234567890")`) and LID JIDs (`Jid::lid("100000001")`).
+    /// PN and LID queries use different protocols (matching WA Web ExistsJob), so mixed
+    /// inputs are split into separate requests.
+    pub async fn is_on_whatsapp(
+        &self,
+        jids: &[Jid],
+    ) -> Result<Vec<IsOnWhatsAppResult>, ContactError> {
+        if jids.is_empty() {
+            return Ok(Vec::new());
+        }
+        ensure_is_on_whatsapp_jids_supported(jids)?;
+
+        debug!("is_on_whatsapp: checking {} JIDs", jids.len());
+
+        let mut pn_users = Vec::new();
+        let mut lid_users = Vec::new();
+        for jid in jids {
+            if jid.is_pn() {
+                let known_lid = self.client.lid_pn_cache.get_current_lid(&jid.user).await;
+                pn_users.push(IsOnWhatsAppUser {
+                    jid: jid.to_non_ad(),
+                    known_lid,
+                });
+            } else if jid.is_lid() {
+                lid_users.push(IsOnWhatsAppUser {
+                    jid: jid.to_non_ad(),
+                    known_lid: None,
+                });
+            } else {
+                #[cfg(debug_assertions)]
+                panic!("is_on_whatsapp: unexpected JID type {jid} after validation");
+
+                #[cfg(not(debug_assertions))]
+                continue;
+            }
+        }
+
+        // PN and LID existence use different protocols (two independent IQs), so
+        // when a mixed input produces both, run them concurrently.
+        let pn_fut = async {
+            if pn_users.is_empty() {
+                Ok(Vec::new())
+            } else {
+                let sid = self.client.generate_request_id();
+                self.client
+                    .execute(IsOnWhatsAppSpec::new(
+                        pn_users,
+                        sid,
+                        IsOnWhatsAppQueryType::Pn,
+                    ))
+                    .await
+            }
+        };
+        let lid_fut = async {
+            if lid_users.is_empty() {
+                Ok(Vec::new())
+            } else {
+                let sid = self.client.generate_request_id();
+                self.client
+                    .execute(IsOnWhatsAppSpec::new(
+                        lid_users,
+                        sid,
+                        IsOnWhatsAppQueryType::Lid,
+                    ))
+                    .await
+            }
+        };
+        // try_join! fails fast: it returns the instant either query errors and
+        // drops the sibling in-flight future. That's now safe — `send_and_wait_iq`
+        // registers a `ResponseWaiterGuard` that removes the waiter on drop, so a
+        // cancelled sibling can't leak its `response_waiters` entry (which would
+        // otherwise suppress keepalives). The old sequential code also failed on
+        // the first error, so fail-fast matches the original latency profile.
+        let (mut results, lid_results) = futures::try_join!(pn_fut, lid_fut)?;
+        results.extend(lid_results);
+
+        self.persist_lid_mappings(results.iter().map(forward_lid_pair))
+            .await;
+        self.persist_lid_mappings(results.iter().filter_map(reverse_lid_pair))
+            .await;
+
+        Ok(results)
+    }
+
+    pub async fn get_user_info(
+        &self,
+        jids: &[Jid],
+    ) -> Result<HashMap<Jid, UserInfo>, ContactError> {
+        // The system JID is not usync-eligible and would never answer.
+        let queried: Vec<Jid> = jids.iter().filter(|jid| !jid.is_psa()).cloned().collect();
+        if queried.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        debug!("get_user_info: fetching info for {} JIDs", queried.len());
+
+        let request_id = self.client.generate_request_id();
+
+        // Attach per-user tctokens so the status/about of privacy-restricted
+        // contacts is returned, matching WA Web's USyncStatusProtocol.getUserElement.
+        let mut tc_tokens: HashMap<String, Vec<u8>> = HashMap::new();
+        if self
+            .client
+            .ab_props()
+            .is_enabled(wacore::iq::abprops::web::PROFILE_SCRAPING_PRIVACY_TOKEN_IN_ABOUT_USYNC)
+            .await
+        {
+            let lookups = futures::future::join_all(queried.iter().map(|jid| async move {
+                (
+                    jid.to_non_ad().to_string(),
+                    self.client.lookup_tc_token_for_jid(jid).await,
+                )
+            }))
+            .await;
+            tc_tokens = lookups
+                .into_iter()
+                .filter_map(|(key, token)| token.map(|t| (key, t)))
+                .collect();
+        }
+
+        let mut spec = UserInfoSpec::new(queried, request_id);
+        if !tc_tokens.is_empty() {
+            spec = spec.with_tc_tokens(tc_tokens);
+        }
+
+        let info = self.client.execute(spec).await?;
+        self.persist_lid_mappings(info.values().map(user_info_lid_pair))
+            .await;
+        self.persist_lid_mappings(info.values().filter_map(user_info_reverse_lid_pair))
+            .await;
+        Ok(info)
+    }
+
+    /// Resolve a Meta username to the account behind it.
+    ///
+    /// **Experimental.** The request matches WhatsApp Web's
+    /// `WAWebQueryExistsJob.queryUsernameExists` byte for byte, but no capture
+    /// of a server answering it backs this implementation, so a server that
+    /// rejects the query is not necessarily a bug here.
+    ///
+    /// `username` is the bare handle; a leading `@` is display-only and is
+    /// stripped. `username_key` is the account's numeric username key, which
+    /// some accounts require before the server discloses an identity at all
+    /// ([`UsernameLookup::KeyRequired`]).
+    pub async fn find_by_username(
+        &self,
+        username: &str,
+        username_key: Option<&str>,
+    ) -> Result<UsernameLookup, ContactError> {
+        let sid = self.client.generate_request_id();
+        let spec = UsernameLookupSpec::new(display_to_bare_username(username), username_key, sid)?;
+        let lookup = self.client.execute(spec).await?;
+
+        if let UsernameLookup::Found(user) = &lookup
+            && let Some(pn_jid) = &user.pn_jid
+        {
+            self.persist_lid_mappings([(pn_jid, Some(&user.jid))]).await;
+        }
+        Ok(lookup)
+    }
+}
+
+impl Client {
+    pub fn contacts(&self) -> Contacts<'_> {
+        Contacts::new(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn business_pn_is_learned_through_public_contact_lookups() {
+        use crate::test_utils::{answer_iq, create_iq_test_client, decode_sent_iq};
+        use wacore_binary::builder::NodeBuilder;
+        for (user_info, known_pair, hosted) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
+            let (client, transport) = create_iq_test_client().await;
+            let lid = Jid::new(
+                "100000001",
+                if hosted {
+                    wacore_binary::Server::HostedLid
+                } else {
+                    wacore_binary::Server::Lid
+                },
+            );
+            let pn = Jid::new(
+                "12025550111",
+                if hosted {
+                    wacore_binary::Server::Hosted
+                } else {
+                    wacore_binary::Server::Pn
+                },
+            );
+            let wire_lid = if hosted {
+                lid.with_device(99)
+            } else {
+                lid.clone()
+            };
+            if known_pair {
+                client
+                    .add_lid_pn_mapping(
+                        "100000001",
+                        "12025550112",
+                        crate::lid_pn_cache::LearningSource::Other,
+                    )
+                    .await
+                    .unwrap();
+            }
+            let caller = client.clone();
+            let queried = if user_info {
+                lid.clone()
+            } else {
+                Jid::lid("100000001")
+            };
+            let returned = lid.clone();
+            let expected_pn = pn.clone();
+            let task = tokio::spawn(async move {
+                if user_info {
+                    let info = caller
+                        .contacts()
+                        .get_user_info(std::slice::from_ref(&queried))
+                        .await
+                        .unwrap();
+                    assert_eq!(info[&returned].pn_jid, Some(expected_pn));
+                } else {
+                    let results = caller.contacts().is_on_whatsapp(&[queried]).await.unwrap();
+                    assert_eq!(results[0].pn_jid, Some(expected_pn));
+                    assert!(results[0].is_registered);
+                }
+            });
+            let sent = decode_sent_iq(&transport, 0).await;
+            assert!(
+                sent.get()
+                    .get_optional_child("usync")
+                    .unwrap()
+                    .get_optional_child("query")
+                    .unwrap()
+                    .get_optional_child("business")
+                    .is_some()
+            );
+            let id = sent
+                .get()
+                .attrs()
+                .optional_string("id")
+                .unwrap()
+                .into_owned();
+            let response = NodeBuilder::new("iq")
+                .attr("type", "result")
+                .attr("id", &id)
+                .children([NodeBuilder::new("usync")
+                    .children([NodeBuilder::new("list")
+                        .children([NodeBuilder::new("user")
+                            .attr("jid", &wire_lid)
+                            .children([NodeBuilder::new("business")
+                                .attr(
+                                    "pn_jid",
+                                    if hosted {
+                                        "12025550111:99@hosted"
+                                    } else {
+                                        "12025550111:7@s.whatsapp.net"
+                                    },
+                                )
+                                .build()])
+                            .build()])
+                        .build()])
+                    .build()])
+                .build();
+            answer_iq(&client, &id, &response).await;
+            task.await.unwrap();
+            let by_lid = client.get_lid_pn_entry(&lid).await.unwrap().unwrap();
+            let by_pn = client.get_lid_pn_entry(&pn).await.unwrap().unwrap();
+            assert_eq!(by_lid.phone_number.as_ref(), "12025550111");
+            assert_eq!(by_pn.lid.as_ref(), "100000001");
+            assert_eq!(
+                by_lid.learning_source,
+                crate::lid_pn_cache::LearningSource::Usync
+            );
+            client.lid_pn_cache.clear().await;
+            assert_eq!(
+                client
+                    .get_lid_pn_entry(&lid)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .phone_number
+                    .as_ref(),
+                "12025550111"
+            );
+            let persisted = client
+                .persistence_manager
+                .backend()
+                .get_lid_mapping("100000001")
+                .await
+                .unwrap();
+            assert!(persisted.is_some());
+        }
+    }
+
+    #[tokio::test]
+    async fn public_contact_lookups_never_learn_malformed_returned_lids() {
+        use crate::test_utils::{answer_iq, create_iq_test_client, decode_sent_iq};
+        use wacore_binary::builder::NodeBuilder;
+        for (user_info, returned) in [
+            (false, "abc@lid"),
+            (true, "abc@lid"),
+            (false, "@lid"),
+            (true, "@lid"),
+            (false, "0@lid"),
+            (true, "0@lid"),
+        ] {
+            let (client, transport) = create_iq_test_client().await;
+            let caller = client.clone();
+            let task = tokio::spawn(async move {
+                if user_info {
+                    caller
+                        .contacts()
+                        .get_user_info(&[Jid::lid("100000001")])
+                        .await
+                        .unwrap();
+                } else {
+                    caller
+                        .contacts()
+                        .is_on_whatsapp(&[Jid::lid("100000001")])
+                        .await
+                        .unwrap();
+                }
+            });
+            let sent = decode_sent_iq(&transport, 0).await;
+            let id = sent
+                .get()
+                .attrs()
+                .optional_string("id")
+                .unwrap()
+                .into_owned();
+            let response = NodeBuilder::new("iq")
+                .attr("type", "result")
+                .attr("id", &id)
+                .children([NodeBuilder::new("usync")
+                    .children([NodeBuilder::new("list")
+                        .children([NodeBuilder::new("user")
+                            .attr("jid", returned)
+                            .attr("pn_jid", "12025550111@s.whatsapp.net")
+                            .children([NodeBuilder::new("business")
+                                .attr("pn_jid", "12025550111@s.whatsapp.net")
+                                .build()])
+                            .build()])
+                        .build()])
+                    .build()])
+                .build();
+            answer_iq(&client, &id, &response).await;
+            task.await.unwrap();
+            assert!(
+                client
+                    .get_lid_pn_entry(&Jid::pn("12025550111"))
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "user_info={user_info}, returned={returned}"
+            );
+        }
+    }
+
+    #[test]
+    fn is_on_whatsapp_accepts_pn_and_lid_jids() {
+        ensure_is_on_whatsapp_jids_supported(&[Jid::pn("15550000001"), Jid::lid("100000001")])
+            .unwrap();
+    }
+
+    #[test]
+    fn is_on_whatsapp_rejects_unsupported_jid_type() {
+        let err = ensure_is_on_whatsapp_jids_supported(&[Jid::group("15550000001-1234567890")])
+            .unwrap_err();
+
+        assert!(err.to_string().contains("only supports PN and LID JIDs"));
+    }
+
+    fn psa_jid() -> Jid {
+        Jid::pn("0")
+    }
+
+    #[tokio::test]
+    async fn user_info_with_only_system_jid_returns_empty_without_iq() {
+        let client = crate::test_utils::create_test_client().await;
+
+        let info = client.contacts().get_user_info(&[psa_jid()]).await.unwrap();
+
+        assert!(info.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_info_still_queries_remaining_jids_after_filtering() {
+        let client = crate::test_utils::create_test_client().await;
+
+        let err = client
+            .contacts()
+            .get_user_info(&[psa_jid(), Jid::pn("12025550111")])
+            .await
+            .unwrap_err();
+
+        assert!(matches!(err, ContactError::Iq(IqError::NotConnected)));
+    }
+
+    #[test]
+    fn username_lookup_accepts_the_display_form() {
+        assert_eq!(
+            display_to_bare_username("@example.handle"),
+            "example.handle"
+        );
+        assert_eq!(display_to_bare_username("example.handle"), "example.handle");
+    }
+
+    #[test]
+    fn username_lookup_rejects_a_handle_the_server_would_not_take() {
+        let error = UsernameLookupSpec::new(display_to_bare_username("@ab"), None, "sid-1")
+            .map(|_| ())
+            .unwrap_err();
+        assert!(matches!(
+            ContactError::from(error),
+            ContactError::Username(_)
+        ));
+    }
+}

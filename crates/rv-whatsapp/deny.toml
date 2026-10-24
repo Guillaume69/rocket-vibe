@@ -1,0 +1,170 @@
+# cargo-deny configuration. Run locally with `cargo deny --all-features check`;
+# CI runs the same command in .github/workflows/supply-chain.yml.
+
+[graph]
+# --all-features so the voip media stack and the optional transports are part
+# of the audited graph; they are the largest third-party surface here.
+all-features = true
+# Scope is what consumers actually link: the default-members graph minus
+# dev-dependencies. Bench/e2e tooling (divan, proptest, the mock server) never
+# reaches a downstream build, so its licenses are not ours to vet.
+exclude-dev = true
+
+[advisories]
+version = 2
+# Vulnerabilities are fixed by upgrading. An exception is allowed only when
+# the affected operation is structurally unreachable in this workspace and no
+# fixed dependency exists; the exact boundary must be recorded beside it.
+ignore = [
+    # OxiTLS exposes RSA signing for server/private-key users. wa-fetch is an
+    # HTTP client with no client certificate or private key, so the Marvin
+    # private-key timing path is unreachable. No fixed pure-Rust RSA release
+    # exists; replacing the provider would reintroduce C/assembly TLS.
+    "RUSTSEC-2023-0071",
+    # Compile-time macro dependency of OxiTLS. It contributes no runtime code,
+    # and the current provider has no replacement release without it.
+    "RUSTSEC-2024-0436",
+]
+
+[licenses]
+version = 2
+# Permissive licenses only. Anything else fails and needs a deliberate
+# decision rather than a quiet addition to this list.
+allow = [
+    "Apache-2.0",
+    # Wasmtime/Cranelift tooling; Apache-2.0 with the LLVM linking exception.
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+    "0BSD",
+    # webpki-roots. Not code — the Mozilla CA root store, redistributed under a
+    # permissive data license.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+# fluent-uri's alloc helper. Verified the official 0.2.4 crate's LICENSE
+# (MIT No Attribution) and SPDX metadata; keep this allowance version-scoped.
+[[licenses.exceptions]]
+name = "borrow-or-share"
+version = "=0.2.4"
+allow = ["MIT-0"]
+
+[licenses.private]
+# Workspace members marked `publish = false` (e2e-tests, bench-integration,
+# the metrics plugin, voip-cli) carry no license field by design. They are
+# outside the default-members graph today; this keeps them out if that changes.
+ignore = true
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# Workspace-internal path deps are versioned in lockstep; a wildcard there is
+# not the supply-chain risk this check is aimed at.
+allow-wildcard-paths = true
+
+skip = [
+    # Current Wasmtime/Cranelift and OxiTLS sit on adjacent RustCrypto
+    # generations. Both are host-tool-only and cannot be unified from this
+    # workspace until their upstream dependency ranges converge.
+    { name = "const-oid", version = "=0.9.6" },
+    { name = "sha2", version = "=0.10.9" },
+    # RustCrypto mid-migration. The workspace is on the 0.11/1.x line (sha2
+    # 0.11, hmac 0.13, aes-gcm 0.11...); rtc-crypto, the media stack's crypto
+    # backend, is still on the 0.10/0.4 generation, and `ccm` and `md-5` bring
+    # the rest of that line with it. Collapses on its own once rtc-crypto
+    # upgrades.
+    { name = "aead", version = "=0.5.2" },
+    { name = "aes", version = "=0.8.4" },
+    { name = "block-buffer", version = "=0.10.4" },
+    { name = "cipher", version = "=0.4.4" },
+    { name = "crypto-common", version = "=0.1.7" },
+    { name = "ctr", version = "=0.9.2" },
+    { name = "digest", version = "=0.10.7" },
+    { name = "hmac", version = "=0.12.1" },
+    { name = "inout", version = "=0.1.4" },
+    { name = "sha1", version = "=0.10.7" },
+
+    # getrandom 0.2 behind `ring` (which rustls, rcgen and rtc-crypto all take)
+    # and behind the rand_core 0.6 that crypto-common pins. The workspace itself
+    # is on rand 0.10 / getrandom 0.4.
+    { name = "getrandom", version = "=0.2.17" },
+    { name = "rand_core", version = "=0.6.4" },
+
+    # Build-script-side duplicates, all reached only through `buffa-build`,
+    # which every crate that uses it declares under `[build-dependencies]`.
+    # Like the proc-macro entries below, they cost build time only: a build
+    # script runs at compile time and links into no shipped binary. And none of
+    # them can be collapsed from here, because each pair is two incompatible
+    # majors pulled by different parents -- the workspace is on `getrandom` 0.4
+    # via rand 0.10, while `tempfile` inside the codegen is on 0.3, and `r-efi`
+    # is simply whichever one each `getrandom` chose. Collapses when buffa
+    # upgrades, not on anything we can do to our own manifests.
+    #
+    # `Cargo.lock` invites a misreading here: it carries a `rand_core` 0.9.5
+    # entry that lists `getrandom 0.3.4` as a dependency, which reads like a
+    # second, runtime path into the shipped graph. Nothing reaches that
+    # rand_core -- `cargo tree -i rand_core@0.9.5 --target all` prints nothing
+    # at all -- so the lock entry is stale and the build-dependency route below
+    # is the only one. Check with `cargo tree -i`, not by grepping the lock.
+    { name = "getrandom", version = "=0.3.4" },
+    { name = "prettyplease", version = "=0.2.37" },
+    { name = "r-efi", version = "=5.3.0" },
+
+    # Proc-macro-side duplicates. They cost build time only — proc macros run
+    # at compile time and never link into the produced binary.
+    { name = "darling", version = "=0.21.3" },
+    { name = "darling_core", version = "=0.21.3" },
+    { name = "darling_macro", version = "=0.21.3" },
+    { name = "syn", version = "=2.0.119" },
+    { name = "thiserror", version = "=1.0.69" },
+    { name = "thiserror-impl", version = "=1.0.69" },
+    { name = "winnow", version = "=0.7.15" },
+
+    # base64 0.22 behind buffa, metrics-exporter-prometheus, tokio-websockets
+    # and the pem that rcgen brings into the DTLS stack. ureq 3.4 requires
+    # 0.23, so the split arrived with a dependency bump rather than a choice of
+    # ours, and no version of the workspace's own base64 can close it: whatever
+    # we pick, one of the two lines is left with a consumer. Collapses once
+    # those four migrate.
+    { name = "base64", version = "=0.22.1" },
+
+    # rtc-dtls still parses its own keys with pem 3 while its current rcgen
+    # dependency has moved to pem 4. Both paths are inside the same upstream
+    # crate, so the workspace cannot select one version for both.
+    { name = "pem", version = "=3.0.6" },
+
+    # Assorted transitive lag: no workspace crate depends on any of these
+    # directly, so the version is whatever our deps agreed on.
+    { name = "bitflags", version = "=1.3.2" },
+    { name = "cpufeatures", version = "=0.2.17" },
+    { name = "foldhash", version = "=0.1.5" },
+    { name = "hashbrown", version = "=0.15.5" },
+    { name = "hashbrown", version = "=0.16.1" },
+    { name = "windows-sys", version = "=0.52.0" },
+
+    # Host-oracle tooling moved to the wasm-tools 0.259 / zstd 0.14 line while
+    # Wasmtime 48 and the pinned unwasm-core still pin 0.254 / 0.13. Only the
+    # host-tooling audit sees both lines; the shipped graph never links either
+    # duplicate. Collapses when Wasmtime and unwasm move up.
+    { name = "wasm-encoder", version = "=0.254.2" },
+    { name = "wasmparser", version = "=0.254.2" },
+    { name = "zstd", version = "=0.13.3" },
+    { name = "zstd-safe", version = "=7.3.0" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# Host-only shared tooling is pinned by full commit in Cargo.toml. Runtime
+# dependencies still come from crates.io; other Git sources remain denied.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = [
+    "https://github.com/oxidezap/unwasm.git",
+    "https://github.com/oxidezap/whatspec.git",
+]

@@ -1,0 +1,47 @@
+name: rv-whatsapp
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - '.github/workflows/rv-whatsapp.yml'
+  pull_request:
+    paths:
+      - 'crates/rv-whatsapp/**'
+      - 'crates/rv-signal/**'
+      - '.github/workflows/rv-whatsapp.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: rv-whatsapp-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: crates/rv-whatsapp
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            crates/rv-whatsapp/target
+          key: rv-whatsapp-${{ runner.os }}-${{ hashFiles('crates/rv-whatsapp/Cargo.lock') }}
+          restore-keys: rv-whatsapp-${{ runner.os }}-
+      # Upstream's own files keep upstream's (nightly) formatting: only the
+      # crates written here are held to rustfmt (VENDOR.md).
+      - run: cargo fmt -p wacore-signal -p wacore-crypto -p wacore-appstate --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked

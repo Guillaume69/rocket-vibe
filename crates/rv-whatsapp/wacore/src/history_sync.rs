@@ -1,0 +1,5377 @@
+use bytes::Bytes;
+use compact_str::CompactString;
+use smallvec::SmallVec;
+use std::sync::Arc;
+use thiserror::Error;
+use wacore_binary::zlib_pool::InflateReader;
+use waproto::tags;
+use waproto::whatsapp as wa;
+
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum HistorySyncError {
+    #[error("Failed to decompress history sync data: {0}")]
+    DecompressionError(#[from] std::io::Error),
+    #[error("Failed to decode HistorySync protobuf: {0}")]
+    ProtobufDecodeError(#[from] buffa::DecodeError),
+    #[error("Malformed protobuf: {0}")]
+    MalformedProtobuf(String),
+    /// [`HistorySyncStream::remainder`] was called while the tail still held a
+    /// conversation the caller never read; surfacing it beats silently dropping
+    /// chat data.
+    #[error("remainder() called with unread conversations still in the stream")]
+    UnreadConversations,
+}
+
+/// Hard ceiling on the decompressed size of a history-sync blob, preventing
+/// OOM on malformed or hostile input. Typical InitialBootstrap chunks inflate
+/// to 5-20 MB. Producers that know the exact inflated size should pass that
+/// instead (a strictly tighter bound).
+pub const MAX_DECOMPRESSED: u64 = 64 * 1024 * 1024;
+
+/// Local typed-call retention limits, not WhatsApp protocol limits or heap/RSS
+/// measurements. Check count and cumulative encoded payload bytes before decode:
+/// dense empty records otherwise amplify a bounded inflate into huge allocations.
+const MAX_CALL_RECORDS: usize = 1024;
+const MAX_CALL_RECORD_BYTES: usize = 128 * 1024;
+
+#[derive(Debug)]
+pub struct HistorySyncResult {
+    pub own_pushname: Option<String>,
+    /// NCT salt from HistorySync field 19 (nctSalt).
+    /// Delivered during initial pairing so cstoken is available immediately.
+    /// Source: WAWeb/History/MsgHandlerAction.js:storeNctSaltFromHistorySync
+    pub nct_salt: Option<Vec<u8>>,
+    pub conversations_processed: usize,
+    /// Pairing-history call records (field 13), in wire order. Records are
+    /// decoded individually during the same inflate walk, never by reparsing
+    /// the whole chunk. Malformed framed entries are skipped. If the local
+    /// count/encoded-byte budget is exceeded, the entire typed-call harvest is
+    /// suppressed (not a prefix); other harvest and retained raw bytes survive.
+    pub call_log_records: Vec<wa::CallLogRecord>,
+    /// Tctoken candidates extracted from 1:1 conversations during streaming.
+    pub tc_token_candidates: Vec<TcTokenCandidate>,
+    pub msg_secret_records: Vec<HistoryMsgSecretRecord>,
+    /// PN/LID pairs from the bulk mapping block and from per-conversation
+    /// metadata (both are harvested; conversations often carry pairs the
+    /// bulk block omits).
+    pub lid_mappings: Vec<HistoryLidMapping>,
+    /// The original zlib-compressed input, handed back (moved, never copied or
+    /// re-inflated) only when event listeners exist. Wrapped in
+    /// `LazyHistorySync` for on-demand consumption.
+    pub compressed_bytes: Option<Bytes>,
+    /// Exact size of the fully inflated blob, counted during the extraction
+    /// walk. Carried into `LazyHistorySync` as the inflate cap.
+    pub decompressed_size: usize,
+}
+
+mod wire_type {
+    pub const VARINT: u32 = 0;
+    pub const FIXED64: u32 = 1;
+    pub const LENGTH_DELIMITED: u32 = 2;
+    pub const START_GROUP: u32 = 3;
+    pub const END_GROUP: u32 = 4;
+    pub const FIXED32: u32 = 5;
+}
+
+/// Decompress and process a history sync blob.
+///
+/// **Memory strategy**: always streams — inflates with a bounded window and
+/// extracts each top-level field as soon as its bytes are buffered, so the
+/// inflate window holds at most the largest field, not the whole blob. The
+/// result separately retains harvested metadata, including call records. With
+/// `retain_blob`, the original compressed input is handed back in
+/// [`HistorySyncResult::compressed_bytes`] (a move, no copy and no second
+/// inflate) for on-demand consumer decoding via `LazyHistorySync`.
+pub fn process_history_sync(
+    compressed_data: Vec<u8>,
+    own_user: Option<&str>,
+    retain_blob: bool,
+) -> Result<HistorySyncResult, HistorySyncError> {
+    process_history_sync_bytes(Bytes::from(compressed_data), own_user, retain_blob)
+}
+
+/// [`process_history_sync`] for callers that already own a shared byte buffer.
+/// Keeping the compressed blob as `Bytes` lets an inline payload remain a view
+/// into its decrypted message until it is handed to the caller's lazy event,
+/// without changing the streaming parser or duplicating protocol logic.
+pub fn process_history_sync_bytes(
+    compressed_data: Bytes,
+    own_user: Option<&str>,
+    retain_blob: bool,
+) -> Result<HistorySyncResult, HistorySyncError> {
+    process_history_sync_bytes_filtered(compressed_data, own_user, retain_blob, |_| true)
+}
+
+/// [`process_history_sync_bytes`] with an allocation-free predicate for the
+/// message-secret subset the caller actually intends to retain.
+///
+/// The predicate receives a borrowed view before any owned record is built.
+/// This lets policy-owning callers reject obsolete records without teaching
+/// the generic wire parser about retention rules, while the default APIs keep
+/// their accept-all behaviour.
+pub fn process_history_sync_bytes_filtered<F>(
+    compressed_data: Bytes,
+    own_user: Option<&str>,
+    retain_blob: bool,
+    record_filter: F,
+) -> Result<HistorySyncResult, HistorySyncError>
+where
+    F: for<'a> FnMut(HistoryMsgSecretRecordRef<'a>) -> bool,
+{
+    let sink = FilteredRecordSink(record_filter);
+    process_history_sync_bytes_with_sink(compressed_data, own_user, retain_blob, sink)
+}
+
+fn process_history_sync_bytes_with_sink<S>(
+    compressed_data: Bytes,
+    own_user: Option<&str>,
+    retain_blob: bool,
+    sink: S,
+) -> Result<HistorySyncResult, HistorySyncError>
+where
+    S: HistoryMsgSecretRecordSink,
+{
+    let mut result =
+        process_history_sync_streaming(&compressed_data, own_user, MAX_DECOMPRESSED, sink)?;
+    if retain_blob {
+        result.compressed_bytes = Some(compressed_data);
+    }
+    Ok(result)
+}
+
+/// [`process_history_sync_bytes`] with a borrowed visitor for every message
+/// secret candidate found while the conversation is still in the inflate
+/// window.
+///
+/// The visitor runs synchronously in wire order and the returned result does
+/// not retain [`HistoryMsgSecretRecord`] values. Consumers that immediately
+/// translate records into another owned representation can therefore avoid an
+/// otherwise redundant intermediate allocation without duplicating any wire
+/// parsing logic.
+pub fn process_history_sync_bytes_with_record_visitor<F>(
+    compressed_data: Bytes,
+    own_user: Option<&str>,
+    retain_blob: bool,
+    visitor: F,
+) -> Result<HistorySyncResult, HistorySyncError>
+where
+    F: for<'a> FnMut(HistoryMsgSecretRecordRef<'a>),
+{
+    process_history_sync_bytes_with_record_sink(
+        compressed_data,
+        own_user,
+        retain_blob,
+        VisitOnly(visitor),
+    )
+}
+
+/// Capacity-aware counterpart to
+/// [`process_history_sync_bytes_with_record_visitor`].
+///
+/// This keeps the visit-only closure API source-compatible while allowing
+/// collectors to share the streaming parser's bounded density estimator.
+pub fn process_history_sync_bytes_with_record_sink<V>(
+    compressed_data: Bytes,
+    own_user: Option<&str>,
+    retain_blob: bool,
+    visitor: V,
+) -> Result<HistorySyncResult, HistorySyncError>
+where
+    V: HistoryMsgSecretRecordVisitor,
+{
+    process_history_sync_bytes_with_sink(
+        compressed_data,
+        own_user,
+        retain_blob,
+        VisitingRecordSink::new(visitor),
+    )
+}
+
+/// One top-level protobuf field, borrowed from the walker's inflate window.
+struct RawField<'w> {
+    field_number: u32,
+    wire_type: u32,
+    /// Full wire span (tag + length prefix + payload): what a raw re-emit of
+    /// the field must copy.
+    raw: &'w [u8],
+    /// Offset of the payload inside `raw`. Only meaningful for
+    /// length-delimited fields.
+    payload_start: usize,
+}
+
+/// The single protobuf wire walk over a compressed HistorySync blob: an
+/// incremental inflate window plus top-level field framing. Both the internal
+/// extractor ([`process_history_sync`]) and the public [`HistorySyncStream`]
+/// consume it, so the format knowledge lives in exactly one place.
+struct FieldWalker<'a> {
+    reader: InflateReader<'a>,
+    /// Span of the previously yielded field, consumed lazily on the next call
+    /// so the caller can keep borrowing the field bytes from the window in
+    /// between.
+    pending: usize,
+}
+
+impl<'a> FieldWalker<'a> {
+    fn new(compressed: &'a [u8], max_decompressed: u64) -> Self {
+        Self {
+            reader: InflateReader::new(compressed, max_decompressed),
+            pending: 0,
+        }
+    }
+
+    fn total_out(&self) -> u64 {
+        self.reader.total_out()
+    }
+
+    /// Decompressed bytes already handed to the parser, INCLUDING the field
+    /// most recently yielded by `next_field` (its bytes stay buffered until
+    /// the next call, but the caller has already processed them). Excludes
+    /// only the tail beyond it, so a density observed over this prefix is
+    /// neither diluted by inflater read-ahead nor inflated by dropping the
+    /// very conversation whose records were just counted: on a blob whose
+    /// first conversation alone reaches the sample threshold, the old
+    /// exclusive form left a near-zero denominator and the estimate clamped.
+    fn parsed_bytes(&self) -> u64 {
+        let unparsed_tail = self.reader.available().len().saturating_sub(self.pending);
+        self.reader.total_out().saturating_sub(unparsed_tail as u64)
+    }
+
+    /// Total decompressed size extrapolated from the zlib ratio observed so
+    /// far; exact once the stream has fully inflated.
+    fn estimated_total_out(&self) -> u64 {
+        let (in_pos, in_len) = self.reader.compressed_progress();
+        if in_pos == 0 {
+            return self.reader.total_out();
+        }
+        self.reader
+            .total_out()
+            .saturating_mul(in_len as u64)
+            .checked_div(in_pos as u64)
+            .unwrap_or(0)
+    }
+
+    /// Re-borrow the payload of the field most recently yielded by
+    /// [`FieldWalker::next_field`] (it stays buffered until the next call).
+    fn pending_payload(&self, payload_start: usize) -> &[u8] {
+        &self.reader.available()[payload_start..self.pending]
+    }
+
+    /// Advance to the next top-level field, returning `Ok(None)` at clean EOF.
+    /// The returned borrows point into the inflate window and stay valid until
+    /// the next `next_field` call.
+    fn next_field(&mut self) -> Result<Option<RawField<'_>>, HistorySyncError> {
+        self.reader.consume(self.pending);
+        self.pending = 0;
+
+        // A field starts with a tag varint; stop cleanly when the stream ends.
+        if !self
+            .reader
+            .ensure(1)
+            .map_err(HistorySyncError::DecompressionError)?
+        {
+            // Input exhausted at a field boundary is only a clean EOF when zlib
+            // saw its terminator; otherwise a truncated blob would pass as
+            // parsed (side effects applied, event dispatched) and the retained
+            // payload would fail every later get()/decompress().
+            if !self.reader.stream_ended() {
+                return Err(HistorySyncError::MalformedProtobuf(
+                    "zlib stream truncated (missing terminator)".into(),
+                ));
+            }
+            return Ok(None);
+        }
+        // A varint is at most 10 bytes (fewer is fine right at EOF).
+        self.reader
+            .ensure(10)
+            .map_err(HistorySyncError::DecompressionError)?;
+        let (tag, tlen) = read_varint(self.reader.available()).ok_or_else(malformed_varint)?;
+        let field_number = (tag >> 3) as u32;
+        let wire_type_raw = (tag & 0x7) as u32;
+
+        let (span, payload_start) = match wire_type_raw {
+            wire_type::LENGTH_DELIMITED => {
+                self.reader
+                    .ensure(tlen + 10)
+                    .map_err(HistorySyncError::DecompressionError)?;
+                let (len, vlen) =
+                    read_varint(&self.reader.available()[tlen..]).ok_or_else(malformed_varint)?;
+                let len = usize::try_from(len).map_err(|_| {
+                    HistorySyncError::MalformedProtobuf(format!(
+                        "field length overflows usize: {len}"
+                    ))
+                })?;
+                let payload_start = tlen + vlen;
+                let span = payload_start.checked_add(len).ok_or_else(|| {
+                    HistorySyncError::MalformedProtobuf(format!(
+                        "field span overflows: header={payload_start}, len={len}"
+                    ))
+                })?;
+                if !self
+                    .reader
+                    .ensure(span)
+                    .map_err(HistorySyncError::DecompressionError)?
+                {
+                    return Err(HistorySyncError::MalformedProtobuf(
+                        "length-delimited field truncated".into(),
+                    ));
+                }
+                (span, payload_start)
+            }
+            wire_type::VARINT => {
+                self.reader
+                    .ensure(tlen + 10)
+                    .map_err(HistorySyncError::DecompressionError)?;
+                let (_, vlen) =
+                    read_varint(&self.reader.available()[tlen..]).ok_or_else(malformed_varint)?;
+                (tlen + vlen, tlen)
+            }
+            wire_type::FIXED64 => {
+                if !self
+                    .reader
+                    .ensure(tlen + 8)
+                    .map_err(HistorySyncError::DecompressionError)?
+                {
+                    return Err(HistorySyncError::MalformedProtobuf(
+                        "fixed64 field truncated".into(),
+                    ));
+                }
+                (tlen + 8, tlen)
+            }
+            wire_type::FIXED32 => {
+                if !self
+                    .reader
+                    .ensure(tlen + 4)
+                    .map_err(HistorySyncError::DecompressionError)?
+                {
+                    return Err(HistorySyncError::MalformedProtobuf(
+                        "fixed32 field truncated".into(),
+                    ));
+                }
+                (tlen + 4, tlen)
+            }
+            _ => {
+                return Err(HistorySyncError::MalformedProtobuf(format!(
+                    "unknown wire type {wire_type_raw}"
+                )));
+            }
+        };
+
+        self.pending = span;
+        Ok(Some(RawField {
+            field_number,
+            wire_type: wire_type_raw,
+            raw: &self.reader.available()[..span],
+            payload_start,
+        }))
+    }
+}
+
+/// The internal extraction pass: decompresses incrementally and pulls out
+/// secrets, tctokens, pushname and nctSalt as each top-level field is
+/// buffered, so peak memory is bounded by the largest single conversation
+/// rather than the whole blob.
+trait HistoryMsgSecretRecordSink {
+    fn retain(&mut self, candidate: HistoryMsgSecretRecordRef<'_>) -> bool;
+
+    fn retained_len(&self, owned_records: &[HistoryMsgSecretRecord]) -> usize;
+
+    fn reserve(&mut self, owned_records: &mut Vec<HistoryMsgSecretRecord>, additional: usize);
+
+    fn retained_item_size(&self) -> Option<std::num::NonZeroUsize>;
+}
+
+struct FilteredRecordSink<F>(F);
+
+impl<F> HistoryMsgSecretRecordSink for FilteredRecordSink<F>
+where
+    F: for<'a> FnMut(HistoryMsgSecretRecordRef<'a>) -> bool,
+{
+    fn retain(&mut self, candidate: HistoryMsgSecretRecordRef<'_>) -> bool {
+        self.0(candidate)
+    }
+
+    fn retained_len(&self, owned_records: &[HistoryMsgSecretRecord]) -> usize {
+        owned_records.len()
+    }
+
+    fn reserve(&mut self, owned_records: &mut Vec<HistoryMsgSecretRecord>, additional: usize) {
+        owned_records.reserve(additional);
+    }
+
+    fn retained_item_size(&self) -> Option<std::num::NonZeroUsize> {
+        std::num::NonZeroUsize::new(size_of::<HistoryMsgSecretRecord>())
+    }
+}
+
+struct VisitingRecordSink<V> {
+    visitor: V,
+    retained: usize,
+}
+
+impl<V> VisitingRecordSink<V> {
+    fn new(visitor: V) -> Self {
+        Self {
+            visitor,
+            retained: 0,
+        }
+    }
+}
+
+impl<V> HistoryMsgSecretRecordSink for VisitingRecordSink<V>
+where
+    V: HistoryMsgSecretRecordVisitor,
+{
+    fn retain(&mut self, candidate: HistoryMsgSecretRecordRef<'_>) -> bool {
+        self.retained = self.retained.saturating_add(self.visitor.visit(candidate));
+        false
+    }
+
+    fn retained_len(&self, _owned_records: &[HistoryMsgSecretRecord]) -> usize {
+        self.retained
+    }
+
+    fn reserve(&mut self, _owned_records: &mut Vec<HistoryMsgSecretRecord>, additional: usize) {
+        self.visitor.reserve(additional);
+    }
+
+    fn retained_item_size(&self) -> Option<std::num::NonZeroUsize> {
+        self.visitor.retained_item_size()
+    }
+}
+
+fn process_history_sync_streaming<S>(
+    compressed_data: &[u8],
+    own_user: Option<&str>,
+    max_decompressed: u64,
+    mut record_sink: S,
+) -> Result<HistorySyncResult, HistorySyncError>
+where
+    S: HistoryMsgSecretRecordSink,
+{
+    let mut walker = FieldWalker::new(compressed_data, max_decompressed);
+    let mut result = HistorySyncResult {
+        own_pushname: None,
+        nct_salt: None,
+        conversations_processed: 0,
+        call_log_records: Vec::new(),
+        tc_token_candidates: Vec::new(),
+        // Starts empty and gets a one-shot density-based reserve once the
+        // walk has seen RESERVE_SAMPLE_RECORDS (see below). A full pre-count
+        // pass was tried before: it scanned the whole blob just to size a Vec
+        // holding only the secret-record subset (over-allocating, ~2.5% of
+        // the decode).
+        msg_secret_records: Vec::new(),
+        lid_mappings: Vec::new(),
+        compressed_bytes: None,
+        decompressed_size: 0,
+    };
+
+    // One-shot capacity extrapolation for the secret-record accumulator. A
+    // full pre-count pass (see the field comment above) was measured at ~2.5%
+    // of the decode, so instead the record density observed over a prefix is
+    // scaled to the blob's extrapolated decompressed size. Costs O(1), adapts
+    // to blobs with few secrets, and an off estimate just falls back to
+    // doubling. Extrapolating from the first conversation alone overshot to
+    // the clamp on measured blobs (doubling the transient peak), so the
+    // sample must first reach RESERVE_SAMPLE_RECORDS; the doubling ladder up
+    // to that point copies only ~2x its own bytes, which is noise. Give the
+    // projection 12.5% headroom: a tiny tail-ratio underestimate must not leave
+    // capacity just below the real count and make Vec double a multi-megabyte
+    // record buffer near EOF. The clamp still bounds over-allocation to ~2 MB.
+    const RESERVE_SAMPLE_RECORDS: usize = 128;
+    const RECORD_RESERVE_BYTE_CAP: usize = 2 * 1024 * 1024;
+    const RESERVE_HEADROOM_DIVISOR: usize = 8;
+    let mut density_reserved = false;
+    let mut call_record_count = 0usize;
+    let mut call_record_bytes = 0usize;
+    let mut malformed_call_records = 0usize;
+    let mut call_budget_exceeded = false;
+
+    while let Some(field) = walker.next_field()? {
+        if field.wire_type != wire_type::LENGTH_DELIMITED {
+            continue;
+        }
+        let value = &field.raw[field.payload_start..];
+        match field.field_number {
+            // conversations (repeated)
+            tags::history_sync::CONVERSATIONS => {
+                let conversation_index = result.conversations_processed;
+                result.conversations_processed += 1;
+                if let Some(candidate) = extract_conversation_fields(
+                    value,
+                    conversation_index,
+                    &mut result.msg_secret_records,
+                    &mut record_sink,
+                    &mut result.lid_mappings,
+                ) {
+                    result.tc_token_candidates.push(candidate);
+                }
+                let retained_records = record_sink.retained_len(&result.msg_secret_records);
+                if !density_reserved && retained_records >= RESERVE_SAMPLE_RECORDS {
+                    density_reserved = true;
+                    // max(1) makes the division safe; parsed_bytes is only 0
+                    // if nothing decompressed yet, impossible past a record.
+                    let parsed = walker.parsed_bytes().max(1);
+                    let records = retained_records;
+                    let projected = ((records as u64).saturating_mul(walker.estimated_total_out())
+                        / parsed) as usize;
+                    let reserve_cap = record_sink
+                        .retained_item_size()
+                        .map(|item_size| RECORD_RESERVE_BYTE_CAP / item_size.get())
+                        .unwrap_or(0);
+                    let estimated = projected
+                        .saturating_add(projected / RESERVE_HEADROOM_DIVISOR)
+                        .min(reserve_cap);
+                    let additional = estimated.saturating_sub(records);
+                    #[cfg(feature = "tracing")]
+                    let _reserve_span = tracing::trace_span!(
+                        "wa.history.reserve_secret_records",
+                        records = records as u64,
+                        projected = projected as u64,
+                        target_capacity = estimated as u64,
+                        capacity_before = result.msg_secret_records.capacity() as u64,
+                        additional = additional as u64,
+                    )
+                    .entered();
+                    record_sink.reserve(&mut result.msg_secret_records, additional);
+                }
+            }
+            tags::history_sync::CALL_LOG_RECORDS => {
+                if call_budget_exceeded {
+                    continue;
+                }
+                let count = call_record_count.checked_add(1);
+                let bytes = call_record_bytes.checked_add(value.len());
+                if count.is_none_or(|n| n > MAX_CALL_RECORDS)
+                    || bytes.is_none_or(|n| n > MAX_CALL_RECORD_BYTES)
+                {
+                    call_budget_exceeded = true;
+                    // Suppress the whole typed-call harvest, not a misleading
+                    // prefix. Keep walking other fields and retain the raw chunk.
+                    result.call_log_records = Vec::new();
+                    continue;
+                }
+                call_record_count = count.unwrap_or(MAX_CALL_RECORDS);
+                call_record_bytes = bytes.unwrap_or(MAX_CALL_RECORD_BYTES);
+                match waproto::codec::call_log_record_decode(value) {
+                    Ok(record) => result.call_log_records.push(record),
+                    Err(_) => malformed_call_records += 1,
+                }
+            }
+            // pushnames (repeated) — only our own is needed
+            tags::history_sync::PUSHNAMES => {
+                if result.own_pushname.is_none()
+                    && let Some(own) = own_user
+                    && let Some(name) = extract_own_pushname(value, own)
+                {
+                    result.own_pushname = Some(name);
+                }
+            }
+            tags::history_sync::NCT_SALT if !value.is_empty() => {
+                result.nct_salt = Some(value.to_vec());
+            }
+            tags::history_sync::PHONE_NUMBER_TO_LID_MAPPINGS => {
+                if let Some(mapping) = extract_lid_mapping(value) {
+                    result.lid_mappings.push(mapping);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if malformed_call_records != 0 || call_budget_exceeded {
+        // One redacted diagnostic per chunk, never a log write for each bad
+        // entry. Budget exhaustion is observable even when every entry is valid.
+        log::warn!(
+            "History-sync call harvest: malformed={malformed_call_records}, typed_calls_suppressed={call_budget_exceeded}"
+        );
+    }
+    result.decompressed_size = walker.total_out() as usize;
+    // Both sources have been walked by now, so this is the first point where a
+    // LID's competing pairs can be compared against each other.
+    dedupe_lid_mappings(&mut result.lid_mappings);
+    Ok(result)
+}
+
+/// Incremental reader over a compressed HistorySync blob: yields conversations
+/// one at a time and the non-conversation fields as a final decoded remainder,
+/// without ever materializing the whole decompressed blob.
+///
+/// Decompression uses a bounded window, so peak memory is roughly the largest
+/// single conversation plus the accumulated non-conversation fields (a few KB
+/// on conversation-heavy blobs; effectively the whole — small — blob on
+/// conversation-less ones such as PushName-only or nctSalt-only chunks).
+///
+/// Cost model: one zlib inflate per full pass. A multi-MB InitialBootstrap
+/// chunk takes tens of milliseconds to inflate and decode; inside an async
+/// handler, prefer draining the stream in `spawn_blocking` (clone the
+/// compressed `Bytes` into the closure) when
+/// [`LazyHistorySync::decompressed_size`](crate::types::events::LazyHistorySync::decompressed_size)
+/// is large.
+pub struct HistorySyncStream<'a> {
+    walker: FieldWalker<'a>,
+    /// Raw (tag + payload) bytes of every non-conversation top-level field
+    /// encountered while iterating, decoded at the end by
+    /// [`HistorySyncStream::remainder`]. Accumulating raw fields makes wire
+    /// order irrelevant: conversations interleaved with other fields decode
+    /// identically to a field-ordered blob.
+    remainder: Vec<u8>,
+    skipped_conversations: usize,
+}
+
+impl<'a> HistorySyncStream<'a> {
+    /// Reader over `compressed`, refusing to inflate past `max_decompressed`
+    /// (use [`MAX_DECOMPRESSED`] when the exact inflated size is unknown).
+    pub fn new(compressed: &'a [u8], max_decompressed: u64) -> Self {
+        Self {
+            walker: FieldWalker::new(compressed, max_decompressed),
+            remainder: Vec::new(),
+            skipped_conversations: 0,
+        }
+    }
+
+    /// Raw protobuf bytes of the next `conversations` entry, or `Ok(None)` at
+    /// clean EOF. The borrow points into the inflate window and stays valid
+    /// until the next call on the stream.
+    ///
+    /// Every other top-level field encountered along the way is buffered for
+    /// [`HistorySyncStream::remainder`]. A truncated field or zlib error is
+    /// fatal; per-conversation decode leniency lives in
+    /// [`HistorySyncStream::next_conversation`].
+    pub fn next_conversation_bytes(&mut self) -> Result<Option<&[u8]>, HistorySyncError> {
+        let payload_start = loop {
+            let Some(field) = self.walker.next_field()? else {
+                return Ok(None);
+            };
+            if field.field_number == tags::history_sync::CONVERSATIONS
+                && field.wire_type == wire_type::LENGTH_DELIMITED
+            {
+                break field.payload_start;
+            }
+            self.remainder.extend_from_slice(field.raw);
+        };
+        // Re-borrow outside the loop: the field stays buffered (consumed lazily
+        // on the next walker call), so the payload slice is still in the window.
+        Ok(Some(self.walker.pending_payload(payload_start)))
+    }
+
+    /// Decoded variant of [`HistorySyncStream::next_conversation_bytes`].
+    /// LENIENT: a conversation that fails to decode is skipped and counted
+    /// in [`HistorySyncStream::skipped_conversations`], not fatal — one
+    /// corrupt entry doesn't void the rest of the blob.
+    ///
+    /// Allocates a fresh `Conversation` per call; a loop draining thousands of
+    /// entries should prefer [`HistorySyncStream::next_conversation_into`],
+    /// which reuses one struct's allocations across iterations.
+    pub fn next_conversation(&mut self) -> Result<Option<wa::Conversation>, HistorySyncError> {
+        let mut conversation = wa::Conversation::default();
+        Ok(self
+            .next_conversation_into(&mut conversation)?
+            .then_some(conversation))
+    }
+
+    /// In-place variant of [`HistorySyncStream::next_conversation`]: decodes
+    /// the next entry into `conversation`, returning `Ok(false)` at clean EOF.
+    /// Same per-entry decode leniency.
+    ///
+    /// buffa's `clear()` retains `Vec` capacity, so reusing one struct across a
+    /// drain loop skips the per-conversation message-spine reallocations. After
+    /// `Ok(false)` (or an error) the struct contents are unspecified.
+    pub fn next_conversation_into(
+        &mut self,
+        conversation: &mut wa::Conversation,
+    ) -> Result<bool, HistorySyncError> {
+        loop {
+            match self.next_conversation_bytes()? {
+                None => return Ok(false),
+                Some(bytes) => {
+                    match waproto::codec::conversation_merge_from_slice(conversation, bytes) {
+                        Ok(()) => return Ok(true),
+                        Err(e) => {
+                            log::debug!("Skipping undecodable history-sync conversation: {e}");
+                            self.skipped_conversations += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// How many conversations [`HistorySyncStream::next_conversation`] skipped
+    /// because they failed to decode.
+    pub fn skipped_conversations(&self) -> usize {
+        self.skipped_conversations
+    }
+
+    /// Decode the accumulated non-conversation fields (pushnames, mappings,
+    /// settings, nctSalt, ...) as a conversations-less [`wa::HistorySync`].
+    ///
+    /// Call after `next_conversation*` returned `None`. Calling earlier drains
+    /// the rest of the stream and fails with
+    /// [`HistorySyncError::UnreadConversations`] if an unread conversation is
+    /// found, instead of silently dropping it.
+    pub fn remainder(mut self) -> Result<wa::HistorySync, HistorySyncError> {
+        while let Some(field) = self.walker.next_field()? {
+            if field.field_number == tags::history_sync::CONVERSATIONS
+                && field.wire_type == wire_type::LENGTH_DELIMITED
+            {
+                return Err(HistorySyncError::UnreadConversations);
+            }
+            self.remainder.extend_from_slice(field.raw);
+        }
+        Ok(waproto::codec::history_sync_decode(
+            self.remainder.as_slice(),
+        )?)
+    }
+}
+
+/// `Option` (Copy) for the same happy-path drop_glue reason as
+/// [`read_varint`]; `?` sites map `None` via [`field_overflow`].
+// inline(always): same hot-path/thin-LTO rationale as read_varint.
+#[inline(always)]
+fn checked_end(pos: usize, len: u64, buf_len: usize) -> Option<usize> {
+    let len = usize::try_from(len).ok()?;
+    let end = pos.checked_add(len)?;
+    (end <= buf_len).then_some(end)
+}
+
+/// Rich error for `?` boundaries around [`checked_end`]; failure-path only.
+#[cold]
+fn field_overflow(field: &str, pos: usize, len: u64, buf_len: usize) -> HistorySyncError {
+    HistorySyncError::MalformedProtobuf(format!(
+        "{field} field overflows buffer: pos={pos}, len={len}, buf={buf_len}"
+    ))
+}
+
+/// `None` covers truncation and 64-bit overflow alike: the walk loops call
+/// this per field and discard the failure, so the return must stay `Copy`. A
+/// `Result` carrying a heap error here put `drop_glue` on the happy path of
+/// every field visit (~2% of a full-blob decode). `?` sites map `None` via
+/// [`malformed_varint`].
+// inline(always): per-field hot path; the thin-LTO bench profile keeps plain
+// #[inline] candidates outlined and the call overhead dominates the walk.
+#[inline(always)]
+fn read_varint(data: &[u8]) -> Option<(u64, usize)> {
+    // Single-byte fast-path: most history-sync varints (tags, small lengths) fit in one byte.
+    let &first = data.first()?;
+    if first < 0x80 {
+        return Some((first as u64, 1));
+    }
+    let mut value = (first & 0x7F) as u64;
+    let mut shift = 7u32;
+    for (i, &byte) in data[1..].iter().enumerate() {
+        // The 10th byte of a 64-bit varint may only carry one bit.
+        if shift == 63 && byte > 1 {
+            return None;
+        }
+        value |= ((byte & 0x7F) as u64) << shift;
+        if byte & 0x80 == 0 {
+            return Some((value, i + 2));
+        }
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+    }
+    None
+}
+
+/// Rich error for `?` boundaries around [`read_varint`]; built only on the
+/// (malformed-blob) failure path so the walk loops stay allocation-free.
+#[cold]
+fn malformed_varint() -> HistorySyncError {
+    HistorySyncError::MalformedProtobuf("truncated or overlong varint".into())
+}
+
+/// Skip a protobuf field based on wire type, returning the new position.
+#[inline(always)]
+fn skip_field(wire_type: u32, buf: &[u8], pos: usize) -> Result<usize, HistorySyncError> {
+    match wire_type {
+        wire_type::VARINT => {
+            let (_, vlen) = read_varint(&buf[pos..]).ok_or_else(malformed_varint)?;
+            Ok(pos + vlen)
+        }
+        wire_type::FIXED64 => checked_end(pos, 8, buf.len())
+            .ok_or_else(|| field_overflow("fixed64", pos, 8, buf.len())),
+        wire_type::LENGTH_DELIMITED => {
+            let (len, vlen) = read_varint(&buf[pos..]).ok_or_else(malformed_varint)?;
+            checked_end(pos + vlen, len, buf.len())
+                .ok_or_else(|| field_overflow("length-delimited", pos + vlen, len, buf.len()))
+        }
+        wire_type::FIXED32 => checked_end(pos, 4, buf.len())
+            .ok_or_else(|| field_overflow("fixed32", pos, 4, buf.len())),
+        _ => {
+            log::warn!("Unknown wire type {wire_type} in history sync, cannot skip");
+            Err(HistorySyncError::MalformedProtobuf(format!(
+                "unknown wire type {wire_type}"
+            )))
+        }
+    }
+}
+
+/// `Pushname.id` is a JID string (`15551234567@s.whatsapp.net`), while
+/// `own_user` is the bare user part of our own JID. Compare on the user so the
+/// entry is recognisable; whatsmeow parses the same field with `ParseJID`.
+///
+/// Only a phone-namespaced entry can carry our PN user. A `@lid` entry whose
+/// user happens to be the same digits belongs to a different addressing space,
+/// and taking its name as our own would be wrong — so any other server is
+/// rejected rather than compared.
+///
+/// Parsing is left to `parse_jid_ref` rather than split by hand: it borrows
+/// (no allocation for the entries we discard) and it already knows the forms
+/// this field can take, the legacy `@c.us` spelling included — it resolves that
+/// to the phone namespace, so nothing here has to name it.
+fn pushname_id_is(id: &str, own_user: &str) -> bool {
+    if !id.contains('@') {
+        // Pre-JID bare form, still accepted.
+        return id == own_user;
+    }
+    let Some(jid) = wacore_binary::jid::parse_jid_ref(id) else {
+        return false;
+    };
+    jid.server.is_pn_family() && &*jid.user == own_user
+}
+
+/// History sync's placeholder for an entry that carries no push name. It is a
+/// real value on the wire, not an empty field, so it has to be filtered by
+/// content.
+const PUSHNAME_ABSENT_SENTINEL: &str = "-";
+
+// Best-effort: a malformed pushname (optional metadata) must not abort the sync.
+fn extract_own_pushname(data: &[u8], own_user: &str) -> Option<String> {
+    let mut pos = 0;
+    let mut id_match = false;
+    let mut pushname: Option<String> = None;
+
+    while pos < data.len() {
+        let (tag, bytes_read) = read_varint(data.get(pos..)?)?;
+        pos += bytes_read;
+        let field_number = (tag >> 3) as u32;
+        let wt = (tag & 0x7) as u32;
+
+        match field_number {
+            tags::pushname::ID if wt == wire_type::LENGTH_DELIMITED => {
+                let (len, vlen) = read_varint(data.get(pos..)?)?;
+                pos += vlen;
+                let len = usize::try_from(len).ok()?;
+                let end = pos.checked_add(len).filter(|&e| e <= data.len())?;
+                let id = smoothutf8::from_utf8(data.get(pos..end)?)?;
+                id_match = pushname_id_is(id, own_user);
+                if !id_match {
+                    return None; // wrong user, skip entirely
+                }
+                pos = end;
+            }
+            tags::pushname::PUSHNAME if wt == wire_type::LENGTH_DELIMITED => {
+                let (len, vlen) = read_varint(data.get(pos..)?)?;
+                pos += vlen;
+                let len = usize::try_from(len).ok()?;
+                let end = pos.checked_add(len).filter(|&e| e <= data.len())?;
+                let name = smoothutf8::from_utf8(data.get(pos..end)?)?;
+                pushname = Some(name.to_string());
+                pos = end;
+            }
+            _ => {
+                pos = skip_field(wt, data, pos).ok()?;
+            }
+        }
+    }
+
+    if !id_match {
+        return None;
+    }
+    // Storing the sentinel is worse than having no name: the client persists
+    // whatever comes back here, which makes `push_name.is_empty()` false for
+    // good, so the bootstrap stops treating the account as still needing its
+    // name and re-announces `-` on every reconnect. whatsmeow skips the same
+    // value. The authoritative `setting_pushName` mutation does not come
+    // through this path, so an account whose name really is `-` still gets it.
+    pushname.filter(|name| name != PUSHNAME_ABSENT_SENTINEL)
+}
+
+/// Where a mapping was harvested from.
+///
+/// Load-bearing, not informational: the two sources can disagree about which
+/// phone a LID belongs to during number drift, and the batch learner
+/// deduplicates by phone number rather than by LID, so two pairs sharing a LID
+/// both survive into a `HashMap` whose iteration order decides which one wins.
+/// Resolving the conflict here, by source, is what makes the outcome
+/// deterministic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryLidMappingSource {
+    /// `HistorySync.phoneNumberToLidMappings` — the server's explicit identity
+    /// table, and the authority when the two disagree.
+    Bulk,
+    /// A conversation's own `pnJid`/`lidJid`, which is incidental metadata and
+    /// can lag behind the bulk block.
+    Conversation,
+}
+
+/// One PN↔LID pair from a history sync, reduced to bare user parts (no server,
+/// no device).
+///
+/// Both halves are [`CompactString`]: a phone user part and a LID user part are
+/// 11-16 digits, so they live inline and a bootstrap's mapping block — hundreds
+/// to thousands of pairs, each one also cloned into the dedupe index — costs no
+/// heap at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryLidMapping {
+    pub phone_number: CompactString,
+    pub lid: CompactString,
+    pub source: HistoryLidMappingSource,
+}
+
+/// Collapse mappings that name the same LID, keeping one pair per LID.
+///
+/// [`Bulk`](HistoryLidMappingSource::Bulk) outranks
+/// [`Conversation`](HistoryLidMappingSource::Conversation); within one source
+/// the first occurrence wins. Order is otherwise preserved, so the result does
+/// not depend on which source the wire happened to put first.
+fn dedupe_lid_mappings(mappings: &mut Vec<HistoryLidMapping>) {
+    use std::collections::HashMap;
+
+    // Both keys, not just the LID. The learner deduplicates by phone number
+    // with last-write-wins, so two LIDs sharing a phone would survive a
+    // LID-only pass and let whichever the wire put last override the other —
+    // protobuf field order is not significant, so that is not a decision at
+    // all. Keys are cloned because deciding a conflict has to compare against
+    // an entry in the vector being edited; cloning a `CompactString` of a
+    // phone or LID user part is a memcpy, so the two indexes cost no heap.
+    let mut by_lid: HashMap<CompactString, usize> = HashMap::with_capacity(mappings.len());
+    let mut by_phone: HashMap<CompactString, usize> = HashMap::with_capacity(mappings.len());
+    let mut drop = vec![false; mappings.len()];
+
+    for i in 0..mappings.len() {
+        let mut conflicts: Vec<usize> = Vec::new();
+        if let Some(&kept) = by_lid.get(&mappings[i].lid) {
+            conflicts.push(kept);
+        }
+        if let Some(&kept) = by_phone.get(&mappings[i].phone_number)
+            && !conflicts.contains(&kept)
+        {
+            conflicts.push(kept);
+        }
+
+        // A bulk pair displaces conflicting conversation pairs and nothing
+        // else, so a bulk entry is never removed by a conversation one and the
+        // first occurrence wins within a source.
+        let incoming_wins = !conflicts.is_empty()
+            && mappings[i].source == HistoryLidMappingSource::Bulk
+            && conflicts
+                .iter()
+                .all(|&k| mappings[k].source == HistoryLidMappingSource::Conversation);
+
+        if !conflicts.is_empty() && !incoming_wins {
+            drop[i] = true;
+            continue;
+        }
+        for &kept in &conflicts {
+            drop[kept] = true;
+            by_lid.remove(&mappings[kept].lid);
+            by_phone.remove(&mappings[kept].phone_number);
+        }
+        by_lid.insert(mappings[i].lid.clone(), i);
+        by_phone.insert(mappings[i].phone_number.clone(), i);
+    }
+
+    let mut i = 0;
+    mappings.retain(|_| {
+        let keep = !drop[i];
+        i += 1;
+        keep
+    });
+}
+
+/// Outcome of reading an optional string field.
+enum OptionalStr<'a> {
+    Value(&'a str),
+    /// Well-framed, but not usable text. The cursor has advanced past it, so
+    /// the walk continues and only this field's value is discarded.
+    Unusable,
+    /// The framing itself is broken; nothing after this point can be trusted.
+    Malformed,
+}
+
+/// Read an optional length-delimited string, distinguishing bad framing from
+/// bad text.
+///
+/// [`read_str_field`] collapses both into `None`, which callers can only answer
+/// by aborting the walk. For an optional field that is wrong to do: invalid
+/// UTF-8 in a piece of incidental metadata would cost every field that follows
+/// it — in a conversation, the tctoken and its timestamps.
+fn read_optional_str_field<'a>(data: &'a [u8], pos: &mut usize) -> OptionalStr<'a> {
+    let Some((len, vlen)) = read_varint(&data[*pos..]) else {
+        return OptionalStr::Malformed;
+    };
+    let value_start = *pos + vlen;
+    let Some(end) = checked_end(value_start, len, data.len()) else {
+        return OptionalStr::Malformed;
+    };
+    *pos = end;
+    match smoothutf8::from_utf8(&data[value_start..end]) {
+        Some(value) => OptionalStr::Value(value),
+        None => OptionalStr::Unusable,
+    }
+}
+
+/// Read one length-delimited UTF-8 string field, advancing `pos` past it.
+fn read_str_field<'a>(data: &'a [u8], pos: &mut usize) -> Option<&'a str> {
+    let (len, vlen) = read_varint(data.get(*pos..)?)?;
+    *pos += vlen;
+    let len = usize::try_from(len).ok()?;
+    let end = pos.checked_add(len).filter(|&e| e <= data.len())?;
+    let value = smoothutf8::from_utf8(data.get(*pos..end)?)?;
+    *pos = end;
+    Some(value)
+}
+
+// Best-effort: a malformed mapping entry (optional metadata) must not abort
+// the sync, mirroring the pushname extractor above.
+fn extract_lid_mapping(data: &[u8]) -> Option<HistoryLidMapping> {
+    let mut pn_raw: Option<&str> = None;
+    let mut lid_raw: Option<&str> = None;
+    let mut pos = 0;
+
+    while pos < data.len() {
+        let (tag, bytes_read) = read_varint(data.get(pos..)?)?;
+        pos += bytes_read;
+        let field_number = (tag >> 3) as u32;
+        let wt = (tag & 0x7) as u32;
+
+        match field_number {
+            tags::phone_number_to_lid_mapping::PN_JID if wt == wire_type::LENGTH_DELIMITED => {
+                pn_raw = Some(read_str_field(data, &mut pos)?);
+            }
+            tags::phone_number_to_lid_mapping::LID_JID if wt == wire_type::LENGTH_DELIMITED => {
+                lid_raw = Some(read_str_field(data, &mut pos)?);
+            }
+            _ => {
+                pos = skip_field(wt, data, pos).ok()?;
+            }
+        }
+    }
+
+    history_lid_mapping(pn_raw?, lid_raw?, HistoryLidMappingSource::Bulk)
+}
+
+fn history_lid_mapping(
+    pn_raw: &str,
+    lid_raw: &str,
+    source: HistoryLidMappingSource,
+) -> Option<HistoryLidMapping> {
+    use wacore_binary::Jid;
+
+    let pn: Jid = pn_raw.parse().ok()?;
+    let lid: Jid = lid_raw.parse().ok()?;
+    // Family predicates, not the exact-server ones: `@hosted` and `@hosted.lid`
+    // are the PN and LID namespaces for hosted accounts, and the mapping and
+    // Signal-address code elsewhere already treats them as such. The legacy
+    // `@c.us` spelling needs no arm of its own: it parses as the phone
+    // namespace.
+    if !pn.server.is_pn_family() || !lid.server.is_lid_family() {
+        return None;
+    }
+    if pn.user_base().is_empty() || lid.user_base().is_empty() {
+        return None;
+    }
+    Some(HistoryLidMapping {
+        phone_number: CompactString::from(pn.user_base()),
+        lid: CompactString::from(lid.user_base()),
+        source,
+    })
+}
+
+// Schema pinning: assert that the tags::* constants used by fast_extract and
+// extract_conversation_fields match the generated proto field numbers. If
+// whatsapp.proto renumbers a field, compilation fails here instead of the
+// fast-path silently reading the wrong wire field.
+const _: () = {
+    assert!(tags::history_sync::CALL_LOG_RECORDS == 13);
+    assert!(tags::history_sync::PHONE_NUMBER_TO_LID_MAPPINGS == 15);
+    assert!(tags::phone_number_to_lid_mapping::PN_JID == 1);
+    assert!(tags::phone_number_to_lid_mapping::LID_JID == 2);
+
+    assert!(tags::conversation::ID == 1);
+    assert!(tags::conversation::PN_JID == 39);
+    assert!(tags::conversation::LID_JID == 42);
+
+    assert!(tags::history_sync_msg::MESSAGE == 1);
+
+    assert!(tags::web_message_info::KEY == 1);
+    assert!(tags::web_message_info::MESSAGE == 2);
+    assert!(tags::web_message_info::MESSAGE_TIMESTAMP == 3);
+    assert!(tags::web_message_info::PARTICIPANT == 5);
+    assert!(tags::web_message_info::MESSAGE_SECRET == 49);
+
+    assert!(tags::message_key::FROM_ME == 2);
+    assert!(tags::message_key::ID == 3);
+    assert!(tags::message_key::PARTICIPANT == 4);
+
+    assert!(tags::message::IMAGE_MESSAGE == 3);
+    assert!(tags::message::CONTACT_MESSAGE == 4);
+    assert!(tags::message::LOCATION_MESSAGE == 5);
+    assert!(tags::message::EXTENDED_TEXT_MESSAGE == 6);
+    assert!(tags::message::DOCUMENT_MESSAGE == 7);
+    assert!(tags::message::AUDIO_MESSAGE == 8);
+    assert!(tags::message::VIDEO_MESSAGE == 9);
+    assert!(tags::message::CONTACTS_ARRAY_MESSAGE == 13);
+    assert!(tags::message::LIVE_LOCATION_MESSAGE == 18);
+    assert!(tags::message::TEMPLATE_MESSAGE == 25);
+    assert!(tags::message::STICKER_MESSAGE == 26);
+    assert!(tags::message::GROUP_INVITE_MESSAGE == 28);
+    assert!(tags::message::TEMPLATE_BUTTON_REPLY_MESSAGE == 29);
+    assert!(tags::message::PRODUCT_MESSAGE == 30);
+    assert!(tags::message::DEVICE_SENT_MESSAGE == 31);
+    assert!(tags::message::MESSAGE_CONTEXT_INFO == 35);
+    assert!(tags::message::LIST_MESSAGE == 36);
+    assert!(tags::message::VIEW_ONCE_MESSAGE == 37);
+    assert!(tags::message::ORDER_MESSAGE == 38);
+    assert!(tags::message::LIST_RESPONSE_MESSAGE == 39);
+    assert!(tags::message::EPHEMERAL_MESSAGE == 40);
+    assert!(tags::message::BUTTONS_MESSAGE == 42);
+    assert!(tags::message::BUTTONS_RESPONSE_MESSAGE == 43);
+    assert!(tags::message::INTERACTIVE_MESSAGE == 45);
+    assert!(tags::message::INTERACTIVE_RESPONSE_MESSAGE == 48);
+    assert!(tags::message::POLL_CREATION_MESSAGE == 49);
+    assert!(tags::message::DOCUMENT_WITH_CAPTION_MESSAGE == 53);
+    assert!(tags::message::VIEW_ONCE_MESSAGE_V2 == 55);
+    assert!(tags::message::EDITED_MESSAGE == 58);
+    assert!(tags::message::POLL_CREATION_MESSAGE_V2 == 60);
+    assert!(tags::message::POLL_CREATION_MESSAGE_V3 == 64);
+    assert!(tags::message::EVENT_MESSAGE == 75);
+    assert!(tags::message::NEWSLETTER_ADMIN_INVITE_MESSAGE == 78);
+    assert!(tags::message::STICKER_PACK_MESSAGE == 86);
+
+    assert!(tags::message_context_info::MESSAGE_SECRET == 3);
+    assert!(tags::message_context_info::BOT_METADATA == 7);
+
+    assert!(tags::context_info::IS_FORWARDED == 22);
+
+    assert!(tags::message::device_sent_message::MESSAGE == 2);
+    assert!(tags::message::future_proof_message::MESSAGE == 1);
+
+    assert!(tags::message::event_message::CONTEXT_INFO == 1);
+    assert!(tags::message::template_message::CONTEXT_INFO == 3);
+    assert!(tags::message::template_button_reply_message::CONTEXT_INFO == 3);
+    assert!(tags::message::buttons_response_message::CONTEXT_INFO == 3);
+    assert!(tags::message::list_response_message::CONTEXT_INFO == 4);
+    assert!(tags::message::poll_creation_message::CONTEXT_INFO == 5);
+    assert!(tags::message::newsletter_admin_invite_message::CONTEXT_INFO == 6);
+    assert!(tags::message::group_invite_message::CONTEXT_INFO == 7);
+    assert!(tags::message::list_message::CONTEXT_INFO == 8);
+    assert!(tags::message::buttons_message::CONTEXT_INFO == 8);
+    assert!(tags::message::sticker_pack_message::CONTEXT_INFO == 11);
+    assert!(tags::message::interactive_message::CONTEXT_INFO == 15);
+    assert!(tags::message::interactive_response_message::CONTEXT_INFO == 15);
+    assert!(tags::message::image_message::CONTEXT_INFO == 17);
+    assert!(tags::message::contact_message::CONTEXT_INFO == 17);
+    assert!(tags::message::location_message::CONTEXT_INFO == 17);
+    assert!(tags::message::extended_text_message::CONTEXT_INFO == 17);
+    assert!(tags::message::document_message::CONTEXT_INFO == 17);
+    assert!(tags::message::audio_message::CONTEXT_INFO == 17);
+    assert!(tags::message::video_message::CONTEXT_INFO == 17);
+    assert!(tags::message::contacts_array_message::CONTEXT_INFO == 17);
+    assert!(tags::message::live_location_message::CONTEXT_INFO == 17);
+    assert!(tags::message::sticker_message::CONTEXT_INFO == 17);
+    assert!(tags::message::product_message::CONTEXT_INFO == 17);
+    assert!(tags::message::order_message::CONTEXT_INFO == 17);
+};
+
+/// Message secret bytes, inline up to 32 bytes (the universal size of real
+/// message secrets) so extracting a record costs no heap allocation. Larger
+/// payloads spill to the heap, preserving arbitrary-length wire semantics.
+/// Inline capacity of [`SecretBytes`]; real message secrets are 32 bytes.
+pub const SECRET_INLINE_CAP: usize = 32;
+
+#[derive(Clone)]
+pub enum SecretBytes {
+    Inline {
+        len: u8,
+        buf: [u8; SECRET_INLINE_CAP],
+    },
+    Heap(Vec<u8>),
+}
+
+impl SecretBytes {
+    pub const INLINE_CAP: usize = SECRET_INLINE_CAP;
+
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            SecretBytes::Inline { len, buf } => &buf[..*len as usize],
+            SecretBytes::Heap(v) => v,
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        match self {
+            SecretBytes::Inline { len, buf } => buf[..len as usize].to_vec(),
+            SecretBytes::Heap(v) => v,
+        }
+    }
+}
+
+impl From<&[u8]> for SecretBytes {
+    fn from(bytes: &[u8]) -> Self {
+        if bytes.len() <= Self::INLINE_CAP {
+            let mut buf = [0u8; Self::INLINE_CAP];
+            buf[..bytes.len()].copy_from_slice(bytes);
+            SecretBytes::Inline {
+                len: bytes.len() as u8,
+                buf,
+            }
+        } else {
+            SecretBytes::Heap(bytes.to_vec())
+        }
+    }
+}
+
+impl From<Vec<u8>> for SecretBytes {
+    fn from(bytes: Vec<u8>) -> Self {
+        // Compacting small vectors frees the prost-side allocation early on
+        // the fallback path.
+        if bytes.len() <= Self::INLINE_CAP {
+            SecretBytes::from(bytes.as_slice())
+        } else {
+            SecretBytes::Heap(bytes)
+        }
+    }
+}
+
+impl std::ops::Deref for SecretBytes {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+// Content equality: an inline and a heap value holding the same bytes are the
+// same secret (the representation is an allocation detail).
+impl PartialEq for SecretBytes {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl Eq for SecretBytes {}
+
+impl std::fmt::Debug for SecretBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SecretBytes")
+            .field(&self.as_slice())
+            .finish()
+    }
+}
+
+/// Outcome of the single-pass borrowed extraction of one `HistorySyncMsg`.
+enum FastExtract<'a> {
+    /// No record: no secret, missing key id, forwarded, or wire bytes that
+    /// prost's decode would reject (the failed-decode skip).
+    NoRecord,
+    Record(FastRecord<'a>),
+    /// Wire shapes whose prost merge semantics a single-pass walk cannot
+    /// reproduce (repeated occurrences of message-typed fields, pathological
+    /// nesting). The caller reruns the prost mirror-struct decode, which is
+    /// exact by construction.
+    Fallback,
+}
+
+struct FastRecord<'a> {
+    from_me: bool,
+    msg_id: &'a str,
+    key_participant: Option<&'a str>,
+    web_msg_participant: Option<&'a str>,
+    timestamp: Option<u64>,
+    secret: &'a [u8],
+    is_poll_or_event: bool,
+    is_bot_invocation: bool,
+}
+
+/// Derive wire slots from the same schema carriers as the decoded helpers.
+/// Keep a match for tag dispatch and dense slots for the forwarded bitset.
+macro_rules! define_carrier_slots {
+    ($($field:ident => $tag:ident / $($module:ident)::+),+ $(,)?) => {
+        const N_CARRIERS: usize = [$(stringify!($field)),+].len();
+        const _: () = assert!(N_CARRIERS <= u64::BITS as usize);
+
+        fn carrier_slot(field: u32) -> Option<(usize, u32)> {
+            #[allow(non_camel_case_types)]
+            enum Carrier { $($field),+ }
+            Some(match field {
+                $(tags::message::$tag => (Carrier::$field as usize, tags::$($module)::+::CONTEXT_INFO),)+
+                _ => return None,
+            })
+        }
+    };
+}
+crate::proto_helpers::with_context_info_fields!(define_carrier_slots!());
+
+/// Wrapper slots for `base_message`, in the same priority order as
+/// `MessageInternalFields::base_message`.
+const N_WRAPPERS: usize = 6;
+
+/// Inner-message tag inside each wrapper, indexed by slot.
+#[rustfmt::skip]
+const WRAPPER_INNER_TAGS: [u32; N_WRAPPERS] = [
+    tags::message::device_sent_message::MESSAGE,
+    tags::message::future_proof_message::MESSAGE,
+    tags::message::future_proof_message::MESSAGE,
+    tags::message::future_proof_message::MESSAGE,
+    tags::message::future_proof_message::MESSAGE,
+    tags::message::future_proof_message::MESSAGE,
+];
+
+fn wrapper_slot(field: u32) -> Option<usize> {
+    Some(match field {
+        tags::message::DEVICE_SENT_MESSAGE => 0,
+        tags::message::EPHEMERAL_MESSAGE => 1,
+        tags::message::VIEW_ONCE_MESSAGE => 2,
+        tags::message::VIEW_ONCE_MESSAGE_V2 => 3,
+        tags::message::DOCUMENT_WITH_CAPTION_MESSAGE => 4,
+        tags::message::EDITED_MESSAGE => 5,
+        _ => return None,
+    })
+}
+
+enum WalkStop {
+    /// Wire bytes prost's decode would reject; maps to the no-record skip.
+    Malformed,
+    /// Wire shapes the single-pass walk does not reproduce (proto2 groups,
+    /// repeated message-typed fields, deep nesting); rerun prost.
+    Fallback,
+}
+
+/// Iterate one protobuf level, yielding a [`WireField`] per field. Yields one
+/// `Err` on malformed framing (or a group field, which only prost can skip),
+/// then stops.
+struct FieldIter<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> FieldIter<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+}
+
+/// One field of a protobuf level: number, wire type, the value slice for
+/// length-delimited fields, and the raw value for varint fields.
+struct WireField<'a> {
+    field: u32,
+    wt: u32,
+    value: Option<&'a [u8]>,
+    varint: u64,
+}
+
+impl<'a> Iterator for FieldIter<'a> {
+    type Item = Result<WireField<'a>, WalkStop>;
+
+    // inline(always): one call per protobuf field; outlined (as the thin-LTO
+    // bench build does by default) the WireField/Result plumbing goes through
+    // memory and this single function is ~30% of the history-sync profile.
+    #[inline(always)]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pos >= self.data.len() {
+            return None;
+        }
+        let Some((tag, br)) = read_varint(&self.data[self.pos..]) else {
+            self.pos = self.data.len();
+            return Some(Err(WalkStop::Malformed));
+        };
+        // prost decodes the key as u32 and requires field >= 1; mirror both
+        // so malformed keys fail like a failed decode instead of truncating
+        // into a (possibly mirrored) field number.
+        if tag > u64::from(u32::MAX) || (tag >> 3) == 0 {
+            self.pos = self.data.len();
+            return Some(Err(WalkStop::Malformed));
+        }
+        self.pos += br;
+        let field = (tag >> 3) as u32;
+        let wt = (tag & 0x7) as u32;
+        match wt {
+            wire_type::LENGTH_DELIMITED => {
+                let Some((len, vl)) = read_varint(&self.data[self.pos..]) else {
+                    self.pos = self.data.len();
+                    return Some(Err(WalkStop::Malformed));
+                };
+                self.pos += vl;
+                let Some(end) = checked_end(self.pos, len, self.data.len()) else {
+                    self.pos = self.data.len();
+                    return Some(Err(WalkStop::Malformed));
+                };
+                let value = &self.data[self.pos..end];
+                self.pos = end;
+                Some(Ok(WireField {
+                    field,
+                    wt,
+                    value: Some(value),
+                    varint: 0,
+                }))
+            }
+            wire_type::VARINT => {
+                let Some((v, vl)) = read_varint(&self.data[self.pos..]) else {
+                    self.pos = self.data.len();
+                    return Some(Err(WalkStop::Malformed));
+                };
+                self.pos += vl;
+                Some(Ok(WireField {
+                    field,
+                    wt,
+                    value: None,
+                    varint: v,
+                }))
+            }
+            // proto2 groups have no length prefix; only prost's recursive
+            // skipper can step over them.
+            wire_type::START_GROUP | wire_type::END_GROUP => {
+                self.pos = self.data.len();
+                Some(Err(WalkStop::Fallback))
+            }
+            _ => match skip_field(wt, self.data, self.pos) {
+                Ok(np) => {
+                    self.pos = np;
+                    Some(Ok(WireField {
+                        field,
+                        wt,
+                        value: None,
+                        varint: 0,
+                    }))
+                }
+                Err(_) => {
+                    self.pos = self.data.len();
+                    Some(Err(WalkStop::Malformed))
+                }
+            },
+        }
+    }
+}
+
+/// Single-pass borrowed extraction of one `HistorySyncMsg`, replacing the
+/// prost decode of the 30+-field mirror struct for well-formed messages.
+///
+/// Semantics contract (verified by the differential oracle tests): the outcome
+/// matches `HistorySyncMsgInternalFields::decode` + `push_secret_record`
+/// exactly. Key equivalences:
+/// - scalar fields repeated across (merged) occurrences: overwrite-when-present
+///   in document order == prost merge last-wins;
+/// - presence-only flags (poll/event/bot): OR across occurrences == merge,
+///   since a later occurrence can never unset presence;
+/// - wire bytes prost would reject (wrong wire type on a mirrored field,
+///   malformed framing, invalid UTF-8 in a mirrored string): `NoRecord`,
+///   matching the failed-decode skip;
+/// - shapes that need real recursive merging (a repeated message-typed field
+///   that the flag logic reads) return `Fallback` and rerun prost.
+fn fast_extract(history_msg: &[u8]) -> FastExtract<'_> {
+    let mut from_me = false;
+    let mut msg_id: Option<&str> = None;
+    let mut key_participant: Option<&str> = None;
+    // A normal WebMessageInfo contains one key. Keep that wire slice borrowed
+    // until a messageSecret is actually found, so the overwhelmingly common
+    // no-record path skips its nested walk and UTF-8 validation entirely.
+    // If malformed/merged wire data repeats the key, materialize both in order
+    // and continue merging subsequent occurrences exactly like prost.
+    let mut deferred_key: Option<&[u8]> = None;
+    let mut key_materialized = false;
+    let mut deferred_web_msg_participant: Option<&[u8]> = None;
+    let mut web_msg_participant: Option<&str> = None;
+    let mut web_msg_participant_materialized = false;
+    let mut timestamp: Option<u64> = None;
+    let mut top_secret: Option<&[u8]> = None;
+    let mut msg_slice: Option<&[u8]> = None;
+
+    for item in FieldIter::new(history_msg) {
+        let f = match item {
+            Ok(f) => f,
+            Err(stop) => return stop.into(),
+        };
+        if f.field == tags::history_sync_msg::MESSAGE {
+            // WebMessageInfo (message-typed: must be length-delimited).
+            let Some(web_msg) = f.value else {
+                return FastExtract::NoRecord;
+            };
+            for item in FieldIter::new(web_msg) {
+                let f = match item {
+                    Ok(f) => f,
+                    Err(stop) => return stop.into(),
+                };
+                match f.field {
+                    tags::web_message_info::KEY => {
+                        let Some(key) = f.value else {
+                            return FastExtract::NoRecord;
+                        };
+                        if let Some(first_key) = deferred_key.take() {
+                            for key in [first_key, key] {
+                                if let Err(stop) = merge_message_key_fields(
+                                    key,
+                                    &mut from_me,
+                                    &mut msg_id,
+                                    &mut key_participant,
+                                ) {
+                                    return stop.into();
+                                }
+                            }
+                            key_materialized = true;
+                        } else if key_materialized {
+                            if let Err(stop) = merge_message_key_fields(
+                                key,
+                                &mut from_me,
+                                &mut msg_id,
+                                &mut key_participant,
+                            ) {
+                                return stop.into();
+                            }
+                        } else {
+                            deferred_key = Some(key);
+                        }
+                    }
+                    tags::web_message_info::MESSAGE => {
+                        let Some(msg) = f.value else {
+                            return FastExtract::NoRecord;
+                        };
+                        if msg_slice.is_some() {
+                            // Two occurrences merge recursively in prost; the
+                            // flag logic then reads the merged struct.
+                            return FastExtract::Fallback;
+                        }
+                        msg_slice = Some(msg);
+                    }
+                    tags::web_message_info::MESSAGE_TIMESTAMP => {
+                        if f.wt != wire_type::VARINT {
+                            return FastExtract::NoRecord;
+                        }
+                        timestamp = Some(f.varint);
+                    }
+                    tags::web_message_info::PARTICIPANT => {
+                        let Some(participant) = f.value else {
+                            return FastExtract::NoRecord;
+                        };
+                        if let Some(first_participant) = deferred_web_msg_participant.take() {
+                            if smoothutf8::from_utf8(first_participant).is_none() {
+                                return FastExtract::NoRecord;
+                            }
+                            let Some(participant) = smoothutf8::from_utf8(participant) else {
+                                return FastExtract::NoRecord;
+                            };
+                            web_msg_participant = Some(participant);
+                            web_msg_participant_materialized = true;
+                        } else if web_msg_participant_materialized {
+                            let Some(participant) = smoothutf8::from_utf8(participant) else {
+                                return FastExtract::NoRecord;
+                            };
+                            web_msg_participant = Some(participant);
+                        } else {
+                            deferred_web_msg_participant = Some(participant);
+                        }
+                    }
+                    tags::web_message_info::MESSAGE_SECRET => {
+                        let Some(secret) = f.value else {
+                            return FastExtract::NoRecord;
+                        };
+                        top_secret = Some(secret);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // One pass over the outer message level: context secret, bot metadata,
+    // wrapper slices and this level's flag carriers, all collected together.
+    let outer = match msg_slice.map(scan_message_level) {
+        None => None,
+        Some(Ok(level)) => Some(level),
+        Some(Err(stop)) => return stop.into(),
+    };
+
+    let context_secret = outer.as_ref().and_then(|l| l.context_secret);
+    let Some(secret) = top_secret.or(context_secret) else {
+        return FastExtract::NoRecord;
+    };
+
+    if !key_materialized
+        && let Some(key) = deferred_key
+        && let Err(stop) =
+            merge_message_key_fields(key, &mut from_me, &mut msg_id, &mut key_participant)
+    {
+        return stop.into();
+    }
+    if !web_msg_participant_materialized && let Some(participant) = deferred_web_msg_participant {
+        let Some(participant) = smoothutf8::from_utf8(participant) else {
+            return FastExtract::NoRecord;
+        };
+        web_msg_participant = Some(participant);
+    }
+    let Some(msg_id) = msg_id else {
+        return FastExtract::NoRecord;
+    };
+
+    let mut is_poll_or_event = false;
+    let mut is_bot_invocation = outer.as_ref().is_some_and(|l| l.has_bot_metadata);
+    if let Some(outer_level) = outer {
+        // botMetadata counts on the outer message and on the unwrapped base
+        // (prost parity: `has(self) || has(base_message())`).
+        let base = match unwrap_to_base(outer_level) {
+            Ok(base) => base,
+            Err(stop) => return stop.into(),
+        };
+        if base.forwarded_carriers != 0 {
+            return FastExtract::NoRecord;
+        }
+        is_poll_or_event = base.is_poll_or_event;
+        is_bot_invocation |= base.has_bot_metadata;
+    }
+
+    FastExtract::Record(FastRecord {
+        from_me,
+        msg_id,
+        key_participant,
+        web_msg_participant,
+        timestamp,
+        secret,
+        is_poll_or_event,
+        is_bot_invocation,
+    })
+}
+
+/// Merge one MessageKey occurrence into the borrowed fast-path state. Kept
+/// separate so the outer scan can defer this nested work until a secret makes
+/// the record observable, while repeated keys retain protobuf merge order.
+fn merge_message_key_fields<'a>(
+    key: &'a [u8],
+    from_me: &mut bool,
+    msg_id: &mut Option<&'a str>,
+    participant: &mut Option<&'a str>,
+) -> Result<(), WalkStop> {
+    for item in FieldIter::new(key) {
+        let f = item?;
+        match f.field {
+            tags::message_key::FROM_ME => {
+                if f.wt != wire_type::VARINT {
+                    return Err(WalkStop::Malformed);
+                }
+                *from_me = f.varint != 0;
+            }
+            tags::message_key::ID => {
+                *msg_id = Some(
+                    f.value
+                        .and_then(smoothutf8::from_utf8)
+                        .ok_or(WalkStop::Malformed)?,
+                );
+            }
+            tags::message_key::PARTICIPANT => {
+                *participant = Some(
+                    f.value
+                        .and_then(smoothutf8::from_utf8)
+                        .ok_or(WalkStop::Malformed)?,
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+impl From<WalkStop> for FastExtract<'_> {
+    fn from(stop: WalkStop) -> Self {
+        match stop {
+            WalkStop::Malformed => FastExtract::NoRecord,
+            WalkStop::Fallback => FastExtract::Fallback,
+        }
+    }
+}
+
+/// Everything one pass over a `Message` level yields for the record logic.
+struct MsgLevel<'a> {
+    /// `message_context_info.message_secret`, last occurrence wins.
+    context_secret: Option<&'a [u8]>,
+    has_bot_metadata: bool,
+    is_poll_or_event: bool,
+    /// Carrier slots whose final merged `context_info.is_forwarded` is true.
+    forwarded_carriers: u64,
+    /// Wrapper payloads found at this level, by priority slot.
+    wrappers: [Option<&'a [u8]>; N_WRAPPERS],
+}
+
+/// Scan one `Message` level in a single pass, mirroring how prost would merge
+/// it: scalars overwrite-when-present in document order, presence flags OR.
+fn scan_message_level(msg: &[u8]) -> Result<MsgLevel<'_>, WalkStop> {
+    let mut level = MsgLevel {
+        context_secret: None,
+        has_bot_metadata: false,
+        is_poll_or_event: false,
+        forwarded_carriers: 0,
+        wrappers: [None; N_WRAPPERS],
+    };
+
+    for item in FieldIter::new(msg) {
+        let f = item?;
+        match f.field {
+            tags::message::MESSAGE_CONTEXT_INFO => {
+                let mci = f.value.ok_or(WalkStop::Malformed)?;
+                let (secret, bot) = scan_context_info(mci)?;
+                if let Some(s) = secret {
+                    level.context_secret = Some(s);
+                }
+                level.has_bot_metadata |= bot;
+            }
+            tags::message::POLL_CREATION_MESSAGE
+            | tags::message::POLL_CREATION_MESSAGE_V2
+            | tags::message::POLL_CREATION_MESSAGE_V3
+            | tags::message::EVENT_MESSAGE => {
+                // Message-typed in the mirror: a non-length-delimited
+                // occurrence fails prost's decode.
+                f.value.ok_or(WalkStop::Malformed)?;
+                level.is_poll_or_event = true;
+            }
+            _ => {}
+        }
+
+        if let Some(slot) = wrapper_slot(f.field) {
+            let value = f.value.ok_or(WalkStop::Malformed)?;
+            if level.wrappers[slot].is_some() {
+                // Two occurrences merge recursively in prost.
+                return Err(WalkStop::Fallback);
+            }
+            level.wrappers[slot] = Some(value);
+        } else if let Some((slot, ctx_tag)) = carrier_slot(f.field) {
+            let carrier = f.value.ok_or(WalkStop::Malformed)?;
+            for item in FieldIter::new(carrier) {
+                let f = item?;
+                if f.field == ctx_tag {
+                    let ctx = f.value.ok_or(WalkStop::Malformed)?;
+                    for item in FieldIter::new(ctx) {
+                        let f = item?;
+                        if f.field == tags::context_info::IS_FORWARDED {
+                            if f.wt != wire_type::VARINT {
+                                return Err(WalkStop::Malformed);
+                            }
+                            let carrier_bit = 1_u64 << slot;
+                            if f.varint != 0 {
+                                level.forwarded_carriers |= carrier_bit;
+                            } else {
+                                level.forwarded_carriers &= !carrier_bit;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(level)
+}
+
+/// Max wrapper layers to unwrap before treating a message as its own base.
+/// Shared by the fast lazy walk and the full-decode fallback so they classify
+/// (poll/forwarded/bot) the same base at every depth; prost had no cap but
+/// aborted decode near its recursion limit, and real messages nest few levels.
+const MAX_MESSAGE_WRAP_DEPTH: usize = 40;
+
+/// Follow the wrapper chain (device-sent/ephemeral/view-once/...) to the base
+/// message, mirroring `MessageInternalFields::base_message`: at each level the
+/// first wrapper in priority order that has an inner message wins.
+fn unwrap_to_base(mut level: MsgLevel<'_>) -> Result<MsgLevel<'_>, WalkStop> {
+    for _ in 0..MAX_MESSAGE_WRAP_DEPTH {
+        let mut next: Option<&[u8]> = None;
+        for (&inner_tag, wrapper) in WRAPPER_INNER_TAGS.iter().zip(level.wrappers) {
+            let Some(wrapper) = wrapper else {
+                continue;
+            };
+            let mut inner: Option<&[u8]> = None;
+            for item in FieldIter::new(wrapper) {
+                let f = item?;
+                if f.field == inner_tag {
+                    let value = f.value.ok_or(WalkStop::Malformed)?;
+                    if inner.is_some() {
+                        return Err(WalkStop::Fallback);
+                    }
+                    inner = Some(value);
+                }
+            }
+            if let Some(inner) = inner {
+                next = Some(inner);
+                break;
+            }
+        }
+
+        match next {
+            Some(inner) => level = scan_message_level(inner)?,
+            None => return Ok(level),
+        }
+    }
+    Err(WalkStop::Fallback)
+}
+
+/// Scan one `MessageContextInfo` occurrence: `(message_secret, bot present)`.
+fn scan_context_info(mci: &[u8]) -> Result<(Option<&[u8]>, bool), WalkStop> {
+    let mut secret: Option<&[u8]> = None;
+    let mut bot = false;
+    for item in FieldIter::new(mci) {
+        let f = item?;
+        match f.field {
+            tags::message_context_info::MESSAGE_SECRET => {
+                secret = Some(f.value.ok_or(WalkStop::Malformed)?);
+            }
+            tags::message_context_info::BOT_METADATA => {
+                f.value.ok_or(WalkStop::Malformed)?;
+                bot = true;
+            }
+            _ => {}
+        }
+    }
+    Ok((secret, bot))
+}
+
+/// Message-secret data extracted from a conversation during streaming.
+#[derive(Debug, PartialEq, Eq)]
+pub struct HistoryMsgSecretRecord {
+    /// Conversation JID. `Arc<str>` because every record of a conversation
+    /// shares the same id: one allocation per conversation, not per record.
+    pub chat_id: Arc<str>,
+    pub from_me: bool,
+    pub key_participant: Option<String>,
+    pub web_msg_participant: Option<String>,
+    /// Message id; inline for the typical 20-22 char WhatsApp id.
+    pub msg_id: CompactString,
+    /// Secret bytes; inline for the universal 32-byte size.
+    pub secret: SecretBytes,
+    /// Parent message event time (unix seconds), if present in the blob.
+    /// Used by the seed-time retention filter; `None` falls back to seed time.
+    pub timestamp: Option<u64>,
+    /// Whether the parent is a poll-creation or event message. These get the
+    /// longer poll/event retention horizon because their add-ons (poll votes,
+    /// PollAddOption, EventEdit) have no sender-side time window.
+    pub is_poll_or_event: bool,
+    /// Whether the parent invokes a bot (botMetadata present). Kept so the seed
+    /// classifies a group bot prompt as a bot context, matching live capture, so
+    /// `BotOnly` retains it and a later bot reply can decrypt.
+    pub is_bot_invocation: bool,
+}
+
+/// Borrowed message-secret candidate passed to
+/// [`process_history_sync_bytes_filtered`] before ownership is materialized.
+///
+/// All fields point into the current conversation buffer and are valid only
+/// for the duration of the predicate call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryMsgSecretRecordRef<'a> {
+    /// Zero-based top-level conversation index within this history-sync blob.
+    /// Consecutive candidates with the same index share `chat_id`, allowing
+    /// policy callbacks to cache per-conversation classification without
+    /// copying or hashing the borrowed JID.
+    pub conversation_index: usize,
+    pub chat_id: &'a str,
+    pub from_me: bool,
+    pub key_participant: Option<&'a str>,
+    pub web_msg_participant: Option<&'a str>,
+    pub msg_id: &'a str,
+    pub secret: &'a [u8],
+    pub timestamp: Option<u64>,
+    pub is_poll_or_event: bool,
+    pub is_bot_invocation: bool,
+}
+
+/// Consumer for borrowed history-sync message-secret candidates.
+///
+/// [`visit`](Self::visit) returns how many consumer-side records were retained
+/// from a candidate. Consumers that also report their retained item size can
+/// receive a one-shot, density-based [`reserve`](Self::reserve) hint. The hint
+/// uses the same bounded estimator as the built-in owned-record path, avoiding
+/// both a full pre-count pass and a separate sizing heuristic in each caller.
+pub trait HistoryMsgSecretRecordVisitor {
+    /// Visit one borrowed candidate and return the number of retained output
+    /// items it produced.
+    fn visit(&mut self, record: HistoryMsgSecretRecordRef<'_>) -> usize;
+
+    /// Reserve room for `additional` retained output items.
+    fn reserve(&mut self, _additional: usize) {}
+
+    /// Size of one retained output item. Returning `None` disables reserve
+    /// hints while preserving record visitation.
+    fn retained_item_size(&self) -> Option<std::num::NonZeroUsize> {
+        None
+    }
+}
+
+struct VisitOnly<F>(F);
+
+impl<F> HistoryMsgSecretRecordVisitor for VisitOnly<F>
+where
+    F: for<'a> FnMut(HistoryMsgSecretRecordRef<'a>),
+{
+    fn visit(&mut self, record: HistoryMsgSecretRecordRef<'_>) -> usize {
+        self.0(record);
+        0
+    }
+}
+
+impl HistoryMsgSecretRecordRef<'_> {
+    fn into_owned(self, chat_id_shared: &mut Option<Arc<str>>) -> HistoryMsgSecretRecord {
+        HistoryMsgSecretRecord {
+            chat_id: chat_id_shared
+                .get_or_insert_with(|| Arc::from(self.chat_id))
+                .clone(),
+            from_me: self.from_me,
+            key_participant: self.key_participant.map(str::to_owned),
+            web_msg_participant: self.web_msg_participant.map(str::to_owned),
+            msg_id: CompactString::new(self.msg_id),
+            secret: SecretBytes::from(self.secret),
+            timestamp: self.timestamp,
+            is_poll_or_event: self.is_poll_or_event,
+            is_bot_invocation: self.is_bot_invocation,
+        }
+    }
+}
+
+/// Partial reader for one conversation: walks its protobuf fields directly
+/// (id, messages[], tctoken trio) and decodes each `HistorySyncMsg` ONE AT A
+/// TIME, extracting its secret record and dropping it immediately. This avoids
+/// materializing the whole `Vec<HistorySyncMsg>` just to scan it — only one
+/// message is decoded at a time.
+///
+/// Best-effort, mirroring the pre-buffa per-message decode: a single malformed
+/// message is skipped without discarding the rest of the conversation OR its
+/// tctoken. Decoding the whole conversation as one view (all-or-nothing) would
+/// drop every record + the tctoken on any single bad message, and would also
+/// materialize the entire conversation tree at once.
+fn extract_conversation_fields<S>(
+    data: &[u8],
+    conversation_index: usize,
+    records: &mut Vec<HistoryMsgSecretRecord>,
+    record_sink: &mut S,
+    lid_mappings: &mut Vec<HistoryLidMapping>,
+) -> Option<TcTokenCandidate>
+where
+    S: HistoryMsgSecretRecordSink,
+{
+    let mut pos = 0;
+    // Conversation.id precedes messages/tctoken in tag order, so it is
+    // captured before any message is processed.
+    let mut chat_id: &str = "";
+    // Shared id handed to every record of this conversation; built on first
+    // use and invalidated if a (malformed) blob re-orders the id after data.
+    let mut chat_id_shared: Option<Arc<str>> = None;
+    let mut tc_token: &[u8] = &[];
+    let mut tc_token_timestamp: Option<u64> = None;
+    let mut tc_token_sender_timestamp: Option<u64> = None;
+    let mut pn_jid: Option<&str> = None;
+    let mut lid_jid: Option<&str> = None;
+
+    while pos < data.len() {
+        let Some((tag, br)) = read_varint(&data[pos..]) else {
+            break;
+        };
+        pos += br;
+        let field = (tag >> 3) as u32;
+        let wt = (tag & 0x7) as u32;
+        match (field, wt) {
+            (tags::conversation::ID, wire_type::LENGTH_DELIMITED) => {
+                let Some((len, vl)) = read_varint(&data[pos..]) else {
+                    break;
+                };
+                pos += vl;
+                let Some(end) = checked_end(pos, len, data.len()) else {
+                    break;
+                };
+                let Some(id) = smoothutf8::from_utf8(&data[pos..end]) else {
+                    // A real conversation id is a JID (always UTF-8). If it
+                    // isn't, the conversation is malformed; skip it rather than
+                    // pushing its secrets under an empty chat id. The id
+                    // precedes messages in tag order, so nothing has been
+                    // extracted from it yet.
+                    return None;
+                };
+                chat_id = id;
+                chat_id_shared = None;
+                pos = end;
+            }
+            (tags::conversation::MESSAGES, wire_type::LENGTH_DELIMITED) => {
+                let Some((len, vl)) = read_varint(&data[pos..]) else {
+                    break;
+                };
+                pos += vl;
+                let Some(end) = checked_end(pos, len, data.len()) else {
+                    break;
+                };
+                // The id guard keeps records from a (malformed) blob that
+                // re-orders messages before the conversation id from landing
+                // under an empty chat id.
+                if !chat_id.is_empty() {
+                    match fast_extract(&data[pos..end]) {
+                        FastExtract::NoRecord => {}
+                        FastExtract::Record(r) => {
+                            push_filtered_secret_record(
+                                HistoryMsgSecretRecordRef {
+                                    conversation_index,
+                                    chat_id,
+                                    from_me: r.from_me,
+                                    key_participant: r.key_participant,
+                                    web_msg_participant: r.web_msg_participant,
+                                    msg_id: r.msg_id,
+                                    secret: r.secret,
+                                    timestamp: r.timestamp,
+                                    is_poll_or_event: r.is_poll_or_event,
+                                    is_bot_invocation: r.is_bot_invocation,
+                                },
+                                &mut chat_id_shared,
+                                records,
+                                record_sink,
+                            );
+                        }
+                        // Rare wire shapes (repeated message-typed fields,
+                        // pathological nesting): fall back to full decode.
+                        FastExtract::Fallback => {
+                            if let Ok(msg) =
+                                waproto::codec::history_sync_msg_decode(&data[pos..end])
+                            {
+                                push_secret_record(
+                                    chat_id,
+                                    conversation_index,
+                                    &mut chat_id_shared,
+                                    msg,
+                                    records,
+                                    record_sink,
+                                );
+                            }
+                        }
+                    }
+                }
+                pos = end;
+            }
+            (tags::conversation::TC_TOKEN, wire_type::LENGTH_DELIMITED) => {
+                let Some((len, vl)) = read_varint(&data[pos..]) else {
+                    break;
+                };
+                pos += vl;
+                let Some(end) = checked_end(pos, len, data.len()) else {
+                    break;
+                };
+                tc_token = &data[pos..end];
+                pos = end;
+            }
+            (tags::conversation::TC_TOKEN_TIMESTAMP, wire_type::VARINT) => {
+                let Some((v, vl)) = read_varint(&data[pos..]) else {
+                    break;
+                };
+                tc_token_timestamp = Some(v);
+                pos += vl;
+            }
+            (tags::conversation::TC_TOKEN_SENDER_TIMESTAMP, wire_type::VARINT) => {
+                let Some((v, vl)) = read_varint(&data[pos..]) else {
+                    break;
+                };
+                tc_token_sender_timestamp = Some(v);
+                pos += vl;
+            }
+            (tags::conversation::PN_JID, wire_type::LENGTH_DELIMITED) => {
+                match read_optional_str_field(data, &mut pos) {
+                    OptionalStr::Value(value) => pn_jid = Some(value),
+                    OptionalStr::Unusable => {}
+                    OptionalStr::Malformed => break,
+                }
+            }
+            (tags::conversation::LID_JID, wire_type::LENGTH_DELIMITED) => {
+                match read_optional_str_field(data, &mut pos) {
+                    OptionalStr::Value(value) => lid_jid = Some(value),
+                    OptionalStr::Unusable => {}
+                    OptionalStr::Malformed => break,
+                }
+            }
+            _ => match skip_field(wt, data, pos) {
+                Ok(np) => pos = np,
+                Err(_) => break,
+            },
+        }
+    }
+
+    // A conversation addressed in one namespace supplies that half itself, so a
+    // row carrying only the opposite field still yields a complete pair. Family
+    // predicates so hosted accounts (`@hosted`, `@hosted.lid`) are recognized
+    // as the PN and LID namespaces they are.
+    //
+    // `parse_jid_ref` rather than `parse::<Jid>()`: only the resolved server is
+    // read here (and, below, to reject the chat kinds that never carry a
+    // tctoken), so building an owned `Jid` per conversation buys nothing. The
+    // shapes the borrowed parser declines — no `@`, an empty user, a server
+    // outside the known set — are exactly the ones that lose here anyway: the
+    // first two have an empty `user_base()` and the third is not in any family,
+    // and `history_lid_mapping` still validates both halves in full before a
+    // pair is emitted.
+    let chat_jid = wacore_binary::jid::parse_jid_ref(chat_id);
+    let pn_jid = pn_jid.or_else(|| {
+        chat_jid
+            .as_ref()
+            .filter(|jid| jid.server.is_pn_family())
+            .map(|_| chat_id)
+    });
+    let lid_jid = lid_jid.or_else(|| {
+        chat_jid
+            .as_ref()
+            .filter(|jid| jid.server.is_lid_family())
+            .map(|_| chat_id)
+    });
+    if let (Some(pn_jid), Some(lid_jid)) = (pn_jid, lid_jid)
+        && let Some(mapping) =
+            history_lid_mapping(pn_jid, lid_jid, HistoryLidMappingSource::Conversation)
+    {
+        lid_mappings.push(mapping);
+    }
+
+    // tc-token candidate: only for 1:1 chats that actually carry a token. A
+    // malformed conversation without an id must not emit a candidate either
+    // (same guard the message-secret extraction applies).
+    if chat_id.is_empty() || tc_token.is_empty() {
+        return None;
+    }
+    // Reuses the scan above rather than re-parsing: an unresolved server is not
+    // one of these three either way, so the outcome is the same as the string
+    // comparison this replaced.
+    if let Some(jid) = chat_jid.as_ref()
+        && matches!(
+            jid.server,
+            wacore_binary::jid::Server::Group
+                | wacore_binary::jid::Server::Newsletter
+                | wacore_binary::jid::Server::Bot
+        )
+    {
+        return None;
+    }
+    Some(TcTokenCandidate {
+        id: CompactString::from(chat_id),
+        tc_token: SmallVec::from_slice(tc_token),
+        tc_token_timestamp: tc_token_timestamp?,
+        tc_token_sender_timestamp,
+    })
+}
+
+/// Extract a single message's secret record (if any) into `out`.
+/// `chat_id_shared` memoizes the conversation id `Arc` so it is allocated only
+/// when the first record is actually pushed.
+fn push_secret_record<S>(
+    chat_id: &str,
+    conversation_index: usize,
+    chat_id_shared: &mut Option<Arc<str>>,
+    history_msg: wa::HistorySyncMsg,
+    out: &mut Vec<HistoryMsgSecretRecord>,
+    record_sink: &mut S,
+) where
+    S: HistoryMsgSecretRecordSink,
+{
+    let Some(web_msg) = history_msg.message.as_option() else {
+        return;
+    };
+    let Some(key) = web_msg.key.as_option() else {
+        return;
+    };
+    let Some(msg_id) = key.id.as_deref() else {
+        return;
+    };
+    if web_msg
+        .message
+        .as_option()
+        .is_some_and(message_is_forwarded)
+    {
+        return;
+    }
+    let Some(secret) = web_msg.message_secret.as_deref().or_else(|| {
+        web_msg
+            .message
+            .as_option()
+            .and_then(extract_message_context_secret)
+    }) else {
+        return;
+    };
+
+    let inner = web_msg.message.as_option();
+    let is_poll_or_event = inner.is_some_and(message_is_poll_or_event);
+    let is_bot_invocation = inner.is_some_and(message_invokes_bot);
+
+    push_filtered_secret_record(
+        HistoryMsgSecretRecordRef {
+            conversation_index,
+            chat_id,
+            from_me: key.from_me.unwrap_or(false),
+            key_participant: key.participant.as_deref(),
+            web_msg_participant: web_msg.participant.as_deref(),
+            msg_id,
+            secret,
+            timestamp: web_msg.message_timestamp,
+            is_poll_or_event,
+            is_bot_invocation,
+        },
+        chat_id_shared,
+        out,
+        record_sink,
+    );
+}
+
+#[inline]
+fn push_filtered_secret_record<S>(
+    candidate: HistoryMsgSecretRecordRef<'_>,
+    chat_id_shared: &mut Option<Arc<str>>,
+    out: &mut Vec<HistoryMsgSecretRecord>,
+    record_sink: &mut S,
+) where
+    S: HistoryMsgSecretRecordSink,
+{
+    if record_sink.retain(candidate) {
+        out.push(candidate.into_owned(chat_id_shared));
+    }
+}
+
+fn base_message_view(message: &wa::Message) -> &wa::Message {
+    let mut current = message;
+    let mut depth = 0usize;
+    while depth < MAX_MESSAGE_WRAP_DEPTH {
+        match first_wrapped_message(current) {
+            Some(inner) => {
+                current = inner;
+                depth += 1;
+            }
+            None => break,
+        }
+    }
+    current
+}
+
+/// Whether the (unwrapped) message is a poll-creation or event message. These
+/// carry the longer poll/event retention horizon.
+fn message_is_poll_or_event(message: &wa::Message) -> bool {
+    let base = base_message_view(message);
+    base.poll_creation_message.as_option().is_some()
+        || base.poll_creation_message_v2.as_option().is_some()
+        || base.poll_creation_message_v3.as_option().is_some()
+        || base.event_message.as_option().is_some()
+}
+
+/// Whether the message invokes a bot, detected via `botMetadata` presence.
+/// botMetadata sits on the top-level `MessageContextInfo` even when wrapped,
+/// so check both the outer message and the unwrapped base.
+fn message_invokes_bot(message: &wa::Message) -> bool {
+    let has = |m: &wa::Message| {
+        m.message_context_info
+            .as_option()
+            .is_some_and(|c| c.bot_metadata.as_option().is_some())
+    };
+    has(message) || has(base_message_view(message))
+}
+
+fn extract_message_context_secret(message: &wa::Message) -> Option<&[u8]> {
+    message
+        .message_context_info
+        .as_option()?
+        .message_secret
+        .as_deref()
+}
+
+fn message_is_forwarded(message: &wa::Message) -> bool {
+    message_is_forwarded_at_depth(message, 0)
+}
+
+fn message_is_forwarded_at_depth(message: &wa::Message, depth: usize) -> bool {
+    if depth >= MAX_MESSAGE_WRAP_DEPTH {
+        return false;
+    }
+
+    if let Some(inner) = first_wrapped_message(message) {
+        return message_is_forwarded_at_depth(inner, depth + 1);
+    }
+
+    message_context_is_forwarded(message)
+}
+
+fn first_wrapped_message(message: &wa::Message) -> Option<&wa::Message> {
+    if let Some(wrapper) = message.device_sent_message.as_option()
+        && let Some(inner) = wrapper.message.as_option()
+    {
+        return Some(inner);
+    }
+
+    macro_rules! future_proof_inner {
+        ($($field:ident),* $(,)?) => {
+            $(
+                if let Some(wrapper) = message.$field.as_option()
+                    && let Some(inner) = wrapper.message.as_option()
+                {
+                    return Some(inner);
+                }
+            )*
+        };
+    }
+
+    future_proof_inner!(
+        ephemeral_message,
+        view_once_message,
+        view_once_message_v2,
+        document_with_caption_message,
+        edited_message,
+    );
+
+    None
+}
+
+fn message_context_is_forwarded(message: &wa::Message) -> bool {
+    macro_rules! has_forwarded_context {
+        ($($field:ident => $tag:ident / $($module:ident)::+),+ $(,)?) => {
+            $(
+                if message.$field.as_option()
+                    .and_then(|m| m.context_info.as_option())
+                    .is_some_and(context_info_is_forwarded)
+                {
+                    return true;
+                }
+            )*
+        };
+    }
+
+    // History rejects secrets if *any* carrier is forwarded. The public
+    // context getter chooses the first present context, so it cannot replace
+    // this predicate on messages containing multiple bodies.
+    crate::proto_helpers::with_context_info_fields!(has_forwarded_context!());
+
+    false
+}
+
+fn context_info_is_forwarded(context: &wa::ContextInfo) -> bool {
+    context.is_forwarded == Some(true)
+}
+
+/// Tctoken data extracted from a conversation during streaming.
+///
+/// Both payloads stay off the heap for the shapes the wire actually carries: a
+/// 1:1 chat id is a JID short enough to sit inline in a [`CompactString`], and
+/// a tctoken is a short opaque blob (well under the 32-byte inline capacity).
+/// A bootstrap emits one candidate per 1:1 conversation that carries a token,
+/// so that is two heap allocations per chat avoided.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TcTokenCandidate {
+    pub id: CompactString,
+    pub tc_token: SmallVec<[u8; TC_TOKEN_INLINE]>,
+    pub tc_token_timestamp: u64,
+    pub tc_token_sender_timestamp: Option<u64>,
+}
+
+/// Inline capacity for [`TcTokenCandidate::tc_token`]. Live captures put the
+/// token at 16-24 bytes; 32 keeps headroom without growing the candidate past
+/// what the id beside it already costs.
+pub const TC_TOKEN_INLINE: usize = 32;
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+mod tests {
+    use super::*;
+    use buffa::Message;
+    use flate2::Compression;
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+    use waproto::whatsapp as wa;
+
+    /// Encode a HistorySync proto and zlib-compress it.
+    fn encode_and_compress(hs: &wa::HistorySync) -> Vec<u8> {
+        let proto_bytes = waproto::codec::history_sync_to_vec(hs);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&proto_bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn call_records_are_harvested_in_wire_order_without_losing_other_fields() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.call_log_records = vec![
+                {
+                    let mut proto = wa::CallLogRecord::default();
+                    proto.call_id = Some("placed".into());
+                    proto.start_time = Some(1_700_000_000);
+                    proto
+                },
+                wa::CallLogRecord::default(),
+                {
+                    let mut proto = wa::CallLogRecord::default();
+                    proto.call_id = Some("received".into());
+                    proto
+                },
+            ];
+            proto.nct_salt = Some(vec![42; 32]);
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "15550000002@s.whatsapp.net".into();
+                proto
+            }];
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("15550000001@s.whatsapp.net".into());
+                proto.pushname = Some("Synthetic".into());
+                proto
+            }];
+            proto
+        };
+        let result =
+            process_history_sync(encode_and_compress(&hs), Some("15550000001"), true).unwrap();
+        assert_eq!(result.call_log_records, hs.call_log_records);
+        assert_eq!(result.nct_salt, hs.nct_salt);
+        assert_eq!(result.own_pushname.as_deref(), Some("Synthetic"));
+        assert_eq!(result.conversations_processed, 1);
+        let blob = result.compressed_bytes.unwrap();
+        let mut stream = HistorySyncStream::new(&blob, MAX_DECOMPRESSED);
+        assert!(stream.next_conversation().unwrap().is_some());
+        assert!(stream.next_conversation().unwrap().is_none());
+        assert_eq!(
+            stream.remainder().unwrap().call_log_records,
+            hs.call_log_records
+        );
+    }
+
+    fn compress_call_wire(raw: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(raw).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn call_record_count_budget_preserves_raw_and_other_harvest() {
+        for count in [MAX_CALL_RECORDS, MAX_CALL_RECORDS + 1] {
+            let hs = {
+                let mut proto = wa::HistorySync::default();
+                proto.call_log_records = vec![wa::CallLogRecord::default(); count];
+                proto.nct_salt = Some(vec![42; 32]);
+                proto.conversations = vec![{
+                    let mut proto = wa::Conversation::default();
+                    proto.id = "15550000002@s.whatsapp.net".into();
+                    proto
+                }];
+                proto
+            };
+            let result = process_history_sync(encode_and_compress(&hs), None, true).unwrap();
+            assert_eq!(
+                result.call_log_records.len(),
+                if count == MAX_CALL_RECORDS { count } else { 0 }
+            );
+            assert_eq!(result.nct_salt, hs.nct_salt);
+            assert_eq!(result.conversations_processed, 1);
+            let blob = result.compressed_bytes.unwrap();
+            let mut stream = HistorySyncStream::new(&blob, MAX_DECOMPRESSED);
+            assert!(stream.next_conversation().unwrap().is_some());
+            assert!(stream.next_conversation().unwrap().is_none());
+            assert_eq!(stream.remainder().unwrap().call_log_records.len(), count);
+        }
+    }
+
+    #[test]
+    fn call_record_wire_byte_budget_is_cumulative_and_checked_before_decode() {
+        let sized_record = |bytes: usize| {
+            // field11 tag + three-byte string length; no production payload.
+            let record = {
+                let mut proto = wa::CallLogRecord::default();
+                proto.call_id = Some("x".repeat(bytes - 4));
+                proto
+            };
+            assert_eq!(record.encode_to_vec().len(), bytes);
+            record
+        };
+        for (records, expected) in [
+            (vec![sized_record(MAX_CALL_RECORD_BYTES)], 1),
+            (vec![sized_record(MAX_CALL_RECORD_BYTES + 1)], 0),
+            (vec![sized_record(MAX_CALL_RECORD_BYTES / 2); 2], 2),
+            (
+                vec![
+                    sized_record(MAX_CALL_RECORD_BYTES / 2),
+                    sized_record(MAX_CALL_RECORD_BYTES / 2 + 1),
+                ],
+                0,
+            ),
+        ] {
+            let hs = {
+                let mut proto = wa::HistorySync::default();
+                proto.call_log_records = records;
+                proto.nct_salt = Some(vec![42]);
+                proto
+            };
+            let result = process_history_sync(encode_and_compress(&hs), None, true).unwrap();
+            assert_eq!(result.call_log_records.len(), expected);
+            assert_eq!(result.nct_salt, Some(vec![42]));
+            let blob = result.compressed_bytes.unwrap();
+            let mut stream = HistorySyncStream::new(&blob, MAX_DECOMPRESSED);
+            assert!(stream.next_conversation().unwrap().is_none());
+            assert_eq!(
+                stream.remainder().unwrap().call_log_records,
+                hs.call_log_records
+            );
+        }
+        // The over-budget entry is deliberately malformed: checking AFTER
+        // decode would skip it but incorrectly retain the earlier typed prefix.
+        let mut raw = vec![0x6a, 0];
+        raw.push(0x6a);
+        let size = MAX_CALL_RECORD_BYTES + 1;
+        let mut n = size;
+        while n >= 128 {
+            raw.push((n as u8 & 0x7f) | 0x80);
+            n >>= 7;
+        }
+        raw.push(n as u8);
+        raw.resize(raw.len() + size, 0xff);
+        raw.extend_from_slice(&[0x9a, 1, 1, 42]);
+        let result = process_history_sync(compress_call_wire(&raw), None, true).unwrap();
+        assert!(result.call_log_records.is_empty());
+        assert_eq!(result.nct_salt, Some(vec![42]));
+        assert!(result.compressed_bytes.is_some());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "subprocess isolation is unsupported under Miri")]
+    fn call_harvest_diagnostic_is_single_and_redacted() {
+        // log::set_logger is irreversible. Run the capture in a fresh process
+        // with exactly this test, leaving the parent's logger/level untouched.
+        if std::env::var_os("WACORE_DIAGNOSTIC_TEST_CHILD").is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "history_sync::tests::call_harvest_diagnostic_is_single_and_redacted",
+                ])
+                .env("WACORE_DIAGNOSTIC_TEST_CHILD", "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "child diagnostic test failed: {output:?}"
+            );
+            return;
+        }
+        struct Capture(std::sync::Mutex<Vec<String>>);
+        impl log::Log for Capture {
+            fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+                metadata.level() == log::Level::Warn
+            }
+            fn log(&self, record: &log::Record<'_>) {
+                if std::thread::current().name()
+                    == Some("history_sync::tests::call_harvest_diagnostic_is_single_and_redacted")
+                    && self.enabled(record.metadata())
+                {
+                    self.0.lock().unwrap().push(record.args().to_string());
+                }
+            }
+            fn flush(&self) {}
+        }
+        static CAPTURE: Capture = Capture(std::sync::Mutex::new(Vec::new()));
+        log::set_logger(&CAPTURE).unwrap();
+        log::set_max_level(log::LevelFilter::Warn);
+        let mut raw = [0x6a, 3, 0x62, 2, b'x'].repeat(MAX_CALL_RECORDS + 1);
+        raw.extend_from_slice(&[0x9a, 1, 1, 42]);
+        let result = process_history_sync(compress_call_wire(&raw), None, true).unwrap();
+        assert!(result.call_log_records.is_empty());
+        assert_eq!(result.nct_salt, Some(vec![42]));
+        let messages = CAPTURE.0.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0],
+            "History-sync call harvest: malformed=1024, typed_calls_suppressed=true"
+        );
+    }
+
+    #[test]
+    fn malformed_call_entry_does_not_drop_later_records_or_salt() {
+        // Field13 is framed, but its embedded string is truncated. Followed
+        // by an empty (valid, optional-fields-only) record and NCT salt.
+        let raw = [0x6a, 3, 0x62, 2, b'x', 0x6a, 0, 0x9a, 1, 1, 42];
+        let result = process_history_sync(compress_call_wire(&raw), None, false).unwrap();
+        assert_eq!(result.call_log_records, vec![wa::CallLogRecord::default()]);
+        assert_eq!(result.nct_salt, Some(vec![42]));
+        assert!(result.compressed_bytes.is_none());
+        // A known field with an unrelated wire type is safely skipped.
+        let result =
+            process_history_sync(compress_call_wire(&[0x68, 1, 0x6a, 0]), None, false).unwrap();
+        assert_eq!(result.call_log_records.len(), 1);
+    }
+
+    #[test]
+    fn truncated_call_framing_and_zlib_are_fatal_without_partial_result() {
+        for raw in [&[0x6a, 0, 0x6a, 4, 0x62][..], &[0x6a, 0x80][..]] {
+            assert!(process_history_sync(compress_call_wire(raw), None, false).is_err());
+        }
+        let mut compressed = compress_call_wire(&[0x6a, 0]);
+        compressed.truncate(compressed.len() - 1);
+        assert!(process_history_sync(compressed, None, false).is_err());
+        let result = process_history_sync(compress_call_wire(&[]), None, false).unwrap();
+        assert!(result.call_log_records.is_empty());
+    }
+
+    /// `phoneNumberToLidMappings` (field 15) is the bulk PN-LID identity seed;
+    /// valid pairs (including legacy `@c.us` phones and device-suffixed users)
+    /// are extracted, wrong namespaces and incomplete entries are skipped
+    /// without aborting the sync.
+    #[test]
+    fn test_lid_mappings_extracted_and_invalid_skipped() {
+        let mapping = |pn: &str, lid: &str| {
+            let mut proto = wa::PhoneNumberToLIDMapping::default();
+            proto.pn_jid = Some(pn.to_string());
+            proto.lid_jid = Some(lid.to_string());
+            proto
+        };
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.phone_number_to_lid_mappings = vec![
+                mapping("5511777776666@s.whatsapp.net", "111222333444555@lid"),
+                // Legacy PN namespace, still a phone.
+                mapping("15550001111@c.us", "222333444555666@lid"),
+                // Device suffix reduces to the bare user.
+                mapping("5511222223333:2@s.whatsapp.net", "333444555666777@lid"),
+                // Wrong namespaces: skipped.
+                mapping("999888777666555@lid", "111222333444555@lid"),
+                mapping(
+                    "5511777776666@s.whatsapp.net",
+                    "5511777776666@s.whatsapp.net",
+                ),
+                // Incomplete: skipped.
+                {
+                    let mut proto = wa::PhoneNumberToLIDMapping::default();
+                    proto.pn_jid = Some("5511000000000@s.whatsapp.net".to_string());
+                    proto.lid_jid = None;
+                    proto
+                },
+            ];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![
+                HistoryLidMapping {
+                    phone_number: "5511777776666".into(),
+                    lid: "111222333444555".into(),
+                    source: HistoryLidMappingSource::Bulk,
+                },
+                HistoryLidMapping {
+                    phone_number: "15550001111".into(),
+                    lid: "222333444555666".into(),
+                    source: HistoryLidMappingSource::Bulk,
+                },
+                HistoryLidMapping {
+                    phone_number: "5511222223333".into(),
+                    lid: "333444555666777".into(),
+                    source: HistoryLidMappingSource::Bulk,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn test_lid_mappings_extracted_from_conversations() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![
+                {
+                    let mut proto = wa::Conversation::default();
+                    proto.id = "111222333444555@lid".into();
+                    proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                    proto
+                },
+                {
+                    let mut proto = wa::Conversation::default();
+                    proto.id = "12025550144@s.whatsapp.net".into();
+                    proto.lid_jid = Some("222333444555666@lid".to_string());
+                    proto
+                },
+            ];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![
+                HistoryLidMapping {
+                    phone_number: "12025550143".into(),
+                    lid: "111222333444555".into(),
+                    source: HistoryLidMappingSource::Conversation,
+                },
+                HistoryLidMapping {
+                    phone_number: "12025550144".into(),
+                    lid: "222333444555666".into(),
+                    source: HistoryLidMappingSource::Conversation,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_optional_mapping_does_not_drop_tc_token() {
+        let chat = "12025550143@s.whatsapp.net";
+        let tc_token = vec![0xAB; 16];
+        let mut conv = Vec::new();
+        emit_len_field(&mut conv, tags::conversation::ID, chat.as_bytes());
+        emit_len_field(&mut conv, tags::conversation::TC_TOKEN, &tc_token);
+        emit_varint(
+            &mut conv,
+            ((tags::conversation::TC_TOKEN_TIMESTAMP << 3) | wire_type::VARINT) as u64,
+        );
+        emit_varint(&mut conv, 1_700_000_000);
+        emit_len_field(&mut conv, tags::conversation::PN_JID, &[0xFF, 0xFE]);
+
+        let mut raw = Vec::new();
+        emit_len_field(&mut raw, tags::history_sync::CONVERSATIONS, &conv);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert!(result.lid_mappings.is_empty());
+        assert_eq!(result.tc_token_candidates.len(), 1);
+        assert_eq!(
+            result.tc_token_candidates[0].tc_token.as_slice(),
+            tc_token.as_slice()
+        );
+    }
+
+    /// The reviewer's case for the tolerant reader: unlike
+    /// `malformed_optional_mapping_does_not_drop_tc_token`, the bad field comes
+    /// FIRST, so aborting the walk on it would cost the tctoken behind it.
+    #[test]
+    fn malformed_optional_mapping_before_tc_token_does_not_drop_it() {
+        let chat = "12025550143@s.whatsapp.net";
+        let tc_token = vec![0xAB; 16];
+        let mut conv = Vec::new();
+        emit_len_field(&mut conv, tags::conversation::ID, chat.as_bytes());
+        // Well-framed, but not UTF-8.
+        emit_len_field(&mut conv, tags::conversation::PN_JID, &[0xFF, 0xFE]);
+        emit_len_field(&mut conv, tags::conversation::TC_TOKEN, &tc_token);
+        emit_varint(
+            &mut conv,
+            ((tags::conversation::TC_TOKEN_TIMESTAMP << 3) | wire_type::VARINT) as u64,
+        );
+        emit_varint(&mut conv, 1_700_000_000);
+
+        let mut raw = Vec::new();
+        emit_len_field(&mut raw, tags::history_sync::CONVERSATIONS, &conv);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert!(result.lid_mappings.is_empty(), "unusable pair discarded");
+        assert_eq!(
+            result.tc_token_candidates.len(),
+            1,
+            "the field after the bad one must still be read"
+        );
+        assert_eq!(
+            result.tc_token_candidates[0].tc_token.as_slice(),
+            tc_token.as_slice()
+        );
+        assert_eq!(
+            result.tc_token_candidates[0].tc_token_timestamp,
+            1_700_000_000
+        );
+    }
+
+    /// Hosted accounts live in `@hosted` / `@hosted.lid`, which the rest of the
+    /// mapping code already treats as the PN and LID families.
+    #[test]
+    fn hosted_conversations_yield_mappings() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "111222333444555@hosted.lid".into();
+                proto.pn_jid = Some("12025550143@hosted".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![HistoryLidMapping {
+                phone_number: "12025550143".into(),
+                lid: "111222333444555".into(),
+                source: HistoryLidMappingSource::Conversation,
+            }]
+        );
+    }
+
+    /// The bulk block is the server's explicit identity table, so it decides a
+    /// LID whose two sources disagree — whichever order the wire put them in.
+    #[test]
+    fn bulk_mappings_outrank_conversation_mappings_for_the_same_lid() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "111222333444555@lid".into();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto
+            }];
+            proto.phone_number_to_lid_mappings = vec![{
+                let mut proto = wa::PhoneNumberToLIDMapping::default();
+                proto.pn_jid = Some("12025550199@s.whatsapp.net".to_string());
+                proto.lid_jid = Some("111222333444555@lid".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![HistoryLidMapping {
+                phone_number: "12025550199".into(),
+                lid: "111222333444555".into(),
+                source: HistoryLidMappingSource::Bulk,
+            }],
+            "one pair per LID, and the bulk block wins the conflict"
+        );
+    }
+
+    /// Agreement between the two sources must not produce two pairs.
+    #[test]
+    fn agreeing_sources_collapse_to_one_mapping() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "111222333444555@lid".into();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto
+            }];
+            proto.phone_number_to_lid_mappings = vec![{
+                let mut proto = wa::PhoneNumberToLIDMapping::default();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto.lid_jid = Some("111222333444555@lid".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(result.lid_mappings.len(), 1);
+        assert_eq!(result.lid_mappings[0].phone_number, "12025550143");
+    }
+
+    /// `@c.us` is the PN namespace under its old name. The shared validator
+    /// accepts it, so the chat-id fallback has to as well or a legacy row
+    /// carrying only `lidJid` silently loses its pair.
+    #[test]
+    fn legacy_pn_conversation_ids_yield_mappings() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "15550001111@c.us".into();
+                proto.lid_jid = Some("222333444555666@lid".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![HistoryLidMapping {
+                phone_number: "15550001111".into(),
+                lid: "222333444555666".into(),
+                source: HistoryLidMappingSource::Conversation,
+            }]
+        );
+    }
+
+    /// The learner deduplicates by phone with last-write-wins, so two LIDs
+    /// sharing a phone must not both reach it: the survivor would be decided
+    /// by wire order, which protobuf does not define.
+    #[test]
+    fn bulk_mappings_outrank_conversation_mappings_for_the_same_phone() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "999888777666555@lid".into();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto
+            }];
+            proto.phone_number_to_lid_mappings = vec![{
+                let mut proto = wa::PhoneNumberToLIDMapping::default();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto.lid_jid = Some("111222333444555@lid".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(
+            result.lid_mappings,
+            vec![HistoryLidMapping {
+                phone_number: "12025550143".into(),
+                lid: "111222333444555".into(),
+                source: HistoryLidMappingSource::Bulk,
+            }],
+            "one pair per phone, and the bulk block wins the conflict"
+        );
+    }
+
+    /// Independent pairs must survive the conflict pass untouched.
+    #[test]
+    fn non_conflicting_mappings_are_all_kept() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "222333444555666@lid".into();
+                proto.pn_jid = Some("12025550144@s.whatsapp.net".to_string());
+                proto
+            }];
+            proto.phone_number_to_lid_mappings = vec![{
+                let mut proto = wa::PhoneNumberToLIDMapping::default();
+                proto.pn_jid = Some("12025550143@s.whatsapp.net".to_string());
+                proto.lid_jid = Some("111222333444555@lid".to_string());
+                proto
+            }];
+            proto
+        };
+
+        let result = process_history_sync(encode_and_compress(&hs), None, false).unwrap();
+        assert_eq!(result.lid_mappings.len(), 2);
+    }
+
+    /// Prost-only oracle: what the pre-fast-path pipeline produced for one
+    /// raw `HistorySyncMsg`. The fast path must match this exactly.
+    fn oracle_records(raw_msg: &[u8]) -> Vec<HistoryMsgSecretRecord> {
+        let mut out = Vec::new();
+        let mut shared = None;
+        let mut accept_all = FilteredRecordSink(|_: HistoryMsgSecretRecordRef<'_>| true);
+        if let Ok(msg) = wa::HistorySyncMsg::decode_from_slice(raw_msg) {
+            push_secret_record(
+                "5511777776666@s.whatsapp.net",
+                0,
+                &mut shared,
+                msg,
+                &mut out,
+                &mut accept_all,
+            );
+        }
+        out
+    }
+
+    fn emit_varint(out: &mut Vec<u8>, mut v: u64) {
+        loop {
+            if v < 0x80 {
+                out.push(v as u8);
+                return;
+            }
+            out.push((v as u8 & 0x7F) | 0x80);
+            v >>= 7;
+        }
+    }
+
+    /// Emit a length-delimited field with proper varint framing.
+    fn emit_len_field(out: &mut Vec<u8>, field: u32, value: &[u8]) {
+        emit_varint(out, ((field << 3) | wire_type::LENGTH_DELIMITED) as u64);
+        emit_varint(out, value.len() as u64);
+        out.extend_from_slice(value);
+    }
+
+    fn wrap_in_history_msg(web_msg: &wa::WebMessageInfo) -> Vec<u8> {
+        {
+            let mut proto = wa::HistorySyncMsg::default();
+            proto.message = buffa::MessageField::some(web_msg.clone());
+            proto
+        }
+        .encode_to_vec()
+    }
+
+    fn secret_ctx(secret: &[u8]) -> wa::MessageContextInfo {
+        {
+            let mut proto = wa::MessageContextInfo::default();
+            proto.message_secret = Some(secret.to_vec());
+            proto
+        }
+    }
+
+    fn keyed(id: &str, from_me: bool, message: Option<wa::Message>) -> wa::WebMessageInfo {
+        {
+            let mut proto = wa::WebMessageInfo::default();
+            proto.key = buffa::MessageField::some({
+                let mut proto = wa::MessageKey::default();
+                proto.from_me = Some(from_me);
+                proto.id = Some(id.to_string());
+                proto
+            });
+            proto.message = message.map(buffa::MessageField::some).unwrap_or_default();
+            proto.message_timestamp = Some(1_700_000_777);
+            proto
+        }
+    }
+
+    #[test]
+    fn video_note_has_history_context_slot() {
+        assert!(carrier_slot(tags::message::PTV_MESSAGE).is_some());
+    }
+
+    #[test]
+    fn all_history_context_slots_match_decoded_carriers() {
+        let mut slots = std::collections::BTreeSet::new();
+        macro_rules! check {
+            ($($field:ident => $tag:ident / $($module:ident)::+),+ $(,)?) => {
+                $(
+                    let (slot, context_tag) = carrier_slot(tags::message::$tag).unwrap();
+                    assert!(slots.insert(slot), "duplicate slot: {}", stringify!($field));
+                    assert_eq!(context_tag, tags::$($module)::+::CONTEXT_INFO);
+                    for forwarded in [None, Some(false), Some(true)] {
+                        let mut message = wa::Message::default();
+                        message.$field.get_or_insert_default().context_info =
+                            buffa::MessageField::some({ let mut context = wa::ContextInfo::default(); context.is_forwarded = forwarded; context });
+                        let encoded = message.encode_to_vec();
+                        let level = scan_message_level(&encoded).ok().unwrap();
+                        assert_eq!(level.forwarded_carriers,
+                            if forwarded == Some(true) { 1_u64 << slot } else { 0 },
+                            "{}: {forwarded:?}", stringify!($field));
+                        assert_eq!(message_context_is_forwarded(&message), forwarded == Some(true));
+
+                        // Exercise the actual secret extraction and full-decode fallback.
+                        let mut web = keyed("carrier-message", false, Some(message));
+                        web.message_secret = Some(vec![0x5A; 32]);
+                        let raw = wrap_in_history_msg(&web);
+                        let expected = usize::from(forwarded != Some(true));
+                        assert_eq!(run_with_raw_history_msg(&raw).len(), expected, "{}", stringify!($field));
+                        assert_eq!(run_with_raw_history_msg(&raw), oracle_records(&raw), "{}", stringify!($field));
+                    }
+
+                    // Merge presence/overwrite semantics within each carrier.
+                    let mut forwarded = wa::Message::default();
+                    forwarded.$field.get_or_insert_default().context_info =
+                        buffa::MessageField::some({ let mut context = wa::ContextInfo::default(); context.is_forwarded = Some(true); context });
+                    let mut absent = wa::Message::default();
+                    absent.$field.get_or_insert_default();
+                    let mut raw = forwarded.encode_to_vec();
+                    raw.extend_from_slice(&absent.encode_to_vec());
+                    assert_eq!(scan_message_level(&raw).ok().unwrap().forwarded_carriers, 1_u64 << slot);
+                    absent.$field.get_or_insert_default().context_info =
+                        buffa::MessageField::some({ let mut context = wa::ContextInfo::default(); context.is_forwarded = Some(false); context });
+                    raw.extend_from_slice(&absent.encode_to_vec());
+                    assert_eq!(scan_message_level(&raw).ok().unwrap().forwarded_carriers, 0);
+                    assert!(!message_context_is_forwarded(&wa::Message::decode_from_slice(&raw).unwrap()));
+                )+
+            };
+        }
+        crate::proto_helpers::with_context_info_fields!(check!());
+        assert_eq!(slots.len(), 42);
+        assert_eq!(slots.len(), N_CARRIERS);
+        assert_eq!(
+            slots.into_iter().collect::<Vec<_>>(),
+            (0..N_CARRIERS).collect::<Vec<_>>()
+        );
+        assert!(carrier_slot(tags::message::MESSAGE_CONTEXT_INFO).is_none());
+        assert!(carrier_slot(tags::message::EPHEMERAL_MESSAGE).is_none());
+        assert!(carrier_slot(tags::message::POLL_UPDATE_MESSAGE).is_none());
+    }
+
+    #[test]
+    fn history_checks_any_context_and_preserves_recursive_wrappers() {
+        use crate::proto_helpers::MessageExt;
+        let mut message = wa::Message::default();
+        message
+            .extended_text_message
+            .get_or_insert_default()
+            .context_info = buffa::MessageField::some(wa::ContextInfo::default());
+        message.music_message.get_or_insert_default().context_info = buffa::MessageField::some({
+            let mut proto = wa::ContextInfo::default();
+            proto.is_forwarded = Some(true);
+            proto
+        });
+        assert!(!message.is_forwarded()); // First context is not forwarded.
+        assert!(message_context_is_forwarded(&message)); // History inspects all.
+        assert_ne!(
+            scan_message_level(&message.encode_to_vec())
+                .ok()
+                .unwrap()
+                .forwarded_carriers,
+            0
+        );
+
+        // History already unwraps recursively, unlike the public ordered pass.
+        for device_first in [true, false] {
+            let device = |inner| {
+                let mut proto = wa::Message::default();
+                proto.device_sent_message = buffa::MessageField::some({
+                    let mut proto = wa::message::DeviceSentMessage::default();
+                    proto.message = buffa::MessageField::some(inner);
+                    proto
+                });
+                proto
+            };
+            let ephemeral = |inner| {
+                let mut proto = wa::Message::default();
+                proto.ephemeral_message = buffa::MessageField::some(fp(inner));
+                proto
+            };
+            let wrapped = if device_first {
+                device(ephemeral(message.clone()))
+            } else {
+                ephemeral(device(message.clone()))
+            };
+            assert!(message_is_forwarded(&wrapped));
+            let mut web = keyed("wrapped-carrier", false, Some(wrapped));
+            web.message_secret = Some(vec![0x5A; 32]);
+            let raw = wrap_in_history_msg(&web);
+            assert!(run_with_raw_history_msg(&raw).is_empty());
+            assert_eq!(run_with_raw_history_msg(&raw), oracle_records(&raw));
+        }
+    }
+
+    fn fp(inner: wa::Message) -> wa::message::FutureProofMessage {
+        {
+            let mut proto = wa::message::FutureProofMessage::default();
+            proto.message = buffa::MessageField::some(inner);
+            proto
+        }
+    }
+
+    /// Differential corpus: every structurally interesting shape, buffa-built
+    /// and hand-crafted, must extract identically through the fast path and
+    /// the full-decode oracle.
+    #[test]
+    fn differential_fast_path_matches_full_decode_oracle() {
+        let emit = emit_len_field;
+        let secret = vec![0x5Au8; 32];
+        let mut corpus: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut add = |name: &str, raw: Vec<u8>| corpus.push((name.to_string(), raw));
+
+        // Proto-built shapes.
+        add(
+            "plain text, no secret",
+            wrap_in_history_msg(&keyed(
+                "A1",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.conversation = Some("oi".into());
+                    proto
+                }),
+            )),
+        );
+        let mut wm = keyed("A2", true, None);
+        wm.message_secret = Some(secret.clone());
+        add("top-level secret, no message", wrap_in_history_msg(&wm));
+        add(
+            "context secret",
+            wrap_in_history_msg(&keyed(
+                "A3",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.message_context_info = buffa::MessageField::some(secret_ctx(&secret));
+                    proto
+                }),
+            )),
+        );
+        let mut wm = keyed(
+            "A4",
+            false,
+            Some({
+                let mut proto = wa::Message::default();
+                proto.message_context_info = buffa::MessageField::some(secret_ctx(&[0xBB; 32]));
+                proto
+            }),
+        );
+        wm.message_secret = Some(secret.clone());
+        add("both secrets, top wins", wrap_in_history_msg(&wm));
+        for fwd in [true, false] {
+            add(
+                &format!("ETM forwarded={fwd} with context secret"),
+                wrap_in_history_msg(&keyed(
+                    "A5",
+                    false,
+                    Some({
+                        let mut proto = wa::Message::default();
+                        proto.extended_text_message = buffa::MessageField::some({
+                            let mut proto = wa::message::ExtendedTextMessage::default();
+                            proto.text = Some("x".into());
+                            proto.context_info = buffa::MessageField::some({
+                                let mut proto = wa::ContextInfo::default();
+                                proto.is_forwarded = Some(fwd);
+                                proto
+                            });
+                            proto
+                        });
+                        proto.message_context_info = buffa::MessageField::some(secret_ctx(&secret));
+                        proto
+                    }),
+                )),
+            );
+        }
+        add("ephemeral-wrapped forwarded image, top secret", {
+            let mut wm = keyed(
+                "A6",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.ephemeral_message = buffa::MessageField::some(fp({
+                        let mut proto = wa::Message::default();
+                        proto.image_message = buffa::MessageField::some({
+                            let mut proto = wa::message::ImageMessage::default();
+                            proto.context_info = buffa::MessageField::some({
+                                let mut proto = wa::ContextInfo::default();
+                                proto.is_forwarded = Some(true);
+                                proto
+                            });
+                            proto
+                        });
+                        proto
+                    }));
+                    proto
+                }),
+            );
+            wm.message_secret = Some(secret.clone());
+            wrap_in_history_msg(&wm)
+        });
+        add(
+            "viewOnceV2(poll) with context secret",
+            wrap_in_history_msg(&keyed(
+                "A7",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.view_once_message_v2 = buffa::MessageField::some(fp({
+                        let mut proto = wa::Message::default();
+                        proto.poll_creation_message = buffa::MessageField::some({
+                            let mut proto = wa::message::PollCreationMessage::default();
+                            proto.name = Some("poll".into());
+                            proto
+                        });
+                        proto
+                    }));
+                    proto.message_context_info = buffa::MessageField::some(secret_ctx(&secret));
+                    proto
+                }),
+            )),
+        );
+        add("deviceSent(ephemeral(event)) top secret", {
+            let mut wm = keyed(
+                "A8",
+                true,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.device_sent_message = buffa::MessageField::some({
+                        let mut proto = wa::message::DeviceSentMessage::default();
+                        proto.destination_jid = Some("5511777776666@s.whatsapp.net".into());
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::Message::default();
+                            proto.ephemeral_message = buffa::MessageField::some(fp({
+                                let mut proto = wa::Message::default();
+                                proto.event_message = buffa::MessageField::some({
+                                    let mut proto = wa::message::EventMessage::default();
+                                    proto.name = Some("ev".into());
+                                    proto
+                                });
+                                proto
+                            }));
+                            proto
+                        });
+                        proto.phash = None;
+                        proto
+                    });
+                    proto
+                }),
+            );
+            wm.message_secret = Some(secret.clone());
+            wrap_in_history_msg(&wm)
+        });
+        add(
+            "bot metadata outer + context secret",
+            wrap_in_history_msg(&keyed(
+                "A9",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.message_context_info = buffa::MessageField::some({
+                        let mut proto = wa::MessageContextInfo::default();
+                        proto.message_secret = Some(secret.clone());
+                        proto.bot_metadata = buffa::MessageField::some(wa::BotMetadata::default());
+                        proto
+                    });
+                    proto
+                }),
+            )),
+        );
+        add("bot metadata under ephemeral wrapper, top secret", {
+            let mut wm = keyed(
+                "A10",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.ephemeral_message = buffa::MessageField::some(fp({
+                        let mut proto = wa::Message::default();
+                        proto.message_context_info = buffa::MessageField::some({
+                            let mut proto = wa::MessageContextInfo::default();
+                            proto.bot_metadata =
+                                buffa::MessageField::some(wa::BotMetadata::default());
+                            proto
+                        });
+                        proto
+                    }));
+                    proto
+                }),
+            );
+            wm.message_secret = Some(secret.clone());
+            wrap_in_history_msg(&wm)
+        });
+        add(
+            "edited wrapper containing poll v3, context secret",
+            wrap_in_history_msg(&keyed(
+                "A11",
+                false,
+                Some({
+                    let mut proto = wa::Message::default();
+                    proto.edited_message = buffa::MessageField::some(fp({
+                        let mut proto = wa::Message::default();
+                        proto.poll_creation_message_v3 =
+                            buffa::MessageField::some(wa::message::PollCreationMessage::default());
+                        proto
+                    }));
+                    proto.message_context_info = buffa::MessageField::some(secret_ctx(&secret));
+                    proto
+                }),
+            )),
+        );
+        add("missing key id, top secret", {
+            let wm = {
+                let mut proto = wa::WebMessageInfo::default();
+                proto.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.from_me = Some(false);
+                    proto
+                });
+                proto.message_secret = Some(secret.clone());
+                proto
+            };
+            wrap_in_history_msg(&wm)
+        });
+        add("no key at all, top secret", {
+            let wm = {
+                let mut proto = wa::WebMessageInfo::default();
+                proto.message_secret = Some(secret.clone());
+                proto
+            };
+            wrap_in_history_msg(&wm)
+        });
+        add("participants on key and web msg", {
+            let wm = {
+                let mut proto = wa::WebMessageInfo::default();
+                proto.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.from_me = Some(false);
+                    proto.id = Some("A12".to_string());
+                    proto.participant = Some("5511888889999@s.whatsapp.net".into());
+                    proto
+                });
+                proto.participant = Some("5511888887777@s.whatsapp.net".into());
+                proto.message_secret = Some(secret.clone());
+                proto.message_timestamp = Some(1_700_000_777);
+                proto
+            };
+            wrap_in_history_msg(&wm)
+        });
+        add("empty top-level secret", {
+            let mut wm = keyed("A13", false, None);
+            wm.message_secret = Some(Vec::new());
+            wrap_in_history_msg(&wm)
+        });
+        add("oversized secret (heap spill)", {
+            let mut wm = keyed("A14", false, None);
+            wm.message_secret = Some(vec![0xCC; 80]);
+            wrap_in_history_msg(&wm)
+        });
+
+        // Hand-crafted wire shapes prost's encoder cannot produce.
+        let key_a12 = {
+            let mut proto = wa::MessageKey::default();
+            proto.from_me = Some(false);
+            proto.id = Some("R1".into());
+            proto
+        }
+        .encode_to_vec();
+        let msg_plain = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("a".into());
+            proto
+        }
+        .encode_to_vec();
+        let msg_secret = {
+            let mut proto = wa::Message::default();
+            proto.message_context_info = buffa::MessageField::some(secret_ctx(&secret));
+            proto
+        }
+        .encode_to_vec();
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE, &msg_plain);
+        emit(&mut web, tags::web_message_info::MESSAGE, &msg_secret);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("repeated message field (merge -> fallback)", raw);
+
+        let key_b = {
+            let mut proto = wa::MessageKey::default();
+            proto.participant = Some("5511888889999@s.whatsapp.net".into());
+            proto
+        }
+        .encode_to_vec();
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::KEY, &key_b);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("repeated key occurrences (leaf merge)", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        let tag = (tags::web_message_info::MESSAGE_SECRET << 3) | wire_type::VARINT;
+        web.push((tag as u8 & 0x7F) | 0x80);
+        web.push((tag >> 7) as u8);
+        web.push(0x05);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("secret with varint wire type", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        web.extend_from_slice(&[0x1A, 0x55]); // truncated length-delimited tail
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("malformed tail after valid secret", raw);
+
+        let bad_key = {
+            let mut k = Vec::new();
+            emit(&mut k, tags::message_key::ID, &[0xFF, 0xFE]);
+            k
+        };
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &bad_key);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("invalid UTF-8 in key id", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::PARTICIPANT, &[0xFF, 0xFE]);
+        emit(
+            &mut web,
+            tags::web_message_info::PARTICIPANT,
+            b"5511888887777@s.whatsapp.net",
+        );
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("invalid UTF-8 in overwritten web participant", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let tag = (tags::web_message_info::MESSAGE_TIMESTAMP << 3) | wire_type::LENGTH_DELIMITED;
+        web.push(tag as u8);
+        web.push(2);
+        web.extend_from_slice(&[0x01, 0x02]);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("timestamp with length-delimited wire type", raw);
+
+        // Mirrored message-typed field with a varint wire type: prost fails
+        // the decode, so no record.
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let mut msg = Vec::new();
+        emit_varint(
+            &mut msg,
+            ((tags::message::POLL_CREATION_MESSAGE << 3) | wire_type::VARINT) as u64,
+        );
+        msg.push(0x01);
+        emit(&mut web, tags::web_message_info::MESSAGE, &msg);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("poll field with varint wire type", raw);
+
+        // Repeated occurrences of the same carrier: prost merges their
+        // contextInfo fields; the eager overwrite-when-present walk must agree.
+        let etm_fwd = {
+            let mut proto = wa::message::ExtendedTextMessage::default();
+            proto.context_info = buffa::MessageField::some({
+                let mut proto = wa::ContextInfo::default();
+                proto.is_forwarded = Some(true);
+                proto
+            });
+            proto
+        }
+        .encode_to_vec();
+        let etm_plain = {
+            let mut proto = wa::message::ExtendedTextMessage::default();
+            proto.text = Some("x".into());
+            proto
+        }
+        .encode_to_vec();
+        for order in [[&etm_fwd, &etm_plain], [&etm_plain, &etm_fwd]] {
+            let mut msg = Vec::new();
+            for etm in order {
+                emit(&mut msg, tags::message::EXTENDED_TEXT_MESSAGE, etm);
+            }
+            let mci = {
+                let mut proto = wa::MessageContextInfo::default();
+                proto.message_secret = Some(secret.clone());
+                proto
+            }
+            .encode_to_vec();
+            emit(&mut msg, tags::message::MESSAGE_CONTEXT_INFO, &mci);
+            let mut web = Vec::new();
+            emit(&mut web, tags::web_message_info::KEY, &key_a12);
+            emit(&mut web, tags::web_message_info::MESSAGE, &msg);
+            let mut raw = Vec::new();
+            emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+            add("repeated carrier occurrences (merge)", raw);
+        }
+
+        // Unknown field with proto2 group wire type next to a secret: prost
+        // skips the group; the fast path must defer rather than reject.
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        web.push(((90 << 3) | wire_type::START_GROUP) as u8);
+        web.push(((90 << 3) | wire_type::END_GROUP) as u8);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("unknown group field (fallback to prost)", raw);
+
+        // Repeated ephemeral wrapper occurrences: inner messages merge.
+        let eph_poll = {
+            let mut proto = wa::Message::default();
+            proto.ephemeral_message = buffa::MessageField::some(fp({
+                let mut proto = wa::Message::default();
+                proto.poll_creation_message =
+                    buffa::MessageField::some(wa::message::PollCreationMessage::default());
+                proto
+            }));
+            proto
+        }
+        .encode_to_vec();
+        let eph_text = {
+            let mut proto = wa::Message::default();
+            proto.ephemeral_message = buffa::MessageField::some(fp({
+                let mut proto = wa::Message::default();
+                proto.conversation = Some("t".into());
+                proto
+            }));
+            proto
+        }
+        .encode_to_vec();
+        let mut merged_msg = eph_poll.clone();
+        merged_msg.extend_from_slice(&eph_text);
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE, &merged_msg);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("repeated ephemeral wrappers (fallback)", raw);
+
+        // prost rejects field number 0, keys above u32 range, and varints
+        // whose 10th byte overflows 64 bits; the fast path must produce the
+        // same no-record outcome instead of skipping or truncating. Each case
+        // carries a valid secret so a lax walk WOULD emit a record.
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        web.push(wire_type::LENGTH_DELIMITED as u8); // key with field number 0
+        web.push(0);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("field number zero", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        // Key varint above u32 range whose truncated field number is benign.
+        emit_varint(&mut web, (5u64 << 32) | (1000u64 << 3));
+        web.push(0x01);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("key varint above u32 range", raw);
+
+        let mut web = Vec::new();
+        emit(&mut web, tags::web_message_info::KEY, &key_a12);
+        emit(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+        web.push(((tags::web_message_info::MESSAGE_TIMESTAMP << 3) | wire_type::VARINT) as u8);
+        web.extend_from_slice(&[0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02]);
+        let mut raw = Vec::new();
+        emit(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+        add("timestamp varint overflowing 64 bits", raw);
+
+        // Nesting beyond the unwrap budget defers to prost's recursion rules
+        // (decode fails past prost's limit -> no record; the fast path must
+        // agree). Built iteratively from raw bytes: encoding a 120-deep owned
+        // proto recurses per level and overflows the test stack.
+        for depth in [50usize, 120] {
+            let mut msg = {
+                let mut proto = wa::Message::default();
+                proto.poll_creation_message =
+                    buffa::MessageField::some(wa::message::PollCreationMessage::default());
+                proto
+            }
+            .encode_to_vec();
+            for _ in 0..depth {
+                let mut fpm = Vec::new();
+                emit_len_field(&mut fpm, tags::message::future_proof_message::MESSAGE, &msg);
+                let mut outer = Vec::new();
+                emit_len_field(&mut outer, tags::message::EPHEMERAL_MESSAGE, &fpm);
+                msg = outer;
+            }
+            let key = {
+                let mut proto = wa::MessageKey::default();
+                proto.from_me = Some(false);
+                proto.id = Some("DEEP".into());
+                proto
+            }
+            .encode_to_vec();
+            let mut web = Vec::new();
+            emit_len_field(&mut web, tags::web_message_info::KEY, &key);
+            emit_len_field(&mut web, tags::web_message_info::MESSAGE, &msg);
+            emit_len_field(&mut web, tags::web_message_info::MESSAGE_SECRET, &secret);
+            let mut raw = Vec::new();
+            emit_len_field(&mut raw, tags::history_sync_msg::MESSAGE, &web);
+            add(&format!("nesting depth {depth}"), raw);
+        }
+
+        for (name, raw) in &corpus {
+            let fast = run_with_raw_history_msg(raw);
+            let oracle = oracle_records(raw);
+            assert_eq!(fast, oracle, "divergence in case: {name}");
+        }
+        assert!(corpus.len() >= 25, "corpus unexpectedly small");
+    }
+
+    /// Wrap raw `HistorySyncMsg` bytes in Conversation/HistorySync framing and
+    /// run the full pipeline, returning the extracted records. Lets tests feed
+    /// hand-crafted wire bytes that prost's encoder cannot produce (repeated
+    /// field occurrences, wrong wire types, malformed tails).
+    fn run_with_raw_history_msg(raw_msg: &[u8]) -> Vec<HistoryMsgSecretRecord> {
+        let chat = "5511777776666@s.whatsapp.net";
+        let mut conv = Vec::new();
+        emit_len_field(&mut conv, tags::conversation::ID, chat.as_bytes());
+        emit_len_field(&mut conv, tags::conversation::MESSAGES, raw_msg);
+        let mut hs = Vec::new();
+        emit_len_field(&mut hs, tags::history_sync::CONVERSATIONS, &conv);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs).unwrap();
+        let compressed = encoder.finish().unwrap();
+        process_history_sync(compressed, None, false)
+            .unwrap()
+            .msg_secret_records
+    }
+
+    /// The density reserve must not clamp when a SINGLE conversation reaches
+    /// the sample threshold: parsed_bytes includes the pending (just yielded)
+    /// field, so the denominator covers the conversation whose records were
+    /// counted. With the exclusive form the denominator was ~0 and the
+    /// estimate hit RECORD_RESERVE_CAP, over-reserving ~2 MB.
+    #[test]
+    fn test_reserve_single_big_conversation_does_not_clamp() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let mut conv = Vec::new();
+        emit_len_field(&mut conv, tags::conversation::ID, chat.as_bytes());
+        let total_msgs = 200usize;
+        for i in 0..total_msgs {
+            let wm = {
+                let mut proto = wa::WebMessageInfo::default();
+                proto.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.from_me = Some(false);
+                    proto.id = Some(format!("MSG{i:04}"));
+                    proto
+                }); // Varied payload so zlib does not flatten the blob to nothing.
+
+                proto.message_secret = Some(vec![(i % 251) as u8; 32]);
+                proto
+            }
+            .encode_to_vec();
+            let mut history_msg = Vec::new();
+            emit_len_field(&mut history_msg, tags::history_sync_msg::MESSAGE, &wm);
+            emit_len_field(&mut conv, tags::conversation::MESSAGES, &history_msg);
+        }
+        let mut hs = Vec::new();
+        emit_len_field(&mut hs, tags::history_sync::CONVERSATIONS, &conv);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let records = process_history_sync(compressed, None, false)
+            .unwrap()
+            .msg_secret_records;
+        assert_eq!(records.len(), total_msgs);
+        assert!(
+            records.capacity() < 2048,
+            "estimate should track the real count (~{total_msgs}), got capacity {}",
+            records.capacity()
+        );
+    }
+
+    /// The zlib-ratio extrapolation is exact once the stream fully inflates.
+    #[test]
+    fn test_estimated_total_out_exact_after_drain() {
+        let mut hs = Vec::new();
+        emit_len_field(&mut hs, tags::history_sync::PUSHNAMES, b"\x0a\x03abc");
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut walker = FieldWalker::new(&compressed, MAX_DECOMPRESSED);
+        while walker.next_field().unwrap().is_some() {}
+        assert_eq!(walker.estimated_total_out(), walker.total_out());
+        assert_eq!(walker.total_out(), hs.len() as u64);
+    }
+
+    /// A (malformed) conversation that carries messages BEFORE its id must not
+    /// emit records under an empty chat id.
+    #[test]
+    fn test_messages_before_conversation_id_yield_no_records() {
+        let emit = |out: &mut Vec<u8>, field: u32, v: &[u8]| {
+            out.push(((field << 3) | wire_type::LENGTH_DELIMITED) as u8);
+            out.push(v.len() as u8);
+            out.extend_from_slice(v);
+        };
+
+        let web_msg = {
+            let mut proto = wa::WebMessageInfo::default();
+            proto.key = buffa::MessageField::some({
+                let mut proto = wa::MessageKey::default();
+                proto.from_me = Some(false);
+                proto.id = Some("EARLY_MSG".into());
+                proto
+            });
+            proto.message_secret = Some(vec![0x22u8; 32]);
+            proto
+        }
+        .encode_to_vec();
+        let mut history_msg = Vec::new();
+        emit(&mut history_msg, tags::history_sync_msg::MESSAGE, &web_msg);
+
+        // messages (field 2) deliberately emitted before id (field 1).
+        let mut conv = Vec::new();
+        emit(&mut conv, tags::conversation::MESSAGES, &history_msg);
+        emit(
+            &mut conv,
+            tags::conversation::ID,
+            b"5511777776666@s.whatsapp.net",
+        );
+        let mut hs = Vec::new();
+        emit(&mut hs, tags::history_sync::CONVERSATIONS, &conv);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert!(result.msg_secret_records.is_empty());
+    }
+
+    /// A (malformed) conversation carrying a tctoken but no id must not emit a
+    /// candidate under an empty chat id.
+    #[test]
+    fn test_tc_token_without_conversation_id_yields_no_candidate() {
+        let mut conv = Vec::new();
+        emit_len_field(&mut conv, tags::conversation::TC_TOKEN, &[0xABu8; 16]);
+        emit_varint(
+            &mut conv,
+            ((tags::conversation::TC_TOKEN_TIMESTAMP << 3) | wire_type::VARINT) as u64,
+        );
+        emit_varint(&mut conv, 1_700_000_123);
+        let mut hs = Vec::new();
+        emit_len_field(&mut hs, tags::history_sync::CONVERSATIONS, &conv);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert!(result.tc_token_candidates.is_empty());
+        assert_eq!(result.conversations_processed, 1);
+    }
+
+    /// The presence pre-scan must honor prost merge semantics: a secret carried
+    /// by a LATER occurrence of a repeated message field still yields a record.
+    #[test]
+    fn test_secret_in_second_message_field_occurrence() {
+        let msg_without_secret = {
+            let mut proto = wa::Message::default();
+            proto.conversation = Some("hi".into());
+            proto
+        }
+        .encode_to_vec();
+        let msg_with_secret = {
+            let mut proto = wa::Message::default();
+            proto.message_context_info = buffa::MessageField::some({
+                let mut proto = wa::MessageContextInfo::default();
+                proto.message_secret = Some(vec![0x11u8; 32]);
+                proto
+            });
+            proto
+        }
+        .encode_to_vec();
+        let key = {
+            let mut proto = wa::MessageKey::default();
+            proto.from_me = Some(false);
+            proto.id = Some("DOUBLE_MSG".into());
+            proto
+        }
+        .encode_to_vec();
+
+        let mut web_msg = Vec::new();
+        let emit = |out: &mut Vec<u8>, field: u32, v: &[u8]| {
+            out.push(((field << 3) | wire_type::LENGTH_DELIMITED) as u8);
+            out.push(v.len() as u8);
+            out.extend_from_slice(v);
+        };
+        emit(&mut web_msg, tags::web_message_info::KEY, &key);
+        emit(
+            &mut web_msg,
+            tags::web_message_info::MESSAGE,
+            &msg_without_secret,
+        );
+        emit(
+            &mut web_msg,
+            tags::web_message_info::MESSAGE,
+            &msg_with_secret,
+        );
+
+        let mut history_msg = Vec::new();
+        emit(&mut history_msg, tags::history_sync_msg::MESSAGE, &web_msg);
+
+        let records = run_with_raw_history_msg(&history_msg);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].msg_id, "DOUBLE_MSG");
+        assert_eq!(records[0].secret.as_slice(), [0x11u8; 32]);
+    }
+
+    /// A secret field with the wrong wire type must not yield a record (prost
+    /// fails the decode), and must not panic the pre-scan.
+    #[test]
+    fn test_wrong_wire_type_secret_yields_no_record() {
+        let key = {
+            let mut proto = wa::MessageKey::default();
+            proto.from_me = Some(false);
+            proto.id = Some("BAD_WIRE".into());
+            proto
+        }
+        .encode_to_vec();
+
+        let mut web_msg = Vec::new();
+        web_msg.push(((tags::web_message_info::KEY << 3) | wire_type::LENGTH_DELIMITED) as u8);
+        web_msg.push(key.len() as u8);
+        web_msg.extend_from_slice(&key);
+        // message_secret (tag 49) as VARINT instead of bytes; tag 49 needs a
+        // 2-byte tag varint (49 << 3 = 392).
+        let tag = (tags::web_message_info::MESSAGE_SECRET << 3) | wire_type::VARINT;
+        web_msg.push((tag as u8 & 0x7F) | 0x80);
+        web_msg.push((tag >> 7) as u8);
+        web_msg.push(0x05);
+
+        let mut history_msg = Vec::new();
+        history_msg
+            .push(((tags::history_sync_msg::MESSAGE << 3) | wire_type::LENGTH_DELIMITED) as u8);
+        history_msg.push(web_msg.len() as u8);
+        history_msg.extend_from_slice(&web_msg);
+
+        assert!(run_with_raw_history_msg(&history_msg).is_empty());
+    }
+
+    /// Presence of an EMPTY top-level secret still produces a record (the
+    /// consumer filters by length), pinning presence-not-content semantics.
+    #[test]
+    fn test_empty_secret_still_yields_record() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::WebMessageInfo::default();
+                        proto.key = buffa::MessageField::some({
+                            let mut proto = wa::MessageKey::default();
+                            proto.remote_jid = Some(chat.to_string());
+                            proto.from_me = Some(false);
+                            proto.id = Some("EMPTY_SECRET".to_string());
+                            proto
+                        });
+                        proto.message_secret = Some(Vec::new());
+                        proto
+                    });
+                    proto
+                }];
+                proto
+            }];
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert_eq!(result.msg_secret_records.len(), 1);
+        assert!(result.msg_secret_records[0].secret.is_empty());
+    }
+
+    #[test]
+    fn test_nct_salt_extracted_from_history_sync() {
+        let salt = vec![0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.nct_salt = Some(salt.clone());
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+
+        assert_eq!(result.nct_salt, Some(salt));
+    }
+
+    #[test]
+    fn test_nct_salt_none_when_absent() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+
+        assert!(result.nct_salt.is_none());
+    }
+
+    #[test]
+    fn test_nct_salt_and_pushname_coexist() {
+        let salt = vec![0x01, 0x02, 0x03];
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.nct_salt = Some(salt.clone());
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("15550000000@s.whatsapp.net".into());
+                proto.pushname = Some("TestUser".into());
+                proto
+            }];
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, Some("15550000000"), false).unwrap();
+
+        assert_eq!(result.nct_salt, Some(salt));
+        assert_eq!(result.own_pushname.as_deref(), Some("TestUser"));
+    }
+
+    /// The server sends `Pushname.id` as a JID, and `own_user` is the bare user
+    /// part, so comparing the two verbatim never matches and the whole
+    /// history-sync path to our own push name is dead.
+    #[test]
+    fn own_pushname_matches_a_jid_id() {
+        let own = "15550000000";
+        for id in [
+            "15550000000@s.whatsapp.net",
+            "15550000000",                  // pre-JID form, still accepted
+            "15550000000@c.us",             // legacy spelling of the same namespace
+            "15550000000:3@s.whatsapp.net", // device suffix
+            "15550000000.3@s.whatsapp.net", // legacy dotted device suffix
+            "15550000000.3@c.us",
+        ] {
+            let hs = {
+                let mut proto = wa::HistorySync::default();
+                proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+                proto.pushnames = vec![{
+                    let mut proto = wa::Pushname::default();
+                    proto.id = Some(id.into());
+                    proto.pushname = Some("TestUser".into());
+                    proto
+                }];
+                proto
+            };
+            let result = process_history_sync(encode_and_compress(&hs), Some(own), false).unwrap();
+            assert_eq!(
+                result.own_pushname.as_deref(),
+                Some("TestUser"),
+                "id {id} must match own user {own}"
+            );
+        }
+    }
+
+    #[test]
+    fn another_users_pushname_is_not_taken_as_our_own() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("15551111111@s.whatsapp.net".into());
+                proto.pushname = Some("Someone Else".into());
+                proto
+            }];
+            proto
+        };
+        let result =
+            process_history_sync(encode_and_compress(&hs), Some("15550000000"), false).unwrap();
+        assert_eq!(result.own_pushname, None);
+    }
+
+    /// `-` is history sync's "no push name" placeholder, not a name. Accepting
+    /// it is worse than returning nothing: the client persists what it gets, so
+    /// `push_name` stops being empty, the bootstrap stops trying to fetch the
+    /// real name, and the account announces `-` on every reconnect.
+    #[test]
+    fn the_absent_pushname_sentinel_is_not_a_name() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("15550000000@s.whatsapp.net".into());
+                proto.pushname = Some("-".into());
+                proto
+            }];
+            proto
+        };
+        let result =
+            process_history_sync(encode_and_compress(&hs), Some("15550000000"), false).unwrap();
+        assert_eq!(
+            result.own_pushname, None,
+            "the sentinel must not become our push name"
+        );
+    }
+
+    /// A name that merely contains the sentinel is a real name.
+    #[test]
+    fn a_name_containing_a_dash_is_kept() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("15550000000@s.whatsapp.net".into());
+                proto.pushname = Some("Jean-Luc".into());
+                proto
+            }];
+            proto
+        };
+        let result =
+            process_history_sync(encode_and_compress(&hs), Some("15550000000"), false).unwrap();
+        assert_eq!(result.own_pushname.as_deref(), Some("Jean-Luc"));
+    }
+
+    /// The user part alone does not identify an account: a `@lid` entry lives in
+    /// a different addressing space, so identical digits are not us. `@c.us` is
+    /// NOT in this list — it is the legacy spelling of the phone namespace, not
+    /// a different one.
+    #[test]
+    fn a_non_phone_namespace_is_not_our_entry() {
+        for id in [
+            "15550000000@lid",
+            "15550000000@newsletter",
+            "15550000000@g.us",
+        ] {
+            let hs = {
+                let mut proto = wa::HistorySync::default();
+                proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+                proto.pushnames = vec![{
+                    let mut proto = wa::Pushname::default();
+                    proto.id = Some(id.into());
+                    proto.pushname = Some("Not Us".into());
+                    proto
+                }];
+                proto
+            };
+            let result =
+                process_history_sync(encode_and_compress(&hs), Some("15550000000"), false).unwrap();
+            assert_eq!(
+                result.own_pushname, None,
+                "id {id} must not match our PN user"
+            );
+        }
+    }
+
+    #[test]
+    fn read_varint_rejects_overflowing_tenth_byte() {
+        let overflowing = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02];
+
+        assert!(
+            read_varint(&overflowing).is_none(),
+            "10th byte above 0x01 must fail"
+        );
+    }
+
+    #[test]
+    fn test_message_secrets_extracted_from_history_sync() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let participant = "5511888889999@s.whatsapp.net";
+        let top_level_secret = vec![0x44u8; 32];
+        let context_secret = vec![0x55u8; 32];
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![
+                    {
+                        let mut proto = wa::HistorySyncMsg::default();
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::WebMessageInfo::default();
+                            proto.key = buffa::MessageField::some({
+                                let mut proto = wa::MessageKey::default();
+                                proto.remote_jid = Some(chat.to_string());
+                                proto.from_me = Some(false);
+                                proto.id = Some("HIST_TOP_LEVEL".to_string());
+                                proto.participant = Some(participant.to_string());
+                                proto
+                            });
+                            proto.message_secret = Some(top_level_secret.clone());
+                            proto
+                        });
+                        proto
+                    },
+                    {
+                        let mut proto = wa::HistorySyncMsg::default();
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::WebMessageInfo::default();
+                            proto.key = buffa::MessageField::some({
+                                let mut proto = wa::MessageKey::default();
+                                proto.remote_jid = Some(chat.to_string());
+                                proto.from_me = Some(true);
+                                proto.id = Some("HIST_CONTEXT".to_string());
+                                proto.participant = None;
+                                proto
+                            });
+                            proto.message = buffa::MessageField::some({
+                                let mut proto = wa::Message::default();
+                                proto.message_context_info = buffa::MessageField::some({
+                                    let mut proto = wa::MessageContextInfo::default();
+                                    proto.message_secret = Some(context_secret.clone());
+                                    proto
+                                });
+                                proto
+                            });
+                            proto
+                        });
+                        proto
+                    },
+                ];
+                proto
+            }];
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+
+        assert_eq!(result.msg_secret_records.len(), 2);
+        assert_eq!(&*result.msg_secret_records[0].chat_id, chat);
+        assert_eq!(result.msg_secret_records[0].msg_id, "HIST_TOP_LEVEL");
+        assert_eq!(
+            result.msg_secret_records[0].key_participant.as_deref(),
+            Some(participant)
+        );
+        assert_eq!(
+            result.msg_secret_records[0].secret.as_slice(),
+            top_level_secret
+        );
+        assert_eq!(result.msg_secret_records[1].msg_id, "HIST_CONTEXT");
+        assert!(result.msg_secret_records[1].from_me);
+        assert_eq!(
+            result.msg_secret_records[1].secret.as_slice(),
+            context_secret
+        );
+    }
+
+    #[test]
+    fn borrowed_record_filter_runs_before_owned_records_are_collected() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let mut dropped = keyed("DROP", false, None);
+        dropped.message_secret = Some(vec![0x11; 32]);
+        let mut kept = keyed("KEEP", true, None);
+        kept.message_secret = Some(vec![0x22; 32]);
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![
+                    {
+                        let mut proto = wa::HistorySyncMsg::default();
+                        proto.message = buffa::MessageField::some(dropped);
+                        proto
+                    },
+                    {
+                        let mut proto = wa::HistorySyncMsg::default();
+                        proto.message = buffa::MessageField::some(kept);
+                        proto
+                    },
+                ];
+                proto.tc_token = Some(vec![0x33; 8]);
+                proto.tc_token_timestamp = Some(123);
+                proto
+            }];
+            proto
+        };
+
+        let mut visited = Vec::new();
+        let result = process_history_sync_bytes_filtered(
+            Bytes::from(encode_and_compress(&hs)),
+            None,
+            false,
+            |record| {
+                assert_eq!(record.conversation_index, 0);
+                assert_eq!(record.chat_id, chat);
+                assert_eq!(record.secret.len(), 32);
+                visited.push(record.msg_id.to_string());
+                record.msg_id == "KEEP"
+            },
+        )
+        .unwrap();
+
+        assert_eq!(visited, ["DROP", "KEEP"]);
+        assert_eq!(result.conversations_processed, 1);
+        assert_eq!(result.tc_token_candidates.len(), 1);
+        assert_eq!(result.msg_secret_records.len(), 1);
+        assert_eq!(result.msg_secret_records[0].msg_id, "KEEP");
+        assert!(result.msg_secret_records[0].from_me);
+    }
+
+    #[test]
+    fn borrowed_record_visitor_avoids_owned_record_collection() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let mut message = keyed("VISIT", false, None);
+        message.message_secret = Some(vec![0x44; 32]);
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some(message);
+                    proto
+                }];
+                proto
+            }];
+            proto
+        };
+
+        let mut visited = Vec::new();
+        let result = process_history_sync_bytes_with_record_visitor(
+            Bytes::from(encode_and_compress(&hs)),
+            None,
+            false,
+            |record| visited.push((record.chat_id.to_owned(), record.msg_id.to_owned())),
+        )
+        .unwrap();
+
+        assert_eq!(visited, [(chat.to_owned(), "VISIT".to_owned())]);
+        assert!(result.msg_secret_records.is_empty());
+    }
+
+    #[test]
+    fn borrowed_record_visitor_receives_bounded_capacity_hint() {
+        const RECORD_COUNT: usize = 256;
+
+        struct ReservingVisitor {
+            visits: std::rc::Rc<std::cell::Cell<usize>>,
+            largest_reserve: std::rc::Rc<std::cell::Cell<usize>>,
+        }
+
+        impl HistoryMsgSecretRecordVisitor for ReservingVisitor {
+            fn visit(&mut self, _record: HistoryMsgSecretRecordRef<'_>) -> usize {
+                self.visits.set(self.visits.get() + 1);
+                1
+            }
+
+            fn reserve(&mut self, additional: usize) {
+                self.largest_reserve
+                    .set(self.largest_reserve.get().max(additional));
+            }
+
+            fn retained_item_size(&self) -> Option<std::num::NonZeroUsize> {
+                std::num::NonZeroUsize::new(size_of::<u64>())
+            }
+        }
+
+        let messages = (0..RECORD_COUNT)
+            .map(|index| {
+                let mut message = keyed(&format!("VISIT_{index}"), false, None);
+                message.message_secret = Some(vec![0x44; 32]);
+                {
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some(message);
+                    proto
+                }
+            })
+            .collect();
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "5511777776666@s.whatsapp.net".into();
+                proto.messages = messages;
+                proto
+            }];
+            proto
+        };
+        let visits = std::rc::Rc::new(std::cell::Cell::new(0));
+        let largest_reserve = std::rc::Rc::new(std::cell::Cell::new(0));
+
+        let result = process_history_sync_bytes_with_record_sink(
+            Bytes::from(encode_and_compress(&hs)),
+            None,
+            false,
+            ReservingVisitor {
+                visits: std::rc::Rc::clone(&visits),
+                largest_reserve: std::rc::Rc::clone(&largest_reserve),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(visits.get(), RECORD_COUNT);
+        assert!(largest_reserve.get() > 0);
+        assert!(result.msg_secret_records.is_empty());
+    }
+
+    /// Regression: a single malformed message inside a conversation must NOT
+    /// discard the conversation's other message secrets or its tctoken. The
+    /// pre-fix code decoded the whole conversation as one view (all-or-nothing),
+    /// so one bad message dropped everything.
+    #[test]
+    fn malformed_message_does_not_drop_conversation_secrets_or_tctoken() {
+        let chat = "5511777776666@s.whatsapp.net";
+        let secret = vec![0x44u8; 32];
+        let tc_token = vec![0x99u8; 16];
+
+        // Hand-build the conversation bytes: id (1), a valid message (2), a
+        // CORRUPT message (2) with a length-delimited subfield whose declared
+        // length runs past its own bytes, then tctoken (21) + ts (22).
+        fn write_tag(buf: &mut Vec<u8>, field: u32, wt: u32) {
+            let tag = (field << 3) | wt;
+            let mut v = tag as u64;
+            loop {
+                let b = (v & 0x7f) as u8;
+                v >>= 7;
+                if v != 0 {
+                    buf.push(b | 0x80);
+                } else {
+                    buf.push(b);
+                    break;
+                }
+            }
+        }
+        fn write_len(buf: &mut Vec<u8>, mut n: u64) {
+            loop {
+                let b = (n & 0x7f) as u8;
+                n >>= 7;
+                if n != 0 {
+                    buf.push(b | 0x80);
+                } else {
+                    buf.push(b);
+                    break;
+                }
+            }
+        }
+        fn write_ld(buf: &mut Vec<u8>, field: u32, payload: &[u8]) {
+            write_tag(buf, field, 2);
+            write_len(buf, payload.len() as u64);
+            buf.extend_from_slice(payload);
+        }
+
+        let valid_msg = {
+            let mut proto = wa::HistorySyncMsg::default();
+            proto.message = buffa::MessageField::some({
+                let mut proto = wa::WebMessageInfo::default();
+                proto.key = buffa::MessageField::some({
+                    let mut proto = wa::MessageKey::default();
+                    proto.remote_jid = Some(chat.to_string());
+                    proto.from_me = Some(false);
+                    proto.id = Some("GOOD_MSG".to_string());
+                    proto.participant = None;
+                    proto
+                });
+                proto.message_secret = Some(secret.clone());
+                proto
+            });
+            proto
+        }
+        .encode_to_vec();
+
+        // Corrupt message: field 1 (LEN) claims 50 bytes but only 1 follows.
+        let corrupt_msg = {
+            let mut m = Vec::new();
+            write_tag(&mut m, 1, 2);
+            write_len(&mut m, 50);
+            m.push(0x00);
+            m
+        };
+
+        let mut conv = Vec::new();
+        write_ld(&mut conv, 1, chat.as_bytes()); // id
+        write_ld(&mut conv, 2, &corrupt_msg); // bad message FIRST (worst case)
+        write_ld(&mut conv, 2, &valid_msg); // good message after the bad one
+        write_ld(&mut conv, 21, &tc_token); // tctoken
+        write_tag(&mut conv, 22, 0); // tctoken timestamp (varint)
+        write_len(&mut conv, 1_700_000_000);
+
+        // Wrap conv as HistorySync.conversations[0] (field 2).
+        let mut hs_bytes = Vec::new();
+        write_tag(&mut hs_bytes, 1, 0); // sync_type (varint)
+        // INITIAL_BOOTSTRAP = 0 on the wire
+        write_len(&mut hs_bytes, 0u64);
+        write_ld(&mut hs_bytes, 2, &conv);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&hs_bytes).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        // Both paths (full retain + streaming) must keep the good secret + tctoken.
+        for retain in [true, false] {
+            let result = process_history_sync(compressed.clone(), None, retain).unwrap();
+            assert_eq!(
+                result.msg_secret_records.len(),
+                1,
+                "good message secret must survive a malformed sibling (retain={retain})"
+            );
+            assert_eq!(result.msg_secret_records[0].msg_id, "GOOD_MSG");
+            assert_eq!(
+                result.msg_secret_records[0].secret.as_slice(),
+                secret.as_slice()
+            );
+            assert_eq!(
+                result.tc_token_candidates.len(),
+                1,
+                "tctoken must survive a malformed message (retain={retain})"
+            );
+            assert_eq!(
+                result.tc_token_candidates[0].tc_token.as_slice(),
+                tc_token.as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn test_forwarded_message_secrets_skipped_from_history_sync() {
+        let chat = "5511000000001@s.whatsapp.net";
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::WebMessageInfo::default();
+                        proto.key = buffa::MessageField::some({
+                            let mut proto = wa::MessageKey::default();
+                            proto.remote_jid = Some(chat.to_string());
+                            proto.from_me = Some(false);
+                            proto.id = Some("HIST_FORWARDED".to_string());
+                            proto
+                        });
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::Message::default();
+                            proto.extended_text_message = buffa::MessageField::some({
+                                let mut proto = wa::message::ExtendedTextMessage::default();
+                                proto.text = Some("forwarded".into());
+                                proto.context_info = buffa::MessageField::some({
+                                    let mut proto = wa::ContextInfo::default();
+                                    proto.is_forwarded = Some(true);
+                                    proto
+                                });
+                                proto
+                            });
+                            proto.message_context_info = buffa::MessageField::some({
+                                let mut proto = wa::MessageContextInfo::default();
+                                proto.message_secret = Some(vec![0x66u8; 32]);
+                                proto
+                            });
+                            proto
+                        });
+                        proto
+                    });
+                    proto
+                }];
+                proto
+            }];
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+
+        assert!(result.msg_secret_records.is_empty());
+    }
+
+    #[test]
+    fn test_nested_forwarded_message_secrets_skipped_from_history_sync() {
+        let chat = "5511000000002@s.whatsapp.net";
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = chat.into();
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::WebMessageInfo::default();
+                        proto.key = buffa::MessageField::some({
+                            let mut proto = wa::MessageKey::default();
+                            proto.remote_jid = Some(chat.to_string());
+                            proto.from_me = Some(false);
+                            proto.id = Some("HIST_NESTED_FORWARDED".to_string());
+                            proto
+                        });
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::Message::default();
+                            proto.view_once_message = buffa::MessageField::some({
+                                let mut proto = wa::message::FutureProofMessage::default();
+                                proto.message = buffa::MessageField::some({
+                                    let mut proto = wa::Message::default();
+                                    proto.ephemeral_message = buffa::MessageField::some({
+                                        let mut proto = wa::message::FutureProofMessage::default();
+                                        proto.message = buffa::MessageField::some({
+                                            let mut proto = wa::Message::default();
+                                            proto.extended_text_message =
+                                                buffa::MessageField::some({
+                                                    let mut proto =
+                                                        wa::message::ExtendedTextMessage::default();
+                                                    proto.text = Some("nested".into());
+                                                    proto.context_info =
+                                                        buffa::MessageField::some({
+                                                            let mut proto =
+                                                                wa::ContextInfo::default();
+                                                            proto.is_forwarded = Some(true);
+                                                            proto
+                                                        });
+                                                    proto
+                                                });
+                                            proto
+                                        });
+                                        proto
+                                    });
+                                    proto
+                                });
+                                proto
+                            });
+                            proto.message_context_info = buffa::MessageField::some({
+                                let mut proto = wa::MessageContextInfo::default();
+                                proto.message_secret = Some(vec![0x77u8; 32]);
+                                proto
+                            });
+                            proto
+                        });
+                        proto
+                    });
+                    proto
+                }];
+                proto
+            }];
+            proto
+        };
+
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+
+        assert!(result.msg_secret_records.is_empty());
+    }
+
+    /// Differential oracle: the pre-streaming full-buffer walk, kept test-only
+    /// so the parity check compares the production stream against an
+    /// independent implementation instead of a second production path.
+    fn reference_full_walk(decompressed: &[u8], own_user: Option<&str>) -> HistorySyncResult {
+        let mut pos = 0;
+        let mut accept_all = FilteredRecordSink(|_: HistoryMsgSecretRecordRef<'_>| true);
+        let mut result = HistorySyncResult {
+            own_pushname: None,
+            nct_salt: None,
+            conversations_processed: 0,
+            call_log_records: Vec::new(),
+            tc_token_candidates: Vec::new(),
+            msg_secret_records: Vec::new(),
+            lid_mappings: Vec::new(),
+            compressed_bytes: None,
+            decompressed_size: decompressed.len(),
+        };
+
+        while pos < decompressed.len() {
+            let (tag, bytes_read) = read_varint(&decompressed[pos..]).unwrap();
+            pos += bytes_read;
+            let field_number = (tag >> 3) as u32;
+            let wt = (tag & 0x7) as u32;
+            match field_number {
+                tags::history_sync::CONVERSATIONS if wt == wire_type::LENGTH_DELIMITED => {
+                    let (len, vlen) = read_varint(&decompressed[pos..]).unwrap();
+                    pos += vlen;
+                    let end = checked_end(pos, len, decompressed.len()).unwrap();
+                    let conversation_index = result.conversations_processed;
+                    result.conversations_processed += 1;
+                    if let Some(candidate) = extract_conversation_fields(
+                        &decompressed[pos..end],
+                        conversation_index,
+                        &mut result.msg_secret_records,
+                        &mut accept_all,
+                        &mut result.lid_mappings,
+                    ) {
+                        result.tc_token_candidates.push(candidate);
+                    }
+                    pos = end;
+                }
+                tags::history_sync::PUSHNAMES
+                    if own_user.is_some()
+                        && result.own_pushname.is_none()
+                        && wt == wire_type::LENGTH_DELIMITED =>
+                {
+                    let (len, vlen) = read_varint(&decompressed[pos..]).unwrap();
+                    pos += vlen;
+                    let end = checked_end(pos, len, decompressed.len()).unwrap();
+                    if let Some(own) = own_user
+                        && let Some(name) = extract_own_pushname(&decompressed[pos..end], own)
+                    {
+                        result.own_pushname = Some(name);
+                    }
+                    pos = end;
+                }
+                tags::history_sync::NCT_SALT if wt == wire_type::LENGTH_DELIMITED => {
+                    let (len, vlen) = read_varint(&decompressed[pos..]).unwrap();
+                    pos += vlen;
+                    let end = checked_end(pos, len, decompressed.len()).unwrap();
+                    let salt = decompressed[pos..end].to_vec();
+                    if !salt.is_empty() {
+                        result.nct_salt = Some(salt);
+                    }
+                    pos = end;
+                }
+                tags::history_sync::PHONE_NUMBER_TO_LID_MAPPINGS
+                    if wt == wire_type::LENGTH_DELIMITED =>
+                {
+                    let (len, vlen) = read_varint(&decompressed[pos..]).unwrap();
+                    pos += vlen;
+                    let end = checked_end(pos, len, decompressed.len()).unwrap();
+                    if let Some(mapping) = extract_lid_mapping(&decompressed[pos..end]) {
+                        result.lid_mappings.push(mapping);
+                    }
+                    pos = end;
+                }
+                _ => {
+                    pos = skip_field(wt, decompressed, pos).unwrap();
+                }
+            }
+        }
+        dedupe_lid_mappings(&mut result.lid_mappings);
+        result
+    }
+
+    /// Multi-conversation fixture: a >64 KB DM (spans decompress chunks, has a
+    /// tctoken), a group (tctoken must be ignored), pushname and nctSalt.
+    fn parity_fixture(own: &str) -> wa::HistorySync {
+        let dm = "5511777776666@s.whatsapp.net";
+        let group = "123456789-987654321@g.us";
+        let participant = "5511888889999@s.whatsapp.net";
+
+        let mut big_msgs = Vec::new();
+        for i in 0..1500u32 {
+            big_msgs.push({
+                let mut proto = wa::HistorySyncMsg::default();
+                proto.message = buffa::MessageField::some({
+                    let mut proto = wa::WebMessageInfo::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.remote_jid = Some(dm.to_string());
+                        proto.from_me = Some(i % 2 == 0);
+                        proto.id = Some(format!("BIG-{i}"));
+                        proto.participant = Some(participant.to_string());
+                        proto
+                    });
+                    proto.message_timestamp = Some(1_700_000_000 + i as u64);
+                    proto.message_secret = Some(vec![(i % 251) as u8; 32]);
+                    proto
+                });
+                proto.msg_order_id = Some(i as u64 + 1);
+                proto
+            });
+        }
+        let big_conv = {
+            let mut proto = wa::Conversation::default();
+            proto.id = dm.into();
+            proto.messages = big_msgs;
+            proto.tc_token = Some(vec![0xABu8; 16]);
+            proto.tc_token_timestamp = Some(1_700_000_123);
+            proto
+        };
+
+        // Group conversation: a secret message, but its tctoken must be ignored.
+        let group_conv = {
+            let mut proto = wa::Conversation::default();
+            proto.id = group.into();
+            proto.messages = vec![{
+                let mut proto = wa::HistorySyncMsg::default();
+                proto.message = buffa::MessageField::some({
+                    let mut proto = wa::WebMessageInfo::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.remote_jid = Some(group.to_string());
+                        proto.from_me = Some(false);
+                        proto.id = Some("GRP-1".to_string());
+                        proto.participant = Some(participant.to_string());
+                        proto
+                    });
+                    proto.message_secret = Some(vec![0x33u8; 32]);
+                    proto
+                });
+                proto.msg_order_id = Some(1);
+                proto
+            }];
+            proto.tc_token = Some(vec![0xCDu8; 16]);
+            proto.tc_token_timestamp = Some(1_700_000_456);
+            proto
+        };
+
+        {
+            let mut proto = wa::HistorySync::default();
+            proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+            proto.conversations = vec![big_conv, group_conv];
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default(); // JID form, the way the server actually sends it, so the parity
+                // walk exercises the same path production does.
+
+                proto.id = Some(format!("{own}@s.whatsapp.net"));
+                proto.pushname = Some("Me".into());
+                proto
+            }];
+            proto.nct_salt = Some(vec![0x01, 0x02, 0x03, 0x04]);
+            proto.phone_number_to_lid_mappings = vec![
+                {
+                    let mut proto = wa::PhoneNumberToLIDMapping::default();
+                    proto.pn_jid = Some("5511777776666@s.whatsapp.net".to_string());
+                    proto.lid_jid = Some("111222333444555@lid".to_string());
+                    proto
+                },
+                // Wrong namespace: both walks must skip it identically.
+                {
+                    let mut proto = wa::PhoneNumberToLIDMapping::default();
+                    proto.pn_jid = Some("999888777666555@lid".to_string());
+                    proto.lid_jid = Some("111222333444555@lid".to_string());
+                    proto
+                },
+            ];
+            proto
+        }
+    }
+
+    /// The production extraction (always streaming) must match the test-only
+    /// full-buffer reference walk byte for byte, and `retain_blob` must hand
+    /// the compressed input back with the exact inflated size.
+    #[test]
+    fn streaming_extraction_matches_full_buffer_reference() {
+        let own = "5511000000000";
+        let hs = parity_fixture(own);
+        let compressed = encode_and_compress(&hs);
+        let decompressed =
+            wacore_binary::zlib_pool::decompress_zlib_pooled(&compressed, MAX_DECOMPRESSED)
+                .unwrap();
+
+        let reference = reference_full_walk(&decompressed, Some(own));
+        let streamed = process_history_sync(compressed.clone(), Some(own), false).unwrap();
+        let retained = process_history_sync(compressed.clone(), Some(own), true).unwrap();
+
+        assert!(streamed.compressed_bytes.is_none(), "no-retain drops input");
+        assert_eq!(
+            retained.compressed_bytes.as_deref(),
+            Some(compressed.as_slice()),
+            "retain hands the original compressed input back"
+        );
+        assert_eq!(streamed.decompressed_size, decompressed.len());
+        assert_eq!(retained.decompressed_size, decompressed.len());
+
+        for result in [&streamed, &retained] {
+            assert_eq!(result.nct_salt, reference.nct_salt);
+            assert_eq!(result.own_pushname, reference.own_pushname);
+            assert_eq!(result.own_pushname.as_deref(), Some("Me"));
+            assert_eq!(
+                result.conversations_processed,
+                reference.conversations_processed
+            );
+            assert_eq!(result.conversations_processed, 2);
+            assert_eq!(result.tc_token_candidates, reference.tc_token_candidates);
+            assert_eq!(
+                result.tc_token_candidates.len(),
+                1,
+                "only the DM has a tctoken"
+            );
+            assert_eq!(result.msg_secret_records, reference.msg_secret_records);
+            assert_eq!(result.msg_secret_records.len(), 1500 + 1);
+            assert_eq!(result.lid_mappings, reference.lid_mappings);
+            assert_eq!(
+                result.lid_mappings,
+                vec![HistoryLidMapping {
+                    phone_number: "5511777776666".into(),
+                    lid: "111222333444555".into(),
+                    source: HistoryLidMappingSource::Bulk,
+                }],
+                "valid mapping extracted, wrong-namespace entry skipped"
+            );
+        }
+    }
+
+    /// Collecting `next_conversation()` + `remainder()` and stitching them back
+    /// together must equal one full decode of the decompressed blob.
+    #[test]
+    fn stream_parity_with_full_decode() {
+        let own = "5511000000000";
+        let hs = parity_fixture(own);
+        let compressed = encode_and_compress(&hs);
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let mut conversations = Vec::new();
+        while let Some(conversation) = stream.next_conversation().unwrap() {
+            conversations.push(conversation);
+        }
+        assert_eq!(stream.skipped_conversations(), 0);
+        let mut stitched = stream.remainder().unwrap();
+        assert!(stitched.conversations.is_empty());
+        stitched.conversations = conversations;
+
+        let decompressed =
+            wacore_binary::zlib_pool::decompress_zlib_pooled(&compressed, MAX_DECOMPRESSED)
+                .unwrap();
+        let full = waproto::codec::history_sync_decode(&decompressed).unwrap();
+        assert_eq!(stitched, full);
+    }
+
+    /// Conversations interleaved with other top-level fields in any wire order
+    /// must stream identically: the remainder accumulation makes order
+    /// irrelevant.
+    #[test]
+    fn stream_handles_field_order_shuffled_blobs() {
+        let conv_a = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511111111111@s.whatsapp.net".into();
+            proto
+        };
+        let conv_b = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511222222222@s.whatsapp.net".into();
+            proto
+        };
+        let pushname = {
+            let mut proto = wa::Pushname::default();
+            proto.id = Some("5511000000000".into());
+            proto.pushname = Some("Me".into());
+            proto
+        };
+
+        // pushname, conv A, unknown varint field, nctSalt, conv B.
+        let mut blob = Vec::new();
+        emit_len_field(
+            &mut blob,
+            tags::history_sync::PUSHNAMES,
+            &pushname.encode_to_vec(),
+        );
+        emit_len_field(
+            &mut blob,
+            tags::history_sync::CONVERSATIONS,
+            &conv_a.encode_to_vec(),
+        );
+        emit_varint(&mut blob, ((50 << 3) | wire_type::VARINT) as u64);
+        emit_varint(&mut blob, 7);
+        emit_len_field(&mut blob, tags::history_sync::NCT_SALT, &[0xAA, 0xBB]);
+        emit_len_field(
+            &mut blob,
+            tags::history_sync::CONVERSATIONS,
+            &conv_b.encode_to_vec(),
+        );
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let got_a = stream.next_conversation().unwrap().unwrap();
+        let got_b = stream.next_conversation().unwrap().unwrap();
+        assert!(stream.next_conversation().unwrap().is_none());
+        assert_eq!(got_a, conv_a);
+        assert_eq!(got_b, conv_b);
+
+        let remainder = stream.remainder().unwrap();
+        assert_eq!(remainder.pushnames, vec![pushname]);
+        assert_eq!(remainder.nct_salt.as_deref(), Some(&[0xAA, 0xBB][..]));
+        assert!(remainder.conversations.is_empty());
+    }
+
+    /// PushName-only / nctSalt-only / empty blobs: zero conversations, complete
+    /// remainder.
+    #[test]
+    fn stream_conversationless_blobs() {
+        let cases: Vec<wa::HistorySync> = vec![
+            {
+                let mut proto = wa::HistorySync::default();
+                proto.sync_type = wa::history_sync::HistorySyncType::PUSH_NAME;
+                proto.pushnames = vec![{
+                    let mut proto = wa::Pushname::default();
+                    proto.id = Some("5511000000000".into());
+                    proto.pushname = Some("Me".into());
+                    proto
+                }];
+                proto
+            },
+            {
+                let mut proto = wa::HistorySync::default();
+                proto.sync_type = wa::history_sync::HistorySyncType::INITIAL_BOOTSTRAP;
+                proto.nct_salt = Some(vec![1, 2, 3]);
+                proto
+            },
+            wa::HistorySync::default(),
+        ];
+
+        for hs in cases {
+            let compressed = encode_and_compress(&hs);
+            let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+            assert!(stream.next_conversation().unwrap().is_none());
+            let remainder = stream.remainder().unwrap();
+            assert_eq!(remainder, hs);
+        }
+    }
+
+    /// One corrupt conversation among valid ones: skipped and counted, the
+    /// stream continues and the remainder stays intact.
+    #[test]
+    fn stream_lenient_decode_skips_corrupt_conversation() {
+        let good = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511111111111@s.whatsapp.net".into();
+            proto
+        };
+        // Field 1 (id) claims 5 bytes but only 1 follows: prost decode fails.
+        let corrupt = [0x0A, 0x05, b'x'];
+
+        let mut blob = Vec::new();
+        emit_len_field(
+            &mut blob,
+            tags::history_sync::CONVERSATIONS,
+            &good.encode_to_vec(),
+        );
+        emit_len_field(&mut blob, tags::history_sync::CONVERSATIONS, &corrupt);
+        emit_len_field(
+            &mut blob,
+            tags::history_sync::CONVERSATIONS,
+            &good.encode_to_vec(),
+        );
+        emit_len_field(&mut blob, tags::history_sync::NCT_SALT, &[0x42]);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let mut decoded = Vec::new();
+        while let Some(conversation) = stream.next_conversation().unwrap() {
+            decoded.push(conversation);
+        }
+        assert_eq!(decoded, vec![good.clone(), good]);
+        assert_eq!(stream.skipped_conversations(), 1);
+        let remainder = stream.remainder().unwrap();
+        assert_eq!(remainder.nct_salt.as_deref(), Some(&[0x42][..]));
+    }
+
+    /// Level 1 still yields the corrupt entry's raw bytes (leniency is a level
+    /// 2 policy).
+    #[test]
+    fn stream_level1_yields_raw_bytes_verbatim() {
+        let corrupt = [0x0A, 0x05, b'x'];
+        let mut blob = Vec::new();
+        emit_len_field(&mut blob, tags::history_sync::CONVERSATIONS, &corrupt);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        assert_eq!(
+            stream.next_conversation_bytes().unwrap(),
+            Some(&corrupt[..])
+        );
+        assert!(stream.next_conversation_bytes().unwrap().is_none());
+    }
+
+    /// A zero-length conversation entry is yielded (empty slice; decodes to the
+    /// default Conversation), not conflated with EOF.
+    #[test]
+    fn stream_zero_length_conversation() {
+        let mut blob = Vec::new();
+        emit_len_field(&mut blob, tags::history_sync::CONVERSATIONS, &[]);
+
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let conversation = stream.next_conversation().unwrap().unwrap();
+        assert_eq!(conversation, wa::Conversation::default());
+        assert!(stream.next_conversation().unwrap().is_none());
+    }
+
+    /// Truncated zlib stream and truncated length-delimited field both surface
+    /// clean errors.
+    #[test]
+    fn stream_truncated_inputs_error_cleanly() {
+        let hs = parity_fixture("5511000000000");
+        let compressed = encode_and_compress(&hs);
+        let truncated_zlib = &compressed[..compressed.len() / 2];
+        let mut stream = HistorySyncStream::new(truncated_zlib, MAX_DECOMPRESSED);
+        let mut saw_error = false;
+        loop {
+            match stream.next_conversation_bytes() {
+                Ok(Some(_)) => continue,
+                Ok(None) => break,
+                Err(e) => {
+                    saw_error = true;
+                    assert!(matches!(
+                        e,
+                        HistorySyncError::DecompressionError(_)
+                            | HistorySyncError::MalformedProtobuf(_)
+                    ));
+                    break;
+                }
+            }
+        }
+        assert!(saw_error, "a half zlib stream must not parse cleanly");
+
+        // A field that claims more payload than the stream carries.
+        let mut blob = Vec::new();
+        emit_varint(
+            &mut blob,
+            ((tags::history_sync::CONVERSATIONS << 3) | wire_type::LENGTH_DELIMITED) as u64,
+        );
+        emit_varint(&mut blob, 100);
+        blob.extend_from_slice(&[0u8; 10]);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        assert!(matches!(
+            stream.next_conversation_bytes(),
+            Err(HistorySyncError::MalformedProtobuf(_))
+        ));
+    }
+
+    /// A conversation far larger than the inflate window must force the window
+    /// to grow and still come out intact.
+    #[test]
+    fn stream_window_grows_for_large_conversation() {
+        let big = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511111111111@s.whatsapp.net".into();
+            proto.messages = vec![{
+                let mut proto = wa::HistorySyncMsg::default();
+                proto.message = buffa::MessageField::some({
+                    let mut proto = wa::WebMessageInfo::default();
+                    proto.key = buffa::MessageField::some({
+                        let mut proto = wa::MessageKey::default();
+                        proto.id = Some("BIG".into());
+                        proto
+                    });
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::Message::default();
+                        proto.conversation = Some("x".repeat(1_000_000));
+                        proto
+                    });
+                    proto
+                });
+                proto
+            }];
+            proto
+        };
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![big.clone()];
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let got = stream.next_conversation().unwrap().unwrap();
+        assert_eq!(got, big);
+        assert!(stream.next_conversation().unwrap().is_none());
+    }
+
+    /// Many mid-size conversations force repeated window refills, so field
+    /// headers straddle inflate chunk boundaries somewhere along the way.
+    #[test]
+    fn stream_survives_many_window_refills() {
+        let mut conversations = Vec::new();
+        for i in 0..50u32 {
+            conversations.push({
+                let mut proto = wa::Conversation::default();
+                proto.id = format!("55119{i:08}@s.whatsapp.net");
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::WebMessageInfo::default();
+                        proto.key = buffa::MessageField::some({
+                            let mut proto = wa::MessageKey::default();
+                            proto.id = Some(format!("M{i}"));
+                            proto
+                        });
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::Message::default();
+                            proto.conversation = Some(format!("{i}").repeat(4_000));
+                            proto
+                        });
+                        proto
+                    });
+                    proto
+                }];
+                proto
+            });
+        }
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = conversations.clone();
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let mut got = Vec::new();
+        while let Some(conversation) = stream.next_conversation().unwrap() {
+            got.push(conversation);
+        }
+        assert_eq!(got, conversations);
+    }
+
+    /// Inflating past `max_decompressed` must error instead of allocating.
+    #[test]
+    fn stream_enforces_decompressed_cap() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![{
+                let mut proto = wa::Conversation::default();
+                proto.id = "5511111111111@s.whatsapp.net".into();
+                proto.messages = vec![{
+                    let mut proto = wa::HistorySyncMsg::default();
+                    proto.message = buffa::MessageField::some({
+                        let mut proto = wa::WebMessageInfo::default();
+                        proto.message = buffa::MessageField::some({
+                            let mut proto = wa::Message::default();
+                            proto.conversation = Some("y".repeat(64 * 1024));
+                            proto
+                        });
+                        proto
+                    });
+                    proto
+                }];
+                proto
+            }];
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+
+        let mut stream = HistorySyncStream::new(&compressed, 1024);
+        assert!(matches!(
+            stream.next_conversation_bytes(),
+            Err(HistorySyncError::DecompressionError(_))
+        ));
+    }
+
+    /// `remainder()` before exhaustion drains the tail; an unread conversation
+    /// in it is a loud error, while a conversation-free tail succeeds.
+    #[test]
+    fn stream_remainder_before_exhaustion_is_fail_loud() {
+        let conv = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511111111111@s.whatsapp.net".into();
+            proto
+        };
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![conv];
+            proto.nct_salt = Some(vec![9]);
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+        let stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        assert!(matches!(
+            stream.remainder(),
+            Err(HistorySyncError::UnreadConversations)
+        ));
+
+        // Without conversations the early call is fine: the drain only meets
+        // remainder fields.
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.nct_salt = Some(vec![9]);
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+        let stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        let remainder = stream.remainder().unwrap();
+        assert_eq!(remainder.nct_salt.as_deref(), Some(&[9][..]));
+    }
+
+    /// A zlib stream cut exactly at a protobuf field boundary (all fields
+    /// parse, but no zlib terminator) must NOT pass as a successfully parsed
+    /// blob: the old retained path rejected it via the full decompress, and a
+    /// dispatched event would fail every later get()/decompress().
+    #[test]
+    fn truncated_zlib_without_terminator_is_rejected() {
+        let conv = {
+            let mut proto = wa::Conversation::default();
+            proto.id = "5511111111111@s.whatsapp.net".into();
+            proto
+        };
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![conv.clone()];
+            proto
+        };
+
+        // Sync-flush makes every written byte inflatable, then drop the
+        // encoder without finish(): a valid prefix with no terminator, so the
+        // inflater exhausts input cleanly right at the field boundary.
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(&waproto::codec::history_sync_to_vec(&hs))
+            .unwrap();
+        encoder.flush().unwrap();
+        let truncated = encoder.get_ref().clone();
+
+        // Sanity: the same bytes WITH the terminator parse fine.
+        let complete = encoder.finish().unwrap();
+        assert!(process_history_sync(complete, None, true).is_ok());
+
+        // Extraction rejects the truncated form outright (no side effects, no
+        // event).
+        assert!(matches!(
+            process_history_sync(truncated.clone(), None, true),
+            Err(HistorySyncError::MalformedProtobuf(_))
+        ));
+
+        // The public stream yields the conversations it can, then surfaces the
+        // truncation instead of reporting clean EOF.
+        let mut stream = HistorySyncStream::new(&truncated, MAX_DECOMPRESSED);
+        assert_eq!(stream.next_conversation().unwrap().unwrap(), conv);
+        assert!(matches!(
+            stream.next_conversation(),
+            Err(HistorySyncError::MalformedProtobuf(_))
+        ));
+    }
+
+    /// Deterministic mutation fuzz: every byte-level corruption of a valid
+    /// blob must surface as a clean error or lenient skip, never a panic, on
+    /// both the public stream and the extraction pass.
+    #[test]
+    fn stream_and_extractor_survive_mutated_inputs() {
+        let hs = {
+            let mut proto = wa::HistorySync::default();
+            proto.conversations = vec![
+                {
+                    let mut proto = wa::Conversation::default();
+                    proto.id = "5511111111111@s.whatsapp.net".into();
+                    proto
+                },
+                {
+                    let mut proto = wa::Conversation::default();
+                    proto.id = "5511222222222@s.whatsapp.net".into();
+                    proto
+                },
+            ];
+            proto.pushnames = vec![{
+                let mut proto = wa::Pushname::default();
+                proto.id = Some("5511000000000".into());
+                proto.pushname = Some("Me".into());
+                proto
+            }];
+            proto.nct_salt = Some(vec![1, 2, 3, 4]);
+            proto
+        };
+        let compressed = encode_and_compress(&hs);
+
+        let mut seed = 0x9E37_79B9u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+
+        for _ in 0..10_000 {
+            let mut mutated = compressed.clone();
+            for _ in 0..=(next() % 3) {
+                match next() % 4 {
+                    0 if !mutated.is_empty() => {
+                        let len = mutated.len();
+                        mutated.truncate(next() as usize % len);
+                    }
+                    _ if !mutated.is_empty() => {
+                        let len = mutated.len();
+                        let idx = next() as usize % len;
+                        mutated[idx] ^= (next() % 255 + 1) as u8;
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut stream = HistorySyncStream::new(&mutated, MAX_DECOMPRESSED);
+            while let Ok(Some(_)) = stream.next_conversation() {}
+            let _ = stream.remainder();
+            let _ = process_history_sync(mutated, None, true);
+        }
+    }
+
+    /// Group wire types (3/4) don't exist in HistorySync; the stream mirrors
+    /// the extractor and rejects them as malformed.
+    #[test]
+    fn stream_unknown_wire_type_errors() {
+        let mut blob = Vec::new();
+        emit_varint(&mut blob, ((99 << 3) | wire_type::START_GROUP) as u64);
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&blob).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut stream = HistorySyncStream::new(&compressed, MAX_DECOMPRESSED);
+        assert!(matches!(
+            stream.next_conversation_bytes(),
+            Err(HistorySyncError::MalformedProtobuf(_))
+        ));
+    }
+
+    /// The extraction pass reports the exact inflated size.
+    #[test]
+    fn extraction_reports_exact_decompressed_size() {
+        let hs = parity_fixture("5511000000000");
+        let raw_len = waproto::codec::history_sync_to_vec(&hs).len();
+        let compressed = encode_and_compress(&hs);
+        let result = process_history_sync(compressed, None, false).unwrap();
+        assert_eq!(result.decompressed_size, raw_len);
+    }
+}

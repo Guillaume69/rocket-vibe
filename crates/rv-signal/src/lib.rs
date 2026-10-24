@@ -16,11 +16,13 @@ mod session;
 
 pub use curve::{KEY_TYPE, KeyPair, PrivateKey, PublicKey};
 pub use error::{Error, Result};
-pub use group::SenderKeyRecord;
+pub use group::{GroupKeys, SenderKeyRecord, SenderKeyState};
 pub use message::{
     Kind, PreKeySignalMessage, SenderKeyDistributionMessage, SenderKeyMessage, SignalMessage,
 };
-pub use session::{Decrypted, LocalIdentity, PreKeyBundle, SessionRecord, SessionState};
+pub use session::{
+    ChainKey, Decrypted, LocalIdentity, MessageKeys, PreKeyBundle, SessionRecord, SessionState,
+};
 
 #[cfg(test)]
 mod tests;

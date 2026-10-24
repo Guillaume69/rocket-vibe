@@ -1,0 +1,19 @@
+[package]
+name = "wacore-crypto"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+license = "MIT"
+description = "The symmetric primitives the WhatsApp engine uses: AES-GCM, AES-CBC, HMAC, SHA-2"
+
+[dependencies]
+aes = { workspace = true }
+aes-gcm = { workspace = true }
+bytes = { workspace = true }
+cbc = { workspace = true, features = ["block-padding"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

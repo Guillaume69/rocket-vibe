@@ -1,0 +1,54 @@
+[package]
+name = "wacore-binary"
+version = "0.7.0"
+edition = "2024"
+rust-version.workspace = true
+authors = ["João Lucas <jlucaso@hotmail.com>"]
+license = "MIT"
+repository = "https://github.com/oxidezap/whatsapp-rust"
+description = "Binary data and constants for WhatsApp protocol"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+serde = ["dep:serde", "compact_str/serde", "smallvec/serde"]
+# Render raw phone numbers in `Jid::observe()` instead of the redacted `pn#<hash>`.
+# Local debugging only; never enable in production.
+tracing-pii = []
+
+[dependencies]
+bytes = { workspace = true }
+compact_str = { workspace = true }
+itoa = { workspace = true }
+serde = { workspace = true, optional = true }
+smallvec = { workspace = true }
+smoothutf8 = { workspace = true }
+stable_deref_trait = "1.2.1"
+yoke = { workspace = true }
+zlib-rs = { workspace = true }
+
+[build-dependencies]
+serde = { workspace = true, features = ["alloc"] }
+serde_json = { workspace = true, features = ["std"] }
+
+[dev-dependencies]
+divan = { workspace = true }
+flate2 = { workspace = true }
+proptest = "1.11.0"
+serde_json = { workspace = true, features = ["std"] }
+
+[[bench]]
+name = "binary_benchmark"
+harness = false
+
+[[bench]]
+name = "jid_benchmark"
+harness = false
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "group_fanout_benchmark"
+harness = false

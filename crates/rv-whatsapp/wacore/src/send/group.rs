@@ -1,0 +1,746 @@
+//! Group stanza preparation, phash/stale-device helpers and sender-key distribution.
+
+use super::*;
+
+/// Retain devices that may receive a sender-key distribution. Reuses the
+/// caller's allocation and centralizes the exact-sender/hosted exclusions used
+/// by both normal and targeted sends.
+pub fn retain_skdm_distribution_targets(devices: &mut Vec<Jid>, own_sending_jid: &Jid) {
+    devices.retain(|device| {
+        !(device.user == own_sending_jid.user && device.device == own_sending_jid.device)
+            && !device.is_hosted()
+    });
+}
+
+/// Result of `prepare_group_stanza` — carries the stanza node and the exact
+/// device list used for SKDM distribution, so callers can persist sender key
+/// tracking without re-resolving devices.
+pub struct PreparedGroupStanza {
+    pub node: Node,
+    /// Full SKDM distribution target set. After the server ACK the persist step
+    /// (`update_sender_key_devices`) marks `has_key=true`, mirroring WA Web
+    /// `markHasSenderKey(x, M)`: the whole target `M`, not only the devices that
+    /// encrypted successfully, so a failed external device (406 / no bundle) isn't
+    /// re-targeted every send (the retry-receipt path repairs any alive-but-keyless
+    /// one). Own devices are filtered out at persist time (WA Web `!isMeDevice`), so
+    /// own companions are never memoized and get a fresh SKDM every send.
+    pub skdm_devices: Vec<Jid>,
+    /// Users whose device registry should be invalidated because their
+    /// devices returned 406 (unregistered) during SKDM prekey fetch.
+    /// Empty when no 406 occurred.
+    pub stale_device_users: Vec<String>,
+    /// Generated `MessageContextInfo.message_secret`; populated when the
+    /// reporting token was produced for this send.
+    pub message_secret: Option<[u8; crate::reporting_token::MESSAGE_SECRET_SIZE]>,
+    /// The identity we addressed this group send under (LID for LID-mode
+    /// groups, PN for PN-mode). Used to key the persisted `messageSecret`
+    /// so msmsg bot replies referencing this msg_id hit the same row that
+    /// `<meta target_sender_jid>` echoes back at lookup time.
+    pub sender_identity: Jid,
+    /// The phash on the stanza, so the caller can compare it against the one the
+    /// server echoes on the ack without re-reading the built node.
+    pub phash: Option<CompactString>,
+}
+
+/// A required sender-key distribution that could not reach every target.
+///
+/// The source chain preserves the concrete crypto or transport failure. When
+/// the failure followed a 406 pre-key response, `stale_device_users` identifies
+/// registry entries the caller should invalidate before the next resolution.
+#[derive(Debug, thiserror::Error)]
+#[error("required sender-key distribution failed")]
+pub struct RequiredSenderKeyDistributionError {
+    #[source]
+    source: anyhow::Error,
+    stale_device_users: Vec<String>,
+}
+
+impl RequiredSenderKeyDistributionError {
+    fn new(source: anyhow::Error, stale_device_users: Vec<String>) -> Self {
+        Self {
+            source,
+            stale_device_users,
+        }
+    }
+
+    pub fn stale_device_users(&self) -> &[String] {
+        &self.stale_device_users
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SenderKeyDistributionPolicy {
+    /// Preserve normal fanout semantics by skipping devices that cannot receive
+    /// the distribution in this send.
+    #[default]
+    BestEffort,
+    /// Abort unless every requested device receives its distribution.
+    Required,
+}
+
+pub struct GroupStanzaRequest<'a> {
+    pub group: &'a GroupRoutingInfo,
+    pub own_jid: &'a Jid,
+    pub own_lid: &'a Jid,
+    pub account: Option<&'a wa::ADVSignedDeviceIdentity>,
+    pub to: &'a Jid,
+    pub message: &'a wa::Message,
+    pub message_id: &'a str,
+    pub force_distribution: bool,
+    pub distribution_targets: Option<Vec<Jid>>,
+    pub distribution_policy: SenderKeyDistributionPolicy,
+    pub phash_devices: Option<&'a ResolvedGroupDevices>,
+    pub edit: Option<&'a crate::types::message::EditAttribute>,
+    pub extra_nodes: &'a [Node],
+    pub pre_encoded: Option<&'a [u8]>,
+}
+
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.group_prepare", level = "debug", skip_all, err(Debug))
+)]
+pub async fn prepare_group_stanza(
+    runtime: &dyn Runtime,
+    stores: &mut SignalStores<'_>,
+    resolver: &dyn SendContextResolver,
+    request: GroupStanzaRequest<'_>,
+) -> Result<PreparedGroupStanza> {
+    let GroupStanzaRequest {
+        group: group_info,
+        own_jid,
+        own_lid,
+        account,
+        to: to_jid,
+        message,
+        message_id: request_id,
+        force_distribution: force_skdm_distribution,
+        distribution_targets: skdm_target_devices,
+        distribution_policy,
+        phash_devices: all_devices_for_phash,
+        edit,
+        extra_nodes: extra_stanza_nodes,
+        pre_encoded,
+    } = request;
+    let (own_sending_jid, _) = match group_info.addressing_mode {
+        crate::types::message::AddressingMode::Lid => (own_lid.clone(), "lid"),
+        crate::types::message::AddressingMode::Pn => (own_jid.clone(), "pn"),
+    };
+
+    // Encode the message at most once (reusing the caller's `pre_encoded` bytes when
+    // provided) and thread those bytes through both the reporting token
+    // (whitelisted-field extraction) and the skmsg wire plaintext below. The rare
+    // mci-hoist path (message carries a top-level message_context_info) can't share:
+    // its plaintext folds the reporting secret into the existing mci, diverging from
+    // the bytes the token is computed over, so it re-encodes.
+    let shared_content = message.message_context_info.is_unset().then(|| {
+        pre_encoded.map_or_else(
+            || std::borrow::Cow::Owned(waproto::codec::message_to_vec(message)),
+            std::borrow::Cow::Borrowed,
+        )
+    });
+
+    // Generate reporting token if the message type supports it.
+    // For groups, both sender_jid and remote_jid are the destination group JID.
+    // Reuse the message's own secret when the caller set one (e.g. polls) instead of minting a fresh
+    // one that would overwrite it, matching WA Web (the reporting token derives from messageSecret).
+    let existing_secret = crate::reporting_token::extract_message_secret(message);
+    let reporting_result = match &shared_content {
+        Some(content) => generate_reporting_token_from_encoded(
+            message,
+            content,
+            request_id,
+            to_jid,
+            to_jid,
+            existing_secret,
+        ),
+        None => generate_reporting_token(message, request_id, to_jid, to_jid, existing_secret),
+    };
+
+    // The reporting token's MessageContextInfo (message_secret + version) is spliced
+    // onto the encoded plaintext instead of deep-cloning the whole message via
+    // prepare_message_with_context just to attach two fields.
+    let reporting_context = reporting_result.as_ref().map(reporting_context_info);
+
+    let own_base_jid = own_sending_jid.to_non_ad();
+
+    let mut message_children: Vec<Node> = Vec::new();
+    let mut includes_prekey_message = false;
+    let mut phash_for_stanza: Option<CompactString> = None;
+    let mut skdm_encrypted_devices: Vec<Jid> = Vec::new();
+
+    // Determine if we need to distribute SKDM and to which devices.
+    // Resolved before the chain lock below: device resolution is network I/O
+    // on state independent of the sender-key chain.
+    let distribution_list: Option<Vec<Jid>> = if let Some(target_devices) = skdm_target_devices {
+        // Use the specific list of devices that need SKDM
+        if target_devices.is_empty() {
+            None
+        } else {
+            log::debug!(
+                "SKDM distribution to {} specific devices for group {}",
+                target_devices.len(),
+                to_jid.observe()
+            );
+            Some(target_devices)
+        }
+    } else if force_skdm_distribution {
+        // Resolve all devices for all participants (legacy behavior)
+        // For LID groups, use phone numbers for device queries (LID usync may not work for own JID)
+        // For PN groups, use JIDs directly
+        let mut jids_to_resolve: Vec<Jid> = group_info
+            .participants
+            .iter()
+            .map(|jid| {
+                let base_jid = jid.to_non_ad();
+                // If this is a LID JID and we have a phone number mapping, use it for device query
+                if base_jid.is_lid()
+                    && let Some(phone_jid) = group_info.phone_jid_for_lid_user(&base_jid.user)
+                {
+                    log::debug!(
+                        "Using phone number {} for LID {} device query",
+                        phone_jid.observe(),
+                        base_jid.observe()
+                    );
+                    return phone_jid.to_non_ad();
+                }
+                base_jid
+            })
+            .collect();
+
+        // Determine what user to check for — use the PN user when own is LID
+        // and we have a mapping. Keeping this as a borrow avoids allocating a
+        // throwaway Jid when own is already in the list.
+        let own_pn_mapping = if own_base_jid.is_lid() {
+            group_info.phone_jid_for_lid_user(&own_base_jid.user)
+        } else {
+            None
+        };
+        let own_check_user = own_pn_mapping
+            .map(|pn| pn.user.as_str())
+            .unwrap_or(own_base_jid.user.as_str());
+
+        if !jids_to_resolve.iter().any(|p| p.user == own_check_user) {
+            jids_to_resolve.push(match own_pn_mapping {
+                Some(pn) => pn.to_non_ad(),
+                None => own_base_jid.clone(),
+            });
+        }
+
+        crate::types::jid::sort_dedup_by_user(&mut jids_to_resolve);
+
+        log::debug!(
+            "Resolving devices for {} participants",
+            jids_to_resolve.len()
+        );
+
+        let mut resolved_list = resolver.resolve_devices(&jids_to_resolve).await?;
+
+        // For LID groups, convert phone-based device JIDs back to LID format
+        // This is necessary because WhatsApp Web expects LID addressing in SKDM <to> nodes
+        if group_info.addressing_mode == crate::types::message::AddressingMode::Lid {
+            resolved_list = resolved_list
+                .into_iter()
+                .map(|device_jid| group_info.phone_device_jid_into_lid(device_jid))
+                .collect();
+            log::debug!(
+                "Converted {} devices to LID addressing for group {}",
+                resolved_list.len(),
+                to_jid.observe()
+            );
+        }
+
+        // Dedup AFTER LID conversion to avoid duplicates when both phone and LID
+        // queries return the same user (e.g., 559980000003:33 and 100000037037034:33
+        // both convert to 100000037037034:33@lid).
+        // Key on (user, server, agent, device) — excludes `integrator` which is not
+        // part of the wire JID identity used in <to jid> and phash.
+        crate::types::jid::sort_dedup_by_device(&mut resolved_list);
+
+        // Filter devices for SKDM distribution:
+        // - Exclude the exact sending device (own_sending_jid) - we already have our own sender key
+        // - Keep ALL other devices including our own other devices (phone, other companions)
+        //   because they need the SKDM to decrypt messages we send from this device
+        // - Exclude hosted/Cloud API devices (device ID 99 or @hosted server) - they don't
+        //   participate in group E2EE, only in 1:1 chats
+        let own_user = &own_sending_jid.user;
+        let own_device = own_sending_jid.device;
+        let before_filter = resolved_list.len();
+        retain_skdm_distribution_targets(&mut resolved_list, &own_sending_jid);
+        log::debug!(
+            "Filtered SKDM devices from {} to {} (excluded sender {}:{} and hosted devices)",
+            before_filter,
+            resolved_list.len(),
+            own_user,
+            own_device
+        );
+
+        log::debug!(
+            "SKDM distribution list for {} resolved to {} devices",
+            to_jid.observe(),
+            resolved_list.len(),
+        );
+
+        Some(resolved_list)
+    } else {
+        None
+    };
+    if distribution_policy == SenderKeyDistributionPolicy::Required
+        && distribution_list.as_ref().is_none_or(Vec::is_empty)
+    {
+        bail!("required sender-key distribution has no targets");
+    }
+
+    // Phash (groups): cover the FULL participant device set + the sending device
+    // on EVERY send, matching WA Web `phashV2([].concat(A, [B]))`. Verified
+    // against a real WA Web capture: the recipient set plus the sending device
+    // reproduced the on-wire phash exactly, the recipient set alone did not. The
+    // server validates it silently (it is not echoed on a normal ack). The
+    // captured status sender does not attach a phash, including when it carries
+    // a targeted sender-key distribution.
+    if to_jid.is_group() {
+        // Warm/partial sends pass the complete set in `all_devices_for_phash`,
+        // whose phash memo serves repeat sends with an inline copy; the cold
+        // `force_skdm` path leaves it None and `distribution_list` already
+        // holds the full resolved set.
+        if let Some(resolved) = all_devices_for_phash {
+            phash_for_stanza = resolved.phash(&own_sending_jid);
+        } else if let Some(src) = distribution_list.as_deref() {
+            let phash_set = build_group_phash_set(src, &own_sending_jid);
+            match MessageUtils::participant_list_hash(&phash_set) {
+                Ok(phash) => phash_for_stanza = Some(phash),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to compute group phash for {}: {:?}",
+                        to_jid.observe(),
+                        e
+                    )
+                }
+            }
+        }
+    }
+
+    let mut had_unregistered_devices = false;
+    // Empty when the failure was batch-wide; see `stale_users_for`.
+    let mut skdm_rejected_devices: Vec<Jid> = Vec::new();
+
+    let sender_key_name = make_sender_key_name_for_jid(to_jid, &own_sending_jid);
+
+    // Hold the per-device session locks the DM path uses across BOTH the X3DH setup
+    // and the SKDM fan-out below, so a concurrent DM or group send sharing a device
+    // can't race that device's pairwise session (create or ratchet-advance). The DM
+    // path holds the same locks across all of prepare_dm_stanza; sender_key_lock only
+    // serializes the sender-key chain. Acquired before sender_key_lock so the whole
+    // send path takes session -> sender-key order (no other path takes the reverse).
+    let session_guard = resolver
+        .lock_device_sessions(distribution_list.as_deref().unwrap_or(&[]))
+        .await;
+
+    // Establish missing pairwise sessions (prekey fetch + X3DH) for the SKDM
+    // targets before taking the chain lock, so the chain critical section
+    // below never spans a network RTT — concurrent sends to the same group
+    // would otherwise serialize behind it. The setup lock serializes this
+    // phase per group instead: two cold sends can't race fetch + X3DH writes
+    // to the same per-device sessions, while warm sends (no SKDM) never take
+    // it. WA Web's GroupSkmsgJob wraps ensureE2ESessions in try/catch — logs
+    // but does NOT rethrow: a session setup failure must not prevent the
+    // group message from being sent.
+    let session_plan = match distribution_list.as_deref() {
+        Some(list) => {
+            let setup_lock = stores
+                .sender_key_store
+                .session_setup_lock(&sender_key_name)
+                .await;
+            let _setup_guard = setup_lock.lock().await;
+            match ensure_sessions_for_devices(runtime, stores, resolver, list).await {
+                Ok(plan) => Some(plan),
+                Err(error) if distribution_policy == SenderKeyDistributionPolicy::Required => {
+                    return Err(error.context("required sender-key session setup failed"));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "SKDM session setup failed for group {}, continuing without distribution: {e}",
+                        to_jid.observe()
+                    );
+                    if is_device_unregistered_error(&e) {
+                        had_unregistered_devices = true;
+                    }
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
+    // Padding is chain-independent; compute it before the lock so the
+    // per-(group,sender) serialization point covers only the ratchet steps.
+    let plaintext = match &shared_content {
+        Some(content) => {
+            MessageUtils::pad_with_context_from_encoded(content, reporting_context.as_ref())
+        }
+        None => MessageUtils::encode_and_pad_with_context(message, reporting_context.as_ref()),
+    };
+
+    // The lock spans SKDM creation, the pairwise SKDM fan-out, and the skmsg
+    // encrypt. Creating the SKDM snapshots the sender key and the skmsg uses it,
+    // so those must be atomic. Per-device pairwise sessions are guarded separately
+    // by `session_guard` above. Dropped after the encrypt so only the stanza build
+    // runs off the serialization point.
+    let chain_lock = stores
+        .sender_key_store
+        .sender_key_lock(&sender_key_name)
+        .await;
+    let chain_guard = chain_lock.lock().await;
+
+    if let Some(ref distribution_list) = distribution_list {
+        // Created even when session setup failed (plan None): the sender-key
+        // record must exist so the skmsg below still encrypts.
+        let axolotl_skdm_bytes = create_sender_key_distribution_message_for_group(
+            stores.sender_key_store,
+            &sender_key_name,
+        )
+        .await?;
+
+        if let Some(plan) = session_plan {
+            let skdm_plaintext_to_encrypt =
+                MessageUtils::encode_and_pad_skdm_wrapper(to_jid, &axolotl_skdm_bytes);
+
+            // SKDM distribution failure must not prevent the group message from
+            // being sent. Only successfully encrypted devices are tracked.
+            // Must match the rule applied to the main skmsg payload below: if SKDM carries
+            // `decrypt-fail="hide"` but the payload does not (e.g. AdminRevoke), recipients
+            // without a sender key never decrypt the skmsg and the revoke is silently dropped.
+            let skdm_hide_decrypt_fail = should_hide_decrypt_fail_for_send(edit, message);
+            match encrypt_for_devices_with_sessions_detailed(
+                runtime,
+                stores,
+                distribution_list,
+                &skdm_plaintext_to_encrypt,
+                skdm_hide_decrypt_fail,
+                None,
+                plan,
+            )
+            .await
+            {
+                Ok(EncryptAttempt {
+                    result,
+                    first_error,
+                    unkeyed_at_encrypt,
+                }) => {
+                    // The SKDM fan-out is the last place a group member can be
+                    // dropped, and it happens before the Required check below
+                    // can turn the send into an error.
+                    report_encrypt_drops(resolver, unkeyed_at_encrypt);
+                    let EncryptResult {
+                        participant_nodes,
+                        includes_prekey_message: result_includes_prekey,
+                        encrypted_devices,
+                        had_unregistered_device,
+                        rejected_devices,
+                    } = result;
+                    if distribution_policy == SenderKeyDistributionPolicy::Required
+                        && (encrypted_devices.len() != distribution_list.len()
+                            || first_error.is_some())
+                    {
+                        let error = first_error.unwrap_or_else(|| {
+                            anyhow!(
+                                "sender-key distribution encrypted {} of {} required targets",
+                                encrypted_devices.len(),
+                                distribution_list.len()
+                            )
+                        });
+                        let stale_device_users = stale_users_for(
+                            had_unregistered_device,
+                            &rejected_devices,
+                            Some(distribution_list),
+                            &encrypted_devices,
+                            group_info,
+                        );
+                        return Err(RequiredSenderKeyDistributionError::new(
+                            error,
+                            stale_device_users,
+                        )
+                        .into());
+                    }
+
+                    includes_prekey_message |= result_includes_prekey;
+                    if had_unregistered_device {
+                        had_unregistered_devices = true;
+                        skdm_rejected_devices.extend(rejected_devices);
+                    }
+                    skdm_encrypted_devices = encrypted_devices;
+
+                    if !participant_nodes.is_empty() {
+                        message_children.push(
+                            NodeBuilder::new("participants")
+                                .children(participant_nodes)
+                                .build(),
+                        );
+                        let device_identity = match distribution_policy {
+                            SenderKeyDistributionPolicy::BestEffort => {
+                                needs_device_identity(includes_prekey_message, account)
+                                    .ok()
+                                    .flatten()
+                            }
+                            SenderKeyDistributionPolicy::Required => {
+                                needs_device_identity(includes_prekey_message, account)?
+                            }
+                        };
+                        if let Some(device_identity_bytes) = device_identity {
+                            message_children.push(
+                                NodeBuilder::new("device-identity")
+                                    .bytes(device_identity_bytes)
+                                    .build(),
+                            );
+                        }
+                    }
+                }
+                Err(error) if distribution_policy == SenderKeyDistributionPolicy::Required => {
+                    return Err(RequiredSenderKeyDistributionError::new(error, Vec::new()).into());
+                }
+                Err(e) => {
+                    log::warn!(
+                        "SKDM distribution failed for group {}, continuing without it: {e}",
+                        to_jid.observe()
+                    );
+                    if is_device_unregistered_error(&e) {
+                        had_unregistered_devices = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // The skmsg encrypt only advances the sender-key chain, not any pairwise
+    // session, so release the per-device locks now instead of holding them across
+    // it (avoids head-of-line blocking a concurrent DM to a shared device).
+    drop(session_guard);
+
+    let skmsg = encrypt_group_message(
+        stores.sender_key_store,
+        &sender_key_name,
+        &plaintext,
+        &mut rand::make_rng::<rand::rngs::StdRng>(),
+    )
+    .await?;
+
+    // Release before the chain-independent stanza build.
+    drop(chain_guard);
+
+    let skmsg_ciphertext = skmsg.into_serialized();
+
+    let mediatype = media_type_from_message(message);
+    let hide_decrypt_fail = should_hide_decrypt_fail_for_send(edit, message);
+
+    let mut enc_builder = NodeBuilder::new("enc")
+        .attr("v", stanza::ENC_VERSION)
+        .attr("type", stanza::ENC_TYPE_SKMSG);
+    if let Some(mt) = mediatype {
+        enc_builder = enc_builder.attr("mediatype", mt);
+    }
+    enc_builder = enc_builder.bytes(skmsg_ciphertext);
+    if hide_decrypt_fail {
+        enc_builder = enc_builder.attr("decrypt-fail", "hide");
+    }
+    let content_node = enc_builder.build();
+
+    let stanza_type = stanza_type_from_message(message);
+    // status@broadcast is sent as a bare <message> (not <status>) with no addressing_mode,
+    // matching WA Web; the server NACKs a <status> tag (400) or an addressing_mode (479).
+    let is_status_broadcast = to_jid.is_status_broadcast();
+    let mut stanza_builder = NodeBuilder::new("message")
+        .attr("to", to_jid)
+        .attr("id", request_id)
+        .attr("type", stanza_type);
+
+    if !is_status_broadcast {
+        stanza_builder =
+            stanza_builder.attr("addressing_mode", group_info.addressing_mode.as_str());
+    }
+
+    if let Some(edit_attr) = edit
+        && *edit_attr != crate::types::message::EditAttribute::Empty
+    {
+        stanza_builder = stanza_builder.attr("edit", edit_attr.to_string_val());
+    }
+    // NOTE: WhatsApp Web does NOT include participant attribute on initial admin revoke send
+    // The participant attribute only appears on retry/fanout messages
+
+    message_children.push(content_node);
+
+    // Add reporting token node if we generated one
+    if let Some(ref result) = reporting_result {
+        message_children.push(build_reporting_node(result));
+    }
+
+    // Groups carry a phash on every send, distribution or not (see above).
+    if let Some(phash) = phash_for_stanza.as_ref() {
+        stanza_builder = stanza_builder.attr("phash", phash.as_str());
+    }
+
+    // Add any extra stanza nodes provided by the caller
+    message_children.extend(extra_stanza_nodes.iter().cloned());
+
+    let stanza = stanza_builder.children(message_children).build();
+
+    let stale_users = stale_users_for(
+        had_unregistered_devices,
+        &skdm_rejected_devices,
+        distribution_list.as_deref(),
+        &skdm_encrypted_devices,
+        group_info,
+    );
+
+    let mut skdm_devices = distribution_list.unwrap_or_default();
+    retain_reportable_sender_key_devices(&mut skdm_devices, &skdm_encrypted_devices);
+
+    Ok(PreparedGroupStanza {
+        node: stanza,
+        skdm_devices,
+        stale_device_users: stale_users,
+        message_secret: reporting_result.map(|r| r.message_secret),
+        sender_identity: own_sending_jid,
+        phash: phash_for_stanza,
+    })
+}
+
+/// Reduce a distribution list to the devices a send may report as keyed.
+///
+/// The whole target set is reported rather than the encrypted subset, matching
+/// WA Web `markHasSenderKey(x, M)`, so a companion with no bundle is not
+/// re-targeted every send. WA Web can afford that only because it never reaches
+/// the marking with a failed primary: `getKeyDistributionMsg` rejects the whole
+/// send on `isPrimaryDevice(e)` and swallows companions alone. A best-effort
+/// send here carries on instead of failing a group over one member, so it holds
+/// the same guarantee directly. A primary reported keyed without its
+/// distribution hides its user behind the `device_and_primary_warm` gate until
+/// that member's own retry receipt arrives, which in a closed group is never.
+///
+/// Costs one length comparison on a send that keyed everyone.
+fn retain_reportable_sender_key_devices(devices: &mut Vec<Jid>, encrypted: &[Jid]) {
+    if devices.len() == encrypted.len() {
+        return;
+    }
+    let encrypted: HashSet<&Jid> = encrypted.iter().collect();
+    devices.retain(|device| device.device != 0 || encrypted.contains(device));
+}
+
+/// Build the device set hashed into a group `phash`, matching WA Web
+/// `phashV2([].concat(A, [B]))`: every participant device (`A`) plus the
+/// sending device `B`. `devices` is the resolved set (recipients); the sending
+/// device is excluded from it (we never SKDM ourselves) so it is appended here.
+/// Hosted devices don't take part in group E2EE and are dropped, mirroring the
+/// SKDM distribution filter. `participant_list_hash` sorts before hashing, so
+/// order here is irrelevant.
+pub(crate) fn build_group_phash_set(devices: &[Jid], own_sending_jid: &Jid) -> Vec<Jid> {
+    let mut set: Vec<Jid> = devices.iter().filter(|d| !d.is_hosted()).cloned().collect();
+    if !set
+        .iter()
+        .any(|d| d.user == own_sending_jid.user && d.device == own_sending_jid.device)
+    {
+        set.push(own_sending_jid.clone());
+    }
+    crate::types::jid::sort_dedup_by_device(&mut set);
+    set
+}
+
+/// Collect users whose devices failed SKDM so the caller can invalidate their
+/// registry entries. In LID-mode groups, both the LID and PN aliases are
+/// emitted when the group knows the mapping — `invalidate_device_cache` needs
+/// both to clean up zombie records that were stored under whichever alias
+/// `update_device_list` canonicalised to at the time of the write.
+/// Which users to re-resolve after a fan-out that hit an unregistered device.
+///
+/// When the server named the devices, those are the answer, and only those: a
+/// target can go unencrypted because its bundle was absent, malformed, or its
+/// session setup failed, and refreshing those users would delete device
+/// registries over failures that say nothing about the list being stale.
+///
+/// A batch-wide failure names nobody, so there the unencrypted remainder is the
+/// only available signal and every target in it is suspect -- which is sound,
+/// because a batch-wide failure means none of them got a bundle either.
+pub(crate) fn stale_users_for(
+    had_unregistered_device: bool,
+    rejected_devices: &[Jid],
+    distribution_list: Option<&[Jid]>,
+    encrypted_devices: &[Jid],
+    group_info: &GroupRoutingInfo,
+) -> Vec<String> {
+    if !had_unregistered_device {
+        return Vec::new();
+    }
+    if rejected_devices.is_empty() {
+        return collect_stale_device_users(distribution_list, encrypted_devices, group_info);
+    }
+    collect_stale_device_users(Some(rejected_devices), &[], group_info)
+}
+
+pub(crate) fn collect_stale_device_users(
+    distribution_list: Option<&[Jid]>,
+    skdm_encrypted_devices: &[Jid],
+    group_info: &GroupRoutingInfo,
+) -> Vec<String> {
+    let Some(dist) = distribution_list else {
+        return Vec::new();
+    };
+    let is_lid_mode = group_info.addressing_mode == crate::types::message::AddressingMode::Lid;
+    let encrypted_set: HashSet<&Jid> = skdm_encrypted_devices.iter().collect();
+    let mut user_set: HashSet<String> = HashSet::new();
+    for d in dist {
+        if encrypted_set.contains(d) {
+            continue;
+        }
+        user_set.insert(d.user.to_string());
+        if is_lid_mode
+            && d.is_lid()
+            && let Some(pn_jid) = group_info.phone_jid_for_lid_user(&d.user)
+            && pn_jid.is_pn()
+        {
+            user_set.insert(pn_jid.user.to_string());
+        }
+    }
+    user_set.into_iter().collect()
+}
+
+/// Caller must hold `SenderKeyStore::sender_key_lock` for `sender_key_name`
+/// across this creation + the matching skmsg encrypt (see `encrypt_group_message`).
+#[cfg_attr(
+    feature = "tracing",
+    tracing::instrument(name = "wa.send.skdm_create", level = "debug", skip_all, err(Debug))
+)]
+pub async fn create_sender_key_distribution_message_for_group(
+    store: &mut (dyn SenderKeyStore + Send + Sync),
+    sender_key_name: &SenderKeyName,
+) -> Result<Vec<u8>> {
+    let mut rng = rand::make_rng::<rand::rngs::StdRng>();
+
+    let skdm = crate::libsignal::protocol::create_sender_key_distribution_message(
+        sender_key_name,
+        store,
+        &mut rng,
+    )
+    .await?;
+
+    Ok(skdm.into_serialized().into_vec())
+}
+
+/// Build a `Message.ProtocolMessage` for `GROUP_MEMBER_LABEL_CHANGE`.
+///
+/// Sent via the standard E2EE fanout, not an IQ. Empty `label` clears.
+/// `ts_secs` is unix seconds, matching WA Web's `unixTime()`.
+pub fn build_member_label_message(label: String, ts_secs: i64) -> wa::Message {
+    {
+        let mut proto_ = wa::Message::default();
+        proto_.protocol_message = buffa::MessageField::some({
+            let mut proto_ = wa::message::ProtocolMessage::default();
+            proto_.r#type = Some(wa::message::protocol_message::Type::GroupMemberLabelChange);
+            proto_.member_label = buffa::MessageField::some({
+                let mut proto = wa::MemberLabel::default();
+                proto.label = Some(label);
+                proto.label_timestamp = Some(ts_secs);
+                proto
+            });
+            proto_
+        });
+        proto_
+    }
+}

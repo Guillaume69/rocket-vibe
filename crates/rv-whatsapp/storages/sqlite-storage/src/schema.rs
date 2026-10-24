@@ -1,0 +1,219 @@
+// @generated automatically by Diesel CLI.
+
+diesel::table! {
+    app_state_keys (key_id, device_id) {
+        key_id -> Binary,
+        key_data -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    app_state_mutation_macs (name, index_mac, device_id) {
+        name -> Text,
+        version -> BigInt,
+        index_mac -> Binary,
+        value_mac -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    app_state_versions (name, device_id) {
+        name -> Text,
+        state_data -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    base_keys (address, message_id, device_id) {
+        address -> Text,
+        message_id -> Text,
+        base_key -> Binary,
+        device_id -> Integer,
+        created_at -> Integer,
+    }
+}
+
+diesel::table! {
+    device_registry (user_id, device_id) {
+        user_id -> Text,
+        devices_json -> Text,
+        timestamp -> Integer,
+        phash -> Nullable<Text>,
+        device_id -> Integer,
+        updated_at -> Integer,
+        raw_id -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    group_metadata (group_jid, device_id) {
+        group_jid -> Text,
+        info -> Binary,
+        device_id -> Integer,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    device (id) {
+        id -> Integer,
+        lid -> Text,
+        pn -> Text,
+        registration_id -> Integer,
+        noise_key -> Binary,
+        identity_key -> Binary,
+        signed_pre_key -> Binary,
+        signed_pre_key_id -> Integer,
+        signed_pre_key_signature -> Binary,
+        adv_secret_key -> Binary,
+        account -> Nullable<Binary>,
+        push_name -> Text,
+        app_version_primary -> Integer,
+        app_version_secondary -> Integer,
+        app_version_tertiary -> BigInt,
+        app_version_last_fetched_ms -> BigInt,
+        edge_routing_info -> Nullable<Binary>,
+        props_hash -> Nullable<Text>,
+        next_pre_key_id -> Integer,
+        nct_salt -> Nullable<Binary>,
+        server_has_prekeys -> Bool,
+        server_cert_chain -> Nullable<Binary>,
+        login_counter -> Integer,
+        first_unupload_pre_key_id -> Integer,
+        lid_migrated -> Bool,
+        last_signed_pre_key_rotation_ms -> BigInt,
+        read_receipts_disabled -> Bool,
+        server_client_expiration -> Nullable<Text>,
+        status_privacy -> Nullable<Binary>,
+    }
+}
+
+diesel::table! {
+    identities (address, device_id) {
+        address -> Text,
+        key -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    lid_pn_mapping (lid, device_id) {
+        lid -> Text,
+        phone_number -> Text,
+        created_at -> BigInt,
+        learning_source -> Text,
+        updated_at -> BigInt,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    prekeys (id, device_id) {
+        id -> Integer,
+        key -> Binary,
+        uploaded -> Bool,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    sender_key_devices (group_jid, device_jid, device_id) {
+        group_jid -> Text,
+        device_jid -> Text,
+        has_key -> Integer,
+        device_id -> Integer,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    sender_keys (address, device_id) {
+        address -> Text,
+        record -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    sessions (address, device_id) {
+        address -> Text,
+        record -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    signed_prekeys (id, device_id) {
+        id -> Integer,
+        record -> Binary,
+        device_id -> Integer,
+    }
+}
+
+diesel::table! {
+    tc_tokens (jid, device_id) {
+        jid -> Text,
+        token -> Binary,
+        token_timestamp -> BigInt,
+        sender_timestamp -> Nullable<BigInt>,
+        device_id -> Integer,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    sent_messages (chat_jid, message_id, device_id) {
+        chat_jid -> Text,
+        message_id -> Text,
+        payload -> Binary,
+        device_id -> Integer,
+        created_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    pending_inbound_messages (chat, sender, id, device_id) {
+        chat -> Text,
+        sender -> Text,
+        id -> Text,
+        message -> Binary,
+        device_id -> Integer,
+        inserted_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    msg_secrets (chat, sender, msg_id, device_id) {
+        chat -> Text,
+        sender -> Text,
+        msg_id -> Text,
+        secret -> Binary,
+        device_id -> Integer,
+        expires_at -> BigInt,
+        message_ts -> BigInt,
+    }
+}
+
+diesel::allow_tables_to_appear_in_same_query!(
+    app_state_keys,
+    app_state_mutation_macs,
+    app_state_versions,
+    base_keys,
+    device,
+    device_registry,
+    group_metadata,
+    identities,
+    lid_pn_mapping,
+    msg_secrets,
+    pending_inbound_messages,
+    prekeys,
+    sender_key_devices,
+    sender_keys,
+    sent_messages,
+    sessions,
+    signed_prekeys,
+    tc_tokens,
+);

@@ -7,6 +7,10 @@ publish.workspace = true
 rust-version.workspace = true
 description = "The WhatsApp engine of rocket-vibe: its JSON protocol over whatsapp-rust"
 
+[[bin]]
+name = "rv-whatsapp"
+path = "src/main.rs"
+
 [dependencies]
 aes-gcm = { workspace = true }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
@@ -14,11 +18,14 @@ rv-link-preview = { path = "../../rv-link-preview" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "fs"] }
 whatsapp-rust = { path = "..", default-features = false, features = ["tokio-transport", "tokio-runtime", "ureq-client", "tokio-native"] }
 base64 = { workspace = true, features = ["std"] }
+log = { workspace = true }
 rand = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+wacore = { workspace = true }
 
 [lints]
 workspace = true

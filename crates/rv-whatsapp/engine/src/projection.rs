@@ -356,6 +356,17 @@ impl Projection {
         moved
     }
 
+    /// Every LID the cache keeps a chat or a sender under.
+    pub fn lids(&self) -> BTreeSet<String> {
+        self.messages
+            .values()
+            .flat_map(|m| [&m.message.chat, &m.message.sender])
+            .chain(self.reactions.values().flat_map(|r| r.keys()))
+            .filter(|jid| jid.ends_with(LID_SERVER))
+            .cloned()
+            .collect()
+    }
+
     pub fn unread(&self, chat: &str) -> i64 {
         self.unread.get(chat).copied().unwrap_or(0)
     }

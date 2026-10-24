@@ -3446,13 +3446,16 @@ dependencies = [
  "aes-gcm",
  "base64 0.23.1",
  "image",
+ "log",
  "rand 0.10.3",
+ "reqwest",
  "rv-link-preview",
  "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.21",
  "tokio",
+ "wacore",
  "whatsapp-rust",
 ]
 

@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-725 production files scanned; 756 occurrences.
+726 production files scanned; 755 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -591,10 +591,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/upload.ts:239](../../apps/mobile/lib/upload.ts#L239) | resource | /avatar/{…} |
 | [apps/mobile/lib/upload.ts:241](../../apps/mobile/lib/upload.ts#L241) | resource | /avatar/uid/{…} |
 | [apps/mobile/lib/upload.ts:243](../../apps/mobile/lib/upload.ts#L243) | resource | /avatar/room/{…} |
-| [apps/mobile/lib/uploadQueue.ts:83](../../apps/mobile/lib/uploadQueue.ts#L83) | call:GET | 'settings.public' |
-| [apps/mobile/lib/uploadQueue.ts:83](../../apps/mobile/lib/uploadQueue.ts#L83) | endpoint | settings.public |
-| [apps/mobile/lib/uploadQueue.ts:454](../../apps/mobile/lib/uploadQueue.ts#L454) | resource | /file-upload/{…}/{…} |
-| [apps/mobile/lib/whatsappFiles.ts:80](../../apps/mobile/lib/whatsappFiles.ts#L80) | url | /api/v1/files/{…} |
+| [apps/mobile/lib/uploadQueue.ts:85](../../apps/mobile/lib/uploadQueue.ts#L85) | call:GET | 'settings.public' |
+| [apps/mobile/lib/uploadQueue.ts:85](../../apps/mobile/lib/uploadQueue.ts#L85) | endpoint | settings.public |
+| [apps/mobile/lib/uploadQueue.ts:429](../../apps/mobile/lib/uploadQueue.ts#L429) | resource | /file-upload/{…}/{…} |
 | [apps/mobile/plugins/ios-notification-service/NotificationService.swift:176](../../apps/mobile/plugins/ios-notification-service/NotificationService.swift#L176) | url | /api/v1/push.get |
 | [apps/mobile/plugins/native-push-source.js:36](../../apps/mobile/plugins/native-push-source.js#L36) | url | /api/v1/me/push |
 | [apps/mobile/plugins/native-push-source.js:117](../../apps/mobile/plugins/native-push-source.js#L117) | url | /api/v1 |

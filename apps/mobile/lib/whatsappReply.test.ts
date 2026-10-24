@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { quote } from '../../lib/quote.ts';
-import { splitReply, whatsappState } from './index.ts';
+import { quote } from './quote.ts';
+import { splitReply, whatsappState } from '@rocket-vibe/provider-whatsapp';
 
 test('a reply from the composer gives the quoted message id back, plain text stays plain', () => {
   const permalink = `whatsapp://0123456789abcdef01234567/direct/${encodeURIComponent('a@s.whatsapp.net')}?msg=${encodeURIComponent('a@s.whatsapp.net:3EB0')}`;

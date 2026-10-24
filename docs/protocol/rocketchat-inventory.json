@@ -536,6 +536,7 @@
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
     "apps/mobile/lib/whatsappFiles.ts",
+    "apps/mobile/lib/whatsappUnlink.ts",
     "apps/mobile/lib/xPosts.ts",
     "apps/mobile/lib/xSyndication.ts",
     "apps/mobile/plugins/ios-notification-service/NotificationService.swift",
@@ -4235,27 +4236,21 @@
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 83,
+      "line": 85,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 83,
+      "line": 85,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/mobile/lib/uploadQueue.ts",
-      "line": 454,
+      "line": 429,
       "kind": "resource",
       "surface": "/file-upload/{…}/{…}"
-    },
-    {
-      "file": "apps/mobile/lib/whatsappFiles.ts",
-      "line": 80,
-      "kind": "url",
-      "surface": "/api/v1/files/{…}"
     },
     {
       "file": "apps/mobile/plugins/ios-notification-service/NotificationService.swift",

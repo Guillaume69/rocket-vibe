@@ -103,7 +103,8 @@ import { WhatsApp } from '../modules/whatsapp/index.ts';
 import * as FS from 'expo-file-system/legacy';
 import { setNativeFiles } from '../lib/nativeFiles.ts';
 import { messageOfKey, photoFolder, photoUri, photoVersion, setWhatsAppCache } from '../lib/whatsappFiles.ts';
-import { createWhatsAppProvider } from '../providers/whatsapp/index.ts';
+import { createWhatsAppProvider } from '@rocket-vibe/provider-whatsapp';
+import { describeProviderError } from '../lib/providerError.ts';
 import type { TranslationKey } from './messages.ts';
 import {createNativeFilesIO,mountNativeFiles} from './nativeFiles.ts';
 import { notify } from './toast.tsx';
@@ -226,7 +227,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         const provider = createWhatsAppProvider(session,store,WhatsApp,{
           me:translateCurrent('wa.me'), deleted:translateCurrent('wa.deleted'), group:translateCurrent('wa.group'),
           kind:(kind)=>WHATSAPP_KINDS.has(kind)?translateCurrent(`wa.kind.${kind}` as TranslationKey):kind,
-        },()=>Crypto.getRandomBytes(16),writePhoto,async (file, id) => {
+        },()=>Crypto.getRandomBytes(16),describeProviderError,writePhoto,async (file, id) => {
           // A copy the engine reads by path; a recorded note becomes a real voice note.
           const engine = WhatsApp!, folder = `${FS.cacheDirectory}whatsapp/outgoing/`;
           await FS.makeDirectoryAsync(folder,{intermediates:true}).catch(() => {});

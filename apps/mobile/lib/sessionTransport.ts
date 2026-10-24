@@ -41,7 +41,7 @@ export async function logoutSession(client: RestClient, session: Session): Promi
   if (session.kind === 'rocketchat') return logOut(client);
   if (session.kind === 'whatsapp') {
     // Loaded here only: the engine module is native and Android-only.
-    const { unlinkWhatsApp } = await import('../providers/whatsapp/unlink.ts');
+    const { unlinkWhatsApp } = await import('./whatsappUnlink.ts');
     return unlinkWhatsApp(session);
   }
   // Local only: revoking the browser session Slack issued would also sign that browser out.

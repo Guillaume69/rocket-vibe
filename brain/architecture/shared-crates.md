@@ -91,11 +91,11 @@ Upstream's test suite runs as is: 5,449 tests.
 
 ## `rv-provider`, `rv-slack`, `rv-teams`: the provider clients
 
-What talks to Slack and Teams moved out of rv-core so that the protocol code stands alone: tested, and later reusable, without the desktop's store, sessions or UI. A provider crate is the wire client (sign-in, requests, the live connection, translation into rv-provider's normalized types); rv-core keeps what writes its store (`slack::sync`, `teams::sync` and `teams::actions`), the outbox and the sessions.
+What talks to Slack and Teams moved out of rv-core so that the protocol code stands alone: tested, and later reusable, without the desktop's store, sessions or UI. A provider crate is the wire client (sign-in, every request once signed in, the live connection, translation into rv-provider's normalized types); rv-core keeps what writes its store (`slack::sync`, `teams::sync` and `teams::actions`, which call the crate's `service` and keep the state the store is derived from), the outbox and the sessions.
 
 - **`rv-provider`** holds what both providers and rv-core share: `rest` (`RestClient` with its four dialects; Slack's method allowlist and envelope live in `rest/slack.rs`, and `protected_url`), `socket` (`State`, `LiveEvent`, the websocket halves, `send` and `next_json`), `normalize`, `live` (presence and typing), `emoji` with its table, `text` (`decode_entities`, `is_web_link`) and `tls`. Its user agent names the app's version, which `rv_core::identify()` sets first thing in the GTK and Swift apps (`rocket-vibe-desktop/<version>` as before).
-- **`rv-slack`**: token, browser and paired sign-in (`account`, `browser_login`, `handoff`), the directory, RTM (`live`), emoji names and `translate`. A login answers its own `Session`; `rv_core::slack` re-exports the crate and adds `login`, `login_at`, `login_paired`, `from_secret` and `client` over rv-core's `SessionInfo`.
-- **`rv-teams`**: device-code sign-in and its `Tokens` (`auth`, holding rv-teams' `Session`), `client`, the Trouter feed (`live`, `frames`) and `translate`, plus the sign-in-only probes (`examples/teams-shapes.rs`, `teams-authz.rs`). `rv_core::teams` adds `session`, `approved`, `from_secret` and `set_credential_sink` over `SessionInfo`. Many Teams calls still sit in rv-core's `TeamsSync` beside its store writes; moving them down is the next cut.
+- **`rv-slack`**: token, browser and paired sign-in (`account`, `browser_login`, `handoff`), the directory, RTM (`live`), emoji names, `translate`, and `service`, every Web API call once signed in with its paging (conversation list and counts, history, threads, single messages, writes, pins, saved items, search, custom emoji, uploads). A login answers its own `Session`; `rv_core::slack` re-exports the crate and adds `login`, `login_at`, `login_paired`, `from_secret` and `client` over rv-core's `SessionInfo`.
+- **`rv-teams`**: device-code sign-in and its `Tokens` (`auth`, holding rv-teams' `Session`), `client`, the Trouter feed (`live`, `frames`), `translate`, and `service`, every call to Teams' services once signed in with its token renewals (chat service reads and writes, the aggregator, presence, profiles, Substrate search, channel renames, Graph files), plus the sign-in-only probes (`examples/teams-shapes.rs`, `teams-authz.rs`). `rv_core::teams` adds `session`, `approved`, `from_secret` and `set_credential_sink` over `SessionInfo`.
 
 ## The bridges
 
@@ -149,6 +149,8 @@ What talks to Slack and Teams moved out of rv-core so that the protocol code sta
 - `crates/rv-provider/src/rest.rs`
 - `crates/rv-slack/src/lib.rs`
 - `crates/rv-teams/src/lib.rs`
+- `crates/rv-slack/src/service.rs`
+- `crates/rv-teams/src/service.rs`
 - `apps/desktop/crates/rv-core/src/slack/mod.rs`
 - `apps/desktop/crates/rv-core/src/teams/mod.rs`
 - `.github/workflows/providers.yml`

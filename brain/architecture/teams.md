@@ -128,8 +128,8 @@ resumes it; ui/session.tsx registers the credential sink.
 ## Desktop
 
 crates/rv-teams/src/: `auth.rs`, `client.rs`, `translate.rs`, `frames.rs`, `live.rs` (the
-Trouter actor behind the shared `LiveEvent` feed); rv-core/src/teams/: `sync.rs` and
-`actions.rs`, which write the store, and the conversion of rv-teams' `Session`, wired as
+Trouter actor behind the shared `LiveEvent` feed), `service.rs` (every call once signed in);
+rv-core/src/teams/: `sync.rs` and `actions.rs`, which call the service and write the store, and the conversion of rv-teams' `Session`, wired as
 `Backend::Teams` in session.rs and `ServerKind::Teams`. GTK login.rs shows the code and
 Microsoft's link (`show_teams_code`) and waits with Cancel (window.rs
 `start_teams_login`); rv-ffi teams.rs exposes `TeamsSignIn` to SwiftUI's LoginModel and

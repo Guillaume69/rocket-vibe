@@ -29,7 +29,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [mobile-app.md](mobile-app.md) | Layering (`app/` routes, `ui/`, Node-pure `lib/`, `db/`, the `providers/` facade), root providers, session and sync state, module stores and their purge rule, live queries, theme and kit, the native-components rule. |
 | [mobile-data.md](mobile-data.md) | One SQLite file per (server, account), every table, the per-connection write queue, drizzle-kit migrations, upsert rules, stores, reconciliation, 500-messages-per-room retention. |
 | [mobile-transport.md](mobile-transport.md) | The listen-only DDP client (ref-counted replayable subscriptions, silence watchdog, ping probe), the REST client (timeouts, 429, token-rejected hook), backoff, connection setup, background handling, deferred logout. |
-| [provider-packages.md](provider-packages.md) | `packages/`: the npm workspace, `@rocket-vibe/provider-api` (the provider contract, sync engine and shared helpers), the Slack and Teams providers, how the app re-exports them, Metro, `tsc`, tests and CI, why WhatsApp stays in the app. |
+| [provider-packages.md](provider-packages.md) | `packages/`: the npm workspace, `@rocket-vibe/provider-api` (the provider contract, sync engine and shared helpers), the Slack, Teams and WhatsApp providers, how the app re-exports them, Metro, `tsc`, tests and CI. |
 | [mobile-native.md](mobile-native.md) | CNG (`android/` and `ios/` gitignored), every config plugin, the local Expo modules, the patches, Metro's `crypto`/`buffer` aliasing, when a dev-client rebuild is needed, iOS status. |
 
 ## Desktop (`apps/desktop`)

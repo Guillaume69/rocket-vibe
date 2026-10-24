@@ -4,6 +4,10 @@
 export class Bridge {
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * Whether the state moved since the last restore or snapshot.
+     */
+    changed(): boolean;
     close(): void;
     invoke(method: string, args: string): string;
     constructor(account: string);
@@ -29,6 +33,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_bridge_free: (a: number, b: number) => void;
     readonly __wbg_sealedfile_free: (a: number, b: number) => void;
+    readonly bridge_changed: (a: number) => [number, number, number];
     readonly bridge_close: (a: number) => void;
     readonly bridge_invoke: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly bridge_new: (a: number, b: number) => [number, number, number];
@@ -51,9 +56,9 @@ export interface InitOutput {
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_start: () => void;
 }

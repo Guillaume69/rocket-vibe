@@ -38,6 +38,24 @@ pub fn remove(path: &Path) -> Result<(), Error> {
     });
     Ok(())
 }
+/// Each database's revision, which every commit advances.
+pub fn revisions() -> Result<Vec<(PathBuf, i64)>, Error> {
+    PATHS.with(|paths| {
+        paths
+            .borrow()
+            .iter()
+            .map(|path| {
+                let db = Connection::open(path).map_err(|_| Error::Storage)?;
+                let revision = db
+                    .query_row("SELECT revision FROM state WHERE singleton=1", [], |r| {
+                        r.get(0)
+                    })
+                    .map_err(|_| Error::Storage)?;
+                Ok((path.clone(), revision))
+            })
+            .collect()
+    })
+}
 pub fn export() -> Result<Vec<Database>, Error> {
     PATHS.with(|paths| {
         paths

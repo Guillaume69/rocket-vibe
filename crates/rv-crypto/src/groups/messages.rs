@@ -4,7 +4,11 @@ use super::*;
 use openmls::prelude::{ProcessedMessageContent, Sender};
 use rv_crypto_public::messages as packet;
 use rv_protocol::{SendMessage, cards};
-use std::io::Write;
+use std::{
+    collections::{HashSet, VecDeque},
+    io::Write,
+    sync::{LazyLock, Mutex},
+};
 use zeroize::Zeroizing;
 
 const RECORD: &str = "crypto-messages-v1";
@@ -19,6 +23,15 @@ pub(super) const MAX_HISTORY: usize = 8192;
 #[cfg(test)]
 pub(super) const MAX_HISTORY: usize = 40;
 const RECORD_LIMIT: usize = 4 * 1024 * 1024;
+/// Ledgers this process already validated, by digest of their exact bytes with
+/// the device scope and root they were validated for.
+static VALIDATED: Mutex<Vec<Fingerprint>> = Mutex::new(Vec::new());
+const VALIDATED_LIMIT: usize = 4;
+/// Submissions this process already verified, by digest of their proof,
+/// ciphertext, verification time and mode.
+static VERIFIED: LazyLock<Mutex<(HashSet<Fingerprint>, VecDeque<Fingerprint>)>> =
+    LazyLock::new(Mutex::default);
+const VERIFIED_LIMIT: usize = 4096;
 const PLAIN_LIMIT: usize = 64 * 1024;
 
 #[derive(Clone)]
@@ -61,6 +74,20 @@ impl MessageSubmission {
             return Err(Error::Limit);
         }
         let proof = packet::Proof::from_bytes(&self.proof)?;
+        let mut hash = Sha256::new();
+        hash.update(b"vibez-message-verified-v1\0");
+        hash.update(now.to_be_bytes());
+        hash.update([u8::from(historical)]);
+        hash.update((self.proof.len() as u64).to_be_bytes());
+        hash.update(&self.proof);
+        hash.update(&self.ciphertext);
+        let verified: Fingerprint = hash.finalize().into();
+        if VERIFIED
+            .lock()
+            .is_ok_and(|known| known.0.contains(&verified))
+        {
+            return Ok(proof);
+        }
         if historical {
             proof.authenticate(&self.ciphertext)?;
             if now < proof.certificate.device.issued_at {
@@ -68,6 +95,16 @@ impl MessageSubmission {
             }
         } else {
             proof.verify(now, &self.ciphertext)?;
+        }
+        if let Ok(mut known) = VERIFIED.lock()
+            && known.0.insert(verified)
+        {
+            known.1.push_back(verified);
+            if known.1.len() > VERIFIED_LIMIT
+                && let Some(oldest) = known.1.pop_front()
+            {
+                known.0.remove(&oldest);
+            }
         }
         Ok(proof)
     }
@@ -435,6 +472,13 @@ impl Coordinator {
             return Err(Error::Limit);
         }
         let ledger: Ledger = serde_json::from_slice(value).map_err(|_| Error::Changed)?;
+        let validated = ledger_digest(self.manager.scope(), &root, value)?;
+        if VALIDATED
+            .lock()
+            .is_ok_and(|known| known.contains(&validated))
+        {
+            return Ok(ledger);
+        }
         if ledger.version != 1
             || ledger.scope != *self.manager.scope()
             || ledger.root != root
@@ -509,6 +553,12 @@ impl Coordinator {
                 (None, None) => (),
                 _ => return Err(Error::Changed),
             }
+        }
+        if let Ok(mut known) = VALIDATED.lock() {
+            if known.len() >= VALIDATED_LIMIT {
+                known.remove(0);
+            }
+            known.push(validated);
         }
         Ok(ledger)
     }
@@ -1655,6 +1705,16 @@ fn ledger_clock(ledger: &Ledger, now: u64) -> Result<()> {
         return Err(Error::Changed);
     }
     Ok(())
+}
+fn ledger_digest(scope: &vault::Scope, root: &str, value: &[u8]) -> Result<Fingerprint> {
+    let mut hash = Sha256::new();
+    hash.update(b"vibez-message-ledger-validated-v1\0");
+    hash.update(serde_json::to_vec(scope).map_err(|_| Error::Changed)?);
+    hash.update([0]);
+    hash.update(root.as_bytes());
+    hash.update([0]);
+    hash.update(value);
+    Ok(hash.finalize().into())
 }
 fn save_ledger(records: &mut Records, ledger: &Ledger) -> Result<()> {
     let value = Zeroizing::new(serde_json::to_vec(ledger).map_err(|_| Error::Changed)?);

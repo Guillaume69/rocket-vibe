@@ -16,7 +16,9 @@ since 6 October 2026: the server announces the `e2ee` capability unless an insta
 `vault::Vault` stores the OpenMLS RustCrypto 0.6.0 provider and the private
 operation records in **a single encrypted SQLite row**. The provider is
 rebuilt on every operation; no modified MLS instance is reused
-after a refusal. `transact` persists in a single commit the consumption of keys,
+after a refusal. The last authenticated document of each scope stays in
+process memory and is shared, not decrypted and parsed again, while the row
+read back is the same bytes under the same key and protected checkpoint. `transact` persists in a single commit the consumption of keys,
 the original outbox ciphertext and any receipts / private reception data.
 `inspect` persists no mutation; groups and providers
 must not escape these callbacks. This Rust API is internal to the future engine,

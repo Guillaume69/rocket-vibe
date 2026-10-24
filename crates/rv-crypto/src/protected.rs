@@ -380,6 +380,7 @@ impl Manager {
         if current.as_ref() != Some(&retired) {
             self.write(current.as_ref(), &retired)?;
         }
+        crate::vault::forget(&self.scope);
         #[cfg(target_arch = "wasm32")]
         crate::browser::remove(&self.path())?;
         #[cfg(not(target_arch = "wasm32"))]

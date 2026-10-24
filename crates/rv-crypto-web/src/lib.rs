@@ -8,13 +8,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
 #[derive(Default)]
-struct Keys(Mutex<BTreeMap<String, Vec<u8>>>);
+struct Keys(Mutex<BTreeMap<String, Vec<u8>>>, AtomicBool);
 impl ProtectedKeystore for Keys {
     fn read(&self, name: String) -> Result<Option<Vec<u8>>, CryptoBridgeError> {
         Ok(self
@@ -29,6 +33,7 @@ impl ProtectedKeystore for Keys {
         if let Some(mut old) = keys.insert(name, value) {
             old.zeroize();
         }
+        self.1.store(true, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -55,6 +60,7 @@ fn error(value: impl std::fmt::Display) -> JsValue {
 pub struct Bridge {
     installation: Arc<CryptoInstallation>,
     keys: Arc<Keys>,
+    revisions: Mutex<Vec<(PathBuf, i64)>>,
 }
 #[wasm_bindgen]
 impl Bridge {
@@ -67,7 +73,11 @@ impl Bridge {
             keys.clone(),
         )
         .map_err(error)?;
-        Ok(Self { installation, keys })
+        Ok(Self {
+            installation,
+            keys,
+            revisions: Mutex::default(),
+        })
     }
     pub fn restore(&self, snapshot: &str) -> Result<(), JsValue> {
         let value: Snapshot = serde_json::from_str(snapshot).map_err(error)?;
@@ -86,15 +96,28 @@ impl Bridge {
             value.zeroize();
         }
         *keys = value.keys;
-        Ok(())
+        self.held()
     }
     pub fn snapshot(&self) -> Result<String, JsValue> {
-        serde_json::to_string(&Snapshot {
+        let snapshot = serde_json::to_string(&Snapshot {
             version: 1,
             keys: self.keys.0.lock().map_err(error)?.clone(),
             databases: rv_crypto::browser::export().map_err(error)?,
         })
-        .map_err(error)
+        .map_err(error)?;
+        self.held()?;
+        Ok(snapshot)
+    }
+    /// Whether the state moved since the last restore or snapshot.
+    pub fn changed(&self) -> Result<bool, JsValue> {
+        Ok(self.keys.1.load(Ordering::SeqCst)
+            || rv_crypto::browser::revisions().map_err(error)?
+                != *self.revisions.lock().map_err(error)?)
+    }
+    fn held(&self) -> Result<(), JsValue> {
+        *self.revisions.lock().map_err(error)? = rv_crypto::browser::revisions().map_err(error)?;
+        self.keys.1.store(false, Ordering::SeqCst);
+        Ok(())
     }
     pub fn invoke(&self, method: &str, args: &str) -> Result<String, JsValue> {
         let arguments: Vec<String> = serde_json::from_str(args).map_err(error)?;

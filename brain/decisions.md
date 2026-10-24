@@ -503,3 +503,13 @@ Sources:
 - .github/workflows/native-server.yml
 - .github/workflows/desktop.yml
 - .github/workflows/web-client.yml
+
+## Authenticated E2EE state is reused, never re-derived, while its bytes are unchanged (2026-10-24)
+
+Profiling a private send in the browser found it cost about 16 engine calls, each decrypting and parsing the whole vault document about a dozen times (once per `protected::Manager` operation, plus a verification read on open) and re-verifying the signed proof of every cached message, and the web worker rebuilding and exporting the full browser snapshot around each call. The time grew with the conversation's history: the e2ee browser suite took an hour in CI. The fix keeps what was already authenticated as long as its exact bytes are what is read back: the vault keeps the last checked document per scope (keyed on the sealed row bytes, the key and the checkpoint), proofs and the message ledger remember a successful verification by digest of their inputs, and the worker restores only a different envelope and seals only a reported change. None of this trusts anything new: every operation still reads the sealed row and checks it against the protected checkpoint, other bytes, keys or times are verified in full, and each operation still gets a fresh MLS provider. The cost is that the last decrypted document stays in process memory between operations, where the vault key already is. Native actions went from about 80 ms to 13 ms on a 60-message room, and the e2ee browser suite from over an hour to about 9 minutes locally.
+
+Sources:
+- crates/rv-crypto/src/vault/cache.rs
+- crates/rv-crypto/src/groups/messages.rs
+- crates/rv-crypto-web/src/lib.rs
+- apps/web/src/crypto/worker.ts

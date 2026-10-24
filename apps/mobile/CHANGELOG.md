@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-24
+
 ### Added
 
 - Microsoft Teams (experimental): images show in the conversation, both those pasted into a message and the preview of an image file.
@@ -885,7 +887,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.22.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.23.0...HEAD
+[0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.22.0...mobile-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.21.0...mobile-v0.22.0
 [0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...mobile-v0.21.0
 [0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0

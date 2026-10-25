@@ -502,39 +502,6 @@ impl SessionRecord {
     }
 }
 
-/// An initiator's view of X3DH.
-pub struct AliceSignalProtocolParameters {
-    pub(crate) our_identity_key_pair: KeyPair,
-    pub(crate) our_base_key_pair: KeyPair,
-    pub(crate) their_identity_key: PublicKey,
-    pub(crate) their_signed_pre_key: PublicKey,
-    pub(crate) their_one_time_pre_key: Option<PublicKey>,
-    pub(crate) their_ratchet_key: PublicKey,
-}
-
-impl AliceSignalProtocolParameters {
-    pub fn new(
-        our_identity_key_pair: KeyPair,
-        our_base_key_pair: KeyPair,
-        their_identity_key: PublicKey,
-        their_signed_pre_key: PublicKey,
-        their_ratchet_key: PublicKey,
-    ) -> Self {
-        Self {
-            our_identity_key_pair,
-            our_base_key_pair,
-            their_identity_key,
-            their_signed_pre_key,
-            their_one_time_pre_key: None,
-            their_ratchet_key,
-        }
-    }
-
-    pub fn set_their_one_time_pre_key(&mut self, key: PublicKey) {
-        self.their_one_time_pre_key = Some(key);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

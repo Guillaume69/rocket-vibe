@@ -14,9 +14,9 @@ mod storage;
 pub use crate::signal::store::sender_key_name::SenderKeyName;
 pub use address::{AddressBuf, DeviceId, ProtocolAddress};
 pub use cipher::{
-    DecryptionResult, PreKeyBundle, SIGNED_PRE_KEY_SIGNATURE_LEN, initialize_alice_session_record,
-    message_decrypt, message_decrypt_owned, message_decrypt_prekey, message_decrypt_signal,
-    message_encrypt, prekey_bundle, process_prekey_bundle,
+    DecryptionResult, PreKeyBundle, SIGNED_PRE_KEY_SIGNATURE_LEN, message_decrypt,
+    message_decrypt_owned, message_decrypt_prekey, message_decrypt_signal, message_encrypt,
+    prekey_bundle, process_prekey_bundle,
 };
 pub use error::{
     CurveError, InvalidSenderKeySessionError, InvalidSessionError, Result, SignalProtocolError,
@@ -36,8 +36,8 @@ pub use prekeys::{
 };
 pub use sender_keys::{SenderChainKey, SenderKeyRecord, SenderKeyState};
 pub use session::{
-    AliceSignalProtocolParameters, ChainKey, MessageKeyGenerator, MessageKeys, RootKey,
-    SessionRecord, SessionState, UnacknowledgedPreKeyMessageItems,
+    ChainKey, MessageKeyGenerator, MessageKeys, RootKey, SessionRecord, SessionState,
+    UnacknowledgedPreKeyMessageItems,
 };
 pub use storage::{
     Direction, IdentityChange, IdentityKeyStore, PreKeyStore, SenderKeyStore, SessionCheckout,

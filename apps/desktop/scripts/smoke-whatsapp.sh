@@ -27,7 +27,7 @@ docker run --rm --cap-add IPC_LOCK -v "$repo:/workspace" "${volume[@]}" -v "$out
   ' >"$log" 2>&1 || true
 grep '^smoke:' "$log" || cat "$log"
 grep -q '^smoke: whatsapp text sent through the composer: () ok' "$log"
-! grep -q '^smoke:.*FAILED' "$log"
+if grep -q '^smoke:.*FAILED' "$log"; then exit 1; fi
 test -s "$out/link.png" && test -s "$out/chat.png"
 rm -f "$log"
 echo "whatsapp smoke: ok"

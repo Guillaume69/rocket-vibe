@@ -234,8 +234,11 @@ impl ChatPage {
             RowEvent::React { id, shortcode, add } => {
                 session.react(&id, if add { rv_core::whatsapp::reaction_glyph(&shortcode) } else { String::new() })
             }
-            RowEvent::Menu { row, anchor, x, y, .. } => {
-                self.whatsapp_menu(&session, *row, &anchor, x, y);
+            RowEvent::Menu { row, anchor, x, y, link } => {
+                let selection = self.list.selection_text().or_else(crate::markdown_view::selected_text);
+                if !crate::markdown_view::text_menu(&anchor, x, y, selection, link) {
+                    self.whatsapp_menu(&session, *row, &anchor, x, y);
+                }
                 Ok(())
             }
             RowEvent::SaveEdit => match self.list.stop_edit() {

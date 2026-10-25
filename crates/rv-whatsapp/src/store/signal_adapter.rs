@@ -895,23 +895,32 @@ mod tests {
     }
 
     fn outbound_session() -> (SessionRecord, KeyPair) {
-        use wacore::signal::protocol::{
-            AliceSignalProtocolParameters, KeyPair, initialize_alice_session_record,
-        };
+        use wacore::signal::protocol::KeyPair;
 
         let mut rng = rand::make_rng::<rand::rngs::StdRng>();
         let local_identity = KeyPair::generate(&mut rng);
         let remote_identity = KeyPair::generate(&mut rng);
         let remote_signed_prekey = KeyPair::generate(&mut rng);
-        let parameters = AliceSignalProtocolParameters::new(
-            local_identity.clone(),
-            KeyPair::generate(&mut rng),
-            remote_identity.public,
-            remote_signed_prekey.public,
-            remote_signed_prekey.public,
-        );
+        let bundle = rv_signal::PreKeyBundle {
+            registration_id: 0,
+            identity: remote_identity.public,
+            signed_prekey_id: 0,
+            signed_prekey: remote_signed_prekey.public,
+            signed_prekey_signature: remote_identity
+                .private
+                .sign(&remote_signed_prekey.public.serialize(), &mut rng),
+            prekey: None,
+        };
+        let local = rv_signal::LocalIdentity {
+            identity: local_identity.clone(),
+            registration_id: 0,
+        };
+        let mut record = rv_signal::SessionRecord::default();
+        record
+            .initiate(&local, &bundle, &mut rng)
+            .expect("valid session");
         (
-            initialize_alice_session_record(&parameters, &mut rng).expect("valid session"),
+            SessionRecord::deserialize(&record.serialize()).expect("session record"),
             local_identity,
         )
     }

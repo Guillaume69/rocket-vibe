@@ -8,13 +8,13 @@ use rand::CryptoRng;
 
 use super::address::ProtocolAddress;
 use super::error::{Result, SignalProtocolError};
-use super::keys::{KeyPair, PublicKey, local_identity};
+use super::keys::{PublicKey, local_identity};
 use super::messages::{
     CiphertextMessage, CiphertextMessageType, OwnedCiphertextMessage, PreKeySignalMessage,
     SignalMessage,
 };
 use super::prekeys::{GenericSignedPreKey, PreKeyId, SignedPreKeyId};
-use super::session::{AliceSignalProtocolParameters, SessionRecord};
+use super::session::SessionRecord;
 use super::storage::{
     CheckoutGuard, Direction, IdentityChange, IdentityKeyStore, PreKeyStore, SessionStore,
     SignedPreKeyStore, is_trusted_identity, save_identity,
@@ -306,32 +306,4 @@ pub async fn process_prekey_bundle<R: CryptoRng + ?Sized>(
     let change = save_identity(identity_store, remote_address, &bundle.identity).await?;
     checkout.store(record).await?;
     Ok(change)
-}
-
-/// A session started from bare keys, without a signed bundle (their ratchet
-/// key must be their signed prekey, as WhatsApp's always is).
-pub fn initialize_alice_session_record<R: CryptoRng + ?Sized>(
-    parameters: &AliceSignalProtocolParameters,
-    csprng: &mut R,
-) -> Result<SessionRecord> {
-    if parameters.their_ratchet_key != parameters.their_signed_pre_key {
-        return Err(SignalProtocolError::InvalidArgument(
-            "the ratchet key must be the signed prekey".to_owned(),
-        ));
-    }
-    let local = local_identity(&parameters.our_identity_key_pair, 0);
-    let bundle = PreKeyBundle {
-        registration_id: 0,
-        identity: parameters.their_identity_key,
-        signed_prekey_id: 0,
-        signed_prekey: parameters.their_signed_pre_key,
-        signed_prekey_signature: [0; 64],
-        prekey: parameters.their_one_time_pre_key.map(|k| (0, k)),
-    };
-    let base: KeyPair = parameters.our_base_key_pair.clone();
-    let mut record = SessionRecord::new_fresh();
-    record
-        .with_signal(|r| r.initiate_unverified(&local, &bundle, base, csprng))?
-        .map_err(|e| SignalProtocolError::from_signal(e, CiphertextMessageType::PreKey))?;
-    Ok(record)
 }

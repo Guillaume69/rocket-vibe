@@ -76,6 +76,11 @@ pub fn clear_selection() {
     }
 }
 
+/// The message text holding the selection the copy shortcut takes.
+pub fn selected_widget() -> Option<gtk::Widget> {
+    SELECTED.with_borrow(|s| s.upgrade())
+}
+
 /// The text last selected in a message, while it is still on screen and selected.
 pub fn selected_text() -> Option<String> {
     let widget = SELECTED.with_borrow(|s| s.upgrade()).filter(|w| w.is_mapped())?;

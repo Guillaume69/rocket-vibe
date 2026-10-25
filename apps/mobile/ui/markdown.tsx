@@ -17,7 +17,8 @@
 
 import type { BigEmoji, Blocks, Inlines, Paragraph } from '@rocket.chat/message-parser';
 import { Component, createContext, useContext, type ReactElement, type ReactNode } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { Alert, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { customEmojiUrl } from '../lib/customEmojis.ts';
 import {ImageEmoji,useCatalogueEmojis} from './emojiImage.tsx';
@@ -28,6 +29,7 @@ import { openExternalLink } from './externalLink.ts';
 import { TappableText } from './tappableText.tsx';
 import { InlineIcon } from './icon.tsx';
 import { type Colors, FONTS } from './theme.ts';
+import { useT } from './i18n.ts';
 
 const MONO_FONT = Platform.select({ android: 'monospace', default: 'Menlo' });
 
@@ -76,9 +78,9 @@ export class RenderGuard extends Component<
 }
 
 /**
- * Long press of the row carrying this text. A link or mention is a touchable
- * `Text`: it keeps the touch for itself, and the row's long press never fired
- * on it.
+ * Long press of the row carrying this text. A mention is a touchable `Text`:
+ * it keeps the touch for itself, and the row's long press never fired on it.
+ * A link has its own: open it or copy its address.
  */
 export const MessageLongPress = createContext<(() => void) | undefined>(undefined);
 
@@ -89,7 +91,13 @@ export const MessageLongPress = createContext<(() => void) | undefined>(undefine
 export const MentionSelf = createContext<string | null>(null);
 
 function Link({ url, label, c }: { url: string; label: string; c: Colors }) {
-  const longPress = useContext(MessageLongPress);
+  const t = useT();
+  const longPress = () =>
+    Alert.alert(url, undefined, [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('link.copy'), onPress: () => void Clipboard.setStringAsync(url) },
+      { text: t('link.open'), onPress: () => openLink(url) },
+    ], { cancelable: true });
   return (
     <Text style={[styles.link, { color: c.accent }]} onPress={() => openLink(url)} onLongPress={longPress}>
       {label !== '' ? label : url}

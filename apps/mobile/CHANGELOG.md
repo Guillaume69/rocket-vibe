@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- A long press on a link in a message offers to open it or copy its address, instead of the message's actions, whose Copy took the whole message.
+
 ### Changed
 
 - Encrypted Vibez conversations respond several times faster, most of all in rooms with some history: the encryption engine no longer decrypts and re-verifies its whole saved state several times for each step of a send.

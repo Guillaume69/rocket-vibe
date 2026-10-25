@@ -44,7 +44,7 @@ fn is_text(widget: &gtk::Widget) -> bool {
 }
 
 /// A row's texts, in reading order.
-fn texts(row: &gtk::Widget) -> Vec<gtk::Widget> {
+pub(crate) fn texts(row: &gtk::Widget) -> Vec<gtk::Widget> {
     let mut out = Vec::new();
     let mut stack = vec![row.clone()];
     while let Some(widget) = stack.pop() {
@@ -156,6 +156,26 @@ fn highlight(text: &gtk::Widget, range: Option<(i32, i32)>) {
             buffer.apply_tag(&tag, &buffer.iter_at_offset(start), &buffer.iter_at_offset(end));
         }
     }
+}
+
+/// A row built again keeps the selection made in one of its texts: rows are
+/// rebuilt under the user (a photo or a receipt arriving), and the copy
+/// shortcut would find the old text gone.
+fn carry_selection(old: &gtk::Widget, new: &gtk::Widget) {
+    let Some(selected) = crate::markdown_view::selected_widget() else { return };
+    let Some(at) = texts(old).iter().position(|t| *t == selected) else { return };
+    let Some(text) = texts(new).into_iter().nth(at) else { return };
+    if let (Some(from), Some(to)) = (selected.downcast_ref::<gtk::Label>(), text.downcast_ref::<gtk::Label>()) {
+        let Some((a, b)) = from.selection_bounds() else { return };
+        to.select_region(a, b);
+    } else if let (Some(from), Some(to)) =
+        (selected.downcast_ref::<gtk::TextView>(), text.downcast_ref::<gtk::TextView>())
+    {
+        let Some((a, b)) = from.buffer().selection_bounds() else { return };
+        let buffer = to.buffer();
+        buffer.select_range(&buffer.iter_at_offset(a.offset()), &buffer.iter_at_offset(b.offset()));
+    }
+    crate::markdown_view::note_selection(&text);
 }
 
 /// Drops GTK's own selection in a text.
@@ -418,8 +438,9 @@ impl MessageList {
             return;
         };
         let row = self.build(display);
-        holder.remove(&old);
         holder.append(&row);
+        carry_selection(&old, &row);
+        holder.remove(&old);
     }
 
     /// Rebuilds, in place, every item whose content differs from `fresh` (all of them when `all`).

@@ -11,6 +11,8 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-25
+
 ### Changed
 
 - Web client: encrypted Vibez conversations respond several times faster, most of all in rooms with some history: the encryption engine no longer decrypts and re-verifies its whole saved state several times for each step of a send.
@@ -248,7 +250,8 @@ first release: everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.9.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.0...HEAD
+[0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.9.0...vibez-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...vibez-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...vibez-v0.8.0
 [0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/server-v0.5.0...vibez-v0.7.0

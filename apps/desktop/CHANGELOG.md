@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-25
+
 ### Added
 
 - macOS: a message's context menu offers to copy the address of each link in its text.
@@ -1374,7 +1376,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...HEAD
+[0.27.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0
 [0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.25.0...desktop-v0.26.0
 [0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...desktop-v0.25.0
 [0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0

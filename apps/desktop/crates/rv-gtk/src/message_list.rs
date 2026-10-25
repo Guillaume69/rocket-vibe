@@ -44,7 +44,7 @@ fn is_text(widget: &gtk::Widget) -> bool {
 }
 
 /// A row's texts, in reading order.
-fn texts(row: &gtk::Widget) -> Vec<gtk::Widget> {
+pub(crate) fn texts(row: &gtk::Widget) -> Vec<gtk::Widget> {
     let mut out = Vec::new();
     let mut stack = vec![row.clone()];
     while let Some(widget) = stack.pop() {

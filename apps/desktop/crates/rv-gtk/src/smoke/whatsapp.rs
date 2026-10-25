@@ -89,10 +89,10 @@ fn linked(window: Rc<AppWindow>, out: String) {
                     && list.row_widget("alice@s.whatsapp.net:fake-voice").is_some(),
                 (),
             );
-            window.chat.send_text("Smoke WhatsApp");
+            window.chat.send_text(THAI);
             let (window, session) = (window.clone(), session.clone());
             glib::timeout_add_local_once(Duration::from_millis(1200), move || {
-                let sent = session.snapshot().messages.values().any(|m| m.mine && m.text == "Smoke WhatsApp");
+                let sent = session.snapshot().messages.values().any(|m| m.mine && m.text == THAI);
                 check("whatsapp text sent through the composer", sent, ());
                 // Drawing the photo asked the helper for its file.
                 let fetched = std::env::temp_dir().join("rv-fake-whatsapp-alice_s.whatsapp.net_fake-photo").exists();
@@ -100,11 +100,33 @@ fn linked(window: Rc<AppWindow>, out: String) {
                 let own = session.info.user_id.clone();
                 check("whatsapp my photo arrived", session.photo(&own).is_some(), &own);
                 shot(&window, &format!("{out}/chat.png"));
+                selection_survives_a_rebuild(&window);
                 new_conversation(window.clone(), session.clone());
             });
         });
         glib::ControlFlow::Break
     });
+}
+
+/// A photo or a receipt arriving builds the rows again: a selection made in
+/// a message must still be the one the copy shortcut takes.
+fn selection_survives_a_rebuild(window: &AppWindow) {
+    let list = window.chat.message_list();
+    let text = list
+        .row_widget("alice@s.whatsapp.net:fake-received")
+        .and_then(|row| crate::message_list::texts(&row).into_iter().next())
+        .and_then(|text| text.downcast::<gtk::Label>().ok());
+    let Some(text) = text else {
+        check("whatsapp message text to select", false, ());
+        return;
+    };
+    text.select_region(0, 7);
+    crate::markdown_view::note_selection(text.upcast_ref());
+    let before = crate::markdown_view::selected_text();
+    list.rebind();
+    let after = crate::markdown_view::selected_text();
+    check("whatsapp selection survives a rebuild", before.is_some() && after == before, (before, after));
+    crate::markdown_view::clear_selection();
 }
 
 /// A conversation started from the contacts, before its first message.
@@ -155,3 +177,6 @@ fn shot(window: &AppWindow, path: &str) {
         .is_some_and(|(node, renderer)| renderer.render_texture(&node, None).save_to_png(path).is_ok());
     check("whatsapp screenshot", saved, path);
 }
+
+/// Thai marks stack above and below the line: the read receipt under it must still show whole.
+const THAI: &str = "ยึดครอง แต่ไม่แน่ใจว่าจำถูกหรือเปล่า";

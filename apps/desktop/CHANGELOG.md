@@ -7,10 +7,19 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- macOS: a message's context menu offers to copy the address of each link in its text.
+
 ### Changed
 
 - Encrypted Vibez conversations respond several times faster, most of all in rooms with some history: the encryption engine no longer decrypts and re-verifies its whole saved state several times for each step of a send.
 - WhatsApp (experimental): WhatsApp now runs inside the app, rewritten in Rust on whatsapp-rust in place of the Go helper on whatsmeow; packages no longer carry a separate `rv-whatsapp` program, only its licence notice. Existing WhatsApp accounts must be linked again once: the new engine cannot read the old helper's saved state and shows the account as expired. The linked device is named Rocket Vibe on the phone. Link previews of your own messages are fetched with the same protections as the Vibez server's (public addresses only, standard web ports). In groups, a read receipt is sent even when your privacy settings send none, as WhatsApp's own apps do.
+
+### Fixed
+
+- WhatsApp (experimental): a right click on a link in a message offers to open the link or copy its address, and on selected text to copy the selection, as in the other accounts, instead of the message menu whose Copy took the whole message.
+- Copying part of a message with Ctrl+C sometimes copied nothing: a contact photo or a read receipt arriving rebuilt the message under the selection and lost it. Most visible in WhatsApp, whose photos arrive one by one.
 
 ## [0.26.0] - 2026-10-24
 

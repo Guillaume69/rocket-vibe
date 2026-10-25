@@ -707,6 +707,13 @@ struct MessageRow: View, Equatable {
                 NSPasteboard.general.setString(link, forType: .string)
             }
         }
+        let addresses = linkAddresses(message.body)
+        ForEach(addresses, id: \.self) { address in
+            Button(addresses.count == 1 ? L("text.copy_link") : "\(L("text.copy_link")): \(address)") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(address, forType: .string)
+            }
+        }
         if model?.canRemind(message) == true {
             if let pending = app.reminder(for: message.id) {
                 Button { app.cancelReminder(message.id) } label: { Label(pending.cancelLabel, systemImage: "alarm") }

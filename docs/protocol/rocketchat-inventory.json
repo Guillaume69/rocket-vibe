@@ -364,6 +364,7 @@
     "apps/desktop/macos/Sources/RocketVibe/WorkflowsSection.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AdminModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
+    "apps/desktop/macos/Sources/RocketVibeKit/BodyLinks.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/BotsModel.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/CardMenus.swift",
     "apps/desktop/macos/Sources/RocketVibeKit/ChatProvider.swift",

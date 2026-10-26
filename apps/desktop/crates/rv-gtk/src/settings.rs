@@ -54,24 +54,32 @@ fn add_lazy(
 }
 
 /// The dialog, with the server administration (shown to an administrator)
-/// and Sign out under the categories it will hold.
-fn dialog(parent: &gtk::Widget, admin: rv_core::admin::Admin, sign_out: impl Fn() + 'static) -> SidebarDialog {
+/// when the account has one, and `sign_out_label` under the categories it
+/// will hold.
+fn dialog(
+    parent: &gtk::Widget,
+    admin: Option<rv_core::admin::Admin>,
+    sign_out_label: &str,
+    sign_out: impl Fn() + 'static,
+) -> SidebarDialog {
     let dialog = SidebarDialog::new(t("settings.title"), "settings-dialog");
-    let (screen, parent) = (admin.clone(), parent.clone());
-    let link = dialog.add_footer(t("admin.title"), "network-server-symbolic", false, move |host| {
-        host.close();
-        crate::admin::open(&parent, screen.clone());
-    });
-    link.add_css_class("settings-admin");
-    link.set_visible(false);
-    let host = dialog.host();
-    glib::spawn_future_local(async move {
-        let admin = on_tokio(async move { admin.is_admin().await }).await;
-        if host.alive() {
-            link.set_visible(admin);
-        }
-    });
-    let button = dialog.add_footer(t("rooms.sign_out"), "system-log-out-symbolic", true, move |host| {
+    if let Some(admin) = admin {
+        let (screen, parent) = (admin.clone(), parent.clone());
+        let link = dialog.add_footer(t("admin.title"), "network-server-symbolic", false, move |host| {
+            host.close();
+            crate::admin::open(&parent, screen.clone());
+        });
+        link.add_css_class("settings-admin");
+        link.set_visible(false);
+        let host = dialog.host();
+        glib::spawn_future_local(async move {
+            let admin = on_tokio(async move { admin.is_admin().await }).await;
+            if host.alive() {
+                link.set_visible(admin);
+            }
+        });
+    }
+    let button = dialog.add_footer(sign_out_label, "system-log-out-symbolic", true, move |host| {
         host.close();
         sign_out();
     });
@@ -115,7 +123,8 @@ pub(crate) fn open_native_with_commands(
     commands_changed: Rc<dyn Fn()>,
 ) -> SidebarDialog {
     let info = &session.info;
-    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::Native(session.clone()), sign_out);
+    let dialog =
+        dialog(parent.as_ref(), Some(rv_core::admin::Admin::Native(session.clone())), t("rooms.sign_out"), sign_out);
     dialog.dialog().add_css_class("native-profile-settings");
     let host = dialog.host();
     let account = adw::PreferencesPage::new();
@@ -334,7 +343,12 @@ pub fn open(
     accounts: Option<Rc<AccountActions>>,
     sign_out: impl Fn() + 'static,
 ) -> SidebarDialog {
-    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::RocketChat(session.clone()), sign_out);
+    let dialog = dialog(
+        parent.as_ref(),
+        Some(rv_core::admin::Admin::RocketChat(session.clone())),
+        t("rooms.sign_out"),
+        sign_out,
+    );
     let host = dialog.host();
 
     let account = adw::PreferencesPage::new();
@@ -383,13 +397,7 @@ pub fn open(
     add(&dialog, NOTIFICATIONS, &notifications);
 
     let language_page = adw::PreferencesPage::new();
-    let language_group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
-    let labels: Vec<&str> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
-    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
-    let language = combo(t("settings.language"), &labels, current);
-    language.set_subtitle(t("settings.language_restart"));
-    language_group.add(&language);
-    language_page.add(&language_group);
+    language_page.add(&language_group());
     add(&dialog, LANGUAGE, &language_page);
 
     let encryption = adw::PreferencesPage::new();
@@ -464,7 +472,6 @@ pub fn open(
             });
         });
     });
-    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
     let (s, h) = (session.clone(), host.clone());
     edit.connect_clicked(move |_| {
         if let Some(found) = me.borrow().clone() {
@@ -473,6 +480,44 @@ pub fn open(
     });
     dialog.present(parent);
     dialog
+}
+
+/// The settings of an account the app keeps no server profile for (a linked
+/// WhatsApp account): notifications, language, the accounts on this machine
+/// and the app itself, `sign_out_label` ending the account.
+pub fn open_app(
+    parent: &impl IsA<gtk::Widget>,
+    info: &rv_core::session::SessionInfo,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out_label: &str,
+    sign_out: impl Fn() + 'static,
+) -> SidebarDialog {
+    let dialog = dialog(parent.as_ref(), None, sign_out_label, sign_out);
+    let host = dialog.host();
+    if let Some(group) = notifier_group() {
+        let notifications = adw::PreferencesPage::new();
+        notifications.add(&group);
+        add(&dialog, NOTIFICATIONS, &notifications);
+    }
+    let language = adw::PreferencesPage::new();
+    language.add(&language_group());
+    add(&dialog, LANGUAGE, &language);
+    add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
+    add(&dialog, APP, &app_page(&host));
+    dialog.present(parent);
+    dialog
+}
+
+/// The app's language, saved for the next launch.
+fn language_group() -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
+    let labels: Vec<&str> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
+    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
+    let language = combo(t("settings.language"), &labels, current);
+    language.set_subtitle(t("settings.language_restart"));
+    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
+    group.add(&language);
+    group
 }
 
 /// Who shows the notifications, a test, and the system's own settings.
@@ -561,9 +606,11 @@ fn accounts_page(
         rail.add(&hide);
         page.add(&rail);
     }
-    let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
-    account.add(&adw::ActionRow::builder().title(t("settings.server")).subtitle(&info.base_url).build());
-    page.add(&account);
+    if !rv_core::whatsapp::is_whatsapp(info) {
+        let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
+        account.add(&adw::ActionRow::builder().title(t("settings.server")).subtitle(&info.base_url).build());
+        page.add(&account);
+    }
     page
 }
 
@@ -677,7 +724,11 @@ fn accounts_group(
         for info in all.into_iter().rev() {
             let row = adw::ActionRow::builder()
                 .title(format!("@{}", info.username))
-                .subtitle(host_of(&info.base_url))
+                .subtitle(if rv_core::whatsapp::is_whatsapp(&info) {
+                    "WhatsApp".to_owned()
+                } else {
+                    host_of(&info.base_url)
+                })
                 .build();
             if crate::secrets::account_key(&info) == current {
                 row.add_suffix(&gtk::Label::builder().label(t("settings.current")).css_classes(["dim-label"]).build());
@@ -919,4 +970,63 @@ fn edit_profile_for(host: &Host, source: ProfileSource, me: Me) {
             h.toast(t(if done.is_ok() { "settings.saved" } else { "settings.save_failed" }));
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settle(ms: u64) {
+        let context = glib::MainContext::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
+        let mut found = vec![root.clone()];
+        for child in std::iter::successors(root.first_child(), |w| w.next_sibling()) {
+            found.extend(descendants(&child));
+        }
+        found
+    }
+
+    fn labels(root: &gtk::Widget) -> Vec<String> {
+        descendants(root).iter().filter_map(|w| w.downcast_ref::<gtk::Label>().map(|l| l.label().to_string())).collect()
+    }
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn whatsapp_account_reaches_the_app_settings() {
+        adw::init().unwrap();
+        let window = adw::Window::builder().default_width(1280).default_height(900).build();
+        window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+        window.present();
+        settle(200);
+        let info = rv_core::whatsapp::account_info("ab12", "33600000000@s.whatsapp.net", "Me");
+        let unlinked = Rc::new(std::cell::Cell::new(false));
+        let flag = unlinked.clone();
+        let settings = open_app(&window, &info, None, t("wa.logout"), move || flag.set(true));
+        settle(400);
+        let dialog = settings.dialog().clone().upcast::<gtk::Widget>();
+        assert!(dialog.is_mapped());
+        let all = descendants(&dialog);
+        assert!(!all.iter().any(|w| w.has_css_class("settings-admin")), "no server, no administration");
+        let shown = labels(&dialog);
+        for category in ["settings.cat.language", "settings.cat.accounts", "settings.cat.app"] {
+            assert!(shown.iter().any(|l| l == t(category)), "{category} listed: {shown:?}");
+        }
+        assert!(!shown.iter().any(|l| l == t("settings.cat.account")), "no server profile");
+        assert!(shown.iter().any(|l| l == t("wa.logout")), "the footer unlinks: {shown:?}");
+        settings.select("app");
+        settle(300);
+        assert!(labels(&dialog).iter().any(|l| l == t("settings.updates_check")), "updates reachable");
+        let sign_out = all.into_iter().find(|w| w.has_css_class("settings-sign-out")).unwrap();
+        sign_out.downcast::<gtk::Button>().unwrap().emit_clicked();
+        assert!(unlinked.get());
+    }
 }

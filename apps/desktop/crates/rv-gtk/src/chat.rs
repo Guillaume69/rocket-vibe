@@ -2246,17 +2246,29 @@ impl ChatPage {
             return;
         }
         let w = Rc::downgrade(self);
-        // A WhatsApp account: unlinking is all it has here.
+        // A WhatsApp account: the app's settings, then unlinking.
         if self.whatsapp_session().is_some() {
-            let popover = action_popover(vec![(
-                "system-log-out-symbolic",
-                t("wa.logout").to_owned(),
-                Rc::new(move || {
-                    if let Some(this) = w.upgrade() {
-                        this.sign_out();
-                    }
-                }),
-            )]);
+            let settings = w.clone();
+            let popover = action_popover(vec![
+                (
+                    "emblem-system-symbolic",
+                    t("settings.title").to_owned(),
+                    Rc::new(move || {
+                        if let Some(this) = settings.upgrade() {
+                            this.open_settings();
+                        }
+                    }),
+                ),
+                (
+                    "system-log-out-symbolic",
+                    t("wa.logout").to_owned(),
+                    Rc::new(move || {
+                        if let Some(this) = w.upgrade() {
+                            this.sign_out();
+                        }
+                    }),
+                ),
+            ]);
             popover.set_parent(anchor);
             popover.set_position(gtk::PositionType::Top);
             popover.connect_closed(|popover| popover.unparent());
@@ -2365,9 +2377,17 @@ impl ChatPage {
             self.native_settings();
             return;
         }
-        let Some(session) = self.session() else { return };
         let signer = Rc::downgrade(self);
         let accounts = self.account_actions.borrow().clone();
+        if let Some(wa) = self.whatsapp_session() {
+            crate::settings::open_app(&self.split, &wa.info, accounts, t("wa.logout"), move || {
+                if let Some(this) = signer.upgrade() {
+                    this.sign_out();
+                }
+            });
+            return;
+        }
+        let Some(session) = self.session() else { return };
         crate::settings::open(&self.split, session, accounts, move || {
             if let Some(this) = signer.upgrade() {
                 this.sign_out();

@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; opening a room now marks it read up to the last message Teams lists, even when nothing new arrived while the app was open, and its badge goes at once.
+
 ## [0.24.0] - 2026-10-25
 
 ### Added

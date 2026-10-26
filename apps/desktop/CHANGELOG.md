@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; marking a room read now passes the last message Teams lists, events included.
+
 ## [0.27.0] - 2026-10-25
 
 ### Added

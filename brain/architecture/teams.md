@@ -34,7 +34,13 @@ The aggregator's `api/v2/teams/users/me` lists every chat (one-to-one, group, me
 and every team with its channels in one call: names, members, last message and my read
 state. A chat with no topic is named from its members, after its last message has taught
 the directory the sender's name. Teams gives no unread count: an unread room counts one,
-from `isRead` and whether the last message is mine.
+from `isRead` (`isMessageRead`) when the entry carries it, else from a last message newer
+than my `consumptionHorizon`, and never when the last message is mine. A last message that
+is a `ThreadActivity/*` or `Control/*` event does not count (the store keeps none of them,
+so nothing could be read past it), and a channel with no horizon at all (never opened, or
+hidden in Teams) is read, as Teams shows it; a chat with no horizon stays unread
+(`subscription` in `crates/rv-teams/src/translate.rs`, `toSubscription` in
+`packages/provider-teams/src/translate.ts`).
 
 History comes from the chat service, `users/ME/conversations/<id>/messages`, newest
 page first (50), with a `backwardLink` to the older page. Paging is backward only:
@@ -48,7 +54,10 @@ strike, code, links, lists, mentions as `@Name`, Teams emoji as their glyph), sc
 styles and remote images dropped. Ids are `<conversation>/<server id>`. Reactions are
 `properties.emotions`, keyed by Teams' classic names (`like`, `heart`, `laugh`,
 `surprised`, `sad`, `angry`): the apps offer only those. Reading moves my
-`consumptionhorizon` to the newest message, never back.
+`consumptionhorizon` to the newest message, never back: the newer of the newest stored
+(or live) message and the aggregator entry's `lastMessage.id`, so an event the store never
+keeps is still read past; the room's row turns read at once (`unmarked_newest` and
+`note_marked` in `teams/sync.rs`, `markRead` in `providers/teams`).
 
 ## Live
 

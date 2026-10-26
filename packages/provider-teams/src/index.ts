@@ -20,7 +20,7 @@ import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
-import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, TeamsRooms, TeamsSync, TeamsTranslator } from './sync.ts';
+import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
@@ -97,8 +97,9 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
   // url just before the transfer; registered for the message row to reach.
   setDownloadResolver(session.baseUrl.replace(/\/+$/, ''), (url) => (isGraphShare(url) ? client.downloadUrl(url).catch(() => url) : Promise.resolve(url)));
   const rooms = new TeamsRooms();
-  const sync = new TeamsSync(client, rooms);
-  const translator = new TeamsTranslator(directory, session.userId);
+  const threads = new TeamsThreads();
+  const sync = new TeamsSync(client, rooms, threads);
+  const translator = new TeamsTranslator(directory, session.userId, threads);
   const newest = new Map<string, string>();
   let engine: SyncEngine | null = null;
   const ingestOne = async (raw: Doc) => {
@@ -119,6 +120,8 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     }
     const events: DdpEvent[] = [{ collection: TEAMS_EVENTS, eventKey: name, args: [{ ...resource, __rid: rid }] }];
     const id = str(resource, 'id');
+    const post = id === null ? null : rootOf(resource, id);
+    if (post !== null) events.push({ collection: TEAMS_EVENTS, eventKey: THREAD_COUNTERS, args: [{ id: `${rid}/${post}` }] });
     if (name === 'NewMessage' && !rooms.isPreview(rid, resource)) {
       await ingestOne({ ...resource, __rid: rid });
       const mine = mriOf(str(resource, 'from') ?? '') === session.userId;

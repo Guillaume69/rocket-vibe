@@ -1069,6 +1069,27 @@ impl Writer<'_> {
         }
     }
 
+    /// Each thread root of a room counted from the replies stored under it:
+    /// for a server that sends no reply count (Teams), the count and the last
+    /// reply's time the root shows.
+    pub fn recount_threads(&mut self, rid: &str) {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE messages SET
+                   thread_count = (SELECT COUNT(*) FROM messages r WHERE r.rid = ?1 AND r.thread_id = messages.id),
+                   thread_last = (SELECT MAX(r.ts) FROM messages r WHERE r.rid = ?1 AND r.thread_id = messages.id)
+                 WHERE rid = ?1 AND thread_id IS NULL
+                   AND (thread_count, thread_last) IS NOT
+                     (SELECT COUNT(*), MAX(r.ts) FROM messages r WHERE r.rid = ?1 AND r.thread_id = messages.id)",
+                [rid],
+            )
+            .or_note(&mut self.failed, "recount threads");
+        if changed > 0 {
+            self.touch_messages(rid);
+        }
+    }
+
     /// A room's cached messages, the optimistic ones (`updated_at` 0, still in the outbox) kept.
     pub fn clear_room_messages(&mut self, rid: &str) {
         self.conn
@@ -1462,6 +1483,32 @@ mod tests {
             assert_eq!(reopened.upload("known").unwrap().status, "pending");
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn thread_roots_are_counted_from_their_stored_replies() {
+        let store = Store::in_memory().unwrap();
+        let reply =
+            |id: &str, ts: i64| Message { thread_id: Some("root".into()), ts, ..message(id, Some("re"), 1, "r") };
+        store.write(|w| {
+            w.upsert_message(&message("root", Some("post"), 1, "r"));
+            w.upsert_message(&message("alone", Some("post"), 1, "r"));
+            w.upsert_message(&reply("a", 200));
+            w.upsert_message(&reply("b", 300));
+            w.recount_threads("r");
+        });
+        let rows = store.messages_by_id(&["root".into(), "alone".into()]);
+        let counted = |id: &str| rows.iter().find(|m| m.id == id).map(|m| (m.thread_count, m.thread_last)).unwrap();
+        assert_eq!(counted("root"), (2, Some(300)));
+        assert_eq!(counted("alone"), (0, None));
+        let mut changes = store.changes();
+        store.write(|w| w.recount_threads("r"));
+        assert!(changes.try_recv().is_err(), "nothing moved, nothing announced");
+        store.write(|w| {
+            w.delete_message("b");
+            w.recount_threads("r");
+        });
+        assert_eq!(store.messages_by_id(&["root".into()])[0].thread_last, Some(200));
     }
 
     #[test]

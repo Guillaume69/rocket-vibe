@@ -13,7 +13,7 @@ import type { OutboxRow, OutboxStore } from '@rocket-vibe/provider-api/outbox';
 import type { Ingest, Outbox } from '@rocket-vibe/provider-api/provider';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
-import { TeamsDirectory, int, mriOf, reactionKey, splitId, str } from './translate.ts';
+import { TeamsDirectory, int, mriOf, reactionKey, splitId, str, withoutSubject } from './translate.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -186,7 +186,9 @@ export class TeamsMessageActions {
   async edit(rid: string, mid: string, text: string): Promise<void> {
     const target = splitId(mid);
     if (!target) throw new TeamsError('message_id');
-    await this.client.chat('PUT', await this.client.conversation(rid, ['messages', target.server]), { content: toHtml(text), messagetype: 'RichText/Html', contenttype: 'text' });
+    const url = await this.client.conversation(rid, ['messages', target.server]);
+    const current = await this.client.chat('GET', await this.client.conversation(rid, ['messages', target.server], VIEW)).then((r) => r.body, () => null);
+    await this.client.chat('PUT', url, { content: toHtml(withoutSubject(current, text)), messagetype: 'RichText/Html', contenttype: 'text' });
     await this.refresh(rid, target.server);
   }
 

@@ -245,10 +245,30 @@ export function htmlToMarkdown(html: string): string {
   return out.split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** A message's text, under the post's subject in bold when it has one. */
 export function bodyText(raw: unknown): string {
   const content = str(raw, 'content') ?? '';
   const html = (str(raw, 'messagetype') ?? '').startsWith('RichText') || (str(raw, 'contenttype') ?? '').toLowerCase() === 'html';
-  return html ? htmlToMarkdown(content) : decodeEntities(content).trim();
+  const body = html ? htmlToMarkdown(content) : decodeEntities(content).trim();
+  const title = subject(raw);
+  return title === null ? body : body === '' ? `**${title}**` : `**${title}**\n\n${body}`;
+}
+
+/** A channel post's subject, the title Teams shows above it: the chat
+ *  service's `properties.subject`, or `subject` where the aggregator or a
+ *  rebuilt entry carries it. */
+export function subject(raw: unknown): string | null {
+  const title = str((raw as Doc | null | undefined)?.properties, 'subject') ?? str(raw, 'subject');
+  const clean = title === null ? '' : decodeEntities(title).trim();
+  return clean === '' ? null : clean;
+}
+
+/** An edited text without the subject `bodyText` put in front of it: the
+ *  subject stays the message's own property. */
+export function withoutSubject(raw: unknown, text: string): string {
+  const title = subject(raw);
+  const head = title === null ? null : `**${title}**`;
+  return head !== null && text.startsWith(head) ? text.slice(head.length).replace(/^\n+/, '') : text;
 }
 
 export function deleted(raw: unknown): boolean {
@@ -596,7 +616,7 @@ function preview(last: unknown, directory: TeamsDirectory): { text: string; auth
   if (from && name) directory.remember(mriOf(from), name);
   const at = instant(last, 'composeTime') ?? int(last, 'id');
   if (at === null) return null;
-  return { text: bodyText({ content: (last as Doc).content, messagetype: kind }), author: from ? directory.shown(mriOf(from)) : null, at };
+  return { text: bodyText({ content: (last as Doc).content, messagetype: kind, subject: subject(last) }), author: from ? directory.shown(mriOf(from)) : null, at };
 }
 
 function lastAt(entry: unknown): number | null {

@@ -56,7 +56,17 @@ stored messages are replaced by the newest page.
 
 Messages are `RichText/Html` or `Text`; the HTML becomes markdown (bold, italic,
 strike, code, links, lists, mentions as `@Name`, Teams emoji as their glyph), scripts,
-styles and remote images dropped. Ids are `<conversation>/<server id>`. Reactions are
+styles and remote images dropped. A channel post's subject (`properties.subject`, or
+`subject` on a list entry) is its title: the text starts with it in bold, and an edit
+sends the body without it, the subject staying the message's own property (`body_text`,
+`without_subject` in `rv-teams`; `bodyText`, `withoutSubject` in `provider-teams`; the
+field's place inferred from the chat service's message properties, not yet seen on a
+live post). A reply carries `;messageid=<post>` in its `conversationLink`; Teams sends
+no reply count, so each post's count and last reply time are counted from the replies
+read with it and moved by every live reply or deletion (`Store::recount_threads` after
+each Teams write on the desktops, `TeamsThreads` and the `thread` live event turned into
+`thread-counters` on Android), which shows "N replies" under the post and opens its
+thread. Ids are `<conversation>/<server id>`. Reactions are
 `properties.emotions`, keyed by Teams' classic names (`like`, `heart`, `laugh`,
 `surprised`, `sad`, `angry`): the apps offer only those. Reading moves my
 `consumptionhorizon` to the newest message, never back: the newer of the newest stored

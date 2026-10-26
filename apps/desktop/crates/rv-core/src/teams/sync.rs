@@ -165,7 +165,7 @@ impl TeamsSync {
             "messageType": resource.get("messagetype"), "content": resource.get("content"),
             "from": resource.get("from"), "imDisplayName": resource.get("imdisplayname"),
             "composeTime": resource.get("composetime").or(resource.get("originalarrivaltime")),
-            "id": resource.get("id"),
+            "id": resource.get("id"), "subject": translate::subject(resource),
         });
         for key in ["isRead", "isMessageRead", "isLastMessageFromMe"] {
             entry[key] = Value::Bool(mine);
@@ -190,7 +190,7 @@ impl TeamsSync {
             Some(r) => serde_json::json!({
                 "messageType": r.get("messagetype"), "content": r.get("content"),
                 "from": r.get("from"), "imDisplayName": r.get("imdisplayname"),
-                "composeTime": at, "id": r.get("id"),
+                "composeTime": at, "id": r.get("id"), "subject": translate::subject(r),
             }),
             None => serde_json::json!({ "messageType": "Text", "content": "", "composeTime": at }),
         };
@@ -226,7 +226,10 @@ impl TeamsSync {
         }
         if translate::deleted(resource) {
             if let Some(id) = str_of(resource, "id") {
-                self.store.write(|w| w.delete_message(&translate::message_id(&rid, id)));
+                self.store.write(|w| {
+                    w.delete_message(&translate::message_id(&rid, id));
+                    w.recount_threads(&rid);
+                });
             }
             if self.is_preview(&rid, resource)
                 && let Some((entry, team)) = self.preview_after_delete(&rid).await
@@ -250,6 +253,7 @@ impl TeamsSync {
             .and_then(|(entry, team)| self.row(&entry, team.as_ref()));
         self.store.write(|w| {
             w.upsert_message(&message);
+            w.recount_threads(&rid);
             if let Some((room, sub)) = &row {
                 w.upsert_room(room);
                 w.upsert_subscription(sub);
@@ -459,6 +463,7 @@ impl TeamsSync {
         self.store.write(|w| {
             rows.iter().for_each(|m| w.upsert_message(m));
             gone.iter().for_each(|id| w.delete_message(id));
+            w.recount_threads(rid);
         });
         rows
     }
@@ -532,6 +537,7 @@ impl TeamsSync {
         self.store.write(|w| {
             w.clear_room_messages(rid);
             rows.iter().for_each(|m| w.upsert_message(m));
+            w.recount_threads(rid);
         });
         self.remember_older(rid, &newest, link);
         Ok(())

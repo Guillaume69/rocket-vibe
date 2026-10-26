@@ -14,7 +14,8 @@
 //!   RV_SMOKE_NATIVE=1      asserts the native provider in the existing chat UI
 //!   RV_SMOKE_QUOTES=1      checks native references through the existing reply bar and composer
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
-//!                          only once it overflows, one line high when short
+//!                          only once it overflows, one line high when short, still one line
+//!                          under a long private note (RV_SMOKE_COMPOSER_NOTE=hold: left so)
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
 //!                          replies in a thread, then opens the actions menu, reacts through its
 //!                          emoji picker and opens the menu again (RV_SMOKE_MENU_SHOT: a PNG of
@@ -870,7 +871,25 @@ fn composer_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
         steps.push_back(Box::new(|_| {}));
     }
     steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
-    steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
+    steps.push_back(Box::new(|c| {
+        let ctx = rv_core::markdown::Context { me: "", names: None };
+        c.composer().show_private(&"- a long private answer\n".repeat(40), &ctx, &[], None);
+        c.composer().set_text("typed under a long note");
+    }));
+    for _ in 0..5 {
+        steps.push_back(Box::new(|_| {}));
+    }
+    steps.push_back(Box::new(|c| {
+        let (height, _, _) = c.composer().scroll_state();
+        let ok = height >= 18;
+        println!("smoke: composer under a long note: {height}px {}", if ok { "ok" } else { "FAILED" });
+        if !ok {
+            FAILED.store(true, Ordering::SeqCst);
+        }
+    }));
+    if std::env::var("RV_SMOKE_COMPOSER_NOTE").as_deref() != Ok("hold") {
+        steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
+    }
     in_sequence(chat, steps);
 }
 

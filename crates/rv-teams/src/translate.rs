@@ -1213,7 +1213,46 @@ mod tests {
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
 
+    #[test]
+    fn chats_only_the_chat_service_lists_take_the_aggregator_shape() {
+        let d = Directory::default();
+        let last = json!({"id": "1792540521726", "messagetype": "RichText/Html", "content": "<p>yo</p>",
+            "from": "https://t/v1/users/ME/contacts/8:orgid:bbb", "imdisplayname": "Bob",
+            "composetime": "2026-10-20T23:55:21.726Z"});
+        let one = json!({"id": "19:aaa_bbb@unq.gbl.spaces", "threadProperties": {}, "lastMessage": last,
+            "properties": {"consumptionhorizon": "1792540500000;1792540500001;42"}});
+        let chat = listed_chat(&one).unwrap();
+        assert_eq!(chat["members"], json!([{"mri": "8:orgid:aaa"}, {"mri": "8:orgid:bbb"}]));
+        assert_eq!(horizon(&chat), Some(1792540500000));
+        let room = chat_room("8:orgid:aaa", &chat, &d).unwrap();
+        assert_eq!((room.kind.as_str(), room.display_name.as_deref()), ("d", Some("Bob")));
+        assert_eq!(room.dm_other_uid.as_deref(), Some("8:orgid:bbb"));
+        assert!(subscription("19:aaa_bbb@unq.gbl.spaces", &chat, "8:orgid:aaa", 5, None).alert);
+        let group = json!({"id": "19:g@thread.v2", "threadProperties": {"topic": "Point infra", "threadType": "chat"}, "lastMessage": last});
+        assert_eq!(listed_chat(&group).unwrap()["title"], "Point infra");
+        let meeting =
+            json!({"id": "19:meeting_x@thread.v2", "threadProperties": {"threadType": "meeting"}, "lastMessage": last});
+        assert_eq!(listed_chat(&meeting).unwrap()["chatType"], "meeting");
+        for skipped in [
+            json!({"id": "19:c@thread.tacv2", "lastMessage": last}),
+            json!({"id": "19:s@thread.v2", "threadProperties": {"threadType": "space"}, "lastMessage": last}),
+            json!({"id": "48:notes", "lastMessage": last}),
+            json!({"id": "19:empty@thread.v2", "threadProperties": {}}),
+        ] {
+            assert!(listed_chat(&skipped).is_none(), "{skipped}");
+        }
+    }
 
+    #[test]
+    fn a_hidden_chat_shows_again_once_it_has_a_message() {
+        let last = json!({"messageType": "RichText/Html", "content": "<p>yo</p>", "id": "1"});
+        let hidden = json!({"id": "19:x@thread.v2", "hidden": true, "lastMessage": last});
+        assert!(subscription("19:x@thread.v2", &hidden, "me", 5, None).open);
+        let silent = json!({"id": "19:x@thread.v2", "hidden": true});
+        assert!(!subscription("19:x@thread.v2", &silent, "me", 5, None).open);
+        let gone = json!({"id": "19:x@thread.v2", "isConversationDeleted": true, "lastMessage": last});
+        assert!(!subscription("19:x@thread.v2", &gone, "me", 5, None).open);
+    }
 
     #[test]
     fn a_post_shows_its_subject_as_a_title_an_edit_leaves_out() {

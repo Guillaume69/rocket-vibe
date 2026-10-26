@@ -23,6 +23,8 @@ mod forward;
 mod gst_stream;
 mod i18n;
 mod icon;
+#[cfg(target_os = "linux")]
+mod linux;
 mod local_search;
 mod login;
 mod login_recovery;
@@ -132,6 +134,8 @@ fn application_flags() -> gtk::gio::ApplicationFlags {
 }
 
 fn main() -> glib::ExitCode {
+    #[cfg(target_os = "linux")]
+    linux::webkit_renderer();
     rv_core::identify();
     crashlog::install();
     logs::install();

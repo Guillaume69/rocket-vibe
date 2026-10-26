@@ -68,6 +68,8 @@ The player is laid over the card on every frame because a GTK window cannot hold
 
 Notifications: on Linux `notifier.rs` talks to `org.freedesktop.Notifications` over the session bus (click opens the room; `inline-reply` where the server offers it, e.g. KDE Plasma). Without a session bus (Windows, macOS) it uses `rv-native` when `available()`, else GLib's `gio::Notification` (click, no reply). The Linux badge goes through the Unity launcher protocol (`com.canonical.Unity.LauncherEntry`), which KDE Plasma, Dash to Dock and Plank read; it has no dot.
 
+Embedded web views on Linux (the Slack, Teams and kChat sign-in windows): WebKitGTK's DMA-BUF renderer paints nothing on NVIDIA's driver, so `linux.rs` (`webkit_renderer`, first thing in `main`) sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` before anything starts when `/proc/driver/nvidia/version` exists and the variable is unset (seen blank on an RTX 4080 under Hyprland, 2026-10-26).
+
 Calls on Linux: distributions build WebKitGTK without WebRTC, so `call_window.rs` opens the meeting as a Chromium-family `--app` window (own profile in the data folder) when one is on the PATH, otherwise in the default browser with a toast. Origin locking uses `rv_core::call`. See [../features/calls.md](../features/calls.md).
 
 ## Video and audio through GStreamer

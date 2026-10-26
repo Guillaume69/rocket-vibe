@@ -15,6 +15,7 @@ use crate::on_tokio;
 use crate::widgets::{self, Handler};
 
 const MAX_HEIGHT: i32 = 160;
+const NOTE_MAX_HEIGHT: i32 = 140;
 #[path = "composer_quotes.rs"]
 mod quote_author;
 
@@ -194,13 +195,20 @@ impl Composer {
                 if width <= 0 {
                     return;
                 }
+                let line =
+                    text.create_pango_layout(Some("Ag")).pixel_size().1 + text.top_margin() + text.bottom_margin();
+                if scroll.min_content_height() != line {
+                    scroll.set_min_content_height(line);
+                }
                 let (_, natural, _, _) = text.measure(gtk::Orientation::Vertical, width);
                 let overflows = natural > MAX_HEIGHT;
                 let policy = if overflows { gtk::PolicyType::Automatic } else { gtk::PolicyType::External };
                 if scroll.vscrollbar_policy() != policy {
                     scroll.set_vscrollbar_policy(policy);
                 }
-                if !overflows {
+                if natural > scroll.height() {
+                    text.scroll_mark_onscreen(&text.buffer().get_insert());
+                } else if !overflows {
                     scroll.vadjustment().set_value(0.0);
                 }
             }
@@ -210,6 +218,8 @@ impl Composer {
             let fit = on_edit.clone();
             glib::idle_add_local_once(fit);
         });
+        let on_resize = fit.clone();
+        scroll.vadjustment().connect_page_size_notify(move |_| on_resize());
         scroll.hadjustment().connect_changed(move |_| fit());
 
         let pill = gtk::Box::builder().css_classes(["composer-pill"]).hexpand(true).valign(gtk::Align::End).build();
@@ -359,7 +369,14 @@ impl Composer {
         note_text.append(
             &gtk::Label::builder().label(t("command.only_you")).xalign(0.0).css_classes(["reply-title"]).build(),
         );
-        note_text.append(&note_body);
+        note_text.append(
+            &gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Never)
+                .propagate_natural_height(true)
+                .max_content_height(NOTE_MAX_HEIGHT)
+                .child(&note_body)
+                .build(),
+        );
         let note_close = gtk::Button::builder()
             .icon_name("window-close-symbolic")
             .css_classes(["flat", "circular"])

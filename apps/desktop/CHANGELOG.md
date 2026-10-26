@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- What you typed in a thread reply could be invisible: in a short window, or under a long answer shown only to you (a bot card, a command's reply), the message field shrank to nothing and scrolled the line being typed out of view. The field now always keeps one line, follows the cursor when it has less room than its text, and a long answer shown only to you scrolls on its own past a few lines. The room's field gets the same fix.
+
 ## [0.27.0] - 2026-10-25
 
 ### Added

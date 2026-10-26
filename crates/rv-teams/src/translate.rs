@@ -1123,6 +1123,19 @@ mod tests {
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
 
+    #[test]
+    fn channels_carry_their_team_and_are_favorites_only_when_pinned() {
+        let d = Directory::default();
+        let general = json!({"id": "19:g@thread.tacv2", "isFavorite": true});
+        let room = channel_room(&general, Some("Tech"), &d).unwrap();
+        assert_eq!((room.name.as_deref(), room.display_name.as_deref()), (Some("General"), Some("Tech · General")));
+        let team = Some(("team", "Tech"));
+        assert!(!subscription("19:g@thread.tacv2", &general, "me", 5, team).favorite, "shown, not starred");
+        let pinned = json!({"id": "19:p@thread.tacv2", "displayName": "Ops", "isPinned": true});
+        assert!(subscription("19:p@thread.tacv2", &pinned, "me", 5, team).favorite);
+        let starred_chat = json!({"id": "19:x@thread.v2", "isFavorite": true});
+        assert!(subscription("19:x@thread.v2", &starred_chat, "me", 5, None).favorite);
+    }
 
     #[test]
     fn channels_never_opened_or_ending_on_an_event_are_read() {

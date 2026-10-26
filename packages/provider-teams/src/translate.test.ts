@@ -141,6 +141,17 @@ test('chats, channels and their read state', () => {
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
 });
 
+test('channels carry their team and are favorites only when pinned', () => {
+  const d = new TeamsDirectory();
+  const general = { id: '19:g@thread.tacv2', isFavorite: true };
+  const room = channelRoom(general, 'Tech', d)!;
+  assert.deepEqual([room.name, room.displayName], ['General', 'Tech · General']);
+  const team = { id: 'team', name: 'Tech' };
+  assert.equal(toSubscription(general.id, general, 'me', team).favorite, false, 'shown, not starred');
+  assert.equal(toSubscription('19:p@thread.tacv2', { id: '19:p@thread.tacv2', isPinned: true }, 'me', team).favorite, true);
+  assert.equal(toSubscription('19:x@thread.v2', { id: '19:x@thread.v2', isFavorite: true }, 'me', null).favorite, true);
+});
+
 test('channels never opened or ending on an event are read', () => {
   const me = '8:orgid:me', team = { id: 'team', name: 'Ops' };
   const text = { messageType: 'RichText/Html', content: '<p>yo</p>', from: '8:orgid:bbb', composeTime: '2026-10-20T23:55:21.726Z', id: '1792540521726' };

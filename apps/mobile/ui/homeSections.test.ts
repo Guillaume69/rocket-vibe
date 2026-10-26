@@ -217,6 +217,23 @@ describe('sidebar categories (Mattermost)', () => {
     assert.deepEqual(sections.map((s) => s.key).slice(1, 3), ['group:g-tech', 'group:g-infra']);
   });
 
+  test('a Teams channel named after its team shows its own name under that team', () => {
+    const named = (rid: string, displayName: string) => ({ rid, type: 'c', displayName });
+    const sections = buildSections(
+      [named('g1', 'Tech · General'), named('g2', 'Tech · General'), named('t', 'Tech')],
+      [
+        subscription('g1', { groupId: 'g-tech', groupName: 'Tech' }),
+        subscription('g2', { unread: 1, groupId: 'g-tech', groupName: 'Tech' }),
+        subscription('t', { groupId: 'g-tech', groupName: 'Tech' }),
+      ],
+      TITLES,
+    );
+    assert.deepEqual(sections.map((s) => [s.title, s.data.map((e) => e.room.displayName)]), [
+      ['Unread', ['Tech · General']],
+      ['Tech', ['General', 'Tech']],
+    ]);
+  });
+
   test('a favourite goes to Favourites even while its row still names the category it left', () => {
     const sections = buildSections(
       [room('a', 'c'), room('b', 'c')],

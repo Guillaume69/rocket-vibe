@@ -306,6 +306,21 @@ mod tests {
         assert_eq!(sections(&rooms)[1].0, Section::Group { id: "g-tech".into(), name: "TECH".into() });
     }
 
+    #[test]
+    fn a_channel_named_after_its_team_loses_the_team_under_its_header() {
+        let channel = |rid: &str, name: &str, unread: i64| RoomRow {
+            name: name.into(),
+            group_id: Some("g-tech".into()),
+            group_name: Some("Tech".into()),
+            ..room(rid, "c", unread)
+        };
+        let rooms = [channel("g1", "Tech · General", 0), channel("g2", "Tech · General", 1), channel("t", "Tech", 0)];
+        let shown = sections(&rooms);
+        assert_eq!(shown[0].1[0].name, "Tech · General", "named in full outside its team");
+        assert_eq!(shown[1].0.key(), "group:g-tech");
+        let names: Vec<&str> = shown[1].1.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["General", "Tech"]);
+    }
 
     #[test]
     fn spotlight() {

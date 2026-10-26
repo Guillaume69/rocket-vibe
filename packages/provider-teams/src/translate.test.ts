@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -139,6 +139,31 @@ test('chats, channels and their read state', () => {
   assert.equal(channelRoom(channel, null, d)!.type, 'c');
   const s = toSubscription(channel.id, channel, me, { id: 'team', name: 'Ops' });
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
+});
+
+test('chats only the chat service lists take the aggregator shape', () => {
+  const d = new TeamsDirectory();
+  const last = { id: '1792540521726', messagetype: 'RichText/Html', content: '<p>yo</p>', from: 'https://t/v1/users/ME/contacts/8:orgid:bbb', imdisplayname: 'Bob', composetime: '2026-10-20T23:55:21.726Z' };
+  const chat = listedChat({ id: '19:aaa_bbb@unq.gbl.spaces', threadProperties: {}, lastMessage: last, properties: { consumptionhorizon: '1792540500000;1792540500001;42' } })!;
+  assert.deepEqual(chat.members, [{ mri: '8:orgid:aaa' }, { mri: '8:orgid:bbb' }]);
+  const room = chatRoom('8:orgid:aaa', chat, d)!;
+  assert.deepEqual([room.type, room.displayName, room.dmOtherUid], ['d', 'Bob', '8:orgid:bbb']);
+  assert.equal(toSubscription(room.rid, chat, '8:orgid:aaa', null).alert, true);
+  assert.equal(listedChat({ id: '19:g@thread.v2', threadProperties: { topic: 'Point infra', threadType: 'chat' }, lastMessage: last })?.title, 'Point infra');
+  assert.equal(listedChat({ id: '19:meeting_x@thread.v2', threadProperties: { threadType: 'meeting' }, lastMessage: last })?.chatType, 'meeting');
+  for (const skipped of [
+    { id: '19:c@thread.tacv2', lastMessage: last },
+    { id: '19:s@thread.v2', threadProperties: { threadType: 'space' }, lastMessage: last },
+    { id: '48:notes', lastMessage: last },
+    { id: '19:empty@thread.v2', threadProperties: {} },
+  ]) assert.equal(listedChat(skipped), null, skipped.id);
+});
+
+test('a hidden chat shows again once it has a message', () => {
+  const last = { messageType: 'RichText/Html', content: '<p>yo</p>', id: '1' };
+  assert.equal(toSubscription('19:x@thread.v2', { id: '19:x@thread.v2', hidden: true, lastMessage: last }, 'me', null).open, true);
+  assert.equal(toSubscription('19:x@thread.v2', { id: '19:x@thread.v2', hidden: true }, 'me', null).open, false);
+  assert.equal(toSubscription('19:x@thread.v2', { id: '19:x@thread.v2', isConversationDeleted: true, lastMessage: last }, 'me', null).open, false);
 });
 
 test('a post shows its subject as a title, which an edit leaves out', () => {

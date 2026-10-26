@@ -952,6 +952,11 @@ impl Chat {
         Ok(on_tokio(async move { s.open_dm(&username).await }).await?)
     }
 
+    /// Whether this account can start a direct conversation here (not Teams).
+    pub fn direct_messages_available(&self) -> bool {
+        self.session.direct_messages_available()
+    }
+
     /// Whether this account opens a direct conversation with several people.
     pub fn group_dms_supported(&self) -> bool {
         self.session.group_dms_supported()

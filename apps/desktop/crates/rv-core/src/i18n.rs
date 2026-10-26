@@ -1479,6 +1479,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("rooms.back_to_room", "Retour à la conversation", "Back to the conversation"),
     ("spotlight.placeholder", "Chercher des personnes ou des salons", "Search people or channels"),
     ("spotlight.failed", "Recherche impossible", "Search failed"),
+    (
+        "spotlight.unsupported",
+        "Ce serveur ne permet pas de chercher des personnes ici",
+        "This server does not offer a people search here",
+    ),
     ("spotlight.open_failed", "Impossible d'ouvrir cette conversation", "Couldn't open this conversation"),
     ("spotlight.join", "Rejoindre", "Join"),
     ("spotlight.none", "Aucun résultat", "No results"),

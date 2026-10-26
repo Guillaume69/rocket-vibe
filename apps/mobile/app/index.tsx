@@ -549,8 +549,10 @@ function NewConversationRow({ c }: { c: Colors }) {
   const sync = useSync();
   // Vibez creates natively, Rocket.Chat through `actions.createChannel`.
   const creates = sync.phase === 'ready' && (sync.provider.native !== undefined || sync.actions.createChannel !== undefined);
+  const messages = sync.phase !== 'ready' || sync.provider.capabilities.directMessages !== false;
   return (
     <View>
+    {messages && (
     <View style={styles.rowWrapper}>
       <Tappable
         onPress={() => router.push('/search')}
@@ -568,6 +570,7 @@ function NewConversationRow({ c }: { c: Colors }) {
         </Text>
       </Tappable>
     </View>
+    )}
     {creates && (
       <View style={styles.rowWrapper}>
         <Tappable

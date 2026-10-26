@@ -18,6 +18,8 @@ use rv_teams::service::{self, FilesHome, Service, VIEW};
 const PINNED_LOOKBACK: i64 = 200;
 const OLDER_PAGES: usize = 20;
 const PREVIEW_LOOKBACK: usize = 20;
+const PROFILE_BATCH: usize = 50;
+const LISTED_FOR: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// An aggregator chat or channel, and the team (id, name) a channel belongs to.
 type Entry = (Value, Option<(String, String)>);
@@ -35,6 +37,8 @@ pub struct TeamsSync {
     marked: Mutex<HashMap<String, i64>>,
     /// Each room's aggregator entry and team, to rebuild its row when a message arrives.
     entries: Mutex<HashMap<String, Entry>>,
+    /// The chat service's conversation list and when it was read.
+    listed: Mutex<Option<(std::time::Instant, Vec<Value>)>>,
 }
 
 impl TeamsSync {
@@ -49,6 +53,7 @@ impl TeamsSync {
             older: Mutex::default(),
             marked: Mutex::default(),
             entries: Mutex::default(),
+            listed: Mutex::default(),
         }
     }
 
@@ -114,8 +119,24 @@ impl TeamsSync {
             .and_then(|(entry, team)| team.as_ref().and_then(|_| str_of(entry, "groupId")).map(str::to_owned))
     }
 
-    /// Every chat and channel with its read state and last message.
-    pub async fn catch_up_global(&self) -> Result<(), RestError> {
+    /// The chat service's conversation list, walked again at most every
+    /// `LISTED_FOR`: an event from a conversation the list never files (a
+    /// `48:` call log) asks for a catch-up each time.
+    async fn listed_conversations(&self) -> Vec<Value> {
+        if let Some((at, listed)) = self.listed.lock().unwrap().as_ref()
+            && at.elapsed() < LISTED_FOR
+        {
+            return listed.clone();
+        }
+        let Ok(listed) = self.service.conversations().await else { return Vec::new() };
+        *self.listed.lock().unwrap() = Some((std::time::Instant::now(), listed.clone()));
+        listed
+    }
+
+    /// Every chat and channel: the aggregator's snapshot, and the chats only
+    /// the chat service's own list holds (best effort), their unknown
+    /// one-to-one peers named from their profiles.
+    async fn listing(&self) -> Result<HashMap<String, Entry>, RestError> {
         let snapshot = self.service.snapshot().await?;
         let mut entries = HashMap::new();
         for chat in snapshot.get("chats").and_then(Value::as_array).into_iter().flatten() {
@@ -131,6 +152,40 @@ impl TeamsSync {
                 }
             }
         }
+        let listed = self.listed_conversations().await;
+        let mut unnamed = Vec::new();
+        for chat in listed.iter().filter_map(translate::listed_chat) {
+            let Some(rid) = str_of(&chat, "id").map(str::to_owned) else { continue };
+            if entries.contains_key(&rid) {
+                continue;
+            }
+            self.directory.learn_last(&chat);
+            unnamed.extend(
+                chat.get("members")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| str_of(m, "mri"))
+                    .filter(|m| *m != self.me && !self.directory.known(m))
+                    .map(str::to_owned),
+            );
+            entries.insert(rid, (chat, None));
+        }
+        unnamed.sort();
+        unnamed.dedup();
+        for batch in unnamed.chunks(PROFILE_BATCH) {
+            for row in self.service.profiles(batch).await {
+                if let (Some(mri), Some(name)) = (str_of(&row, "mri"), str_of(&row, "displayName")) {
+                    self.directory.remember(mri, name);
+                }
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Every chat and channel with its read state and last message.
+    pub async fn catch_up_global(&self) -> Result<(), RestError> {
+        let entries = self.listing().await?;
         let rows: Vec<_> = entries.values().filter_map(|(entry, team)| self.row(entry, team.as_ref())).collect();
         *self.entries.lock().unwrap() = entries;
         self.store.write(|w| {
@@ -265,20 +320,16 @@ impl TeamsSync {
         (fresh && !mine).then_some(message)
     }
 
-    /// Forgets the rooms the list no longer has.
+    /// Forgets the rooms the list no longer has; a room the last catch-up or
+    /// a live message filed stays, the snapshot lagging behind a new chat.
     pub async fn reconcile_rooms(&self) -> Result<(), RestError> {
-        let snapshot = self.service.snapshot().await?;
-        let chats = snapshot.get("chats").and_then(Value::as_array).into_iter().flatten();
-        let channels = snapshot
-            .get("teams")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .flat_map(|t| t.get("channels").and_then(Value::as_array).into_iter().flatten());
-        let live: Vec<String> = chats.chain(channels).filter_map(|e| str_of(e, "id").map(str::to_owned)).collect();
-        if !live.is_empty() {
-            self.store.write(|w| w.purge_rooms_except(&live));
+        let listed = self.listing().await?;
+        let mut live: Vec<String> = listed.into_keys().collect();
+        if live.is_empty() {
+            return Ok(());
         }
+        live.extend(self.entries.lock().unwrap().keys().cloned());
+        self.store.write(|w| w.purge_rooms_except(&live));
         Ok(())
     }
 

@@ -21,6 +21,8 @@ pub const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
 
 /// The OneDrive folder Teams keeps a chat's files in.
 const CHAT_FILES: &str = "Microsoft Teams Chat Files";
+const CONVERSATION_PAGE: usize = 100;
+const CONVERSATION_PAGES: usize = 10;
 
 /// A file uploaded to a room's files folder, as the chat-service message's
 /// `properties.files` entry needs it.
@@ -91,6 +93,30 @@ impl Service {
         )
         .await
         .map(|answer| answer.body)
+    }
+
+    /// The conversations the chat service lists for me, newest first, walked
+    /// back through `_metadata.backwardLink` on its own host, at most
+    /// `CONVERSATION_PAGES` pages: the aggregator's snapshot leaves many chats out.
+    pub async fn conversations(&self) -> Result<Vec<Value>, RestError> {
+        let query = format!("view={VIEW}&pageSize={CONVERSATION_PAGE}&startTime=1");
+        let mut url = self.chat_url(&["users", "ME", "conversations"], &query).await?;
+        let mut out: Vec<Value> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..CONVERSATION_PAGES {
+            let body = self.chat(Method::GET, url, None).await?.body;
+            let page = body.get("conversations").and_then(Value::as_array).cloned().unwrap_or_default();
+            let fresh: Vec<Value> =
+                page.into_iter().filter(|c| str_of(c, "id").is_some_and(|id| seen.insert(id.to_owned()))).collect();
+            if fresh.is_empty() {
+                break;
+            }
+            out.extend(fresh);
+            let Some(link) = body.pointer("/_metadata/backwardLink").and_then(Value::as_str) else { break };
+            let Some(next) = self.trusted(link).await else { break };
+            url = next;
+        }
+        Ok(out)
     }
 
     /// A CSA aggregator call with its bearer; a refused token is renewed once.

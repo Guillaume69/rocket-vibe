@@ -30,9 +30,23 @@ before use. Sign-out is local: the refresh token is dropped, no revocation is ca
 
 ## Rooms, history, reads
 
-The aggregator's `api/v2/teams/users/me` lists every chat (one-to-one, group, meeting)
-and every team with its channels in one call: names, members, last message and my read
-state. A chat with no topic is named from its members, after its last message has taught
+The aggregator's `api/v2/teams/users/me` lists every team with its channels and chats
+(one-to-one, group, meeting) in one call: names, members, last message and my read
+state. It leaves many chats out (seen on a live tenant: one group chat listed where
+Teams showed dozens of one-to-one and meeting chats), so the chat service's own
+`users/ME/conversations?view=...&pageSize=100&startTime=1` is also read, walked back
+through `_metadata.backwardLink` on the chat host (at most 10 pages), and every chat it
+lists that the snapshot lacks joins the list in the aggregator's shape (`listed_chat` /
+`listedChat`: topic, kind, last message, `properties.consumptionhorizon`'s first field
+as the horizon, and a one-to-one chat's two members read from its
+`19:<a>_<b>@unq.gbl.spaces` id); channels (`@thread.tacv2`, `space`/`topic` threads),
+`48:` system conversations and chats with no message are skipped, and unknown
+one-to-one peers are named from their short profiles (`listing` in `teams/sync.rs`,
+`entries` in `providers/teams`). That route's list shape was read only for ids
+(the shapes probe); the other fields are the chat service's message and property names,
+not yet seen in that list. A chat Teams marks `hidden` is listed again once its last
+message is one the list previews. A reconcile keeps the rooms the last catch-up filed,
+so a chat the snapshot has not caught up with yet is not purged. A chat with no topic is named from its members, after its last message has taught
 the directory the sender's name. A channel is named "Team · Channel" (its own name stays
 the room's `name`, which room information and the rename field show), the list dropping
 the team under that team's own header. A channel's `isFavorite` is Teams' older "shown in

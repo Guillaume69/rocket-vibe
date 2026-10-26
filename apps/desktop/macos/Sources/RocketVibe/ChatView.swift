@@ -261,7 +261,7 @@ struct RoomListView: View {
                     }
                 }
             } else {
-                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.createsChannels, add: { section in
+                RoomSections(groups: app.groups, collapsed: app.collapsed, toggle: app.toggle, canCreate: app.createsChannels, canMessage: app.directMessagesAvailable, add: { section in
                     if section == .channels { creating = true } else { searchFocused = true }
                 })
             }
@@ -301,7 +301,9 @@ struct RoomListView: View {
                             .help(L("local_search.title"))
                     }
                     Menu {
-                        Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
+                        if app.directMessagesAvailable {
+                            Button { searchFocused = true } label: { Label(L("rooms.new_message"), systemImage: "square.and.pencil") }
+                        }
                         if app.groupDmsSupported {
                             Button { grouping = true } label: { Label(L("group_dm.new"), systemImage: "person.2") }
                         }
@@ -348,7 +350,7 @@ struct RoomListView: View {
         } catch {
             guard !Task.isCancelled, expected == app.account?.key else { return }
             found = []
-            app.notice = L("spotlight.failed")
+            app.notice = L(app.directMessagesAvailable ? "spotlight.failed" : "spotlight.unsupported")
         }
     }
 }
@@ -361,6 +363,7 @@ struct RoomSections: View {
     let toggle: (String) -> Void
     /// Channels get a "+" only where a channel can be created (Vibez).
     var canCreate = false
+    var canMessage = true
     /// The "+" of the Channels and Direct messages headers; none when absent.
     var add: ((RoomSection) -> Void)? = nil
 
@@ -377,7 +380,7 @@ struct RoomSections: View {
                             .textCase(.uppercase)
                             .foregroundStyle(Vibe.muted)
                         Spacer()
-                        if let add, group.section == .direct || (group.section == .channels && canCreate) {
+                        if let add, (group.section == .direct && canMessage) || (group.section == .channels && canCreate) {
                             Button { add(group.section) } label: { Image(systemName: "plus") }
                                 .buttonStyle(.borderless)
                                 .help(L(group.section == .channels ? "rooms.new_channel" : "rooms.new_message"))

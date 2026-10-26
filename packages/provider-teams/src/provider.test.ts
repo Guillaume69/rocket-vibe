@@ -238,6 +238,30 @@ test('a post counts the replies read with it, and a live reply moves its count',
   assert.equal(translator.toMessage({ ...message('1000'), __rid: CH })?.threadCount, 2, 'a post read again keeps its count');
 });
 
+test('chats only the chat service lists join the snapshot, paged and named', async () => {
+  const second = `${CHAT}/v1/users/ME/conversations?syncState=older`;
+  const last = (id: string) => ({ id, messagetype: 'RichText/Html', content: '<p>yo</p>', from: `${CHAT}/v1/users/ME/contacts/${ME}`, imdisplayname: 'Me', composetime: new Date(Number(id)).toISOString() });
+  const { calls, client } = fake((call) => {
+    if (call.url.includes('/api/csa/')) return { body: { chats: [{ id: '19:known@thread.v2', title: 'Known' }], teams: [] } };
+    if (call.url.includes('fetchShortProfile')) return { body: { value: [{ mri: '8:orgid:bob', displayName: 'Bob Martin' }] } };
+    if (call.url === second) return { body: { conversations: [{ id: '19:me_bob@unq.gbl.spaces', lastMessage: last('900') }] } };
+    return { body: { conversations: [
+      { id: '19:known@thread.v2', lastMessage: last('1000') },
+      { id: '19:c@thread.tacv2', lastMessage: last('1000') },
+      { id: '19:g@thread.v2', threadProperties: { topic: 'Point infra' }, lastMessage: last('950') },
+    ], _metadata: { backwardLink: second } } };
+  });
+  const directory = new TeamsDirectory();
+  const rooms = new TeamsRooms();
+  const ingested: Doc[] = [];
+  const engine = { ingestRooms: async (docs: Doc[]) => { ingested.push(...docs); }, ingestSubscriptions: async () => {} } as unknown as SyncEngine;
+  await new TeamsSync(client, rooms, new TeamsThreads(), directory, ME).catchUpGlobal(engine, () => false);
+  assert.deepEqual(ingested.map((d) => d.id).sort(), ['19:g@thread.v2', '19:known@thread.v2', '19:me_bob@unq.gbl.spaces']);
+  assert.equal(ingested.find((d) => d.id === '19:known@thread.v2')?.title, 'Known', 'the snapshot wins');
+  assert.equal(directory.name('8:orgid:bob'), 'Bob Martin');
+  assert.ok(calls.some((c) => c.url === second), 'the backward link is followed');
+});
+
 test('loading a thread fetches the root and the thread-scoped conversation', async () => {
   const root = `${RID}/900`;
   const seen: string[] = [];

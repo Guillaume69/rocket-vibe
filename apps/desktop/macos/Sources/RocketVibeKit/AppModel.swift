@@ -1140,6 +1140,9 @@ public final class AppModel {
         }
     }
 
+    /// Whether this account can start a direct conversation here (not Teams).
+    public var directMessagesAvailable: Bool { native != nil || chat?.directMessagesAvailable() != false }
+
     /// Whether this account opens a direct conversation with several people
     /// (Rocket.Chat, Mattermost, kChat).
     public var groupDmsSupported: Bool { chat?.groupDmsSupported() == true }

@@ -8,6 +8,8 @@
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';
 
 type Doc = Record<string, unknown>;
+const CONVERSATION_PAGE = 100;
+const CONVERSATION_PAGES = 10;
 
 /** A path under a base, its opaque segments (conversation ids) percent-encoded. */
 export function serviceUrl(base: string, segments: readonly string[], query = ''): string {
@@ -184,6 +186,25 @@ export class TeamsClient {
     };
     const answer = await this.send('https://substrate.office.com/search/api/v2/query', ['authorization', `Bearer ${bearer}`], 'POST', body);
     return answer.body;
+  }
+
+  /** The conversations the chat service lists for me, newest first, walked
+   *  back through `_metadata.backwardLink` on its own host, at most
+   *  `CONVERSATION_PAGES` pages: the aggregator's snapshot leaves many chats out. */
+  async conversations(): Promise<Doc[]> {
+    const { routes } = await this.tokens.chat();
+    let url: string | null = serviceUrl(`${routes.chat}/v1`, ['users', 'ME', 'conversations'], `view=msnp24Equivalent%7CsupportsMessageProperties&pageSize=${CONVERSATION_PAGE}&startTime=1`);
+    const out: Doc[] = [];
+    const seen = new Set<string>();
+    for (let n = 0; n < CONVERSATION_PAGES && url !== null; n++) {
+      const body = (await this.chat('GET', url)).body;
+      const page = Array.isArray(body.conversations) ? (body.conversations as Doc[]) : [];
+      const fresh = page.filter((c) => typeof c.id === 'string' && !seen.has(c.id) && seen.add(c.id));
+      if (fresh.length === 0) break;
+      out.push(...fresh);
+      url = await this.trusted((body._metadata as Doc | undefined)?.backwardLink);
+    }
+    return out;
   }
 
   /** The aggregator's list of chats and teams. */

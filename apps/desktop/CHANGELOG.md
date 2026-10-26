@@ -9,6 +9,7 @@ section here.
 
 ### Fixed
 
+- Teams (experimental): a channel is named after its team too ("Tech · General") wherever it is not under its team's header, in Unread, Favorites, the switcher, the room's header and notifications, so each team's General can be told apart. Channels Teams only shows in the team list (every team's General) are no longer listed as favorites.
 - Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; marking a room read now passes the last message Teams lists, events included.
 
 ## [0.27.0] - 2026-10-25

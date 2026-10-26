@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::directory::Directory;
+use crate::directory::{Directory, User};
 use crate::translate::{self, split_id, ts_ms};
 use rv_provider::rest::{CallOptions, RestClient, RestError};
 
@@ -50,14 +50,34 @@ fn message_ids<'a>(msg_id: &'a str, what: &str) -> Result<(&'a str, &'a str), Re
     split_id(msg_id).ok_or_else(|| RestError::incomplete(&format!("{what}: not a Slack message")))
 }
 
+/// Someone `users.list` names who can be written to: their user, and the
+/// lowercase text a search matches (username, display and real names).
+/// Bots, Slackbot and deactivated accounts are left out.
+fn person(raw: &Value) -> Option<(User, String)> {
+    if is(raw, "deleted") || is(raw, "is_bot") || text(raw, "id") == Some("USLACKBOT") {
+        return None;
+    }
+    let user = User::from_json(raw)?;
+    let names = [Some(user.username.as_str()), raw.pointer("/profile/display_name").and_then(Value::as_str)]
+        .into_iter()
+        .chain([raw.pointer("/profile/real_name").and_then(Value::as_str), text(raw, "real_name")])
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    Some((user, names))
+}
+
 pub struct Service {
     rest: RestClient,
     pub directory: Arc<Directory>,
+    /// The workspace's people for a search, read once per session: id and the text matched.
+    people: tokio::sync::Mutex<Option<Vec<(String, String)>>>,
 }
 
 impl Service {
     pub fn new(rest: RestClient, directory: Arc<Directory>) -> Self {
-        Service { rest, directory }
+        Service { rest, directory, people: tokio::sync::Mutex::default() }
     }
 
     pub async fn call(&self, method: &str, params: Vec<(&str, String)>) -> Result<Value, RestError> {
@@ -359,6 +379,55 @@ impl Service {
         Ok(matches)
     }
 
+    /// People whose username or name holds the query, case-insensitively,
+    /// `me` left out, at most `limit`. The first search reads the workspace's
+    /// people (`users.list`, every page); a failed read is tried again next time.
+    pub async fn search_people(&self, query: &str, me: &str, limit: usize) -> Result<Vec<User>, RestError> {
+        let q = query.trim().trim_start_matches('@').to_lowercase();
+        let mut people = self.people.lock().await;
+        if people.is_none() {
+            *people = Some(self.workspace_people().await?);
+        }
+        Ok(people
+            .iter()
+            .flatten()
+            .filter(|(id, names)| id != me && names.contains(&q))
+            .filter_map(|(id, _)| self.directory.user(id))
+            .take(limit)
+            .collect())
+    }
+
+    async fn workspace_people(&self) -> Result<Vec<(String, String)>, RestError> {
+        let mut out = Vec::new();
+        let (mut cursor, mut seen) = (None::<String>, Vec::new());
+        for _ in 0..MAX_PAGES {
+            let mut params = vec![("limit", ROSTER_PAGE.to_owned())];
+            params.extend(cursor.take().map(|c| ("cursor", c)));
+            let body = self.call("users.list", params).await?;
+            for (user, names) in list(&body, "members").iter().filter_map(person) {
+                out.push((user.id.clone(), names));
+                self.directory.remember(user);
+            }
+            match next_cursor(&body, &mut seen, "users.list")? {
+                Some(next) => cursor = Some(next),
+                None => return Ok(out),
+            }
+        }
+        Err(RestError::incomplete("users.list: too many pages"))
+    }
+
+    /// The direct conversation with these people and me, created if needed
+    /// (one person: a DM; up to eight: a group DM): its id.
+    pub async fn open_conversation(&self, ids: &[String]) -> Result<String, RestError> {
+        let params = vec![("users", ids.join(",")), ("return_im", "true".to_owned())];
+        let body = self.call("conversations.open", params).await?;
+        body.pointer("/channel/id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| RestError::incomplete("conversations.open: no channel"))
+    }
+
     /// Where a file's bytes go, and the id Slack gave it. Only Slack's file
     /// host is accepted as the destination.
     pub async fn upload_url(&self, name: &str, length: u64) -> Result<(url::Url, String), RestError> {
@@ -412,5 +481,21 @@ mod tests {
         assert_eq!(next_cursor(&page(""), &mut seen, "m").unwrap(), None);
         assert_eq!(next_cursor(&json!({}), &mut seen, "m").unwrap(), None);
         assert!(next_cursor(&page("a"), &mut seen, "m").is_err());
+    }
+
+    #[test]
+    fn a_search_matches_usernames_display_and_real_names_of_people_only() {
+        let member = |extra: Value| {
+            let mut raw = json!({"id": "U001", "name": "mgonzalez",
+                "profile": {"display_name": "Mika", "real_name": "Micael GONZALEZ"}});
+            raw.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            raw
+        };
+        let (user, names) = person(&member(json!({}))).unwrap();
+        assert_eq!((user.id.as_str(), user.username.as_str()), ("U001", "mgonzalez"));
+        assert!(["micael", "gonz", "mika", "mgon"].iter().all(|q| names.contains(q)), "{names}");
+        assert!(person(&member(json!({"deleted": true}))).is_none());
+        assert!(person(&member(json!({"is_bot": true}))).is_none());
+        assert!(person(&member(json!({"id": "USLACKBOT"}))).is_none());
     }
 }

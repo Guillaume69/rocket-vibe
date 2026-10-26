@@ -9,6 +9,7 @@ section here.
 
 ### Fixed
 
+- Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".
 - WhatsApp (experimental): the account menu now offers Settings, so a window open on a WhatsApp account reaches the app's settings (notifications, language, accounts, background, updates and their manual check); it only offered Unlink WhatsApp.
 - Teams (experimental): one-to-one, group and meeting chats missing from the list now show: chats are also read from Teams' own conversation list, page by page, the people in a one-to-one chat named from their profiles, and a chat Teams marks hidden shows again once it has a message. A Teams account no longer offers a "+" to start a direct message it cannot open, and a people search the server does not offer says so instead of "Search failed".
 - Teams (experimental): a channel post shows its subject as a bold title above its text, in the room and the room list, and shows "N replies" under it when it has replies, opening its thread; replies were kept out of the room with no way to reach them. Editing a post with a subject keeps the subject out of its text.

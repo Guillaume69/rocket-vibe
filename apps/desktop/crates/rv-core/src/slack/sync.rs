@@ -24,6 +24,7 @@ const PREVIEWS: usize = 40;
 const PREVIEW_CONCURRENCY: usize = 4;
 const PREVIEW_LOOKBACK: usize = 10;
 const ROOM_CATCH_UP_PAGES: usize = 4;
+const SPOTLIGHT_PEOPLE: usize = 20;
 
 pub struct SlackSync {
     store: Arc<Store>,
@@ -618,6 +619,29 @@ impl SlackSync {
         };
         ids.reverse();
         Ok(ids)
+    }
+
+    /// People to start a conversation with, by username or name.
+    pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
+        let people = self.service.search_people(query, &self.me, SPOTLIGHT_PEOPLE).await?;
+        Ok(people
+            .into_iter()
+            .map(|u| crate::rooms::Found::User { id: u.id, username: u.username, name: u.display })
+            .collect())
+    }
+
+    /// The direct conversation with these people (by username) and me,
+    /// created if needed and listed: its rid.
+    pub async fn open_direct(&self, usernames: &[String]) -> Result<String, RestError> {
+        let ids = usernames
+            .iter()
+            .map(|name| {
+                self.directory.id_of(name).ok_or_else(|| RestError::incomplete("direct message: unknown person"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let rid = self.service.open_conversation(&ids).await?;
+        self.catch_up_global().await?;
+        Ok(rid)
     }
 
     /// The room's messages Slack's search finds for `query`, newest first.

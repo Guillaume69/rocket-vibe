@@ -1146,6 +1146,26 @@ mod tests {
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
 
+    #[test]
+    fn a_post_shows_its_subject_as_a_title_an_edit_leaves_out() {
+        let d = Directory::default();
+        let post = raw(
+            "10",
+            json!({"properties": {"subject": "Des failles php &amp; co"}, "content": "<p>https://x.example</p>"}),
+        );
+        let m = message("19:ch@thread.tacv2", &post, &d).unwrap();
+        assert_eq!(m.text.as_deref(), Some("**Des failles php & co**\n\nhttps://x.example"));
+        assert_eq!(without_subject(&post, "**Des failles php & co**\n\nfixed"), "fixed");
+        assert_eq!(without_subject(&raw("11", json!({})), "**bold** start"), "**bold** start");
+        let blank = raw("12", json!({"properties": {"subject": "  "}}));
+        assert_eq!(message("c", &blank, &d).unwrap().text.as_deref(), Some("hello"));
+        let channel = json!({"id": "19:ch@thread.tacv2", "lastMessage": {"messageType": "RichText/Html",
+            "content": "<p>link</p>", "subject": "Faille Gitlab", "composeTime": "2026-10-20T23:55:21.726Z", "id": "1"}});
+        assert_eq!(
+            channel_room(&channel, None, &d).unwrap().last_message.as_deref(),
+            Some("**Faille Gitlab**\n\nlink")
+        );
+    }
 
     #[test]
     fn channels_carry_their_team_and_are_favorites_only_when_pinned() {

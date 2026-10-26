@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -139,6 +139,17 @@ test('chats, channels and their read state', () => {
   assert.equal(channelRoom(channel, null, d)!.type, 'c');
   const s = toSubscription(channel.id, channel, me, { id: 'team', name: 'Ops' });
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
+});
+
+test('a post shows its subject as a title, which an edit leaves out', () => {
+  const d = new TeamsDirectory();
+  const post = { id: '10', messagetype: 'RichText/Html', content: '<p>https://x.example</p>', originalarrivaltime: '2026-10-20T23:55:21.726Z', properties: { subject: 'Des failles php &amp; co' } };
+  assert.equal(toMessage('19:ch@thread.tacv2', post, d)?.text, '**Des failles php & co**\n\nhttps://x.example');
+  assert.equal(withoutSubject(post, '**Des failles php & co**\n\nfixed'), 'fixed');
+  assert.equal(withoutSubject({}, '**bold** start'), '**bold** start');
+  assert.equal(toMessage('c', { ...post, properties: { subject: '  ' } }, d)?.text, 'https://x.example');
+  const channel = { id: '19:ch@thread.tacv2', lastMessage: { messageType: 'RichText/Html', content: '<p>link</p>', subject: 'Faille Gitlab', composeTime: '2026-10-20T23:55:21.726Z', id: '1' } };
+  assert.equal(channelRoom(channel, null, d)?.lastMessage, '**Faille Gitlab**\n\nlink');
 });
 
 test('channels carry their team and are favorites only when pinned', () => {

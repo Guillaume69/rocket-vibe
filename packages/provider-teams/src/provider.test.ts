@@ -8,7 +8,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsTokens, type TeamsRoutes } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox, clientMessageId } from './outbox.ts';
-import { TeamsRooms, TeamsSync } from './sync.ts';
+import { TEAMS_EVENTS, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory } from './translate.ts';
 import { chatEvent, parseFrame } from './trouter.ts';
 import { TEAMS_CAPABILITIES, teamsPinned, typingAction } from './index.ts';
@@ -210,6 +210,32 @@ test('a thread reply is sent to the root message target', async () => {
 
 test('the Teams provider advertises threads', () => {
   assert.equal(TEAMS_CAPABILITIES.threads, true);
+});
+
+test('a post counts the replies read with it, and a live reply moves its count', async () => {
+  const CH = '19:ch@thread.tacv2';
+  const reply = (id: string) => message(id, { conversationLink: `${CHAT}/v1/users/ME/conversations/${CH};messageid=1000` });
+  const { client } = fake(() => ({ body: { messages: [reply('1200'), reply('1100'), message('1000')] } }));
+  const threads = new TeamsThreads();
+  const translator = new TeamsTranslator(new TeamsDirectory(), ME, threads);
+  const stored = new Map<string, LocalMessage>();
+  const counters: [string, number, number | null][] = [];
+  const store = {
+    ingestMessages: async (docs: Doc[]) => { for (const d of docs) { const m = translator.toMessage(d); if (m) stored.set(m.id, m); } },
+    syncStore: { deleteMessage: async () => {}, updateThreadCounters: async (id: string, n: number, last: number | null) => { counters.push([id, n, last]); } },
+  } as unknown as SyncEngine;
+  await new TeamsSync(client, new TeamsRooms(), threads).loadHistory(store, CH);
+  assert.deepEqual(counters, [[`${CH}/1000`, 2, 1200]]);
+  assert.deepEqual([stored.get(`${CH}/1000`)?.threadCount, stored.get(`${CH}/1100`)?.threadId], [2, `${CH}/1000`]);
+
+  const live = translator.toMessage({ ...reply('1300'), __rid: CH });
+  assert.equal(live?.threadId, `${CH}/1000`);
+  const moved = translator.translateEvent({ collection: TEAMS_EVENTS, eventKey: THREAD_COUNTERS, args: [{ id: `${CH}/1000` }] });
+  assert.deepEqual(moved, { kind: 'change', change: { type: 'thread-counters', id: `${CH}/1000`, count: 3, last: 1300 } });
+  const gone = translator.translateEvent({ collection: TEAMS_EVENTS, eventKey: 'MessageUpdate', args: [{ ...reply('1300'), properties: { deletetime: 1 } }] });
+  assert.equal(gone.kind, 'change');
+  assert.deepEqual(threads.counters(`${CH}/1000`), { count: 2, last: 1200 });
+  assert.equal(translator.toMessage({ ...message('1000'), __rid: CH })?.threadCount, 2, 'a post read again keeps its count');
 });
 
 test('loading a thread fetches the root and the thread-scoped conversation', async () => {

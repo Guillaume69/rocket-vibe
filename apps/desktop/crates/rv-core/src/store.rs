@@ -1485,6 +1485,31 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn thread_roots_are_counted_from_their_stored_replies() {
+        let store = Store::in_memory().unwrap();
+        let reply =
+            |id: &str, ts: i64| Message { thread_id: Some("root".into()), ts, ..message(id, Some("re"), 1, "r") };
+        store.write(|w| {
+            w.upsert_message(&message("root", Some("post"), 1, "r"));
+            w.upsert_message(&message("alone", Some("post"), 1, "r"));
+            w.upsert_message(&reply("a", 200));
+            w.upsert_message(&reply("b", 300));
+            w.recount_threads("r");
+        });
+        let rows = store.messages_by_id(&["root".into(), "alone".into()]);
+        let counted = |id: &str| rows.iter().find(|m| m.id == id).map(|m| (m.thread_count, m.thread_last)).unwrap();
+        assert_eq!(counted("root"), (2, Some(300)));
+        assert_eq!(counted("alone"), (0, None));
+        let mut changes = store.changes();
+        store.write(|w| w.recount_threads("r"));
+        assert!(changes.try_recv().is_err(), "nothing moved, nothing announced");
+        store.write(|w| {
+            w.delete_message("b");
+            w.recount_threads("r");
+        });
+        assert_eq!(store.messages_by_id(&["root".into()])[0].thread_last, Some(200));
+    }
 
     #[test]
     fn thread_followers_round_trip_and_follow_locally() {

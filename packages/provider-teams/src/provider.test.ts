@@ -147,6 +147,16 @@ test('the read horizon only moves forward', async () => {
   assert.ok(puts[0].url.includes('name=consumptionhorizon'));
 });
 
+test('the read horizon passes the events the aggregator lists last', async () => {
+  const { calls, client } = fake(() => ({ body: {} }));
+  const actions = new TeamsMessageActions(client, async () => {});
+  assert.equal(await actions.markRead(RID, `${RID}/500`, 700), 700);
+  assert.equal(await actions.markRead(RID, null, 700), null);
+  assert.equal(await actions.markRead(RID, null, 900), 900);
+  const puts = calls.filter((c) => c.method === 'PUT');
+  assert.deepEqual(puts.map((p) => String(p.body?.consumptionhorizon).split(';')[0]), ['700', '900']);
+});
+
 test('a reaction outside the classic set is refused before any call', async () => {
   const { calls, client } = fake(() => ({ body: {} }));
   const actions = new TeamsMessageActions(client, async () => {});

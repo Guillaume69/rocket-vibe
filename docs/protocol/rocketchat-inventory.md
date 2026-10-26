@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-727 production files scanned; 755 occurrences.
+727 production files scanned; 756 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -392,13 +392,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-gtk/src/notifier/portal.rs:58](../../apps/desktop/crates/rv-gtk/src/notifier/portal.rs#L58) | endpoint | im.received |
 | [apps/desktop/crates/rv-gtk/src/rows.rs:420](../../apps/desktop/crates/rv-gtk/src/rows.rs#L420) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-gtk/src/rows.rs:422](../../apps/desktop/crates/rv-gtk/src/rows.rs#L422) | endpoint | rooms.encrypted |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:74](../../apps/desktop/crates/rv-gtk/src/settings.rs#L74) | endpoint | rooms.sign_out |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:399](../../apps/desktop/crates/rv-gtk/src/settings.rs#L399) | endpoint | e2e.status |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:400](../../apps/desktop/crates/rv-gtk/src/settings.rs#L400) | endpoint | e2e.locked |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:400](../../apps/desktop/crates/rv-gtk/src/settings.rs#L400) | endpoint | e2e.unlocked |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:403](../../apps/desktop/crates/rv-gtk/src/settings.rs#L403) | endpoint | e2e.lock |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:403](../../apps/desktop/crates/rv-gtk/src/settings.rs#L403) | endpoint | e2e.unlock |
-| [apps/desktop/crates/rv-gtk/src/settings.rs:417](../../apps/desktop/crates/rv-gtk/src/settings.rs#L417) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:127](../../apps/desktop/crates/rv-gtk/src/settings.rs#L127) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:349](../../apps/desktop/crates/rv-gtk/src/settings.rs#L349) | endpoint | rooms.sign_out |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:407](../../apps/desktop/crates/rv-gtk/src/settings.rs#L407) | endpoint | e2e.status |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:408](../../apps/desktop/crates/rv-gtk/src/settings.rs#L408) | endpoint | e2e.locked |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:408](../../apps/desktop/crates/rv-gtk/src/settings.rs#L408) | endpoint | e2e.unlocked |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:411](../../apps/desktop/crates/rv-gtk/src/settings.rs#L411) | endpoint | e2e.lock |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:411](../../apps/desktop/crates/rv-gtk/src/settings.rs#L411) | endpoint | e2e.unlock |
+| [apps/desktop/crates/rv-gtk/src/settings.rs:425](../../apps/desktop/crates/rv-gtk/src/settings.rs#L425) | endpoint | e2e.locked |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1025](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1025) | call:GET | "subscriptions.getOne", options).await.ok()?; |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1025](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1025) | endpoint | subscriptions.getOne |
 | [apps/desktop/crates/rv-gtk/src/smoke.rs:1119](../../apps/desktop/crates/rv-gtk/src/smoke.rs#L1119) | endpoint | chat.postMessage |

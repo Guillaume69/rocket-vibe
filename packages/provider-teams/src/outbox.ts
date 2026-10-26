@@ -215,12 +215,15 @@ export class TeamsMessageActions {
     await this.refresh(rid, target.server);
   }
 
-  /** Moves my read horizon to `newest`, never back. */
-  async markRead(rid: string, newest: string | null): Promise<void> {
-    const server = newest === null ? null : int({ id: splitId(newest)?.server }, 'id');
-    if (server === null || (this.marked.get(rid) ?? 0) >= server) return;
+  /** Moves my read horizon to the newer of `newest` and `listed` (the
+   *  aggregator's last message id), never back; answers the id marked. */
+  async markRead(rid: string, newest: string | null, listed: number | null = null): Promise<number | null> {
+    const live = newest === null ? null : int({ id: splitId(newest)?.server }, 'id');
+    const server = live === null ? listed : listed === null ? live : Math.max(live, listed);
+    if (server === null || (this.marked.get(rid) ?? 0) >= server) return null;
     const url = await this.client.conversation(rid, ['properties'], 'name=consumptionhorizon');
     await this.client.chat('PUT', url, { consumptionhorizon: `${server};${Date.now()};${server}` });
     this.marked.set(rid, server);
+    return server;
   }
 }

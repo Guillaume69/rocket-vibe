@@ -52,21 +52,33 @@ impl TeamsSync {
         }
     }
 
-    /// The newest stored message's server id, when newer than the last one marked read.
+    /// The newest message id of the room, stored or listed by the aggregator,
+    /// when newer than the last one marked read. The listed one counts the
+    /// events the store never keeps, which a horizon must still pass.
     pub(crate) fn unmarked_newest(&self, rid: &str) -> Option<i64> {
-        let newest = self
+        let stored = self
             .store
             .messages(rid, HISTORY_PAGE)
             .iter()
             .filter_map(|m| split_id(&m.id))
             .filter_map(|(_, id)| id.parse::<i64>().ok())
-            .max()?;
+            .max();
+        let listed = self.entries.lock().unwrap().get(rid).and_then(|(entry, _)| translate::last_id(entry));
+        let newest = stored.max(listed)?;
         let marked = self.marked.lock().unwrap().get(rid).copied();
         marked.is_none_or(|before| newest > before).then_some(newest)
     }
 
+    /// Notes the room read up to `id`, its row read at once.
     pub(crate) fn note_marked(&self, rid: &str, id: i64) {
         self.marked.lock().unwrap().insert(rid.to_owned(), id);
+        let read = self.entries.lock().unwrap().get_mut(rid).map(|(entry, team)| {
+            translate::read_up_to(entry, id);
+            (entry.clone(), team.clone())
+        });
+        if let Some((_, sub)) = read.and_then(|(entry, team)| self.row(&entry, team.as_ref())) {
+            self.store.write(|w| w.upsert_subscription(&sub));
+        }
     }
 
     pub fn me(&self) -> &str {

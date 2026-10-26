@@ -674,6 +674,36 @@ fn last_at(entry: &Value) -> Option<i64> {
     entry.get("lastMessage").and_then(|l| instant(l, "composeTime").or_else(|| int_of(l, "id")))
 }
 
+/// The server id of the last message the aggregator carries for a chat or channel.
+pub fn last_id(entry: &Value) -> Option<i64> {
+    entry.get("lastMessage").and_then(|l| int_of(l, "id"))
+}
+
+/// The time of the last message that makes a room unread: membership,
+/// topic and control events are never stored, so they cannot be read past.
+fn unread_at(entry: &Value) -> Option<i64> {
+    let last = entry.get("lastMessage")?;
+    let kind = str_of(last, "messageType").unwrap_or_default();
+    if kind.starts_with("ThreadActivity/") || kind.starts_with("Control/") {
+        return None;
+    }
+    instant(last, "composeTime").or_else(|| int_of(last, "id"))
+}
+
+/// The entry read up to message `id`, as a mark read leaves it.
+pub fn read_up_to(entry: &mut Value, id: i64) {
+    if horizon(entry).is_some_and(|seen| seen >= id) {
+        return;
+    }
+    entry["consumptionHorizon"] =
+        json!({"originalArrivalTime": id, "timeStamp": chrono::Utc::now().timestamp_millis()});
+    for key in ["isRead", "isMessageRead"] {
+        if entry.get(key).is_some() {
+            entry[key] = Value::Bool(true);
+        }
+    }
+}
+
 /// An aggregator chat as a room; `names` are its other members' names when known.
 pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> {
     let rid = str_of(chat, "id")?;
@@ -733,14 +763,15 @@ pub fn horizon(entry: &Value) -> Option<i64> {
 }
 
 /// An aggregator chat's or channel's read state. Teams gives no count: one
-/// unread room counts one, its mentions are not known.
+/// unread room counts one, its mentions are not known. A channel with no read
+/// horizon is one never opened or hidden, which Teams shows as read.
 pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: Option<(&str, &str)>) -> Subscription {
     let read_flag = entry.get("isRead").or_else(|| entry.get("isMessageRead")).and_then(Value::as_bool);
     let mine = entry.get("isLastMessageFromMe").and_then(Value::as_bool) == Some(true)
         || entry.pointer("/lastMessage/from").and_then(Value::as_str).is_some_and(|f| mri_of(f) == me);
-    let newer = match (last_at(entry), horizon(entry)) {
+    let newer = match (unread_at(entry), horizon(entry)) {
         (Some(last), Some(seen)) => last > seen,
-        (Some(_), None) => true,
+        (Some(_), None) => team.is_none(),
         _ => false,
     };
     let unread = !mine && read_flag.map_or(newer, |read| !read);
@@ -1070,5 +1101,32 @@ mod tests {
         assert_eq!(channel_room(&channel, &d).unwrap().kind, "c");
         let sub = subscription("19:g@thread.tacv2", &channel, me, 5, Some(("team", "Ops")));
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
+    }
+
+    #[test]
+    fn channels_never_opened_or_ending_on_an_event_are_read() {
+        let me = "8:orgid:me";
+        let team = Some(("team", "Ops"));
+        let text = json!({"messageType": "RichText/Html", "content": "<p>yo</p>", "from": "8:orgid:bbb",
+            "composeTime": "2026-10-20T23:55:21.726Z", "id": "1792540521726"});
+        let never_opened = json!({"id": "19:g@thread.tacv2", "lastMessage": text});
+        assert!(!subscription("19:g@thread.tacv2", &never_opened, me, 5, team).alert);
+        assert!(
+            subscription("19:x@thread.v2", &never_opened, me, 5, None).alert,
+            "a chat with no horizon stays unread"
+        );
+        let seen_before = json!({"id": "19:g@thread.tacv2", "lastMessage": text,
+            "consumptionHorizon": {"originalArrivalTime": 1792540500000_i64}});
+        assert!(subscription("19:g@thread.tacv2", &seen_before, me, 5, team).alert);
+        let mut event = seen_before.clone();
+        event["lastMessage"]["messageType"] = json!("ThreadActivity/MemberJoined");
+        assert!(!subscription("19:g@thread.tacv2", &event, me, 5, team).alert);
+        let mut read = seen_before.clone();
+        assert_eq!(last_id(&read), Some(1792540521726));
+        read_up_to(&mut read, 1792540521726);
+        assert!(!subscription("19:g@thread.tacv2", &read, me, 5, team).alert);
+        assert_eq!(horizon(&read), Some(1792540521726));
+        read_up_to(&mut read, 1);
+        assert_eq!(horizon(&read), Some(1792540521726), "never marked backwards");
     }
 }

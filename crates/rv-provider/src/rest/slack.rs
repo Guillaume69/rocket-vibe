@@ -16,6 +16,8 @@ pub const METHODS: &[&str] = &[
     "conversations.history",
     "conversations.replies",
     "users.info",
+    "users.list",
+    "conversations.open",
     "bots.info",
     "emoji.list",
     "chat.postMessage",

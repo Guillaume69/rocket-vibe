@@ -20,6 +20,8 @@ Three searches, debounced: finding people and channels to start a conversation (
 
 Mobile Mattermost and kChat accounts have no `spotlight`: the screen asks `Provider.searchPeople` instead (`MmActions.searchPeople`, `POST /users/search {term, limit: 20}`, me and deactivated accounts left out), as for WhatsApp; their channels are not offered there. The desktop's `mattermost::actions::spotlight` reads people and channels.
 
+Slack accounts have no `spotlight` either: people come from the workspace's `users.list`, read once per session and matched on handle, display and real name (mobile `Provider.searchPeople`, desktop `Session::spotlight` through `SlackSync::spotlight`), and a pick opens the DM or group DM with `conversations.open` ([slack-session](../architecture/slack-session.md#people-emoji-and-huddles)). Slack channels are not offered there.
+
 ### Group direct messages
 
 Several people can be started together on Rocket.Chat, Mattermost and kChat accounts (not Vibez, whose server has no group DMs, nor Slack, Teams or WhatsApp). One picked person opens the ordinary DM; two to seven (`GROUP_DM_MAX`: Mattermost's fixed 8 members and Rocket.Chat's default `DirectMesssage_maxUsers`, me included) open the group DM, the same set giving the same room back. Rocket.Chat: `im.create {usernames: "a,b"}`, which silently drops an unknown username. Mattermost/kChat: ids resolved (`/users/username/<u>` when the search gave none), `POST /channels/group [me, ...ids]`, then `group_channel_show` set `true` and the channel revealed in the sidebar. Server facts in `CLAUDE.md` and `docs/MATTERMOST.md` 6.3.

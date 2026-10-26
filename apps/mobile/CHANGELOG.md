@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".
 - Teams (experimental): one-to-one, group and meeting chats missing from the list now show: chats are also read from Teams' own conversation list, page by page, the people in a one-to-one chat named from their profiles, and a chat Teams marks hidden shows again once it has a message. A Teams account no longer offers "New conversation", whose search could only fail.
 - Teams (experimental): a channel post shows its subject as a bold title above its text, in the room and the room list, and shows "N replies" under it when it has replies, opening its thread; replies were kept out of the room with no way to reach them. Editing a post with a subject keeps the subject out of its text.
 - Teams (experimental): a channel is named after its team too ("Tech · General") wherever it is not under its team's header, in Unread, Favorites and the room's header, so each team's General can be told apart. Channels Teams only shows in the team list (every team's General) are no longer listed as favorites.

@@ -33,7 +33,7 @@ class StubListener implements Listener {
   reset(): void {}
 }
 
-test('the provider: text, files, marks, presence and search on, DMs refused, a refused session reported', async () => {
+test('the provider: text, files, marks, presence, search and people on, a refused session reported', async () => {
   const rejected: string[] = [];
   const rest = { onTokenRejected: (token: string) => void rejected.push(token) };
   const server = fakeSlack(() => ({ body: { ok: false, error: 'token_revoked' } }));
@@ -46,8 +46,9 @@ test('the provider: text, files, marks, presence and search on, DMs refused, a r
     [provider.capabilities.files, provider.capabilities.marks, provider.capabilities.presence, provider.capabilities.search, provider.capabilities.typing],
     [true, true, true, true, true],
   );
-  assert.ok(provider.searchMessages && provider.ownActivity && provider.loadPresence);
-  await assert.rejects(provider.actions.openOrCreateDm('alice'), (e) => e instanceof SlackError && e.code === 'unsupported');
+  assert.ok(provider.searchMessages && provider.ownActivity && provider.loadPresence && provider.searchPeople);
+  assert.ok(provider.actions.openOrCreateGroupDm);
+  await assert.rejects(provider.actions.openOrCreateDm('alice'), (e) => e instanceof SlackError && e.code === 'user_not_found');
   await assert.rejects(provider.actions.react('C001', 'C002:1780000000.000001', 'eyes', true), (e) => e instanceof SlackError && e.code === 'message_not_found');
   const local = memoryStore();
   const engine = new SyncEngine(local.store, provider.translator);

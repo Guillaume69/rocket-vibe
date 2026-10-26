@@ -4,7 +4,7 @@ Slack is a saved account kind on Android, GTK and SwiftUI, behind nine activatio
 the login icon. Rooms, unread counts, history and threads go through the local store
 like any other server; the RTM socket keeps them live, and text, replies, edits,
 deletions, reactions and reads are written back, and received files show as attachments.
-Files are sent, rooms searched, messages pinned and saved, and presence followed and set (see "Files" and "Pins, saved messages, search and presence"). Room info and settings, members, leave, favorites, quotes, scheduled messages, profiles and the account screen are not wired and their capabilities stay off. Android signs in from the developer helper's
+Files are sent, rooms searched, messages pinned and saved, people found and direct conversations opened (see "People, emoji and huddles"), and presence followed and set (see "Files" and "Pins, saved messages, search and presence"). Room info and settings, members, leave, favorites, quotes, scheduled messages, profiles and the account screen are not wired and their capabilities stay off. Android signs in from the developer helper's
 encrypted handoff or a pasted token and cookie; the desktop opens Slack in a temporary
 browser of its own. The Slack read preview is gone from every app; only Teams keeps a
 transient preview. See [experimental integrations](../features/experimental-integrations.md)
@@ -150,6 +150,18 @@ known; the RTM echo rewrites the rows. The desktop account's method allowlist
 (`crates/rv-provider/src/rest/slack.rs`) admits exactly the read and write methods used.
 
 ## People, emoji and huddles
+
+**New conversation**: the first people search reads the workspace's people once per
+session (`users.list`, every page of 200, at most 50 pages), bots, `USLACKBOT` and
+deactivated accounts left out, each one stored in the directory; a search then matches
+the query, case-insensitively, against the handle, display name and real name, me left
+out, 20 at most (`Service::search_people`, `SlackDirectory.searchPeople`); a failed read
+is tried again at the next search. Picking one person or several opens the conversation
+with `conversations.open {users: "U1,U2", return_im: true}` (one person a DM, more a
+group DM; the same set gives the same conversation back), then the desktop reruns the
+global catch-up and the phone reads it with `conversations.info` so it lists at once
+(`SlackSync::open_direct`, `SlackActions.openDirect`, `SlackLive.opened`). Not run
+against a live workspace.
 
 Names follow Slack: a profile's display name, else its full name, else the handle
 (`toSlackUser`, `User::from_json`), with the profile's status emoji after it while

@@ -41,6 +41,23 @@ export function toSlackUser(raw: Record<string, unknown>): SlackUser | null {
   };
 }
 
+/** Someone `users.list` names who can be written to, with the lowercase text a
+ *  search matches (username, display and real names). Bots, Slackbot and
+ *  deactivated accounts are left out. */
+export function slackPerson(raw: Record<string, unknown>): { user: SlackUser; names: string } | null {
+  if (raw.deleted === true || raw.is_bot === true || raw.id === 'USLACKBOT') return null;
+  const user = toSlackUser(raw);
+  if (user === null) return null;
+  const profile = record(raw.profile);
+  const names = [user.username, str(profile.display_name), str(profile.real_name), str(raw.real_name)]
+    .filter((part): part is string => part !== null)
+    .join(' ')
+    .toLowerCase();
+  return { user, names };
+}
+
+const PEOPLE_PAGES = 50;
+
 export class SlackDirectory {
   private readonly client: SlackClient;
   private readonly baseUrl: string;
@@ -55,6 +72,8 @@ export class SlackDirectory {
   private inFlight: Promise<void> = Promise.resolve();
   /** Ids queued on `inFlight`, not answered yet. */
   private readonly pending = new Set<string>();
+  /** The workspace's people for a search, read once per session: id and the text matched. */
+  private people: Promise<{ id: string; names: string }[]> | null = null;
 
   constructor(client: SlackClient, baseUrl: string) {
     this.client = client;
@@ -89,6 +108,34 @@ export class SlackDirectory {
   nameOfUsername(username: string): string | null {
     const user = this.byUsername.get(username);
     return user === undefined ? null : (user.displayName ?? user.username);
+  }
+
+  /**
+   * People whose username or name holds the query, case-insensitively, `me`
+   * left out, at most `limit`. The first search reads the workspace's people
+   * (`users.list`, every page); a failed read is tried again next time.
+   */
+  async searchPeople(query: string, me: string, limit = 20): Promise<SlackUser[]> {
+    this.people ??= this.client.pages('users.list', { limit: 200 }, 'members', PEOPLE_PAGES).then((members) =>
+      members.flatMap((raw) => {
+        const found = slackPerson(raw);
+        if (found === null) return [];
+        this.remember(found.user);
+        return [{ id: found.user.id, names: found.names }];
+      }),
+    );
+    let people: { id: string; names: string }[];
+    try {
+      people = await this.people;
+    } catch (error) {
+      this.people = null;
+      throw error;
+    }
+    const q = query.trim().replace(/^@+/, '').toLowerCase();
+    return people
+      .filter((p) => p.id !== me && p.names.includes(q))
+      .flatMap((p) => this.byId.get(p.id) ?? [])
+      .slice(0, limit);
   }
 
   bot(id: string): string | null {

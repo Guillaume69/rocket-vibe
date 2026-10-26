@@ -20,7 +20,7 @@ function setup(route: (call: SlackCall) => SlackAnswer | undefined = () => ({ bo
   live.remember({ id: 'C001', name: 'general' }, { id: 'C001', latest: '1780000000.000500' });
   const saved = new SlackSaved(client, history);
   const translator = new SlackTranslator(directory, 'U000', new Map(), saved.ids);
-  return { actions: new SlackActions({ client, directory, history, live, translator, saved }), server, saved, live };
+  return { actions: new SlackActions({ client, directory, history, live, translator, saved }), server, saved, live, directory };
 }
 
 const MID = 'C001:1780000000.000100';
@@ -152,9 +152,47 @@ describe('SlackActions', () => {
     assert.deepEqual([...saved.ids], ['C001:1780000000.000100']);
   });
 
-  test('DMs still refuse', async () => {
-    const { actions } = setup();
-    await assert.rejects(actions.openOrCreateDm('alice'), SlackError);
+  test('a DM or a group DM opens with conversations.open and lists like the others', async () => {
+    const { actions, server, live } = setup((call) => {
+      if (call.method === 'conversations.open') return { body: { ok: true, channel: { id: call.args.users === 'U001' ? 'D001' : 'G001' } } };
+      if (call.method === 'conversations.info') {
+        return { body: { ok: true, channel: call.args.channel === 'D001'
+          ? { id: 'D001', is_im: true, user: 'U001' }
+          : { id: 'G001', is_mpim: true, name: 'mpdm-me--alice--bob-1' } } };
+      }
+      if (call.method === 'users.info') return { body: { ok: true, user: { id: call.args.user, name: 'bob' } } };
+      return undefined;
+    });
+    const dm = await actions.openOrCreateDm('alice');
+    assert.equal(dm.rid, 'D001');
+    assert.deepEqual(dm.rawRoom, { channel: { id: 'D001', is_im: true, user: 'U001' }, counts: { id: 'D001' } });
+    assert.ok(live.channels.has('D001'));
+    const group = await actions.openOrCreateGroupDm([{ username: 'alice' }, { username: 'bob', uid: 'U002' }]);
+    assert.equal(group.rid, 'G001');
+    const opens = server.calls.filter((c) => c.method === 'conversations.open').map((c) => [c.args.users, c.args.return_im]);
+    assert.deepEqual(opens, [['U001', 'true'], ['U001,U002', 'true']]);
+    const before = server.calls.length;
+    await assert.rejects(actions.openOrCreateDm('nobody'), (e) => e instanceof SlackError && e.code === 'user_not_found');
+    assert.equal(server.calls.length, before, 'nothing is sent for someone unknown');
+  });
+
+  test('a people search reads the workspace once and matches usernames and names', async () => {
+    const page = (cursor: string | undefined) => cursor === undefined
+      ? { ok: true, members: [
+        { id: 'U000', name: 'me', profile: {} },
+        { id: 'U005', name: 'mgonzalez', profile: { display_name: 'Mika', real_name: 'Micael GONZALEZ' } },
+        { id: 'B001', name: 'alertbot', is_bot: true, profile: { real_name: 'Micael bot' } },
+      ], response_metadata: { next_cursor: 'p2' } }
+      : { ok: true, members: [
+        { id: 'U006', name: 'micah', deleted: true, profile: {} },
+        { id: 'U007', name: 'mic', profile: { real_name: 'Michel' } },
+      ], response_metadata: { next_cursor: '' } };
+    const { directory, server } = setup((call) => (call.method === 'users.list' ? { body: page(call.args.cursor) } : undefined));
+    const found = await directory.searchPeople(' MICAEL ', 'U000');
+    assert.deepEqual(found.map((u) => u.username), ['mgonzalez']);
+    assert.deepEqual((await directory.searchPeople('@mi', 'U000')).map((u) => u.username), ['mgonzalez', 'mic']);
+    assert.equal(server.calls.filter((c) => c.method === 'users.list').length, 2, 'every page, once');
+    assert.equal(directory.idOfUsername('mgonzalez'), 'U005', 'a person found can be written to');
   });
 });
 

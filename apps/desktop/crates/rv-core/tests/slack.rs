@@ -174,6 +174,24 @@ fn workspace(request: &Request) -> Response {
             {"type": "message", "ts": "1700000301.000100", "user": "U001", "text": "elsewhere", "channel": {"id": "C002"}},
         ]}})),
         "reactions.remove" => respond(200, r#"{"ok":false,"error":"no_reaction"}"#),
+        "users.list" => match form.get("cursor").map(String::as_str) {
+            None => ok(json!({
+                "members": [user("U000", "me"), user("U001", "alice"),
+                    {"id": "B001", "name": "alertbot", "is_bot": true, "profile": {"real_name": "Alerts"}}],
+                "response_metadata": {"next_cursor": "people2"},
+            })),
+            Some("people2") => ok(json!({
+                "members": [user("U002", "bob"), {"id": "U003", "name": "alan", "deleted": true, "profile": {}},
+                    {"id": "U004", "name": "zed", "profile": {"real_name": "Alice Zed"}}],
+                "response_metadata": {"next_cursor": ""},
+            })),
+            Some(other) => panic!("unexpected cursor {other}"),
+        },
+        "conversations.open" => match form["users"].as_str() {
+            "U001" => ok(json!({"channel": {"id": "D001"}})),
+            "U001,U002" => ok(json!({"channel": {"id": "G001"}})),
+            other => panic!("unexpected users {other}"),
+        },
         "users.conversations" => match form.get("cursor").map(String::as_str) {
             None => ok(json!({
                 "channels": [
@@ -380,7 +398,22 @@ async fn a_slack_session_speaks_only_slack() {
     assert!(server.requests().iter().any(|r| method(r) == "users.profile.set" && form(r)["profile"].contains("lunch")));
     assert!(s.set_favorite("C001", true).await.is_err());
     assert!(s.me().await.is_err());
-    assert!(s.spotlight("al").await.is_err());
+    let found = s.spotlight("AL").await.unwrap();
+    let people: Vec<String> = found
+        .iter()
+        .map(|f| match f {
+            rv_core::rooms::Found::User { username, .. } => username.clone(),
+            rv_core::rooms::Found::Room { name, .. } => name.clone(),
+        })
+        .collect();
+    assert_eq!(people, ["alice", "zed"], "real names match; bots and deactivated accounts do not");
+    assert!(s.spotlight("bo").await.is_ok());
+    let lists = server.requests().iter().filter(|r| method(r) == "users.list").count();
+    assert_eq!(lists, 2, "the people are read once, every page");
+    assert_eq!(s.open_dm("alice").await.unwrap(), "D001");
+    assert!(s.group_dms_supported());
+    assert_eq!(s.open_group_dm(&["alice".to_owned(), "bob".to_owned()]).await.unwrap(), "G001");
+    assert!(s.open_dm("nobody").await.is_err(), "only someone the directory knows");
     assert!(s.join_channel("C001").await.is_err());
     assert!(s.invite_link("C001").await.is_err());
     assert!(s.create_channel("team", false).await.is_err());

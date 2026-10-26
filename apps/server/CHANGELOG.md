@@ -11,6 +11,10 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Web client: drop-down lists (presence, roles, devices and the other choices in settings and panels) open in the app's dark colours instead of the browser's white system list.
+
 ## [0.10.0] - 2026-10-25
 
 ### Changed

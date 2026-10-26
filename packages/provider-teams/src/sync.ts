@@ -14,7 +14,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, messageId, readUpTo, rootOf, splitId, str, toMessage, toSubscription,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
@@ -41,6 +41,7 @@ export class TeamsRooms {
       lastMessage: {
         messageType: resource.messagetype, content: resource.content, from: resource.from,
         imDisplayName: resource.imdisplayname, composeTime: resource.composetime ?? resource.originalarrivaltime, id: resource.id,
+        subject: subject(resource),
       },
       isRead: mine, isMessageRead: mine, isLastMessageFromMe: mine,
     };
@@ -75,7 +76,7 @@ export class TeamsRooms {
     if (!known) return null;
     const composeTime = ((known.entry.lastMessage ?? {}) as Doc).composeTime ?? null;
     const lastMessage = resource
-      ? { messageType: resource.messagetype, content: resource.content, from: resource.from, imDisplayName: resource.imdisplayname, composeTime, id: resource.id }
+      ? { messageType: resource.messagetype, content: resource.content, from: resource.from, imDisplayName: resource.imdisplayname, composeTime, id: resource.id, subject: subject(resource) }
       : { messageType: 'Text', content: '', composeTime };
     const entry: Doc = { ...known.entry, lastMessage };
     this.entries.set(rid, { entry, team: known.team });
@@ -83,18 +84,61 @@ export class TeamsRooms {
   }
 }
 
+/** The live event naming a post whose reply count moved. */
+export const THREAD_COUNTERS = 'thread';
+
+/** Each channel post's replies seen, for the count and last reply time the
+ *  post shows: Teams sends no reply count. */
+export class TeamsThreads {
+  private readonly replies = new Map<string, Map<string, number>>();
+
+  /** Notes a reply under its post; answers the post. */
+  note(message: LocalMessage): string | null {
+    if (message.threadId === null) return null;
+    const replies = this.replies.get(message.threadId) ?? new Map<string, number>();
+    replies.set(message.id, message.ts);
+    this.replies.set(message.threadId, replies);
+    return message.threadId;
+  }
+
+  /** Forgets a deleted reply; answers the post it was under. */
+  drop(id: string): string | null {
+    for (const [root, replies] of this.replies) {
+      if (replies.delete(id)) return root;
+    }
+    return null;
+  }
+
+  counters(root: string): { count: number; last: number | null } {
+    const replies = [...(this.replies.get(root)?.values() ?? [])];
+    return { count: replies.length, last: replies.length > 0 ? Math.max(...replies) : null };
+  }
+
+  /** A post as shown: its replies counted. */
+  counted(message: LocalMessage): LocalMessage {
+    if (message.threadId !== null || !this.replies.has(message.id)) return message;
+    const { count, last } = this.counters(message.id);
+    return { ...message, threadCount: count, threadLast: last };
+  }
+}
+
 export class TeamsTranslator implements Translator {
   private readonly directory: TeamsDirectory;
   private readonly me: string;
+  private readonly threads: TeamsThreads;
 
-  constructor(directory: TeamsDirectory, me: string) {
+  constructor(directory: TeamsDirectory, me: string, threads: TeamsThreads = new TeamsThreads()) {
     this.directory = directory;
     this.me = me;
+    this.threads = threads;
   }
 
   toMessage(raw: Doc): LocalMessage | null {
     const rid = str(raw, '__rid') ?? conversationOf(raw);
-    return rid ? toMessage(rid, raw, this.directory) : null;
+    const message = rid ? toMessage(rid, raw, this.directory) : null;
+    if (message === null) return null;
+    this.threads.note(message);
+    return this.threads.counted(message);
   }
 
   toRoom(raw: Doc): LocalRoom | null {
@@ -122,9 +166,16 @@ export class TeamsTranslator implements Translator {
       case 'NewMessage':
       case 'MessageUpdate': {
         const rid = conversationOf(resource), id = str(resource, 'id');
-        if (rid && id && deleted(resource)) return { kind: 'change', change: { type: 'message-deleted', id: messageId(rid, id) } };
+        if (rid && id && deleted(resource)) {
+          this.threads.drop(messageId(rid, id));
+          return { kind: 'change', change: { type: 'message-deleted', id: messageId(rid, id) } };
+        }
         const message = this.toMessage(resource);
         return message ? { kind: 'change', change: { type: 'message', doc: message } } : { kind: 'silence' };
+      }
+      case THREAD_COUNTERS: {
+        const root = str(resource, 'id');
+        return root ? { kind: 'change', change: { type: 'thread-counters', id: root, ...this.threads.counters(root) } } : { kind: 'ignore' };
       }
       default:
         return { kind: 'silence' };
@@ -139,10 +190,12 @@ export class TeamsSync {
   private readonly newest = new Map<string, number>();
   private readonly client: TeamsClient;
   private readonly rooms: TeamsRooms;
+  private readonly threads: TeamsThreads;
 
-  constructor(client: TeamsClient, rooms: TeamsRooms) {
+  constructor(client: TeamsClient, rooms: TeamsRooms, threads: TeamsThreads = new TeamsThreads()) {
     this.client = client;
     this.rooms = rooms;
+    this.threads = threads;
   }
 
   /** Every chat and channel, raw, tagged with its team. */
@@ -199,12 +252,24 @@ export class TeamsSync {
     else this.older.delete(rid);
   }
 
+  /** Stores a page, then sets the reply count of each post a reply of it is under. */
   private async ingest(engine: SyncEngine, rid: string, messages: Doc[]): Promise<void> {
+    const posts = new Set<string>();
     for (const m of messages) {
       const id = str(m, 'id');
-      if (id && deleted(m)) await engine.syncStore.deleteMessage(messageId(rid, id));
+      if (id && deleted(m)) {
+        const post = this.threads.drop(messageId(rid, id));
+        if (post) posts.add(post);
+        await engine.syncStore.deleteMessage(messageId(rid, id));
+      }
+      const root = id ? rootOf(m, id) : null;
+      if (root) posts.add(messageId(rid, root));
     }
     await engine.ingestMessages(messages);
+    for (const post of posts) {
+      const { count, last } = this.threads.counters(post);
+      await engine.syncStore.updateThreadCounters(post, count, last);
+    }
   }
 
   /** The newest page, or the page before `latest` (ms), walking back through the kept links. */

@@ -26,7 +26,11 @@ impl TeamsSync {
     }
 
     pub async fn edit(&self, msg_id: &str, text: &str) -> Result<(), RestError> {
-        self.service.edit(msg_id, text).await?;
+        let text = match self.service.message(msg_id).await {
+            Ok(Some((_, raw))) => rv_teams::translate::without_subject(&raw, text),
+            _ => text.to_owned(),
+        };
+        self.service.edit(msg_id, &text).await?;
         self.refresh_one(msg_id).await;
         Ok(())
     }

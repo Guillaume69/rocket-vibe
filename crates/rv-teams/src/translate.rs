@@ -303,12 +303,35 @@ fn push_text(out: &mut String, text: &str, pre: bool) {
     }
 }
 
-/// A message's text: HTML for `RichText/Html`, plain otherwise.
+/// A message's text: HTML for `RichText/Html`, plain otherwise, under the
+/// post's subject in bold when it has one.
 pub fn body_text(raw: &Value) -> String {
     let content = str_of(raw, "content").unwrap_or_default();
     let html = str_of(raw, "messagetype").is_some_and(|t| t.starts_with("RichText"))
         || str_of(raw, "contenttype").is_some_and(|t| t.eq_ignore_ascii_case("html"));
-    if html { html_to_markdown(content) } else { rv_provider::text::decode_entities(content).trim().to_owned() }
+    let body =
+        if html { html_to_markdown(content) } else { rv_provider::text::decode_entities(content).trim().to_owned() };
+    match subject(raw) {
+        Some(title) if body.is_empty() => format!("**{title}**"),
+        Some(title) => format!("**{title}**\n\n{body}"),
+        None => body,
+    }
+}
+
+/// An edited text without the subject `body_text` put in front of it: the
+/// subject stays the message's own property.
+pub fn without_subject(raw: &Value, text: &str) -> String {
+    let Some(title) = subject(raw) else { return text.to_owned() };
+    text.strip_prefix(&format!("**{title}**")).map_or(text, |rest| rest.trim_start_matches('\n')).to_owned()
+}
+
+/// A channel post's subject, the title Teams shows above it: the chat
+/// service's `properties.subject`, or `subject` where the aggregator or a
+/// rebuilt entry carries it.
+pub fn subject(raw: &Value) -> Option<String> {
+    let title = raw.pointer("/properties/subject").and_then(Value::as_str).or_else(|| str_of(raw, "subject"))?;
+    let title = rv_provider::text::decode_entities(title).trim().to_owned();
+    (!title.is_empty()).then_some(title)
 }
 
 pub fn deleted(raw: &Value) -> bool {
@@ -661,7 +684,7 @@ fn preview(last: &Value, directory: &Directory) -> Option<(String, Option<String
     if !matches!(kind, "Text" | "RichText/Html" | "RichText") {
         return None;
     }
-    let raw = json!({"content": last.get("content"), "messagetype": kind});
+    let raw = json!({"content": last.get("content"), "messagetype": kind, "subject": subject(last)});
     let author = str_of(last, "from").map(mri_of);
     if let (Some(mri), Some(name)) = (author, str_of(last, "imDisplayName")) {
         directory.remember(mri, name);
@@ -1122,6 +1145,7 @@ mod tests {
         let sub = subscription("19:g@thread.tacv2", &channel, me, 5, Some(("team", "Ops")));
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
+
 
     #[test]
     fn channels_carry_their_team_and_are_favorites_only_when_pinned() {

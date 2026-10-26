@@ -11,6 +11,8 @@ export type SlackMethod =
   | 'conversations.history'
   | 'conversations.replies'
   | 'users.info'
+  | 'users.list'
+  | 'conversations.open'
   | 'bots.info'
   | 'client.counts'
   | 'emoji.list'

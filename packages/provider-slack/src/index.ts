@@ -3,8 +3,8 @@
  * threads come over the Web API, live updates over the RTM socket. Text
  * goes out through the outbox (roots, replies, replies also in the room),
  * files through the upload queue, and edit, delete, react, mark read, pins
- * and saves through the actions; rooms are still to come, and the
- * capabilities hide them.
+ * and saves through the actions, people found and direct conversations
+ * opened from "New conversation"; creating rooms is still to come.
  */
 
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
@@ -101,6 +101,8 @@ export function createSlackProvider(session: Session, rest: TokenRejection, gene
     actions,
     ownActivity: slackActivity(client, session.userId),
     searchMessages: (rid, text) => searchSlackMessages({ client, history, translator }, rid, text),
+    searchPeople: async (query) =>
+      (await directory.searchPeople(query, session.userId)).map((user) => ({ id: user.id, name: user.username, detail: user.displayName ?? user.username })),
     async loadPresence() {
       if (rtm instanceof SlackRtm) rtm.watchPresence(live.presenceIds());
       const mine = await slackActivity(client, session.userId).read();

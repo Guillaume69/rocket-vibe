@@ -201,6 +201,13 @@ export class SlackLive {
     return events;
   }
 
+  /** A conversation I just opened, read and kept like a listed one: its document and counts. */
+  async opened(rid: string): Promise<{ channel: Doc; counts: Doc } | null> {
+    await this.joined(rid);
+    const channel = this.channels.get(rid);
+    return channel === undefined ? null : { channel, counts: this.counts.get(rid) ?? { id: rid } };
+  }
+
   /** A conversation I just joined or opened, read whole so it lists like the others. */
   private async joined(rid: string | null): Promise<DdpEvent[]> {
     if (rid === null) return [];

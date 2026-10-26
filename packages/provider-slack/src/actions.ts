@@ -1,12 +1,11 @@
 /**
  * Slack's single actions on messages: edit, delete, react, mark read, pin,
- * save for later (the app's star). The RTM echo rewrites the stored rows; a
- * failed action leaves them as they were. Rooms and DMs are not wired yet and
- * refuse.
+ * save for later (the app's star), and opening a direct conversation. The RTM
+ * echo rewrites the stored rows; a failed action leaves them as they were.
  */
 
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
-import type { EditableSettings, ProviderActions, ReadObservation, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
+import type { EditableSettings, GroupDmPerson, ProviderActions, ReadObservation, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import type { SlackClient } from './client.ts';
 import { SlackError, compareTimestamp, record } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
@@ -17,10 +16,6 @@ import { slackName } from './emojis.ts';
 import { markdownToMrkdwn, parseMessageId, type SlackTranslator } from './translator.ts';
 
 type Doc = Record<string, unknown>;
-
-const unsupported = async (): Promise<never> => {
-  throw new SlackError('unsupported');
-};
 
 /** The app's reaction code into Slack's name for the same emoji (`+1::skin-tone-3`), else as typed. */
 export function reactionName(code: string): string {
@@ -141,8 +136,26 @@ export class SlackActions implements ProviderActions {
     return this.translated(await this.saved.messages(rid));
   }
 
-  openOrCreateDm(_username: string, _uid?: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
-    return unsupported();
+  openOrCreateDm(username: string, uid?: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    return this.openDirect([{ username, uid }]);
+  }
+
+  /** Up to eight people: Slack's group DM, the same set giving the same one back. */
+  openOrCreateGroupDm(people: GroupDmPerson[]): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    return this.openDirect(people);
+  }
+
+  private async openDirect(people: readonly GroupDmPerson[]): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
+    const ids = people.map(({ username, uid }) => {
+      const id = uid ?? this.directory.idOfUsername(username);
+      if (id === null) throw new SlackError('user_not_found');
+      return id;
+    });
+    const rid = record((await this.client.call('conversations.open', { users: ids.join(','), return_im: true })).channel).id;
+    if (typeof rid !== 'string' || rid === '') throw new SlackError('channel_not_found');
+    await this.directory.ensure(ids);
+    const room = await this.live.opened(rid);
+    return { rid, rawRoom: room ?? {} };
   }
 
   private async pinning(rid: string, mid: string, put: boolean): Promise<void> {

@@ -14,6 +14,7 @@ section here.
 - Teams (experimental): a channel post shows its subject as a bold title above its text, in the room and the room list, and shows "N replies" under it when it has replies, opening its thread; replies were kept out of the room with no way to reach them. Editing a post with a subject keeps the subject out of its text.
 - Teams (experimental): a channel is named after its team too ("Tech · General") wherever it is not under its team's header, in Unread, Favorites, the switcher, the room's header and notifications, so each team's General can be told apart. Channels Teams only shows in the team list (every team's General) are no longer listed as favorites.
 - Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; marking a room read now passes the last message Teams lists, events included.
+- What you typed in a thread reply could be invisible: in a short window, or under a long answer shown only to you (a bot card, a command's reply), the message field shrank to nothing and scrolled the line being typed out of view. The field now always keeps one line, follows the cursor when it has less room than its text, and a long answer shown only to you scrolls on its own past a few lines. The room's field gets the same fix.
 
 ## [0.27.0] - 2026-10-25
 

@@ -14,7 +14,9 @@
 //!   RV_SMOKE_NATIVE=1      asserts the native provider in the existing chat UI
 //!   RV_SMOKE_QUOTES=1      checks native references through the existing reply bar and composer
 //!   RV_SMOKE_COMPOSER=1    checks the composer: no window handle around it, a scrollbar
-//!                          only once it overflows, one line high when short
+//!                          only once it overflows, one line high when short, still one line
+//!                          under a long private note (RV_SMOKE_COMPOSER_NOTE=hold: that step
+//!                          alone, left so for a screenshot at any RV_SMOKE_SIZE)
 //!   RV_SMOKE_ACTIONS=<tag>  reacts to bob's last message, quotes it, edits my last one,
 //!                          replies in a thread, then opens the actions menu, reacts through its
 //!                          emoji picker and opens the menu again (RV_SMOKE_MENU_SHOT: a PNG of
@@ -849,28 +851,53 @@ fn composer_checks(chat: std::rc::Rc<crate::chat::ChatPage>) {
         FAILED.store(true, Ordering::SeqCst);
     }
     let mut steps: std::collections::VecDeque<Check> = std::collections::VecDeque::new();
-    steps.push_back(Box::new(|c| c.composer().set_text("")));
-    for i in 0..132 {
-        let key = if i % 11 == 10 { " " } else { "a" };
-        steps.push_back(Box::new(move |c| c.composer().type_text(key)));
+    let note_only = std::env::var("RV_SMOKE_COMPOSER_NOTE").as_deref() == Ok("hold");
+    if !note_only {
+        steps.push_back(Box::new(|c| c.composer().set_text("")));
+        for i in 0..132 {
+            let key = if i % 11 == 10 { " " } else { "a" };
+            steps.push_back(Box::new(move |c| c.composer().type_text(key)));
+        }
+        for _ in 0..5 {
+            steps.push_back(Box::new(|_| {}));
+        }
+        steps.push_back(Box::new(|c| composer_state("two lines typed", c, false, 44)));
+        for _ in 0..12 {
+            steps.push_back(Box::new(|c| c.composer().type_text("\nanother line")));
+        }
+        for _ in 0..5 {
+            steps.push_back(Box::new(|_| {}));
+        }
+        steps.push_back(Box::new(|c| composer_state("overflowing", c, true, 170)));
+        steps.push_back(Box::new(|c| c.composer().set_text("hi")));
+        for _ in 0..5 {
+            steps.push_back(Box::new(|_| {}));
+        }
+        steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
     }
+    steps.push_back(Box::new(|c| {
+        let ctx = rv_core::markdown::Context { me: "", names: None };
+        c.composer().show_private(&"- a long private answer\n".repeat(40), &ctx, &[], None);
+        c.composer().set_text("typed under a long note");
+    }));
     for _ in 0..5 {
         steps.push_back(Box::new(|_| {}));
     }
-    steps.push_back(Box::new(|c| composer_state("two lines typed", c, false, 44)));
-    for _ in 0..12 {
-        steps.push_back(Box::new(|c| c.composer().type_text("\nanother line")));
+    steps.push_back(Box::new(|c| {
+        let (height, _, _) = c.composer().scroll_state();
+        let inside = c.composer().field_in_window();
+        let ok = height >= 18 && inside;
+        println!(
+            "smoke: composer under a long note: {height}px in window={inside} {}",
+            if ok { "ok" } else { "FAILED" }
+        );
+        if !ok {
+            FAILED.store(true, Ordering::SeqCst);
+        }
+    }));
+    if !note_only {
+        steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
     }
-    for _ in 0..5 {
-        steps.push_back(Box::new(|_| {}));
-    }
-    steps.push_back(Box::new(|c| composer_state("overflowing", c, true, 170)));
-    steps.push_back(Box::new(|c| c.composer().set_text("hi")));
-    for _ in 0..5 {
-        steps.push_back(Box::new(|_| {}));
-    }
-    steps.push_back(Box::new(|c| composer_state("one line", c, false, 40)));
-    steps.push_back(Box::new(|c| c.composer().set_text(&"aaaaaaaaaa ".repeat(12))));
     in_sequence(chat, steps);
 }
 

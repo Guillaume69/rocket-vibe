@@ -76,6 +76,9 @@ fn handler(server_url: String) -> impl Fn(&Request) -> Response + Send + Sync + 
             );
         }
         assert_eq!(header(request, "authentication"), Some("skypetoken=skype-x"));
+        if path.ends_with("/users/ME/conversations") {
+            return respond(200, &json!({"conversations": [], "_metadata": {}}).to_string());
+        }
         assert!(path.contains("/conversations/19:chat@thread.v2/messages"), "{path}");
         let query = request.target.split_once('?').map(|(_, q)| q).unwrap_or_default();
         if query.contains("syncState=older") {

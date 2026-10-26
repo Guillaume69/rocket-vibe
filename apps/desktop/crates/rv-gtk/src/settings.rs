@@ -482,6 +482,32 @@ pub fn open(
     dialog
 }
 
+/// The settings of an account the app keeps no server profile for (a linked
+/// WhatsApp account): notifications, language, the accounts on this machine
+/// and the app itself, `sign_out_label` ending the account.
+pub fn open_app(
+    parent: &impl IsA<gtk::Widget>,
+    info: &rv_core::session::SessionInfo,
+    accounts: Option<Rc<AccountActions>>,
+    sign_out_label: &str,
+    sign_out: impl Fn() + 'static,
+) -> SidebarDialog {
+    let dialog = dialog(parent.as_ref(), None, sign_out_label, sign_out);
+    let host = dialog.host();
+    if let Some(group) = notifier_group() {
+        let notifications = adw::PreferencesPage::new();
+        notifications.add(&group);
+        add(&dialog, NOTIFICATIONS, &notifications);
+    }
+    let language = adw::PreferencesPage::new();
+    language.add(&language_group());
+    add(&dialog, LANGUAGE, &language);
+    add(&dialog, ACCOUNTS, &accounts_page(&host, info, accounts));
+    add(&dialog, APP, &app_page(&host));
+    dialog.present(parent);
+    dialog
+}
+
 /// The app's language, saved for the next launch.
 fn language_group() -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
@@ -580,9 +606,11 @@ fn accounts_page(
         rail.add(&hide);
         page.add(&rail);
     }
-    let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
-    account.add(&adw::ActionRow::builder().title(t("settings.server")).subtitle(&info.base_url).build());
-    page.add(&account);
+    if !rv_core::whatsapp::is_whatsapp(info) {
+        let account = adw::PreferencesGroup::builder().title(t("settings.account")).build();
+        account.add(&adw::ActionRow::builder().title(t("settings.server")).subtitle(&info.base_url).build());
+        page.add(&account);
+    }
     page
 }
 
@@ -696,7 +724,11 @@ fn accounts_group(
         for info in all.into_iter().rev() {
             let row = adw::ActionRow::builder()
                 .title(format!("@{}", info.username))
-                .subtitle(host_of(&info.base_url))
+                .subtitle(if rv_core::whatsapp::is_whatsapp(&info) {
+                    "WhatsApp".to_owned()
+                } else {
+                    host_of(&info.base_url)
+                })
                 .build();
             if crate::secrets::account_key(&info) == current {
                 row.add_suffix(&gtk::Label::builder().label(t("settings.current")).css_classes(["dim-label"]).build());
@@ -939,3 +971,4 @@ fn edit_profile_for(host: &Host, source: ProfileSource, me: Me) {
         });
     });
 }
+

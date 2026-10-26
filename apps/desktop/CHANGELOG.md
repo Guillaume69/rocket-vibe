@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- WhatsApp (experimental): the account menu now offers Settings, so a window open on a WhatsApp account reaches the app's settings (notifications, language, accounts, background, updates and their manual check); it only offered Unlink WhatsApp.
+
 ## [0.27.0] - 2026-10-25
 
 ### Added

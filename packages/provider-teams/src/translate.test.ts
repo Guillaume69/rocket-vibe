@@ -136,9 +136,20 @@ test('chats, channels and their read state', () => {
   assert.deepEqual([chatRoom(me, meeting, d)!.type, chatRoom(me, meeting, d)!.name], ['p', 'Standup']);
   assert.equal(toSubscription('r', meeting, me, null).open, false);
   const channel = { id: '19:g@thread.tacv2', displayName: 'General', isMessageRead: true, channelType: 'Standard' };
-  assert.equal(channelRoom(channel, d)!.type, 'c');
+  assert.equal(channelRoom(channel, null, d)!.type, 'c');
   const s = toSubscription(channel.id, channel, me, { id: 'team', name: 'Ops' });
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
+});
+
+test('channels carry their team and are favorites only when pinned', () => {
+  const d = new TeamsDirectory();
+  const general = { id: '19:g@thread.tacv2', isFavorite: true };
+  const room = channelRoom(general, 'Tech', d)!;
+  assert.deepEqual([room.name, room.displayName], ['General', 'Tech · General']);
+  const team = { id: 'team', name: 'Tech' };
+  assert.equal(toSubscription(general.id, general, 'me', team).favorite, false, 'shown, not starred');
+  assert.equal(toSubscription('19:p@thread.tacv2', { id: '19:p@thread.tacv2', isPinned: true }, 'me', team).favorite, true);
+  assert.equal(toSubscription('19:x@thread.v2', { id: '19:x@thread.v2', isFavorite: true }, 'me', null).favorite, true);
 });
 
 test('channels never opened or ending on an event are read', () => {

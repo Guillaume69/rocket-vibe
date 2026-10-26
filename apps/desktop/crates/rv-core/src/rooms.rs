@@ -55,12 +55,16 @@ pub fn sections(rooms: &[RoomRow]) -> Vec<(Section, Vec<RoomRow>)> {
             _ => Section::Channels,
         };
         let rank = room.group_rank.unwrap_or_else(|| section.default_rank());
+        let row = match &section {
+            Section::Group { name, .. } => in_group(room, name),
+            _ => room.clone(),
+        };
         match out.iter_mut().find(|(s, ..)| *s == section) {
             Some((_, best, rows)) => {
                 *best = (*best).min(rank);
-                rows.push(room.clone());
+                rows.push(row);
             }
-            None => out.push((section, rank, vec![room.clone()])),
+            None => out.push((section, rank, vec![row])),
         }
     }
     out.sort_by_key(|(section, rank, _)| (*rank, section.default_rank()));
@@ -69,6 +73,17 @@ pub fn sections(rooms: &[RoomRow]) -> Vec<(Section, Vec<RoomRow>)> {
         .chain(out.into_iter().map(|(section, _, rows)| (section, rows)))
         .filter(|(_, rows)| !rows.is_empty())
         .collect()
+}
+
+/// A room as its group's section shows it: a name that repeats the group's
+/// in front (a Teams channel, "Team · Channel") loses it under that header.
+fn in_group(room: &RoomRow, group: &str) -> RoomRow {
+    let mut row = room.clone();
+    if let Some(own) = room.name.strip_prefix(group).and_then(|rest| rest.strip_prefix(" · ")).filter(|o| !o.is_empty())
+    {
+        row.name = own.to_owned();
+    }
+    row
 }
 
 /// Rooms with something unread: what the window title counts.
@@ -289,6 +304,22 @@ mod tests {
         let keys: Vec<String> = sections(&rooms).iter().map(|(s, _)| s.key()).collect();
         assert_eq!(keys, ["unread", "group:g-tech", "group:g-infra", "favorites", "channels", "direct"]);
         assert_eq!(sections(&rooms)[1].0, Section::Group { id: "g-tech".into(), name: "TECH".into() });
+    }
+
+    #[test]
+    fn a_channel_named_after_its_team_loses_the_team_under_its_header() {
+        let channel = |rid: &str, name: &str, unread: i64| RoomRow {
+            name: name.into(),
+            group_id: Some("g-tech".into()),
+            group_name: Some("Tech".into()),
+            ..room(rid, "c", unread)
+        };
+        let rooms = [channel("g1", "Tech · General", 0), channel("g2", "Tech · General", 1), channel("t", "Tech", 0)];
+        let shown = sections(&rooms);
+        assert_eq!(shown[0].1[0].name, "Tech · General", "named in full outside its team");
+        assert_eq!(shown[1].0.key(), "group:g-tech");
+        let names: Vec<&str> = shown[1].1.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["General", "Tech"]);
     }
 
     #[test]

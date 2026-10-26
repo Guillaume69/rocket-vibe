@@ -149,7 +149,7 @@ impl TeamsSync {
     ) -> Option<(crate::normalize::Room, crate::normalize::Subscription)> {
         let now = chrono::Utc::now().timestamp_millis();
         let room = match team {
-            Some(_) => translate::channel_room(entry, &self.directory)?,
+            Some((_, name)) => translate::channel_room(entry, Some(name), &self.directory)?,
             None => translate::chat_room(&self.me, entry, &self.directory)?,
         };
         let team = team.map(|(id, name)| (id.as_str(), name.as_str()));
@@ -309,8 +309,15 @@ impl TeamsSync {
     /// real `threadProperties.topic` but no description or member count; those are
     /// left for the members list. A refused call still returns the name and kind.
     pub async fn room_info(&self, rid: &str) -> Result<crate::info::RoomInfo, RestError> {
-        let (name, kind) =
+        let (shown, kind) =
             self.store.room_name(rid).ok_or_else(|| crate::rest::RestError::incomplete("room info: unknown room"))?;
+        let own = self
+            .entries
+            .lock()
+            .unwrap()
+            .get(rid)
+            .and_then(|(entry, team)| team.as_ref().map(|_| translate::channel_name(entry)));
+        let name = own.unwrap_or(shown);
         let topic = self.service.conversation(rid).await.as_ref().and_then(service::conversation_topic);
         let members = self.members(rid).await.ok().map(|p| i64::from(p.total));
         Ok(crate::info::RoomInfo {

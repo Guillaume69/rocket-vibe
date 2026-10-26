@@ -12,7 +12,8 @@
  *     it without the counter moving): those rooms rise to the top, ALL TYPES
  *     ALIKE; then come the rooms I starred (the server's star, `f`), then the
  *     rooms of each category of my own (Mattermost), then the rest splits
- *     into Rooms / Direct messages;
+ *     into Rooms / Direct messages; under a category, a name that repeats it in
+ *     front ("Team · Channel", Teams) shows the channel's name alone;
  *   - the sections after Unread follow my sidebar order (`groupRank`) when the
  *     server has one, the order above otherwise;
  *   - an empty section is dropped;
@@ -34,7 +35,14 @@ type Grouped = { rid: string; unread: number; alert: boolean; open: boolean; fav
 
 const DEFAULT_RANKS = { favorites: 0, rooms: 1, directMessages: 2 } as const;
 
-export function buildSections<S extends { rid: string; type: string }, A extends Grouped>(
+/** A room as its group's section shows it: a name that repeats the group's in
+ *  front (a Teams channel, "Team · Channel") loses it under that header. */
+function inGroup<S extends { displayName?: string | null }>(room: S, group: string): S {
+  const own = room.displayName?.startsWith(`${group} · `) ? room.displayName.slice(group.length + 3) : '';
+  return own ? { ...room, displayName: own } : room;
+}
+
+export function buildSections<S extends { rid: string; type: string; displayName?: string | null }, A extends Grouped>(
   roomRows: S[] | undefined,
   subscriptionRows: A[] | undefined,
   titles: SectionTitles,
@@ -56,12 +64,13 @@ export function buildSections<S extends { rid: string; type: string }, A extends
     const builtIn = sub?.favorite === true ? 'favorites' : entry.room.type === 'd' ? 'directMessages' : 'rooms';
     const key: SectionKey = sub?.favorite !== true && groupName !== null && sub?.groupId ? `group:${sub.groupId}` : builtIn;
     const rank = sub?.groupRank ?? DEFAULT_RANKS[builtIn];
+    const shown = key.startsWith('group:') && groupName !== null ? { ...entry, room: inGroup(entry.room, groupName) } : entry;
     const section = placed.get(key);
     if (section === undefined) {
       const title = key.startsWith('group:') ? (groupName ?? '') : titles[builtIn];
-      placed.set(key, { key, title, data: [entry], rank, order: key.startsWith('group:') ? 3 : DEFAULT_RANKS[builtIn] });
+      placed.set(key, { key, title, data: [shown], rank, order: key.startsWith('group:') ? 3 : DEFAULT_RANKS[builtIn] });
     } else {
-      section.data.push(entry);
+      section.data.push(shown);
       section.rank = Math.min(section.rank, rank);
     }
   }

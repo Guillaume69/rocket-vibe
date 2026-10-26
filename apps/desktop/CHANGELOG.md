@@ -9,6 +9,7 @@ section here.
 
 ### Fixed
 
+- Teams (experimental): one-to-one, group and meeting chats missing from the list now show: chats are also read from Teams' own conversation list, page by page, the people in a one-to-one chat named from their profiles, and a chat Teams marks hidden shows again once it has a message. A Teams account no longer offers a "+" to start a direct message it cannot open, and a people search the server does not offer says so instead of "Search failed".
 - Teams (experimental): a channel post shows its subject as a bold title above its text, in the room and the room list, and shows "N replies" under it when it has replies, opening its thread; replies were kept out of the room with no way to reach them. Editing a post with a subject keeps the subject out of its text.
 - Teams (experimental): a channel is named after its team too ("Tech · General") wherever it is not under its team's header, in Unread, Favorites, the switcher, the room's header and notifications, so each team's General can be told apart. Channels Teams only shows in the team list (every team's General) are no longer listed as favorites.
 - Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; marking a room read now passes the last message Teams lists, events included.

@@ -1102,4 +1102,31 @@ mod tests {
         let sub = subscription("19:g@thread.tacv2", &channel, me, 5, Some(("team", "Ops")));
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
+
+    #[test]
+    fn channels_never_opened_or_ending_on_an_event_are_read() {
+        let me = "8:orgid:me";
+        let team = Some(("team", "Ops"));
+        let text = json!({"messageType": "RichText/Html", "content": "<p>yo</p>", "from": "8:orgid:bbb",
+            "composeTime": "2026-10-20T23:55:21.726Z", "id": "1792540521726"});
+        let never_opened = json!({"id": "19:g@thread.tacv2", "lastMessage": text});
+        assert!(!subscription("19:g@thread.tacv2", &never_opened, me, 5, team).alert);
+        assert!(
+            subscription("19:x@thread.v2", &never_opened, me, 5, None).alert,
+            "a chat with no horizon stays unread"
+        );
+        let seen_before = json!({"id": "19:g@thread.tacv2", "lastMessage": text,
+            "consumptionHorizon": {"originalArrivalTime": 1792540500000_i64}});
+        assert!(subscription("19:g@thread.tacv2", &seen_before, me, 5, team).alert);
+        let mut event = seen_before.clone();
+        event["lastMessage"]["messageType"] = json!("ThreadActivity/MemberJoined");
+        assert!(!subscription("19:g@thread.tacv2", &event, me, 5, team).alert);
+        let mut read = seen_before.clone();
+        assert_eq!(last_id(&read), Some(1792540521726));
+        read_up_to(&mut read, 1792540521726);
+        assert!(!subscription("19:g@thread.tacv2", &read, me, 5, team).alert);
+        assert_eq!(horizon(&read), Some(1792540521726));
+        read_up_to(&mut read, 1);
+        assert_eq!(horizon(&read), Some(1792540521726), "never marked backwards");
+    }
 }

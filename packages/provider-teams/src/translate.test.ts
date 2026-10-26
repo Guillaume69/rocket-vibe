@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -139,6 +139,22 @@ test('chats, channels and their read state', () => {
   assert.equal(channelRoom(channel, d)!.type, 'c');
   const s = toSubscription(channel.id, channel, me, { id: 'team', name: 'Ops' });
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
+});
+
+test('channels never opened or ending on an event are read', () => {
+  const me = '8:orgid:me', team = { id: 'team', name: 'Ops' };
+  const text = { messageType: 'RichText/Html', content: '<p>yo</p>', from: '8:orgid:bbb', composeTime: '2026-10-20T23:55:21.726Z', id: '1792540521726' };
+  const neverOpened = { id: '19:g@thread.tacv2', lastMessage: text };
+  assert.equal(toSubscription(neverOpened.id, neverOpened, me, team).alert, false);
+  assert.equal(toSubscription('19:x@thread.v2', neverOpened, me, null).alert, true, 'a chat with no horizon stays unread');
+  const seenBefore = { ...neverOpened, consumptionHorizon: { originalArrivalTime: 1792540500000 } };
+  assert.equal(toSubscription(seenBefore.id, seenBefore, me, team).alert, true);
+  const event = { ...seenBefore, lastMessage: { ...text, messageType: 'ThreadActivity/MemberJoined' } };
+  assert.equal(toSubscription(event.id, event, me, team).alert, false);
+  assert.equal(lastId(seenBefore), 1792540521726);
+  const read = readUpTo(seenBefore, 1792540521726);
+  assert.equal(toSubscription(read.id as string, read, me, team).alert, false);
+  assert.equal(readUpTo(read, 1), read, 'never marked backwards');
 });
 
 test('routes keep Teams hosts only; a stored account must look like one Microsoft gave', () => {

@@ -115,6 +115,9 @@ export type Capabilities = {
   scheduledMessages?: boolean;
   /** Posting text at all; `false` leaves every room read-only (Slack for now). */
   sending?: boolean;
+  /** Finding people and starting a conversation with them; `false` hides
+   *  "New conversation" (Teams for now). Defaults to true. */
+  directMessages?: boolean;
   typing: boolean;
   presence: boolean;
   push: boolean;

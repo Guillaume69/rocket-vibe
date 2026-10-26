@@ -263,9 +263,10 @@ pub fn open_chat(
                             }
                             found.replace(list);
                         }
-                        Err(_) => {
+                        Err(e) => {
                             status.set_visible(true);
-                            status.set_label(t("spotlight.failed"));
+                            let unsupported = e.error.as_deref() == Some(rv_core::slack::NOT_SUPPORTED);
+                            status.set_label(t(if unsupported { "spotlight.unsupported" } else { "spotlight.failed" }));
                         }
                     }
                 });

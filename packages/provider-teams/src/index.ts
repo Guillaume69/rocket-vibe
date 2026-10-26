@@ -62,6 +62,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   reports: false,
   scheduledMessages: false,
   sending: true,
+  directMessages: false,
   typing: true,
   presence: true,
   push: false,

@@ -333,7 +333,12 @@ impl ChatPage {
                         {
                             Some(t("rooms.new_channel"))
                         }
-                        Section::Direct => Some(t("rooms.new_message")),
+                        Section::Direct
+                            if native_shared.borrow().is_some()
+                                || shared.borrow().as_ref().is_none_or(|s| s.direct_messages_available()) =>
+                        {
+                            Some(t("rooms.new_message"))
+                        }
                         _ => None,
                     }
                     .map(|tooltip| {

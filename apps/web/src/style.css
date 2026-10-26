@@ -84,6 +84,18 @@ textarea,
 select {
   color: inherit;
 }
+option,
+optgroup {
+  background-color: var(--popover-bg-color);
+  color: var(--window-fg-color);
+}
+option:checked {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+option:disabled {
+  color: #8f89ab;
+}
 input:focus,
 textarea:focus {
   outline: none;

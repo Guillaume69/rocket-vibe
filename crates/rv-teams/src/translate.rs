@@ -674,6 +674,36 @@ fn last_at(entry: &Value) -> Option<i64> {
     entry.get("lastMessage").and_then(|l| instant(l, "composeTime").or_else(|| int_of(l, "id")))
 }
 
+/// The server id of the last message the aggregator carries for a chat or channel.
+pub fn last_id(entry: &Value) -> Option<i64> {
+    entry.get("lastMessage").and_then(|l| int_of(l, "id"))
+}
+
+/// The time of the last message that makes a room unread: membership,
+/// topic and control events are never stored, so they cannot be read past.
+fn unread_at(entry: &Value) -> Option<i64> {
+    let last = entry.get("lastMessage")?;
+    let kind = str_of(last, "messageType").unwrap_or_default();
+    if kind.starts_with("ThreadActivity/") || kind.starts_with("Control/") {
+        return None;
+    }
+    instant(last, "composeTime").or_else(|| int_of(last, "id"))
+}
+
+/// The entry read up to message `id`, as a mark read leaves it.
+pub fn read_up_to(entry: &mut Value, id: i64) {
+    if horizon(entry).is_some_and(|seen| seen >= id) {
+        return;
+    }
+    entry["consumptionHorizon"] =
+        json!({"originalArrivalTime": id, "timeStamp": chrono::Utc::now().timestamp_millis()});
+    for key in ["isRead", "isMessageRead"] {
+        if entry.get(key).is_some() {
+            entry[key] = Value::Bool(true);
+        }
+    }
+}
+
 /// An aggregator chat as a room; `names` are its other members' names when known.
 pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> {
     let rid = str_of(chat, "id")?;
@@ -733,14 +763,15 @@ pub fn horizon(entry: &Value) -> Option<i64> {
 }
 
 /// An aggregator chat's or channel's read state. Teams gives no count: one
-/// unread room counts one, its mentions are not known.
+/// unread room counts one, its mentions are not known. A channel with no read
+/// horizon is one never opened or hidden, which Teams shows as read.
 pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: Option<(&str, &str)>) -> Subscription {
     let read_flag = entry.get("isRead").or_else(|| entry.get("isMessageRead")).and_then(Value::as_bool);
     let mine = entry.get("isLastMessageFromMe").and_then(Value::as_bool) == Some(true)
         || entry.pointer("/lastMessage/from").and_then(Value::as_str).is_some_and(|f| mri_of(f) == me);
-    let newer = match (last_at(entry), horizon(entry)) {
+    let newer = match (unread_at(entry), horizon(entry)) {
         (Some(last), Some(seen)) => last > seen,
-        (Some(_), None) => true,
+        (Some(_), None) => team.is_none(),
         _ => false,
     };
     let unread = !mine && read_flag.map_or(newer, |read| !read);

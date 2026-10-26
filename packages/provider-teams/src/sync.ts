@@ -14,7 +14,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, messageId, rootOf, splitId, str, toMessage, toSubscription,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, messageId, readUpTo, rootOf, splitId, str, toMessage, toSubscription,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
@@ -44,6 +44,21 @@ export class TeamsRooms {
       },
       isRead: mine, isMessageRead: mine, isLastMessageFromMe: mine,
     };
+    this.entries.set(rid, { entry, team: known.team });
+    return { ...entry, __team: known.team };
+  }
+
+  /** The newest message id the room's entry lists, events included. */
+  lastId(rid: string): number | null {
+    const known = this.entries.get(rid);
+    return known ? lastId(known.entry) : null;
+  }
+
+  /** The room's entry read up to `id`, as a raw document for the engine. */
+  readUpTo(rid: string, id: number): Doc | null {
+    const known = this.entries.get(rid);
+    if (!known) return null;
+    const entry = readUpTo(known.entry, id);
     this.entries.set(rid, { entry, team: known.team });
     return { ...entry, __team: known.team };
   }

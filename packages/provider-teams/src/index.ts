@@ -13,6 +13,7 @@ import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provide
 import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
+import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
@@ -99,6 +100,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
   const sync = new TeamsSync(client, rooms);
   const translator = new TeamsTranslator(directory, session.userId);
   const newest = new Map<string, string>();
+  let engine: SyncEngine | null = null;
   const ingestOne = async (raw: Doc) => {
     const rid = str(raw, '__rid') ?? conversationOf(raw);
     const id = str(raw, 'id');
@@ -196,7 +198,11 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       star: refuse('star'),
       listPinned: (rid) => teamsPinned(client, directory, rid),
       listStarred: async (): Promise<LocalMessage[]> => [],
-      markRead: (rid) => actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null),
+      markRead: async (rid) => {
+        const marked = await actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null, rooms.lastId(rid));
+        const entry = marked === null ? null : rooms.readUpTo(rid, marked);
+        if (entry && engine) await engine.ingestSubscriptions([entry]);
+      },
       openOrCreateDm: refuse('direct_message'),
     },
     displayNames: {
@@ -240,7 +246,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     },
     createUploadQueue: (store, transport, ingest, hooks) =>
       new TeamsUploadQueue({ store, client, transport, directory, me: session.userId, generateId, ingest, deleteLocalFile: hooks?.deleteLocalFile }),
-    catchUpGlobal: (engine, isDiscarded) => sync.catchUpGlobal(engine, isDiscarded),
+    catchUpGlobal: (current, isDiscarded) => { engine = current; return sync.catchUpGlobal(current, isDiscarded); },
     catchUpRoom: (engine, rid, isDiscarded) => sync.catchUpRoom(engine, rid, isDiscarded),
     reconcile: (engine, isDiscarded) => sync.reconcile(engine, isDiscarded),
   };

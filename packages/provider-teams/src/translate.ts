@@ -604,6 +604,31 @@ function lastAt(entry: unknown): number | null {
   return last ? (instant(last, 'composeTime') ?? int(last, 'id')) : null;
 }
 
+/** The server id of the last message the aggregator carries for a chat or channel. */
+export function lastId(entry: unknown): number | null {
+  return int((entry as Doc)?.lastMessage, 'id');
+}
+
+/** The time of the last message that makes a room unread: membership, topic
+ *  and control events are never stored, so they cannot be read past. */
+function unreadAt(entry: unknown): number | null {
+  const last = (entry as Doc)?.lastMessage;
+  if (!last) return null;
+  const kind = str(last, 'messageType') ?? '';
+  if (kind.startsWith('ThreadActivity/') || kind.startsWith('Control/')) return null;
+  return instant(last, 'composeTime') ?? int(last, 'id');
+}
+
+/** The entry read up to message `id`, as a mark read leaves it. */
+export function readUpTo(entry: Doc, id: number): Doc {
+  const seen = horizon(entry);
+  if (seen !== null && seen >= id) return entry;
+  const out: Doc = { ...entry, consumptionHorizon: { originalArrivalTime: id, timeStamp: Date.now() } };
+  if ('isRead' in entry) out.isRead = true;
+  if ('isMessageRead' in entry) out.isMessageRead = true;
+  return out;
+}
+
 /** An aggregator chat as a room. */
 export function chatRoom(me: string, chat: unknown, directory: TeamsDirectory): LocalRoom | null {
   const rid = str(chat, 'id');
@@ -665,14 +690,16 @@ export function horizon(entry: unknown): number | null {
   return value && value > 0 ? value : null;
 }
 
-/** A chat's or channel's read state. Teams gives no count: an unread room counts one. */
+/** A chat's or channel's read state. Teams gives no count: an unread room
+ *  counts one. A channel with no read horizon is one never opened or hidden,
+ *  which Teams shows as read. */
 export function toSubscription(rid: string, entry: unknown, me: string, team: { id: string; name: string } | null): LocalSubscription {
   const doc = entry as Doc;
   const flag = typeof doc.isRead === 'boolean' ? doc.isRead : typeof doc.isMessageRead === 'boolean' ? doc.isMessageRead : null;
   const from = str(doc.lastMessage, 'from');
   const mine = doc.isLastMessageFromMe === true || (from !== null && mriOf(from) === me);
-  const last = lastAt(entry), seen = horizon(entry);
-  const newer = last !== null && (seen === null || last > seen);
+  const last = unreadAt(entry), seen = horizon(entry);
+  const newer = last !== null && (seen === null ? team === null : last > seen);
   const unread = !mine && (flag === null ? newer : !flag);
   const hidden = doc.hidden === true || doc.isConversationDeleted === true;
   return {

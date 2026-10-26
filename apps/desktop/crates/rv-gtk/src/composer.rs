@@ -1450,6 +1450,14 @@ impl Composer {
         let bar = scroller.vscrollbar();
         (scroller.height(), bar.is_visible() && bar.is_child_visible(), scroller.vadjustment().value())
     }
+
+    /// Whether the field's bottom edge lies inside the window, not pushed past it.
+    pub fn field_in_window(&self) -> bool {
+        let scroller = self.text.parent().and_downcast::<gtk::ScrolledWindow>().expect("composer scroller");
+        let Some(root) = scroller.root() else { return false };
+        let bottom = gtk::graphene::Point::new(0.0, scroller.height() as f32);
+        scroller.compute_point(&root, &bottom).is_some_and(|p| p.y() <= root.height() as f32)
+    }
 }
 
 /// `/name params` over what the command does.

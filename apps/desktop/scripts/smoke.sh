@@ -38,6 +38,8 @@ if command -v cygpath >/dev/null 2>&1; then
   smoke_home=$(cygpath -m "$smoke_home")
   build_user=0:0
 fi
+# Rootless Docker maps the host user to container root: bind mounts need 0:0.
+if docker info -f '{{range .SecurityOptions}}{{println .}}{{end}}' 2>/dev/null | grep -q rootless; then build_user=0:0; fi
 keyring_caps=()
 if [[ "${RV_SMOKE_KEYRING:-}" = 1 ]]; then keyring_caps=(--cap-add IPC_LOCK); fi
 target_mount=()

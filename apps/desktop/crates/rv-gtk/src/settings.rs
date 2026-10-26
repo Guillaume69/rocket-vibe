@@ -54,24 +54,32 @@ fn add_lazy(
 }
 
 /// The dialog, with the server administration (shown to an administrator)
-/// and Sign out under the categories it will hold.
-fn dialog(parent: &gtk::Widget, admin: rv_core::admin::Admin, sign_out: impl Fn() + 'static) -> SidebarDialog {
+/// when the account has one, and `sign_out_label` under the categories it
+/// will hold.
+fn dialog(
+    parent: &gtk::Widget,
+    admin: Option<rv_core::admin::Admin>,
+    sign_out_label: &str,
+    sign_out: impl Fn() + 'static,
+) -> SidebarDialog {
     let dialog = SidebarDialog::new(t("settings.title"), "settings-dialog");
-    let (screen, parent) = (admin.clone(), parent.clone());
-    let link = dialog.add_footer(t("admin.title"), "network-server-symbolic", false, move |host| {
-        host.close();
-        crate::admin::open(&parent, screen.clone());
-    });
-    link.add_css_class("settings-admin");
-    link.set_visible(false);
-    let host = dialog.host();
-    glib::spawn_future_local(async move {
-        let admin = on_tokio(async move { admin.is_admin().await }).await;
-        if host.alive() {
-            link.set_visible(admin);
-        }
-    });
-    let button = dialog.add_footer(t("rooms.sign_out"), "system-log-out-symbolic", true, move |host| {
+    if let Some(admin) = admin {
+        let (screen, parent) = (admin.clone(), parent.clone());
+        let link = dialog.add_footer(t("admin.title"), "network-server-symbolic", false, move |host| {
+            host.close();
+            crate::admin::open(&parent, screen.clone());
+        });
+        link.add_css_class("settings-admin");
+        link.set_visible(false);
+        let host = dialog.host();
+        glib::spawn_future_local(async move {
+            let admin = on_tokio(async move { admin.is_admin().await }).await;
+            if host.alive() {
+                link.set_visible(admin);
+            }
+        });
+    }
+    let button = dialog.add_footer(sign_out_label, "system-log-out-symbolic", true, move |host| {
         host.close();
         sign_out();
     });
@@ -115,7 +123,8 @@ pub(crate) fn open_native_with_commands(
     commands_changed: Rc<dyn Fn()>,
 ) -> SidebarDialog {
     let info = &session.info;
-    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::Native(session.clone()), sign_out);
+    let dialog =
+        dialog(parent.as_ref(), Some(rv_core::admin::Admin::Native(session.clone())), t("rooms.sign_out"), sign_out);
     dialog.dialog().add_css_class("native-profile-settings");
     let host = dialog.host();
     let account = adw::PreferencesPage::new();
@@ -334,7 +343,12 @@ pub fn open(
     accounts: Option<Rc<AccountActions>>,
     sign_out: impl Fn() + 'static,
 ) -> SidebarDialog {
-    let dialog = dialog(parent.as_ref(), rv_core::admin::Admin::RocketChat(session.clone()), sign_out);
+    let dialog = dialog(
+        parent.as_ref(),
+        Some(rv_core::admin::Admin::RocketChat(session.clone())),
+        t("rooms.sign_out"),
+        sign_out,
+    );
     let host = dialog.host();
 
     let account = adw::PreferencesPage::new();
@@ -383,13 +397,7 @@ pub fn open(
     add(&dialog, NOTIFICATIONS, &notifications);
 
     let language_page = adw::PreferencesPage::new();
-    let language_group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
-    let labels: Vec<&str> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
-    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
-    let language = combo(t("settings.language"), &labels, current);
-    language.set_subtitle(t("settings.language_restart"));
-    language_group.add(&language);
-    language_page.add(&language_group);
+    language_page.add(&language_group());
     add(&dialog, LANGUAGE, &language_page);
 
     let encryption = adw::PreferencesPage::new();
@@ -464,7 +472,6 @@ pub fn open(
             });
         });
     });
-    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
     let (s, h) = (session.clone(), host.clone());
     edit.connect_clicked(move |_| {
         if let Some(found) = me.borrow().clone() {
@@ -473,6 +480,18 @@ pub fn open(
     });
     dialog.present(parent);
     dialog
+}
+
+/// The app's language, saved for the next launch.
+fn language_group() -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(t("settings.language")).build();
+    let labels: Vec<&str> = LANGUAGE_CHOICES.iter().map(|c| t(&format!("settings.lang_{c}"))).collect();
+    let current = LANGUAGE_CHOICES.iter().position(|c| *c == i18n::saved_choice()).unwrap_or(0);
+    let language = combo(t("settings.language"), &labels, current);
+    language.set_subtitle(t("settings.language_restart"));
+    language.connect_selected_notify(|row| i18n::save_choice(LANGUAGE_CHOICES[row.selected() as usize]));
+    group.add(&language);
+    group
 }
 
 /// Who shows the notifications, a test, and the system's own settings.

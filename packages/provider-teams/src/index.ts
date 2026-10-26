@@ -159,7 +159,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
         const cached = rooms.entries.get(rid);
         const room = cached
           ? cached.team
-            ? channelRoom(cached.entry, directory)
+            ? channelRoom(cached.entry, null, directory)
             : chatRoom(session.userId, cached.entry, directory)
           : null;
         const doc = await client.roomDocument(rid).catch(() => ({}) as Doc);

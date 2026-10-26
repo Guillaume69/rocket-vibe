@@ -136,7 +136,7 @@ test('chats, channels and their read state', () => {
   assert.deepEqual([chatRoom(me, meeting, d)!.type, chatRoom(me, meeting, d)!.name], ['p', 'Standup']);
   assert.equal(toSubscription('r', meeting, me, null).open, false);
   const channel = { id: '19:g@thread.tacv2', displayName: 'General', isMessageRead: true, channelType: 'Standard' };
-  assert.equal(channelRoom(channel, d)!.type, 'c');
+  assert.equal(channelRoom(channel, null, d)!.type, 'c');
   const s = toSubscription(channel.id, channel, me, { id: 'team', name: 'Ops' });
   assert.deepEqual([s.groupName, s.alert], ['Ops', false]);
 });

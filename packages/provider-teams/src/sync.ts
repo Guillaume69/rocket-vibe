@@ -98,7 +98,8 @@ export class TeamsTranslator implements Translator {
   }
 
   toRoom(raw: Doc): LocalRoom | null {
-    return raw.__team ? channelRoom(raw, this.directory) : chatRoom(this.me, raw, this.directory);
+    const team = raw.__team as Team | null | undefined;
+    return team ? channelRoom(raw, team.name, this.directory) : chatRoom(this.me, raw, this.directory);
   }
 
   toSubscription(raw: Doc): LocalSubscription | null {

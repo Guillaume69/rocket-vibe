@@ -737,17 +737,29 @@ pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> 
     })
 }
 
-/// An aggregator channel as a room, filed under its team.
-pub fn channel_room(channel: &Value, directory: &Directory) -> Option<Room> {
+/// A channel's own name, "General" for a team's default one.
+pub fn channel_name(channel: &Value) -> String {
+    str_of(channel, "displayName").map(str::to_owned).unwrap_or_else(|| "General".to_owned())
+}
+
+/// How a channel shows outside its team's section, where every team's
+/// default channel would otherwise read "General".
+pub fn qualified_name(team: &str, channel: &str) -> String {
+    format!("{team} · {channel}")
+}
+
+/// An aggregator channel as a room, filed under its team: named after the
+/// team too, the team's own section showing the channel's name alone.
+pub fn channel_room(channel: &Value, team: Option<&str>, directory: &Directory) -> Option<Room> {
     let rid = str_of(channel, "id")?;
-    let name = str_of(channel, "displayName").map(str::to_owned).unwrap_or_else(|| "General".to_owned());
+    let own = channel_name(channel);
     let last = channel.get("lastMessage").and_then(|l| preview(l, directory));
     let at = last.as_ref().map(|(_, _, at)| *at).or_else(|| last_at(channel));
     Some(Room {
         rid: rid.to_owned(),
         kind: if str_of(channel, "channelType").is_some_and(|t| t != "Standard") { "p" } else { "c" }.to_owned(),
-        name: Some(name.clone()),
-        display_name: Some(name),
+        display_name: Some(team.map_or_else(|| own.clone(), |team| qualified_name(team, &own))),
+        name: Some(own),
         last_message: last.as_ref().map(|(text, _, _)| text.clone()),
         last_message_author: last.as_ref().and_then(|(_, author, _)| author.clone()),
         last_message_ts: at,
@@ -760,6 +772,14 @@ pub fn channel_room(channel: &Value, directory: &Directory) -> Option<Room> {
 /// The read horizon's message id (its arrival instant), when set.
 pub fn horizon(entry: &Value) -> Option<i64> {
     entry.get("consumptionHorizon").and_then(|h| int_of(h, "originalArrivalTime")).filter(|t| *t > 0)
+}
+
+/// Whether I starred a chat or pinned a channel. A channel's `isFavorite` is
+/// Teams' older "shown in the team list" (every team's General carries it),
+/// not a favorite.
+fn favorite(entry: &Value, channel: bool) -> bool {
+    let flag = if channel { "isPinned" } else { "isFavorite" };
+    entry.get(flag).and_then(Value::as_bool) == Some(true)
 }
 
 /// An aggregator chat's or channel's read state. Teams gives no count: one
@@ -783,7 +803,7 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
         unread: i64::from(unread),
         alert: unread,
         open: !hidden,
-        favorite: entry.get("isFavorite").and_then(Value::as_bool) == Some(true),
+        favorite: favorite(entry, team.is_some()),
         last_seen: horizon(entry),
         updated_at,
         group_id: team.map(|(id, _)| id.to_owned()),
@@ -1098,10 +1118,11 @@ mod tests {
         assert_eq!((room.kind.as_str(), room.name.as_deref()), ("p", Some("Standup")));
         assert!(!subscription("r", &meeting, me, 5, None).open);
         let channel = json!({"id": "19:g@thread.tacv2", "displayName": "General", "isMessageRead": true, "channelType": "Standard"});
-        assert_eq!(channel_room(&channel, &d).unwrap().kind, "c");
+        assert_eq!(channel_room(&channel, None, &d).unwrap().kind, "c");
         let sub = subscription("19:g@thread.tacv2", &channel, me, 5, Some(("team", "Ops")));
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
+
 
     #[test]
     fn channels_never_opened_or_ending_on_an_event_are_read() {

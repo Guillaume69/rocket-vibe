@@ -659,11 +659,23 @@ export function chatRoom(me: string, chat: unknown, directory: TeamsDirectory): 
   };
 }
 
-/** An aggregator channel as a room. */
-export function channelRoom(channel: unknown, directory: TeamsDirectory): LocalRoom | null {
+/** A channel's own name, "General" for a team's default one. */
+export function channelName(channel: unknown): string {
+  return str(channel, 'displayName') ?? 'General';
+}
+
+/** How a channel shows outside its team's section, where every team's
+ *  default channel would otherwise read "General". */
+export function qualifiedName(team: string, channel: string): string {
+  return `${team} · ${channel}`;
+}
+
+/** An aggregator channel as a room, named after its team too: the team's own
+ *  section shows the channel's name alone. */
+export function channelRoom(channel: unknown, team: string | null, directory: TeamsDirectory): LocalRoom | null {
   const rid = str(channel, 'id');
   if (!rid) return null;
-  const name = str(channel, 'displayName') ?? 'General';
+  const name = channelName(channel);
   const last = preview((channel as Doc).lastMessage, directory);
   const at = last?.at ?? lastAt(channel);
   const standard = (str(channel, 'channelType') ?? 'Standard') === 'Standard';
@@ -671,7 +683,7 @@ export function channelRoom(channel: unknown, directory: TeamsDirectory): LocalR
     rid,
     type: standard ? 'c' : 'p',
     name,
-    displayName: name,
+    displayName: team === null ? name : qualifiedName(team, name),
     encrypted: false,
     readOnly: false,
     dmOtherUid: null,
@@ -692,7 +704,9 @@ export function horizon(entry: unknown): number | null {
 
 /** A chat's or channel's read state. Teams gives no count: an unread room
  *  counts one. A channel with no read horizon is one never opened or hidden,
- *  which Teams shows as read. */
+ *  which Teams shows as read. A channel's `isFavorite` is Teams' older "shown
+ *  in the team list" (every team's General carries it): a pinned one is the
+ *  favorite. */
 export function toSubscription(rid: string, entry: unknown, me: string, team: { id: string; name: string } | null): LocalSubscription {
   const doc = entry as Doc;
   const flag = typeof doc.isRead === 'boolean' ? doc.isRead : typeof doc.isMessageRead === 'boolean' ? doc.isMessageRead : null;
@@ -710,7 +724,7 @@ export function toSubscription(rid: string, entry: unknown, me: string, team: { 
     groupMentions: 0,
     alert: unread,
     open: !hidden,
-    favorite: doc.isFavorite === true,
+    favorite: team === null ? doc.isFavorite === true : doc.isPinned === true,
     lastSeen: seen,
     roles: null,
     groupId: team?.id ?? null,

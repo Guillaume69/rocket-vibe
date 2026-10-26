@@ -172,6 +172,15 @@ impl Directory {
         self.name(mri).unwrap_or_else(|| mri.to_owned())
     }
 
+    /// Learns the sender's display name from an entry's last message.
+    pub fn learn_last(&self, entry: &Value) {
+        if let Some(last) = entry.get("lastMessage")
+            && let (Some(from), Some(name)) = (str_of(last, "from"), str_of(last, "imDisplayName"))
+        {
+            self.remember(mri_of(from), name);
+        }
+    }
+
     /// Learns the sender's display name from a message.
     pub fn learn(&self, raw: &Value) {
         if let (Some(from), Some(name)) = (str_of(raw, "from"), str_of(raw, "imdisplayname")) {
@@ -678,6 +687,9 @@ pub fn reacted(raw: &Value, key: &str, me: &str) -> bool {
     })
 }
 
+/// The kinds a room's preview shows.
+const PREVIEWED: [&str; 3] = ["Text", "RichText/Html", "RichText"];
+
 /// The last message the aggregator carries for a chat or channel.
 fn preview(last: &Value, directory: &Directory) -> Option<(String, Option<String>, i64)> {
     let kind = str_of(last, "messageType").unwrap_or_default();
@@ -725,6 +737,57 @@ pub fn read_up_to(entry: &mut Value, id: i64) {
             entry[key] = Value::Bool(true);
         }
     }
+}
+
+/// A chat the chat service lists (`users/ME/conversations`) in the
+/// aggregator's chat shape, for one the snapshot left out: its topic, kind,
+/// last message and read horizon, and for a one-to-one chat (`19:<a>_<b>@unq.gbl.spaces`)
+/// its two members. None for a channel (its team's snapshot files it), a
+/// system conversation (`48:` notes, call logs) or one with no message yet.
+pub fn listed_chat(conversation: &Value) -> Option<Value> {
+    let id = str_of(conversation, "id")?;
+    let props = conversation.get("threadProperties").unwrap_or(&Value::Null);
+    let kind = str_of(props, "threadType").unwrap_or_default();
+    if !id.starts_with("19:")
+        || id.ends_with("@thread.tacv2")
+        || id.ends_with("@thread.skype")
+        || matches!(kind, "space" | "topic")
+    {
+        return None;
+    }
+    let last = conversation.get("lastMessage").filter(|l| int_of(l, "id").is_some())?;
+    let one_on_one = id.ends_with("@unq.gbl.spaces");
+    let members: Vec<Value> = match id.strip_prefix("19:").and_then(|rest| rest.strip_suffix("@unq.gbl.spaces")) {
+        Some(pair) => {
+            pair.split('_').filter(|oid| !oid.is_empty()).map(|oid| json!({"mri": format!("8:orgid:{oid}")})).collect()
+        }
+        None => Vec::new(),
+    };
+    let meeting = kind == "meeting" || id.starts_with("19:meeting_");
+    let horizon = conversation
+        .pointer("/properties/consumptionhorizon")
+        .and_then(Value::as_str)
+        .and_then(|h| h.split(';').next())
+        .and_then(|first| first.parse::<i64>().ok());
+    let mut chat = json!({
+        "id": id,
+        "chatType": if meeting { "meeting" } else { "chat" },
+        "isOneOnOne": one_on_one,
+        "members": members,
+        "lastMessage": {
+            "messageType": last.get("messagetype"), "content": last.get("content"),
+            "from": last.get("from"), "imDisplayName": last.get("imdisplayname"),
+            "composeTime": last.get("composetime").or(last.get("originalarrivaltime")),
+            "id": last.get("id"),
+        },
+    });
+    if let Some(topic) = str_of(props, "topic") {
+        chat["title"] = json!(rv_provider::text::decode_entities(topic));
+    }
+    if let Some(seen) = horizon {
+        chat["consumptionHorizon"] = json!({"originalArrivalTime": seen});
+    }
+    Some(chat)
 }
 
 /// An aggregator chat as a room; `names` are its other members' names when known.
@@ -807,7 +870,9 @@ fn favorite(entry: &Value, channel: bool) -> bool {
 
 /// An aggregator chat's or channel's read state. Teams gives no count: one
 /// unread room counts one, its mentions are not known. A channel with no read
-/// horizon is one never opened or hidden, which Teams shows as read.
+/// horizon is one never opened or hidden, which Teams shows as read. A chat
+/// Teams marks hidden is listed again once its last message is one it shows:
+/// Teams sets the flag on many chats its own list still shows.
 pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: Option<(&str, &str)>) -> Subscription {
     let read_flag = entry.get("isRead").or_else(|| entry.get("isMessageRead")).and_then(Value::as_bool);
     let mine = entry.get("isLastMessageFromMe").and_then(Value::as_bool) == Some(true)
@@ -818,7 +883,9 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
         _ => false,
     };
     let unread = !mine && read_flag.map_or(newer, |read| !read);
-    let hidden = entry.get("hidden").and_then(Value::as_bool) == Some(true)
+    let spoken =
+        entry.get("lastMessage").is_some_and(|l| str_of(l, "messageType").is_some_and(|k| PREVIEWED.contains(&k)));
+    let hidden = (entry.get("hidden").and_then(Value::as_bool) == Some(true) && !spoken)
         || entry.get("isConversationDeleted").and_then(Value::as_bool) == Some(true);
     Subscription {
         rid: rid.to_owned(),
@@ -1145,6 +1212,8 @@ mod tests {
         let sub = subscription("19:g@thread.tacv2", &channel, me, 5, Some(("team", "Ops")));
         assert_eq!((sub.group_name.as_deref(), sub.alert), (Some("Ops"), false));
     }
+
+
 
     #[test]
     fn a_post_shows_its_subject_as_a_title_an_edit_leaves_out() {

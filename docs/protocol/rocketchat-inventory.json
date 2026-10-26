@@ -5233,13 +5233,13 @@
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 268,
+      "line": 294,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 371,
+      "line": 397,
       "kind": "url",
       "surface": "/api/csa"
     },

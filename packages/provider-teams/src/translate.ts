@@ -608,6 +608,8 @@ export function rosterPage(body: unknown, directory: TeamsDirectory, filter: str
   return { members, total: members.length };
 }
 
+const PREVIEWED_KINDS = new Set(['Text', 'RichText/Html', 'RichText']);
+
 function preview(last: unknown, directory: TeamsDirectory): { text: string; author: string | null; at: number } | null {
   const kind = str(last, 'messageType') ?? '';
   if (kind !== 'Text' && kind !== 'RichText/Html' && kind !== 'RichText') return null;
@@ -647,6 +649,37 @@ export function readUpTo(entry: Doc, id: number): Doc {
   if ('isRead' in entry) out.isRead = true;
   if ('isMessageRead' in entry) out.isMessageRead = true;
   return out;
+}
+
+/** A chat the chat service lists (`users/ME/conversations`) in the
+ *  aggregator's chat shape, for one the snapshot left out: its topic, kind,
+ *  last message and read horizon, and for a one-to-one chat
+ *  (`19:<a>_<b>@unq.gbl.spaces`) its two members. Null for a channel (its
+ *  team's snapshot files it), a system conversation (`48:` notes, call logs)
+ *  or one with no message yet. Mirrors `listed_chat` in `rv-teams`. */
+export function listedChat(conversation: unknown): Doc | null {
+  const id = str(conversation, 'id');
+  const props = (conversation as Doc | null | undefined)?.threadProperties;
+  const kind = str(props, 'threadType') ?? '';
+  if (!id || !id.startsWith('19:') || id.endsWith('@thread.tacv2') || id.endsWith('@thread.skype') || kind === 'space' || kind === 'topic') return null;
+  const last = (conversation as Doc).lastMessage as Doc | undefined;
+  if (!last || int(last, 'id') === null) return null;
+  const pair = id.endsWith('@unq.gbl.spaces') ? id.slice(3, -'@unq.gbl.spaces'.length) : null;
+  const members = pair === null ? [] : pair.split('_').filter((oid) => oid !== '').map((oid) => ({ mri: `8:orgid:${oid}` }));
+  const seen = Number(String(str((conversation as Doc).properties, 'consumptionhorizon') ?? '').split(';')[0]);
+  const topic = str(props, 'topic');
+  return {
+    id,
+    chatType: kind === 'meeting' || id.startsWith('19:meeting_') ? 'meeting' : 'chat',
+    isOneOnOne: pair !== null,
+    members,
+    lastMessage: {
+      messageType: last.messagetype, content: last.content, from: last.from, imDisplayName: last.imdisplayname,
+      composeTime: last.composetime ?? last.originalarrivaltime, id: last.id,
+    },
+    ...(topic ? { title: decodeEntities(topic) } : {}),
+    ...(Number.isFinite(seen) && seen > 0 ? { consumptionHorizon: { originalArrivalTime: seen } } : {}),
+  };
 }
 
 /** An aggregator chat as a room. */
@@ -724,7 +757,8 @@ export function horizon(entry: unknown): number | null {
 
 /** A chat's or channel's read state. Teams gives no count: an unread room
  *  counts one. A channel with no read horizon is one never opened or hidden,
- *  which Teams shows as read. A channel's `isFavorite` is Teams' older "shown
+ *  which Teams shows as read; a chat Teams marks hidden is listed again once
+ *  its last message is one it shows. A channel's `isFavorite` is Teams' older "shown
  *  in the team list" (every team's General carries it): a pinned one is the
  *  favorite. */
 export function toSubscription(rid: string, entry: unknown, me: string, team: { id: string; name: string } | null): LocalSubscription {
@@ -735,7 +769,8 @@ export function toSubscription(rid: string, entry: unknown, me: string, team: { 
   const last = unreadAt(entry), seen = horizon(entry);
   const newer = last !== null && (seen === null ? team === null : last > seen);
   const unread = !mine && (flag === null ? newer : !flag);
-  const hidden = doc.hidden === true || doc.isConversationDeleted === true;
+  const spoken = PREVIEWED_KINDS.has(str(doc.lastMessage, 'messageType') ?? '');
+  const hidden = (doc.hidden === true && !spoken) || doc.isConversationDeleted === true;
   return {
     rid,
     subId: rid,

@@ -98,7 +98,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
   setDownloadResolver(session.baseUrl.replace(/\/+$/, ''), (url) => (isGraphShare(url) ? client.downloadUrl(url).catch(() => url) : Promise.resolve(url)));
   const rooms = new TeamsRooms();
   const threads = new TeamsThreads();
-  const sync = new TeamsSync(client, rooms, threads);
+  const sync = new TeamsSync(client, rooms, threads, directory, session.userId);
   const translator = new TeamsTranslator(directory, session.userId, threads);
   const newest = new Map<string, string>();
   let engine: SyncEngine | null = null;

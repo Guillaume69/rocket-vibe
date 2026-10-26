@@ -14,7 +14,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, listedChat, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
@@ -22,6 +22,7 @@ export const TEAMS_HISTORY_PAGE = 50;
 const VIEW = 'view=msnp24Equivalent%7CsupportsMessageProperties';
 const OLDER_PAGES = 20;
 const PREVIEW_LOOKBACK = 20;
+const PROFILE_BATCH = 50;
 const PREVIEWED = new Set(['Text', 'RichText/Html', 'RichText']);
 /** The collection live Trouter events arrive under; `eventKey` is the resource type. */
 export const TEAMS_EVENTS = 'teams';
@@ -191,16 +192,23 @@ export class TeamsSync {
   private readonly client: TeamsClient;
   private readonly rooms: TeamsRooms;
   private readonly threads: TeamsThreads;
+  private readonly directory: TeamsDirectory | null;
+  private readonly me: string;
 
-  constructor(client: TeamsClient, rooms: TeamsRooms, threads: TeamsThreads = new TeamsThreads()) {
+  constructor(client: TeamsClient, rooms: TeamsRooms, threads: TeamsThreads = new TeamsThreads(), directory: TeamsDirectory | null = null, me = '') {
     this.client = client;
     this.rooms = rooms;
     this.threads = threads;
+    this.directory = directory;
+    this.me = me;
   }
 
-  /** Every chat and channel, raw, tagged with its team. */
+  /** Every chat and channel, raw, tagged with its team: the aggregator's
+   *  snapshot, and the chats only the chat service's own list holds (best
+   *  effort), their unknown one-to-one peers named from their profiles. */
   private async entries(): Promise<Doc[]> {
     const snapshot = await this.client.snapshot();
+    const listed = await this.client.conversations().catch(() => [] as Doc[]);
     const out: Doc[] = [];
     this.rooms.entries.clear();
     for (const chat of Array.isArray(snapshot.chats) ? (snapshot.chats as Doc[]) : []) {
@@ -219,6 +227,25 @@ export class TeamsSync {
         out.push({ ...channel, __team: { id, name } });
       }
     }
+    const unnamed = new Set<string>();
+    for (const chat of listed.map(listedChat)) {
+      const rid = chat ? str(chat, 'id') : null;
+      if (!chat || !rid || this.rooms.entries.has(rid)) continue;
+      this.directory?.learn({ from: str(chat.lastMessage, 'from'), imdisplayname: str(chat.lastMessage, 'imDisplayName') });
+      for (const m of chat.members as Doc[]) {
+        const mri = str(m, 'mri');
+        if (mri && mri !== this.me && this.directory?.name(mri) === null) unnamed.add(mri);
+      }
+      this.rooms.entries.set(rid, { entry: chat, team: null });
+      out.push({ ...chat, __team: null });
+    }
+    const wanted = [...unnamed];
+    for (let i = 0; i < wanted.length; i += PROFILE_BATCH) {
+      for (const row of await this.client.profiles(wanted.slice(i, i + PROFILE_BATCH)).catch(() => [] as Doc[])) {
+        const mri = str(row, 'mri'), name = str(row, 'displayName');
+        if (mri && name) this.directory?.remember(mri, name);
+      }
+    }
     return out;
   }
 
@@ -229,11 +256,15 @@ export class TeamsSync {
     await engine.ingestSubscriptions(entries);
   }
 
+  /** Forgets the rooms the list no longer has; a room the last catch-up or a
+   *  live message filed stays, the snapshot lagging behind a new chat. */
   async reconcile(engine: SyncEngine, isDiscarded: () => boolean): Promise<void> {
+    const kept = [...this.rooms.entries.keys()];
     const entries = await this.entries();
     if (isDiscarded() || entries.length === 0) return;
     const store = engine.syncStore;
-    await store.purgeMissingRooms(entries.map((e) => str(e, 'id')!).filter(Boolean), await store.listKnownRids());
+    const alive = new Set([...entries.map((e) => str(e, 'id')).filter((id): id is string => id !== null), ...kept]);
+    await store.purgeMissingRooms([...alive], await store.listKnownRids());
   }
 
   private async page(url: string, rid: string): Promise<{ messages: Doc[]; older: string | null }> {

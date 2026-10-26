@@ -972,3 +972,61 @@ fn edit_profile_for(host: &Host, source: ProfileSource, me: Me) {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settle(ms: u64) {
+        let context = glib::MainContext::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    fn descendants(root: &gtk::Widget) -> Vec<gtk::Widget> {
+        let mut found = vec![root.clone()];
+        for child in std::iter::successors(root.first_child(), |w| w.next_sibling()) {
+            found.extend(descendants(&child));
+        }
+        found
+    }
+
+    fn labels(root: &gtk::Widget) -> Vec<String> {
+        descendants(root).iter().filter_map(|w| w.downcast_ref::<gtk::Label>().map(|l| l.label().to_string())).collect()
+    }
+
+    #[test]
+    #[ignore = "requires a GTK display; run under Xvfb"]
+    fn whatsapp_account_reaches_the_app_settings() {
+        adw::init().unwrap();
+        let window = adw::Window::builder().default_width(1280).default_height(900).build();
+        window.set_content(Some(&gtk::Box::new(gtk::Orientation::Vertical, 0)));
+        window.present();
+        settle(200);
+        let info = rv_core::whatsapp::account_info("ab12", "33600000000@s.whatsapp.net", "Me");
+        let unlinked = Rc::new(std::cell::Cell::new(false));
+        let flag = unlinked.clone();
+        let settings = open_app(&window, &info, None, t("wa.logout"), move || flag.set(true));
+        settle(400);
+        let dialog = settings.dialog().clone().upcast::<gtk::Widget>();
+        assert!(dialog.is_mapped());
+        let all = descendants(&dialog);
+        assert!(!all.iter().any(|w| w.has_css_class("settings-admin")), "no server, no administration");
+        let shown = labels(&dialog);
+        for category in ["settings.cat.language", "settings.cat.accounts", "settings.cat.app"] {
+            assert!(shown.iter().any(|l| l == t(category)), "{category} listed: {shown:?}");
+        }
+        assert!(!shown.iter().any(|l| l == t("settings.cat.account")), "no server profile");
+        assert!(shown.iter().any(|l| l == t("wa.logout")), "the footer unlinks: {shown:?}");
+        settings.select("app");
+        settle(300);
+        assert!(labels(&dialog).iter().any(|l| l == t("settings.updates_check")), "updates reachable");
+        let sign_out = all.into_iter().find(|w| w.has_css_class("settings-sign-out")).unwrap();
+        sign_out.downcast::<gtk::Button>().unwrap().emit_clicked();
+        assert!(unlinked.get());
+    }
+}

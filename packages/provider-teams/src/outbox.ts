@@ -13,7 +13,7 @@ import type { OutboxRow, OutboxStore } from '@rocket-vibe/provider-api/outbox';
 import type { Ingest, Outbox } from '@rocket-vibe/provider-api/provider';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
-import { TeamsDirectory, int, mriOf, reactionKey, splitId, str, withoutSubject } from './translate.ts';
+import { TeamsDirectory, int, mriOf, oneOnOneThread, reactionKey, splitId, str, withoutSubject } from './translate.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -121,10 +121,18 @@ export class TeamsOutbox implements Outbox {
       this.attempted.add(row.id);
       try {
         const url = await this.client.conversation(threadTarget(row.rid, row.threadId), ['messages']);
-        await this.client.chat('POST', url, {
+        const message = {
           content: toHtml(row.text), messagetype: 'RichText/Html', contenttype: 'text', clientmessageid: marker,
           imdisplayname: this.directory.shown(this.me.id),
-        });
+        };
+        try {
+          await this.client.chat('POST', url, message);
+        } catch (e) {
+          const thread = row.threadId === null ? oneOnOneThread(row.rid) : null;
+          if (!(e instanceof TeamsError) || e.status !== 404 || thread === null) throw e;
+          await this.client.createThread(thread);
+          await this.client.chat('POST', url, message);
+        }
       } catch (e) {
         if (deferred(e)) return false;
         if (!uncertain(e)) {

@@ -153,6 +153,12 @@ export class TeamsClient {
     return (await this.chat('GET', url)).body;
   }
 
+  /** Creates a chat through the threads service (`POST /v1/threads`). */
+  async createThread(body: unknown): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    await this.chat('POST', serviceUrl(`${routes.chat}/v1`, ['threads']), body);
+  }
+
   /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */
   async roster(rid: string): Promise<Doc> {
     const { routes } = await this.tokens.chat();

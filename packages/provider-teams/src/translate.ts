@@ -915,8 +915,19 @@ export function oneOnOneId(me: string, other: string): string | null {
   return a < b ? `19:${a}_${b}@unq.gbl.spaces` : `19:${b}_${a}@unq.gbl.spaces`;
 }
 
-/** A one-to-one chat with no message yet, as an aggregator entry: its first
- *  message creates it on Teams' side. */
+/** The chat service's request creating a one-to-one chat from its id: Teams
+ *  answers 404 to a first message posted before the chat exists. */
+export function oneOnOneThread(rid: string): Doc | null {
+  const m = /^19:([^_@]+)_([^_@]+)@unq\.gbl\.spaces$/.exec(rid);
+  if (m === null) return null;
+  return {
+    members: [m[1], m[2]].map((oid) => ({ id: `8:orgid:${oid}`, role: 'Admin' })),
+    properties: { threadType: 'chat', fixedRoster: 'true', uniquerosterthread: 'true' },
+  };
+}
+
+/** A one-to-one chat with no message yet, as an aggregator entry: created on
+ *  Teams' side when its first message is sent. */
 export function newOneOnOne(me: string, other: string, now: number): Doc | null {
   const id = oneOnOneId(me, other);
   if (id === null) return null;

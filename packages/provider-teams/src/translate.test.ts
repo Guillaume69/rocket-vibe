@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, people, peopleRequest,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, people, peopleRequest,
   convert, permalink, qualifiedName, spellMentions,
 } from './translate.ts';
 
@@ -341,6 +341,14 @@ test('people are the suggestions with an id, me left out', () => {
   assert.equal(request.EntityRequests[0]?.EntityType, 'People');
   assert.equal(request.EntityRequests[0]?.Query.QueryString, 'Fai');
   assert.equal(request.Scenario.Name, 'powerbar');
+});
+
+test('a one-to-one thread names both members on a fixed roster', () => {
+  const thread = oneOnOneThread('19:aa_bb@unq.gbl.spaces') as { members: { id: string }[]; properties: { uniquerosterthread: string } };
+  assert.deepEqual(thread.members.map((m) => m.id), ['8:orgid:aa', '8:orgid:bb']);
+  assert.equal(thread.properties.uniquerosterthread, 'true');
+  assert.equal(oneOnOneThread('19:abc@thread.v2'), null);
+  assert.equal(oneOnOneThread('19:_bb@unq.gbl.spaces'), null);
 });
 
 test('a one-to-one is named after both ids in order, and lists before its first message', () => {

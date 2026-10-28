@@ -1076,8 +1076,24 @@ pub fn one_on_one_id(me: &str, other: &str) -> Option<String> {
     Some(format!("19:{a}_{b}@unq.gbl.spaces"))
 }
 
-/// A one-to-one chat with no message yet, as an aggregator entry: its first
-/// message creates it on Teams' side.
+/// The two members a one-to-one chat id names, as MRIs.
+pub fn one_on_one_members(rid: &str) -> Option<[String; 2]> {
+    let (a, b) = rid.strip_prefix("19:")?.strip_suffix("@unq.gbl.spaces")?.split_once('_')?;
+    (!a.is_empty() && !b.is_empty()).then(|| [format!("8:orgid:{a}"), format!("8:orgid:{b}")])
+}
+
+/// The chat service's request creating that one-to-one chat: Teams answers
+/// 404 to a first message posted before it exists.
+pub fn one_on_one_thread(rid: &str) -> Option<Value> {
+    let members = one_on_one_members(rid)?;
+    Some(json!({
+        "members": members.iter().map(|id| json!({"id": id, "role": "Admin"})).collect::<Vec<_>>(),
+        "properties": {"threadType": "chat", "fixedRoster": "true", "uniquerosterthread": "true"},
+    }))
+}
+
+/// A one-to-one chat with no message yet, as an aggregator entry: created on
+/// Teams' side when its first message is sent.
 pub fn new_one_on_one(me: &str, other: &str, now: i64) -> Option<Value> {
     let id = one_on_one_id(me, other)?;
     let created = chrono::DateTime::from_timestamp_millis(now)?.to_rfc3339();
@@ -1223,6 +1239,17 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_one_on_one_thread_names_both_members_on_a_fixed_roster() {
+        let id = "19:aa_bb@unq.gbl.spaces";
+        let thread = one_on_one_thread(id).unwrap();
+        assert_eq!(thread["members"][0]["id"], "8:orgid:aa");
+        assert_eq!(thread["members"][1]["id"], "8:orgid:bb");
+        assert_eq!(thread["properties"]["uniquerosterthread"], "true");
+        assert!(one_on_one_thread("19:abc@thread.v2").is_none());
+        assert!(one_on_one_thread("19:_bb@unq.gbl.spaces").is_none());
+    }
 
     #[test]
     fn a_one_on_one_is_named_after_both_ids_in_order() {

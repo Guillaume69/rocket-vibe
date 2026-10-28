@@ -11,6 +11,8 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-28
+
 ### Fixed
 
 - Web client: drop-down lists (presence, roles, devices and the other choices in settings and panels) open in the app's dark colours instead of the browser's white system list.
@@ -254,7 +256,8 @@ first release: everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.1...HEAD
+[0.10.1]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.0...vibez-v0.10.1
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.9.0...vibez-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...vibez-v0.9.0
 [0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.7.0...vibez-v0.8.0

@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-28
+
 ### Added
 
 - Teams (experimental): start a one-to-one chat from New conversation. People are searched across your organisation, as in Teams' own search box, and the chat opens at once; the first message sent creates it on Teams' side. Group chats cannot be started yet.
@@ -1400,7 +1402,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...HEAD
+[0.28.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0
 [0.27.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0
 [0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.25.0...desktop-v0.26.0
 [0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...desktop-v0.25.0

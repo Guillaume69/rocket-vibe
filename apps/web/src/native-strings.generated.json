@@ -1476,6 +1476,10 @@
     "Search people or channels"
   ],
   "spotlight.failed": ["Recherche impossible", "Search failed"],
+  "spotlight.unsupported": [
+    "Ce serveur ne permet pas de chercher des personnes ici",
+    "This server does not offer a people search here"
+  ],
   "spotlight.open_failed": [
     "Impossible d'ouvrir cette conversation",
     "Couldn't open this conversation"

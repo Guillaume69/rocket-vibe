@@ -207,3 +207,26 @@ async fn pushed_messages_update_the_room_and_only_others_notify() {
     assert!(sync.apply_event("MessageUpdate", &gone).await.is_none());
     assert!(!store.messages(ROOM, 50).iter().any(|m| m.id == format!("{ROOM}/1792540600000")));
 }
+
+#[tokio::test]
+async fn a_new_one_on_one_is_listed_before_its_first_message() {
+    let url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let shared = url.clone();
+    let server = FakeHttp::start(move |r| handler(shared.lock().unwrap().clone())(r)).await;
+    *url.lock().unwrap() = server.url.to_string();
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+
+    let her = "8:orgid:00000000-0000-4000-8000-000000000001";
+    sync.directory.remember(her, "Fairouz");
+    let rid = sync.open_direct(her).await.unwrap();
+    assert_eq!(rid, "19:00000000-0000-4000-8000-000000000001_00000000-0000-4000-8000-0000000000aa@unq.gbl.spaces");
+    assert_eq!(sync.open_direct(her).await.unwrap(), rid, "opening it again finds the same chat");
+    let room = store.rooms().into_iter().find(|r| r.rid == rid).expect("listed at once");
+    assert_eq!((room.name.as_str(), room.alert), ("Fairouz", false));
+
+    sync.catch_up_global().await.unwrap();
+    sync.reconcile_rooms().await.unwrap();
+    assert!(store.rooms().iter().any(|r| r.rid == rid), "kept until Teams lists it");
+    assert!(sync.open_direct("nobody@example.com").await.is_err(), "a handle no search gave");
+}

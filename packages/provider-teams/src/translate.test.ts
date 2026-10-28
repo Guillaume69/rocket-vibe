@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, people, peopleRequest,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -319,4 +319,41 @@ test('images on the object store show inline, a file with its preview image', ()
     'https://asyncgw.teams.microsoft.com.evil.example/v1/objects/a/views/imgo',
     'https://u@fr-prod.asyncgw.teams.microsoft.com/v1/objects/a/views/imgo',
   ]) assert.equal(isTeamsImage(no), false, no);
+});
+
+test('people are the suggestions with an id, me left out', () => {
+  const me = '8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073';
+  const body = { Groups: [
+    { Type: 'People', Suggestions: [
+      { DisplayName: 'Fairouz Lemkaddem', MRI: '8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc', UserPrincipalName: 'faye.lemkaddem@axxone.fr' },
+      { DisplayName: 'No MRI', ExternalDirectoryObjectId: '7afa87cf-addf-4913-ba83-bbb4171f2573' },
+      { DisplayName: 'Me', MRI: me },
+      { DisplayName: 'Nothing' },
+    ] },
+    { Type: 'Topic', Suggestions: [{ DisplayName: 'A topic', MRI: '8:orgid:x' }] },
+  ] };
+  assert.deepEqual(people(body, me), [
+    { mri: '8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc', name: 'Fairouz Lemkaddem', upn: 'faye.lemkaddem@axxone.fr' },
+    { mri: '8:orgid:7afa87cf-addf-4913-ba83-bbb4171f2573', name: 'No MRI', upn: null },
+  ]);
+  const request = peopleRequest('Fai', 'c1') as { EntityRequests: { EntityType: string; Query: { QueryString: string } }[]; Scenario: { Name: string } };
+  assert.equal(request.EntityRequests[0]?.EntityType, 'People');
+  assert.equal(request.EntityRequests[0]?.Query.QueryString, 'Fai');
+  assert.equal(request.Scenario.Name, 'powerbar');
+});
+
+test('a one-to-one is named after both ids in order, and lists before its first message', () => {
+  const me = '8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073';
+  const her = '8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc';
+  const id = '19:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc_f1c9871e-4fe6-43b1-aa6f-5151f41cb073@unq.gbl.spaces';
+  assert.equal(oneOnOneId(me, her), id);
+  assert.equal(oneOnOneId(her, me), id);
+  assert.equal(oneOnOneId(me, me), null);
+  assert.equal(oneOnOneId(me, '28:bot'), null);
+  const d = new TeamsDirectory();
+  d.remember(her, 'Fairouz');
+  const room = chatRoom(me, newOneOnOne(me, her, 1_700_000_000_000), d);
+  assert.equal(room?.rid, id);
+  assert.equal(room?.type, 'd');
+  assert.equal(room?.displayName ?? room?.name, 'Fairouz');
 });

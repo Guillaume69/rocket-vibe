@@ -594,7 +594,14 @@ impl Service {
             "imdisplayname": self.directory.shown(&self.me),
         });
         let url = self.conversation_url(&thread_target(rid, root), &["messages"], "").await?;
-        let answer = self.chat(Method::POST, url, Some(&body)).await?;
+        let answer = match self.chat(Method::POST, url.clone(), Some(&body)).await {
+            Err(e) if e.status == 404 && root.is_none() => {
+                let Some(thread) = translate::one_on_one_thread(rid) else { return Err(e) };
+                self.chat(Method::POST, self.chat_url(&["threads"], "").await?, Some(&thread)).await?;
+                self.chat(Method::POST, url, Some(&body)).await?
+            }
+            other => other?,
+        };
         let id = translate::int_of(&answer.body, "OriginalArrivalTime")
             .ok_or_else(|| refusal("send_answer", answer.status))?;
         Ok(id.to_string())

@@ -1650,4 +1650,123 @@ mod tests {
         read_up_to(&mut read, 1);
         assert_eq!(horizon(&read), Some(1792540521726), "never marked backwards");
     }
+
+    #[test]
+    fn hidden_channels_and_flags_with_nothing_to_read_are_read() {
+        let me = "8:orgid:me";
+        let team = Some(("team", "ID Capture"));
+        // Probe of the stuck channels (2026-10-28): Teams' own flag says
+        // unread, but there is no last message and no horizon.
+        let flagged = json!({"id": "19:alerts@thread.tacv2", "isMessageRead": false, "isFavorite": true});
+        assert!(!subscription("19:alerts@thread.tacv2", &flagged, me, 5, team).alert);
+        let text = json!({"messageType": "RichText/Html", "content": "<p>yo</p>", "from": "8:orgid:bbb",
+            "composeTime": "2026-10-20T23:55:21.726Z", "id": "1792540521726"});
+        let shown = json!({"id": "19:hello@thread.tacv2", "isMessageRead": false, "isFavorite": true,
+            "lastMessage": text, "consumptionHorizon": {"originalArrivalTime": 1792540500000_i64}});
+        assert!(subscription("19:hello@thread.tacv2", &shown, me, 5, team).alert);
+        let mut hidden = shown.clone();
+        hidden["isFavorite"] = json!(false);
+        assert!(!subscription("19:hello@thread.tacv2", &hidden, me, 5, team).alert, "hidden from the team list");
+        let chat = json!({"id": "19:x@thread.v2", "isRead": false, "isFavorite": false, "lastMessage": text});
+        assert!(subscription("19:x@thread.v2", &chat, me, 5, None).alert, "a chat's isFavorite is a star");
+    }
+
+    #[test]
+    fn a_channel_named_after_its_team_is_not_prefixed_twice() {
+        assert_eq!(qualified_name("Tech", "Tech - GED"), "Tech - GED");
+        assert_eq!(qualified_name("Tech", "tech · ops"), "tech · ops");
+        assert_eq!(qualified_name("Tech", "Technology"), "Tech · Technology");
+        assert_eq!(qualified_name("Tech", "General"), "Tech · General");
+    }
+
+    #[test]
+    fn a_chat_is_named_after_its_people_not_its_bots() {
+        let me = "8:orgid:me";
+        let d = Directory::default();
+        d.remember("8:orgid:micael", "Micael GONZALEZ");
+        let chat = json!({"id": "19:c@thread.v2", "isOneOnOne": false, "chatType": "chat", "members": [
+            {"mri": me}, {"mri": "8:orgid:micael"}, {"mri": "28:512b84d2-5840-45d6-8d01-5f073836d039"}]});
+        let room = chat_room(me, &chat, &d).unwrap();
+        assert_eq!(room.display_name.as_deref(), Some("Micael GONZALEZ"));
+        assert_eq!(room.kind, "d");
+        assert_eq!(room.dm_other_uid.as_deref(), Some("8:orgid:micael"), "me and one person");
+        let group = json!({"id": "19:g@thread.v2", "chatType": "chat", "members": [
+            {"mri": me}, {"mri": "8:orgid:micael"}, {"mri": "8:orgid:unknown"}]});
+        let room = chat_room(me, &group, &d).unwrap();
+        assert_eq!(room.display_name.as_deref(), Some("Micael GONZALEZ"), "an unknown name is left out");
+        assert!(room.dm_other_uid.is_none());
+    }
+
+    #[test]
+    fn reaction_keys_show_as_standard_shortcodes() {
+        assert_eq!(reaction_code("like"), "+1");
+        assert_eq!(reaction_code("loudlycrying"), "sob");
+        assert_eq!(reaction_code("smilerobot"), "robot");
+        assert_eq!(reaction_code("1f62d_loudlycrying"), "sob");
+        assert_eq!(reaction_code("1f44d-1f3fb_thumbsuplight"), rv_provider::emoji::shortcode("👍🏻").unwrap());
+        assert_eq!(reaction_code("zzzunknown"), "zzzunknown");
+    }
+
+    #[test]
+    fn a_reply_quote_is_set_apart_and_the_text_after_it_trimmed() {
+        let html = concat!(
+            r#"<blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="1792500000000">"#,
+            r#"<strong itemprop="mri" itemid="8:orgid:marc">Marc-Etienne BARRUT</strong>"#,
+            r#"<span itemprop="time" itemid="1792500000000"></span>"#,
+            r#"<p itemprop="preview">Je suis outré</p></blockquote>"#,
+            r#"<p>&nbsp; Je m'en doute. J'espère que tu t'en remettras</p>"#
+        );
+        let converted = convert(html, &[]);
+        assert_eq!(converted.text, "Je m'en doute. J'espère que tu t'en remettras");
+        assert_eq!(
+            converted.quotes,
+            vec![Quoted {
+                id: Some("1792500000000".into()),
+                author: Some("Marc-Etienne BARRUT".into()),
+                author_mri: Some("8:orgid:marc".into()),
+                ts: Some(1792500000000),
+                text: "Je suis outré".into(),
+            }]
+        );
+        let d = Directory::default();
+        let m = message("19:c@thread.v2", &raw("1792600000000", json!({"content": html})), &d).unwrap();
+        let quotes: Value = serde_json::from_str(m.attachments.as_deref().unwrap()).unwrap();
+        assert_eq!(quotes[0]["author_name"], "Marc-Etienne BARRUT");
+        assert_eq!(quotes[0]["text"], "Je suis outré");
+        assert_eq!(quotes[0]["message_link"], permalink("19:c@thread.v2", "1792500000000"));
+    }
+
+    #[test]
+    fn a_mention_spelled_one_span_per_word_is_one_mention() {
+        let html = concat!(
+            r#"<p>bien vu. <span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Marc-Etienne</span>"#,
+            r#"&nbsp;<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="1">BARRUT</span> pour action</p>"#,
+            r#"<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="2">Olivier</span> "#,
+            r#"<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="3">DAUMIN</span> pour info</p>"#
+        );
+        let marc = "8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073";
+        let olivier = "8:orgid:0a7c1d02-1111-2222-3333-444455556666";
+        let mentions = json!([
+            {"@type": "http://schema.skype.com/Mention", "itemid": 0, "mri": marc, "mentionType": "person", "displayName": "Marc-Etienne"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 1, "mri": marc, "mentionType": "person", "displayName": "BARRUT"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 2, "mri": olivier, "mentionType": "person", "displayName": "Olivier"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 3, "mri": olivier, "mentionType": "person", "displayName": "DAUMIN"},
+        ]);
+        let raw = raw("1792600000001", json!({"content": html, "properties": {"mentions": mentions.to_string()}}));
+        let d = Directory::default();
+        let m = message("19:c@thread.v2", &raw, &d).unwrap();
+        assert_eq!(
+            m.text.as_deref(),
+            Some(
+                "bien vu. @f1c9871e-4fe6-43b1-aa6f-5151f41cb073 pour action\n@0a7c1d02-1111-2222-3333-444455556666 pour info"
+            )
+        );
+        assert_eq!(d.by_token("f1c9871e-4fe6-43b1-aa6f-5151f41cb073").as_deref(), Some("Marc-Etienne BARRUT"));
+        assert_eq!(d.mri_of_token("0a7c1d02-1111-2222-3333-444455556666").as_deref(), Some(olivier));
+        assert_eq!(
+            spell_mentions(m.text.as_deref().unwrap(), |t| d.by_token(t)),
+            "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info"
+        );
+        assert_eq!(html_to_markdown(html), "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info");
+    }
 }

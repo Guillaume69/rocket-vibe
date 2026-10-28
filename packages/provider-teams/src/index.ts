@@ -228,6 +228,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     displayNames: {
       names: () => directory.displayNames(),
       statuses: () => new Map(),
+      mentions: () => directory.mentionNames(),
       subscribe: (fn) => directory.onChange(fn),
     },
     loadPresence: () => readPresence(client, [...directory.displayNames().keys()]),
@@ -239,7 +240,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       set: async (status) => { await client.setPresence(statusAvailability(status)); return status; },
     },
     async readProfile(target) {
-      const mri = target.uid ?? '';
+      const mri = target.uid ?? (target.username !== undefined ? directory.mriOfToken(target.username) : null) ?? '';
       if (!mri) return undefined;
       const rows = await client.profiles([mri]).catch(() => [] as Doc[]);
       const row = rows.find((r) => (str(r, 'mri') ?? '').toLowerCase() === mri.toLowerCase()) ?? rows[0];

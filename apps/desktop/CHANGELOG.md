@@ -13,6 +13,11 @@ section here.
 
 ### Fixed
 
+- Teams (experimental): channels still showing "1" while Teams shows nothing unread now read as Teams does: a channel hidden from its team's list is never unread, and one Teams flags unread with no message to read is read.
+- Teams (experimental): a chat with one person and a bot is named after the person, not "Name, 28:…", and opens as their direct chat; a channel already named after its team reads "Tech - GED", not "Tech · Tech - GED".
+- Teams (experimental): a mention shows the person's whole name ("@Marc-Etienne BARRUT", not "@Marc-Etienne" then "BARRUT"), a mention of me is highlighted, and a notification names the people mentioned.
+- Teams (experimental): a reply quoting a message shows the quote as a quote card, its author and text apart, instead of the author glued to the text above stray spaces.
+- Teams (experimental): reactions such as :loudlycrying: and :smilerobot: show their emoji (😭, 🤖) instead of their name.
 - Teams (experimental): typing in a Teams conversation no longer crashes the app; the typing indicator was started outside the app's async runtime.
 - Linux: the Slack, Teams and kChat sign-in windows no longer stay blank on a machine with NVIDIA's driver; WebKit's DMA-BUF renderer, which painted nothing there, is turned off unless `WEBKIT_DISABLE_DMABUF_RENDERER` is already set.
 - Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".

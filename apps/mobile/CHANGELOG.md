@@ -13,6 +13,11 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Teams (experimental): channels still showing "1" while Teams shows nothing unread now read as Teams does: a channel hidden from its team's list is never unread, and one Teams flags unread with no message to read is read.
+- Teams (experimental): a chat with one person and a bot is named after the person, not "Name, 28:…", and opens as their direct chat; a channel already named after its team reads "Tech - GED", not "Tech · Tech - GED".
+- Teams (experimental): a mention shows the person's whole name ("@Marc-Etienne BARRUT", not "@Marc-Etienne" then "BARRUT"), a mention of me is highlighted, and a notification names the people mentioned.
+- Teams (experimental): a reply quoting a message shows the quote as a quote card, its author and text apart, instead of the author glued to the text above stray spaces.
+- Teams (experimental): reactions such as :loudlycrying: and :smilerobot: show their emoji (😭, 🤖) instead of their name.
 - Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".
 - Teams (experimental): one-to-one, group and meeting chats missing from the list now show: chats are also read from Teams' own conversation list, page by page, the people in a one-to-one chat named from their profiles, and a chat Teams marks hidden shows again once it has a message. A Teams account no longer offers "New conversation", whose search could only fail.
 - Teams (experimental): a channel post shows its subject as a bold title above its text, in the room and the room list, and shows "N replies" under it when it has replies, opening its thread; replies were kept out of the room with no way to reach them. Editing a post with a subject keeps the subject out of its text.

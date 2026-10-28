@@ -231,9 +231,10 @@ fn inline(node: &Value, ctx: &Context) -> String {
         }
         "MENTION_USER" => {
             let name = text_of(value);
-            let mine = name == ctx.me || name == "all" || name == "here";
+            let resolved = ctx.names.and_then(|names| names(&name));
+            let mine = name == ctx.me || resolved.as_deref() == Some(ctx.me) || name == "all" || name == "here";
             let background = if mine { " background=\"#4A2140\"" } else { "" };
-            let shown = ctx.names.and_then(|names| names(&name)).unwrap_or_else(|| name.clone());
+            let shown = resolved.unwrap_or_else(|| name.clone());
             let span = format!("<span foreground=\"#FF7AB4\" weight=\"bold\"{background}>@{}</span>", escape(&shown));
             if name == "all" || name == "here" {
                 span

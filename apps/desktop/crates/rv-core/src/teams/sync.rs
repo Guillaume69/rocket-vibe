@@ -39,6 +39,10 @@ pub struct TeamsSync {
     entries: Mutex<HashMap<String, Entry>>,
     /// The chat service's conversation list and when it was read.
     listed: Mutex<Option<(std::time::Instant, Vec<Value>)>>,
+    /// One-to-one chats opened here before their first message: no list has them yet.
+    pending: Mutex<HashMap<String, Value>>,
+    /// The handle (sign-in name) each person a people search found goes by, to their MRI.
+    found: Mutex<HashMap<String, String>>,
 }
 
 impl TeamsSync {
@@ -54,6 +58,8 @@ impl TeamsSync {
             marked: Mutex::default(),
             entries: Mutex::default(),
             listed: Mutex::default(),
+            pending: Mutex::default(),
+            found: Mutex::default(),
         }
     }
 
@@ -170,6 +176,13 @@ impl TeamsSync {
                     .map(str::to_owned),
             );
             entries.insert(rid, (chat, None));
+        }
+        {
+            let mut pending = self.pending.lock().unwrap();
+            pending.retain(|rid, _| !entries.contains_key(rid));
+            for (rid, chat) in pending.iter() {
+                entries.insert(rid.clone(), (chat.clone(), None));
+            }
         }
         unnamed.sort();
         unnamed.dedup();
@@ -331,6 +344,56 @@ impl TeamsSync {
         live.extend(self.entries.lock().unwrap().keys().cloned());
         self.store.write(|w| w.purge_rooms_except(&live));
         Ok(())
+    }
+
+    /// People of the tenant matching `query`, for a new conversation, each
+    /// handled by their sign-in name (their MRI when they show none).
+    pub async fn spotlight(&self, query: &str) -> Result<Vec<crate::rooms::Found>, RestError> {
+        let people = self.service.search_people(query).await?;
+        let mut found = self.found.lock().unwrap();
+        Ok(people
+            .into_iter()
+            .map(|p| {
+                self.directory.remember(&p.mri, &p.name);
+                let handle = p.upn.clone().unwrap_or_else(|| p.mri.clone());
+                found.insert(handle.clone(), p.mri.clone());
+                crate::rooms::Found::User { id: p.mri, username: handle, name: Some(p.name) }
+            })
+            .collect())
+    }
+
+    /// The one-to-one chat with this person (an MRI, or a handle a people
+    /// search gave), listed at once: its rid.
+    /// A chat never written in is kept here until its first message makes
+    /// Teams list it.
+    pub async fn open_direct(&self, handle: &str) -> Result<String, RestError> {
+        let mri = if handle.starts_with("8:") {
+            handle.to_owned()
+        } else {
+            self.found
+                .lock()
+                .unwrap()
+                .get(handle)
+                .cloned()
+                .ok_or_else(|| RestError::incomplete("direct message: unknown person"))?
+        };
+        let mri = mri.as_str();
+        let now = chrono::Utc::now().timestamp_millis();
+        let chat = translate::new_one_on_one(&self.me, mri, now)
+            .ok_or_else(|| RestError::incomplete("direct message: not a person of this tenant"))?;
+        let rid = str_of(&chat, "id").unwrap_or_default().to_owned();
+        if self.entries.lock().unwrap().contains_key(&rid) {
+            return Ok(rid);
+        }
+        if let Some((room, sub)) = self.row(&chat, None) {
+            self.store.write(|w| {
+                w.upsert_room(&room);
+                w.upsert_subscription(&sub);
+            });
+        }
+        self.entries.lock().unwrap().insert(rid.clone(), (chat.clone(), None));
+        self.pending.lock().unwrap().insert(rid.clone(), chat);
+        Ok(rid)
     }
 
     /// Presence for a batch of people (UPS getpresence), best effort.

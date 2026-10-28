@@ -683,6 +683,71 @@ export function listedChat(conversation: unknown): Doc | null {
 }
 
 /** An aggregator chat as a room. */
+/** A person a people search found. */
+export type TeamsPerson = { mri: string; name: string; upn: string | null };
+
+/** The people suggestions request for `query`, as Teams' web app words it.
+ *  Mirrors `people_request` in `rv-teams`. */
+export function peopleRequest(query: string, cvid: string): Doc {
+  const any = (field: string, values: string[]) => ({ Or: values.map((v) => ({ Term: { [field]: v } })) });
+  return {
+    EntityRequests: [{
+      Query: { QueryString: query, DisplayQueryString: query, NormalizedQueryString: query },
+      EntityType: 'People',
+      Size: 20,
+      Fields: ['Id', 'MRI', 'DisplayName', 'EmailAddresses', 'PeopleType', 'PeopleSubtype', 'UserPrincipalName', 'JobTitle', 'ExternalDirectoryObjectId'],
+      Filter: { And: [
+        any('PeopleType', ['Person', 'Other']),
+        any('PeopleSubtype', ['OrganizationUser', 'MTOUser', 'Guest']),
+        any('Flags', ['NonHidden']),
+      ] },
+      Provenances: ['Mailbox', 'Directory'],
+      From: 0,
+    }],
+    Scenario: { Name: 'powerbar', Dimensions: [{ DimensionName: 'QueryType', DimensionValue: 'PeopleCentricSearch' }] },
+    Cvid: cvid,
+    AppName: 'Microsoft Teams',
+    LogicalId: cvid,
+  };
+}
+
+/** The people of a suggestions body (`Groups[].Suggestions[]` of type People), me left out. */
+export function people(body: unknown, me: string): TeamsPerson[] {
+  const groups = Array.isArray((body as Doc | null)?.Groups) ? ((body as Doc).Groups as Doc[]) : [];
+  const out: TeamsPerson[] = [];
+  for (const group of groups) {
+    const type = str(group, 'Type');
+    if (type !== null && type !== 'People') continue;
+    for (const row of Array.isArray(group.Suggestions) ? (group.Suggestions as Doc[]) : []) {
+      const oid = str(row, 'ExternalDirectoryObjectId');
+      const mri = str(row, 'MRI') ?? (oid ? `8:orgid:${oid}` : null);
+      if (!mri || mri === me) continue;
+      out.push({ mri, name: str(row, 'DisplayName') ?? mri, upn: str(row, 'UserPrincipalName') });
+    }
+  }
+  return out;
+}
+
+/** The one-to-one chat of two people by their `8:orgid:` MRIs: Teams names
+ *  it after their two directory ids in ascending order. Mirrors `one_on_one_id`. */
+export function oneOnOneId(me: string, other: string): string | null {
+  const oid = (mri: string) => {
+    const rest = mri.startsWith('8:orgid:') ? mri.slice(8) : '';
+    return rest !== '' && !rest.includes('_') ? rest : null;
+  };
+  const a = oid(me), b = oid(other);
+  if (a === null || b === null || a === b) return null;
+  return a < b ? `19:${a}_${b}@unq.gbl.spaces` : `19:${b}_${a}@unq.gbl.spaces`;
+}
+
+/** A one-to-one chat with no message yet, as an aggregator entry: its first
+ *  message creates it on Teams' side. */
+export function newOneOnOne(me: string, other: string, now: number): Doc | null {
+  const id = oneOnOneId(me, other);
+  if (id === null) return null;
+  return { id, chatType: 'chat', isOneOnOne: true, isRead: true, members: [{ mri: me }, { mri: other }], createdAt: new Date(now).toISOString() };
+}
+
 export function chatRoom(me: string, chat: unknown, directory: TeamsDirectory): LocalRoom | null {
   const rid = str(chat, 'id');
   if (!rid) return null;

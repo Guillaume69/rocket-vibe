@@ -115,6 +115,13 @@ async fn main() {
         return;
     }
     // Read-only id hunt: every field of the reads below whose value contains
+    if let Some(query) = std::env::var_os("TEAMS_PROBE_PEOPLE").and_then(|v| v.into_string().ok()) {
+        let shapes = tokens.probe_people(&query).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // TEAMS_PROBE_FIND, with its JSON path.
     if let Some(needle) = std::env::var_os("TEAMS_PROBE_FIND").and_then(|v| v.into_string().ok()) {
         let team = std::env::var("TEAMS_PIN_TEAM")

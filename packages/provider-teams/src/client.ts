@@ -6,6 +6,7 @@
  */
 
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';
+import { peopleRequest } from './translate.ts';
 
 type Doc = Record<string, unknown>;
 const CONVERSATION_PAGE = 100;
@@ -185,6 +186,15 @@ export class TeamsClient {
       EntityRequests: [{ EntityType: 'Message', ContentSources: ['Teams'], Query: { QueryString: text }, Size: 50 }],
     };
     const answer = await this.send('https://substrate.office.com/search/api/v2/query', ['authorization', `Bearer ${bearer}`], 'POST', body);
+    return answer.body;
+  }
+
+  /** People of the tenant matching `query`: Substrate's people suggestions,
+   *  the request Teams' web app sends (verified live 2026-10-28). */
+  async searchPeople(query: string): Promise<Doc> {
+    const bearer = await this.tokens.substrate();
+    const cvid = Array.from({ length: 16 }, () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0')).join('');
+    const answer = await this.send('https://substrate.office.com/search/api/v1/suggestions?scenario=powerbar', ['authorization', `Bearer ${bearer}`], 'POST', peopleRequest(query, cvid));
     return answer.body;
   }
 

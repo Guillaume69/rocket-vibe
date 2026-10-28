@@ -1395,7 +1395,7 @@ impl Session {
         match self.backend() {
             Backend::Mattermost(mm) => mattermost::actions::spotlight(&self.rest, mm, query).await,
             Backend::Slack(slack) => slack.spotlight(query).await,
-            Backend::Teams(_) => Err(crate::slack::not_supported("spotlight")),
+            Backend::Teams(teams) => teams.spotlight(query).await,
             Backend::RocketChat => rocketchat::actions::spotlight(&self.rest, query).await,
         }
     }
@@ -1410,7 +1410,7 @@ impl Session {
                 rid
             }
             Backend::Slack(slack) => return slack.open_direct(&[username.to_owned()]).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("direct message")),
+            Backend::Teams(teams) => return teams.open_direct(username).await,
             Backend::RocketChat => rocketchat::actions::open_dm(&self.rest, username).await?,
         };
         self.sync.catch_up_global().await?;
@@ -1836,9 +1836,9 @@ impl Session {
         true
     }
 
-    /// Whether starting a direct conversation is offered: not Teams yet.
+    /// Whether starting a direct conversation is offered: every server kind now.
     pub fn direct_messages_available(&self) -> bool {
-        !matches!(self.backend(), Backend::Teams(_))
+        true
     }
 
     pub fn provider_actions(&self) -> crate::actions::ProviderActions {

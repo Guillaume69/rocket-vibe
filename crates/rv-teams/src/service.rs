@@ -23,6 +23,7 @@ pub const VIEW: &str = "msnp24Equivalent|supportsMessageProperties";
 const CHAT_FILES: &str = "Microsoft Teams Chat Files";
 const CONVERSATION_PAGE: usize = 100;
 const CONVERSATION_PAGES: usize = 10;
+const PEOPLE_PAGE: usize = 20;
 
 /// A file uploaded to a room's files folder, as the chat-service message's
 /// `properties.files` entry needs it.
@@ -281,6 +282,22 @@ impl Service {
             Ok(answer) => profile_rows(answer.body),
             Err(_) => Vec::new(),
         }
+    }
+
+    /// People of the tenant matching `query`: Substrate's people
+    /// suggestions, the request Teams' web app sends from its search box.
+    /// Verified live 2026-10-28.
+    pub async fn search_people(&self, query: &str) -> Result<Vec<Person>, RestError> {
+        let token = self.tokens.substrate().await?;
+        let header = format!("Bearer {}", token.as_str());
+        let url = url::Url::parse("https://substrate.office.com/search/api/v1/suggestions?scenario=powerbar")
+            .map_err(|_| refusal("substrate_url", 0))?;
+        let mut cvid = [0u8; 16];
+        getrandom::fill(&mut cvid).ok();
+        let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+        let body = people_request(query, &cvid);
+        let answer = client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await?;
+        Ok(people(&answer.body, &self.me))
     }
 
     /// Messages in one room matching `text`, through the Substrate search API.
@@ -791,6 +808,60 @@ fn presence_rows(body: &Value) -> Vec<(String, Presence)> {
         .collect()
 }
 
+/// A person a people search found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Person {
+    pub mri: String,
+    pub name: String,
+    pub upn: Option<String>,
+}
+
+/// The people suggestions request for `query`, as Teams' web app words it.
+pub fn people_request(query: &str, cvid: &str) -> Value {
+    let any = |field: &str, values: &[&str]| json!({ "Or": values.iter().map(|v| json!({ "Term": { field: v } })).collect::<Vec<_>>() });
+    json!({
+        "EntityRequests": [{
+            "Query": { "QueryString": query, "DisplayQueryString": query, "NormalizedQueryString": query },
+            "EntityType": "People",
+            "Size": PEOPLE_PAGE,
+            "Fields": ["Id", "MRI", "DisplayName", "EmailAddresses", "PeopleType", "PeopleSubtype", "UserPrincipalName", "JobTitle", "ExternalDirectoryObjectId"],
+            "Filter": { "And": [
+                any("PeopleType", &["Person", "Other"]),
+                any("PeopleSubtype", &["OrganizationUser", "MTOUser", "Guest"]),
+                any("Flags", &["NonHidden"]),
+            ] },
+            "Provenances": ["Mailbox", "Directory"],
+            "From": 0,
+        }],
+        "Scenario": { "Name": "powerbar", "Dimensions": [{ "DimensionName": "QueryType", "DimensionValue": "PeopleCentricSearch" }] },
+        "Cvid": cvid,
+        "AppName": "Microsoft Teams",
+        "LogicalId": cvid,
+    })
+}
+
+/// The people of a suggestions body (`Groups[].Suggestions[]` of type
+/// People), me left out.
+pub fn people(body: &Value, me: &str) -> Vec<Person> {
+    body.get("Groups")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|group| str_of(group, "Type").is_none_or(|t| t == "People"))
+        .flat_map(|group| group.get("Suggestions").and_then(Value::as_array).into_iter().flatten())
+        .filter_map(|row| {
+            let mri = str_of(row, "MRI")
+                .map(str::to_owned)
+                .or_else(|| str_of(row, "ExternalDirectoryObjectId").map(|oid| format!("8:orgid:{oid}")))?;
+            (mri != me).then(|| Person {
+                name: str_of(row, "DisplayName").unwrap_or(&mri).to_owned(),
+                upn: str_of(row, "UserPrincipalName").map(str::to_owned),
+                mri,
+            })
+        })
+        .collect()
+}
+
 /// The `value[]` rows of a `fetchShortProfile` body, whether the body is the
 /// array itself or wraps it under `value`.
 fn profile_rows(body: Value) -> Vec<Value> {
@@ -883,6 +954,44 @@ fn search_hits(body: &Value, rid: &str, directory: &Directory) -> Vec<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn people_are_the_suggestions_with_an_id_me_left_out() {
+        let me = "8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073";
+        let body = json!({"Groups": [
+            {"Type": "People", "Suggestions": [
+                {"DisplayName": "Fairouz Lemkaddem", "MRI": "8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc",
+                    "UserPrincipalName": "faye.lemkaddem@axxone.fr"},
+                {"DisplayName": "No MRI", "ExternalDirectoryObjectId": "7afa87cf-addf-4913-ba83-bbb4171f2573"},
+                {"DisplayName": "Me", "MRI": me},
+                {"DisplayName": "Nothing"},
+            ]},
+            {"Type": "Topic", "Suggestions": [{"DisplayName": "A topic", "MRI": "8:orgid:x"}]},
+        ]});
+        let found = people(&body, me);
+        assert_eq!(
+            found,
+            vec![
+                Person {
+                    mri: "8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc".into(),
+                    name: "Fairouz Lemkaddem".into(),
+                    upn: Some("faye.lemkaddem@axxone.fr".into()),
+                },
+                Person { mri: "8:orgid:7afa87cf-addf-4913-ba83-bbb4171f2573".into(), name: "No MRI".into(), upn: None },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_people_request_asks_for_people_only() {
+        let body = people_request("Fai", "c1");
+        let entity = &body["EntityRequests"][0];
+        assert_eq!(entity["EntityType"], "People");
+        assert_eq!(entity["Query"]["QueryString"], "Fai");
+        assert!(entity["Fields"].as_array().unwrap().iter().any(|f| f == "MRI"));
+        assert_eq!(body["Scenario"]["Name"], "powerbar");
+        assert_eq!(body["Cvid"], "c1");
+    }
 
     #[test]
     fn profile_rows_read_an_array_or_a_value_wrapper() {

@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): start a one-to-one chat from New conversation. People are searched across your organisation, as in Teams' own search box, and the chat opens at once; the first message sent creates it on Teams' side. Group chats cannot be started yet.
+
 ### Fixed
 
 - Linux: the Slack, Teams and kChat sign-in windows no longer stay blank on a machine with NVIDIA's driver; WebKit's DMA-BUF renderer, which painted nothing there, is turned off unless `WEBKIT_DISABLE_DMABUF_RENDERER` is already set.

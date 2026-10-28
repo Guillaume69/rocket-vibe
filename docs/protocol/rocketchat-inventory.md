@@ -290,7 +290,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1336](../../apps/desktop/crates/rv-core/src/session.rs#L1336) | endpoint | users.setAvatar |
 | [apps/desktop/crates/rv-core/src/session.rs:1338](../../apps/desktop/crates/rv-core/src/session.rs#L1338) | call:UPLOAD | &path, "image", bytes, &name, mime, Vec::new(), \|_, _\| {…}).await.map(\|_\| ()) |
 | [apps/desktop/crates/rv-core/src/session.rs:1369](../../apps/desktop/crates/rv-core/src/session.rs#L1369) | call:DELETE | &path |
-| [apps/desktop/crates/rv-core/src/session.rs:1398](../../apps/desktop/crates/rv-core/src/session.rs#L1398) | endpoint | spotlight |
 | [apps/desktop/crates/rv-core/src/session.rs:1580](../../apps/desktop/crates/rv-core/src/session.rs#L1580) | call:GET | "settings.public" |
 | [apps/desktop/crates/rv-core/src/session.rs:1580](../../apps/desktop/crates/rv-core/src/session.rs#L1580) | endpoint | settings.public |
 | [apps/desktop/crates/rv-core/src/session.rs:1618](../../apps/desktop/crates/rv-core/src/session.rs#L1618) | call:GET | "emoji-custom.list" |
@@ -761,8 +760,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
 | [crates/rv-teams/src/auth.rs:2123](../../crates/rv-teams/src/auth.rs#L2123) | url | /api/csa |
-| [crates/rv-teams/src/service.rs:294](../../crates/rv-teams/src/service.rs#L294) | url | /api/v2/query |
-| [crates/rv-teams/src/service.rs:397](../../crates/rv-teams/src/service.rs#L397) | url | /api/csa |
+| [crates/rv-teams/src/service.rs:293](../../crates/rv-teams/src/service.rs#L293) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/service.rs:311](../../crates/rv-teams/src/service.rs#L311) | url | /api/v2/query |
+| [crates/rv-teams/src/service.rs:414](../../crates/rv-teams/src/service.rs#L414) | url | /api/csa |
 | [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
 | [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
 | [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |

@@ -791,6 +791,35 @@ pub fn listed_chat(conversation: &Value) -> Option<Value> {
 }
 
 /// An aggregator chat as a room; `names` are its other members' names when known.
+/// The one-to-one chat of two people by their `8:orgid:` MRIs: Teams names
+/// it after their two directory ids in ascending order.
+pub fn one_on_one_id(me: &str, other: &str) -> Option<String> {
+    let oid = |mri: &str| mri.strip_prefix("8:orgid:").filter(|o| !o.is_empty() && !o.contains('_')).map(str::to_owned);
+    let (mut a, mut b) = (oid(me)?, oid(other)?);
+    if a == b {
+        return None;
+    }
+    if b < a {
+        std::mem::swap(&mut a, &mut b);
+    }
+    Some(format!("19:{a}_{b}@unq.gbl.spaces"))
+}
+
+/// A one-to-one chat with no message yet, as an aggregator entry: its first
+/// message creates it on Teams' side.
+pub fn new_one_on_one(me: &str, other: &str, now: i64) -> Option<Value> {
+    let id = one_on_one_id(me, other)?;
+    let created = chrono::DateTime::from_timestamp_millis(now)?.to_rfc3339();
+    Some(json!({
+        "id": id,
+        "chatType": "chat",
+        "isOneOnOne": true,
+        "isRead": true,
+        "members": [{"mri": me}, {"mri": other}],
+        "createdAt": created,
+    }))
+}
+
 pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> {
     let rid = str_of(chat, "id")?;
     let members: Vec<&str> = chat
@@ -905,6 +934,23 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_one_on_one_is_named_after_both_ids_in_order() {
+        let me = "8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073";
+        let her = "8:orgid:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc";
+        let id = "19:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc_f1c9871e-4fe6-43b1-aa6f-5151f41cb073@unq.gbl.spaces";
+        assert_eq!(one_on_one_id(me, her).as_deref(), Some(id));
+        assert_eq!(one_on_one_id(her, me).as_deref(), Some(id));
+        assert_eq!(one_on_one_id(me, me), None);
+        assert_eq!(one_on_one_id(me, "28:bot"), None);
+        let chat = new_one_on_one(me, her, 1_700_000_000_000).unwrap();
+        let room = chat_room(me, &chat, &Directory::default()).unwrap();
+        assert_eq!(room.rid, id);
+        assert_eq!(room.kind, "d");
+        assert_eq!(room.dm_other_uid.as_deref(), Some(her));
+        assert_eq!(room.updated_at, 1_700_000_000_000);
+    }
 
     #[test]
     fn graph_shares_are_sharepoint_or_onedrive_hosts() {

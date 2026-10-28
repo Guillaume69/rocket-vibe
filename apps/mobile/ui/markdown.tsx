@@ -109,7 +109,7 @@ function Mention({ username: written, c }: { username: string; c: Colors }) {
   const longPress = useContext(MessageLongPress);
   const me = useContext(MentionSelf);
   const { username, label } = mentionOf(written, useMentionNames());
-  const mine = username === 'all' || username === 'here' || (me !== null && username === me);
+  const mine = username === 'all' || username === 'here' || (me !== null && (username === me || label === `@${me}`));
   return (
     <TappableText
       style={[styles.mention, { color: c.accent }, mine && { backgroundColor: c.mentionSelf }]}

@@ -5,6 +5,7 @@
  * `crates/rv-teams/src/translate.rs`.
  */
 
+import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
 import type { MemberPage, RoomMember } from '@rocket-vibe/provider-api/provider';
 
@@ -13,6 +14,13 @@ type Doc = Record<string, unknown>;
 /** A message id: the conversation and the server id, which is only unique within it. */
 export function messageId(conversation: string, id: string): string {
   return `${conversation}/${id}`;
+}
+
+/** The message's link in Teams itself. */
+export function permalink(rid: string, msgId: string): string {
+  const server = splitId(msgId)?.server ?? msgId;
+  const segment = (s: string) => encodeURIComponent(s).replace(/%3A/gi, ':').replace(/%40/g, '@');
+  return `https://teams.microsoft.com/l/message/${segment(rid)}/${segment(server)}`;
 }
 
 export function splitId(id: string): { rid: string; server: string } | null {
@@ -82,12 +90,36 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['like', '+1'], ['heart', 'heart'], ['laugh', 'laughing'], ['surprised', 'open_mouth'], ['sad', 'cry'], ['angry', 'angry'],
 ];
 
-/** The shortcode a reaction key shows as: a classic key, or a `<codepoints>_<name>` key's name. */
+/** Teams' emoticon ids (Skype's, still sent as reaction keys) and their glyphs. */
+const EMOTICONS: Record<string, string> = {
+  smile: '🙂', happy: '😊', grinning: '😀', bigsmile: '😃', laughcry: '😂', rofl: '🤣', wink: '😉', blush: '😊',
+  inlove: '😍', hearteyes: '😍', kiss: '😘', tongueout: '😛', cool: '😎', think: '🤔', wonder: '🤔', smirk: '😏',
+  unamused: '😒', eyeroll: '🙄', giggle: '🤭', nerdy: '🤓', whew: '😅', sweat: '😓', worry: '😟', cry: '😢',
+  loudlycrying: '😭', sleepy: '😪', yawn: '🥱', sick: '🤒', puke: '🤮', devil: '😈', angel: '😇', party: '🥳',
+  facepalm: '🤦', shrug: '🤷', clap: '👏', handsinair: '🙌', praying: '🙏', muscle: '💪', ok: '👌', yes: '👍',
+  no: '👎', dislike: '👎', wave: '👋', fire: '🔥', '100': '💯', star: '⭐', sun: '☀️', coffee: '☕', cake: '🍰',
+  beer: '🍺', gift: '🎁', rose: '🌹', brokenheart: '💔', lips: '💋', poop: '💩', skull: '💀', smilerobot: '🤖',
+  robot: '🤖', rocket: '🚀', checkmark: '✅',
+};
+
+/** The glyph of a `<codepoints>_<name>` key's codepoints, `1f62d` or `1f44d-1f3fb`. */
+function codepoints(key: string): string | null {
+  const cut = key.indexOf('_');
+  if (cut <= 0) return null;
+  const points = key.slice(0, cut).split('-').map((hex) => (/^[0-9a-f]+$/i.test(hex) ? parseInt(hex, 16) : NaN));
+  if (points.some((p) => !Number.isFinite(p) || p > 0x10ffff)) return null;
+  return String.fromCodePoint(...points);
+}
+
+/** The shortcode a reaction key shows as: a classic key, a key carrying its
+ *  codepoints (`1f62d_loudlycrying`) or a Teams emoticon id, by its glyph's
+ *  standard shortcode; else the key's name. */
 export function reactionCode(key: string): string {
   const classic = KEYS.find(([k]) => k === key);
   if (classic) return classic[1];
-  const name = key.split('_').slice(1).join('_');
-  return name || key;
+  const name = key.split('_').slice(1).join('_') || key;
+  const glyph = codepoints(key) ?? EMOTICONS[name] ?? EMOTICONS[key] ?? null;
+  return (glyph !== null ? shortcodeOfUnicode(glyph) : null) ?? name;
 }
 
 /** The key a shortcode is sent as; only the classic keys are known to be accepted. */
@@ -133,6 +165,28 @@ export class TeamsDirectory {
     return found;
   }
 
+  /** The name of the person a mention token (`mentionToken`) stands for. */
+  byToken(token: string): string | null {
+    for (const [mri, name] of this.names) if (mentionToken(mri) === token) return name;
+    return null;
+  }
+
+  /** The MRI a mention token stands for, among the people known. */
+  mriOfToken(token: string): string | null {
+    for (const mri of this.names.keys()) if (mentionToken(mri) === token) return mri;
+    return null;
+  }
+
+  /** `token → name` for every person known, the mentions' labels. */
+  mentionNames(): ReadonlyMap<string, string> {
+    const out = new Map<string, string>();
+    for (const [mri, name] of this.names) {
+      const token = mentionToken(mri);
+      if (token !== null) out.set(token, name);
+    }
+    return out;
+  }
+
   learn(raw: unknown): void {
     const from = str(raw, 'from'), name = str(raw, 'imdisplayname');
     if (from && name) this.remember(mriOf(from), name);
@@ -165,12 +219,81 @@ export function decodeEntities(text: string): string {
   });
 }
 
+/** A person a message mentions, from its `properties.mentions`: Teams writes
+ *  one `<span itemtype=".../Mention" itemid=N>` per word of the name. */
+export type Mentioned = { item: string; mri: string };
+
+/** `properties.mentions`, a JSON string or an array of `{itemid, mri, displayName}`. */
+export function mentionsOf(raw: unknown): Mentioned[] {
+  let list: unknown = ((raw as Doc | null | undefined)?.properties as Doc | undefined)?.mentions;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list) as unknown; } catch { list = []; }
+  }
+  if (!Array.isArray(list)) return [];
+  return (list as Doc[]).flatMap((m) => {
+    const item = str(m, 'itemid') ?? (int(m, 'itemid') !== null ? String(int(m, 'itemid')) : null);
+    const mri = str(m, 'mri');
+    return item !== null && mri !== null ? [{ item, mri }] : [];
+  });
+}
+
+/** The token a mention is written as, `@<object id>`: one word the renderer
+ *  reads whole, which `TeamsDirectory.byToken` names back. */
+export function mentionToken(mri: string): string | null {
+  const token = mri.split(':').pop() ?? '';
+  return /^[A-Za-z0-9-]+$/.test(token) ? token : null;
+}
+
+/** `text` with each `@<token>` a person stands behind spelled `@<name>`. */
+export function spellMentions(text: string, name: (token: string) => string | null): string {
+  return text.replace(/@([A-Za-z0-9-]+)/g, (whole, token: string) => {
+    const full = name(token);
+    return full === null ? whole : `@${full}`;
+  });
+}
+
+/** A reply's quote, `<blockquote itemtype=".../Reply" itemid=<message id>>`. */
+export type Quoted = { id: string | null; author: string | null; authorMri: string | null; ts: number | null; text: string };
+
+function quoted(open: string, inner: string): Quoted {
+  const quote: Quoted = { id: attribute(open, 'itemid'), author: null, authorMri: null, ts: null, text: '' };
+  const tags = /<([a-z0-9]+)([^>]*)>([\s\S]*?)<\/\1\s*>/gi;
+  for (let m = tags.exec(inner); m !== null; m = tags.exec(inner)) {
+    const prop = attribute(m[2] ?? '', 'itemprop');
+    const body = m[3] ?? '';
+    if (prop === 'mri') {
+      quote.authorMri = attribute(m[2] ?? '', 'itemid');
+      const name = htmlToMarkdown(body);
+      quote.author = name === '' ? null : name;
+    } else if (prop === 'time') {
+      const ts = Number(attribute(m[2] ?? '', 'itemid'));
+      quote.ts = Number.isFinite(ts) ? ts : null;
+    } else if (prop === 'preview') quote.text = htmlToMarkdown(body);
+  }
+  return quote;
+}
+
+/** Teams' message HTML, as markdown with the replies it quotes set apart and
+ *  the people mentioned by token, with the name their spans spelled. */
+export type Converted = { text: string; quotes: Quoted[]; people: [string, string][] };
+
 /**
  * Teams' message HTML to markdown: paragraphs, breaks, emphasis, code, links,
  * lists, quotes, mentions (`@Name`) and emoji (`alt`). Scripts, styles and
- * remote images are dropped.
+ * remote images are dropped; a reply's quote is left out.
  */
 export function htmlToMarkdown(html: string): string {
+  return convert(html, []).text;
+}
+
+/** `htmlToMarkdown`, with the replies quoted apart and the mentions whose
+ *  person `mentions` names as `@<token>`; the words of one person's name,
+ *  one span each, make one mention. */
+export function convert(html: string, mentions: readonly Mentioned[]): Converted {
+  const quotes: Quoted[] = [];
+  const people: [string, string][] = [];
+  const spans: ({ at: number; mri: string } | null)[] = [];
+  let lastMention: { from: number; end: number; mri: string; name: string } | null = null;
   let out = '';
   let rest = html;
   const lists: (number | null)[] = [];
@@ -210,7 +333,16 @@ export function htmlToMarkdown(html: string): string {
       case 's': case 'strike': case 'del': out += '~~'; break;
       case 'code': if (!pre) out += '`'; break;
       case 'pre': pre = !closing; out += '\n```\n'; break;
-      case 'blockquote': out += closing ? '\n' : '\n> '; break;
+      case 'blockquote':
+        if (!closing && attribute(tag, 'itemtype')?.endsWith('/Reply')) {
+          const close = rest.toLowerCase().indexOf('</blockquote');
+          const inner = close < 0 ? rest : rest.slice(0, close);
+          quotes.push(quoted(tag, inner));
+          rest = close < 0 ? '' : rest.slice(close);
+          const end = rest.indexOf('>');
+          rest = end < 0 ? '' : rest.slice(end + 1);
+        } else out += closing ? '\n' : '\n> ';
+        break;
       case 'ul': if (closing) { lists.pop(); out += '\n'; } else lists.push(null); break;
       case 'ol': if (closing) { lists.pop(); out += '\n'; } else lists.push(0); break;
       case 'li':
@@ -232,7 +364,31 @@ export function htmlToMarkdown(html: string): string {
         }
         break;
       case 'span':
-        if (!closing && attribute(tag, 'itemtype')?.endsWith('/Mention')) out += '@';
+        if (!closing) {
+          const item = attribute(tag, 'itemid');
+          spans.push(attribute(tag, 'itemtype')?.endsWith('/Mention')
+            ? { at: out.length, mri: mentions.find((m) => m.item === item)?.mri ?? '' }
+            : null);
+        } else {
+          const span = spans.pop();
+          if (span) {
+            const word = out.slice(span.at).trim();
+            out = out.slice(0, span.at);
+            let joined = word;
+            const token = mentionToken(span.mri);
+            if (lastMention !== null && lastMention.mri === span.mri && out.slice(lastMention.end).trim() === '') {
+              out = out.slice(0, lastMention.from);
+              if (token !== null) people.pop();
+              joined = `${lastMention.name} ${word}`;
+            }
+            const from = out.length;
+            if (token !== null) {
+              out += `@${token}`;
+              people.push([span.mri, joined]);
+            } else out += `@${joined}`;
+            lastMention = { from, end: out.length, mri: span.mri, name: joined };
+          }
+        }
         break;
       case 'img': {
         const alt = attribute(tag, 'alt');
@@ -242,16 +398,31 @@ export function htmlToMarkdown(html: string): string {
     }
   }
   push(rest);
-  return out.split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return { text: out.split('\n').map((l) => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim(), quotes, people };
 }
 
 /** A message's text, under the post's subject in bold when it has one. */
 export function bodyText(raw: unknown): string {
+  return body(raw).text;
+}
+
+/** `bodyText` with the replies the message quotes and the people it mentions. */
+export function body(raw: unknown): Converted {
   const content = str(raw, 'content') ?? '';
   const html = (str(raw, 'messagetype') ?? '').startsWith('RichText') || (str(raw, 'contenttype') ?? '').toLowerCase() === 'html';
-  const body = html ? htmlToMarkdown(content) : decodeEntities(content).trim();
+  const converted = html ? convert(content, mentionsOf(raw)) : { text: decodeEntities(content).trim(), quotes: [], people: [] };
   const title = subject(raw);
-  return title === null ? body : body === '' ? `**${title}**` : `**${title}**\n\n${body}`;
+  const text = title === null ? converted.text : converted.text === '' ? `**${title}**` : `**${title}**\n\n${converted.text}`;
+  return { ...converted, text };
+}
+
+/** A reply's quote as the quote attachment the timeline renders. */
+function quoteAttachment(conversation: string, quote: Quoted, directory: TeamsDirectory): Doc {
+  const author = (quote.authorMri !== null ? directory.name(quote.authorMri) : null) ?? quote.author;
+  const out: Doc = { text: quote.text, message_link: quote.id !== null ? permalink(conversation, quote.id) : '' };
+  if (author !== null) out.author_name = author;
+  if (quote.ts !== null) out.ts = quote.ts;
+  return out;
 }
 
 /** A channel post's subject, the title Teams shows above it: the chat
@@ -486,10 +657,14 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
   const author = mriOf(str(raw, 'from') ?? '');
   const edited = int((raw as Doc).properties, 'edittime');
   const root = rootOf(raw, id);
+  const converted = body(raw);
+  for (const [mri, name] of converted.people) if (directory.name(mri) === null) directory.remember(mri, name);
+  const quotes = converted.quotes.map((q) => quoteAttachment(conversation, q, directory));
+  const files: Doc[] = attachments !== null ? (JSON.parse(attachments) as Doc[]) : [];
   return {
     id: messageId(conversation, id),
     rid: conversation,
-    text: activity ? activity.text : bodyText(raw),
+    text: activity ? activity.text : converted.text,
     ts,
     authorId: author,
     authorName: directory.shown(author),
@@ -500,7 +675,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     threadShown: false,
     editedAt: edited && edited > 0 ? edited : null,
     md: null,
-    attachments,
+    attachments: quotes.length > 0 ? JSON.stringify([...quotes, ...files]) : attachments,
     reactions: reactions(raw, directory),
     urls: null,
     callId: null,
@@ -748,15 +923,23 @@ export function newOneOnOne(me: string, other: string, now: number): Doc | null 
   return { id, chatType: 'chat', isOneOnOne: true, isRead: true, members: [{ mri: me }, { mri: other }], createdAt: new Date(now).toISOString() };
 }
 
+/** A bot or app member (`28:`): Teams leaves it out of a chat's name. */
+export function isBot(mri: string): boolean {
+  return mri.startsWith('28:');
+}
+
+/** A chat named after its members: the people I talk with, not the bots
+ *  added to it, and none whose name is unknown while one is known. */
 export function chatRoom(me: string, chat: unknown, directory: TeamsDirectory): LocalRoom | null {
   const rid = str(chat, 'id');
   if (!rid) return null;
   const members = (Array.isArray((chat as Doc).members) ? ((chat as Doc).members as Doc[]) : [])
-    .map((m) => str(m, 'mri')).filter((m): m is string => m !== null && m !== me);
+    .map((m) => str(m, 'mri')).filter((m): m is string => m !== null && m !== me && !isBot(m));
   const meeting = str(chat, 'chatType') === 'meeting';
-  const oneOnOne = (chat as Doc).isOneOnOne === true;
+  const oneOnOne = (chat as Doc).isOneOnOne === true || (!meeting && members.length === 1 && str(chat, 'title') === null);
   const last = preview((chat as Doc).lastMessage, directory);
-  const others = members.map((m) => directory.shown(m));
+  const named = members.map((m) => directory.name(m)).filter((n): n is string => n !== null);
+  const others = named.length > 0 ? named : members.map((m) => directory.shown(m));
   const display = str(chat, 'title') ?? (others.length > 0 ? others.join(', ') : null);
   const at = last?.at ?? lastAt(chat);
   return {
@@ -785,7 +968,9 @@ export function channelName(channel: unknown): string {
 /** How a channel shows outside its team's section, where every team's
  *  default channel would otherwise read "General". */
 export function qualifiedName(team: string, channel: string): string {
-  return `${team} · ${channel}`;
+  const named = team !== '' && channel.slice(0, team.length).toLowerCase() === team.toLowerCase()
+    && !/^[\p{L}\p{N}]/u.test(channel.slice(team.length));
+  return named ? channel : `${team} · ${channel}`;
 }
 
 /** An aggregator channel as a room, named after its team too: the team's own
@@ -833,7 +1018,9 @@ export function toSubscription(rid: string, entry: unknown, me: string, team: { 
   const mine = doc.isLastMessageFromMe === true || (from !== null && mriOf(from) === me);
   const last = unreadAt(entry), seen = horizon(entry);
   const newer = last !== null && (seen === null ? team === null : last > seen);
-  const unread = !mine && (flag === null ? newer : !flag);
+  const hiddenChannel = team !== null && doc.isFavorite === false;
+  const flagged = (read: boolean) => !read && (team === null || last !== null);
+  const unread = !mine && !hiddenChannel && (flag === null ? newer : flagged(flag));
   const spoken = PREVIEWED_KINDS.has(str(doc.lastMessage, 'messageType') ?? '');
   const hidden = (doc.hidden === true && !spoken) || doc.isConversationDeleted === true;
   return {

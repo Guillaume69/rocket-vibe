@@ -412,7 +412,7 @@ impl TeamsSync {
         let mri = if key.contains(':') {
             key.to_owned()
         } else {
-            self.directory.mri_for(key).unwrap_or_else(|| key.to_owned())
+            self.directory.mri_of_token(key).or_else(|| self.directory.mri_for(key)).unwrap_or_else(|| key.to_owned())
         };
         let rows = self.service.profiles(std::slice::from_ref(&mri)).await;
         let row = rows

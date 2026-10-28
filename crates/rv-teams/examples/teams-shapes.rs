@@ -114,6 +114,60 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // Read-only unread hunt: each channel's read fields in the aggregator
+    // snapshot, beside the chat service's own conversation document.
+    if std::env::var_os("TEAMS_PROBE_UNREAD").is_some_and(|v| !v.is_empty()) {
+        let service = rv_teams::service::Service::new(
+            tokens.clone(),
+            &me,
+            std::sync::Arc::new(rv_teams::translate::Directory::default()),
+        );
+        let snapshot = service.snapshot().await.expect("snapshot");
+        let mut out = Vec::new();
+        for team in snapshot["teams"].as_array().into_iter().flatten() {
+            for channel in team["channels"].as_array().into_iter().flatten() {
+                let mut entry = serde_json::Map::new();
+                entry.insert("team".into(), team["displayName"].clone());
+                for (key, value) in channel.as_object().into_iter().flatten() {
+                    let lower = key.to_ascii_lowercase();
+                    let read = ["read", "horizon", "hidden", "favorite", "pinned", "member", "follow", "lastmessage"]
+                        .iter()
+                        .any(|k| lower.contains(k));
+                    if read || key == "displayName" || key == "id" {
+                        let value = match key.as_str() {
+                            "lastMessage" => serde_json::json!({
+                                "id": value["id"], "messageType": value["messageType"],
+                                "composeTime": value["composeTime"], "from": value["from"],
+                            }),
+                            _ => value.clone(),
+                        };
+                        entry.insert(key.clone(), value);
+                    }
+                }
+                entry.insert(
+                    "keys".into(),
+                    serde_json::json!(channel.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())),
+                );
+                if let Some(rid) = channel["id"].as_str()
+                    && let Some(doc) = service.conversation(rid).await
+                {
+                    entry.insert(
+                        "chatsvc".into(),
+                        serde_json::json!({
+                            "properties": doc["properties"],
+                            "lastMessage": {"id": doc["lastMessage"]["id"], "messagetype": doc["lastMessage"]["messagetype"],
+                                "originalarrivaltime": doc["lastMessage"]["originalarrivaltime"]},
+                        }),
+                    );
+                }
+                out.push(serde_json::Value::Object(entry));
+            }
+        }
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // Read-only id hunt: every field of the reads below whose value contains
     if let Some(query) = std::env::var_os("TEAMS_PROBE_PEOPLE").and_then(|v| v.into_string().ok()) {
         let shapes = tokens.probe_people(&query).await;

@@ -106,12 +106,92 @@ const KEYS: [(&str, &str); 6] = [
     ("angry", "angry"),
 ];
 
-/// The shortcode a reaction key shows as: a classic key, or a `<codepoints>_<name>` key's name.
+/// Teams' emoticon ids (Skype's, still sent as reaction keys and in
+/// `<img itemtype=".../Emoji" itemid=...>`) and their glyphs.
+const EMOTICONS: &[(&str, &str)] = &[
+    ("smile", "🙂"),
+    ("happy", "😊"),
+    ("grinning", "😀"),
+    ("bigsmile", "😃"),
+    ("laughcry", "😂"),
+    ("rofl", "🤣"),
+    ("wink", "😉"),
+    ("blush", "😊"),
+    ("inlove", "😍"),
+    ("hearteyes", "😍"),
+    ("kiss", "😘"),
+    ("tongueout", "😛"),
+    ("cool", "😎"),
+    ("think", "🤔"),
+    ("wonder", "🤔"),
+    ("smirk", "😏"),
+    ("unamused", "😒"),
+    ("eyeroll", "🙄"),
+    ("giggle", "🤭"),
+    ("nerdy", "🤓"),
+    ("whew", "😅"),
+    ("sweat", "😓"),
+    ("worry", "😟"),
+    ("cry", "😢"),
+    ("loudlycrying", "😭"),
+    ("sleepy", "😪"),
+    ("yawn", "🥱"),
+    ("sick", "🤒"),
+    ("puke", "🤮"),
+    ("devil", "😈"),
+    ("angel", "😇"),
+    ("party", "🥳"),
+    ("facepalm", "🤦"),
+    ("shrug", "🤷"),
+    ("clap", "👏"),
+    ("handsinair", "🙌"),
+    ("praying", "🙏"),
+    ("muscle", "💪"),
+    ("ok", "👌"),
+    ("yes", "👍"),
+    ("no", "👎"),
+    ("dislike", "👎"),
+    ("wave", "👋"),
+    ("fire", "🔥"),
+    ("100", "💯"),
+    ("star", "⭐"),
+    ("sun", "☀️"),
+    ("coffee", "☕"),
+    ("cake", "🍰"),
+    ("beer", "🍺"),
+    ("gift", "🎁"),
+    ("rose", "🌹"),
+    ("brokenheart", "💔"),
+    ("lips", "💋"),
+    ("poop", "💩"),
+    ("skull", "💀"),
+    ("smilerobot", "🤖"),
+    ("robot", "🤖"),
+    ("rocket", "🚀"),
+    ("checkmark", "✅"),
+];
+
+/// The glyph of a `<codepoints>_<name>` key's codepoints, `1f62d` or `1f44d-1f3fb`.
+fn codepoints(key: &str) -> Option<String> {
+    let (points, _) = key.split_once('_')?;
+    points
+        .split('-')
+        .map(|hex| u32::from_str_radix(hex, 16).ok().and_then(char::from_u32))
+        .collect::<Option<String>>()
+        .filter(|g| !g.is_empty())
+}
+
+/// The shortcode a reaction key shows as: a classic key, a key carrying its
+/// codepoints (`1f62d_loudlycrying`) or a Teams emoticon id, by its glyph's
+/// standard shortcode; else the key's name.
 pub fn reaction_code(key: &str) -> String {
     if let Some((_, code)) = KEYS.iter().find(|(k, _)| *k == key) {
         return (*code).to_owned();
     }
-    key.split_once('_').map(|(_, name)| name).filter(|n| !n.is_empty()).unwrap_or(key).to_owned()
+    let name = key.split_once('_').map(|(_, name)| name).filter(|n| !n.is_empty()).unwrap_or(key);
+    let glyph = codepoints(key)
+        .or_else(|| EMOTICONS.iter().find(|(id, _)| *id == name || *id == key).map(|(_, glyph)| (*glyph).to_owned()));
+    glyph.and_then(|g| rv_provider::emoji::shortcode(&g)).unwrap_or(name).to_owned()
 }
 
 /// The key a shortcode is sent as; only the classic keys are known to be accepted.
@@ -163,6 +243,18 @@ impl Directory {
         found
     }
 
+    /// The name of the person a mention token (`mention_token`) stands for.
+    pub fn by_token(&self, token: &str) -> Option<String> {
+        let names = self.names.lock().unwrap();
+        names.iter().find(|(mri, _)| mention_token(mri) == Some(token)).map(|(_, name)| name.clone())
+    }
+
+    /// The MRI a mention token stands for, among the people known.
+    pub fn mri_of_token(&self, token: &str) -> Option<String> {
+        let names = self.names.lock().unwrap();
+        names.keys().find(|mri| mention_token(mri) == Some(token)).cloned()
+    }
+
     pub fn known(&self, mri: &str) -> bool {
         self.names.lock().unwrap().contains_key(mri)
     }
@@ -201,16 +293,121 @@ fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     }
 }
 
+/// A person a message mentions, from its `properties.mentions`: Teams writes
+/// one `<span itemtype=".../Mention" itemid=N>` per word of the name.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mentioned {
+    pub item: String,
+    pub mri: String,
+}
+
+/// `properties.mentions`, a JSON string or an array of `{itemid, mri, displayName}`.
+pub fn mentions_of(raw: &Value) -> Vec<Mentioned> {
+    let list = match raw.pointer("/properties/mentions") {
+        Some(Value::Array(list)) => list.clone(),
+        Some(Value::String(s)) => serde_json::from_str(s).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    list.iter()
+        .filter_map(|m| {
+            let item = str_of(m, "itemid").map(str::to_owned).or_else(|| int_of(m, "itemid").map(|n| n.to_string()))?;
+            Some(Mentioned { item, mri: str_of(m, "mri")?.to_owned() })
+        })
+        .collect()
+}
+
+/// The token a mention is written as, `@<object id>`: one word the renderer
+/// reads whole, which `Directory::by_token` names back.
+pub fn mention_token(mri: &str) -> Option<&str> {
+    let token = mri.rsplit(':').next()?;
+    (!token.is_empty() && token.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')).then_some(token)
+}
+
+/// `text` with each `@<token>` a person stands behind spelled `@<name>`.
+pub fn spell_mentions(text: &str, name: impl Fn(&str) -> Option<String>) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('@') {
+        out.push_str(&rest[..=at]);
+        rest = &rest[at + 1..];
+        let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '-')).unwrap_or(rest.len());
+        match name(&rest[..end]) {
+            Some(full) if end > 0 => out.push_str(&full),
+            _ => out.push_str(&rest[..end]),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A reply's quote, `<blockquote itemtype=".../Reply" itemid=<message id>>`
+/// holding the author (`<strong itemprop="mri" itemid=<mri>>`), the time
+/// (`<span itemprop="time" itemid=<ms>>`) and the text (`<p itemprop="preview">`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Quoted {
+    pub id: Option<String>,
+    pub author: Option<String>,
+    pub author_mri: Option<String>,
+    pub ts: Option<i64>,
+    pub text: String,
+}
+
+fn quoted(open: &str, inner: &str) -> Quoted {
+    let mut quote = Quoted { id: attribute(open, "itemid").map(str::to_owned), ..Default::default() };
+    let mut rest = inner;
+    while let Some(start) = rest.find('<') {
+        let Some(end) = rest[start..].find('>').map(|e| start + e) else { break };
+        let tag = &rest[start + 1..end];
+        rest = &rest[end + 1..];
+        let (name, prop) =
+            (tag.split_whitespace().next().unwrap_or("").to_ascii_lowercase(), attribute(tag, "itemprop"));
+        let close = format!("</{name}");
+        let body = rest.to_ascii_lowercase().find(&close).map_or(rest, |c| &rest[..c]);
+        match prop {
+            Some("mri") => {
+                quote.author_mri = attribute(tag, "itemid").map(str::to_owned);
+                quote.author = Some(html_to_markdown(body)).filter(|n| !n.is_empty());
+            }
+            Some("time") => quote.ts = attribute(tag, "itemid").and_then(|t| t.parse().ok()),
+            Some("preview") => quote.text = html_to_markdown(body),
+            _ => continue,
+        }
+        rest = &rest[body.len()..];
+    }
+    quote
+}
+
+/// Teams' message HTML, as markdown with the replies it quotes set apart.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Converted {
+    pub text: String,
+    pub quotes: Vec<Quoted>,
+    /// The people mentioned by token, with the name their spans spelled.
+    pub people: Vec<(String, String)>,
+}
+
 /// Teams' message HTML to markdown: paragraphs, breaks, emphasis, code, links,
 /// lists, quotes, mentions (`@Name`) and emoji (`alt`). Scripts, styles and
-/// remote images are dropped.
+/// remote images are dropped; a reply's quote is left out.
 pub fn html_to_markdown(html: &str) -> String {
+    convert(html, &[]).text
+}
+
+/// `html_to_markdown`, with the replies quoted apart and the mentions whose
+/// person `mentions` names as `@<token>`; the words of one person's name,
+/// one span each, make one mention.
+pub fn convert(html: &str, mentions: &[Mentioned]) -> Converted {
     let mut out = String::new();
+    let mut quotes = Vec::new();
     let mut rest = html;
     let mut lists: Vec<Option<u32>> = Vec::new();
     let mut link: Option<String> = None;
     let mut link_text_start = 0;
     let mut pre = false;
+    let mut spans: Vec<Option<(usize, Option<String>)>> = Vec::new();
+    let mut last_mention: Option<(usize, usize, String, String)> = None;
+    let mut people: Vec<(String, String)> = Vec::new();
     while let Some(start) = rest.find('<') {
         push_text(&mut out, &rest[..start], pre);
         rest = &rest[start..];
@@ -245,6 +442,12 @@ pub fn html_to_markdown(html: &str) -> String {
             ("pre", true) => {
                 pre = false;
                 out.push_str("\n```\n");
+            }
+            ("blockquote", false) if attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Reply")) => {
+                let close = rest.to_ascii_lowercase().find("</blockquote").unwrap_or(rest.len());
+                quotes.push(quoted(tag, &rest[..close]));
+                rest = &rest[close..];
+                rest = rest.find('>').map_or("", |end| &rest[end + 1..]);
             }
             ("blockquote", false) => out.push_str("\n> "),
             ("blockquote", true) => out.push('\n'),
@@ -283,7 +486,39 @@ pub fn html_to_markdown(html: &str) -> String {
                     }
                 }
             }
-            ("span", false) if attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Mention")) => out.push('@'),
+            ("span", false) => {
+                let mention = attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Mention"));
+                spans.push(mention.then(|| {
+                    let item = attribute(tag, "itemid");
+                    (out.len(), mentions.iter().find(|m| Some(m.item.as_str()) == item).map(|m| m.mri.clone()))
+                }));
+            }
+            ("span", true) => {
+                if let Some(Some((at, mri))) = spans.pop() {
+                    let word = out[at..].trim().to_owned();
+                    out.truncate(at);
+                    let mri = mri.unwrap_or_default();
+                    let joined = match &last_mention {
+                        Some((from, end, who, name)) if *who == mri && out[*end..].trim().is_empty() => {
+                            out.truncate(*from);
+                            if mention_token(&mri).is_some() {
+                                people.pop();
+                            }
+                            format!("{name} {word}")
+                        }
+                        _ => word,
+                    };
+                    let from = out.len();
+                    match mention_token(&mri) {
+                        Some(token) => {
+                            out.push_str(&format!("@{token}"));
+                            people.push((mri.clone(), joined.clone()));
+                        }
+                        None => out.push_str(&format!("@{joined}")),
+                    }
+                    last_mention = Some((from, out.len(), mri, joined));
+                }
+            }
             ("img", _) => {
                 let emoji = attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Emoji"));
                 if let Some(alt) = attribute(tag, "alt").filter(|_| emoji) {
@@ -299,7 +534,7 @@ pub fn html_to_markdown(html: &str) -> String {
     while joined.contains("\n\n\n") {
         joined = joined.replace("\n\n\n", "\n\n");
     }
-    joined.trim().to_owned()
+    Converted { text: joined.trim().to_owned(), quotes, people }
 }
 
 fn push_text(out: &mut String, text: &str, pre: bool) {
@@ -315,16 +550,39 @@ fn push_text(out: &mut String, text: &str, pre: bool) {
 /// A message's text: HTML for `RichText/Html`, plain otherwise, under the
 /// post's subject in bold when it has one.
 pub fn body_text(raw: &Value) -> String {
+    body(raw).text
+}
+
+/// `body_text` with the replies the message quotes and the people it mentions.
+pub fn body(raw: &Value) -> Converted {
     let content = str_of(raw, "content").unwrap_or_default();
     let html = str_of(raw, "messagetype").is_some_and(|t| t.starts_with("RichText"))
         || str_of(raw, "contenttype").is_some_and(|t| t.eq_ignore_ascii_case("html"));
-    let body =
-        if html { html_to_markdown(content) } else { rv_provider::text::decode_entities(content).trim().to_owned() };
-    match subject(raw) {
-        Some(title) if body.is_empty() => format!("**{title}**"),
-        Some(title) => format!("**{title}**\n\n{body}"),
-        None => body,
+    let mut converted = if html {
+        convert(content, &mentions_of(raw))
+    } else {
+        Converted { text: rv_provider::text::decode_entities(content).trim().to_owned(), ..Default::default() }
+    };
+    converted.text = match subject(raw) {
+        Some(title) if converted.text.is_empty() => format!("**{title}**"),
+        Some(title) => format!("**{title}**\n\n{}", converted.text),
+        None => converted.text,
+    };
+    converted
+}
+
+/// A reply's quote as the quote attachment the timeline renders.
+fn quote_attachment(conversation: &str, quote: &Quoted, directory: &Directory) -> Value {
+    let author = quote.author_mri.as_deref().and_then(|mri| directory.name(mri)).or_else(|| quote.author.clone());
+    let link = quote.id.as_deref().map_or_else(String::new, |id| permalink(conversation, id));
+    let mut out = json!({"text": quote.text, "message_link": link});
+    if let Some(author) = author {
+        out["author_name"] = json!(author);
     }
+    if let Some(ts) = quote.ts {
+        out["ts"] = json!(ts);
+    }
+    out
 }
 
 /// An edited text without the subject `body_text` put in front of it: the
@@ -637,9 +895,22 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
     let at = instant(raw, "originalarrivaltime").or_else(|| instant(raw, "composetime")).or_else(|| id.parse().ok())?;
     let props = raw.get("properties").cloned().unwrap_or(Value::Null);
     let edited_at = int_of(&props, "edittime").filter(|t| *t > 0);
+    let converted = body(raw);
+    for (mri, name) in &converted.people {
+        if !directory.known(mri) {
+            directory.remember(mri, name);
+        }
+    }
     let text = match &system {
         Some((_, param)) => param.clone(),
-        None => Some(body_text(raw)),
+        None => Some(converted.text),
+    };
+    let quotes: Vec<Value> = converted.quotes.iter().map(|q| quote_attachment(conversation, q, directory)).collect();
+    let attachments = if quotes.is_empty() {
+        attachments
+    } else {
+        let files: Vec<Value> = attachments.and_then(|a| serde_json::from_str(&a).ok()).unwrap_or_default();
+        Some(Value::Array(quotes.into_iter().chain(files).collect()).to_string())
     };
     let thread_id = root_of(raw, &id).map(|root| message_id(conversation, &root));
     Some(Message {
@@ -820,6 +1091,13 @@ pub fn new_one_on_one(me: &str, other: &str, now: i64) -> Option<Value> {
     }))
 }
 
+/// A bot or app member (`28:`): Teams leaves it out of a chat's name.
+pub fn bot(mri: &str) -> bool {
+    mri.starts_with("28:")
+}
+
+/// A chat named after its members: the people I talk with, not the bots
+/// added to it, and none whose name is unknown while one is known.
 pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> {
     let rid = str_of(chat, "id")?;
     let members: Vec<&str> = chat
@@ -828,12 +1106,14 @@ pub fn chat_room(me: &str, chat: &Value, directory: &Directory) -> Option<Room> 
         .into_iter()
         .flatten()
         .filter_map(|m| str_of(m, "mri"))
-        .filter(|m| *m != me)
+        .filter(|m| *m != me && !bot(m))
         .collect();
-    let one_on_one = chat.get("isOneOnOne").and_then(Value::as_bool) == Some(true);
     let meeting = str_of(chat, "chatType") == Some("meeting");
+    let one_on_one = chat.get("isOneOnOne").and_then(Value::as_bool) == Some(true)
+        || (!meeting && members.len() == 1 && str_of(chat, "title").is_none());
     let last = chat.get("lastMessage").and_then(|l| preview(l, directory));
-    let others: Vec<String> = members.iter().map(|m| directory.shown(m)).collect();
+    let named: Vec<String> = members.iter().filter_map(|m| directory.name(m)).collect();
+    let others = if named.is_empty() { members.iter().map(|m| directory.shown(m)).collect() } else { named };
     let title = str_of(chat, "title").map(str::to_owned);
     let display = title.or_else(|| (!others.is_empty()).then(|| others.join(", ")));
     let at = last.as_ref().map(|(_, _, at)| *at).or_else(|| last_at(chat));
@@ -858,9 +1138,13 @@ pub fn channel_name(channel: &Value) -> String {
 }
 
 /// How a channel shows outside its team's section, where every team's
-/// default channel would otherwise read "General".
+/// default channel would otherwise read "General"; a channel already named
+/// after its team ("Tech - GED") keeps its own name.
 pub fn qualified_name(team: &str, channel: &str) -> String {
-    format!("{team} · {channel}")
+    let named = !team.is_empty()
+        && channel.get(..team.len()).is_some_and(|start| start.eq_ignore_ascii_case(team))
+        && !channel[team.len()..].chars().next().is_some_and(char::is_alphanumeric);
+    if named { channel.to_owned() } else { format!("{team} · {channel}") }
 }
 
 /// An aggregator channel as a room, filed under its team: named after the
@@ -899,7 +1183,9 @@ fn favorite(entry: &Value, channel: bool) -> bool {
 
 /// An aggregator chat's or channel's read state. Teams gives no count: one
 /// unread room counts one, its mentions are not known. A channel with no read
-/// horizon is one never opened or hidden, which Teams shows as read. A chat
+/// horizon is one never opened or hidden, which Teams shows as read; a channel
+/// hidden from its team's list (`isFavorite: false`) is never unread, and one
+/// Teams flags unread with no message to read is read. A chat
 /// Teams marks hidden is listed again once its last message is one it shows:
 /// Teams sets the flag on many chats its own list still shows.
 pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: Option<(&str, &str)>) -> Subscription {
@@ -911,7 +1197,10 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
         (Some(_), None) => team.is_none(),
         _ => false,
     };
-    let unread = !mine && read_flag.map_or(newer, |read| !read);
+    let channel = team.is_some();
+    let hidden_channel = channel && entry.get("isFavorite").and_then(Value::as_bool) == Some(false);
+    let flagged = |read: bool| !read && (!channel || unread_at(entry).is_some());
+    let unread = !mine && !hidden_channel && read_flag.map_or(newer, flagged);
     let spoken =
         entry.get("lastMessage").is_some_and(|l| str_of(l, "messageType").is_some_and(|k| PREVIEWED.contains(&k)));
     let hidden = (entry.get("hidden").and_then(Value::as_bool) == Some(true) && !spoken)
@@ -1360,5 +1649,124 @@ mod tests {
         assert_eq!(horizon(&read), Some(1792540521726));
         read_up_to(&mut read, 1);
         assert_eq!(horizon(&read), Some(1792540521726), "never marked backwards");
+    }
+
+    #[test]
+    fn hidden_channels_and_flags_with_nothing_to_read_are_read() {
+        let me = "8:orgid:me";
+        let team = Some(("team", "ID Capture"));
+        // Probe of the stuck channels (2026-10-28): Teams' own flag says
+        // unread, but there is no last message and no horizon.
+        let flagged = json!({"id": "19:alerts@thread.tacv2", "isMessageRead": false, "isFavorite": true});
+        assert!(!subscription("19:alerts@thread.tacv2", &flagged, me, 5, team).alert);
+        let text = json!({"messageType": "RichText/Html", "content": "<p>yo</p>", "from": "8:orgid:bbb",
+            "composeTime": "2026-10-20T23:55:21.726Z", "id": "1792540521726"});
+        let shown = json!({"id": "19:hello@thread.tacv2", "isMessageRead": false, "isFavorite": true,
+            "lastMessage": text, "consumptionHorizon": {"originalArrivalTime": 1792540500000_i64}});
+        assert!(subscription("19:hello@thread.tacv2", &shown, me, 5, team).alert);
+        let mut hidden = shown.clone();
+        hidden["isFavorite"] = json!(false);
+        assert!(!subscription("19:hello@thread.tacv2", &hidden, me, 5, team).alert, "hidden from the team list");
+        let chat = json!({"id": "19:x@thread.v2", "isRead": false, "isFavorite": false, "lastMessage": text});
+        assert!(subscription("19:x@thread.v2", &chat, me, 5, None).alert, "a chat's isFavorite is a star");
+    }
+
+    #[test]
+    fn a_channel_named_after_its_team_is_not_prefixed_twice() {
+        assert_eq!(qualified_name("Tech", "Tech - GED"), "Tech - GED");
+        assert_eq!(qualified_name("Tech", "tech · ops"), "tech · ops");
+        assert_eq!(qualified_name("Tech", "Technology"), "Tech · Technology");
+        assert_eq!(qualified_name("Tech", "General"), "Tech · General");
+    }
+
+    #[test]
+    fn a_chat_is_named_after_its_people_not_its_bots() {
+        let me = "8:orgid:me";
+        let d = Directory::default();
+        d.remember("8:orgid:micael", "Micael GONZALEZ");
+        let chat = json!({"id": "19:c@thread.v2", "isOneOnOne": false, "chatType": "chat", "members": [
+            {"mri": me}, {"mri": "8:orgid:micael"}, {"mri": "28:512b84d2-5840-45d6-8d01-5f073836d039"}]});
+        let room = chat_room(me, &chat, &d).unwrap();
+        assert_eq!(room.display_name.as_deref(), Some("Micael GONZALEZ"));
+        assert_eq!(room.kind, "d");
+        assert_eq!(room.dm_other_uid.as_deref(), Some("8:orgid:micael"), "me and one person");
+        let group = json!({"id": "19:g@thread.v2", "chatType": "chat", "members": [
+            {"mri": me}, {"mri": "8:orgid:micael"}, {"mri": "8:orgid:unknown"}]});
+        let room = chat_room(me, &group, &d).unwrap();
+        assert_eq!(room.display_name.as_deref(), Some("Micael GONZALEZ"), "an unknown name is left out");
+        assert!(room.dm_other_uid.is_none());
+    }
+
+    #[test]
+    fn reaction_keys_show_as_standard_shortcodes() {
+        assert_eq!(reaction_code("like"), "+1");
+        assert_eq!(reaction_code("loudlycrying"), "sob");
+        assert_eq!(reaction_code("smilerobot"), "robot");
+        assert_eq!(reaction_code("1f62d_loudlycrying"), "sob");
+        assert_eq!(reaction_code("1f44d-1f3fb_thumbsuplight"), rv_provider::emoji::shortcode("👍🏻").unwrap());
+        assert_eq!(reaction_code("zzzunknown"), "zzzunknown");
+    }
+
+    #[test]
+    fn a_reply_quote_is_set_apart_and_the_text_after_it_trimmed() {
+        let html = concat!(
+            r#"<blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="1792500000000">"#,
+            r#"<strong itemprop="mri" itemid="8:orgid:marc">Marc-Etienne BARRUT</strong>"#,
+            r#"<span itemprop="time" itemid="1792500000000"></span>"#,
+            r#"<p itemprop="preview">Je suis outré</p></blockquote>"#,
+            r#"<p>&nbsp; Je m'en doute. J'espère que tu t'en remettras</p>"#
+        );
+        let converted = convert(html, &[]);
+        assert_eq!(converted.text, "Je m'en doute. J'espère que tu t'en remettras");
+        assert_eq!(
+            converted.quotes,
+            vec![Quoted {
+                id: Some("1792500000000".into()),
+                author: Some("Marc-Etienne BARRUT".into()),
+                author_mri: Some("8:orgid:marc".into()),
+                ts: Some(1792500000000),
+                text: "Je suis outré".into(),
+            }]
+        );
+        let d = Directory::default();
+        let m = message("19:c@thread.v2", &raw("1792600000000", json!({"content": html})), &d).unwrap();
+        let quotes: Value = serde_json::from_str(m.attachments.as_deref().unwrap()).unwrap();
+        assert_eq!(quotes[0]["author_name"], "Marc-Etienne BARRUT");
+        assert_eq!(quotes[0]["text"], "Je suis outré");
+        assert_eq!(quotes[0]["message_link"], permalink("19:c@thread.v2", "1792500000000"));
+    }
+
+    #[test]
+    fn a_mention_spelled_one_span_per_word_is_one_mention() {
+        let html = concat!(
+            r#"<p>bien vu. <span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Marc-Etienne</span>"#,
+            r#"&nbsp;<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="1">BARRUT</span> pour action</p>"#,
+            r#"<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="2">Olivier</span> "#,
+            r#"<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="3">DAUMIN</span> pour info</p>"#
+        );
+        let marc = "8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073";
+        let olivier = "8:orgid:0a7c1d02-1111-2222-3333-444455556666";
+        let mentions = json!([
+            {"@type": "http://schema.skype.com/Mention", "itemid": 0, "mri": marc, "mentionType": "person", "displayName": "Marc-Etienne"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 1, "mri": marc, "mentionType": "person", "displayName": "BARRUT"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 2, "mri": olivier, "mentionType": "person", "displayName": "Olivier"},
+            {"@type": "http://schema.skype.com/Mention", "itemid": 3, "mri": olivier, "mentionType": "person", "displayName": "DAUMIN"},
+        ]);
+        let raw = raw("1792600000001", json!({"content": html, "properties": {"mentions": mentions.to_string()}}));
+        let d = Directory::default();
+        let m = message("19:c@thread.v2", &raw, &d).unwrap();
+        assert_eq!(
+            m.text.as_deref(),
+            Some(
+                "bien vu. @f1c9871e-4fe6-43b1-aa6f-5151f41cb073 pour action\n@0a7c1d02-1111-2222-3333-444455556666 pour info"
+            )
+        );
+        assert_eq!(d.by_token("f1c9871e-4fe6-43b1-aa6f-5151f41cb073").as_deref(), Some("Marc-Etienne BARRUT"));
+        assert_eq!(d.mri_of_token("0a7c1d02-1111-2222-3333-444455556666").as_deref(), Some(olivier));
+        assert_eq!(
+            spell_mentions(m.text.as_deref().unwrap(), |t| d.by_token(t)),
+            "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info"
+        );
+        assert_eq!(html_to_markdown(html), "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info");
     }
 }

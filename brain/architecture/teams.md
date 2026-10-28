@@ -47,9 +47,13 @@ one-to-one peers are named from their short profiles (`listing` in `teams/sync.r
 not yet seen in that list. A chat Teams marks `hidden` is listed again once its last
 message is one the list previews. A reconcile keeps the rooms the last catch-up filed,
 so a chat the snapshot has not caught up with yet is not purged. A chat with no topic is named from its members, after its last message has taught
-the directory the sender's name. A channel is named "Team · Channel" (its own name stays
+the directory the sender's name: bots and apps (`28:` members) are left out, and so is a
+member whose name is still unknown while another's is known; a chat of me and one person
+(bots aside) is that person's direct chat even when Teams says `isOneOnOne: false`
+(`chat_room` / `chatRoom`). A channel is named "Team · Channel" (its own name stays
 the room's `name`, which room information and the rename field show), the list dropping
-the team under that team's own header. A channel's `isFavorite` is Teams' older "shown in
+the team under that team's own header; a channel whose name already starts with its team's
+("Tech - GED" in "Tech") keeps its own name (`qualified_name` / `qualifiedName`). A channel's `isFavorite` is Teams' older "shown in
 the team list" (every team's General carries it), not a favorite: a channel is a
 favorite only when `isPinned`, a chat when `isFavorite` (the channel flag's name is
 inferred, not yet seen on a pinned channel). Teams gives no unread count: an unread room counts one,
@@ -57,8 +61,14 @@ from `isRead` (`isMessageRead`) when the entry carries it, else from a last mess
 than my `consumptionHorizon`, and never when the last message is mine. A last message that
 is a `ThreadActivity/*` or `Control/*` event does not count (the store keeps none of them,
 so nothing could be read past it), and a channel with no horizon at all (never opened, or
-hidden in Teams) is read, as Teams shows it; a chat with no horizon stays unread
-(`subscription` in `crates/rv-teams/src/translate.rs`, `toSubscription` in
+hidden in Teams) is read, as Teams shows it; a chat with no horizon stays unread. A channel
+hidden from its team's list (`isFavorite: false`) is never unread, and a channel Teams
+flags `isMessageRead: false` with no last message is read: on a real account (2026-10-28)
+five channels carried that flag with no message and no horizon, two hidden ones had a message
+past their horizon, and Teams showed none of them unread; in the probe tenant `isFavorite`
+was true on exactly the channels its sidebar showed (`TEAMS_PROBE_UNREAD` in
+`examples/teams-shapes.rs` dumps each channel's read fields) (`subscription` in
+`crates/rv-teams/src/translate.rs`, `toSubscription` in
 `packages/provider-teams/src/translate.ts`).
 
 History comes from the chat service, `users/ME/conversations/<id>/messages`, newest
@@ -69,8 +79,18 @@ reads from the newest known id (`startTime`); a full page means a gap, and the r
 stored messages are replaced by the newest page.
 
 Messages are `RichText/Html` or `Text`; the HTML becomes markdown (bold, italic,
-strike, code, links, lists, mentions as `@Name`, Teams emoji as their glyph), scripts,
-styles and remote images dropped. A channel post's subject (`properties.subject`, or
+strike, code, links, lists, mentions, Teams emoji as their glyph), scripts,
+styles and remote images dropped. Teams writes a mention as one
+`<span itemtype=".../Mention" itemid=N>` per word of the name, each `itemid` in
+`properties.mentions` with the person's MRI: the spans of one person make one mention,
+written `@<object id>` (the MRI's last part, one word the renderer reads whole) and
+named back by the directory (`Session::mention_name`, the provider's `displayNames.mentions`);
+a mention of me is the one naming my username, and a notification spells the names
+out (`convert`, `spell_mentions` / `convert`, `spellMentions`). A reply quoting a message,
+`<blockquote itemtype=".../Reply" itemid=<message id>>` with its author's
+`<strong itemprop="mri">`, its `<span itemprop="time">` and its `<p itemprop="preview">`,
+is left out of the text and becomes a quote attachment (author, text, time,
+`message_link` to the message in Teams) shown as the other servers' quotes. A channel post's subject (`properties.subject`, or
 `subject` on a list entry) is its title: the text starts with it in bold, and an edit
 sends the body without it, the subject staying the message's own property (`body_text`,
 `without_subject` in `rv-teams`; `bodyText`, `withoutSubject` in `provider-teams`; the
@@ -82,7 +102,10 @@ each Teams write on the desktops, `TeamsThreads` and the `thread` live event tur
 `thread-counters` on Android), which shows "N replies" under the post and opens its
 thread. Ids are `<conversation>/<server id>`. Reactions are
 `properties.emotions`, keyed by Teams' classic names (`like`, `heart`, `laugh`,
-`surprised`, `sad`, `angry`): the apps offer only those. Reading moves my
+`surprised`, `sad`, `angry`): the apps offer only those. Others read show by their
+glyph's standard shortcode: a `<codepoints>_<name>` key by its codepoints, a Skype
+emoticon id (`loudlycrying`, `smilerobot`, ...) through a table in `reaction_code` /
+`reactionCode` (hand-made, not read from Teams' catalog); an unknown one by its name. Reading moves my
 `consumptionhorizon` to the newest message, never back: the newer of the newest stored
 (or live) message and the aggregator entry's `lastMessage.id`, so an event the store never
 keeps is still read past; the room's row turns read at once (`unmarked_newest` and

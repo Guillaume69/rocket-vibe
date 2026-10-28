@@ -5,6 +5,7 @@ import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './aut
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, people, peopleRequest,
+  convert, permalink, qualifiedName, spellMentions,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -356,4 +357,76 @@ test('a one-to-one is named after both ids in order, and lists before its first 
   assert.equal(room?.rid, id);
   assert.equal(room?.type, 'd');
   assert.equal(room?.displayName ?? room?.name, 'Fairouz');
+});
+
+test('hidden channels and flags with nothing to read are read', () => {
+  const team = { id: 'team', name: 'ID Capture' };
+  const flagged = { id: '19:alerts@thread.tacv2', isMessageRead: false, isFavorite: true };
+  assert.equal(toSubscription('19:alerts@thread.tacv2', flagged, '8:orgid:me', team).alert, false);
+  const text = { messageType: 'RichText/Html', content: '<p>yo</p>', from: '8:orgid:bbb', composeTime: '2026-10-20T23:55:21.726Z', id: '1792540521726' };
+  const shown = { id: '19:hello@thread.tacv2', isMessageRead: false, isFavorite: true, lastMessage: text, consumptionHorizon: { originalArrivalTime: 1792540500000 } };
+  assert.equal(toSubscription('19:hello@thread.tacv2', shown, '8:orgid:me', team).alert, true);
+  assert.equal(toSubscription('19:hello@thread.tacv2', { ...shown, isFavorite: false }, '8:orgid:me', team).alert, false);
+  const chat = { id: '19:x@thread.v2', isRead: false, isFavorite: false, lastMessage: text };
+  assert.equal(toSubscription('19:x@thread.v2', chat, '8:orgid:me', null).alert, true);
+});
+
+test('a channel named after its team is not prefixed twice', () => {
+  assert.equal(qualifiedName('Tech', 'Tech - GED'), 'Tech - GED');
+  assert.equal(qualifiedName('Tech', 'Technology'), 'Tech · Technology');
+  assert.equal(qualifiedName('Tech', 'General'), 'Tech · General');
+});
+
+test('a chat is named after its people, not its bots', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:micael', 'Micael GONZALEZ');
+  const chat = { id: '19:c@thread.v2', isOneOnOne: false, chatType: 'chat', members: [
+    { mri: '8:orgid:me' }, { mri: '8:orgid:micael' }, { mri: '28:512b84d2-5840-45d6-8d01-5f073836d039' }] };
+  const room = chatRoom('8:orgid:me', chat, d);
+  assert.equal(room?.displayName, 'Micael GONZALEZ');
+  assert.equal(room?.type, 'd');
+  assert.equal(room?.dmOtherUid, '8:orgid:micael');
+});
+
+test('reaction keys show as standard shortcodes', () => {
+  assert.equal(reactionCode('like'), '+1');
+  assert.equal(reactionCode('loudlycrying'), 'sob');
+  assert.equal(reactionCode('smilerobot'), 'robot');
+  assert.equal(reactionCode('1f62d_loudlycrying'), 'sob');
+  assert.equal(reactionCode('zzzunknown'), 'zzzunknown');
+});
+
+test('a reply quote is set apart and the text after it trimmed', () => {
+  const html = '<blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="1792500000000">'
+    + '<strong itemprop="mri" itemid="8:orgid:marc">Marc-Etienne BARRUT</strong>'
+    + '<span itemprop="time" itemid="1792500000000"></span>'
+    + '<p itemprop="preview">Je suis outré</p></blockquote>'
+    + "<p>&nbsp; Je m'en doute. J'espère que tu t'en remettras</p>";
+  const converted = convert(html, []);
+  assert.equal(converted.text, "Je m'en doute. J'espère que tu t'en remettras");
+  assert.deepEqual(converted.quotes, [{ id: '1792500000000', author: 'Marc-Etienne BARRUT', authorMri: '8:orgid:marc', ts: 1792500000000, text: 'Je suis outré' }]);
+  const m = toMessage('19:c@thread.v2', raw('1792600000000', { content: html }), new TeamsDirectory());
+  const quotes = JSON.parse(m?.attachments ?? '[]') as Record<string, unknown>[];
+  assert.equal(quotes[0]?.author_name, 'Marc-Etienne BARRUT');
+  assert.equal(quotes[0]?.message_link, permalink('19:c@thread.v2', '1792500000000'));
+});
+
+test('a mention spelled one span per word is one mention', () => {
+  const html = '<p>bien vu. <span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Marc-Etienne</span>'
+    + '&nbsp;<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="1">BARRUT</span> pour action</p>'
+    + '<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="2">Olivier</span> '
+    + '<span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="3">DAUMIN</span> pour info</p>';
+  const marc = '8:orgid:f1c9871e-4fe6-43b1-aa6f-5151f41cb073';
+  const olivier = '8:orgid:0a7c1d02-1111-2222-3333-444455556666';
+  const mentions = JSON.stringify([
+    { itemid: 0, mri: marc, displayName: 'Marc-Etienne' }, { itemid: 1, mri: marc, displayName: 'BARRUT' },
+    { itemid: 2, mri: olivier, displayName: 'Olivier' }, { itemid: 3, mri: olivier, displayName: 'DAUMIN' },
+  ]);
+  const d = new TeamsDirectory();
+  const m = toMessage('19:c@thread.v2', raw('1792600000001', { content: html, properties: { mentions } }), d);
+  assert.equal(m?.text, 'bien vu. @f1c9871e-4fe6-43b1-aa6f-5151f41cb073 pour action\n@0a7c1d02-1111-2222-3333-444455556666 pour info');
+  assert.equal(d.byToken('f1c9871e-4fe6-43b1-aa6f-5151f41cb073'), 'Marc-Etienne BARRUT');
+  assert.equal(d.mentionNames().get('0a7c1d02-1111-2222-3333-444455556666'), 'Olivier DAUMIN');
+  assert.equal(spellMentions(m?.text ?? '', (t) => d.byToken(t)), 'bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info');
+  assert.equal(htmlToMarkdown(html), 'bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info');
 });

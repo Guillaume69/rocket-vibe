@@ -780,7 +780,7 @@ impl Session {
                 }
             }
             let (teams, rid) = (teams.clone(), rid.to_owned());
-            tokio::spawn(async move {
+            self.runtime.spawn(async move {
                 let _ = teams.set_typing(&rid, active).await;
             });
             return;
@@ -885,8 +885,8 @@ impl Session {
             author: self.person_label(&m.author_id).or_else(|| m.author_name.clone()).unwrap_or_default(),
             room_name,
             direct: kind == "d",
-            body: (!encrypted).then(|| crate::notify::body_of(m)),
-            mentions_me: crate::notify::mentions_me(m, &self.info.username),
+            body: (!encrypted).then(|| self.spelled_mentions(crate::notify::body_of(m))),
+            mentions_me: crate::notify::mentions_me(m, &self.mention_self()),
             avatar: m.author_name.as_deref().filter(|u| !u.is_empty()).map(|u| self.user_avatar(u)),
             image: (!encrypted)
                 .then(|| media::image_attachments(m.attachments.as_deref()).into_iter().next())
@@ -1186,11 +1186,31 @@ impl Session {
         shown.unwrap_or_else(|| username.to_owned())
     }
 
+    /// The word a mention of me is written as: my username, my object id on Teams.
+    pub fn mention_self(&self) -> String {
+        match self.backend() {
+            Backend::Teams(_) => {
+                crate::teams::translate::mention_token(&self.info.user_id).unwrap_or(&self.info.username).to_owned()
+            }
+            _ => self.info.username.clone(),
+        }
+    }
+
+    /// A text with Teams' mention tokens spelled as the names they stand for.
+    fn spelled_mentions(&self, text: String) -> String {
+        match self.backend() {
+            Backend::Teams(teams) => crate::teams::translate::spell_mentions(&text, |t| teams.directory.by_token(t)),
+            _ => text,
+        }
+    }
+
     /// The name a mention of `username` shows: its display name on Mattermost
-    /// and kChat, as their apps do; None keeps the username.
+    /// and kChat, as their apps do, the person a Teams mention token stands
+    /// for; None keeps the username.
     pub fn mention_name(&self, username: &str) -> Option<String> {
         match self.backend() {
             Backend::Mattermost(mm) => mm.directory.name_of(username),
+            Backend::Teams(teams) => teams.directory.by_token(username),
             _ => None,
         }
     }

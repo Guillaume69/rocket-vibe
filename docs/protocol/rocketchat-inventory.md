@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-728 production files scanned; 759 occurrences.
+728 production files scanned; 761 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -759,7 +759,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-slack/src/service.rs:411](../../crates/rv-slack/src/service.rs#L411) | endpoint | users.list |
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
-| [crates/rv-teams/src/auth.rs:2123](../../crates/rv-teams/src/auth.rs#L2123) | url | /api/csa |
+| [crates/rv-teams/src/auth.rs:2033](../../crates/rv-teams/src/auth.rs#L2033) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/auth.rs:2041](../../crates/rv-teams/src/auth.rs#L2041) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/auth.rs:2199](../../crates/rv-teams/src/auth.rs#L2199) | url | /api/csa |
 | [crates/rv-teams/src/service.rs:293](../../crates/rv-teams/src/service.rs#L293) | url | /api/v1/suggestions |
 | [crates/rv-teams/src/service.rs:311](../../crates/rv-teams/src/service.rs#L311) | url | /api/v2/query |
 | [crates/rv-teams/src/service.rs:414](../../crates/rv-teams/src/service.rs#L414) | url | /api/csa |

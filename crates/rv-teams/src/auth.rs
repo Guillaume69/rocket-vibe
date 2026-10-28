@@ -1992,6 +1992,82 @@ impl Tokens {
     /// and v3), the CSA channel record, Graph's team and channel records and
     /// the chat-service thread, and reports every JSON path whose string value
     /// contains `needle`, with the status of each read. Throwaway.
+    /// People search for `query`, read-only: the middle tier's `searchV2`
+    /// (Spaces bearer) and Substrate's people suggestions (Substrate bearer),
+    /// a few body shapes each. Throwaway.
+    pub async fn probe_people(&self, query: &str) -> Value {
+        let mut out = serde_json::Map::new();
+        let (_, routes) = match self.chat().await {
+            Ok(v) => v,
+            Err(e) => return json!({ "error": format!("chat token: {e:?}") }),
+        };
+        if let Ok(spaces) = self.spaces().await {
+            let base = format!("{}/beta/users/searchV2", routes.middle_tier);
+            let tries: Vec<(&str, String, Option<Value>)> = vec![
+                (
+                    "mt_post_text",
+                    format!(
+                        "{base}?includeDLs=true&includeBots=false&enableGuest=true&source=newChat&skypeTeamsInfo=true"
+                    ),
+                    Some(Value::String(query.to_owned())),
+                ),
+                ("mt_get_q", format!("{base}?searchTerm={query}&enableGuest=true&skypeTeamsInfo=true"), None),
+            ];
+            for (name, url, body) in tries {
+                let mut req = if body.is_some() { http().post(&url) } else { http().get(&url) };
+                req = req.bearer_auth(spaces.as_str()).header("x-ms-client-version", "1415/26100.0.0.0");
+                if let Some(Value::String(text)) = body {
+                    req = req
+                        .header("content-type", "application/json")
+                        .body(serde_json::to_string(&text).unwrap_or_default());
+                }
+                out.insert(name.into(), describe(req.send().await).await);
+            }
+        }
+        if let Ok(substrate) = self.substrate().await {
+            let mut cvid = [0u8; 16];
+            getrandom::fill(&mut cvid).ok();
+            let cvid: String = cvid.iter().map(|b| format!("{b:02x}")).collect();
+            let captured = crate::service::people_request(query, &cvid);
+            let r = http()
+                .post("https://substrate.office.com/search/api/v1/suggestions?scenario=powerbar")
+                .bearer_auth(substrate.as_str())
+                .header("x-client-version", "T2.1")
+                .json(&captured)
+                .send()
+                .await;
+            out.insert("substrate_captured".into(), describe(r).await);
+            for scenario in ["peoplepicker", "powerbar"] {
+                let url = format!("https://substrate.office.com/search/api/v1/suggestions?scenario={scenario}");
+                let body = json!({
+                    "EntityRequests": [{
+                        "Query": { "QueryString": query, "DisplayQueryString": query },
+                        "EntityType": "People",
+                        "Size": 10,
+                        "Fields": ["Id", "MRI", "DisplayName", "EmailAddresses", "UserPrincipalName", "PeopleType", "PeopleSubtype", "JobTitle"],
+                        "Filter": { "And": [
+                            { "Or": [ { "Term": { "PeopleType": "Person" } }, { "Term": { "PeopleType": "Other" } } ] },
+                            { "Or": [ { "Term": { "PeopleSubtype": "OrganizationUser" } }, { "Term": { "PeopleSubtype": "Guest" } } ] }
+                        ] },
+                        "Provenances": ["Mailbox", "Directory"],
+                    }],
+                    "Cvid": cvid,
+                    "AppName": "Microsoft Teams",
+                    "Scenario": { "Name": scenario },
+                });
+                let r = http()
+                    .post(&url)
+                    .bearer_auth(substrate.as_str())
+                    .header("x-client-flights", "SearchV2Flight,SubstrateSearchFanoutFlight")
+                    .json(&body)
+                    .send()
+                    .await;
+                out.insert(format!("substrate_{scenario}"), describe(r).await);
+            }
+        }
+        Value::Object(out)
+    }
+
     pub async fn probe_find(&self, needle: &str, team: &str, channel: &str, group: &str) -> Value {
         let (skype, routes) = match self.chat().await {
             Ok(v) => v,

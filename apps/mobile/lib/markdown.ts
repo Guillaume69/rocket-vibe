@@ -170,7 +170,7 @@ function parsed(text: string): Root {
   }
 }
 
-function localTree(text: string): Root {
+export function localTree(text: string): Root {
   const chunks = splitTables(text);
   if (chunks === null) return parsed(text);
   return chunks.flatMap((chunk) => ('table' in chunk ? [chunk.table] : (parsed(chunk.text) as unknown[]))) as unknown as Root;

@@ -537,6 +537,7 @@
     "apps/mobile/lib/videoLinks.ts",
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
+    "apps/mobile/lib/vouchedMentions.ts",
     "apps/mobile/lib/whatsappFiles.ts",
     "apps/mobile/lib/whatsappUnlink.ts",
     "apps/mobile/lib/xPosts.ts",

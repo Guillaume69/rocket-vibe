@@ -79,6 +79,8 @@ export class MmDirectory {
   private readonly client: MmClient;
   private readonly byId = new Map<string, MmUser>();
   private readonly byUsername = new Map<string, MmUser>();
+  /** Usernames the server has answered for, found or not. */
+  private readonly answered = new Set<string>();
   private inFlight: Promise<void> = Promise.resolve();
   private format: NameFormat = 'full_name';
   private readonly listeners = new Set<() => void>();
@@ -204,7 +206,20 @@ export class MmDirectory {
         }
       }
     });
-    return this.inFlight.then(() => answered);
+    return this.inFlight.then(() => {
+      for (const name of answered) this.answered.add(name);
+      return answered;
+    });
+  }
+
+  /**
+   * Whether `@name` may name someone: false only once the server has answered
+   * that no such user exists. `@all`, `@channel` and `@here` always do.
+   */
+  vouches(name: string): boolean {
+    if (name === 'all' || name === 'channel' || name === 'here') return true;
+    if (!this.answered.has(name)) return true;
+    return this.byUsername.has(name) || this.byUsername.has(name.toLowerCase());
   }
 
   username(id: string): string | null {

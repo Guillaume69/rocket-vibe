@@ -780,7 +780,7 @@ impl Session {
                 }
             }
             let (teams, rid) = (teams.clone(), rid.to_owned());
-            tokio::spawn(async move {
+            self.runtime.spawn(async move {
                 let _ = teams.set_typing(&rid, active).await;
             });
             return;

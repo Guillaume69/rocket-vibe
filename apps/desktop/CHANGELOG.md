@@ -13,6 +13,7 @@ section here.
 
 ### Fixed
 
+- Teams (experimental): typing in a Teams conversation no longer crashes the app; the typing indicator was started outside the app's async runtime.
 - Linux: the Slack, Teams and kChat sign-in windows no longer stay blank on a machine with NVIDIA's driver; WebKit's DMA-BUF renderer, which painted nothing there, is turned off unless `WEBKIT_DISABLE_DMABUF_RENDERER` is already set.
 - Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".
 - WhatsApp (experimental): the account menu now offers Settings, so a window open on a WhatsApp account reaches the app's settings (notifications, language, accounts, background, updates and their manual check); it only offered Unlink WhatsApp.

@@ -150,6 +150,25 @@ pub fn room_level(value: Option<&Value>, origin: Option<&Value>) -> Option<Strin
     value.and_then(Value::as_str).filter(|v| matches!(*v, "all" | "mentions" | "nothing")).map(str::to_owned)
 }
 
+/// The message's `md`, its `@name` and `#name` kept as mentions only when
+/// the server's `mentions` and `channels` list them: message-parser marks any
+/// such word, a user or room that does not exist included.
+fn vouched_md(raw: &Value) -> Option<String> {
+    let mut md = raw.get("md").filter(|v| v.is_object() || v.is_array())?.clone();
+    let listed = |key: &str, field: &str| -> Option<Vec<String>> {
+        let items = raw.get(key)?.as_array()?;
+        Some(items.iter().filter_map(|i| i.get(field).and_then(Value::as_str)).map(str::to_owned).collect())
+    };
+    let users = listed("mentions", "username");
+    let channels = listed("channels", "name");
+    crate::text::unvouched_mentions_as_text(
+        &mut md,
+        &|u| matches!(u, "all" | "here") || users.as_ref().is_none_or(|known| known.iter().any(|k| k == u)),
+        &|c| channels.as_ref().is_none_or(|known| known.iter().any(|k| k == c)),
+    );
+    Some(md.to_string())
+}
+
 pub fn to_message(raw: &Value) -> Option<Message> {
     let author = raw.get("u");
     let id = string(raw.get("_id"))?;
@@ -176,7 +195,7 @@ pub fn to_message(raw: &Value) -> Option<Message> {
         attachments: if encrypted { None } else { json_or_none(raw.get("attachments")) },
         reactions: json_or_none(raw.get("reactions")),
         encrypted_raw: if encrypted { json_or_none(raw.get("content")) } else { None },
-        md: if encrypted { None } else { json_or_none(raw.get("md")) },
+        md: if encrypted { None } else { vouched_md(raw) },
         urls: if encrypted { None } else { json_or_none(raw.get("urls")) },
         call_id: raw
             .get("blocks")
@@ -305,6 +324,36 @@ pub fn to_subscription(raw: &Value) -> Option<Subscription> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mentions_the_server_does_not_list_stay_text() {
+        let mention = |kind: &str, name: &str| json!({"type": kind, "value": {"type": "PLAIN_TEXT", "value": name}});
+        let md = json!([{"type": "PARAGRAPH", "value": [
+            mention("MENTION_USER", "bob"), mention("MENTION_USER", "nobody"), mention("MENTION_USER", "here"),
+            mention("MENTION_CHANNEL", "general"), mention("MENTION_CHANNEL", "nowhere"),
+        ]}]);
+        let raw = |extra: Value| {
+            let mut m =
+                json!({"_id": "m1", "rid": "r1", "u": {"_id": "u1", "username": "me"}, "ts": 1, "msg": "x", "md": md});
+            m.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            m
+        };
+        let listed = to_message(&raw(json!({
+            "mentions": [{"_id": "u2", "username": "bob"}],
+            "channels": [{"_id": "GENERAL", "name": "general"}],
+        })))
+        .unwrap();
+        let tree: Value = serde_json::from_str(listed.md.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            tree[0]["value"],
+            json!([
+                mention("MENTION_USER", "bob"), {"type": "PLAIN_TEXT", "value": "@nobody"}, mention("MENTION_USER", "here"),
+                mention("MENTION_CHANNEL", "general"), {"type": "PLAIN_TEXT", "value": "#nowhere"},
+            ])
+        );
+        let unlisted = to_message(&raw(json!({}))).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(unlisted.md.as_deref().unwrap()).unwrap(), md);
+    }
 
     #[test]
     fn epoch_formats() {

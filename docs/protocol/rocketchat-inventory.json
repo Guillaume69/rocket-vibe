@@ -1801,30 +1801,6 @@
       "surface": "&format!(\"users/me/teams/{…}/channels/categories\")"
     },
     {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 188,
-      "kind": "call:POST",
-      "surface": "\"users/ids\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 224,
-      "kind": "call:POST",
-      "surface": "\"users/usernames\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 232,
-      "kind": "call:POST",
-      "surface": "\"users/usernames\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 255,
-      "kind": "call:GET",
-      "surface": "&format!(\"users/username/{…}\")"
-    },
-    {
       "file": "apps/desktop/crates/rv-core/src/mattermost/mod.rs",
       "line": 71,
       "kind": "url",

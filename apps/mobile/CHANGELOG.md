@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): start a one-to-one chat from New conversation. People are searched across your organisation, as in Teams' own search box, and the chat opens at once; the first message sent creates it on Teams' side. Group chats cannot be started yet.
+
 ### Fixed
 
 - Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".

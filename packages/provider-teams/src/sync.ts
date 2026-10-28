@@ -32,6 +32,16 @@ type Team = { id: string; name: string };
 /** Each room's aggregator entry and team, to rebuild its row when a message arrives. */
 export class TeamsRooms {
   readonly entries = new Map<string, { entry: Doc; team: Team | null }>();
+  /** One-to-one chats opened here before their first message: no list has them yet. */
+  readonly pending = new Map<string, Doc>();
+
+  /** Files a chat opened here, kept until a list has it. */
+  open(chat: Doc): void {
+    const rid = str(chat, 'id');
+    if (!rid || this.entries.has(rid)) return;
+    this.entries.set(rid, { entry: chat, team: null });
+    this.pending.set(rid, chat);
+  }
 
   /** The room's entry updated with a newly arrived message, as raw documents for the engine. */
   withLast(rid: string, resource: Doc, mine: boolean): Doc | null {
@@ -235,6 +245,14 @@ export class TeamsSync {
       for (const m of chat.members as Doc[]) {
         const mri = str(m, 'mri');
         if (mri && mri !== this.me && this.directory?.name(mri) === null) unnamed.add(mri);
+      }
+      this.rooms.entries.set(rid, { entry: chat, team: null });
+      out.push({ ...chat, __team: null });
+    }
+    for (const [rid, chat] of this.rooms.pending) {
+      if (this.rooms.entries.has(rid)) {
+        this.rooms.pending.delete(rid);
+        continue;
       }
       this.rooms.entries.set(rid, { entry: chat, team: null });
       out.push({ ...chat, __team: null });

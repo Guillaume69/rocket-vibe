@@ -21,7 +21,7 @@ import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, newOneOnOne, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -62,7 +62,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   reports: false,
   scheduledMessages: false,
   sending: true,
-  directMessages: false,
+  directMessages: true,
   typing: true,
   presence: true,
   push: false,
@@ -207,8 +207,24 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
         const entry = marked === null ? null : rooms.readUpTo(rid, marked);
         if (entry && engine) await engine.ingestSubscriptions([entry]);
       },
-      openOrCreateDm: refuse('direct_message'),
+      openOrCreateDm: async (_name: string, uid?: string) => {
+        const mri = uid ?? '';
+        const chat = newOneOnOne(session.userId, mri, Date.now());
+        const rid = chat ? str(chat, 'id') : null;
+        if (!chat || !rid) throw new TeamsError('direct_message_unknown_person');
+        const known = rooms.entries.get(rid);
+        if (known) return { rid, rawRoom: { ...known.entry, __team: known.team } };
+        rooms.open(chat);
+        const raw = { ...chat, __team: null };
+        if (engine) await engine.ingestSubscriptions([raw]);
+        return { rid, rawRoom: raw };
+      },
     },
+    searchPeople: async (query) =>
+      people(await client.searchPeople(query), session.userId).map((p) => {
+        directory.remember(p.mri, p.name);
+        return { id: p.mri, name: p.name, detail: p.upn ?? p.name };
+      }),
     displayNames: {
       names: () => directory.displayNames(),
       statuses: () => new Map(),

@@ -13,6 +13,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Teams (experimental): the first message to someone you never wrote to is delivered; Teams refused it (404) because the chat did not exist yet, so the app now creates the chat first.
 - Teams (experimental): channels still showing "1" while Teams shows nothing unread now read as Teams does: a channel hidden from its team's list is never unread, and one Teams flags unread with no message to read is read.
 - Teams (experimental): a chat with one person and a bot is named after the person, not "Name, 28:…", and opens as their direct chat; a channel already named after its team reads "Tech - GED", not "Tech · Tech - GED".
 - Teams (experimental): a mention shows the person's whole name ("@Marc-Etienne BARRUT", not "@Marc-Etienne" then "BARRUT"), a mention of me is highlighted, and a notification names the people mentioned.

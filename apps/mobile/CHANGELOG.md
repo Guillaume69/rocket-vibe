@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-28
+
 ### Added
 
 - Teams (experimental): start a one-to-one chat from New conversation. People are searched across your organisation, as in Teams' own search box, and the chat opens at once; the first message sent creates it on Teams' side. Group chats cannot be started yet.
@@ -918,7 +920,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...HEAD
+[0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0
 [0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.23.0...mobile-v0.24.0
 [0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.22.0...mobile-v0.23.0
 [0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.21.0...mobile-v0.22.0

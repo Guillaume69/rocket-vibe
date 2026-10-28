@@ -7,6 +7,7 @@
 
 import { followerIds, starredIds } from './marks.ts';
 import { httpUrl } from './origin.ts';
+import { vouchedRocketChatMd } from './vouchedMentions.ts';
 import type { LocalMessage, LocalRoom, LocalSubscription, RoomNotificationLevel } from '@rocket-vibe/provider-api/rows';
 export type { LocalMessage, LocalRoom, LocalSubscription, RoomNotificationLevel } from '@rocket-vibe/provider-api/rows';
 
@@ -97,7 +98,7 @@ export function toMessage(raw: Record<string, unknown>): LocalMessage | null {
     threadLast: toEpoch(raw.tlm),
     threadShown: boolean(raw.tshow),
     editedAt: toEpoch(raw.editedAt),
-    md: encrypted ? null : jsonOrNull(raw.md),
+    md: encrypted ? null : vouchedRocketChatMd(raw),
     attachments: encrypted ? null : jsonOrNull(raw.attachments),
     reactions: jsonOrNull(raw.reactions),
     // Nothing to preview in an encrypted room; otherwise `urls` is kept raw,

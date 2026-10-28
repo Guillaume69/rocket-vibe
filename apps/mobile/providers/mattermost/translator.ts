@@ -16,6 +16,8 @@ import type { LocalMessage, LocalRoom, LocalSubscription } from '../../lib/norma
 import type { MmCategories } from './categories.ts';
 import { httpUrl, sameOrigin } from '../../lib/origin.ts';
 import { reminderMessage } from '../../lib/reminder.ts';
+import { localTree } from '../../lib/markdown.ts';
+import { unvouchedMentionsAsText } from '../../lib/vouchedMentions.ts';
 import type { MmDirectory } from './directory.ts';
 
 export const MM_POST = 'mm:post';
@@ -142,6 +144,16 @@ export class MmTranslator implements Translator {
     }
   }
 
+  /**
+   * The text's tree when it holds an `@name` the server does not know or a
+   * `#word`, which Mattermost never makes a channel link: both shown as plain
+   * text. Null leaves the text to the renderer as it is.
+   */
+  private vouchedMd(text: string): string | null {
+    const { tree, changed } = unvouchedMentionsAsText(localTree(text), (u) => this.directory.vouches(u), () => false);
+    return changed ? JSON.stringify(tree) : null;
+  }
+
   toMessage(raw: Record<string, unknown>): LocalMessage | null {
     const id = str(raw.id);
     const rid = str(raw.channel_id);
@@ -159,10 +171,11 @@ export class MmTranslator implements Translator {
     const call = mmType === 'custom_call' ? kmeetCall(props) : null;
     const reminder = mmType === 'reminder' ? reminderOf(props, str(raw.message), this.directory.baseUrl) : null;
     const alias = webhookAlias(props);
+    const text = call !== null ? call.param : reminder ?? (system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null));
     return {
       id,
       rid,
-      text: call !== null ? call.param : reminder ?? (system === undefined ? (str(raw.message) ?? '') : system.param(props, author?.username ?? null)),
+      text,
       ts,
       authorId,
       authorName,
@@ -175,7 +188,7 @@ export class MmTranslator implements Translator {
       threadLast: rootId === null ? positive(raw.last_reply_at) : null,
       threadShown: false,
       editedAt: positive(raw.edit_at),
-      md: null,
+      md: call === null && reminder === null && system === undefined && text !== null ? this.vouchedMd(text) : null,
       attachments: joinAttachments(this.attachments(metadata.files), [...cards(props.attachments), ...this.permalinkQuotes(metadata.embeds)]),
       reactions: this.reactions(metadata.reactions),
       urls: previews(metadata.embeds),

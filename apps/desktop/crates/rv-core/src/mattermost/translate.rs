@@ -118,6 +118,16 @@ pub struct Translator<'a> {
 }
 
 impl Translator<'_> {
+    /// The text's tree when it holds an `@name` the server does not know or a
+    /// `#word`, which Mattermost never makes a channel link: both shown as
+    /// plain text. None leaves the text to the renderer as it is.
+    fn vouched_md(&self, text: &str) -> Option<String> {
+        let mut tree = Value::Array(crate::parse::tree(text));
+        let changed =
+            rv_provider::text::unvouched_mentions_as_text(&mut tree, &|u| self.directory.vouches(u), &|_| false);
+        changed.then(|| tree.to_string())
+    }
+
     pub fn message(&self, post: &Value) -> Option<Message> {
         let id = str_of(post, "id")?;
         let rid = str_of(post, "channel_id")?;
@@ -151,6 +161,7 @@ impl Translator<'_> {
         };
         let mut cards = cards(props.get("attachments"));
         cards.extend(self.permalinks(metadata.get("embeds")));
+        let md = text.as_deref().filter(|_| system.is_none()).and_then(|t| self.vouched_md(t));
         Some(Message {
             id: id.to_owned(),
             rid: rid.to_owned(),
@@ -168,7 +179,7 @@ impl Translator<'_> {
             reactions: self.reactions(metadata.get("reactions")),
             encrypted_raw: None,
             updated_at: positive(post, "update_at").unwrap_or(ts),
-            md: None,
+            md,
             urls: previews(metadata.get("embeds")),
             call_id: (mm_kind == "custom_call").then(|| kmeet_call(&props).2).flatten(),
             pinned: post.get("is_pinned").and_then(Value::as_bool).unwrap_or(false),
@@ -557,6 +568,23 @@ mod tests {
         assert_eq!(m.author_name.as_deref(), Some("bob"));
         assert_eq!((m.ts, m.updated_at, m.edited_at), (10, 20, Some(15)));
         assert!(t.message(&post("p2", json!({"delete_at": 5}))).is_none());
+    }
+
+    #[test]
+    fn unknown_people_and_hashtags_are_not_mentions() {
+        let d = directory();
+        d.answered(&["bob", "nobody"]);
+        let t = Translator { directory: &d, me: "u-me", base: "https://chat.example.com/" };
+        let m = t.message(&post("p1", json!({"message": "@bob @nobody @here #nowhere a@b.com"}))).unwrap();
+        let tree: Value = serde_json::from_str(m.md.as_deref().unwrap()).unwrap();
+        let line = tree[0]["value"].to_string();
+        assert!(line.contains(r#"{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"bob"}}"#), "{line}");
+        assert!(line.contains(r#"{"type":"MENTION_USER","value":{"type":"PLAIN_TEXT","value":"here"}}"#), "{line}");
+        assert!(line.contains(r#""@nobody""#) && line.contains(r##""#nowhere""##), "{line}");
+        assert!(!line.contains("MENTION_CHANNEL") && line.contains("a@b.com"), "{line}");
+        assert_eq!(m.text.as_deref(), Some("@bob @nobody @here #nowhere a@b.com"));
+        let known = t.message(&post("p2", json!({"message": "hi @bob"}))).unwrap();
+        assert!(known.md.is_none());
     }
 
     #[test]

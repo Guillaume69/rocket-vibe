@@ -48,4 +48,16 @@ describe('MmDirectory names', () => {
     await d.ensure(['u-me']);
     assert.equal(d.user('u-me')?.displayName, 'Ada L');
   });
+
+  test('a username the server answered for without a user is not vouched for', async () => {
+    const server = fakeServer((call) => ({ body: (call.body as string[]).filter((n) => n === 'bob').map(() => bob) }));
+    const d = new MmDirectory(new MmClient(server.base, 't', { fetch: server.fetcher }));
+    assert.equal(d.vouches('nobody'), true);
+    await d.ensureUsernames(['bob', 'nobody']);
+    assert.equal(d.vouches('bob'), true);
+    assert.equal(d.vouches('Bob'), true);
+    assert.equal(d.vouches('here'), true);
+    assert.equal(d.vouches('carol'), true);
+    assert.equal(d.vouches('nobody'), false);
+  });
 });

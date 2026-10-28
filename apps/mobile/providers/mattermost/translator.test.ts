@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import { reactionList } from '../../lib/reactions.ts';
 import { MmClient } from './client.ts';
 import { MmDirectory } from './directory.ts';
-import { post } from './testing.ts';
+import { fakeServer, post } from './testing.ts';
 import { MM_POST, MM_QUIET, MmTranslator, ephemeralNote, membershipCounts, mentionedUsernames, permalinkPosts, record } from './translator.ts';
 import { quoteText } from '../../lib/quote.ts';
 import { integrationCard } from '../../lib/integrationCards.ts';
@@ -35,6 +35,23 @@ describe('MmTranslator.toMessage', () => {
     const root = t.toMessage(post('p1', { reply_count: 3, last_reply_at: 50 }));
     assert.equal(root?.threadCount, 3);
     assert.equal(root?.threadLast, 50);
+  });
+
+  test('an unknown @name and any #word are not mentions', async () => {
+    const server = fakeServer((call) => ({ body: (call.body as string[]).filter((n) => n === 'bob').map(() => ({ id: 'u-bob', username: 'bob' })) }));
+    const directory = new MmDirectory(new MmClient(server.base, 't', { fetch: server.fetcher }));
+    directory.remember({ id: 'u-bob', username: 'bob', displayName: 'Bob Builder', lastPictureUpdate: null });
+    await directory.ensureUsernames(['nobody']);
+    const t = new MmTranslator(directory, 'u-me');
+    const m = t.toMessage(post('p1', { message: '@bob @nobody @here #nowhere a@b.com' }))!;
+    const line = JSON.stringify(JSON.parse(m.md!)[0].value);
+    assert.match(line, /"MENTION_USER","value":\{"type":"PLAIN_TEXT","value":"bob"\}/);
+    assert.match(line, /"MENTION_USER","value":\{"type":"PLAIN_TEXT","value":"here"\}/);
+    assert.match(line, /"@nobody"/);
+    assert.match(line, /"#nowhere"/);
+    assert.doesNotMatch(line, /MENTION_CHANNEL|"value":"b\.com"/);
+    assert.equal(m.text, '@bob @nobody @here #nowhere a@b.com');
+    assert.equal(t.toMessage(post('p2', { message: 'hi @bob' }))!.md, null);
   });
 
   test('a deleted post is not a message', () => {

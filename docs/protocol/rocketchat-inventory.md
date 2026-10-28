@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-728 production files scanned; 761 occurrences.
+729 production files scanned; 757 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -185,10 +185,6 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:497](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L497) | call:POST | "users/status/ids" |
 | [apps/desktop/crates/rv-core/src/mattermost/categories.rs:25](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L25) | call:GET | "users/me/teams" |
 | [apps/desktop/crates/rv-core/src/mattermost/categories.rs:29](../../apps/desktop/crates/rv-core/src/mattermost/categories.rs#L29) | call:GET | &format!("users/me/teams/{…}/channels/categories") |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:188](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L188) | call:POST | "users/ids" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:224](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L224) | call:POST | "users/usernames" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:232](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L232) | call:POST | "users/usernames" |
-| [apps/desktop/crates/rv-core/src/mattermost/directory.rs:255](../../apps/desktop/crates/rv-core/src/mattermost/directory.rs#L255) | call:GET | &format!("users/username/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:71](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L71) | url | /api/v4/system/ping |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:104](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L104) | url | /api/v4/users/login |
 | [apps/desktop/crates/rv-core/src/mattermost/mod.rs:130](../../apps/desktop/crates/rv-core/src/mattermost/mod.rs#L130) | call:GET | "users/me" |

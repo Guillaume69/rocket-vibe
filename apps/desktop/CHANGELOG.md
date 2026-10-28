@@ -19,6 +19,7 @@ section here.
 - Teams (experimental): a reply quoting a message shows the quote as a quote card, its author and text apart, instead of the author glued to the text above stray spaces.
 - Teams (experimental): reactions such as :loudlycrying: and :smilerobot: show their emoji (😭, 🤖) instead of their name.
 - Teams (experimental): typing in a Teams conversation no longer crashes the app; the typing indicator was started outside the app's async runtime.
+- Rocket.Chat, Mattermost and kChat: `@name` and `#name` show as plain text when no such person or room exists, instead of as a mention or a room link. On Rocket.Chat only the people and rooms the server lists for the message stay links; on Mattermost and kChat a username the server does not know and any `#word` (Mattermost links rooms with `~`) stay text. Messages already stored keep their old look until the server sends them again.
 - Linux: the Slack, Teams and kChat sign-in windows no longer stay blank on a machine with NVIDIA's driver; WebKit's DMA-BUF renderer, which painted nothing there, is turned off unless `WEBKIT_DISABLE_DMABUF_RENDERER` is already set.
 - Slack (experimental): "New conversation" finds people and opens a direct conversation with one of them, or a group one with several; it only answered "Search failed".
 - WhatsApp (experimental): the account menu now offers Settings, so a window open on a WhatsApp account reaches the app's settings (notifications, language, accounts, background, updates and their manual check); it only offered Unlink WhatsApp.
@@ -27,6 +28,7 @@ section here.
 - Teams (experimental): a channel is named after its team too ("Tech · General") wherever it is not under its team's header, in Unread, Favorites, the switcher, the room's header and notifications, so each team's General can be told apart. Channels Teams only shows in the team list (every team's General) are no longer listed as favorites.
 - Teams (experimental): channels no longer stay unread for good. A channel never opened or hidden in Teams, or whose last activity is a membership or topic event, showed a "1" that opening it could not clear; marking a room read now passes the last message Teams lists, events included.
 - What you typed in a thread reply could be invisible: in a short window, or under a long answer shown only to you (a bot card, a command's reply), the message field shrank to nothing and scrolled the line being typed out of view. The field now always keeps one line, follows the cursor when it has less room than its text, and a long answer shown only to you scrolls on its own past a few lines. The room's field gets the same fix.
+
 
 ## [0.27.0] - 2026-10-25
 

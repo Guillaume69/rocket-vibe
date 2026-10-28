@@ -141,6 +141,20 @@ impl Directory {
         self.by_id.lock().unwrap().values().find(|u| u.username == username).and_then(|u| u.display.clone())
     }
 
+    /// Whether `@name` may name someone: false only once the server has
+    /// answered that no such user exists. `@all`, `@channel` and `@here` always do.
+    pub fn vouches(&self, name: &str) -> bool {
+        matches!(name, "all" | "channel" | "here")
+            || !self.asked.lock().unwrap().contains(name)
+            || self.id_of(name).is_some()
+            || self.id_of(&name.to_lowercase()).is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn answered(&self, names: &[&str]) {
+        self.asked.lock().unwrap().extend(names.iter().map(|n| n.to_string()));
+    }
+
     /// The one known user whose username starts with `cut` (the end of a truncated group DM title).
     pub fn name_of_cut(&self, cut: &str) -> Option<String> {
         let users = self.by_id.lock().unwrap();
@@ -313,6 +327,8 @@ mod tests {
         d.ensure_mentioned(&rest, ["bob".to_owned(), "nobody".to_owned()]).await;
         assert_eq!(task.await.unwrap(), [r#"["bob","nobody"]"#]);
         assert_eq!(d.id_of("bob").as_deref(), Some("u-bob"));
+        assert!(d.vouches("bob") && d.vouches("Bob") && d.vouches("here") && d.vouches("carol"));
+        assert!(!d.vouches("nobody"));
     }
 
     #[tokio::test]

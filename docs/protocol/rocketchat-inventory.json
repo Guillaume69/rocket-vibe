@@ -537,6 +537,7 @@
     "apps/mobile/lib/videoLinks.ts",
     "apps/mobile/lib/voice.ts",
     "apps/mobile/lib/voiceGrid.ts",
+    "apps/mobile/lib/vouchedMentions.ts",
     "apps/mobile/lib/whatsappFiles.ts",
     "apps/mobile/lib/whatsappUnlink.ts",
     "apps/mobile/lib/xPosts.ts",
@@ -1799,30 +1800,6 @@
       "line": 29,
       "kind": "call:GET",
       "surface": "&format!(\"users/me/teams/{…}/channels/categories\")"
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 188,
-      "kind": "call:POST",
-      "surface": "\"users/ids\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 224,
-      "kind": "call:POST",
-      "surface": "\"users/usernames\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 232,
-      "kind": "call:POST",
-      "surface": "\"users/usernames\""
-    },
-    {
-      "file": "apps/desktop/crates/rv-core/src/mattermost/directory.rs",
-      "line": 255,
-      "kind": "call:GET",
-      "surface": "&format!(\"users/username/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/mod.rs",

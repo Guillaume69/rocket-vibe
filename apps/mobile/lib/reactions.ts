@@ -75,3 +75,9 @@ export function reactionPeople(raw: string | null, me: string | null): ReactionP
   }
   return out;
 }
+
+/** Servers that react with any standard emoji; Rocket.Chat (and so the
+ *  servers that reuse its rules) and Slack take only the codes of their lists. */
+export function reactsWithAnyEmoji(kind: string | undefined): boolean {
+  return kind === 'vibez' || kind === 'whatsapp';
+}

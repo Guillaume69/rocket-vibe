@@ -438,3 +438,24 @@ test('a mention spelled one span per word is one mention', () => {
   assert.equal(spellMentions(m?.text ?? '', (t) => d.byToken(t)), 'bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info');
   assert.equal(htmlToMarkdown(html), 'bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info');
 });
+
+test('a shared document is downloaded by its path, not its viewer page', () => {
+  const base = 'https://contoso-my.sharepoint.com/personal/someone_contoso_com';
+  const raw = {
+    properties: {
+      files: JSON.stringify([
+        {
+          title: '1 - Plan-v8.docx',
+          objectUrl: `${base}/Documents/Microsoft Teams Chat Files/1 - Plan-v8.docx`,
+          fileInfo: { fileUrl: `${base}/_layouts/15/Doc.aspx?sourcedoc=%7BC3%7D&file=1%20-%20Plan-v8.docx&action=default` },
+        },
+        { title: 'Viewer only.xlsx', fileInfo: { fileUrl: `${base}/_layouts/15/Doc.aspx?sourcedoc=%7BD4%7D` } },
+      ]),
+    },
+  };
+  const found = JSON.parse(fileAttachments(raw) ?? '[]') as { title_link: string; type: string }[];
+  assert.equal(found.length, 2);
+  assert.equal(found[0].title_link, `${base}/Documents/Microsoft Teams Chat Files/1 - Plan-v8.docx`);
+  assert.equal(found[0].type, 'file');
+  assert.ok(found[1].title_link.includes('/_layouts/'));
+});

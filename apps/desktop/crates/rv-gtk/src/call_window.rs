@@ -134,15 +134,21 @@ pub fn open_slack(
     }
 }
 
-/// A Teams conversation's page in a call window that may pass through the
-/// Microsoft sign-in; the browser when the window cannot open.
-#[cfg(not(target_os = "linux"))]
-pub fn open_teams(widget: &impl IsA<gtk::Widget>, url: &str, room: &str, toast: impl Fn(String) + 'static) {
-    let title = crate::i18n::tf("call.window_title", &[("room", room)]);
-    if let Err(e) = rv_native::call_window(url, &title, rv_core::teams::translate::call_allowed) {
-        eprintln!("Teams call window not opened: {e}");
-        crate::cards::open_uri(widget, url);
-        toast(t("call.in_browser").to_owned());
+/// A Teams call goes to the user's own Teams, signed in there: Teams' app when
+/// one handles `msteams:` links, else the default browser. A window of ours
+/// starts signed out and stopped on Microsoft's sign-in.
+pub fn open_teams(widget: &impl IsA<gtk::Widget>, url: &str, toast: impl Fn(String) + 'static) {
+    let app = rv_core::teams::translate::app_link(url)
+        .filter(|_| gtk::gio::AppInfo::default_for_uri_scheme("msteams").is_some());
+    match app {
+        Some(link) => {
+            crate::cards::open_uri(widget, &link);
+            toast(t("call.in_teams").to_owned());
+        }
+        None => {
+            crate::cards::open_uri(widget, url);
+            toast(t("call.in_teams_browser").to_owned());
+        }
     }
 }
 

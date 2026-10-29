@@ -136,7 +136,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/i18n.rs:1990](../../apps/desktop/crates/rv-core/src/i18n.rs#L1990) | endpoint | e2e.status |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1991](../../apps/desktop/crates/rv-core/src/i18n.rs#L1991) | endpoint | e2e.locked |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1992](../../apps/desktop/crates/rv-core/src/i18n.rs#L1992) | endpoint | e2e.unlocked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:2091](../../apps/desktop/crates/rv-core/src/i18n.rs#L2091) | endpoint | rooms.quoted_message |
+| [apps/desktop/crates/rv-core/src/i18n.rs:2097](../../apps/desktop/crates/rv-core/src/i18n.rs#L2097) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:32](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L32) | call:POST | "reactions" |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:34](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L34) | call:DELETE | &format!("users/{…}/posts/{…}/reactions/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:40](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L40) | call:PUT | &format!("channels/{…}/patch") |

@@ -735,6 +735,12 @@ pub fn chat_link(chat: &str, tenant: &str) -> String {
     url.to_string()
 }
 
+/// The same Teams link for Teams' own app (`msteams:/l/...`), which is signed
+/// in where a window of ours never is.
+pub fn app_link(link: &str) -> Option<String> {
+    link.strip_prefix("https://teams.microsoft.com/l/").map(|rest| format!("msteams:/l/{rest}"))
+}
+
 /// Where a Teams call window may go: Microsoft's own `https` pages (Teams'
 /// web app, its CDNs and the Microsoft sign-in it passes through) and the
 /// page's blobs. A tenant signing in through its own identity provider leaves
@@ -1496,6 +1502,21 @@ mod tests {
         let csa = json!({"messagetype": "Event/Call", "id": "9", "parentMessageId": "5",
             "originalarrivaltime": "2026-10-22T23:55:55.826Z", "content": "<ended/><callEventType>callEnded</callEventType>"});
         assert_eq!(message(channel, &csa, &d).unwrap().id, format!("{channel}/5"));
+    }
+
+    #[test]
+    fn a_call_link_opens_in_teams_own_app() {
+        assert_eq!(
+            app_link("https://teams.microsoft.com/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1").as_deref(),
+            Some("msteams:/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1")
+        );
+        assert_eq!(
+            app_link(&meetup_link("19:ch@thread.tacv2", "1", "t-1", "o-1")).as_deref(),
+            Some(
+                "msteams:/l/meetup-join/19%3ach%40thread.tacv2/1?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D"
+            )
+        );
+        assert_eq!(app_link("https://teams.cloud.microsoft/v2/"), None);
     }
 
     #[test]

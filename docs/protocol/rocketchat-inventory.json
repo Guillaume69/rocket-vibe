@@ -1509,7 +1509,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 2091,
+      "line": 2097,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },

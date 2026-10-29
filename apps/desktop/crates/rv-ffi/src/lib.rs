@@ -1199,6 +1199,12 @@ pub fn teams_call_allowed(url: String) -> bool {
     rv_core::teams::translate::call_allowed(&url, "")
 }
 
+/// The same Teams link for Teams' own app (`msteams:/l/...`).
+#[uniffi::export]
+pub fn teams_app_link(url: String) -> Option<String> {
+    rv_core::teams::translate::app_link(&url)
+}
+
 #[uniffi::export]
 pub fn kchat_is_redirect(url: String) -> bool {
     rv_core::mattermost::oauth::is_redirect(&url)

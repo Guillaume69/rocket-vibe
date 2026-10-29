@@ -257,7 +257,8 @@ impl MediaCache {
             return Ok(hit.clone());
         }
         if let Some(teams) = &self.teams
-            && crate::teams::translate::is_teams_image(path_or_url)
+            && (crate::teams::translate::is_teams_image(path_or_url)
+                || crate::teams::translate::is_graph_share(path_or_url))
         {
             let (bytes, content_type) = teams.fetch_image(path_or_url).await?;
             let media = Arc::new(Media { bytes, content_type });

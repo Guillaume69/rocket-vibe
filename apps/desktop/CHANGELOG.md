@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): shared files show as files and download again: they were drawn as a link to their SharePoint page, which opened a sign-in page instead of the file. An Office document is fetched by its own path rather than its viewer page, and a shared image shows a preview.
+
 ## [0.28.0] - 2026-10-28
 
 ### Added

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { reactionList, reactionPeople } from './reactions.ts';
+import { reactionList, reactionPeople, reactsWithAnyEmoji } from './reactions.ts';
 
 describe('reactionList', () => {
   it('returns [] on null, unreadable JSON or an unexpected shape', () => {
@@ -81,5 +81,15 @@ describe('reactionPeople', () => {
   it('returns [] on null or unreadable JSON', () => {
     assert.deepEqual(reactionPeople(null, 'alice'), []);
     assert.deepEqual(reactionPeople('{', 'alice'), []);
+  });
+});
+
+describe('reactsWithAnyEmoji', () => {
+  it('lets Vibez and WhatsApp react with any standard emoji, not Rocket.Chat nor Slack', () => {
+    assert.equal(reactsWithAnyEmoji('vibez'), true);
+    assert.equal(reactsWithAnyEmoji('whatsapp'), true);
+    assert.equal(reactsWithAnyEmoji('rocketchat'), false);
+    assert.equal(reactsWithAnyEmoji('slack'), false);
+    assert.equal(reactsWithAnyEmoji(undefined), false);
   });
 });

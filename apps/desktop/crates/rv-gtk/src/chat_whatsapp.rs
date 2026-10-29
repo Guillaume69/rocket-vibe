@@ -321,6 +321,40 @@ impl ChatPage {
                 });
                 quick.append(&button);
             }
+            let more = gtk::Button::builder()
+                .icon_name("list-add-symbolic")
+                .tooltip_text(t("actions.react_more"))
+                .css_classes(["flat", "more-reactions"])
+                .build();
+            let (weak, session, id, menu) = (Rc::downgrade(self), session.clone(), message.id.clone(), popover.clone());
+            more.connect_clicked(move |_| {
+                let Some(anchor) = menu.parent() else { return };
+                let (_, rect) = menu.pointing_to();
+                menu.popdown();
+                let (weak, session, id) = (weak.clone(), session.clone(), id.clone());
+                let picker = crate::emoji_picker::popover(
+                    move |chosen| {
+                        let crate::emoji_picker::Pick::Standard(_, glyph) = chosen else { return };
+                        if session.react(&id, glyph.to_owned()).is_err()
+                            && let Some(this) = weak.upgrade()
+                        {
+                            this.toast(t("wa.action_failed").to_owned());
+                        }
+                    },
+                    None,
+                    true,
+                    None,
+                );
+                picker.add_css_class("reaction-picker");
+                picker.set_parent(&anchor);
+                picker.set_pointing_to(Some(&rect));
+                picker.connect_closed(|p| {
+                    let p = p.clone();
+                    glib::idle_add_local_once(move || p.unparent());
+                });
+                picker.popup();
+            });
+            quick.append(&more);
             column.append(&quick);
         }
         let item = |label: &str| gtk::Button::builder().label(label).css_classes(["flat"]).build();

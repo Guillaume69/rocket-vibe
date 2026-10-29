@@ -1082,6 +1082,16 @@ mod tests {
         s.apply(wire(json!({"type":"reaction","reaction":{"message":"g@g.us:1","sender":"me","emoji":"","ts":13}})));
         let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");
         assert_eq!((reactions[0].count, reactions[0].mine), (1, false));
+        for (sender, emoji) in [("me", "🦀"), ("c", "👍🏽"), ("d", "🧑‍💻")] {
+            let reaction = json!({"message":"g@g.us:1","sender":sender,"emoji":emoji,"ts":14});
+            s.apply(wire(json!({"type":"reaction","reaction":reaction})));
+        }
+        let reactions = crate::actions::reactions(s.presentation(&m).reactions.as_deref(), "me");
+        let glyphs: Vec<String> = reactions.iter().map(|r| reaction_glyph(&r.shortcode)).collect();
+        for emoji in ["🦀", "👍🏽", "🧑‍💻"] {
+            assert!(glyphs.iter().any(|g| g == emoji), "{emoji} in {glyphs:?}");
+        }
+        assert!(reactions.iter().any(|r| r.mine && reaction_glyph(&r.shortcode) == "🦀"));
         s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":"/9j/"})));
         assert_eq!(s.avatars.get("g@g.us").map(|a| a.len()), Some(3));
         s.apply(wire(json!({"type":"avatar","jid":"g@g.us","data":""})));

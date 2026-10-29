@@ -47,7 +47,7 @@ import { attachmentToShare } from '../lib/attachment.ts';
 import { starredBy, starredAfter } from '../lib/marks.ts';
 import { ENCRYPTED_TYPE } from '../lib/normalize.ts';
 import { grantedPermissions, roomRoles, sourcesPermissions } from '../lib/permissions.ts';
-import { reactionList } from '../lib/reactions.ts';
+import { reactionList, reactsWithAnyEmoji } from '../lib/reactions.ts';
 import type { Capabilities } from '../lib/provider.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { protectedFileUrl } from '../lib/upload.ts';
@@ -375,10 +375,10 @@ export default function MessageActionsScreen() {
   }, []);
   // Rocket.Chat and Slack react only with the codes of their own lists: a
   // glyph with no code there is left out of the quick row and the picker
-  // (`lib/rocketchatReactions.ts`, `@rocket-vibe/provider-slack/emojis`); Vibez takes
-  // every standard emoji.
+  // (`lib/rocketchatReactions.ts`, `@rocket-vibe/provider-slack/emojis`); Vibez and
+  // WhatsApp take every standard emoji.
   const onSlack = client?.kind === 'slack';
-  const onRocketChat = client?.kind !== 'vibez' && !onSlack;
+  const onRocketChat = !reactsWithAnyEmoji(client?.kind) && !onSlack;
   const reactable = useCallback(
     (code: string) => (onSlack ? slackReactable(code) : !onRocketChat || rocketChatReaction(code) !== null),
     [onRocketChat, onSlack],

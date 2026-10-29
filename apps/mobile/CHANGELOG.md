@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- WhatsApp (experimental): the reaction picker offers every emoji; it showed only those Rocket.Chat has a name for.
+
 ## [0.25.0] - 2026-10-28
 
 ### Added

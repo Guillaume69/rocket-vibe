@@ -215,7 +215,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:198](../../apps/desktop/crates/rv-core/src/media.rs#L198) | url | /api/v4/users/{…}/image |
 | [apps/desktop/crates/rv-core/src/media.rs:199](../../apps/desktop/crates/rv-core/src/media.rs#L199) | url | /api/v4/users/{…}/image |
 | [apps/desktop/crates/rv-core/src/media.rs:219](../../apps/desktop/crates/rv-core/src/media.rs#L219) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:280](../../apps/desktop/crates/rv-core/src/media.rs#L280) | call:FETCH_PROTECTED | &path).await?; |
+| [apps/desktop/crates/rv-core/src/media.rs:281](../../apps/desktop/crates/rv-core/src/media.rs#L281) | call:FETCH_PROTECTED | &path).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:163](../../apps/desktop/crates/rv-core/src/outbox.rs#L163) | call:POST | "chat.sendMessage" |
@@ -760,7 +760,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/auth.rs:2199](../../crates/rv-teams/src/auth.rs#L2199) | url | /api/csa |
 | [crates/rv-teams/src/service.rs:293](../../crates/rv-teams/src/service.rs#L293) | url | /api/v1/suggestions |
 | [crates/rv-teams/src/service.rs:311](../../crates/rv-teams/src/service.rs#L311) | url | /api/v2/query |
-| [crates/rv-teams/src/service.rs:414](../../crates/rv-teams/src/service.rs#L414) | url | /api/csa |
+| [crates/rv-teams/src/service.rs:457](../../crates/rv-teams/src/service.rs#L457) | url | /api/csa |
 | [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
 | [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
 | [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |

@@ -838,6 +838,30 @@ fn inline_images(content: &str) -> Vec<Value> {
     out
 }
 
+/// The shared file's own address on SharePoint or OneDrive. Office documents
+/// also carry their viewer page (`/_layouts/15/Doc.aspx?sourcedoc=...`), which
+/// Graph `/shares` cannot resolve: the file's path (`objectUrl`) comes first.
+fn shared_file_url(f: &Value) -> Option<&str> {
+    let candidates = ["/objectUrl", "/fileInfo/fileUrl", "/fileUrl", "/fileInfo/shareUrl"]
+        .into_iter()
+        .filter_map(|at| f.pointer(at).and_then(Value::as_str))
+        .filter(|u| is_graph_share(u));
+    let mut fallback = None;
+    for url in candidates {
+        if !url.contains("/_layouts/") {
+            return Some(url);
+        }
+        fallback.get_or_insert(url);
+    }
+    fallback
+}
+
+/// A file name an image preview can be read for, through Graph's thumbnails.
+fn is_image_name(name: &str) -> bool {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "heic" | "heif" | "tif" | "tiff")
+}
+
 /// A message's attachments in the renderer's Rocket.Chat shape: images pasted
 /// into it, then its shared files, each with its preview image when Teams
 /// keeps one on its object store.
@@ -849,27 +873,24 @@ pub fn file_attachments(raw: &Value) -> Option<String> {
         None => Value::Null,
     };
     for f in parsed.as_array().map(Vec::as_slice).unwrap_or_default() {
-        if let Some(preview) =
-            f.pointer("/filePreview/previewUrl").and_then(Value::as_str).filter(|u| is_teams_image(u))
-        {
+        let preview = f.pointer("/filePreview/previewUrl").and_then(Value::as_str).filter(|u| is_teams_image(u));
+        let previewed = preview.is_some();
+        if let Some(preview) = preview {
             let title = f.get("title").or_else(|| f.get("fileName")).and_then(Value::as_str);
             let size = |key: &str| f.pointer(&format!("/filePreview/{key}")).and_then(Value::as_i64);
             out.push(image_attachment(preview, title, size("previewWidth"), size("previewHeight")));
         }
-        let Some(url) =
-            f.pointer("/fileInfo/fileUrl").and_then(Value::as_str).or_else(|| f.get("fileUrl").and_then(Value::as_str))
-        else {
-            continue;
-        };
-        if !is_graph_share(url) {
-            continue;
-        }
+        let Some(url) = shared_file_url(f) else { continue };
         let name = f
             .get("title")
             .or_else(|| f.get("filename"))
             .or_else(|| f.get("fileName"))
             .and_then(Value::as_str)
             .unwrap_or("file");
+        if !previewed && is_image_name(name) {
+            out.push(json!({ "image_url": url, "title": name, "title_link": url }));
+            continue;
+        }
         let mut a = json!({ "title": name, "title_link": url, "type": "file" });
         if let Some(size) = f.pointer("/fileInfo/fileSize").and_then(Value::as_i64).or_else(|| int_of(f, "size")) {
             a["size"] = json!(size);
@@ -1318,6 +1339,35 @@ mod tests {
         ] {
             assert!(!is_teams_image(no), "{no}");
         }
+    }
+
+    #[test]
+    fn a_shared_document_is_fetched_by_its_path_and_an_image_previewed() {
+        let base = "https://contoso-my.sharepoint.com/personal/someone_contoso_com";
+        let raw = json!({
+            "properties": { "files": serde_json::to_string(&json!([
+                {
+                    "title": "1 - Plan-v8.docx",
+                    "objectUrl": format!("{base}/Documents/Microsoft Teams Chat Files/1 - Plan-v8.docx"),
+                    "fileInfo": { "fileUrl": format!("{base}/_layouts/15/Doc.aspx?sourcedoc=%7BC3%7D&file=1%20-%20Plan-v8.docx&action=default") }
+                },
+                { "title": "Emblem.png", "fileInfo": { "fileUrl": format!("{base}/Documents/Microsoft%20Teams%20Chat%20Files/Emblem.png") } },
+                { "title": "Viewer only.xlsx", "fileInfo": { "fileUrl": format!("{base}/_layouts/15/Doc.aspx?sourcedoc=%7BD4%7D") } }
+            ])).unwrap() }
+        });
+        let found: Vec<Value> = serde_json::from_str(&file_attachments(&raw).unwrap()).unwrap();
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert_eq!(
+            found[0]["title_link"],
+            json!(format!("{base}/Documents/Microsoft Teams Chat Files/1 - Plan-v8.docx"))
+        );
+        assert_eq!(found[0]["type"], "file");
+        let png = format!("{base}/Documents/Microsoft%20Teams%20Chat%20Files/Emblem.png");
+        assert_eq!(found[1], json!({"image_url": png, "title": "Emblem.png", "title_link": png}));
+        assert!(
+            found[2]["title_link"].as_str().unwrap().contains("/_layouts/"),
+            "the viewer link, when it is all there is"
+        );
     }
 
     #[test]

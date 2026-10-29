@@ -10,6 +10,7 @@ release, and its notes are that version's section here.
 ### Fixed
 
 - WhatsApp (experimental): the reaction picker offers every emoji; it showed only those Rocket.Chat has a name for.
+- Teams (experimental): an Office document shared in a conversation is downloaded by its own path rather than its viewer page, which could not be downloaded.
 
 ## [0.25.0] - 2026-10-28
 

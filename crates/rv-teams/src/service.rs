@@ -359,6 +359,49 @@ impl Service {
         stream_response(response, dest, progress).await
     }
 
+    /// The preview of an image shared from SharePoint or OneDrive: Graph's large
+    /// thumbnail of the item, else the file itself; both answer a redirect to a
+    /// pre-signed url, followed without the bearer.
+    pub async fn fetch_share_preview(&self, url: &str) -> Result<(Vec<u8>, String), RestError> {
+        use base64::Engine;
+        if !translate::is_graph_share(url) {
+            return Err(RestError::network(format!("{url}: not a shared file.")));
+        }
+        let token = self.tokens.graph().await?;
+        let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url.as_bytes());
+        let net = |e: reqwest::Error| RestError::network(format!("teams preview: {e}"));
+        let mut last = 0;
+        for tail in ["driveItem/thumbnails/0/large/content", "driveItem/content"] {
+            let item = format!("https://graph.microsoft.com/v1.0/shares/u!{enc}/{tail}");
+            let first = self.http.get(&item).bearer_auth(token.as_str()).send().await.map_err(net)?;
+            let status = first.status().as_u16();
+            let response = if (300..400).contains(&status) {
+                let Some(location) = first.headers().get("location").and_then(|v| v.to_str().ok()).map(str::to_owned)
+                else {
+                    last = status;
+                    continue;
+                };
+                self.http.get(&location).send().await.map_err(net)?
+            } else {
+                first
+            };
+            let status = response.status().as_u16();
+            if !(200..300).contains(&status) {
+                last = status;
+                continue;
+            }
+            let content_type = response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/octet-stream")
+                .to_owned();
+            let bytes = response.bytes().await.map_err(net)?.to_vec();
+            return Ok((bytes, content_type));
+        }
+        Err(refusal(&format!("graph_{last}"), last))
+    }
+
     /// A GET against Microsoft Graph with the Graph bearer, as JSON.
     async fn graph_json(&self, url: &str) -> Result<Value, RestError> {
         let token = self.tokens.graph().await?;

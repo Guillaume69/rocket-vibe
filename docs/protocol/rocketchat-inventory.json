@@ -1983,7 +1983,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 280,
+      "line": 281,
       "kind": "call:FETCH_PROTECTED",
       "surface": "&path).await?;"
     },
@@ -5253,7 +5253,7 @@
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 414,
+      "line": 457,
       "kind": "url",
       "surface": "/api/csa"
     },

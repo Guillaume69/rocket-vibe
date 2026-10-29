@@ -98,6 +98,9 @@ impl TeamsSync {
 
     /// An image on Teams' object store, with the skype token.
     pub async fn fetch_image(&self, url: &str) -> Result<(Vec<u8>, String), RestError> {
+        if crate::teams::translate::is_graph_share(url) {
+            return self.service.fetch_share_preview(url).await;
+        }
         self.service.fetch_image(url).await
     }
 

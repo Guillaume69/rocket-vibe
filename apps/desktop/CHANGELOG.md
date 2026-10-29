@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): starting or joining a call no longer stops on Microsoft's sign-in page. The call opens in Teams' app when one is installed, otherwise in your browser, where you are already signed in to Teams, instead of a separate window that never was.
+
 ## [0.28.0] - 2026-10-28
 
 ### Added

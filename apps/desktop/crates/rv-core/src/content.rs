@@ -222,7 +222,9 @@ pub fn files(attachments: Option<&str>) -> Vec<FileAttachment> {
 
 /// A file on the server, not a page elsewhere that a card links to.
 fn is_upload(a: &Value, link: &str) -> bool {
-    link.starts_with('/') || a.get("title_link_download").and_then(Value::as_bool) == Some(true)
+    link.starts_with('/')
+        || a.get("title_link_download").and_then(Value::as_bool) == Some(true)
+        || a.get("type").and_then(Value::as_str) == Some("file")
 }
 
 /// Attachments that are neither quotes, images, audio, video nor uploads.
@@ -705,6 +707,21 @@ mod tests {
         assert_eq!(q[0].images[0].source, "/full.png");
         assert_eq!(q[0].quotes[0].text, "two");
         assert!(q[0].quotes[0].quotes.is_empty());
+    }
+
+    #[test]
+    fn a_file_on_another_host_is_a_file_not_a_card() {
+        let attachments = json!([
+            {"title":"report.pdf","title_link":"https://contoso-my.sharepoint.com/personal/u/Documents/report.pdf","type":"file"},
+            {"title":"A page","title_link":"https://example.com/page","text":"an integration's card"}
+        ])
+        .to_string();
+        let f = files(Some(&attachments));
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].url, "https://contoso-my.sharepoint.com/personal/u/Documents/report.pdf");
+        let c = cards(Some(&attachments));
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].title.as_deref(), Some("A page"));
     }
 
     #[test]

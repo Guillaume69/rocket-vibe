@@ -7,14 +7,15 @@ section here.
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-10-29
+
 ### Added
 
 - WhatsApp (experimental): react with any emoji, not only the six quick ones: "+" in the message menu opens the emoji picker.
+
 ### Fixed
 
 - Teams (experimental): starting or joining a call no longer stops on Microsoft's sign-in page. The call opens in Teams' app when one is installed, otherwise in your browser, where you are already signed in to Teams, instead of a separate window that never was.
-### Fixed
-
 - Teams (experimental): shared files show as files and download again: they were drawn as a link to their SharePoint page, which opened a sign-in page instead of the file. An Office document is fetched by its own path rather than its viewer page, and a shared image shows a preview.
 
 ## [0.28.0] - 2026-10-28
@@ -1412,7 +1413,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...HEAD
+[0.29.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0
 [0.28.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0
 [0.27.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0
 [0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.25.0...desktop-v0.26.0

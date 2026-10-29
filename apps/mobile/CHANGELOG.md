@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-10-29
+
 ### Fixed
 
 - WhatsApp (experimental): the reaction picker offers every emoji; it showed only those Rocket.Chat has a name for.
@@ -925,7 +927,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.1...HEAD
+[0.25.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...mobile-v0.25.1
 [0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0
 [0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.23.0...mobile-v0.24.0
 [0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.22.0...mobile-v0.23.0

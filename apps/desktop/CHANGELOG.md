@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- WhatsApp (experimental): react with any emoji, not only the six quick ones: "+" in the message menu opens the emoji picker.
+
 ## [0.28.0] - 2026-10-28
 
 ### Added

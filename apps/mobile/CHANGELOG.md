@@ -7,6 +7,10 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): an Office document shared in a conversation is downloaded by its own path rather than its viewer page, which could not be downloaded.
+
 ## [0.25.0] - 2026-10-28
 
 ### Added

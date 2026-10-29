@@ -537,6 +537,17 @@ function inlineImages(content: string): Doc[] {
   return out;
 }
 
+/** The shared file's own address on SharePoint or OneDrive. Office documents
+ *  also carry their viewer page (`/_layouts/15/Doc.aspx?sourcedoc=...`), which
+ *  Graph `/shares` cannot resolve: the file's path (`objectUrl`) comes first.
+ *  Mirrors `shared_file_url` in the desktop core. */
+export function sharedFileUrl(f: Doc): string | null {
+  const info = f?.fileInfo as Doc | undefined;
+  const candidates = [str(f, 'objectUrl'), str(info, 'fileUrl'), str(f, 'fileUrl'), str(info, 'shareUrl')]
+    .filter((u): u is string => u !== null && isGraphShare(u));
+  return candidates.find((u) => !u.includes('/_layouts/')) ?? candidates[0] ?? null;
+}
+
 /** A message's attachments in the renderer's RC shape: images pasted into it,
  *  then its `properties.files` (a JSON string), each with its preview image
  *  when Teams keeps one on its object store. Only SharePoint/OneDrive files
@@ -557,8 +568,8 @@ export function fileAttachments(raw: unknown): string | null {
       out.push(imageAttachment(previewUrl, str(f, 'title') ?? str(f, 'fileName'), int(preview, 'previewWidth'), int(preview, 'previewHeight')));
     }
     const info = f?.fileInfo as Doc | undefined;
-    const url = str(info, 'fileUrl') ?? str(f, 'fileUrl');
-    if (!url || !isGraphShare(url)) continue;
+    const url = sharedFileUrl(f);
+    if (!url) continue;
     const name = str(f, 'title') ?? str(f, 'filename') ?? str(f, 'fileName') ?? 'file';
     const a: Doc = { title: name, title_link: url, type: 'file' };
     const size = int(info, 'fileSize') ?? int(f, 'size');

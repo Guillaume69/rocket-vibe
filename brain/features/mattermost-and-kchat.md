@@ -189,7 +189,9 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 
 - `MmTranslator` (`providers/mattermost/translator.ts`) writes the neutral rows,
   with the serialized sub-fields in the shapes the renderer already reads:
-  reactions as `{":code:": {usernames}}`, files as attachments on
+  reactions as `{":code:": {usernames}}` (a skin tone, `-1_medium_light_skin_tone`, read
+  as the toned code `-1_tone2` and sent back in Mattermost's form, `providers/mattermost/reactions.ts`,
+  rv-core `mattermost::translate::reaction_code` / `reaction_name`), files as attachments on
   `/api/v4/files/<id>`, OpenGraph embeds as `urls`, system posts mapped onto
   `uj`, `ul`, `au`, `ru`, `r` and the topic/description types. Users are named by
   id on the wire; `MmDirectory` resolves them before translation.

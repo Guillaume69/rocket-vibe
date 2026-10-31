@@ -3195,127 +3195,127 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 305,
+      "line": 301,
       "kind": "endpoint",
       "surface": "rooms.new_message"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 311,
+      "line": 307,
       "kind": "endpoint",
       "surface": "rooms.new_channel"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 319,
+      "line": 315,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 386,
+      "line": 382,
       "kind": "endpoint",
       "surface": "rooms.new_channel"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 386,
+      "line": 382,
       "kind": "endpoint",
       "surface": "rooms.new_message"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 404,
+      "line": 400,
       "kind": "endpoint",
       "surface": "rooms.section_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 405,
+      "line": 401,
       "kind": "endpoint",
       "surface": "rooms.section_favorites"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 408,
+      "line": 404,
       "kind": "endpoint",
       "surface": "rooms.section_channels"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 409,
+      "line": 405,
       "kind": "endpoint",
       "surface": "rooms.section_direct"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 437,
+      "line": 433,
       "kind": "resource",
       "surface": "/avatar/room/\\(id)"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 508,
+      "line": 504,
       "kind": "endpoint",
       "surface": "rooms.favorite_add"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 508,
+      "line": 504,
       "kind": "endpoint",
       "surface": "rooms.favorite_remove"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 512,
+      "line": 508,
       "kind": "endpoint",
       "surface": "rooms.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 516,
+      "line": 512,
       "kind": "endpoint",
       "surface": "rooms.mark_read"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 516,
+      "line": 512,
       "kind": "endpoint",
       "surface": "rooms.mark_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 534,
+      "line": 530,
       "kind": "endpoint",
       "surface": "rooms.encrypted"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 665,
+      "line": 661,
       "kind": "endpoint",
       "surface": "rooms.sign_out"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 685,
+      "line": 681,
       "kind": "endpoint",
       "surface": "rooms.account_menu"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 707,
+      "line": 703,
       "kind": "endpoint",
       "surface": "rooms.online"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 708,
+      "line": 704,
       "kind": "endpoint",
       "surface": "rooms.connecting"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/ChatView.swift",
-      "line": 709,
+      "line": 705,
       "kind": "endpoint",
       "surface": "rooms.offline"
     },
@@ -5031,7 +5031,7 @@
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 45,
+      "line": 48,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

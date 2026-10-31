@@ -19,6 +19,7 @@ import { reminderMessage } from '../../lib/reminder.ts';
 import { localTree } from '../../lib/markdown.ts';
 import { unvouchedMentionsAsText } from '../../lib/vouchedMentions.ts';
 import type { MmDirectory } from './directory.ts';
+import { reactionCode } from './reactions.ts';
 
 export const MM_POST = 'mm:post';
 export const MM_POST_DELETED = 'mm:post-deleted';
@@ -308,7 +309,7 @@ export class MmTranslator implements Translator {
       const emoji = str(reaction?.emoji_name);
       const userId = str(reaction?.user_id);
       if (emoji === null || userId === null) continue;
-      const key = `:${emoji}:`;
+      const key = `:${reactionCode(emoji)}:`;
       const bucket = (grouped[key] ??= { usernames: [] });
       bucket.usernames.push(this.directory.username(userId) ?? userId);
     }

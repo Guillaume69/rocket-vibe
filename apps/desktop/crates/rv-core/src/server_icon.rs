@@ -1,8 +1,8 @@
-//! The icon a server shows on the rail instead of its host's initial, read
+//! The icon a server shows on the rail instead of the app's, read
 //! without signing in for every account the rail lists: Rocket.Chat's
 //! `favicon_192` asset when an administrator set one (its default logo is
 //! not the server's own), Vibez's instance icon (`Discovery.icon_revision`).
-//! Mattermost and kChat keep the initial. Read afresh on each rail rebuild:
+//! Mattermost and kChat show the app's. Read afresh on each rail rebuild:
 //! Rocket.Chat serves the asset at a fixed URL with no ETag.
 
 use std::time::Duration;
@@ -24,7 +24,7 @@ const MAX_BYTES: usize = 2 * 1024 * 1024;
 pub enum Icon {
     /// A PNG or JPEG of at most 2 MiB.
     Image(Vec<u8>),
-    /// The server has no icon of its own: show the initial.
+    /// The server has no icon of its own: show the app's.
     Absent,
     /// Nothing to conclude (unreachable, refused, not an image): keep what is shown.
     Unknown,

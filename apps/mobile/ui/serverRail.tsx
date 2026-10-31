@@ -10,7 +10,7 @@
  */
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, Image, type ImageSourcePropType, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { dismissible } from './alerts.ts';
 
 import type { Session } from '../lib/auth.ts';
@@ -28,6 +28,9 @@ import { Tappable } from './tappable.tsx';
 import { type Colors, FONTS } from './theme.ts';
 import { mattermostUnread } from '../providers/mattermost/auth.ts';
 import { slackUnread } from '@rocket-vibe/provider-slack/auth';
+
+/** A server with no icon of its own, or one that could not be read, shows the app's. */
+const APP_ICON: ImageSourcePropType = require('../assets/icon.png');
 
 const POLL_MS = 60_000;
 const TILE = 44;
@@ -53,7 +56,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const [accounts, setAccounts] = useState<Session[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [switching, setSwitching] = useState<string | null>(null);
-  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the initial. */
+  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the app's icon. */
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
   const visits = useRef(0);
   // The poll reads these without being rebuilt at every change.
@@ -157,7 +160,14 @@ export function ServerRail({ c }: { c: Colors }) {
                 { borderColor: isOpen ? c.accent : 'transparent', opacity: pressed || switching === host ? 0.6 : 1 },
               ]}
             >
-              <AvatarTile c={c} hueKey={host} initial={name.charAt(0)} uri={icons.get(host)} size={TILE} radius={15} />
+              <AvatarTile
+                c={c}
+                hueKey={host}
+                uri={icons.get(host)}
+                size={TILE}
+                radius={15}
+                child={<Image source={APP_ICON} style={[StyleSheet.absoluteFill, styles.appIcon]} />}
+              />
               {!isOpen && unread.has(host) && (
                 <View style={[styles.dot, { backgroundColor: c.yellow, borderColor: c.deepCard }]} />
               )}
@@ -187,6 +197,7 @@ function without(set: ReadonlySet<string>, host: string): ReadonlySet<string> {
 }
 
 const styles = StyleSheet.create({
+  appIcon: { borderRadius: 15 },
   rail: { width: 68, borderRightWidth: 1 },
   list: { alignItems: 'center', paddingVertical: 12, gap: 10 },
   // The outline hugs the tile: 2 px of border around a tile of the same radius + 2.

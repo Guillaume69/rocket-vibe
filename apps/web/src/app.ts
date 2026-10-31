@@ -3611,17 +3611,29 @@ export class App implements RowActions {
   }
   /**
    * The tab shows the server's own icon when it has one (`icon_revision`,
-   * public at `/api/v1/instance/icon`), else the bundled one.
+   * public at `/api/v1/instance/icon`), else the bundled one, which also
+   * stays when the server's cannot be read.
    */
   serverIcon(revision: string | null): void {
     const link = document.querySelector<HTMLLinkElement>("link[rel=icon]");
     if (!link) return;
-    link.dataset.bundled ??= link.href;
-    link.href =
-      revision === null
-        ? link.dataset.bundled
-        : "/api/v1/instance/icon?v=" + encodeURIComponent(revision);
+    const bundled = (link.dataset.bundled ??= link.href);
     link.type = "image/png";
+    if (revision === null) {
+      link.dataset.wanted = "";
+      link.href = bundled;
+      return;
+    }
+    const href = "/api/v1/instance/icon?v=" + encodeURIComponent(revision);
+    const probe = new Image();
+    probe.onload = () => {
+      if (link.dataset.wanted === href) link.href = href;
+    };
+    probe.onerror = () => {
+      if (link.dataset.wanted === href) link.href = bundled;
+    };
+    link.dataset.wanted = href;
+    probe.src = href;
   }
   async loadEmojis(): Promise<void> {
     if (!this.info?.capabilities.custom_emojis) return;

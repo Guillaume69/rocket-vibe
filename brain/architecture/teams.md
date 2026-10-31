@@ -104,8 +104,11 @@ thread. Ids are `<conversation>/<server id>`. Reactions are
 `properties.emotions`, keyed by Teams' classic names (`like`, `heart`, `laugh`,
 `surprised`, `sad`, `angry`): the apps offer only those. Others read show by their
 glyph's standard shortcode: a `<codepoints>_<name>` key by its codepoints, a Skype
-emoticon id (`loudlycrying`, `smilerobot`, ...) through a table in `reaction_code` /
-`reactionCode` (hand-made, not read from Teams' catalog); an unknown one by its name. Reading moves my
+emoticon id (`launch`, `loudlycrying`, `smilerobot`, ...) through the 614 ids of
+Microsoft's "Teams Emoji Reactions Reference", frozen by `scripts/generate-teams-emoticons.mjs`
+into `crates/rv-teams/data/teams-emoticons.tsv` and `provider-teams/src/emoticons.generated.ts`
+(read by `reaction_code` / `reactionCode`), a `-tone1` to `-tone5` suffix adding the skin
+tone; an unknown one by its name. Reading moves my
 `consumptionhorizon` to the newest message, never back: the newer of the newest stored
 (or live) message and the aggregator entry's `lastMessage.id`, so an event the store never
 keeps is still read past; the room's row turns read at once (`unmarked_newest` and

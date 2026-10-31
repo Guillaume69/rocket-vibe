@@ -16,8 +16,8 @@ fn text(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)
 }
 
-fn emoji_name(shortcode: &str) -> &str {
-    shortcode.trim_matches(':')
+fn emoji_name(shortcode: &str) -> String {
+    super::translate::reaction_name(shortcode)
 }
 
 /// Mattermost says `dnd` where Rocket.Chat says `busy`.

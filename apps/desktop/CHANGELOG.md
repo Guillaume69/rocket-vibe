@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): every reaction Teams offers shows its emoji (🚀 rather than ":launch:"), skin tones included: the app now reads Microsoft's full list of Teams reaction ids.
+- Mattermost and kChat: a reaction with a skin tone shows its emoji (👎🏼 rather than ":-1_medium_light_skin_tone:"), and one picked here is sent in Mattermost's own form.
+- A server or account with no icon of its own, or whose icon cannot be read, shows the app's icon on the server rail instead of the host's initial.
+
 ## [0.29.0] - 2026-10-29
 
 ### Added

@@ -11,6 +11,10 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Web client: the tab keeps the app's icon when the server's own icon cannot be read.
+
 ## [0.10.1] - 2026-10-28
 
 ### Fixed

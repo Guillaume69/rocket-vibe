@@ -12,6 +12,7 @@ release, and its notes are that version's section here.
 - Teams (experimental): every reaction Teams offers shows its emoji (🚀 rather than ":launch:"), skin tones included: the app now reads Microsoft's full list of Teams reaction ids.
 - Mattermost and kChat: a reaction with a skin tone shows its emoji (👎🏼 rather than ":-1_medium_light_skin_tone:"), and one picked here is sent in Mattermost's own form.
 - A server or account with no icon of its own, or whose icon cannot be read, shows the app's icon on the server rail instead of the host's initial.
+- Teams (experimental): calls open in the app's call screen instead of Teams' app or the browser, and the call button in a chat starts a call with its people (it opened the conversation, and a started call's link was mangled on the way); a channel no longer offers one. The first call asks to sign in to Microsoft once.
 
 ## [0.25.1] - 2026-10-29
 

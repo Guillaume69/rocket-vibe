@@ -5,9 +5,10 @@ import WebKit
 /// A call in a window of the app, not a browser tab: the meeting page in
 /// WKWebView. It stays on the call's origin (rv-core's rule, through
 /// `callAllowed`): only that origin gets the camera and the microphone, and
-/// any other address opens in the browser. A Teams call goes to the user's
-/// own Teams, signed in there: Teams' app when one handles `msteams:` links,
-/// else the browser; a window of ours would stop on Microsoft's sign-in.
+/// any other address opens in the browser. A Teams call is Teams' web app,
+/// which may pass through the Microsoft sign-in: its window stays on
+/// Microsoft's pages instead (`teamsCallAllowed`), its store kept so the
+/// sign-in lasts.
 @MainActor
 final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDelegate {
     private static var windows: [CallWindow] = []
@@ -15,6 +16,7 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
     private let web: WKWebView
     private let callURL: String
     private let huddle: Bool
+    private let teams: Bool
 
     /// A Slack huddle opens signed in with `slackCookie`, its store kept in
     /// memory; without the cookie it goes to the browser, signed in there.
@@ -24,23 +26,16 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
             NSWorkspace.shared.open(url)
             return
         }
-        if !slack && url.scheme == "https" && teamsCallAllowed(url: url.absoluteString) {
-            if let link = teamsAppLink(url: url.absoluteString), let app = URL(string: link),
-               NSWorkspace.shared.urlForApplication(toOpen: app) != nil {
-                NSWorkspace.shared.open(app)
-            } else {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        let call = CallWindow(url: url, title: title, slackCookie: slack ? slackCookie : nil)
+        let teams = !slack && url.scheme == "https" && teamsCallAllowed(url: url.absoluteString)
+        let call = CallWindow(url: url, title: title, slackCookie: slack ? slackCookie : nil, teams: teams)
         windows.append(call)
         call.window.makeKeyAndOrderFront(nil)
     }
 
-    private init(url: URL, title: String, slackCookie: String?) {
+    private init(url: URL, title: String, slackCookie: String?, teams: Bool) {
         callURL = url.absoluteString
         huddle = slackCookie != nil
+        self.teams = teams
         let configuration = WKWebViewConfiguration()
         if slackCookie != nil { configuration.websiteDataStore = .nonPersistent() }
         web = WKWebView(frame: .zero, configuration: configuration)
@@ -75,6 +70,7 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
 
     private func allowed(_ address: String) -> Bool {
         if huddle { return slackHuddleAllowed(url: address) }
+        if teams { return teamsCallAllowed(url: address) }
         return callAllowed(url: address, callUrl: callURL)
     }
 
@@ -101,7 +97,7 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
         decidePolicyFor navigationAction: WKNavigationAction
     ) async -> WKNavigationActionPolicy {
         let target = navigationAction.request.url?.absoluteString ?? ""
-        if allowed(target) || (huddle && navigationAction.targetFrame?.isMainFrame == false) {
+        if allowed(target) || ((huddle || teams) && navigationAction.targetFrame?.isMainFrame == false) {
             return .allow
         }
         if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {

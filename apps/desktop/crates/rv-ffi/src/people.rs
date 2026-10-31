@@ -235,10 +235,11 @@ impl Chat {
             .collect())
     }
 
-    /// Whether the server offers video calls (and I may start one).
-    pub async fn call_available(&self) -> bool {
+    /// Whether a call can be started in the room: the server offers calls, and
+    /// on Teams the room is a chat, not a channel.
+    pub async fn call_available(&self, rid: String) -> bool {
         let s = self.session.clone();
-        on_tokio(async move { s.call_available().await }).await
+        on_tokio(async move { s.room_callable(&rid).await }).await
     }
 
     /// Starts a call in the room: its link, to open in the browser.

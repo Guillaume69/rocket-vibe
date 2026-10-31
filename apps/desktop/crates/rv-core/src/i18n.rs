@@ -2008,12 +2008,6 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("call.info", "Informations de la réunion", "Meeting information"),
     ("call.link", "Lien de la réunion", "Meeting link"),
     ("call.close", "Fermer", "Close"),
-    ("call.in_teams", "L'appel s'ouvre dans Teams", "The call opens in Teams"),
-    (
-        "call.in_teams_browser",
-        "L'appel s'ouvre dans votre navigateur, connecté à Teams",
-        "The call opens in your browser, where you are signed in to Teams",
-    ),
     (
         "call.in_browser",
         "La fenêtre d'appel n'a pas pu s'ouvrir : l'appel s'ouvre dans le navigateur",

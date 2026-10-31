@@ -682,18 +682,50 @@ pub fn object_id(mri: &str) -> Option<&str> {
     mri.strip_prefix("8:orgid:").filter(|oid| !oid.is_empty())
 }
 
+/// The people a chat's call rings: its members but me and the bots.
+pub fn call_people(me: &str, chat: &Value) -> Vec<String> {
+    chat.get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| str_of(m, "mri"))
+        .filter(|m| !m.eq_ignore_ascii_case(me) && object_id(m).is_some())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The call window profile of a Teams account (its MRI), a folder name.
+pub fn call_profile(account: &str) -> String {
+    let id: String = account
+        .rsplit(':')
+        .next()
+        .unwrap_or(account)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!("call-window-teams-{id}")
+}
+
+/// Teams' link that starts a call with these people (their sign-in names),
+/// the Microsoft sign-in pre-filled with mine when the window has to pass it.
+pub fn call_link(users: &[String], hint: Option<&str>) -> Option<String> {
+    if users.is_empty() {
+        return None;
+    }
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/call/0/0").expect("Teams link base");
+    url.query_pairs_mut().append_pair("users", &users.join(","));
+    if let Some(hint) = hint.filter(|h| h.contains('@')) {
+        url.query_pairs_mut().append_pair("login_hint", hint);
+    }
+    Some(url.to_string())
+}
+
 /// A chat's page in Teams' web app, where its running call shows a Join.
 pub fn chat_link(chat: &str, tenant: &str) -> String {
     let mut url = url::Url::parse("https://teams.microsoft.com/l/chat/").expect("Teams link base");
     url.path_segments_mut().expect("https base").pop_if_empty().extend([chat, "conversations"]);
     url.query_pairs_mut().append_pair("tenantId", tenant);
     url.to_string()
-}
-
-/// The same Teams link for Teams' own app (`msteams:/l/...`), which is signed
-/// in where a window of ours never is.
-pub fn app_link(link: &str) -> Option<String> {
-    link.strip_prefix("https://teams.microsoft.com/l/").map(|rest| format!("msteams:/l/{rest}"))
 }
 
 /// Where a Teams call window may go: Microsoft's own `https` pages (Teams'
@@ -1223,6 +1255,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_call_rings_the_chat_s_people_by_sign_in_name() {
+        let chat = json!({"members": [{"mri": "8:orgid:me"}, {"mri": "8:orgid:ada"}, {"mri": "28:bot"}, {"mri": "8:orgid:bob"}]});
+        assert_eq!(call_people("8:orgid:me", &chat), ["8:orgid:ada", "8:orgid:bob"]);
+        let users = ["ada@contoso.com".to_owned(), "bob@contoso.com".to_owned()];
+        assert_eq!(
+            call_link(&users, Some("me@contoso.com")).as_deref(),
+            Some(
+                "https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com%2Cbob%40contoso.com&login_hint=me%40contoso.com"
+            )
+        );
+        assert_eq!(
+            call_link(&users[..1], Some("8:orgid:me")).as_deref(),
+            Some("https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com")
+        );
+        assert!(call_link(&[], None).is_none());
+        assert_eq!(call_profile("8:orgid:884c3588-78ab/../x"), "call-window-teams-884c3588-78abx");
+        assert!(call_allowed(&call_link(&users, None).unwrap(), ""));
+    }
+
+    #[test]
     fn a_one_on_one_thread_names_both_members_on_a_fixed_roster() {
         let id = "19:aa_bb@unq.gbl.spaces";
         let thread = one_on_one_thread(id).unwrap();
@@ -1507,21 +1559,6 @@ mod tests {
         let csa = json!({"messagetype": "Event/Call", "id": "9", "parentMessageId": "5",
             "originalarrivaltime": "2026-10-22T23:55:55.826Z", "content": "<ended/><callEventType>callEnded</callEventType>"});
         assert_eq!(message(channel, &csa, &d).unwrap().id, format!("{channel}/5"));
-    }
-
-    #[test]
-    fn a_call_link_opens_in_teams_own_app() {
-        assert_eq!(
-            app_link("https://teams.microsoft.com/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1").as_deref(),
-            Some("msteams:/l/chat/19:a_b@unq.gbl.spaces/conversations?tenantId=t-1")
-        );
-        assert_eq!(
-            app_link(&meetup_link("19:ch@thread.tacv2", "1", "t-1", "o-1")).as_deref(),
-            Some(
-                "msteams:/l/meetup-join/19%3ach%40thread.tacv2/1?context=%7B%22Tid%22%3A%22t-1%22%2C%22Oid%22%3A%22o-1%22%7D"
-            )
-        );
-        assert_eq!(app_link("https://teams.cloud.microsoft/v2/"), None);
     }
 
     #[test]

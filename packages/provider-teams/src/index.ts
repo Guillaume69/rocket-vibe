@@ -154,7 +154,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     identity: { kind: 'teams', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
     describeError: describeTeamsError,
     capabilities: TEAMS_CAPABILITIES,
-    calls: teamsCalls(client, rooms, session.teamsTenantId ?? ''),
+    calls: teamsCalls(client, rooms, session.teamsTenantId ?? '', session.userId),
     listener,
     setTyping: (rid, active) => { void typingAction(client, directory, session, rid, active); },
     translator,

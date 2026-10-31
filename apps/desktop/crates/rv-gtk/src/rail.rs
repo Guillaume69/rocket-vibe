@@ -17,7 +17,6 @@ use rv_core::session::SessionInfo;
 
 use crate::i18n::t;
 use crate::secrets::account_key;
-use crate::widgets::{self, TileSize};
 
 type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
 /// A button's account, key, overlay and initial tile.
@@ -185,6 +184,14 @@ pub(crate) fn icon_image(texture: Option<&gtk::gdk::Texture>) -> gtk::Image {
     image
 }
 
+/// The app's own icon at a tile's size: a server with no icon of its own,
+/// or whose icon could not be read, shows it.
+pub(crate) fn app_icon() -> gtk::Widget {
+    let image = icon_image(None);
+    image.set_icon_name(Some(crate::APP_ID));
+    image.upcast()
+}
+
 /// What the rail shows of a server: its host, without `www.`.
 fn host(info: &SessionInfo) -> String {
     rv_core::supervisor::server_label(info)
@@ -271,7 +278,7 @@ impl Rail {
             let open = active.as_deref() == Some(key.as_str());
             let muted = self.muted.borrow().contains(&key);
             let server = host(info);
-            let tile = widgets::tile(&key, &widgets::initial(&server), TileSize::Room, false);
+            let tile = app_icon();
             let dot = gtk::Box::builder()
                 .css_classes(["rail-dot"])
                 .halign(gtk::Align::End)

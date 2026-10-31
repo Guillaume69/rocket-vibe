@@ -165,15 +165,11 @@ struct ServerRail: View {
     func tile(_ account: Account, open: Bool, host: String, slot: Int) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
             Group {
-                // The server's own icon when it has one, else its initial.
+                // The server's own icon when it has one, else the app's.
                 if let data = app.serverIcons[account.key], let image = NSImage(data: data) {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
-                    Text(host.prefix(1).uppercased())
-                        .font(.vibeTitle(17, .bold))
-                        .foregroundStyle(Vibe.ink)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(LinearGradient(colors: Vibe.tile(for: account.key), startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit()
                 }
             }
                 .frame(width: 44, height: 44)

@@ -56,7 +56,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const [accounts, setAccounts] = useState<Session[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [switching, setSwitching] = useState<string | null>(null);
-  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the initial. */
+  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the app's icon. */
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
   const visits = useRef(0);
   // The poll reads these without being rebuilt at every change.

@@ -1,9 +1,9 @@
 /**
- * The icon a server shows on the rail instead of its host's initial, read
+ * The icon a server shows on the rail instead of the app's, read
  * without signing in: Rocket.Chat's `favicon_192` asset when an
  * administrator set one (its stock logo is not the server's own), Vibez's
- * instance icon at the discovery's `icon_revision`. Mattermost and kChat keep
- * the initial. Same rule as the desktop's `rv_core::server_icon`.
+ * instance icon at the discovery's `icon_revision`. Mattermost and kChat show
+ * the app's. Same rule as the desktop's `rv_core::server_icon`.
  *
  * Read once per server and app session (each rail visit would otherwise cost
  * an anonymous `settings.public`, rate limited per address), again after an
@@ -64,7 +64,7 @@ async function json(url: string): Promise<unknown> {
 }
 
 /**
- * The URI of a server's icon, `null` to show the initial (none, another
+ * The URI of a server's icon, `null` to show the app's (none, another
  * provider), or `undefined` when the read concluded nothing (unreachable,
  * refused): the caller keeps what it shows.
  */

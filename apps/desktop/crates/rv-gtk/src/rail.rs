@@ -19,7 +19,7 @@ use crate::i18n::t;
 use crate::secrets::account_key;
 
 type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
-/// A button's account, key, overlay and initial tile.
+/// A button's account, key, overlay and fallback tile (the app's icon).
 type Slot = (SessionInfo, String, glib::WeakRef<gtk::Overlay>, gtk::Widget);
 
 pub struct Rail {
@@ -33,7 +33,7 @@ pub struct Rail {
     icons: RefCell<HashMap<String, gtk::gdk::Texture>>,
     /// The photo bytes each account's tile was last drawn from.
     photo_sources: RefCell<std::collections::HashMap<String, usize>>,
-    /// Each button's account, key, overlay and initial tile, to read the icons again.
+    /// Each button's account, key, overlay and fallback tile, to read the icons again.
     slots: RefCell<Vec<Slot>>,
     unread: RefCell<HashMap<String, bool>>,
     /// The muted accounts (`rv_core::account_mute`): dimmed, a muted mark, no dot.
@@ -445,8 +445,8 @@ impl Rail {
         self.unread.borrow_mut().remove(key);
     }
 
-    /// Reads the server's icon; it replaces the initial, a server that
-    /// dropped its icon goes back to the initial, and a read that concludes
+    /// Reads the server's icon; it replaces the app's, a server that
+    /// dropped its icon goes back to the app's, and a read that concludes
     /// nothing (offline, refused) keeps what is shown. An answer about an
     /// older account list is dropped.
     fn load_icon(self: &Rc<Self>, info: &SessionInfo, key: &str, overlay: &gtk::Overlay, tile: &gtk::Widget) {
@@ -474,7 +474,7 @@ impl Rail {
         });
     }
 
-    /// An account's own photo in place of its initial (a WhatsApp account).
+    /// An account's own photo in place of the app's icon (a WhatsApp account).
     pub fn set_photo(&self, key: &str, bytes: &std::sync::Arc<[u8]>) {
         let source = bytes.as_ptr() as usize;
         if self.photo_sources.borrow().get(key) == Some(&source) {

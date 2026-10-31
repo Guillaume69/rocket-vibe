@@ -301,7 +301,7 @@ test('a call opens the conversation in Teams: a channel through its Graph group,
   });
   const rooms = new TeamsRooms();
   rooms.entries.set(channel, { entry: { id: channel, displayName: 'General' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
-  const teams = teamsCalls(client, rooms, 'tenant-1');
+  const teams = teamsCalls(client, rooms, 'tenant-1', '8:orgid:me');
   assert.equal(
     await teams.start(channel, null, () => true),
     'https://teams.microsoft.com/l/channel/19%3Ach%40thread.tacv2/General?groupId=group-1&tenantId=tenant-1',
@@ -310,6 +310,26 @@ test('a call opens the conversation in Teams: a channel through its Graph group,
   assert.equal(await teams.join(RID, {}, () => true), 'https://teams.microsoft.com/l/chat/19%3Ac%40thread.v2/conversations?tenantId=tenant-1');
   assert.equal(calls.length, before, 'a chat link needs no call');
   assert.equal(TEAMS_CAPABILITIES.videoCall, true);
+});
+
+test('starting a call in a chat rings its people by sign-in name; a channel offers none', async () => {
+  const chat = '19:aa_me@unq.gbl.spaces';
+  const { client } = fake((call) => {
+    if (call.url.includes('fetchShortProfile')) {
+      return { body: { value: [{ mri: '8:orgid:aa', userPrincipalName: 'ada@contoso.com' }, { mri: '8:orgid:me', userPrincipalName: 'me@contoso.com' }] } };
+    }
+    return { status: 404, body: {} };
+  });
+  const rooms = new TeamsRooms();
+  rooms.entries.set(chat, { entry: { id: chat, members: [{ mri: '8:orgid:me' }, { mri: '8:orgid:aa' }, { mri: '28:bot' }] }, team: null });
+  rooms.entries.set('19:ch@thread.tacv2', { entry: { id: '19:ch@thread.tacv2', displayName: 'General' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
+  const teams = teamsCalls(client, rooms, 'tenant-1', '8:orgid:me');
+  assert.equal(await teams.start(chat, null, () => true), 'https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com&login_hint=me%40contoso.com');
+  assert.equal(await teams.available(chat), true);
+  assert.equal(await teams.available('19:ch@thread.tacv2'), false);
+  const link = 'https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com';
+  assert.equal(await teams.join(link, {}, () => true), link, 'a started call\'s link is opened as it is');
+  await assert.rejects(teams.join('https://evil.example/l/call', {}, () => true));
 });
 
 test('a channel call card joins the call itself, its starter as organizer', async () => {
@@ -322,7 +342,7 @@ test('a channel call card joins the call itself, its starter as organizer', asyn
   });
   const rooms = new TeamsRooms();
   rooms.entries.set(channel, { entry: { id: channel, displayName: 'General', groupId: 'group-1' }, team: { id: '19:team@thread.tacv2', name: 'Team' } });
-  const teams = teamsCalls(client, rooms, 'tenant-1');
+  const teams = teamsCalls(client, rooms, 'tenant-1', '8:orgid:me');
   assert.equal(
     await teams.join(`${channel}/1792769688903`, {}, () => true),
     'https://teams.microsoft.com/l/meetup-join/19%3ach%40thread.tacv2/1792769688903?context=%7B%22Tid%22%3A%22tenant-1%22%2C%22Oid%22%3A%22oid-1%22%7D',

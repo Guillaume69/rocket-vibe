@@ -5,7 +5,7 @@ import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './aut
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, people, peopleRequest,
-  convert, permalink, qualifiedName, spellMentions,
+  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -458,4 +458,17 @@ test('a shared document is downloaded by its path, not its viewer page', () => {
   assert.equal(found[0].title_link, `${base}/Documents/Microsoft Teams Chat Files/1 - Plan-v8.docx`);
   assert.equal(found[0].type, 'file');
   assert.ok(found[1].title_link.includes('/_layouts/'));
+});
+
+test('a Teams call screen stays on Microsoft\'s pages; a call link names the people', () => {
+  assert.ok(callAllowed('https://teams.microsoft.com/l/call/0/0?users=a'));
+  assert.ok(callAllowed('https://login.microsoftonline.com/common/oauth2'));
+  assert.ok(callAllowed('blob:https://teams.microsoft.com/abc'));
+  assert.ok(!callAllowed('https://evil.com/?x=teams.microsoft.com'));
+  assert.ok(!callAllowed('https://user@teams.microsoft.com/'));
+  assert.ok(!callAllowed('http://teams.microsoft.com/'));
+  assert.ok(!callAllowed('https://notmicrosoft.com/'));
+  assert.deepEqual(callPeople('8:orgid:me', { members: [{ mri: '8:orgid:ME' }, { mri: '8:orgid:aa' }, { mri: '28:bot' }] }), ['8:orgid:aa']);
+  assert.equal(callLink([], null), null);
+  assert.equal(callLink(['a@x.fr', 'b@x.fr'], '8:orgid:me'), 'https://teams.microsoft.com/l/call/0/0?users=a%40x.fr%2Cb%40x.fr');
 });

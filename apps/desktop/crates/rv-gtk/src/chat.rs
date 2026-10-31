@@ -3161,7 +3161,8 @@ impl ChatPage {
             let (weak, s, rid) = (Rc::downgrade(self), session.clone(), rid.to_owned());
             let expected = session.clone();
             glib::spawn_future_local(async move {
-                let available = on_tokio(async move { s.call_available().await }).await;
+                let asked = rid.clone();
+                let available = on_tokio(async move { s.room_callable(&asked).await }).await;
                 if let Some(this) = weak.upgrade()
                     && this.session().is_some_and(|s| Arc::ptr_eq(&s, &expected))
                     && this.current_rid().as_deref() == Some(rid.as_str())
@@ -3740,10 +3741,9 @@ impl ChatPage {
     }
 
     pub(crate) fn open_call(self: &Rc<Self>, url: &str, room: &str) {
-        #[cfg(not(target_os = "linux"))]
-        if self.session().is_some_and(|s| s.info.teams.is_some()) {
+        if let Some(account) = self.session().filter(|s| s.info.teams.is_some()).map(|s| s.info.user_id.clone()) {
             let weak = Rc::downgrade(self);
-            crate::call_window::open_teams(&self.split, url, room, move |text| {
+            crate::call_window::open_teams(&self.split, url, room, &account, move |text| {
                 if let Some(this) = weak.upgrade() {
                     this.toast(text);
                 }

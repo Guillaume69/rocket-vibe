@@ -24,12 +24,19 @@ const APP_MODE_BROWSERS: [&str; 9] = [
 
 #[cfg(target_os = "linux")]
 fn open_window(url: &str, _room: &str, fallback: impl Fn() + 'static) {
+    open_in_profile(url, "call-window", fallback);
+}
+
+/// The call in an app window of a Chromium browser on the profile `name`,
+/// kept under the app's data folder across calls.
+#[cfg(target_os = "linux")]
+fn open_in_profile(url: &str, name: &str, fallback: impl Fn() + 'static) {
     use gtk::glib;
     let Some(browser) = APP_MODE_BROWSERS.iter().find_map(glib::find_program_in_path) else {
         return fallback();
     };
     name_window(&browser, url);
-    let profile = glib::user_data_dir().join("rocket-vibe-rs").join("call-window");
+    let profile = glib::user_data_dir().join("rocket-vibe-rs").join(name);
     let spawned = std::process::Command::new(&browser)
         .arg(format!("--app={url}"))
         .arg(format!("--user-data-dir={}", profile.display()))
@@ -134,10 +141,33 @@ pub fn open_slack(
     }
 }
 
-/// A Teams conversation's page in a call window that may pass through the
-/// Microsoft sign-in; the browser when the window cannot open.
+/// A Teams call in an app window whose profile belongs to the Teams account
+/// (`account`), so its Microsoft sign-in is kept from one call to the next.
+#[cfg(target_os = "linux")]
+pub fn open_teams(
+    widget: &impl IsA<gtk::Widget>,
+    url: &str,
+    _room: &str,
+    account: &str,
+    toast: impl Fn(String) + 'static,
+) {
+    let (anchor, target) = (widget.clone().upcast::<gtk::Widget>(), url.to_owned());
+    open_in_profile(url, &rv_core::teams::translate::call_profile(account), move || {
+        crate::cards::open_uri(&anchor, &target);
+        toast(t("call.in_browser").to_owned());
+    });
+}
+
+/// A Teams call in a call window kept on Microsoft's pages, its sign-in kept
+/// in the window's store; the browser when the window cannot open.
 #[cfg(not(target_os = "linux"))]
-pub fn open_teams(widget: &impl IsA<gtk::Widget>, url: &str, room: &str, toast: impl Fn(String) + 'static) {
+pub fn open_teams(
+    widget: &impl IsA<gtk::Widget>,
+    url: &str,
+    room: &str,
+    _account: &str,
+    toast: impl Fn(String) + 'static,
+) {
     let title = crate::i18n::tf("call.window_title", &[("room", room)]);
     if let Err(e) = rv_native::call_window(url, &title, rv_core::teams::translate::call_allowed) {
         eprintln!("Teams call window not opened: {e}");

@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Teams (experimental): calls stay in the app's call window again instead of going to Teams' app or the browser. The call button in a chat now starts a call with its people (it only opened the conversation), a channel no longer offers one, and the window keeps its Microsoft sign-in from one call to the next (one window per Teams account on Linux); the first call asks to sign in once.
+
 ## [0.29.0] - 2026-10-29
 
 ### Added

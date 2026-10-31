@@ -727,6 +727,44 @@ pub fn object_id(mri: &str) -> Option<&str> {
     mri.strip_prefix("8:orgid:").filter(|oid| !oid.is_empty())
 }
 
+/// The people a chat's call rings: its members but me and the bots.
+pub fn call_people(me: &str, chat: &Value) -> Vec<String> {
+    chat.get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| str_of(m, "mri"))
+        .filter(|m| !m.eq_ignore_ascii_case(me) && object_id(m).is_some())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The call window profile of a Teams account (its MRI), a folder name.
+pub fn call_profile(account: &str) -> String {
+    let id: String = account
+        .rsplit(':')
+        .next()
+        .unwrap_or(account)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    format!("call-window-teams-{id}")
+}
+
+/// Teams' link that starts a call with these people (their sign-in names),
+/// the Microsoft sign-in pre-filled with mine when the window has to pass it.
+pub fn call_link(users: &[String], hint: Option<&str>) -> Option<String> {
+    if users.is_empty() {
+        return None;
+    }
+    let mut url = url::Url::parse("https://teams.microsoft.com/l/call/0/0").expect("Teams link base");
+    url.query_pairs_mut().append_pair("users", &users.join(","));
+    if let Some(hint) = hint.filter(|h| h.contains('@')) {
+        url.query_pairs_mut().append_pair("login_hint", hint);
+    }
+    Some(url.to_string())
+}
+
 /// A chat's page in Teams' web app, where its running call shows a Join.
 pub fn chat_link(chat: &str, tenant: &str) -> String {
     let mut url = url::Url::parse("https://teams.microsoft.com/l/chat/").expect("Teams link base");
@@ -1260,6 +1298,26 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_call_rings_the_chat_s_people_by_sign_in_name() {
+        let chat = json!({"members": [{"mri": "8:orgid:me"}, {"mri": "8:orgid:ada"}, {"mri": "28:bot"}, {"mri": "8:orgid:bob"}]});
+        assert_eq!(call_people("8:orgid:me", &chat), ["8:orgid:ada", "8:orgid:bob"]);
+        let users = ["ada@contoso.com".to_owned(), "bob@contoso.com".to_owned()];
+        assert_eq!(
+            call_link(&users, Some("me@contoso.com")).as_deref(),
+            Some(
+                "https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com%2Cbob%40contoso.com&login_hint=me%40contoso.com"
+            )
+        );
+        assert_eq!(
+            call_link(&users[..1], Some("8:orgid:me")).as_deref(),
+            Some("https://teams.microsoft.com/l/call/0/0?users=ada%40contoso.com")
+        );
+        assert!(call_link(&[], None).is_none());
+        assert_eq!(call_profile("8:orgid:884c3588-78ab/../x"), "call-window-teams-884c3588-78abx");
+        assert!(call_allowed(&call_link(&users, None).unwrap(), ""));
+    }
 
     #[test]
     fn a_one_on_one_thread_names_both_members_on_a_fixed_roster() {

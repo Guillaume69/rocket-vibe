@@ -986,6 +986,15 @@ impl Session {
         }
     }
 
+    /// Whether a call can be started in this room: the server's calls, and on
+    /// Teams a chat only (a channel call needs a meeting this client cannot create).
+    pub async fn room_callable(&self, rid: &str) -> bool {
+        if let Backend::Teams(teams) = self.backend() {
+            return teams.callable(rid);
+        }
+        self.call_available().await
+    }
+
     /// A person's photo, with its version when a change was announced.
     pub fn user_avatar(&self, username: &str) -> String {
         let etag = self.avatars.lock().unwrap().get(username).cloned();

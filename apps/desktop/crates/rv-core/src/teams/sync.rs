@@ -471,10 +471,21 @@ impl TeamsSync {
         self.service.download_file(url, dest, progress).await
     }
 
-    /// The conversation's page in Teams' web app, which a call window opens to
-    /// start or join its call: a channel's needs its team's Graph group id, a
-    /// chat's only the tenant.
+    /// Where starting a call goes: a chat's call link ringing its people,
+    /// else the conversation's page.
     pub async fn call_url(&self, rid: &str, tenant: &str) -> Result<String, RestError> {
+        if self.callable(rid)
+            && let Some(url) = self.ring_url(rid).await
+        {
+            return Ok(url);
+        }
+        self.page_url(rid, tenant).await
+    }
+
+    /// The conversation's page in Teams' web app, where its running call shows
+    /// a Join: a channel's needs its team's Graph group id, a chat's only the
+    /// tenant.
+    async fn page_url(&self, rid: &str, tenant: &str) -> Result<String, RestError> {
         let channel =
             self.entries.lock().unwrap().get(rid).and_then(|(entry, team)| {
                 team.as_ref().map(|_| str_of(entry, "displayName").unwrap_or(rid).to_owned())
@@ -488,16 +499,45 @@ impl TeamsSync {
         }
     }
 
+    /// A chat's call link, its people named by their sign-in names (the
+    /// middle tier's short profiles); None when none could be read.
+    async fn ring_url(&self, rid: &str) -> Option<String> {
+        let people = {
+            let entries = self.entries.lock().unwrap();
+            translate::call_people(self.service.me(), &entries.get(rid)?.0)
+        };
+        if people.is_empty() {
+            return None;
+        }
+        let mut asked = people.clone();
+        asked.push(self.service.me().to_owned());
+        let rows = self.service.profiles(&asked).await;
+        let upn = |mri: &str| {
+            rows.iter()
+                .find(|r| str_of(r, "mri").is_some_and(|m| m.eq_ignore_ascii_case(mri)))
+                .and_then(|r| str_of(r, "userPrincipalName"))
+                .map(str::to_owned)
+        };
+        let users: Vec<String> = people.iter().filter_map(|m| upn(m)).collect();
+        translate::call_link(&users, upn(self.service.me()).as_deref())
+    }
+
+    /// Whether a call can be started in a room: a chat. A channel call needs
+    /// a meeting this client cannot create.
+    pub fn callable(&self, rid: &str) -> bool {
+        self.team_of(rid).is_none()
+    }
+
     /// Where a call card's Join goes: a channel call's own join page, built from
     /// its start message's author as organizer; otherwise the conversation's page.
     pub async fn join_url(&self, call_id: &str, tenant: &str) -> Result<String, RestError> {
-        let Some((rid, server)) = translate::split_id(call_id) else { return self.call_url(call_id, tenant).await };
+        let Some((rid, server)) = translate::split_id(call_id) else { return self.page_url(call_id, tenant).await };
         if self.team_of(rid).is_none() {
-            return self.call_url(rid, tenant).await;
+            return self.page_url(rid, tenant).await;
         }
         match self.service.call_organizer(rid, server).await? {
             Some(oid) => Ok(translate::meetup_link(rid, server, tenant, &oid)),
-            None => self.call_url(rid, tenant).await,
+            None => self.page_url(rid, tenant).await,
         }
     }
 

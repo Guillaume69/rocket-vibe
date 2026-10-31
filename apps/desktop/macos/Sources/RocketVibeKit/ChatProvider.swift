@@ -30,7 +30,7 @@ public enum ChatProvider {
     }
     public func callAvailable(rid:String, membership:String? = nil) async -> Bool {
         switch self {
-        case let .rocketChat(chat): return await chat.callAvailable()
+        case let .rocketChat(chat): return await chat.callAvailable(rid:rid)
         case .vibez: return false
         }
     }

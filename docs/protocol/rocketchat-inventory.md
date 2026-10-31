@@ -723,7 +723,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:3013](../../apps/mobile/ui/messages.ts#L3013) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
-| [apps/mobile/ui/serverRail.tsx:45](../../apps/mobile/ui/serverRail.tsx#L45) | endpoint | subscriptions.get |
+| [apps/mobile/ui/serverRail.tsx:48](../../apps/mobile/ui/serverRail.tsx#L48) | endpoint | subscriptions.get |
 | [apps/mobile/ui/settingsSections.tsx:381](../../apps/mobile/ui/settingsSections.tsx#L381) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | call:POST | 'users.setPreferences' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | endpoint | users.setPreferences |

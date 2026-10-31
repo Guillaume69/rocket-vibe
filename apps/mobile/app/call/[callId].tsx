@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
+import { callAllowed as teamsCallAllowed } from '@rocket-vibe/provider-teams/translate';
 import { callContext, joinConference } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
 import { VoiceNative } from '../../modules/voice/index.ts';
@@ -72,6 +73,10 @@ function withoutJitsiInterstitial(url: string): string {
  */
 const UA_MOBILE =
   'Mozilla/5.0 (Linux; Android 14; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36';
+
+/** A desktop Chrome: Teams' web app sends a phone's browser to its app store page. */
+const UA_DESKTOP =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
 /**
  * Scheme + authority of the conference URL: the LOCK of this WebView.
@@ -139,8 +144,9 @@ function Call({
     let alive = true;
     void (async () => {
       try {
-        // Slack's huddles and Teams' calls run in their own app or the browser.
-        const external = client.kind === 'slack' || client.kind === 'teams';
+        // Slack's huddles run in Slack's app or the browser; Teams' calls stay
+        // here, on Teams' web app.
+        const external = client.kind === 'slack';
         if (!external) await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
         if (!alive) return;
@@ -186,6 +192,9 @@ function Call({
   // Non-null as soon as `url` is: the effect above refuses a URL whose origin
   // cannot be read. The render checks again anyway: it is the lock.
   const origin = useMemo(() => (url === null ? null : originOf(url)), [url]);
+  // Teams passes through Microsoft's sign-in and CDNs: its lock is Microsoft's
+  // own pages (`callAllowed` in provider-teams), not one origin.
+  const teams = client.kind === 'teams';
 
   return (
     <View style={[styles.full, { backgroundColor: '#000', paddingTop: insets.top }]}>
@@ -223,16 +232,16 @@ function Call({
         </View>
       ) : (
         <WebView
-          source={{ uri: withoutJitsiInterstitial(url) }}
+          source={{ uri: teams ? url : withoutJitsiInterstitial(url) }}
           style={styles.full}
-          userAgent={UA_MOBILE}
+          userAgent={teams ? UA_DESKTOP : UA_MOBILE}
           // Jitsi starts audio/video without an explicit user gesture.
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
           // iOS: grants camera/mic without asking each time (no-op on Android).
           mediaCapturePermissionGrantType="grant"
           domStorageEnabled
-          originWhitelist={[origin]}
+          originWhitelist={teams ? ['https://*', 'about:*', 'blob:*'] : [origin]}
           // A Jitsi link with target=_blank stays in the WebView instead of opening
           // a ghost window we would never see.
           setSupportMultipleWindows={false}
@@ -248,7 +257,7 @@ function Call({
           // and any https would inherit camera and mic without a prompt; see
           // `originOf` at the top of the file.
           onShouldStartLoadWithRequest={(req) =>
-            req.url === 'about:blank' || sameOrigin(req.url, origin)
+            teams ? teamsCallAllowed(req.url) : req.url === 'about:blank' || sameOrigin(req.url, origin)
           }
           onNavigationStateChange={(nav) => {
             // Hanging up sends Jitsi to a "close" page: we hand control back to the

@@ -646,6 +646,37 @@ export function objectId(mri: string): string | null {
   return mri.startsWith('8:orgid:') && mri.length > 8 ? mri.slice(8) : null;
 }
 
+/** The people a chat's call rings: its members but me and the bots. */
+export function callPeople(me: string, chat: Doc): string[] {
+  const members = Array.isArray(chat.members) ? (chat.members as Doc[]) : [];
+  return members
+    .map((m) => str(m, 'mri'))
+    .filter((m): m is string => m !== null && m.toLowerCase() !== me.toLowerCase() && objectId(m) !== null);
+}
+
+/** Teams' link that starts a call with these people (their sign-in names), the
+ *  Microsoft sign-in pre-filled with mine when the window has to pass it. */
+export function callLink(users: readonly string[], hint: string | null): string | null {
+  if (users.length === 0) return null;
+  const query = new URLSearchParams({ users: users.join(',') });
+  if (hint?.includes('@')) query.set('login_hint', hint);
+  return `https://teams.microsoft.com/l/call/0/0?${query}`;
+}
+
+const MICROSOFT_WEB = ['microsoft.com', 'cloud.microsoft', 'microsoftonline.com', 'live.com', 'office.com', 'office.net', 'msauth.net', 'msftauth.net', 'skype.com', 'teams.microsoft.us', 'microsoft'];
+
+/** Where a Teams call screen may go: Microsoft's own https pages (Teams' web
+ *  app, its CDNs and the Microsoft sign-in) and their blobs. Mirrors
+ *  `call_allowed` in `crates/rv-teams/src/translate.rs`. */
+export function callAllowed(url: string): boolean {
+  if (url === 'about:blank' || url === 'about:srcdoc') return true;
+  const target = url.startsWith('blob:') ? url.slice(5) : url;
+  const m = /^https:\/\/([^/?#:@]+)(?:[/?#]|$)/i.exec(target);
+  if (m === null) return false;
+  const host = m[1]!.toLowerCase();
+  return MICROSOFT_WEB.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
 /** A chat's page in Teams, where its running call shows a Join. */
 export function chatLink(chat: string, tenant: string): string {
   return `https://teams.microsoft.com/l/chat/${encodeURIComponent(chat)}/conversations?${new URLSearchParams({ tenantId: tenant })}`;

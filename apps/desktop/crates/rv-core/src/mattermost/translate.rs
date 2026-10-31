@@ -95,6 +95,42 @@ pub fn join_leave(post: &Value) -> bool {
     )
 }
 
+/// Mattermost's skin tones, `<name>_<tone>_skin_tone`, in the order of the
+/// `_tone1` to `_tone5` codes the apps read.
+const TONES: [&str; 5] = ["light", "medium_light", "medium", "medium_dark", "dark"];
+
+/// A reaction's Mattermost name as the code the apps show: a skin tone
+/// (`-1_medium_light_skin_tone`) becomes the toned code (`-1_tone2`).
+pub fn reaction_code(name: &str) -> String {
+    let toned = name.strip_suffix("_skin_tone").and_then(|rest| {
+        let (tone, _) = TONES.iter().enumerate().rev().find(|(_, t)| rest.ends_with(&format!("_{t}")))?;
+        let base = &rest[..rest.len() - TONES[tone].len() - 1];
+        (!base.is_empty()).then_some((base, tone + 1))
+    });
+    let Some((base, tone)) = toned else { return name.to_owned() };
+    let code = format!("{base}_tone{tone}");
+    if crate::emoji::unicode(&code).is_some() {
+        return code;
+    }
+    let modifier = char::from_u32(0x1F3FA + tone as u32).unwrap_or_default();
+    crate::emoji::unicode(base)
+        .map(|glyph| format!("{}{modifier}", glyph.replace('\u{FE0F}', "")))
+        .and_then(|glyph| crate::emoji::shortcode(&glyph))
+        .map_or_else(|| name.to_owned(), str::to_owned)
+}
+
+/// The Mattermost name a reaction code is sent as: `-1_tone2` to
+/// `-1_medium_light_skin_tone`.
+pub fn reaction_name(code: &str) -> String {
+    let code = code.trim_matches(':');
+    match code.rsplit_once("_tone") {
+        Some((base, n)) if !base.is_empty() && matches!(n, "1" | "2" | "3" | "4" | "5") => {
+            format!("{base}_{}_skin_tone", TONES[n.parse::<usize>().unwrap_or(1) - 1])
+        }
+        _ => code.to_owned(),
+    }
+}
+
 /// Unread ROOT posts (replies live in threads, as on screen) and mentions. A
 /// muted channel (`notify_props.mark_unread: "mention"`) counts its mentions only.
 pub fn counts(channel: &Value, member: &Value) -> (i64, i64) {
@@ -325,7 +361,8 @@ impl Translator<'_> {
                 continue;
             };
             let name = self.directory.username(user).unwrap_or_else(|| user.to_owned());
-            let bucket = grouped.entry(format!(":{emoji}:")).or_insert_with(|| json!({"usernames": []}));
+            let bucket =
+                grouped.entry(format!(":{}:", reaction_code(emoji))).or_insert_with(|| json!({"usernames": []}));
             if let Some(list) = bucket.get_mut("usernames").and_then(Value::as_array_mut) {
                 list.push(json!(name));
             }
@@ -537,6 +574,19 @@ fn menu_of(action: &Value, menu: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skin_toned_reactions_read_as_toned_codes() {
+        let glyph = |name: &str| crate::emoji::unicode(&reaction_code(name)).map(str::to_owned);
+        assert_eq!(glyph("-1_medium_light_skin_tone").as_deref(), Some("👎🏼"));
+        assert_eq!(glyph("+1_dark_skin_tone").as_deref(), Some("👍🏿"));
+        assert_eq!(glyph("wave_light_skin_tone").as_deref(), Some("👋🏻"));
+        assert_eq!(reaction_code("+1"), "+1");
+        assert_eq!(reaction_code("party_skin_tone"), "party_skin_tone");
+        assert_eq!(reaction_name(&reaction_code("-1_medium_light_skin_tone")), "-1_medium_light_skin_tone");
+        assert_eq!(reaction_name(":+1_tone5:"), "+1_dark_skin_tone");
+        assert_eq!(reaction_name("smile"), "smile");
+    }
     use crate::mattermost::directory::User;
 
     fn directory() -> Directory {

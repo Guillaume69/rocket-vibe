@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
+
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
@@ -401,6 +403,9 @@ test('reaction keys show as standard shortcodes', () => {
   assert.equal(reactionCode('loudlycrying'), 'sob');
   assert.equal(reactionCode('smilerobot'), 'robot');
   assert.equal(reactionCode('1f62d_loudlycrying'), 'sob');
+  assert.equal(reactionCode('launch'), 'rocket');
+  assert.equal(reactionCode('1f44b_wavinghand-tone1'), shortcodeOfUnicode('👋🏻'));
+  assert.equal(reactionCode('yes-tone3'), shortcodeOfUnicode('👍🏽'));
   assert.equal(reactionCode('zzzunknown'), 'zzzunknown');
 });
 

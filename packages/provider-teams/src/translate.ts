@@ -8,6 +8,7 @@
 import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
 import type { MemberPage, RoomMember } from '@rocket-vibe/provider-api/provider';
+import { TEAMS_EMOTICONS } from './emoticons.generated.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -90,17 +91,20 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['like', '+1'], ['heart', 'heart'], ['laugh', 'laughing'], ['surprised', 'open_mouth'], ['sad', 'cry'], ['angry', 'angry'],
 ];
 
-/** Teams' emoticon ids (Skype's, still sent as reaction keys) and their glyphs. */
-const EMOTICONS: Record<string, string> = {
-  smile: '🙂', happy: '😊', grinning: '😀', bigsmile: '😃', laughcry: '😂', rofl: '🤣', wink: '😉', blush: '😊',
-  inlove: '😍', hearteyes: '😍', kiss: '😘', tongueout: '😛', cool: '😎', think: '🤔', wonder: '🤔', smirk: '😏',
-  unamused: '😒', eyeroll: '🙄', giggle: '🤭', nerdy: '🤓', whew: '😅', sweat: '😓', worry: '😟', cry: '😢',
-  loudlycrying: '😭', sleepy: '😪', yawn: '🥱', sick: '🤒', puke: '🤮', devil: '😈', angel: '😇', party: '🥳',
-  facepalm: '🤦', shrug: '🤷', clap: '👏', handsinair: '🙌', praying: '🙏', muscle: '💪', ok: '👌', yes: '👍',
-  no: '👎', dislike: '👎', wave: '👋', fire: '🔥', '100': '💯', star: '⭐', sun: '☀️', coffee: '☕', cake: '🍰',
-  beer: '🍺', gift: '🎁', rose: '🌹', brokenheart: '💔', lips: '💋', poop: '💩', skull: '💀', smilerobot: '🤖',
-  robot: '🤖', rocket: '🚀', checkmark: '✅',
-};
+let emoticons: Map<string, string> | null = null;
+
+/** Teams' reaction ids that do not carry their code points (`launch`, not
+ *  `1f680_rocket`), from Microsoft's reference table (`emoticons.generated.ts`). */
+function emoticon(id: string): string | null {
+  if (emoticons === null) {
+    emoticons = new Map();
+    for (const line of TEAMS_EMOTICONS.split('\n')) {
+      const [name, points] = line.split('\t');
+      if (name && points) emoticons.set(name, String.fromCodePoint(...points.split('-').map((p) => parseInt(p, 16))));
+    }
+  }
+  return emoticons.get(id) ?? null;
+}
 
 /** The glyph of a `<codepoints>_<name>` key's codepoints, `1f62d` or `1f44d-1f3fb`. */
 function codepoints(key: string): string | null {
@@ -117,8 +121,11 @@ function codepoints(key: string): string | null {
 export function reactionCode(key: string): string {
   const classic = KEYS.find(([k]) => k === key);
   if (classic) return classic[1];
-  const name = key.split('_').slice(1).join('_') || key;
-  const glyph = codepoints(key) ?? EMOTICONS[name] ?? EMOTICONS[key] ?? null;
+  const toned = /^(.+)-tone([1-5])$/.exec(key);
+  const stem = toned?.[1] ?? key;
+  const name = stem.split('_').slice(1).join('_') || stem;
+  const base = codepoints(stem) ?? emoticon(stem) ?? emoticon(name);
+  const glyph = base !== null && toned ? base.replace(/\uFE0F/g, '') + String.fromCodePoint(0x1f3fa + Number(toned[2])) : base;
   return (glyph !== null ? shortcodeOfUnicode(glyph) : null) ?? name;
 }
 

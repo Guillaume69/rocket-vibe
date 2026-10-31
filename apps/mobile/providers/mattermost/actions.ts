@@ -13,6 +13,7 @@ import type { MmDirectory } from './directory.ts';
 import { ordered } from './history.ts';
 import type { MmLive } from './live.ts';
 import type { MmTranslator } from './translator.ts';
+import { reactionName } from './reactions.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -71,7 +72,8 @@ export class MmActions implements ProviderActions {
     if (fields.name !== undefined) await this.client.put(`/channels/${rid}/patch`, { body: { display_name: fields.name } });
   }
 
-  async react(_rid: string, mid: string, emoji: string, put: boolean): Promise<void> {
+  async react(_rid: string, mid: string, code: string, put: boolean): Promise<void> {
+    const emoji = reactionName(code);
     if (put) {
       await this.client.post('/reactions', { body: { user_id: this.myId, post_id: mid, emoji_name: emoji } });
     } else {

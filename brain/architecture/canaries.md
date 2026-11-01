@@ -25,6 +25,16 @@ Each check answers `ok`, `broken` or `notice`. `scripts/canaries/issues.mjs` kee
 | Slack | `slack.method <name>` | One of the Web API methods in `SlackMethod` (`packages/provider-slack/src/client.ts`) answers anything but `not_authed` without a token (`unknown_method` or `method_deprecated`: retired). |
 | Slack | `slack.emoji` (notice) | Never: it reports a newer emoji-datasource than the one the Slack emoji names were generated from. |
 
+## Regenerating
+
+`wa.whatspec` breaks when whatspec publishes a new extraction. The generator, upstream's `tools/whatspec-codegen`, is not vendored (`crates/rv-whatsapp/VENDOR.md`), and its emitters carry review gates (a MEX document id, a retained proto field) that upstream updates by hand on each snapshot. So the path that held on 2026-11-01:
+
+1. Clone whatsapp-rust at the vendored base and lay over it the `tools/whatspec-codegen` diff of upstream's own snapshot commit (`feat(protocol): update WhatsApp snapshot …`), skipping the emitters and fixture checks of upstream parts the tree lacks.
+2. Run `cargo run -p whatspec-codegen -- --update-lock --rev <whatspec sha>` in a throwaway container (upstream's nightly toolchain plus `protobuf-compiler`), never on the host.
+3. Copy the written files that exist under `crates/rv-whatsapp`, minus `plugins/`. They should be byte-identical to upstream's commit.
+4. Take upstream's hand-written companions from the same commit when the tree's copy is still the base's: retired props and MEX operations re-exported at their public paths (`wacore/src/iq/props.rs`, `mex_operations_unlisted.rs`), retained proto declarations (`waproto/build_support/`), and code that follows what moved. The waproto build fails on a frozen API entry that disappeared, which is what points at them.
+5. Run the crate's gate (`.github/workflows/rv-whatsapp.yml`: fmt, clippy `-D warnings`, tests).
+
 ## Out of reach
 
 Anything behind a session needs an account the project does not have: the Teams skype token and its region routes, message and Trouter shapes; Slack's boot-page token scrape, the `d` cookie and RTM frames; WhatsApp's stanzas after pairing, app-state sync and media. Personal Teams is a different service, not a stand-in. A Slack test workspace would allow an authenticated Slack canary.
@@ -41,5 +51,6 @@ Anything behind a session needs an account the project does not have: the Teams 
 - scripts/canaries/canaries.test.mjs
 - crates/rv-whatsapp/src/version.rs
 - crates/rv-whatsapp/wacore/src/version.rs
+- crates/rv-whatsapp/VENDOR.md
 - crates/rv-teams/src/auth.rs
 - packages/provider-slack/src/client.ts

@@ -56,7 +56,7 @@ impl Import<'_> {
             let added = self.messages(&rc, &vibez).await?;
             self.settle(&vibez, &members, &joined, added).await?;
         }
-        Ok(())
+        self.room_avatars().await
     }
 
     async fn members(

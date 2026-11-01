@@ -3,6 +3,7 @@
 //! this instance. Every imported document is recorded in `rc_import_ids` (or
 //! keeps a stable id), so a second pass skips it and a stopped one resumes.
 
+mod assets;
 mod messages;
 mod rooms;
 pub mod source;
@@ -98,6 +99,10 @@ pub async fn run(app: &App, options: Options) -> ImportResult<Report> {
     };
     progress("people");
     import.users().await?;
+    progress("custom emoji");
+    import.emojis().await?;
+    progress("avatars");
+    import.avatars().await?;
     progress("rooms");
     import.rooms().await?;
     progress("done");

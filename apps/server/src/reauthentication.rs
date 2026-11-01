@@ -1,5 +1,4 @@
 //! Recent proof on an existing family; no new bearer, device or active account.
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use chrono::{DateTime, Duration, Utc};
 use rv_protocol::parity::{
     AuthChallenge, BeginReauthentication, FinishReauthentication, ReauthenticationContext,
@@ -265,11 +264,7 @@ pub(crate) async fn begin(
     let valid = tokio::task::spawn_blocking(move || {
         // The CPU slot follows the real blocking job after HTTP cancellation.
         let _permit = permit;
-        PasswordHash::new(&hash).ok().is_some_and(|h| {
-            Argon2::default()
-                .verify_password(password.as_bytes(), &h)
-                .is_ok()
-        })
+        crate::auth::password_matches(&hash, password.as_bytes())
     })
     .await
     .map_err(|_| Error::internal())?;

@@ -7,7 +7,7 @@ import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './aut
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, people, peopleRequest,
-  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople,
+  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -476,4 +476,19 @@ test('a Teams call screen stays on Microsoft\'s pages; a call link names the peo
   assert.deepEqual(callPeople('8:orgid:me', { members: [{ mri: '8:orgid:ME' }, { mri: '8:orgid:aa' }, { mri: '28:bot' }] }), ['8:orgid:aa']);
   assert.equal(callLink([], null), null);
   assert.equal(callLink(['a@x.fr', 'b@x.fr'], '8:orgid:me'), 'https://teams.microsoft.com/l/call/0/0?users=a%40x.fr%2Cb%40x.fr');
+});
+
+test('a topic change is named after its initiator, never the conversation', () => {
+  const directory = new TeamsDirectory();
+  directory.remember('8:orgid:abc', 'Ada Lovelace');
+  const raw = (content: string) => ({
+    id: '1793576411256', messagetype: 'ThreadActivity/TopicUpdate',
+    from: 'https://x/v1/users/ME/contacts/19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2',
+    content, originalarrivaltime: '2026-11-01T23:40:11.348Z',
+  });
+  const named = toMessage('19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2', raw('<topicupdate><initiator>8:orgid:abc</initiator><value>Axeo devs</value></topicupdate>'), directory)!;
+  assert.deepEqual([named.authorId, named.authorName, named.systemType, named.text], ['8:orgid:abc', 'Ada Lovelace', 'room_changed_topic', 'Axeo devs']);
+  const anonymous = toMessage('19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2', raw('<topicupdate><value>Axeo devs</value></topicupdate>'), directory)!;
+  assert.deepEqual([anonymous.authorId, anonymous.authorName], ['', 'Someone']);
+  assert.equal(actor({ messagetype: 'RichText/Html', from: '8:orgid:bob' }), '8:orgid:bob');
 });

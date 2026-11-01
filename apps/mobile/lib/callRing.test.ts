@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { conferenceCheck, declineConference, setProviderCalls } from './call.ts';
-import { CallRinger, RING_CHECK_MS, RING_MS, callSignalOfMessage, type CallCheck, type CallSignal, type RingerDeps } from './callRing.ts';
+import { CallRinger, RING_CHECK_MS, RING_MS, SERVER_RING_MS, callSignalOfMessage, type CallCheck, type CallSignal, type RingerDeps } from './callRing.ts';
 import type { LocalMessage } from './normalize.ts';
 import { RestClient } from './rest.ts';
 import { kmeetCall } from '../providers/mattermost/translator.ts';
@@ -36,6 +36,26 @@ function bench(overrides: Partial<RingerDeps> = {}) {
 
 const call = (over: Partial<Extract<CallSignal, { kind: 'call' }>> = {}): CallSignal =>
   ({ kind: 'call', rid: 'dm', messageId: 'm1', callId: 'c1', authorId: 'bob', ts: NOW - 1000, ...over });
+
+test('a call the server rang rings once, ends when it moves elsewhere or after SERVER_RING_MS', async () => {
+  const { ringer, advance, checks } = bench();
+  const ring = (messageId: string): CallSignal =>
+    ({ kind: 'ring', rid: '19:a_me@unq.gbl.spaces', messageId, callId: '19:a_me@unq.gbl.spaces', callerId: 'a', callerName: 'Ada' });
+  await ringer.signal(ring('t1'));
+  assert.equal(ringer.ringing?.callerName, 'Ada');
+  assert.equal(checks(), 0, 'the push is the record');
+  await ringer.signal(ring('t2'));
+  assert.equal(ringer.ringing?.messageId, 't1', 'one rings at a time');
+  await ringer.signal({ kind: 'rung-over' });
+  assert.equal(ringer.ringing, null);
+  await ringer.signal(ring('t1'));
+  assert.equal(ringer.ringing, null, 'a call rings once');
+  await ringer.signal(ring('t3'));
+  await advance(SERVER_RING_MS);
+  assert.equal(ringer.ringing, null);
+  await ringer.signal({ ...ring('t4'), callerId: 'me' } as CallSignal);
+  assert.equal(ringer.ringing, null, 'my own call never rings');
+});
 
 test('a fresh call from the other member of a direct room rings once, then stops after RING_MS', async () => {
   const b = bench();

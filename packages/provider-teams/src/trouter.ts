@@ -76,6 +76,82 @@ export function chatEvent(envelope: Doc): { name: string; resource: Doc } | null
   return { name, resource: out };
 }
 
+/** A call pushed to the calling registration (`SkypeSpacesWeb`): `evt` 107
+ *  rings, the conversation events after it (115 joined elsewhere, 116 over)
+ *  end the ring. Mirrors `call_push` in `crates/rv-teams/src/frames.rs`; the
+ *  ended call's id sits in a gzip the app has no inflater for, so it ends
+ *  whichever Teams call rings. */
+export type CallPush =
+  | { kind: 'ring'; callId: string; callerMri: string; callerName: string | null; reject: string | null; multiParty: boolean; thread: string | null }
+  | { kind: 'moved' };
+
+/** The `DdpEvent` collection a call push is emitted on. */
+export const CALL_COLLECTION = 'teams-call';
+
+export const CALL_APP = { appId: 'SkypeSpacesWeb', templateKey: 'SkypeSpacesWeb_2.6' };
+export const CHAT_APP = { appId: 'TeamsCDLWebWorker', templateKey: 'TeamsCDLWebWorker_2.6' };
+
+export function registration(id: string, surl: string, app: { appId: string; templateKey: string }): Doc {
+  return {
+    clientDescription: { appId: app.appId, aesKey: '', languageId: 'en-US', platform: 'edge', templateKey: app.templateKey, platformUIVersion: '49/26.10.0.0' },
+    registrationId: id,
+    nodeId: '',
+    transports: { TROUTER: [{ context: '', path: surl, ttl: 86400 }] },
+  };
+}
+
+export function callPush(envelope: Doc): CallPush | null {
+  let body: unknown = envelope.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body) as unknown; } catch { return null; }
+  }
+  const doc = body as Doc | null;
+  if (doc?.evt === 115 || doc?.evt === 116) return { kind: 'moved' };
+  if (doc?.evt !== 107 || typeof doc.gp !== 'string') return null;
+  const gp = jsonOfBase64(doc.gp);
+  const call = gp?.callNotification as Doc | undefined;
+  const text = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+  const from = call?.from as Doc | undefined;
+  const callId = text((gp?.debugContent as Doc | undefined)?.callId);
+  const callerMri = text(from?.id);
+  if (!callId || !callerMri) return null;
+  const reject = text((call?.links as Doc | undefined)?.reject);
+  return {
+    kind: 'ring',
+    callId,
+    callerMri,
+    callerName: text(from?.displayName),
+    reject: reject?.startsWith('https://') ? reject : null,
+    multiParty: (gp?.conversationInvitation as Doc | undefined)?.isMultiParty === true,
+    thread: threadIn(gp?.groupContext),
+  };
+}
+
+/** The `callEnd` a decline sends to the ring's `reject` link. */
+export const DECLINE_BODY = { callEnd: { code: 603, subCode: 0, phrase: 'CallEndReasonLocalUserInitiated', resultCategories: ['Success'] } };
+
+function jsonOfBase64(raw: string): Doc | null {
+  try {
+    const standard = raw.trim().replace(/-/g, '+').replace(/_/g, '/');
+    const binary = globalThis.atob(standard + '='.repeat((4 - (standard.length % 4)) % 4));
+    const utf8 = decodeURIComponent(Array.from(binary, (ch) => `%${ch.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''));
+    const parsed = JSON.parse(utf8) as unknown;
+    return typeof parsed === 'object' && parsed !== null ? parsed as Doc : null;
+  } catch {
+    return null;
+  }
+}
+
+function threadIn(value: unknown): string | null {
+  if (typeof value === 'string') return value.startsWith('19:') && value.includes('@thread') ? value : null;
+  if (Array.isArray(value)) {
+    for (const item of value) { const found = threadIn(item); if (found) return found; }
+    return null;
+  }
+  if (typeof value === 'object' && value !== null) return threadIn(Object.values(value));
+  return null;
+}
+
 /** An `https` URL on one of Trouter's hosts. */
 export function trouterUrl(raw: unknown): URL | null {
   if (typeof raw !== 'string') return null;
@@ -115,6 +191,8 @@ export class TeamsTrouter implements Listener {
   private readonly createSocket: CreateSocket;
   private readonly timeoutMs: number;
   private ws: WebSocketLike | null = null;
+  /** The calling registration's own id, on the chat socket's path. */
+  private callingId: string | null = null;
   private readonly listeners = new Set<(event: DdpEvent) => void>();
   private readonly lossListeners = new Set<() => void>();
   private chain: Promise<void> = Promise.resolve();
@@ -229,19 +307,24 @@ export class TeamsTrouter implements Listener {
     }, REGISTER_EVERY_MS));
   }
 
+  /** Chat events, then calls, which Teams pushes only to a calling
+   *  registration on the same path; a refused calling registration leaves
+   *  chat working, with no ring. */
   private async register(epid: string, surl: string): Promise<boolean> {
+    if (!(await this.registerApp(epid, surl, CHAT_APP))) return false;
+    this.callingId ??= endpointId();
+    await this.registerApp(this.callingId, surl, CALL_APP);
+    return true;
+  }
+
+  private async registerApp(id: string, surl: string, app: { appId: string; templateKey: string }): Promise<boolean> {
     try {
       const { skype, routes } = await this.tokens.chat();
       if (!routes.registrar) return false;
       const response = await this.fetcher(routes.registrar, {
         method: 'POST',
         headers: { 'X-Skypetoken': skype, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          clientDescription: { appId: 'TeamsCDLWebWorker', aesKey: '', languageId: 'en-US', platform: 'edge', templateKey: 'TeamsCDLWebWorker_2.6', platformUIVersion: '49/26.10.0.0' },
-          registrationId: epid,
-          nodeId: '',
-          transports: { TROUTER: [{ context: '', path: surl, ttl: 86400 }] },
-        }),
+        body: JSON.stringify(registration(id, surl, app)),
       });
       return response.ok;
     } catch {
@@ -268,7 +351,11 @@ export class TeamsTrouter implements Listener {
         if (reply) this.send(reply);
         if (frame.ack) this.send(`6:::${frame.ack}`);
         const event = chatEvent(frame.envelope);
-        if (!event) return;
+        if (!event) {
+          const call = callPush(frame.envelope);
+          if (call) this.emit({ collection: CALL_COLLECTION, eventKey: '', args: [call] });
+          return;
+        }
         this.chain = this.chain
           .then(() => this.expand(event.name, event.resource))
           .then((events) => { if (this.state !== 'closed') for (const e of events) this.emit(e); })

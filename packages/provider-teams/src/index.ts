@@ -7,6 +7,7 @@
  */
 
 import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
+import type { CallSignal } from '@rocket-vibe/provider-api/calls';
 import { setDownloadResolver } from '@rocket-vibe/provider-api/downloadResolver';
 import { setMediaLease } from '@rocket-vibe/provider-api/mediaAuth';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
@@ -21,8 +22,8 @@ import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, newOneOnOne, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
-import { TeamsTrouter } from './trouter.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, newOneOnOne, oneOnOneId, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
+import { CALL_COLLECTION, TeamsTrouter, type CallPush } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -150,11 +151,24 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     return actionsFor(ingestLive).setPinned(team, rid, mid, on);
   };
 
+  const calls = teamsCalls(client, rooms, session.teamsTenantId ?? '', session.userId);
+  /** The `reject` link of each ringing call, by the call id the prompt declines. */
+  const declines = new Map<string, string>();
+
   return {
     identity: { kind: 'teams', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
     describeError: describeTeamsError,
     capabilities: TEAMS_CAPABILITIES,
-    calls: teamsCalls(client, rooms, session.teamsTenantId ?? '', session.userId),
+    calls: { ...calls, decline: async (id: string) => { const link = declines.get(id); declines.delete(id); if (link) await client.declineCall(link); } },
+    callSignal: (event: DdpEvent) => {
+      if (event.collection !== CALL_COLLECTION) return null;
+      const signal = callSignal(event.args[0] as CallPush, session.userId);
+      if (signal?.kind === 'ring') {
+        const push = event.args[0] as Extract<CallPush, { kind: 'ring' }>;
+        if (push.reject) declines.set(signal.callId, push.reject);
+      }
+      return signal;
+    },
     listener,
     setTyping: (rid, active) => { void typingAction(client, directory, session, rid, active); },
     translator,
@@ -291,4 +305,16 @@ export function describeTeamsError(error: unknown, authenticated: boolean): Prov
     return { code: error.code, status: error.status, requestId: null, retryAfter: error.retryAfter, rejectsSession: authenticated && error.rejectsSession, twoFactorChallenge: false };
   }
   return { code: 'connection_failed', status: 0, requestId: null, retryAfter: null, rejectsSession: false, twoFactorChallenge: false };
+}
+
+/** A call Teams pushed as the ring signal the app's ringer reads: a ring on
+ *  the conversation it comes from (a 1:1 by both ids, a group by the thread
+ *  the push names), whose call id opens that conversation in the call screen,
+ *  where Teams' own client answers it. Mirrors `Session::teams_call`. */
+export function callSignal(push: CallPush, me: string): CallSignal | null {
+  if (push.kind === 'moved') return { kind: 'rung-over' };
+  if (push.callerMri === me) return null;
+  const rid = push.thread ?? (push.multiParty ? null : oneOnOneId(me, push.callerMri));
+  if (rid === null) return null;
+  return { kind: 'ring', rid, messageId: push.callId, callId: rid, callerId: push.callerMri, callerName: push.callerName };
 }

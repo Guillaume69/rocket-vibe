@@ -20,11 +20,13 @@ export type { CallSignal, CallCheck } from '@rocket-vibe/provider-api/calls';
 
 /** How long a call rings: Rocket.Chat cancels an unanswered direct call after 40 s. */
 export const RING_MS = 40_000;
+/** How long a call the server rang (Teams) rings when nothing says it stopped. */
+export const SERVER_RING_MS = 45_000;
 /** How often the server's record of a ringing call is read again. */
 export const RING_CHECK_MS = 5_000;
 const SEEN_KEPT = 200;
 
-export type IncomingCall = { messageId: string; rid: string; callId: string; callerId: string; callerName: string | null; until: number };
+export type IncomingCall = { messageId: string; rid: string; callId: string; callerId: string; callerName: string | null; until: number; rung?: boolean };
 
 export function callSignalOfMessage(message: LocalMessage): CallSignal | null {
   if (message.systemType === CALL_TYPE && message.callId !== null) {
@@ -72,6 +74,19 @@ export class CallRinger {
   }
 
   async signal(signal: CallSignal): Promise<void> {
+    if (signal.kind === 'rung-over') {
+      if (this.current?.rung) this.stop();
+      return;
+    }
+    if (signal.kind === 'ring') {
+      if (this.current !== null || this.seen.has(signal.messageId) || this.over.has(signal.messageId) || signal.callerId === this.deps.me) return;
+      remember(this.seen, signal.messageId);
+      const until = this.deps.now() + SERVER_RING_MS;
+      this.current = { messageId: signal.messageId, rid: signal.rid, callId: signal.callId, callerId: signal.callerId, callerName: signal.callerName, until, rung: true };
+      this.timers.push(this.deps.schedule(() => this.stop(), SERVER_RING_MS));
+      this.emit();
+      return;
+    }
     if (signal.kind === 'over') {
       if (this.current?.messageId === signal.messageId) this.stop();
       remember(this.over, signal.messageId);

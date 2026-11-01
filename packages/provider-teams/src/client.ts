@@ -7,12 +7,24 @@
 
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';
 import { peopleRequest } from './translate.ts';
+import { DECLINE_BODY } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
 const CONVERSATION_PAGE = 100;
 const CONVERSATION_PAGES = 10;
 
 /** A path under a base, its opaque segments (conversation ids) percent-encoded. */
+/** A link of Teams' calling service: https on its own hosts only, since the Skype token goes with it. */
+export function callingUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    const host = url.hostname;
+    return url.protocol === 'https:' && url.username === '' && (host.endsWith('.teams.microsoft.com') || host.endsWith('.skype.com'));
+  } catch {
+    return false;
+  }
+}
+
 export function serviceUrl(base: string, segments: readonly string[], query = ''): string {
   const path = segments.map((s) => encodeURIComponent(s).replace(/%3A/gi, ':').replace(/%40/g, '@').replace(/%3B/gi, ';').replace(/%3D/gi, '=')).join('/');
   return `${base.replace(/\/+$/, '')}/${path}${query ? `?${query}` : ''}`;
@@ -92,6 +104,14 @@ export class TeamsClient {
   private rejected(error: unknown): never {
     if (error instanceof TeamsError && error.status === 401) this.options.onRejected?.();
     throw error;
+  }
+
+  /** Declines a ringing call through the `reject` link its ring carried, as
+   *  Teams' web client does; the calling service takes the Skype token. */
+  async declineCall(reject: string): Promise<void> {
+    if (!callingUrl(reject)) throw new TeamsError('decline_link_invalid');
+    const { skype } = await this.tokens.chat();
+    await this.send(reject, ['X-Skypetoken', skype], 'DELETE', DECLINE_BODY);
   }
 
   /** A chat service call. */

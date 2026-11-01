@@ -7,8 +7,13 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): incoming calls ring, with the same prompt as other servers' calls. Decline declines it in Teams; Accept opens the conversation in the call screen, where Teams answers it once signed in there.
+
 ### Fixed
 
+- Teams (experimental): a topic change is named after the person who made it, not shown as the conversation's id ("19:…@thread.v2 changed the topic").
 - Teams (experimental): every reaction Teams offers shows its emoji (🚀 rather than ":launch:"), skin tones included: the app now reads Microsoft's full list of Teams reaction ids.
 - Mattermost and kChat: a reaction with a skin tone shows its emoji (👎🏼 rather than ":-1_medium_light_skin_tone:"), and one picked here is sent in Mattermost's own form.
 - A server or account with no icon of its own, or whose icon cannot be read, shows the app's icon on the server rail instead of the host's initial.

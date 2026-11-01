@@ -301,6 +301,18 @@ See [Teams architecture](architecture/teams.md).
 
 See [Slack architecture](architecture/slack-session.md) and [usage](../docs/SLACK_PREVIEW.md).
 
+## Rocket.Chat import (Vibez server)
+
+| Term | Meaning |
+|---|---|
+| Pass | One run of `vibez import rocketchat`; it writes only what no earlier pass imported. |
+| Id map | `rc_import_ids`: which Vibez person, room, emoji or avatar each Rocket.Chat one became. Messages need none: their id is `rc-<Rocket.Chat id>`. |
+| `rc-bcrypt:` | The prefix of a password hash kept from Rocket.Chat (bcrypt of the hex SHA-256), replaced by Argon2 at the first sign-in. |
+| Tombstone author | A deleted, disabled account (`deleted-<hash>`) standing for a message author the Rocket.Chat database no longer has. |
+| Encrypted archive | `rc_import_encrypted_messages`, `rc_import_encrypted_files`, `rc_import_e2ee_keys`: Rocket.Chat E2EE messages, files and keys kept as they were, under a placeholder message. |
+
+See [Rocket.Chat import](features/rocketchat-import.md).
+
 ## Legacy French names
 
 The code had French names until the English rename. These are the only French words still meaningful, because users see them or an upgrade reads them once.

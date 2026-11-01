@@ -112,6 +112,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | [e2ee-private-files.md](features/e2ee-private-files.md) | Vibez server: files of private rooms sealed on the device, opaque to the server. |
 | [e2ee-private-actions.md](features/e2ee-private-actions.md) | Vibez server: encrypted edits, deletions and reactions of private messages, and private search on the device. |
 | [social.md](features/social.md) | Quick polls, game nights, sticker shelves, GIPHY configuration and voice reactions. |
+| [rocketchat-import.md](features/rocketchat-import.md) | Vibez server: importing a Rocket.Chat server's history from its MongoDB. |
 | [voice.md](features/voice.md) | Vibez server: voice channels, calls in every room and ringing DMs over LiveKit. |
 | [calls.md](features/calls.md) | Rocket.Chat servers: Jitsi calls, the mobile WebView exception, desktop call windows, ringing in direct rooms (Rocket.Chat and kChat). |
 | [sharing-and-links.md](features/sharing-and-links.md) | `rocketvibe://` deep links, the incoming share screen, outgoing-link guard, drag and paste. |
@@ -148,6 +149,7 @@ Each feature doc covers mobile and desktop, and says where they differ.
 | What does CI check, and what only runs on a tag? | [operations.md](operations.md), [architecture/testing.md](architecture/testing.md) |
 | How do I cut a release? | [operations.md](operations.md) (and the `release` skill) |
 | What does `hotRooms` / connection setup / `writeQueue` mean? | [glossary.md](glossary.md) |
+| How does a Rocket.Chat server's history move to Vibez? | [features/rocketchat-import.md](features/rocketchat-import.md) |
 | Who sees the server administration, and what can an admin read? | [features/administration.md](features/administration.md), [decisions.md](decisions.md) |
 | Why are these the quick reactions, and where are they counted? | [features/emoji.md](features/emoji.md) |
 

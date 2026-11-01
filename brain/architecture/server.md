@@ -4,7 +4,7 @@
 
 ## Process
 
-One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `VIBEZ_BIND`, default `127.0.0.1:3400`) runs the server; the other subcommands are the operator's tools: `create-user` (the password comes from `VIBEZ_USER_PASSWORD`, never the arguments), `invite`, `recover-user`, the matching `list-*` and `revoke-*`, `set-user`, `create-room`, `set-room`, `set-member`, `audit`, `health`, `set-instance`, `emoji list|put|remove`. Operator commands take an `--operation-id` so a retried command returns its first receipt (`src/operator.rs`).
+One binary, one CLI (`src/main.rs`). `serve` (`--bind`, `VIBEZ_BIND`, default `127.0.0.1:3400`) runs the server; the other subcommands are the operator's tools: `create-user` (the password comes from `VIBEZ_USER_PASSWORD`, never the arguments), `invite`, `recover-user`, the matching `list-*` and `revoke-*`, `set-user`, `create-room`, `set-room`, `set-member`, `audit`, `health`, `set-instance`, `emoji list|put|remove`, and `import rocketchat` (a Rocket.Chat server's history from its MongoDB, [Rocket.Chat import](../features/rocketchat-import.md)). Operator commands take an `--operation-id` so a retried command returns its first receipt (`src/operator.rs`).
 
 | Setting | Meaning |
 |---|---|
@@ -33,7 +33,7 @@ All routes live in one `router()` (`src/http.rs`, about 160), after the web clie
 
 ## Accounts and sessions
 
-- **Passwords**: Argon2, at most 4 verifications at once (429 `auth_busy`), and a dummy hash for unknown names so timing reveals nothing (`src/auth.rs`).
+- **Passwords**: Argon2 (an account imported from Rocket.Chat keeps Rocket.Chat's bcrypt hash, prefixed `rc-bcrypt:`, until its first sign-in replaces it), at most 4 verifications at once (429 `auth_busy`), and a dummy hash for unknown names so timing reveals nothing (`src/auth.rs`).
 - **Sign-in identifier**: the username, or the account's verified email address when it contains `@` (`password_login` in `src/auth.rs`), looked up among `account_emails` rows with `sign_in`; a partial unique index keeps one account per address, and confirming an address another account holds answers 409 `email_address_taken` (`src/email.rs`, migration 0062). Pending, unknown, disabled and bot accounts fail like a wrong password. Recovery and invitations still take the username.
 - **Tokens**: 32 random bytes; only their SHA-256 is stored. Sessions last 30 days, one device row per login, 64 live sessions per user. Renewal (`/auth/renew`) is client-driven and replay-safe: the client proposes its next token under an `operation_id`; the same request within 5 minutes succeeds again, a different successor for a spent token revokes the whole device (`src/sessions.rs`).
 - **Second factors** (`src/factors.rs`): TOTP (SHA-1, 6 digits, 30 s), ten backup codes, email codes. `/auth/start` answers a session or a challenge (5 minutes, 5 attempts). Sensitive changes (bots, workflows, encryption backups, email, sessions) need a recent authentication: a login under 15 minutes old or a reauthentication grant, else 403 `reauthentication_required`. A replay of an already accepted operation (email verification or removal, backup codes, email codes, TOTP enable) answers its receipt before that check, so this 403 means the change was not applied.
@@ -119,6 +119,7 @@ Rooms, DMs and the directory (`src/store.rs`, `src/room_details.rs`), permission
 - `apps/server/src/admin.rs`
 - `apps/server/src/operator.rs`
 - `apps/server/src/e2ee.rs`
+- `apps/server/src/rocketchat_import/mod.rs`
 - `apps/server/migrations/`
 - `apps/server/tests/`
 - `docker/compose.vibez.yml`

@@ -518,3 +518,12 @@ Sources:
 - crates/rv-crypto/src/groups/messages.rs
 - crates/rv-crypto-web/src/lib.rs
 - apps/web/src/crypto/worker.ts
+
+## The Rocket.Chat import reads MongoDB, keeps passwords and keeps ciphertext (2026-11-02)
+
+User decisions, 2026-11-02. **Source**: the Rocket.Chat MongoDB (live or a restored dump), not its REST API: REST hides password hashes, reaches private rooms and DMs only where the admin is a member, pages slowly under its rate limits, and serves files one by one; the database has everything at once. The cost is a dependency on Rocket.Chat's internal collections, read on 8.5.1. **Passwords**: kept, so people sign in as before: Rocket.Chat's bcrypt (of the hex SHA-256) is stored as `rc-bcrypt:<hash>` and replaced by Argon2 at the first sign-in, instead of resetting every account. **Encrypted rooms**: their messages come over as ciphertext with the keys Rocket.Chat held (each member's wrapped room key, each person's wrapped private key), under a placeholder, so a later decryption (in the apps, with the person's E2E password) can rewrite them without a second import; they are not dropped. See [Rocket.Chat import](features/rocketchat-import.md).
+
+## An imported account joins a Vibez account of the same name (2026-11-02)
+
+When a Vibez account already has the username a Rocket.Chat account maps to, the import maps the Rocket.Chat person onto it instead of creating `<name>_rc`: an operator typically creates their own account first, and splitting their history from it would be the surprise. The Vibez account keeps its password. Only an account no earlier pass mapped is joined this way, and the report counts it (`users_joined_to_existing_accounts`). See [Rocket.Chat import](features/rocketchat-import.md).
+

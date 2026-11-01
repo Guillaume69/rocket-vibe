@@ -36,6 +36,7 @@ mod quotes;
 mod reactions;
 mod reauthentication;
 pub mod recovery;
+pub mod rocketchat_import;
 mod room_avatars;
 mod room_details;
 mod room_reads;

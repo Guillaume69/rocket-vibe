@@ -5,7 +5,8 @@
  */
 
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
-import type { EditableSettings, GroupDmPerson, ProviderActions, ReadObservation, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
+import { NOTES_CONFLICT, type EditableSettings, type GroupDmPerson, type ProviderActions, type ReadObservation, type RoomInformation, type RoomNotes, type RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
+import { canvasFile, canvasMarkdown } from './canvas.ts';
 import type { SlackClient } from './client.ts';
 import { SlackError, compareTimestamp, record } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
@@ -136,6 +137,43 @@ export class SlackActions implements ProviderActions {
     return this.translated(await this.saved.messages(rid));
   }
 
+  /** The conversation's canvas as notes: empty at revision "0" while it has none. */
+  async roomNotes(rid: string): Promise<RoomNotes> {
+    const file = await this.canvas(rid);
+    if (file === null) return { markdown: '', revision: '0', editable: true, updatedBy: null, updatedAt: null };
+    const info = record((await this.client.call('files.info', { file })).file);
+    const url = typeof info.url_private === 'string' ? info.url_private : null;
+    if (url === null) throw new SlackError('invalid_response');
+    const editor = typeof info.last_editor === 'string' ? info.last_editor : typeof info.user === 'string' ? info.user : null;
+    if (editor !== null) await this.directory.ensure([editor]);
+    return {
+      markdown: canvasMarkdown(await this.client.fileText(url)),
+      revision: canvasRevision(info),
+      editable: info.editable !== false,
+      updatedBy: editor === null ? null : this.directory.displayName(editor),
+      updatedAt: typeof info.updated === 'number' ? info.updated * 1000 : null,
+    };
+  }
+
+  /** Replaces the canvas whole (creating it the first time) when it is still the version read. */
+  async saveRoomNotes(rid: string, markdown: string, revision: string): Promise<RoomNotes> {
+    const content = { type: 'markdown', markdown };
+    const file = await this.canvas(rid);
+    if (file === null) {
+      if (revision !== '0') throw new SlackError(NOTES_CONFLICT);
+      await this.client.call('conversations.canvases.create', { channel_id: rid, document_content: content });
+    } else {
+      const info = record((await this.client.call('files.info', { file })).file);
+      if (canvasRevision(info) !== revision) throw new SlackError(NOTES_CONFLICT);
+      await this.client.call('canvases.edit', { canvas_id: file, changes: [{ operation: 'replace', document_content: content }] });
+    }
+    return this.roomNotes(rid);
+  }
+
+  private async canvas(rid: string): Promise<string | null> {
+    return canvasFile((await this.client.call('conversations.info', { channel: rid })).channel);
+  }
+
   openOrCreateDm(username: string, uid?: string): Promise<{ rid: string; rawRoom: Record<string, unknown> }> {
     return this.openDirect([{ username, uid }]);
   }
@@ -177,4 +215,9 @@ export class SlackActions implements ProviderActions {
     if (target === null || target.channel !== rid) throw new SlackError('message_not_found');
     return target;
   }
+}
+
+/** A canvas's last update, in seconds: Slack keeps no revision. */
+function canvasRevision(file: Record<string, unknown>): string {
+  return typeof file.updated === 'number' ? String(file.updated) : '0';
 }

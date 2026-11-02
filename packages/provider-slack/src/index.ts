@@ -47,6 +47,7 @@ export const SLACK_CAPABILITIES: Capabilities = {
   administration: false,
   reports: false,
   scheduledMessages: false,
+  notes: true,
   sending: true,
   typing: true,
   presence: true,

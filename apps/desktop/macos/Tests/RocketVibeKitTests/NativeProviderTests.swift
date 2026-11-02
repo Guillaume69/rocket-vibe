@@ -489,6 +489,7 @@ final class NativeProviderTests: XCTestCase {
             await model.submitLogin(); XCTAssertEqual(model.screen, .chat, model.login.error ?? "login failed")
         }
         let native = try XCTUnwrap(app.native), account = try XCTUnwrap(app.account)
+        try await until(diagnostics: { "connection \(app.connection), native error \(native.status().error ?? "none")" }) { app.connection == .online }
         let rid = try await native.createRoom(name: "swift-room-controls-\(UUID())", private: true)
         try await until { app.rooms.contains { $0.rid == rid } }; app.open(rid)
         let room = try XCTUnwrap(app.room); try await until { !room.loading }

@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-02
+
 ### Added
 
 - macOS (SwiftUI): Rocket.Chat Jitsi and kChat kMeet calls run inside the app as on Linux and Windows, audio only, in a small call window; the meeting's page stays the fallback.
@@ -1434,7 +1436,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.0...HEAD
+[0.30.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...desktop-v0.30.0
 [0.29.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0
 [0.28.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0
 [0.27.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0

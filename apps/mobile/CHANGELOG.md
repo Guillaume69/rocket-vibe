@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-02
+
 ### Added
 
 - Rocket.Chat and kChat: a Jitsi Meet or kMeet call runs inside the app, audio only (who is in the call and who speaks, mute, deafen, hang up), instead of the meeting's web page; a call that cannot be joined this way opens the page as before.
@@ -945,7 +947,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.0...HEAD
+[0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.1...mobile-v0.26.0
 [0.25.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...mobile-v0.25.1
 [0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0
 [0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.23.0...mobile-v0.24.0

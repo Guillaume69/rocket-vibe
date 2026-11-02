@@ -1451,6 +1451,17 @@ const fr = {
   'format.bullets': 'Liste à puces',
   'format.numbers': 'Liste numérotée',
 
+  // ── A room's notes (app/notes.tsx)
+  'notes.title': 'Notes',
+  'notes.edit': 'Modifier',
+  'notes.save': 'Enregistrer',
+  'notes.cancel': 'Annuler',
+  'notes.empty': "Aucune note dans ce salon pour l'instant.",
+  'notes.edited': 'Modifiées par {name}, {time}',
+  'notes.loadFailed': 'Impossible de lire les notes.',
+  'notes.saveFailed': "Impossible d'enregistrer les notes.",
+  'notes.conflict': "Quelqu'un les a enregistrées entre-temps. Votre texte est gardé : enregistrer à nouveau remplacera sa version.",
+
   // ── Thread list (app/threads.tsx) and following (ui/threadFollow.tsx)
   'threads.title': 'Fils',
   'threads.all': 'Tous',
@@ -3160,6 +3171,16 @@ const en: Record<TranslationKey, string> = {
   'format.quote': 'Quote',
   'format.bullets': 'Bulleted list',
   'format.numbers': 'Numbered list',
+
+  'notes.title': 'Notes',
+  'notes.edit': 'Edit',
+  'notes.save': 'Save',
+  'notes.cancel': 'Cancel',
+  'notes.empty': 'No notes in this room yet.',
+  'notes.edited': 'Edited by {name}, {time}',
+  'notes.loadFailed': "Couldn't read the notes.",
+  'notes.saveFailed': "Couldn't save the notes.",
+  'notes.conflict': 'Someone saved them in the meantime. Your text is kept: saving again replaces their version.',
 
   'threads.title': 'Threads',
   'threads.all': 'All',

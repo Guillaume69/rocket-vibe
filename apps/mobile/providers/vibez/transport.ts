@@ -451,6 +451,8 @@ export class NativeTransport {
   accountPermissions(): Promise<NativeTypes['AccountPermissions']> { return this.request('AccountPermissions','/api/v1/me/permissions'); }
   roomPermissions(room: string): Promise<NativeTypes['RoomPermissions']> { return this.request('RoomPermissions',`/api/v1/rooms/${encodeURIComponent(room)}/permissions`); }
   roomDetails(room:string):Promise<NativeTypes['RoomDetails']> { return this.request('RoomDetails',`/api/v1/rooms/${encodeURIComponent(room)}`); }
+  roomNotes(room:string):Promise<NativeTypes['RoomNotes']> { return this.request('RoomNotes',`/api/v1/rooms/${encodeURIComponent(room)}/notes`); }
+  updateRoomNotes(room:string,input:NativeTypes['UpdateRoomNotes']):Promise<NativeTypes['RoomNotes']> { return this.request('RoomNotes',`/api/v1/rooms/${encodeURIComponent(room)}/notes`,input,false,undefined,'PUT'); }
   roomMembers(room:string,after?:string,revision?:string):Promise<NativeTypes['RoomMemberPage']> {
     return this.request('RoomMemberPage',`/api/v1/rooms/${encodeURIComponent(room)}/members?${after?`after=${encodeURIComponent(after)}&`:''}${revision?`revision=${encodeURIComponent(revision)}`:''}`);
   }

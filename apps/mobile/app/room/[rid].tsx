@@ -1176,6 +1176,7 @@ function Room({
         onSearch={() => router.push({ pathname: '/message-search', params: { rid } })}
         onMarked={() => router.push({ pathname: '/marked-messages', params: { rid } })}
         onThreads={() => router.push({ pathname: '/threads', params: { rid } })}
+        onNotes={() => router.push({ pathname: '/notes', params: { rid } })}
         availableMessageActions={!protectedRoom}
         privateSearch={protectedRoom}
       />

@@ -422,6 +422,7 @@
     "apps/mobile/app/native.tsx",
     "apps/mobile/app/new-discussion.tsx",
     "apps/mobile/app/new-room.tsx",
+    "apps/mobile/app/notes.tsx",
     "apps/mobile/app/presence.tsx",
     "apps/mobile/app/profile.tsx",
     "apps/mobile/app/reactions.tsx",
@@ -4987,37 +4988,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3007,
+      "line": 3018,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3008,
+      "line": 3019,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3010,
+      "line": 3021,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3011,
+      "line": 3022,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3012,
+      "line": 3023,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3013,
+      "line": 3024,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

@@ -1,6 +1,6 @@
 /** Native protocol adapter for the existing screens; NativeChat owns journal/outbox commits. */
 import type { Session } from '../../lib/auth.ts';
-import type { Capabilities, Provider, Listener, FileOutbox } from '../../lib/provider.ts';
+import type { Capabilities, Provider, Listener, FileOutbox, RoomNotes } from '../../lib/provider.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { NativeChat } from './chat.ts';
 import { NativeStore, localMessage } from './store.ts';
@@ -20,12 +20,18 @@ export const VIBEZ_CAPABILITIES: Capabilities = {
   roomSettings:true,roomRoleList:true,leaveRoom:true,roomReads:true,
   // Jitsi is retired from the native server: rooms call through voice sessions.
   videoCall:false,voice:false,
-  administration:true,reports:true,scheduledMessages:true,
+  administration:true,reports:true,scheduledMessages:true,notes:true,
 };
 const unsupported = async (): Promise<never> => { throw new NativeError(501,'unsupported_feature'); };
 const noSubscription = () => () => {};
 
 /** Both the server and this client must implement a feature before exposing it. */
+/** The server's notes as every provider's are shown. */
+export function roomNotes(notes:import('./protocol.generated.ts').RoomNotes):RoomNotes {
+  const at=notes.updated_at?Date.parse(notes.updated_at):NaN;
+  return {markdown:notes.body,revision:notes.revision,editable:notes.editable,updatedBy:notes.updated_by??null,updatedAt:Number.isFinite(at)?at:null};
+}
+
 export function effectiveCapabilities(announcement: NativeCapabilities | null, client: Capabilities = VIBEZ_CAPABILITIES): Capabilities {
   const both = (a: boolean | undefined, b: boolean | undefined) => a === true && b === true;
   return {
@@ -43,6 +49,7 @@ export function effectiveCapabilities(announcement: NativeCapabilities | null, c
     voice:both(announcement?.voice,client.voice),
     administration:both(announcement?.administration,client.administration),reports:both(announcement?.reports,client.reports),
     scheduledMessages:both(announcement?.scheduled_messages,client.scheduledMessages),
+    notes:both(announcement?.room_notes,client.notes),
   };
 }
 
@@ -100,6 +107,8 @@ export function createVibezProvider(session: Session, client: RestClient, genera
         },
         resume:(rid,key)=>chat.resumeFavorite(rid,key),clear:(rid,key)=>chat.dismissFailedFavorite(rid,key),
       },
+      roomNotes:async rid=>roomNotes(await chat.roomNotes(rid)),
+      saveRoomNotes:async(rid,markdown,revision)=>roomNotes(await chat.saveRoomNotes(rid,markdown,revision)),
       roomInfo:async rid => {
         const details=await chat.roomDetails(rid);
         const capabilities=effectiveCapabilities(chat.capabilities);

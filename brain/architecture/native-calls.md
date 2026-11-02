@@ -132,10 +132,57 @@ From the user's HARs (2026-11-01/02, see [teams.md](teams.md) Live and Calls):
   (`updateEndpointState`, a group call's POST `conv/<id>` with `groupChat.threadId` and
   `meetingInfo`, `updateEndpointMetadata`, `leave`); the broker (`broker.skype.com`) is a
   30 s long poll;
-- **the auth these requests carry is unknown**: Chrome's default HAR export drops
-  `Authorization` and cookies, and the calling requests in the captures carry no token
-  header at all; a "with sensitive data" export is needed to read which token audience the
-  calling service wants (only the `aud`/`scp` claims will be kept);
+- **auth: an `https://ic3.teams.office.com` bearer** (`scp` `Teams.AccessAsUser.All`) on every
+  calling request (cc, conv, broker, `epconv`), read from "with sensitive data" HARs
+  (2026-11-02, claims only). **Our own client mints it**: the device-code refresh token
+  (client `1fec8e78`) redeemed for `https://ic3.teams.office.com/.default` answers 200 with
+  the same `aud` and `scp` (`examples/teams-ic3.rs`, live, 2026-11-02). No FOCI hop is
+  needed, unlike the web window. Whether the calling stack accepts our client's token is
+  not yet proven: the only harmless GET available, an expired broker `subscribe` link,
+  answers 404 `subCode 1001` ("message channel does not exist") with or without a token,
+  so a first real call settles it;
+- **outgoing 1:1 call** (`teams.cloud.microsoft_call_out.har`): one
+  `POST https://api-emea.flightproxy.teams.microsoft.com/api/v2/epconv` (201) carrying
+  `conversationRequest` (roster `Delta` with a `rosterUpdate` link, properties
+  `allowConversationWithoutHost`, `enableGroupCallEventMessages`, and the conversation
+  callbacks `conversationEnd`, `conversationUpdate`, `localParticipantUpdate`,
+  `addParticipantSuccess/Failure`, `addModalitySuccess/Failure`, `confirmUnmute`,
+  `receiveMessage`), `participants {from: {id 8:orgid:me, displayName, endpointId,
+  participantId, languageId}, to: [{id 8:orgid:callee, participantId}]}`,
+  `endpointCapabilities`, `clientEndpointCapabilities`, `endpointState`, and
+  `callInvitation {callModalities: ["Audio"], links {progress, mediaAnswer, acceptance,
+  redirection, end}, clientContentForMediaController {controlVideoStreaming, csrcInfo},
+  mediaContent {blob: <SDP offer, setup:actpass>}}`. Every callback link is a path of
+  the client's own Trouter `SkypeSpacesWeb` registration:
+  `https://<trouter host>:3443/v4/f/<registration path>/callAgent/<endpoint>/<random>/...`.
+  The answer is a `conversationController` URL plus ~30 conversation links (`leave`,
+  `mute`/`unmute`, `addParticipant`, `addModality`, `updateEndpointState`,
+  `updateEndpointMetadata`, `subscribe` and `brokerPublish` on the broker,
+  `sendMessage`, ...), `state {isMultiParty, isMeetingActivated}` and `callLimits`.
+  Then the broker long poll, `updateEndpointMetadata`, and `POST .../leave` (204) to hang
+  up. The callee's SDP answer arrives on the `mediaAnswer` callback, i.e. over Trouter:
+  these HARs hold no Trouter frames (its socket opened before recording), so its exact
+  shape is still owed;
+- **incoming call answered** (`..._call_in.har`): `forked/.../attach` (`requireMediaContent:
+  false`, an `end` callback and an `additionalActions` conversation request with the same
+  callbacks), `incoming/.../progress`, broker subscribe, a conv POST, then
+  `incoming/.../accept {callAcceptance {acceptedBy, acceptedCallModalities: ["Audio"],
+  links {mediaRenegotiation, transfer, replacement, balanceUpdate, retargetCompletion,
+  controlVideoStreaming, updateMediaDescriptions}, mediaContent {blob: <SDP answer,
+  setup:active, application sharing rejected with port 0>}}}`, `updateEndpointMetadata`,
+  `leave`;
+- **group call vs meeting**: both "group call" captures (`..._group_call.har`,
+  `..._group_call2.har`) are **calls of a group chat**, not meetings: `epconv` with
+  `groupChat {threadId: 19:...@thread.v2}`, `meetingInfo: null`, two `to` participants,
+  `callModalities ["Audio", "ScreenViewer"]`, and an offer with one audio, ten
+  `main-video`, one `applicationsharing-video` and the `x-data` m-lines. A meeting
+  (`meetingInfo`, meetup-join) has not been captured;
+- **screen sharing**: every offer negotiates the `applicationsharing-video` m-line, but
+  none of the captures shares a screen (no `addModality`, no `ScreenSharer` modality);
+- **still missing**: the Trouter frames of a call (the `mediaAnswer` on an outgoing call,
+  the ring in a fresh session), where the relay (TURN/MRAS) credentials come from (no
+  such request in these HARs), a meeting join, a screen share, and a
+  `chrome://webrtc-internals` dump;
 - the SDP (`application/sdp-ngc-1.0`): DTLS-SRTP, shared transport, Opus/G722/PCM, H264/AV1,
   transport-wide-cc, plus Microsoft extensions: an `m=x-data` SCTP channel,
   `a=x-ssrc-range` (100 video SSRCs reserved in a group call),
@@ -164,10 +211,12 @@ Teams meetings and video last.
   answer's `url` shape, the XMPP `session-initiate`, the TURN servers from XEP-0215).
 - **Slack**: the TURN session request (`TurnControlUrl`) and a `chrome://webrtc-internals`
   "Create dump" JSON of a huddle, for the SDP.
-- **Teams**: the same HARs exported "with sensitive data" (only `aud`/`scp` kept), an
-  outgoing 1:1 call (its creating POST and offer), the TURN credential request, ICE
-  candidates, a meeting join, and a webrtc-internals dump of a group call (the `x-data`
-  channel's messages).
+- **Teams**: the Trouter frames of a call (a HAR started before Teams loads, or a
+  webrtc-internals dump plus the Trouter socket's frames): the outgoing call's
+  `mediaAnswer` and the ring of a fresh session; where the relay (TURN/MRAS) credentials
+  come from; a meeting join (`meetingInfo`); a screen share (`addModality`); a
+  webrtc-internals dump of a group call (the `x-data` channel's messages). The auth
+  audience and the outgoing call's creating request are captured (2026-11-02).
 
 ## Sources
 
@@ -176,9 +225,10 @@ Teams meetings and video last.
 - crates/rv-voice-protocol
 - docs/MATTERMOST.md (kMeet conferences)
 - brain/features/calls.md, brain/architecture/teams.md, brain/architecture/slack-session.md
+- crates/rv-teams/examples/teams-ic3.rs (ic3 token probe), crates/rv-teams/examples/teams-foci.rs
 - Captures 2026-11-02: chat.barrut.me `#test` call, meet.barrut.me/config.js,
   kmeet.infomaniak.com/config.js, `app.slack.com_huddle.har`, `WebRTC Internals.html`,
-  `teams.cloud.microsoft*.har`
+  `teams.cloud.microsoft*.har` (incl. `_call_out`, `_call_in`, `_group_call`, `_group_call2`)
 - https://github.com/jbg/gst-meet, https://docs.rs/crate/lib-gst-meet/latest
 - https://github.com/aws/amazon-chime-sdk-cpp, https://github.com/aws/amazon-chime-sdk-js
 - https://github.com/brandonp2412/microslop

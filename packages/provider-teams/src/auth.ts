@@ -192,6 +192,7 @@ export class TeamsTokens {
   private substrateLease: Lease | null = null;
   private graphLease: Lease | null = null;
   private templatesLease: Lease | null = null;
+  private sharepointLease: { host: string; lease: Lease } | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
   private readonly onSkype: TeamsOptions['onSkype'];
@@ -291,6 +292,15 @@ export class TeamsTokens {
     if (held) return held;
     this.templatesLease = await this.access(TEMPLATES);
     return this.templatesLease.value;
+  }
+
+  /** A SharePoint bearer for the tenant's host (`https://<tenant>.sharepoint.com`), for chat notes pages. */
+  async sharepoint(host: string): Promise<string> {
+    const held = this.sharepointLease?.host === host ? fresh(this.sharepointLease.lease) : null;
+    if (held) return held;
+    const lease = await this.access(host);
+    this.sharepointLease = { host, lease };
+    return lease.value;
   }
 
   forgetTemplates(): void {

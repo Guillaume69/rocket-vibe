@@ -7,6 +7,7 @@
 
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';
 import { peopleRequest } from './translate.ts';
+import type { NotesPage } from './notes.ts';
 import { DECLINE_BODY } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -193,6 +194,12 @@ export class TeamsClient {
   async setTopic(rid: string, topic: string): Promise<void> {
     const { routes } = await this.tokens.chat();
     await this.chat('PUT', serviceUrl(`${routes.chat}/v1`, ['threads', rid, 'properties'], 'name=topic'), { topic });
+  }
+
+  /** A chat notes page's snapshot or operations (`opStream…`), with a SharePoint bearer for its host. */
+  async notesStream(page: NotesPage, tail: string): Promise<Doc> {
+    const url = `${page.host}/_api/v2.1/drives/${page.drive}/items/${page.item}/opStream${tail}`;
+    return (await this.send(url, ['authorization', `Bearer ${await this.tokens.sharepoint(page.host)}`], 'GET')).body;
   }
 
   /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */

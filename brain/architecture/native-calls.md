@@ -252,6 +252,42 @@ Premium meeting E2EE are likely unjoinable; Microsoft changes the protocol silen
 terms forbid unofficial clients. Feasibility medium for 1:1 audio (4 to 6 weeks), low for
 meetings with video (2 to 3 months more).
 
+## Implementation status
+
+**Jitsi, desktop audio: built and checked live (2026-11-02).**
+- `crates/rv-call` (own workspace, like the provider crates; CI in `providers.yml`): the `CallSignaling`
+  trait (`next_event`, `answer`, `local_candidate`, `set_muted`, `leave`, `local_id`) and the Jitsi
+  adapter. `jitsi/mod.rs` reads a meeting's join parameters from the host's `config.js` (both the
+  object style and docker-jitsi-meet's `config.hosts.muc = 'muc.' + subdomain + ...` assignments;
+  `Config::is_jitsi`), with no network code; `jitsi/client.rs`, behind the default `client` feature,
+  is the XMPP connection: WebSocket with the `xmpp` subprotocol, SASL ANONYMOUS (kMeet's JWT on the
+  URL as `?room=&token=`), resource bind, XEP-0215 TURN servers, the focus asked for the conference
+  (retried while `ready='false'`), MUC presence (nick, `SourceInfo`, `audiomuted`), disco#info answered
+  with audio-only features (no `rtp:video`, no `dtls-sctp`: Jicofo then offers one `audio` content and
+  no data channel), XMPP pings every 25 s. `jitsi/sdp.rs` turns the focus's `session-initiate` into a
+  Unified Plan offer: one `sendrecv` section (`mid` = the content name) for this client's microphone,
+  then one `sendonly` section per remote audio source (`mid` `r<n>`, `a=msid:<endpoint> <source name>`,
+  the bridge's own `jvb` sources skipped); `source-add` appends sections, `source-remove` makes them
+  `inactive` with port 0 (never removed), each a local renegotiation. libwebrtc's answer becomes the
+  `session-accept` (the first section's codecs, header extensions, our source `<endpoint>-a0`, ICE and
+  DTLS `setup='active'`); later candidates go as `transport-info`. A peer-to-peer `session-initiate`
+  from another occupant is declined with `session-terminate`, which keeps the call on the bridge.
+- `rv-voice` (`call.rs`): `connect_jitsi` (rv-voice-protocol) runs one call: rv-call's session, one
+  libwebrtc `PeerConnection` of its own (`PeerConnectionFactory::default`, the ICE servers XEP-0215
+  gave), the microphone track from the same `NativeAudioSource` as LiveKit's, each remote track heard
+  through `Audio::listen_rtc` under its stream id (the endpoint), participants with the room's display
+  names (`Participant.name`), mute (track disabled and the MUC presence updated), deafen, devices,
+  volumes.
+- rv-core `VoiceController::connect_jitsi` (one start path with LiveKit's `connect`) and
+  `voice::discover_jitsi` (the meeting host's `config.js`, 5 s); GTK `native_call.rs`: a Rocket.Chat
+  call whose meeting is on a Jitsi Meet server opens a small native call window (who is in the call,
+  who speaks, mute, deafen, hang up, length); no sidecar or a failed join opens the meeting's page.
+- **Checked live** on meet.barrut.me: login, conference, room join and the audio-only offer with a
+  browser in the room (signalling probe `examples/jitsi-join.rs`); then two sidecars in one test room,
+  each sending a tone (`RV_VOICE_FAKE_AUDIO=sine`), each heard the other through the bridge (level 0.8,
+  speaking) and left cleanly. Not yet run: the GTK window against a real Rocket.Chat call with a web
+  participant, kMeet (JWT; its calls keep the page), SwiftUI and Android, video.
+
 ## Order
 
 Jitsi first (open protocol, a Rust reference, the server offers, two providers at once;

@@ -18,6 +18,7 @@ All code, comments and docs are in English. French survives in two places only: 
 | Sidecar | `rv-voice`, the desktop process that runs LiveKit and the audio devices, driven over JSON lines. | [voice](features/voice.md) |
 | Jingle | XMPP's call signalling (XEP-0166/0167): Jitsi's focus sends `session-initiate` with the media description, the client answers; translated to and from SDP. | [native-calls](architecture/native-calls.md) |
 | Colibri | Jitsi's bridge channel (`colibri-ws` WebSocket, or the SCTP data channel when `preferSctp`): dominant speaker, receiver video constraints. | [native-calls](architecture/native-calls.md) |
+| rv-call | The signalling half of native calls: the `CallSignaling` trait and one adapter per provider (Jitsi today); the voice sidecar drives libwebrtc from it. | [native calls](architecture/native-calls.md) |
 | Chime | Amazon Chime SDK, the media service under Slack huddles: `rooms.join` answers a Chime meeting and attendee (`JoinToken`), signalling is protobuf over WebSocket. | [native-calls](architecture/native-calls.md) |
 | Listening choices | How this device hears a call and shares its screen: each person's volume and a mute for oneself, input and output volumes, the noise remover, the share's quality. Kept per device, never sent to the server. | [voice](features/voice.md) |
 | Noise remover | RNNoise (`nnnoiseless`) on the microphone, on by default; its voice probability also tells whether you speak. | [voice](features/voice.md) |

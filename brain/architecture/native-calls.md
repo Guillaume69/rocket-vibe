@@ -295,7 +295,16 @@ meetings with video (2 to 3 months more).
   `?jwt=` of the conference answer's URL becoming the XMPP token (`voice::meeting_token`, unit-tested);
   not run live: kChat sits in a cross-origin frame inside kSuite that the browser automation cannot
   drive, and the `kchat-smoke` example needs the user's Infomaniak API token. Not yet run: the GTK window itself against a real Rocket.Chat call (the
-  sidecar path under it was), kMeet live, SwiftUI, Android on a device, video.
+  sidecar path under it was), kMeet live, SwiftUI on a Mac, Android on a device, video.
+- **SwiftUI (2026-11-02)**: rv-ffi `jitsi_call.rs` exports `start_jitsi_call(meeting_url, display_name,
+  title)`, which discovers the meeting (`voice::discover_jitsi`, kMeet's `?jwt=` included) and joins it
+  on a `VoiceController` of its own (one sidecar per call, as GTK's window), and `JitsiCallSession`
+  (`state`: connected, ended, microphone, deafened, people with name, muted, speaking;
+  `set_microphone`, `set_deafened`, `leave`). `CallWindow.show` tries it first when given the account's
+  `displayName` (room call button, call card's Join, a Rocket.Chat or kChat ring answered on the open
+  account) and opens `NativeCallWindow` (SwiftUI in an `NSWindow`, polled every 300 ms), the
+  WKWebView page otherwise; a background account's ring and a profile's call button keep the page.
+  Checked by the Linux build of RocketVibeKit's bindings and the macOS CI only.
 - **Android (2026-11-02)**: `crates/rv-voice-mobile` (`call.rs`) wraps rv-call over JNI for
   `com.rocketvibe.voice.JitsiCall`: `start` (meeting URL, its host's `config.js` fetched by Kotlin,
   display name, kMeet's token) joins on a Tokio runtime of its own and returns a handle from a

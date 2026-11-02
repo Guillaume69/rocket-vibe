@@ -118,6 +118,7 @@
     "apps/desktop/crates/rv-core/src/native/store/threads/tests.rs",
     "apps/desktop/crates/rv-core/src/native/voice.rs",
     "apps/desktop/crates/rv-core/src/native/workflows.rs",
+    "apps/desktop/crates/rv-core/src/notes.rs",
     "apps/desktop/crates/rv-core/src/notify.rs",
     "apps/desktop/crates/rv-core/src/outbox.rs",
     "apps/desktop/crates/rv-core/src/parse.rs",
@@ -251,6 +252,7 @@
     "apps/desktop/crates/rv-gtk/src/native_quote_cards.rs",
     "apps/desktop/crates/rv-gtk/src/native_security.rs",
     "apps/desktop/crates/rv-gtk/src/new_channel.rs",
+    "apps/desktop/crates/rv-gtk/src/notes.rs",
     "apps/desktop/crates/rv-gtk/src/notifier.rs",
     "apps/desktop/crates/rv-gtk/src/notifier/custom.rs",
     "apps/desktop/crates/rv-gtk/src/notifier/pictures.rs",
@@ -344,6 +346,7 @@
     "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NewGroup.swift",
     "apps/desktop/macos/Sources/RocketVibe/NewRoom.swift",
+    "apps/desktop/macos/Sources/RocketVibe/NotesView.swift",
     "apps/desktop/macos/Sources/RocketVibe/Notifier.swift",
     "apps/desktop/macos/Sources/RocketVibe/PeerIdentitySection.swift",
     "apps/desktop/macos/Sources/RocketVibe/Pictures.swift",
@@ -419,6 +422,7 @@
     "apps/mobile/app/native.tsx",
     "apps/mobile/app/new-discussion.tsx",
     "apps/mobile/app/new-room.tsx",
+    "apps/mobile/app/notes.tsx",
     "apps/mobile/app/presence.tsx",
     "apps/mobile/app/profile.tsx",
     "apps/mobile/app/reactions.tsx",
@@ -2728,7 +2732,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-gtk/src/chat_native.rs",
-      "line": 1078,
+      "line": 1087,
       "kind": "endpoint",
       "surface": "rooms.new"
     },
@@ -3544,37 +3548,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 158,
+      "line": 161,
       "kind": "endpoint",
       "surface": "e2e.read_only"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 161,
+      "line": 164,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 179,
+      "line": 182,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 180,
+      "line": 183,
       "kind": "endpoint",
       "surface": "e2e.body"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 181,
+      "line": 184,
       "kind": "endpoint",
       "surface": "e2e.password"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibe/RoomView.swift",
-      "line": 189,
+      "line": 192,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
@@ -4984,37 +4988,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3007,
+      "line": 3018,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3008,
+      "line": 3019,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3010,
+      "line": 3021,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3011,
+      "line": 3022,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3012,
+      "line": 3023,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3013,
+      "line": 3024,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },

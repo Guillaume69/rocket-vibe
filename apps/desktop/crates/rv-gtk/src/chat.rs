@@ -221,6 +221,7 @@ pub struct ChatPage {
     marked_button: gtk::Button,
     /// The room's threads (Rocket.Chat only).
     threads_button: gtk::Button,
+    notes_button: gtk::Button,
     root: gtk::Overlay,
     split: adw::NavigationSplitView,
     update_slot: gtk::Box,
@@ -521,6 +522,13 @@ impl ChatPage {
             .visible(false)
             .build();
         room_header.pack_end(&threads_button);
+        let notes_button = gtk::Button::builder()
+            .icon_name("text-x-generic-symbolic")
+            .css_classes(["flat"])
+            .tooltip_text(t("notes.title"))
+            .visible(false)
+            .build();
+        room_header.pack_end(&notes_button);
         room_title.set_cursor(gdk::Cursor::from_name("pointer", None).as_ref());
         room_title.set_tooltip_text(Some(t("info.room")));
         let title_click = gtk::GestureClick::new();
@@ -619,6 +627,7 @@ impl ChatPage {
             local_search_button: local_search_button.clone(),
             marked_button: marked_button.clone(),
             threads_button: threads_button.clone(),
+            notes_button: notes_button.clone(),
             root,
             split,
             update_slot,
@@ -759,6 +768,12 @@ impl ChatPage {
                     this.open_thread_of(&id);
                 }
             });
+        });
+        let weak = Rc::downgrade(&this);
+        notes_button.connect_clicked(move |_| {
+            if let Some(this) = weak.upgrade() {
+                this.open_notes();
+            }
         });
         let weak = Rc::downgrade(&this);
         search_button.connect_clicked(move |_| {
@@ -1805,6 +1820,7 @@ impl ChatPage {
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
         self.threads_button.set_visible(false);
+        self.notes_button.set_visible(false);
         self.content_stack.set_visible_child_name("empty");
         self.content_page.set_title("rocket-vibe");
         self.split.set_show_content(false);
@@ -3130,6 +3146,7 @@ impl ChatPage {
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
         self.threads_button.set_visible(session.threads_available());
+        self.notes_button.set_visible(false);
         self.call_button.set_icon_name("camera-video-symbolic");
         self.call_button.set_tooltip_text(Some(t("room.call")));
         // Read-only, or made so while open: those my roles let write (`post-readonly`)

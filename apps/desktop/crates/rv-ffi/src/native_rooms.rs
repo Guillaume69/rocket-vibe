@@ -27,6 +27,31 @@ pub struct NativeRoomManagement {
     pub can_leave: bool,
     pub role: String,
 }
+/// A room's notes: markdown saved whole against `revision`.
+#[derive(Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RoomNotes {
+    pub markdown: String,
+    /// The markdown rendered like a message.
+    pub body: Vec<crate::markup::BodyBlock>,
+    pub revision: String,
+    pub editable: bool,
+    pub updated_by: Option<String>,
+    /// Milliseconds since the epoch.
+    pub updated_at_ms: Option<i64>,
+}
+impl RoomNotes {
+    fn new(notes: rv_core::notes::Notes, me: &str) -> Self {
+        let ctx = rv_core::markdown::Context { me, names: None };
+        RoomNotes {
+            body: crate::markup::blocks(rv_core::markdown::render(None, Some(&notes.markdown), &ctx)),
+            updated_at_ms: notes.updated_ms(),
+            markdown: notes.markdown,
+            revision: notes.revision,
+            editable: notes.editable,
+            updated_by: notes.updated_by,
+        }
+    }
+}
 #[derive(Clone, uniffi::Record)]
 pub struct NativeRoomMember {
     pub id: String,
@@ -94,6 +119,30 @@ impl NativeChat {
             }
         }
         Ok(candidates)
+    }
+    /// The Notes tab shows for this room.
+    pub fn notes_available(&self, room: String) -> bool {
+        self.session.notes_available(&room)
+    }
+    pub async fn room_notes(&self, room: String) -> Result<RoomNotes, RvError> {
+        let session = self.session.clone();
+        let me = session.info.username.clone();
+        on_tokio(async move { session.room_notes(&room).await }).await.map(|n| RoomNotes::new(n, &me)).map_err(error)
+    }
+    /// A save over a revision someone replaced fails with the server error
+    /// `revision_conflict`.
+    pub async fn save_room_notes(
+        &self,
+        room: String,
+        markdown: String,
+        revision: String,
+    ) -> Result<RoomNotes, RvError> {
+        let session = self.session.clone();
+        let me = session.info.username.clone();
+        on_tokio(async move { session.save_room_notes(&room, &markdown, &revision).await })
+            .await
+            .map(|n| RoomNotes::new(n, &me))
+            .map_err(error)
     }
     pub async fn refresh_room_access(&self, room: String) -> Result<(), RvError> {
         let session = self.session.clone();

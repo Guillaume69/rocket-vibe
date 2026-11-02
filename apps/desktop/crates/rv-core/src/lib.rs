@@ -30,6 +30,7 @@ pub mod mattermost;
 pub mod media;
 pub mod members;
 pub mod native;
+pub mod notes;
 pub use rv_provider::normalize;
 pub mod notify;
 pub mod outbox;

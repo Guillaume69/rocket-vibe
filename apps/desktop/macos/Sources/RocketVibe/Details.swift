@@ -9,6 +9,7 @@ enum Panel: Identifiable, Equatable {
     case search
     case marked
     case threads
+    case notes
     case profile(String)
     case profileId(String)
 
@@ -18,6 +19,7 @@ enum Panel: Identifiable, Equatable {
         case .search: return "search"
         case .marked: return "marked"
         case .threads: return "threads"
+        case .notes: return "notes"
         case let .profile(username): return "profile:\(username)"
         case let .profileId(uid): return "profile-id:\(uid)"
         }
@@ -34,6 +36,7 @@ struct PanelView: View {
         case .search: SearchView(model: model)
         case .marked: MarkedView(model: model)
         case .threads: ThreadsView(model: model)
+        case .notes: NotesView(model: model)
         case let .profile(username): ProfileView(username: username)
         case let .profileId(uid): ProfileView(username: uid, byId: true)
         }

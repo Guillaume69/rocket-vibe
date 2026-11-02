@@ -13,6 +13,7 @@ first release: everything before it is under that section.
 
 ### Added
 
+- Room notes: one markdown document per room (`GET`/`PUT /api/v1/rooms/{id}/notes`, the `room_notes` capability), saved against the revision read (409 `revision_conflict` when stale), editable by those who may post, refused in an encrypted room. The web client shows them in a Notes panel of the room header.
 - `vibez import rocketchat`: brings a Rocket.Chat server's history into Vibez from its MongoDB (live, or a restored mongodump): people with their passwords (they sign in as before), verified address, admin role and avatar; channels, private groups, discussions and direct messages with their members, roles, favorites and read positions; messages with edits, threads, quotes, reactions, pins, stars and mentions; files from GridFS or a FileSystem store; custom emoji. Encrypted messages come over as they were, with their keys, under a placeholder, so a later version can decrypt them without a new import. Running it again only adds what is new; `--dry-run` counts.
 
 ### Fixed

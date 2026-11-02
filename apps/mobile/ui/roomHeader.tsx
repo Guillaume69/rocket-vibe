@@ -45,6 +45,7 @@ export function RoomHeader({
   onSearch,
   onMarked,
   onThreads,
+  onNotes,
   availableMessageActions = true,
   privateSearch = false,
 }: {
@@ -61,6 +62,8 @@ export function RoomHeader({
   onMarked: () => void;
   /** Opens the room's thread list, where the provider has one. */
   onThreads: () => void;
+  /** Opens the room's notes, where the provider keeps them. */
+  onNotes: () => void;
   availableMessageActions?: boolean;
   /** An encrypted room is searched on the device, whatever the server offers. */
   privateSearch?: boolean;
@@ -211,6 +214,18 @@ export function RoomHeader({
           accessibilityLabel={t('room.threads')}
         >
           <Icon name="chat-message-new" color={c.secondaryText} style={styles.headerIcon} />
+        </Tappable>
+      )}
+      {/* An encrypted room's notes would sit in clear on the server. */}
+      {sync.phase === 'ready' && capabilities?.notes === true && sync.actions.roomNotes !== undefined && room !== undefined && !room.encrypted && (
+        <Tappable
+          onPress={onNotes}
+          hitSlop={8}
+          android_ripple={{ color: c.ripple, borderless: true }}
+          accessibilityRole="button"
+          accessibilityLabel={t('notes.title')}
+        >
+          <Icon name="text-x-generic" color={c.secondaryText} style={styles.headerIcon} />
         </Tappable>
       )}
       {/* A server without pins or stars (WhatsApp) has no marked messages to list. */}

@@ -107,6 +107,8 @@ export type Capabilities = {
   alsoInRoom?: boolean;
   /** Voice sessions in every room, voice channels and ringing DMs (Vibez). */
   voice?: boolean;
+  /** A room's notes (`Provider.roomNotes`): one markdown document per room. */
+  notes?: boolean;
   /** Server administration from the app (`Provider.admin`), for an administrator. */
   administration?: boolean;
   /** Members can report a message or an account (`Provider.reports`). */
@@ -249,6 +251,10 @@ export interface ProviderActions {
   /** What the settings editor may change in `rid`; null when it is not offered.
    *  Absent: Rocket.Chat's own `edit-room` check decides. */
   editableSettings?(rid: string): Promise<EditableSettings | null>;
+  /** The room's notes; absent where the server keeps none (`Capabilities.notes`). */
+  roomNotes?(rid: string): Promise<RoomNotes>;
+  /** Saves the whole markdown over `revision`; a newer save fails with `NOTES_CONFLICT`. */
+  saveRoomNotes?(rid: string, markdown: string, revision: string): Promise<RoomNotes>;
   markRead(rid: string, observation?:ReadObservation): Promise<void>;
   /** Presses an integration card's button, or picks `selected` in its menu (Mattermost `actions[]`). Absent where cards carry none. */
   cardAction?(postId: string, actionId: string, cookie: string | null, selected?: string): Promise<CardActionAnswer>;
@@ -308,6 +314,10 @@ export type EditableSettings = { name: boolean; texts: boolean; readOnly: boolea
 
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };
+/** A room's notes: markdown saved whole against `revision`. `updatedAt` in ms. */
+export type RoomNotes = { markdown: string; revision: string; editable: boolean; updatedBy: string | null; updatedAt: number | null };
+/** The error code of a save over a revision someone else replaced. */
+export const NOTES_CONFLICT = 'revision_conflict';
 
 export type ReadObservation={messageId:string;adhesion:string};
 export type RoomReadState={adhesion:string;rootPosition:string;replyPosition:string;unreadRoots:string;unreadReplies:string;mentions:string;groupMentions:string};

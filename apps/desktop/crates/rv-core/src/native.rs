@@ -739,6 +739,7 @@ impl NativeSession {
                     sticker_shelf: true,
                     giphy: true,
                     voice_reactions: true,
+                    room_notes: true,
                     ..Default::default()
                 })
             })
@@ -1175,6 +1176,35 @@ impl NativeSession {
             }
         }
         Ok(())
+    }
+    /// The server keeps notes for this room: never an encrypted one, whose
+    /// notes would sit in clear on the server.
+    pub fn notes_available(&self, room: &str) -> bool {
+        self.supported_features().iter().any(|f| f == "room_notes") && !self.store.room_encrypted(room).unwrap_or(true)
+    }
+    pub async fn room_notes(&self, room: &str) -> Result<crate::notes::Notes, Error> {
+        self.ready()?;
+        let notes = self.client.room_notes(room).await?;
+        self.ready()?;
+        if notes.room_id != room {
+            return Err(Error::Protocol("invalid_room_notes"));
+        }
+        Ok(notes.into())
+    }
+    /// Saves the whole document over `revision`; a newer save answers
+    /// [`crate::notes::CONFLICT`].
+    pub async fn save_room_notes(
+        &self,
+        room: &str,
+        markdown: &str,
+        revision: &str,
+    ) -> Result<crate::notes::Notes, Error> {
+        self.ready()?;
+        let input =
+            rv_protocol::parity::UpdateRoomNotes { body: markdown.to_owned(), expected_revision: revision.to_owned() };
+        let notes = self.client.update_room_notes(room, &input).await?;
+        self.ready()?;
+        Ok(notes.into())
     }
     pub async fn room_info(&self, room: &str) -> Result<crate::info::RoomInfo, Error> {
         Ok(crate::info::native_room_info(self.room_details(room).await?))

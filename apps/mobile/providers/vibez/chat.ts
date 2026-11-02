@@ -504,6 +504,21 @@ export class NativeChat {
     else if(error instanceof NativeError && ['session_rejected','server_identity_changed'].includes(error.code)){this.status={online:false,error:error.code};this.stop();}
     else{this.deferSend(error);if(error instanceof NativeError && error.code==='delivery_revalidate')this.lost();}
   }
+  async roomNotes(room:string):Promise<import('./protocol.generated.ts').RoomNotes> {
+    this.ready();
+    if(!this.capabilities?.room_notes)throw new NativeError(501,'unsupported_feature');
+    const notes=await this.transport.roomNotes(room);
+    this.ready();
+    if(notes.room_id!==room)throw new NativeError(502,'invalid_room_notes');
+    return notes;
+  }
+  async saveRoomNotes(room:string,body:string,revision:string):Promise<import('./protocol.generated.ts').RoomNotes> {
+    this.ready();
+    if(!this.capabilities?.room_notes)throw new NativeError(501,'unsupported_feature');
+    const notes=await this.transport.updateRoomNotes(room,{body,expected_revision:revision});
+    this.ready();
+    return notes;
+  }
   async roomDetails(room: string):Promise<import('./protocol.generated.ts').RoomDetails> {
     this.ready();
     if(!this.capabilities?.room_info)throw new NativeError(501,'unsupported_feature');

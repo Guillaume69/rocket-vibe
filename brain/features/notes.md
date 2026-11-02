@@ -7,8 +7,8 @@ whole against the revision it was read at; a save someone made in between
 answers a conflict, the draft stays in the editor and the next save goes over the
 newer version. A provider without notes hides the entry.
 
-Providers: the Vibez server (this page). Slack canvases and the Teams chat Notes
-tab (a Loop page) come in later layers; until then they show no Notes entry.
+Providers: the Vibez server and Slack (a conversation's canvas). The Teams chat
+Notes tab (a Loop page) comes in a later layer; until then it shows no Notes entry.
 
 ## Server (Vibez)
 
@@ -31,6 +31,33 @@ tab (a Loop page) come in later layers; until then they show no Notes entry.
 - Capability `room_notes` in `/.well-known/vibez`.
 - Sources: `apps/server/src/notes.rs`, `apps/server/tests/notes.rs`,
   `crates/rv-protocol/src/parity.rs` (`RoomNotes`, `UpdateRoomNotes`).
+
+## Slack
+
+A conversation's canvas is its notes, in the same tab:
+- `conversations.info` gives the canvas's file id (`properties.canvas.file_id`,
+  else a `canvas` tab's `data.file_id`); `files.info` its `url_private`, `updated`
+  and `last_editor`; the HTML at `url_private` (Slack's file host, the session's
+  cookie) is read back into markdown by `rv_slack::canvas::markdown` (desktop)
+  and `canvasMarkdown` (`packages/provider-slack/src/canvas.ts`), same rules and
+  the same test cases: headings, paragraphs, bold, italic, strike, inline and
+  block code, links (http and https only), nested and numbered lists, checklists,
+  quotes, rules; anything else keeps its text.
+- Slack keeps no revision: the file's `updated` second stands in for one. A save
+  reads `files.info` again and is refused (`revision_conflict`) when it moved,
+  else replaces the whole canvas with `canvases.edit` (`changes:
+  [{operation:"replace", document_content:{type:"markdown", markdown}}]`); a
+  conversation without one gets it with `conversations.canvases.create`
+  (`channel_id`, `document_content`). The check and the write are two calls, so
+  a save landing between them is overwritten.
+- Desktop: `Service::canvas` / `save_canvas` (`crates/rv-slack/src/service.rs`),
+  `SlackSync::notes` / `save_notes`, `Session::notes_available` /
+  `room_notes` / `save_room_notes`; GTK's dialog through `session_notes`
+  (no live signal: read on opening), SwiftUI through rv-ffi `Chat.room_notes`.
+  Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `SlackClient.fileText`,
+  `Capabilities.notes`.
+- Not run against a real workspace: no Slack account was signed in on the
+  development machine. Tested against fake Web API servers on both sides.
 
 ## Desktop
 

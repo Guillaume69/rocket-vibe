@@ -181,7 +181,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server only so far (`room_notes`); never an encrypted room (refused server-side). Slack canvases and Teams Notes owed on all three native apps. SwiftUI checked by the macOS CI build only. |
+| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps (fake-server tested only). Teams Notes owed on all three native apps. SwiftUI checked by the macOS CI build only. |
 
 ### Discussions - [discussions](features/discussions.md)
 
@@ -386,7 +386,7 @@ beta does.
 
 ## Open debt
 
-- **Notes**: Slack canvases and the Teams chat Notes tab are owed on all three native apps; a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
+- **Notes**: the Teams chat Notes tab is owed on all three native apps; a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
 - **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
 - **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Android owes nothing of the desktop's set (live checks of notifications and sends pending); SwiftUI owes the whole account. Web is `n/a` (serving origin only).
 

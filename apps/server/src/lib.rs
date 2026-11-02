@@ -27,6 +27,7 @@ mod mail_admission;
 mod marks;
 mod mentions;
 mod message_actions;
+mod notes;
 pub mod objects;
 pub mod operator;
 mod permissions;

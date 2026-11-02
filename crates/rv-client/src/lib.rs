@@ -1480,6 +1480,28 @@ impl NativeClient {
         }
         self.get(&format!("/api/v1/rooms/{room}")).await
     }
+    pub async fn room_notes(&self, room: &str) -> Result<rv_protocol::parity::RoomNotes, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.get(&format!("/api/v1/rooms/{room}/notes")).await
+    }
+    pub async fn update_room_notes(
+        &self,
+        room: &str,
+        input: &rv_protocol::parity::UpdateRoomNotes,
+    ) -> Result<rv_protocol::parity::RoomNotes, Error> {
+        if !path_segment(room) {
+            return Err(Error::InvalidUrl);
+        }
+        self.request(
+            Method::PUT,
+            &format!("/api/v1/rooms/{room}/notes"),
+            Some(input),
+            false,
+        )
+        .await
+    }
     pub async fn room_members(
         &self,
         room: &str,

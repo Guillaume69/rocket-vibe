@@ -159,6 +159,9 @@ pub struct Capabilities {
     pub giphy: bool,
     #[serde(default)]
     pub voice_reactions: bool,
+    /// `GET`/`PUT /api/v1/rooms/{id}/notes`: one markdown document per room.
+    #[serde(default)]
+    pub room_notes: bool,
 }
 
 impl Default for Capabilities {
@@ -227,6 +230,7 @@ impl Default for Capabilities {
             sticker_shelf: false,
             giphy: false,
             voice_reactions: false,
+            room_notes: false,
         }
     }
 }
@@ -301,7 +305,8 @@ impl Capabilities {
             social_cards,
             sticker_shelf,
             giphy,
-            voice_reactions
+            voice_reactions,
+            room_notes
         );
         features
     }

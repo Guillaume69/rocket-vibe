@@ -280,6 +280,28 @@ pub struct RoomMemberPage {
     pub members: Vec<RoomMember>,
     pub next: Option<String>,
 }
+/// A room's notes: one markdown document its members read and anyone who may
+/// post edits. Refused in an encrypted room.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq)]
+pub struct RoomNotes {
+    pub room_id: String,
+    pub body: String,
+    /// "0" before the first save; any other value is opaque.
+    pub revision: String,
+    /// Username of the last editor.
+    pub updated_by: Option<String>,
+    /// RFC 3339, UTC.
+    pub updated_at: Option<String>,
+    /// Whether this account may save.
+    pub editable: bool,
+}
+/// Replaces the notes when `expected_revision` is still current, else 409 `revision_conflict`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRoomNotes {
+    pub body: String,
+    pub expected_revision: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateRoom {
@@ -661,6 +683,10 @@ pub struct ParityContract {
     pub room_members: Option<RoomMemberPage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_room: Option<UpdateRoom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room_notes: Option<RoomNotes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_room_notes: Option<UpdateRoomNotes>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_room_role: Option<ChangeRoomRole>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

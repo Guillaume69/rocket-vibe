@@ -312,6 +312,10 @@ pub fn router(app: App) -> Router {
         .route("/api/v1/rooms/{room}", get(room_details).patch(update_room))
         .route("/api/v1/rooms/{room}/members", get(room_members))
         .route(
+            "/api/v1/rooms/{room}/notes",
+            get(room_notes).put(update_room_notes),
+        )
+        .route(
             "/api/v1/rooms/{room}/members/{user}/role",
             axum::routing::put(change_room_role),
         )
@@ -589,6 +593,7 @@ async fn discovery(State(app): State<App>) -> Result<Json<Discovery>> {
             sticker_shelf: true,
             giphy: app.giphy.is_some(),
             voice_reactions: app.livekit.is_some(),
+            room_notes: true,
             ..Default::default()
         },
         icon_revision: crate::instance_icon::revision(&app).await?,
@@ -2245,6 +2250,31 @@ async fn update_room(
         room_details::Command::Settings(body(input)?),
     )
     .await
+}
+async fn room_notes(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+) -> Result<Response> {
+    let (actor, hash, proof) = read_access(&app, &headers, Scope::Room(&room)).await?;
+    let notes = crate::notes::read(&app, &actor, &room).await?;
+    proof
+        .json(&app, &hash, &notes, std::slice::from_ref(&room), None)
+        .await
+}
+async fn update_room_notes(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(room): Path<String>,
+    input: Input<rv_protocol::parity::UpdateRoomNotes>,
+) -> Result<Response> {
+    let hash = auth::bearer(&headers)?;
+    let actor = auth::authenticate(&app, &hash).await?;
+    let notes = crate::notes::write(&app, &actor, &room, body(input)?).await?;
+    let proof = ReadProof::capture(&app, &actor, Scope::Room(&room)).await?;
+    proof
+        .json(&app, &hash, &notes, std::slice::from_ref(&room), None)
+        .await
 }
 async fn change_room_role(
     state: State<App>,

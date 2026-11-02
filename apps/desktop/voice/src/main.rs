@@ -1,4 +1,5 @@
-//! rv-voice: one LiveKit voice connection, driven by the desktop app over JSON
+//! rv-voice: one LiveKit voice connection (or one native call of another
+//! provider, call.rs), driven by the desktop app over JSON
 //! lines (crates/rv-voice-protocol): audio, camera and screen out, and the room's
 //! video to the app (video.rs). One process per connection: it exits once
 //! disconnected, and when its stdin closes (the app died).
@@ -7,6 +8,7 @@
 //! microphone and speakers, `RV_VOICE_FAKE_VIDEO=pattern` a test pattern instead
 //! of the camera and the screen, for headless tests.
 mod audio;
+mod call;
 mod screen_audio;
 mod video;
 
@@ -134,6 +136,14 @@ async fn run() {
                     emit(Event::State { state: State::Disconnected });
                     emit(Event::Disconnected { reason: "client_initiated".into() });
                     return;
+                }
+                Some(Ok(Command::ConnectJitsi { websocket, domain, muc, focus, room, display_name, token })) => {
+                    if voice.room.is_some() {
+                        error("already_connected");
+                        continue;
+                    }
+                    let config = rv_call::jitsi::Config { websocket, domain, muc, focus, room, display_name, token };
+                    return call::run(rv_call::jitsi::join(config), voice.fake, &mut commands).await;
                 }
                 Some(Ok(Command::Connect { url, token, e2ee_key })) => {
                     if voice.room.is_some() {
@@ -367,7 +377,7 @@ impl Voice {
                 Some(keys) => keys.set_shared_key(key.into_bytes(), 0),
                 None => error("not_encrypted"),
             },
-            Command::Connect { .. } | Command::Disconnect => {}
+            Command::Connect { .. } | Command::ConnectJitsi { .. } | Command::Disconnect => {}
         }
     }
 
@@ -685,6 +695,7 @@ impl Voice {
             level: level(loud),
             camera: self.camera.as_ref().is_some_and(|(_, track)| track.is_some()),
             screen: self.screen.as_ref().is_some_and(|(_, track)| track.is_some()),
+            name: None,
         }];
         let mut remote: Vec<_> = room
             .remote_participants()
@@ -704,6 +715,7 @@ impl Voice {
                     level: level(loud),
                     camera: p.track_publications().values().any(|t| t.source() == TrackSource::Camera && !t.is_muted()),
                     screen: p.track_publications().values().any(|t| t.source() == TrackSource::Screenshare),
+                    name: None,
                 }
             })
             .collect();

@@ -184,9 +184,12 @@ pub(crate) fn icon_image(texture: Option<&gtk::gdk::Texture>) -> gtk::Image {
     image
 }
 
-/// The app's own icon at a tile's size: a server with no icon of its own,
-/// or whose icon could not be read, shows it.
-pub(crate) fn app_icon() -> gtk::Widget {
+/// What an account's tile shows while its server's icon is unknown, absent
+/// or unreadable: its provider's mark, the app's icon for a Vibez server.
+pub(crate) fn fallback_icon(info: &SessionInfo) -> gtk::Widget {
+    if let Some(texture) = rv_core::server_icon::fallback(info).and_then(icon_texture) {
+        return icon_image(Some(&texture)).upcast();
+    }
     let image = icon_image(None);
     image.set_icon_name(Some(crate::APP_ID));
     image.upcast()
@@ -278,7 +281,7 @@ impl Rail {
             let open = active.as_deref() == Some(key.as_str());
             let muted = self.muted.borrow().contains(&key);
             let server = host(info);
-            let tile = app_icon();
+            let tile = fallback_icon(info);
             let dot = gtk::Box::builder()
                 .css_classes(["rail-dot"])
                 .halign(gtk::Align::End)

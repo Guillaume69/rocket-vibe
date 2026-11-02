@@ -7,6 +7,10 @@ section here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Server rail: an account whose server has no icon of its own now shows its service's logo (Rocket.Chat, Mattermost, kChat, Slack, Microsoft Teams, WhatsApp) instead of RocketVibe's; only a Vibez server without an icon keeps RocketVibe's.
+
 ## [0.30.1] - 2026-11-02
 
 ### Fixed

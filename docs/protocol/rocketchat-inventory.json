@@ -509,6 +509,7 @@
     "apps/mobile/lib/providerCalls.ts",
     "apps/mobile/lib/providerEmojis.ts",
     "apps/mobile/lib/providerError.ts",
+    "apps/mobile/lib/providerMark.ts",
     "apps/mobile/lib/providerProfiles.ts",
     "apps/mobile/lib/push.ts",
     "apps/mobile/lib/pushToken.ts",
@@ -2318,7 +2319,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/server_icon.rs",
-      "line": 94,
+      "line": 142,
       "kind": "endpoint",
       "surface": "settings.public"
     },
@@ -3626,37 +3627,37 @@
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 978,
+      "line": 981,
       "kind": "endpoint",
       "surface": "rooms.nothing_unread"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 980,
+      "line": 983,
       "kind": "endpoint",
       "surface": "rooms.mark_failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 1006,
+      "line": 1009,
       "kind": "endpoint",
       "surface": "e2e.wrong"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 1007,
+      "line": 1010,
       "kind": "endpoint",
       "surface": "e2e.no_keys"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 1008,
+      "line": 1011,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
     {
       "file": "apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift",
-      "line": 1011,
+      "line": 1014,
       "kind": "endpoint",
       "surface": "e2e.failed"
     },
@@ -5042,7 +5043,7 @@
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 48,
+      "line": 63,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

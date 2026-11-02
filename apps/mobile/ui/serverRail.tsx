@@ -14,6 +14,7 @@ import { Alert, AppState, Image, type ImageSourcePropType, ScrollView, StyleShee
 import { dismissible } from './alerts.ts';
 
 import type { Session } from '../lib/auth.ts';
+import { providerMark, type ProviderMark } from '../lib/providerMark.ts';
 import { serverIconUri } from '../lib/serverIcon.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
 import { listKnownServers, prepareNativeSession, readSession } from '../lib/sessionStore.ts';
@@ -29,8 +30,22 @@ import { type Colors, FONTS } from './theme.ts';
 import { mattermostUnread } from '../providers/mattermost/auth.ts';
 import { slackUnread } from '@rocket-vibe/provider-slack/auth';
 
-/** A server with no icon of its own, or one that could not be read, shows the app's. */
+/** A tile whose server icon is unknown, absent or unreadable shows its
+ *  provider's mark (`lib/providerMark.ts`), a Vibez server the app's icon. */
 const APP_ICON: ImageSourcePropType = require('../assets/icon.png');
+const MARKS: Record<ProviderMark, ImageSourcePropType> = {
+  rocketchat: require('../assets/brands/rocketchat.png'),
+  mattermost: require('../assets/brands/mattermost.png'),
+  kchat: require('../assets/brands/kchat.png'),
+  slack: require('../assets/brands/slack.png'),
+  teams: require('../assets/brands/teams.png'),
+  whatsapp: require('../assets/brands/whatsapp.png'),
+};
+
+function fallbackIcon(kind: Session['kind']): ImageSourcePropType {
+  const mark = providerMark(kind);
+  return mark === null ? APP_ICON : MARKS[mark];
+}
 
 const POLL_MS = 60_000;
 const TILE = 44;
@@ -56,7 +71,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const [accounts, setAccounts] = useState<Session[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [switching, setSwitching] = useState<string | null>(null);
-  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the app's icon. */
+  /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the provider's mark. */
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
   const visits = useRef(0);
   // The poll reads these without being rebuilt at every change.
@@ -166,7 +181,7 @@ export function ServerRail({ c }: { c: Colors }) {
                 uri={icons.get(host)}
                 size={TILE}
                 radius={15}
-                child={<Image source={APP_ICON} style={[StyleSheet.absoluteFill, styles.appIcon]} />}
+                child={<Image source={fallbackIcon(session.kind)} style={[StyleSheet.absoluteFill, styles.appIcon]} />}
               />
               {!isOpen && unread.has(host) && (
                 <View style={[styles.dot, { backgroundColor: c.yellow, borderColor: c.deepCard }]} />

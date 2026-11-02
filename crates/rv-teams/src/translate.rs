@@ -626,6 +626,9 @@ fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<St
         "TopicUpdate" => {
             Some(("room_changed_topic", tag_value(content, "value").map(rv_provider::text::decode_entities)))
         }
+        "FileAdd" if tag_value(content, "subtype").is_some_and(|s| s.eq_ignore_ascii_case("loopthread")) => {
+            Some((crate::notes::CREATED, tag_value(content, "uri").map(rv_provider::text::decode_entities)))
+        }
         _ => None,
     }
 }
@@ -1399,6 +1402,23 @@ mod tests {
         let anonymous = raw("<topicupdate><value>Axeo devs</value></topicupdate>");
         let m = message("19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2", &anonymous, &directory).unwrap();
         assert_eq!((m.author_id.as_str(), m.author_name.as_deref()), ("", Some("Someone")));
+    }
+
+    #[test]
+    fn the_notes_created_event_keeps_its_page_address() {
+        let directory = Directory::default();
+        let uri = "https://t.sharepoint.com/contentstorage/CSP_g/Document%20Library/19_c_thread_v2/loop_loopThread.loop?nav=cz0x&amp;x=1";
+        let raw = |subtype: &str| {
+            json!({
+                "id": "1793576966428", "messagetype": "ThreadActivity/FileAdd",
+                "from": "https://x/v1/users/ME/contacts/19:c@thread.v2", "originalarrivaltime": "2026-11-02T00:49:26.428Z",
+                "content": format!("<fileadd><initiator>8:orgid:abc</initiator><target><uri>{uri}</uri><type>loop</type><subtype>{subtype}</subtype></target></fileadd>"),
+            })
+        };
+        let m = message("19:c@thread.v2", &raw("loopthread"), &directory).unwrap();
+        assert_eq!(m.system_type.as_deref(), Some(crate::notes::CREATED));
+        assert_eq!(m.text.as_deref(), Some(uri.replace("&amp;", "&").as_str()));
+        assert!(message("19:c@thread.v2", &raw("other"), &directory).is_none());
     }
 
     #[test]

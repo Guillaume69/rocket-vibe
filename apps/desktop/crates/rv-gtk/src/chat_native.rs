@@ -1204,7 +1204,7 @@ fn native_notes(session: &Arc<NativeSession>, rid: &str) -> crate::notes::Source
     }
 }
 
-/// A Slack conversation's canvas: no live signal, read again on each opening.
+/// A Slack canvas or a Teams chat's notes page: no live signal, read again on each opening.
 fn session_notes(session: &Arc<rv_core::session::Session>, rid: &str) -> crate::notes::Source {
     let (load_session, load_room) = (session.clone(), rid.to_owned());
     let (save_session, save_room) = (session.clone(), rid.to_owned());

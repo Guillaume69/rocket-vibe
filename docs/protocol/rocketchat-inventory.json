@@ -729,6 +729,7 @@
     "crates/rv-teams/src/frames.rs",
     "crates/rv-teams/src/lib.rs",
     "crates/rv-teams/src/live.rs",
+    "crates/rv-teams/src/notes.rs",
     "crates/rv-teams/src/service.rs",
     "crates/rv-teams/src/translate.rs",
     "packages/provider-api/src/calls.ts",
@@ -2493,49 +2494,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2401,
+      "line": 2407,
       "kind": "call:GET",
       "surface": "\"video-conference.info\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2401,
+      "line": 2407,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2495,
+      "line": 2501,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2495,
+      "line": 2501,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2506,
+      "line": 2512,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2506,
+      "line": 2512,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2873,
+      "line": 2879,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2873,
+      "line": 2879,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },
@@ -4989,37 +4990,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3018,
+      "line": 3019,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3019,
+      "line": 3020,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3021,
+      "line": 3022,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3022,
+      "line": 3023,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3023,
+      "line": 3024,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3024,
+      "line": 3025,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
@@ -5229,43 +5230,43 @@
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 1168,
+      "line": 1185,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2111,
+      "line": 2247,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2119,
+      "line": 2255,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2277,
+      "line": 2413,
       "kind": "url",
       "surface": "/api/csa"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 293,
+      "line": 299,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 311,
+      "line": 317,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 484,
+      "line": 490,
       "kind": "url",
       "surface": "/api/csa"
     },

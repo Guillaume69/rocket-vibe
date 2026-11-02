@@ -84,6 +84,12 @@ impl Service {
         self.chat_url(&segments, query).await
     }
 
+    /// A chat's notes page, read whole (see [`crate::notes`]).
+    pub async fn notes(&self, page: &crate::notes::Page) -> Result<crate::notes::Text, RestError> {
+        let token = self.tokens.sharepoint(&page.host).await?;
+        crate::notes::fetch(&self.http, token.as_str(), page).await
+    }
+
     /// The aggregator's list of chats and teams.
     pub async fn snapshot(&self) -> Result<Value, RestError> {
         self.aggregator_call(

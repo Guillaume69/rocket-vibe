@@ -1,0 +1,568 @@
+{
+ "id": "wAA",
+ "blobs": [
+  {
+   "id": "uZMdZ7HrNaRy9byp5hVHyAg",
+   "content": "[]",
+   "encoding": "utf-8",
+   "size": 2
+  },
+  {
+   "id": "uZDJBnHqccOEc8BjNDaRBgQ",
+   "content": "{\"blobs\":[],\"content\":{}}",
+   "encoding": "utf-8",
+   "size": 25
+  },
+  {
+   "id": "uLYk1QX1tSnYIXPt5rheIeA",
+   "content": "{\"electionSequenceNumber\":0}",
+   "encoding": "utf-8",
+   "size": 28
+  },
+  {
+   "id": "u9FDQ032fMYyA7nIPAdhFYg",
+   "content": "{\"minimumSequenceNumber\":0,\"sequenceNumber\":0}",
+   "encoding": "utf-8",
+   "size": 46
+  },
+  {
+   "id": "u2Y27jlK7WxwysEHl9PfaDQ",
+   "content": "{\"pkg\":\"[\\\"Root\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":true}",
+   "encoding": "utf-8",
+   "size": 68
+  },
+  {
+   "id": "uVofFk8T1T5_uytz5nXamtg",
+   "content": "{\"pkg\":\"[\\\"BaseRootComponentType\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":true}",
+   "encoding": "utf-8",
+   "size": 85
+  },
+  {
+   "id": "uO7X0vglYf+VVaozSmAcGSw",
+   "content": "{\"pkg\":\"[\\\"Root\\\",\\\"LoopCanvasComponentSingleton\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+   "encoding": "utf-8",
+   "size": 102
+  },
+  {
+   "id": "ul1q1mjzVzWwTyPGeGxlzng",
+   "content": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"2.11.0\"}",
+   "encoding": "utf-8",
+   "size": 104
+  },
+  {
+   "id": "uaZ_kXIAQwQjSIKePWwztVA",
+   "content": "{\"type\":\"https://graph.microsoft.com/types/directory\",\"snapshotFormatVersion\":\"0.1\",\"packageVersion\":\"2.11.0\"}",
+   "encoding": "utf-8",
+   "size": 110
+  },
+  {
+   "id": "uHgTx_71Yzm4eJg1XGtf4RQ",
+   "content": "{\"type\":\"https://graph.microsoft.com/types/mergeTree\",\"snapshotFormatVersion\":\"0.1\",\"packageVersion\":\"2.11.0\"}",
+   "encoding": "utf-8",
+   "size": 110
+  },
+  {
+   "id": "uUVJ3v6vZOSpv9D_QUfyn5Q",
+   "content": "{\"type\":\"https://graph.microsoft.com/types/task-manager\",\"snapshotFormatVersion\":\"0.1\",\"packageVersion\":\"2.11.0\"}",
+   "encoding": "utf-8",
+   "size": 113
+  },
+  {
+   "id": "ux5VAM2nyEJn_kAxxC6GnUA",
+   "content": "[[\"baseRootComponent\",\"00000000-0000-4000-8000-000000000001\"],[\"defaultComponent\",\"00000000-0000-4000-8000-000000000002\"]]",
+   "encoding": "utf-8",
+   "size": 122
+  },
+  {
+   "id": "uJfnZkpKzWUC8xGG4jqv2KQ",
+   "content": "[[\"code\",{\"key\":\"code\",\"value\":{\"package\":{\"name\":\"@fluidx/loop-page-container\",\"version\":\"0.0.1\",\"fluid\":{\"browser\":{\"umd\":{\"files\":[],\"library\":\"\"}}}},\"config\":{}},\"approvalSequenceNumber\":0,\"commitSequenceNumber\":0,\"sequenceNumber\":0}]]",
+   "encoding": "utf-8",
+   "size": 239
+  },
+  {
+   "id": "u_15EehpPRWUrieZmeX0E4Q",
+   "content": "{\"blobs\":[],\"content\":{\"ci\":{\"csn\":0,\"ccIds\":[]},\"storage\":{\"documentStorageMap\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003\"}},\"documentDataVersion\":{\"type\":\"Plain\",\"value\":1}}}}",
+   "encoding": "utf-8",
+   "size": 268
+  },
+  {
+   "id": "uOvOH1WCc9ZOP4KxM2i1e3Q",
+   "content": "{\"blobs\":[],\"content\":{\"ci\":{\"csn\":0,\"ccIds\":[]},\"storage\":{\"defaultContentLocale\":{\"type\":\"Plain\",\"value\":\"en-gb\"},\"defaultContentDirection\":{\"type\":\"Plain\",\"value\":\"ltr\"},\"text:nodeType\":{\"type\":\"Plain\",\"value\":\"StoryNode\"},\"text\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/00000000-0000-4000-8000-000000000004/text\"}}}}}",
+   "encoding": "utf-8",
+   "size": 339
+  },
+  {
+   "id": "utA8YeMKgbgJ10ez8qysblw",
+   "content": "{\"chunkStartSegmentIndex\":0,\"chunkSegmentCount\":1,\"chunkLengthChars\":1,\"totalLengthChars\":1,\"totalSegmentCount\":1,\"chunkSequenceNumber\":0,\"segmentTexts\":[{\"marker\":{\"refType\":1},\"props\":{\"markerId\":\"00000000-0000-4000-8000-000000000005\",\"nodeType\":\"Paragraph\"}}],\"headerMetadata\":{\"orderedChunkMetadata\":[{\"id\":\"header\"}],\"sequenceNumber\":0,\"totalLength\":1,\"totalSegmentCount\":1}}",
+   "encoding": "utf-8",
+   "size": 380
+  },
+  {
+   "id": "ufO7Fpv1Ef08WHCFnm9LF+Q",
+   "content": "{\"blobs\":[],\"content\":{\"ci\":{\"csn\":0,\"ccIds\":[]},\"storage\":{\"CanvasComponentConfig\":{\"type\":\"Plain\",\"value\":{}},\"leaderElectionManagerKey\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/00000000-0000-4000-8000-000000000002/00000000-0000-4000-8000-000000000006\"}},\"CanvasComponentHandle\":{\"type\":\"Plain\",\"value\":{\"handle\":{\"type\":\"__fluid_handle__\",\"url\":\"/00000000-0000-4000-8000-000000000004\"}}}}}}",
+   "encoding": "utf-8",
+   "size": 411
+  },
+  {
+   "id": "udCdscPVC1k_WlGNrtbNI0Q",
+   "content": "{\"createContainerRuntimeVersion\":\"2.11.0\",\"createContainerTimestamp\":1734388090006,\"summaryNumber\":1,\"summaryFormatVersion\":1,\"gcFeature\":3,\"gcFeatureMatrix\":{\"gcGeneration\":0},\"sessionExpiryTimeoutMs\":1728000000,\"sweepEnabled\":false,\"tombstoneTimeoutMs\":2246400000,\"telemetryDocumentId\":\"00000000-0000-4000-8000-000000000007\",\"documentSchema\":{\"version\":1,\"refSeq\":0,\"runtime\":{\"compressionLz4\":true,\"opGroupingEnabled\":true}}}",
+   "encoding": "utf-8",
+   "size": 428
+  }
+ ],
+ "latestSequenceNumber": 20,
+ "ops": [
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 0,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 1,
+    "timestamp": 1793576968310,
+    "type": "join",
+    "data": "{\"clientId\":\"00000000-0000-4000-8000-000000000008\",\"detail\":{\"user\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\"},\"scopes\":[\"doc:read\",\"doc:write\"],\"permission\":[],\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:2.103.0; containerId:00000000-0000-4000-8000-000000000010\"},\"timestamp\":1793576968305,\"mode\":\"write\"}}"
+   },
+   "sequenceNumber": 1
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 1,
+    "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"schema\",\"contents\":{\"version\":1,\"refSeq\":0,\"info\":{\"minVersionForCollab\":\"2.40.0\"},\"runtime\":{\"compressionLz4\":true,\"opGroupingEnabled\":true,\"explicitSchemaControl\":true,\"createBlobPayloadPending\":true}}},\"metadata\":{\"batch\":true,\"batchId\":\"00000000-0000-4000-8000-000000000011_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":0,\"seg\":{\"text\":\"É\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+    "metadata": {
+     "batchId": "00000000-0000-4000-8000-000000000011_[1]",
+     "groupedOpCount": 2
+    },
+    "minimumSequenceNumber": 1,
+    "referenceSequenceNumber": 1,
+    "sequenceNumber": 2,
+    "timestamp": 1793576968388,
+    "type": "op"
+   },
+   "sequenceNumber": 2
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 2,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":1,\"seg\":{\"text\":\"N\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 2,
+    "referenceSequenceNumber": 2,
+    "sequenceNumber": 3,
+    "timestamp": 1793576969386,
+    "type": "op"
+   },
+   "sequenceNumber": 3
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 3,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":2,\"seg\":{\"text\":\"O\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 3,
+    "referenceSequenceNumber": 3,
+    "sequenceNumber": 4,
+    "timestamp": 1793576969477,
+    "type": "op"
+   },
+   "sequenceNumber": 4
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 4,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":3,\"seg\":{\"text\":\"R\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 4,
+    "referenceSequenceNumber": 4,
+    "sequenceNumber": 5,
+    "timestamp": 1793576969608,
+    "type": "op"
+   },
+   "sequenceNumber": 5
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 5,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":4,\"seg\":{\"text\":\"M\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 5,
+    "referenceSequenceNumber": 5,
+    "sequenceNumber": 6,
+    "timestamp": 1793576969752,
+    "type": "op"
+   },
+   "sequenceNumber": 6
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 6,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":5,\"seg\":{\"text\":\"E\",\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 6,
+    "referenceSequenceNumber": 6,
+    "sequenceNumber": 7,
+    "timestamp": 1793576969869,
+    "type": "op"
+   },
+   "sequenceNumber": 7
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000008",
+    "clientSequenceNumber": 7,
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": 7,
+    "sequenceNumber": 8,
+    "timestamp": 1793576971952,
+    "type": "noop"
+   },
+   "sequenceNumber": 8
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 9,
+    "timestamp": 1793576973399,
+    "type": "join",
+    "data": "{\"clientId\":\"00000000-0000-4000-8000-000000000012\",\"detail\":{\"user\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\"},\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"],\"permission\":[],\"details\":{\"capabilities\":{\"interactive\":false},\"type\":\"summarizer\",\"environment\":\"; loaderVersion:2.103.0; containerId:00000000-0000-4000-8000-000000000013\"},\"timestamp\":1793576973394,\"mode\":\"write\"}}"
+   },
+   "sequenceNumber": 9
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 10,
+    "timestamp": 1793576976094,
+    "type": "join",
+    "data": "{\"clientId\":\"00000000-0000-4000-8000-000000000014\",\"detail\":{\"user\":{\"id\":\"bob@example.com\",\"name\":\"Bob\",\"email\":\"bob@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000015\"},\"scopes\":[\"doc:read\",\"doc:write\"],\"permission\":[],\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:2.103.0; containerId:00000000-0000-4000-8000-000000000016\"},\"timestamp\":1793576976089,\"mode\":\"write\"}}"
+   },
+   "sequenceNumber": 10
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000014",
+    "clientSequenceNumber": 1,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":7,\"seg\":{\"marker\":{\"refType\":1},\"props\":{\"attribution\":{\"id\":\"ada@example.com\",\"name\":\"Ada\",\"timestamp\":1793576700000,\"email\":\"ada@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000009\",\"dataSource\":0},\"markerId\":\"00000000-0000-4000-8000-000000000017\",\"nodeType\":\"Paragraph\"}},\"type\":0}},\"type\":\"op\"}}}",
+    "metadata": {
+     "batchId": "00000000-0000-4000-8000-000000000018_[1]"
+    },
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": 10,
+    "sequenceNumber": 11,
+    "timestamp": 1793576976181,
+    "type": "op"
+   },
+   "sequenceNumber": 11
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000014",
+    "clientSequenceNumber": 2,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":7,\"seg\":{\"text\":\"b\",\"props\":{\"attribution\":{\"id\":\"bob@example.com\",\"name\":\"Bob\",\"timestamp\":1793576700000,\"email\":\"bob@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000015\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": 11,
+    "sequenceNumber": 12,
+    "timestamp": 1793576976761,
+    "type": "op"
+   },
+   "sequenceNumber": 12
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000014",
+    "clientSequenceNumber": 3,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":8,\"seg\":{\"text\":\"j\",\"props\":{\"attribution\":{\"id\":\"bob@example.com\",\"name\":\"Bob\",\"timestamp\":1793576700000,\"email\":\"bob@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000015\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": 11,
+    "sequenceNumber": 13,
+    "timestamp": 1793576976805,
+    "type": "op"
+   },
+   "sequenceNumber": 13
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000014",
+    "clientSequenceNumber": 4,
+    "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"00000000-0000-4000-8000-000000000004\",\"contents\":{\"content\":{\"address\":\"text\",\"contents\":{\"pos1\":9,\"seg\":{\"text\":\"r\",\"props\":{\"attribution\":{\"id\":\"bob@example.com\",\"name\":\"Bob\",\"timestamp\":1793576700000,\"email\":\"bob@example.com\",\"oid\":\"00000000-0000-4000-8000-000000000015\",\"dataSource\":0}}},\"type\":0}},\"type\":\"op\"}}}",
+    "minimumSequenceNumber": 7,
+    "referenceSequenceNumber": 12,
+    "sequenceNumber": 14,
+    "timestamp": 1793576976875,
+    "type": "op"
+   },
+   "sequenceNumber": 14
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000012",
+    "clientSequenceNumber": 1,
+    "minimumSequenceNumber": 12,
+    "referenceSequenceNumber": 14,
+    "sequenceNumber": 15,
+    "timestamp": 1793576978273,
+    "type": "noop"
+   },
+   "sequenceNumber": 15
+  },
+  {
+   "op": {
+    "clientId": "00000000-0000-4000-8000-000000000014",
+    "clientSequenceNumber": 5,
+    "minimumSequenceNumber": 14,
+    "referenceSequenceNumber": 15,
+    "sequenceNumber": 16,
+    "timestamp": 1793576978894,
+    "type": "noop"
+   },
+   "sequenceNumber": 16
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 14,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 17,
+    "timestamp": 1793576994730,
+    "type": "leave",
+    "data": "\"00000000-0000-4000-8000-000000000008\""
+   },
+   "sequenceNumber": 17
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 15,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 18,
+    "timestamp": 1793576994777,
+    "type": "leave",
+    "data": "\"00000000-0000-4000-8000-000000000012\""
+   },
+   "sequenceNumber": 18
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 19,
+    "referenceSequenceNumber": -1,
+    "sequenceNumber": 19,
+    "timestamp": 1793576996425,
+    "type": "leave",
+    "data": "\"00000000-0000-4000-8000-000000000014\""
+   },
+   "sequenceNumber": 19
+  },
+  {
+   "op": {
+    "clientId": null,
+    "clientSequenceNumber": -1,
+    "contents": null,
+    "minimumSequenceNumber": 20,
+    "referenceSequenceNumber": 20,
+    "sequenceNumber": 20,
+    "timestamp": 1793576996448,
+    "type": "noClient"
+   },
+   "sequenceNumber": 20
+  }
+ ],
+ "trees": [
+  {
+   "entries": [
+    {
+     "path": ".protocol",
+     "type": "tree"
+    },
+    {
+     "id": "u9FDQ032fMYyA7nIPAdhFYg",
+     "path": ".protocol/attributes",
+     "type": "blob"
+    },
+    {
+     "id": "uZMdZ7HrNaRy9byp5hVHyAg",
+     "path": ".protocol/quorumMembers",
+     "type": "blob"
+    },
+    {
+     "id": "uZMdZ7HrNaRy9byp5hVHyAg",
+     "path": ".protocol/quorumProposals",
+     "type": "blob"
+    },
+    {
+     "id": "uJfnZkpKzWUC8xGG4jqv2KQ",
+     "path": ".protocol/quorumValues",
+     "type": "blob"
+    },
+    {
+     "path": ".app",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/root",
+     "type": "tree"
+    },
+    {
+     "id": "ufO7Fpv1Ef08WHCFnm9LF+Q",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/root/header",
+     "type": "blob"
+    },
+    {
+     "id": "uaZ_kXIAQwQjSIKePWwztVA",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/root/.attributes",
+     "type": "blob"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/00000000-0000-4000-8000-000000000006",
+     "type": "tree"
+    },
+    {
+     "id": "uZMdZ7HrNaRy9byp5hVHyAg",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/00000000-0000-4000-8000-000000000006/header",
+     "type": "blob"
+    },
+    {
+     "id": "uUVJ3v6vZOSpv9D_QUfyn5Q",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.channels/00000000-0000-4000-8000-000000000006/.attributes",
+     "type": "blob"
+    },
+    {
+     "id": "u2Y27jlK7WxwysEHl9PfaDQ",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000002/.component",
+     "type": "blob"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/root",
+     "type": "tree"
+    },
+    {
+     "id": "u_15EehpPRWUrieZmeX0E4Q",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/root/header",
+     "type": "blob"
+    },
+    {
+     "id": "uaZ_kXIAQwQjSIKePWwztVA",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/root/.attributes",
+     "type": "blob"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/00000000-0000-4000-8000-000000000003",
+     "type": "tree"
+    },
+    {
+     "id": "uZDJBnHqccOEc8BjNDaRBgQ",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/00000000-0000-4000-8000-000000000003/header",
+     "type": "blob"
+    },
+    {
+     "id": "ul1q1mjzVzWwTyPGeGxlzng",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.channels/00000000-0000-4000-8000-000000000003/.attributes",
+     "type": "blob"
+    },
+    {
+     "id": "uVofFk8T1T5_uytz5nXamtg",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000001/.component",
+     "type": "blob"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/root",
+     "type": "tree"
+    },
+    {
+     "id": "uOvOH1WCc9ZOP4KxM2i1e3Q",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/root/header",
+     "type": "blob"
+    },
+    {
+     "id": "uaZ_kXIAQwQjSIKePWwztVA",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/root/.attributes",
+     "type": "blob"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/text",
+     "type": "tree"
+    },
+    {
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/text/content",
+     "type": "tree"
+    },
+    {
+     "id": "utA8YeMKgbgJ10ez8qysblw",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/text/content/header",
+     "type": "blob"
+    },
+    {
+     "id": "uHgTx_71Yzm4eJg1XGtf4RQ",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.channels/text/.attributes",
+     "type": "blob"
+    },
+    {
+     "id": "uO7X0vglYf+VVaozSmAcGSw",
+     "path": ".app/.channels/00000000-0000-4000-8000-000000000004/.component",
+     "type": "blob"
+    },
+    {
+     "id": "udCdscPVC1k_WlGNrtbNI0Q",
+     "path": ".app/.metadata",
+     "type": "blob"
+    },
+    {
+     "id": "ux5VAM2nyEJn_kAxxC6GnUA",
+     "path": ".app/.aliases",
+     "type": "blob"
+    },
+    {
+     "id": "uLYk1QX1tSnYIXPt5rheIeA",
+     "path": ".app/.electedSummarizer",
+     "type": "blob"
+    }
+   ],
+   "id": "wAA",
+   "sequenceNumber": 0
+  }
+ ]
+}

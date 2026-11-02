@@ -874,6 +874,7 @@ struct Held {
     substrate: Option<Lease>,
     graph: Option<Lease>,
     templates: Option<Lease>,
+    sharepoint: Option<(String, Lease)>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -903,6 +904,7 @@ impl Tokens {
             substrate: None,
             graph: None,
             templates: None,
+            sharepoint: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -1020,6 +1022,21 @@ impl Tokens {
         let lease = self.access(GRAPH).await?;
         let token = lease.value.clone();
         held.graph = Some(lease);
+        Ok(token)
+    }
+
+    /// A SharePoint bearer for the tenant's `host` (`https://<tenant>.sharepoint.com`),
+    /// for chat notes pages.
+    pub async fn sharepoint(&self, host: &str) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some((_, lease)) = held.sharepoint.as_ref().filter(|(h, _)| h == host)
+            && let Some(token) = lease.fresh()
+        {
+            return Ok(token);
+        }
+        let lease = self.access(host).await?;
+        let token = lease.value.clone();
+        held.sharepoint = Some((host.to_owned(), lease));
         Ok(token)
     }
 
@@ -1997,12 +2014,116 @@ impl Tokens {
     /// minted from the refresh token, and the page's latest Fluid snapshot at
     /// `drive`/`item` (its size, content type and the mergeTree chunks found,
     /// never the token). Throwaway.
+    /// A chat's newest messages that are not text, read-only: their type, the
+    /// keys of their properties, and any value naming a Loop page. Throwaway.
+    pub async fn probe_notes_messages(&self, chat: &str) -> Value {
+        let Ok((skype, routes)) = self.chat().await else { return json!({ "error": "chat token" }) };
+        let header = format!("skypetoken={}", skype.as_str());
+        let base = format!("{}/v1", routes.chat);
+        let Ok(url) = crate::client::service_url(
+            &base,
+            &["users", "ME", "conversations", chat, "messages"],
+            "view=msnp24Equivalent|supportsMessageProperties&pageSize=200&startTime=1",
+        ) else {
+            return json!({ "error": "chat id" });
+        };
+        let Ok(resp) = http().get(url).header("authentication", &header).send().await else {
+            return json!({ "error": "network" });
+        };
+        let status = resp.status().as_u16();
+        let body: Value = resp.json().await.unwrap_or(Value::Null);
+        let loopish = |v: &Value| {
+            let text = v.to_string();
+            (text.contains(".loop")
+                || text.contains("contentstorage")
+                || text.contains("fileReferenceId")
+                || text.contains("driveId"))
+            .then(|| text.chars().take(1500).collect::<String>())
+        };
+        let found: Vec<Value> = body["messages"]
+            .as_array()
+            .map(|all| {
+                all.iter()
+                    .filter(|m| !matches!(m["messagetype"].as_str(), Some("RichText/Html" | "Text" | "Control/Typing")))
+                    .map(|m| {
+                        json!({
+                            "messagetype": m["messagetype"],
+                            "property_keys": m["properties"].as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()),
+                            "content_loop": loopish(&m["content"]),
+                            "properties_loop": loopish(&m["properties"]),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({ "status": status, "messages": body["messages"].as_array().map(Vec::len), "non_text": found })
+    }
+
+    /// The whole read path of a chat's notes, read-only: the `FileAdd` event's
+    /// address, the page, the SharePoint token, the markdown. Throwaway.
+    pub async fn probe_notes_read(&self, chat: &str) -> Value {
+        let Ok((skype, routes)) = self.chat().await else { return json!({ "error": "chat token" }) };
+        let header = format!("skypetoken={}", skype.as_str());
+        let base = format!("{}/v1", routes.chat);
+        let Ok(url) = crate::client::service_url(
+            &base,
+            &["users", "ME", "conversations", chat, "messages"],
+            "view=msnp24Equivalent|supportsMessageProperties&pageSize=200&startTime=1",
+        ) else {
+            return json!({ "error": "chat id" });
+        };
+        let Ok(resp) = http().get(url).header("authentication", &header).send().await else {
+            return json!({ "error": "network" });
+        };
+        let body: Value = resp.json().await.unwrap_or(Value::Null);
+        let directory = crate::translate::Directory::default();
+        let uri = body["messages"].as_array().into_iter().flatten().find_map(|m| {
+            let message = crate::translate::message(chat, m, &directory)?;
+            (message.system_type.as_deref() == Some(crate::notes::CREATED)).then_some(message.text).flatten()
+        });
+        let Some(page) = uri.as_deref().and_then(crate::notes::page) else {
+            return json!({ "created_event": uri.is_some(), "page": null });
+        };
+        let token = match self.sharepoint(&page.host).await {
+            Ok(t) => t,
+            Err(e) => return json!({ "page": true, "sharepoint_token": format!("refused {}", e.status) }),
+        };
+        let item = format!("{}/_api/v2.1/drives/{}/items/{}/opStream", page.host, page.drive, page.item);
+        let mut ops_shape = serde_json::Map::new();
+        for query in [
+            "filter=sequenceNumber%20ge%201",
+            "ump=1&filter=sequenceNumber%20ge%201%20and%20sequenceNumber%20le%205000",
+            "filter=sequenceNumber%20ge%201%20and%20sequenceNumber%20le%205000",
+        ] {
+            let raw = http().get(format!("{item}?{query}")).bearer_auth(token.as_str()).send().await;
+            let shape = match raw {
+                Ok(r) => {
+                    let status = r.status().as_u16();
+                    let v: Value = r.json().await.unwrap_or(Value::Null);
+                    json!({"status": status, "keys": v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>()), "values": v["value"].as_array().map(Vec::len), "first_keys": v.pointer("/value/0").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>()), "error": v.pointer("/error/message").cloned()})
+                }
+                Err(e) => json!({"error": e.to_string()}),
+            };
+            ops_shape.insert(query.to_owned(), shape);
+        }
+        let text = crate::notes::fetch(&http(), token.as_str(), &page).await;
+        json!({
+            "page": true,
+            "ops_since_1": ops_shape,
+            "read": match text {
+                Ok(t) => json!({"markdown": t.markdown, "sequence": t.sequence, "updated_by": t.updated_by, "updated_at": t.updated_at}),
+                Err(e) => json!({"error": e.status}),
+            }
+        })
+    }
+
     pub async fn probe_notes(&self, chat: &str, sharepoint: &str, drive: &str, item: &str) -> Value {
         let mut out = serde_json::Map::new();
         let Ok((skype, routes)) = self.chat().await else { return json!({ "error": "chat token" }) };
         let header = format!("skypetoken={}", skype.as_str());
         let base = format!("{}/v1", routes.chat);
-        let Ok(thread) = crate::client::service_url(&base, &["threads", chat], "view=msnp24Equivalent&threadProperties=1")
+        let Ok(thread) =
+            crate::client::service_url(&base, &["threads", chat], "view=msnp24Equivalent&threadProperties=1")
         else {
             return json!({ "error": "chat id" });
         };
@@ -2015,8 +2136,11 @@ impl Tokens {
                 o.iter()
                     .filter_map(|(k, v)| {
                         let text = v.to_string();
-                        (text.contains(".loop") || text.contains("contentstorage") || k.to_lowercase().contains("loop") || k.to_lowercase().contains("file"))
-                            .then(|| (k.clone(), text.chars().take(400).collect()))
+                        (text.contains(".loop")
+                            || text.contains("contentstorage")
+                            || k.to_lowercase().contains("loop")
+                            || k.to_lowercase().contains("file"))
+                        .then(|| (k.clone(), text.chars().take(400).collect()))
                     })
                     .collect()
             })
@@ -2041,15 +2165,24 @@ impl Tokens {
         if let Ok(resp) = http().get(&children).bearer_auth(token.as_str()).send().await {
             let status = resp.status().as_u16();
             let body: Value = resp.json().await.unwrap_or(Value::Null);
-            let names: Vec<&str> = body["value"].as_array().map(|v| v.iter().filter_map(|c| c["name"].as_str()).collect()).unwrap_or_default();
+            let names: Vec<&str> = body["value"]
+                .as_array()
+                .map(|v| v.iter().filter_map(|c| c["name"].as_str()).collect())
+                .unwrap_or_default();
             let chats = names.iter().filter(|n| n.starts_with("19_")).count();
             out.insert("drive_root".into(), json!({"status": status, "entries": names.len(), "chat_folders": chats}));
         }
-        let by_path = format!("{sharepoint}/_api/v2.1/drives/{drive}/root:/{}_thread_v2/loop_loopThread.loop?$select=id,name", chat.trim_end_matches("@thread.v2").replace(':', "_"));
+        let by_path = format!(
+            "{sharepoint}/_api/v2.1/drives/{drive}/root:/{}_thread_v2/loop_loopThread.loop?$select=id,name",
+            chat.trim_end_matches("@thread.v2").replace(':', "_")
+        );
         if let Ok(resp) = http().get(&by_path).bearer_auth(token.as_str()).send().await {
             let status = resp.status().as_u16();
             let body: Value = resp.json().await.unwrap_or(Value::Null);
-            out.insert("page_by_path".into(), json!({"status": status, "same_item": body["id"].as_str() == Some(item)}));
+            out.insert(
+                "page_by_path".into(),
+                json!({"status": status, "same_item": body["id"].as_str() == Some(item)}),
+            );
         }
         let url = format!("{sharepoint}/_api/v2.1/drives/{drive}/items/{item}/opStream/snapshots/trees/latest?ump=1");
         match http().get(&url).bearer_auth(token.as_str()).send().await {
@@ -2061,7 +2194,10 @@ impl Tokens {
                 if let Some(path) = std::env::var_os("TEAMS_NOTES_DUMP") {
                     let _ = std::fs::write(path, &bytes);
                 }
-                out.insert("snapshot".into(), json!({"status": status, "content_type": kind, "bytes": bytes.len(), "merge_tree_chunks": chunks}));
+                out.insert(
+                    "snapshot".into(),
+                    json!({"status": status, "content_type": kind, "bytes": bytes.len(), "merge_tree_chunks": chunks}),
+                );
             }
             Err(e) => {
                 out.insert("snapshot".into(), json!({"error": e.to_string()}));

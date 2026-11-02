@@ -15,12 +15,13 @@ import { availabilityStatus, readPresence, statusAvailability } from './presence
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
 import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
-import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
+import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomNotes, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
+import { NOTES_CREATED, notesPage, readNotes } from './notes.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, groupThread, isGraphShare, isGroupChat, mriOf, newGroupChat, newOneOnOne, oneOnOneId, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { CALL_COLLECTION, TeamsTrouter, type CallPush } from './trouter.ts';
@@ -39,6 +40,30 @@ export async function teamsPinned(client: TeamsClient, directory: TeamsDirectory
     .map((m) => toMessage(rid, m, directory))
     .filter((m): m is LocalMessage => m?.pinned === true)
     .sort((a, b) => b.ts - a.ts);
+}
+
+/** A chat's notes, read-only: the page the newest `FileAdd` event among the
+ *  chat's newest `PINNED_LOOKBACK` messages names, read whole; a chat without
+ *  one reads as empty. Mirrors `TeamsSync::notes` in the desktop core. */
+export async function teamsNotes(client: TeamsClient, directory: TeamsDirectory, rid: string): Promise<RoomNotes> {
+  const url = await client.conversation(rid, ['messages'], `view=msnp24Equivalent%7CsupportsMessageProperties&pageSize=${PINNED_LOOKBACK}`);
+  const body = (await client.chat('GET', url)).body;
+  const created = (Array.isArray(body.messages) ? (body.messages as Doc[]) : [])
+    .map((m) => toMessage(rid, m, directory))
+    .filter((m): m is LocalMessage => m?.systemType === NOTES_CREATED && typeof m.text === 'string')
+    .sort((a, b) => b.ts - a.ts)[0];
+  const page = created?.text ? notesPage(created.text) : null;
+  if (page === null) return { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null };
+  const snapshot = await client.notesStream(page, '/snapshots/trees/latest?ump=1');
+  const latest = typeof snapshot.latestSequenceNumber === 'number' ? snapshot.latestSequenceNumber : 0;
+  // The service refuses an open range ("must specify 'AND' filter").
+  const later = await client
+    .notesStream(page, `?ump=1&filter=sequenceNumber%20ge%20${latest + 1}%20and%20sequenceNumber%20le%20${latest + 5000}`)
+    .then((b) => (Array.isArray(b.value) ? b.value : []))
+    .catch(() => []);
+  const text = readNotes(snapshot, later);
+  if (text === null) throw new TeamsError('notes_format');
+  return { markdown: text.markdown, revision: String(text.sequence), editable: false, updatedBy: text.updatedBy, updatedAt: text.updatedAt };
 }
 
 export const TEAMS_CAPABILITIES: Capabilities = {
@@ -71,6 +96,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   customEmojis: false,
   videoCall: true,
   search: true,
+  notes: true,
   threadTemplate: 'tmid',
 };
 
@@ -222,6 +248,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       unpin: (rid, mid) => pinAction(rid, mid, false),
       star: refuse('star'),
       listPinned: (rid) => teamsPinned(client, directory, rid),
+      roomNotes: (rid) => teamsNotes(client, directory, rid),
       listStarred: async (): Promise<LocalMessage[]> => [],
       markRead: async (rid) => {
         const marked = await actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null, rooms.lastId(rid));

@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Teams (experimental): a chat's Notes tab shows its notes (the Loop page Teams keeps for the chat), rendered like messages, read-only; the chat shows when they were created.
 - Slack (experimental): the Notes screen shows a conversation's canvas, rendered like messages, and edits it as markdown (saved over the version you read, created if the conversation has none).
 - Vibez: a Notes screen in every room that is not encrypted, one markdown document its members read and anyone who may post edits, rendered like messages, saved against the version you read (a save made meanwhile keeps your text and says so).
 - Teams (experimental): incoming calls ring, with the same prompt as other servers' calls. Decline declines it in Teams; Accept opens the conversation in the call screen, where Teams answers it once signed in there.

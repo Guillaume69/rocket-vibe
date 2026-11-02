@@ -60,6 +60,7 @@ const KEYS = {
   'room-allowed-reacting': 'sys.allowedReacting',
   'room-disallowed-reacting': 'sys.disallowedReacting',
   'message-deleted-notification': 'sys.messageDeleted',
+  'rv-notes-created': 'sys.notesCreated',
 } as const satisfies Record<string, Parameters<TranslateFn>[0]>;
 
 /** Types where an EMPTY `msg` drops the ": ..." part, handled outside the table. */

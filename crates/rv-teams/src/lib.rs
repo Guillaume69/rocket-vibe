@@ -4,6 +4,7 @@ pub mod auth;
 pub mod client;
 pub mod frames;
 pub mod live;
+pub mod notes;
 pub mod service;
 pub mod translate;
 

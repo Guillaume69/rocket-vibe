@@ -7,8 +7,8 @@ whole against the revision it was read at; a save someone made in between
 answers a conflict, the draft stays in the editor and the next save goes over the
 newer version. A provider without notes hides the entry.
 
-Providers: the Vibez server and Slack (a conversation's canvas). The Teams chat
-Notes tab (a Loop page) is researched, not offered: see [Teams](#teams).
+Providers: the Vibez server, Slack (a conversation's canvas) and Teams (a chat's
+Loop page, read-only): see [Teams](#teams).
 
 ## Server (Vibez)
 
@@ -61,14 +61,41 @@ A conversation's canvas is its notes, in the same tab:
 
 ## Teams
 
-Not offered. The page is a Loop file our own tokens read (a SharePoint bearer
-minted from the account's refresh token), its text a Fluid merge-tree: the
-summary's segments plus the operations since, all confirmed live, read-only, on
-2026-11-02. What blocks it: a chat's page lives in a container of its own, found
-only through `POST {chat}/v1/threads/<id>/files`, which the web app sends when
-the tab opens and which creates an empty page when there is none; that write is
-not verified. Writing the page means joining Fluid's delta stream. Details:
-[teams](../architecture/teams.md), Notes row.
+A chat's Notes tab, read-only, on the three native apps (2026-11-02). The page is
+a Loop file in SharePoint Embedded; when a chat's notes are created Teams posts
+`ThreadActivity/FileAdd` (`<type>loop</type><subtype>loopThread</subtype>`) whose
+`<uri>` is the page's address, its `nav` parameter a base64 query naming the
+drive (`d`) and item (`f`). The apps keep that event as the system message
+`rv-notes-created` ("created the chat's notes"), its text the address, and read
+the page from it: no write, the web app's create-or-get `POST …/files` is never
+sent (seen in Teams' web app on a chat that had notes: it went straight to the page).
+
+- **Reading** (`rv_teams::notes`, `packages/provider-teams/src/notes.ts`): a
+  SharePoint bearer for the tenant's host minted from the refresh token;
+  `GET <host>/_api/v2.1/drives/<d>/items/<f>/opStream/snapshots/trees/latest?ump=1`
+  (JSON: blobs, the tree, and the operations since its summary), then
+  `…/opStream?ump=1&filter=sequenceNumber ge N and sequenceNumber le M` for later
+  ones (an open range answers 400 "must specify 'AND' filter"). Verified live
+  read-only on 2026-11-02: the page read as its two paragraphs.
+- **Decoding**: the text component's merge-tree summary
+  (`.app/.channels/<component>/.channels/text/content/header` and its chunks),
+  then every `component` op for that component and channel `text` replayed in
+  sequence order (grouped batches unwrapped): insert, remove, annotate, group.
+  Positions count UTF-16 units. A paragraph marker closes the text before it;
+  its `nodeType` gives the block (only `Paragraph` has been seen; headings,
+  bullet, numbered and check lists, quotes and code are mapped by name), text
+  props `bold`, `italic`, `strikethrough`, `code` and a link become inline markdown.
+- **Not covered**: editing (Fluid's delta stream through `joinSession`); compressed
+  (`compressionLz4`) or chunked op batches, skipped; ops replayed in sequence
+  order without merge-tree's per-client reference views, so concurrent edits may
+  land a few characters off; a chat whose `FileAdd` event is older than its
+  stored history (desktop) or its newest 200 messages (mobile) shows no notes;
+  Loop components embedded in the page (tables, tasks) are not read.
+- **Where**: desktop `TeamsSync::notes_page` / `notes` over `Store::latest_system_text`
+  (the Notes button shows once the event is stored), GTK and SwiftUI through the
+  same generic path as Slack, never editable; mobile `teamsNotes` reads the
+  chat's newest 200 messages each time, `Capabilities.notes` on for Teams (a
+  chat without notes shows the empty state, no edit).
 
 ## Desktop
 

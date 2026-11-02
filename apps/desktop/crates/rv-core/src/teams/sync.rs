@@ -63,6 +63,26 @@ impl TeamsSync {
         }
     }
 
+    /// The chat's notes page, named by the `FileAdd` event Teams posted when they
+    /// were created; a chat whose event the store never kept has none here.
+    pub fn notes_page(&self, rid: &str) -> Option<rv_teams::notes::Page> {
+        self.store.latest_system_text(rid, rv_teams::notes::CREATED).as_deref().and_then(rv_teams::notes::page)
+    }
+
+    /// The chat's notes as markdown, read-only: writing a Loop page means
+    /// joining Fluid's delta stream.
+    pub async fn notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
+        let page = self.notes_page(rid).ok_or_else(|| RestError::incomplete("notes: none in this chat"))?;
+        let text = self.service.notes(&page).await?;
+        Ok(crate::notes::Notes {
+            markdown: text.markdown,
+            revision: text.sequence.to_string(),
+            editable: false,
+            updated_by: text.updated_by,
+            updated_at: text.updated_at.and_then(chrono::DateTime::from_timestamp_millis).map(|at| at.to_rfc3339()),
+        })
+    }
+
     /// The newest message id of the room, stored or listed by the aggregator,
     /// when newer than the last one marked read. The listed one counts the
     /// events the store never keeps, which a horizon must still pass.

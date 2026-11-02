@@ -9,6 +9,7 @@ import { shortcodeOfUnicode, unicodeOfShortcode } from '@rocket-vibe/provider-ap
 import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
 import type { MemberPage, RoomMember } from '@rocket-vibe/provider-api/provider';
 import { TEAMS_EMOTICONS } from './emoticons.generated.ts';
+import { NOTES_CREATED } from './notes.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -499,6 +500,11 @@ function system(raw: unknown, directory: TeamsDirectory): { type: string; text: 
     case 'TopicUpdate': {
       const value = tagValue(content, 'value');
       return { type: 'room_changed_topic', text: value === null ? null : decodeEntities(value) };
+    }
+    case 'FileAdd': {
+      if (tagValue(content, 'subtype')?.toLowerCase() !== 'loopthread') return null;
+      const uri = tagValue(content, 'uri');
+      return { type: NOTES_CREATED, text: uri === null ? null : decodeEntities(uri) };
     }
     default: return null;
   }

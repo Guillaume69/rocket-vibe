@@ -723,6 +723,7 @@
     "crates/rv-slack/src/translate.rs",
     "crates/rv-teams/examples/teams-authz.rs",
     "crates/rv-teams/examples/teams-foci.rs",
+    "crates/rv-teams/examples/teams-ic3.rs",
     "crates/rv-teams/examples/teams-shapes.rs",
     "crates/rv-teams/src/auth.rs",
     "crates/rv-teams/src/client.rs",

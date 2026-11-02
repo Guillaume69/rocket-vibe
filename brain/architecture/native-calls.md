@@ -285,7 +285,13 @@ meetings with video (2 to 3 months more).
 - **Checked live** on meet.barrut.me: login, conference, room join and the audio-only offer with a
   browser in the room (signalling probe `examples/jitsi-join.rs`); then two sidecars in one test room,
   each sending a tone (`RV_VOICE_FAKE_AUDIO=sine`), each heard the other through the bridge (level 0.8,
-  speaking) and left cleanly. Not yet run: the GTK window against a real Rocket.Chat call with a web
+  speaking) and left cleanly. With a web participant (2026-11-02, Jitsi Meet in Chrome, muted, joined to the
+  same test room): the call stayed on the bridge (Jicofo's peer-to-peer offer declined), the browser
+  received the native client's Opus and heard it (inbound level 0.37 once the page could play audio:
+  an unclicked tab keeps its remote `<audio>` paused by autoplay rules and reports level 0), and the
+  browser's hang-up removed it from the native roster at once (a closed tab only leaves when the
+  server times it out). Browser to native was not run with a live microphone; two native clients
+  hear each other through the bridge. Not yet run: the GTK window against a real Rocket.Chat call with a web
   participant, kMeet (JWT; its calls keep the page), SwiftUI and Android, video.
 
 ## Order

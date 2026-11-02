@@ -1,5 +1,6 @@
 import AppKit
 import RocketVibeCore
+import RocketVibeKit
 import SwiftUI
 
 /// A Jitsi Meet call (Rocket.Chat's Jitsi provider, kChat's kMeet) carried by

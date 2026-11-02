@@ -3794,12 +3794,12 @@ impl ChatPage {
             });
             return;
         }
-        // A Rocket.Chat call on a Jitsi Meet server runs natively; kMeet's
-        // JWT calls and any other provider keep the meeting's page.
-        let rocket_chat = self.session().filter(|s| s.info.mattermost.is_none() && s.info.native.is_none());
-        if let Some(session) = rocket_chat
-            && !url.contains("jwt=")
-        {
+        // A Rocket.Chat call on a Jitsi Meet server and a kChat kMeet call run
+        // natively; any other provider keeps the meeting's page.
+        let jitsi = self.session().filter(|s| {
+            s.info.native.is_none() && (s.info.mattermost.is_none() || rv_core::mattermost::translate::is_kmeet(url))
+        });
+        if let Some(session) = jitsi {
             let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
             let name = session.info.username.clone();
             glib::spawn_future_local(async move {

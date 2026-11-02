@@ -285,8 +285,43 @@ meetings with video (2 to 3 months more).
 - **Checked live** on meet.barrut.me: login, conference, room join and the audio-only offer with a
   browser in the room (signalling probe `examples/jitsi-join.rs`); then two sidecars in one test room,
   each sending a tone (`RV_VOICE_FAKE_AUDIO=sine`), each heard the other through the bridge (level 0.8,
-  speaking) and left cleanly. Not yet run: the GTK window against a real Rocket.Chat call with a web
-  participant, kMeet (JWT; its calls keep the page), SwiftUI and Android, video.
+  speaking) and left cleanly. With a web participant (2026-11-02, Jitsi Meet in Chrome, muted, joined to the
+  same test room): the call stayed on the bridge (Jicofo's peer-to-peer offer declined), the browser
+  received the native client's Opus and heard it (inbound level 0.37 once the page could play audio:
+  an unclicked tab keeps its remote `<audio>` paused by autoplay rules and reports level 0), and the
+  browser's hang-up removed it from the native roster at once (a closed tab only leaves when the
+  server times it out). Browser to native was not run with a live microphone; two native clients
+  hear each other through the bridge. kMeet (2026-11-02): the GTK call path takes kChat calls too, the
+  `?jwt=` of the conference answer's URL becoming the XMPP token (`voice::meeting_token`, unit-tested);
+  not run live: kChat sits in a cross-origin frame inside kSuite that the browser automation cannot
+  drive, and the `kchat-smoke` example needs the user's Infomaniak API token. Not yet run: the GTK window itself against a real Rocket.Chat call (the
+  sidecar path under it was), kMeet live, SwiftUI on a Mac, Android on a device, video.
+- **SwiftUI (2026-11-02)**: rv-ffi `jitsi_call.rs` exports `start_jitsi_call(meeting_url, display_name,
+  title)`, which discovers the meeting (`voice::discover_jitsi`, kMeet's `?jwt=` included) and joins it
+  on a `VoiceController` of its own (one sidecar per call, as GTK's window), and `JitsiCallSession`
+  (`state`: connected, ended, microphone, deafened, people with name, muted, speaking;
+  `set_microphone`, `set_deafened`, `leave`). `CallWindow.show` tries it first when given the account's
+  `displayName` (room call button, call card's Join, a Rocket.Chat or kChat ring answered on the open
+  account) and opens `NativeCallWindow` (SwiftUI in an `NSWindow`, polled every 300 ms), the
+  WKWebView page otherwise; a background account's ring and a profile's call button keep the page.
+  Checked by the Linux build of RocketVibeKit's bindings and the macOS CI only.
+- **Android (2026-11-02)**: `crates/rv-voice-mobile` (`call.rs`) wraps rv-call over JNI for
+  `com.rocketvibe.voice.JitsiCall`: `start` (meeting URL, its host's `config.js` fetched by Kotlin,
+  display name, kMeet's token) joins on a Tokio runtime of its own and returns a handle from a
+  registry (a late call after `free` finds nothing; no raw pointer crosses JNI); a reader thread polls
+  `next` for the session's events as JSON (`local`, `ice`, `offer`, `candidate`, `roster`, `ended`)
+  and is the only one to `leave` and `free`; `answer`, `candidate` and `muted` go through the session's
+  command channel. rv-call's `webpki-roots` feature adds Mozilla's roots, Android having none
+  rustls-native-certs can read. `JitsiSession` (`JitsiCall.kt`) answers the bridge's offer with the
+  `livekit.org.webrtc` LiveKit's SDK ships (its own `PeerConnectionFactory` and `JavaAudioDeviceModule`,
+  hardware echo canceller and noise suppressor), hears each remote track by its stream id (the
+  endpoint) and reads who speaks from the receivers' `audioLevel` three times a second. `VoiceEngine`
+  carries it like a LiveKit room (`connectJitsi`: the same snapshot, `VoiceService`, mute and deafen),
+  and the call screen (`app/call/[callId].tsx`) joins natively first for a Rocket.Chat or kChat call
+  (`lib/call.ts` `nativeJitsi`), showing who is in the call and its controls, then falls back to the
+  WebView for good if the join fails. Checked: host and Android cross-compile of the crate, its unit
+  tests, the module's Kotlin against LiveKit's WebRTC (`:voice:compileDebugKotlin`); not run on a
+  device (an emulator call needs a signed-in Rocket.Chat account).
 
 ## Order
 

@@ -113,6 +113,19 @@ export async function meetingLink(client: RestClient, callId: string): Promise<s
   return url === null ? null : withoutToken(url);
 }
 
+/**
+ * A meeting the voice engine may join natively (Rocket.Chat's Jitsi provider,
+ * kChat's kMeet): its URL without query or fragment, and kMeet's `jwt` as the
+ * conference token. `null` for anything else: Slack, Teams, Vibez, an http page.
+ */
+export function nativeJitsi(kind: string, url: string): { meeting: string; token: string | null } | null {
+  if (kind !== 'rocketchat' && kind !== 'kchat') return null;
+  if (!url.startsWith('https://')) return null;
+  const query = url.split('#')[0]?.split('?')[1] ?? '';
+  const token = new URLSearchParams(query).get('jwt');
+  return { meeting: withoutToken(url), token: token === null || token === '' ? null : token };
+}
+
 /** `url` cut before its query or fragment. */
 export function withoutToken(url: string): string {
   return url.split(/[?#]/u)[0] ?? url;

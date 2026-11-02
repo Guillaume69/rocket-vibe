@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-738 production files scanned; 758 occurrences.
+740 production files scanned; 758 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -523,12 +523,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/lib/call.ts:95](../../apps/mobile/lib/call.ts#L95) | endpoint | video-conference.join |
 | [apps/mobile/lib/call.ts:111](../../apps/mobile/lib/call.ts#L111) | call:GET | 'video-conference.info' |
 | [apps/mobile/lib/call.ts:111](../../apps/mobile/lib/call.ts#L111) | endpoint | video-conference.info |
-| [apps/mobile/lib/call.ts:142](../../apps/mobile/lib/call.ts#L142) | call:GET | 'video-conference.capabilities' |
-| [apps/mobile/lib/call.ts:142](../../apps/mobile/lib/call.ts#L142) | endpoint | video-conference.capabilities |
-| [apps/mobile/lib/call.ts:191](../../apps/mobile/lib/call.ts#L191) | call:GET | 'video-conference.info' |
-| [apps/mobile/lib/call.ts:191](../../apps/mobile/lib/call.ts#L191) | endpoint | video-conference.info |
-| [apps/mobile/lib/call.ts:215](../../apps/mobile/lib/call.ts#L215) | call:POST | 'video-conference.cancel' |
-| [apps/mobile/lib/call.ts:215](../../apps/mobile/lib/call.ts#L215) | endpoint | video-conference.cancel |
+| [apps/mobile/lib/call.ts:155](../../apps/mobile/lib/call.ts#L155) | call:GET | 'video-conference.capabilities' |
+| [apps/mobile/lib/call.ts:155](../../apps/mobile/lib/call.ts#L155) | endpoint | video-conference.capabilities |
+| [apps/mobile/lib/call.ts:204](../../apps/mobile/lib/call.ts#L204) | call:GET | 'video-conference.info' |
+| [apps/mobile/lib/call.ts:204](../../apps/mobile/lib/call.ts#L204) | endpoint | video-conference.info |
+| [apps/mobile/lib/call.ts:228](../../apps/mobile/lib/call.ts#L228) | call:POST | 'video-conference.cancel' |
+| [apps/mobile/lib/call.ts:228](../../apps/mobile/lib/call.ts#L228) | endpoint | video-conference.cancel |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | call:GET | 'rooms.get' |
 | [apps/mobile/lib/catchUp.ts:42](../../apps/mobile/lib/catchUp.ts#L42) | endpoint | rooms.get |
 | [apps/mobile/lib/catchUp.ts:45](../../apps/mobile/lib/catchUp.ts#L45) | call:GET | 'subscriptions.get' |

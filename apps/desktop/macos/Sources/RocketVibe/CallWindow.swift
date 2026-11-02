@@ -20,14 +20,30 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
 
     /// A Slack huddle opens signed in with `slackCookie`, its store kept in
     /// memory; without the cookie it goes to the browser, signed in there.
-    static func show(_ url: URL, title: String, slackCookie: String? = nil) {
+    /// A Jitsi Meet or kMeet meeting runs natively first (`NativeCallWindow`,
+    /// `displayName` its name there); its page opens when that cannot be done.
+    static func show(_ url: URL, title: String, slackCookie: String? = nil, displayName: String? = nil) {
         let slack = url.scheme == "https" && slackHuddleAllowed(url: url.absoluteString)
         if slack && slackCookie == nil {
             NSWorkspace.shared.open(url)
             return
         }
         let teams = !slack && url.scheme == "https" && teamsCallAllowed(url: url.absoluteString)
-        let call = CallWindow(url: url, title: title, slackCookie: slack ? slackCookie : nil, teams: teams)
+        if !slack && !teams && url.scheme == "https", let displayName {
+            Task {
+                if let native = await startJitsiCall(meetingUrl: url.absoluteString, displayName: displayName, title: title) {
+                    NativeCallWindow.show(native, title: title)
+                } else {
+                    open(url, title: title, slackCookie: nil, teams: false)
+                }
+            }
+            return
+        }
+        open(url, title: title, slackCookie: slack ? slackCookie : nil, teams: teams)
+    }
+
+    private static func open(_ url: URL, title: String, slackCookie: String?, teams: Bool) {
+        let call = CallWindow(url: url, title: title, slackCookie: slackCookie, teams: teams)
         windows.append(call)
         call.window.makeKeyAndOrderFront(nil)
     }

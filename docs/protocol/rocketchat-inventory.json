@@ -158,6 +158,7 @@
     "apps/desktop/crates/rv-ffi/src/background.rs",
     "apps/desktop/crates/rv-ffi/src/bin/uniffi-bindgen-swift.rs",
     "apps/desktop/crates/rv-ffi/src/context.rs",
+    "apps/desktop/crates/rv-ffi/src/jitsi_call.rs",
     "apps/desktop/crates/rv-ffi/src/lib.rs",
     "apps/desktop/crates/rv-ffi/src/links.rs",
     "apps/desktop/crates/rv-ffi/src/markup.rs",
@@ -343,6 +344,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Media.swift",
     "apps/desktop/macos/Sources/RocketVibe/Members.swift",
     "apps/desktop/macos/Sources/RocketVibe/Modals.swift",
+    "apps/desktop/macos/Sources/RocketVibe/NativeCallWindow.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NewGroup.swift",
@@ -3840,37 +3842,37 @@
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 142,
+      "line": 155,
       "kind": "call:GET",
       "surface": "'video-conference.capabilities'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 142,
+      "line": 155,
       "kind": "endpoint",
       "surface": "video-conference.capabilities"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 191,
+      "line": 204,
       "kind": "call:GET",
       "surface": "'video-conference.info'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 191,
+      "line": 204,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 215,
+      "line": 228,
       "kind": "call:POST",
       "surface": "'video-conference.cancel'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 215,
+      "line": 228,
       "kind": "endpoint",
       "surface": "video-conference.cancel"
     },

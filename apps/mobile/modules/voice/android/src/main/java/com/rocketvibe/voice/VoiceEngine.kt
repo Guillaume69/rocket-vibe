@@ -60,6 +60,9 @@ object VoiceEngine {
   private val levelListeners = CopyOnWriteArraySet<(Double) -> Unit>()
   private lateinit var app: Context
   private var room: Room? = null
+  /** A Jitsi Meet conference carried natively instead of a LiveKit room. */
+  private var jitsi: JitsiSession? = null
+  private val ticker = android.os.Handler(android.os.Looper.getMainLooper())
   private var job: Job? = null
   /** How long someone still speaks after their last loud enough sound. */
   private const val HANGOVER_MS = 350L
@@ -144,6 +147,7 @@ object VoiceEngine {
     "screen" to p.isScreenShareEnabled,
   )
   private fun members(): List<Map<String, Any?>> {
+    jitsi?.let { return it.members() }
     val r = room ?: return emptyList()
     return listOf(member(r.localParticipant, true)) + r.remoteParticipants.values.map { member(it, false) }
   }
@@ -373,6 +377,11 @@ object VoiceEngine {
     microphone = enabled
     // Speaking again lifts deafen, as in Discord.
     if (enabled && deafened) deafened = false
+    jitsi?.let { j ->
+      VoiceSounds.cue(app, if (enabled) R.raw.cue_unmute else R.raw.cue_mute)
+      j.setDeafened(deafened); j.setMicrophone(microphone && !deafened)
+      return changed()
+    }
     val r = room ?: return changed()
     VoiceSounds.cue(app, if (enabled) R.raw.cue_unmute else R.raw.cue_mute)
     scope.launch {
@@ -386,6 +395,11 @@ object VoiceEngine {
 
   fun setDeafened(on: Boolean) {
     deafened = on
+    jitsi?.let { j ->
+      VoiceSounds.cue(app, if (on) R.raw.cue_mute else R.raw.cue_unmute)
+      j.setDeafened(on); j.setMicrophone(microphone && !on)
+      return changed()
+    }
     val r = room ?: return changed()
     VoiceSounds.cue(app, if (on) R.raw.cue_mute else R.raw.cue_unmute)
     scope.launch {
@@ -476,7 +490,45 @@ object VoiceEngine {
     keys?.setSharedKey(key, 0)
   }
 
+  /**
+   * Joins a Jitsi Meet conference (Rocket.Chat's Jitsi provider, kChat's kMeet)
+   * natively, audio only; false when this build cannot, so the caller keeps the
+   * meeting's page. [callId] stands for the room in the snapshot.
+   */
+  fun connectJitsi(callId: String, meeting: String, displayName: String, token: String?, title: String): Boolean {
+    teardown(null, cue = false)
+    val session = JitsiSession(app, onChange = { if (jitsi != null) { if (state == "connecting" && jitsiConnected()) state = "connected"; changed() } },
+      onEnd = { why -> if (jitsi != null) teardown(why, cue = state == "connected") })
+    if (!session.start(meeting, displayName, token)) return false
+    jitsi = session
+    roomId = callId; this.title = title; link = null
+    microphone = true; deafened = false; camera = false; sharing = false; reason = null; state = "connecting"
+    VoiceService.start(app)
+    ticker.post(object : Runnable {
+      override fun run() {
+        val j = jitsi ?: return
+        j.poll()
+        if (state == "connecting" && j.connected) state = "connected"
+        changed()
+        ticker.postDelayed(this, 300)
+      }
+    })
+    changed()
+    return true
+  }
+  private fun jitsiConnected() = jitsi?.connected == true
+
   private fun teardown(why: String?, cue: Boolean) {
+    jitsi?.let { j ->
+      jitsi = null
+      ticker.removeCallbacksAndMessages(null)
+      j.close()
+      if (cue) VoiceSounds.cue(app, R.raw.cue_leave)
+      state = if (why == null) "idle" else "disconnected"
+      reason = why; roomId = null
+      VoiceService.stop(app)
+      return changed()
+    }
     val r = room ?: return
     room = null
     job?.cancel(); job = null

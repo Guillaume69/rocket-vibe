@@ -14,9 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 import { callAllowed as teamsCallAllowed } from '@rocket-vibe/provider-teams/translate';
-import { callContext, joinConference } from '../../lib/call.ts';
+import { callContext, joinConference, nativeJitsi } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
-import { VoiceNative } from '../../modules/voice/index.ts';
+import { VoiceNative, type VoiceSnapshot } from '../../modules/voice/index.ts';
 import type { RestClient } from '../../lib/rest.ts';
 import { useT } from '../../ui/i18n.ts';
 import { useSession } from '../../ui/session.tsx';
@@ -109,7 +109,7 @@ export default function CallScreen() {
   if (state.phase !== 'connected') return <Redirect href="/login" />;
   const current=callContext(state.client);
   if(account!==undefined&&account!==current)return <Redirect href="/" />;
-  return <Call key={`${current}#${callId}#${rid??''}#${adhesion??''}`} c={c} client={state.client} callId={callId} rid={rid} membership={adhesion} title={title ?? t('call.videoCall')} />;
+  return <Call key={`${current}#${callId}#${rid??''}#${adhesion??''}`} c={c} client={state.client} callId={callId} rid={rid} membership={adhesion} title={title ?? t('call.videoCall')} me={state.session.username} />;
 }
 
 function Call({
@@ -119,6 +119,7 @@ function Call({
   rid,
   membership,
   title,
+  me,
 }: {
   c: Colors;
   client: RestClient;
@@ -126,11 +127,16 @@ function Call({
   rid?:string;
   membership?:string;
   title: string;
+  me: string;
 }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const t = useT();
   const [url, setUrl] = useState<string | null>(null);
+  // A Jitsi or kMeet call the voice engine carries itself, audio only; the page is the fallback.
+  const [native, setNative] = useState(false);
+  // Set once the native join failed: the meeting's page from then on.
+  const [pageOnly, setPageOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Incremented by "Retry": reruns the loading effect without duplicating its
   // logic in a handler.
@@ -153,6 +159,8 @@ function Call({
         if (external) {
           await Linking.openURL(u);
           router.back();
+        } else if (await joinedNatively(u)) {
+          if (alive) setNative(true);
         } else if (originOf(u) === null) {
           // A conference URL without a readable origin (exotic scheme, truncated
           // response) would give no lock to put on the WebView: we refuse rather
@@ -163,10 +171,19 @@ function Call({
         if (alive) setError(t('call.joinFailed'));
       }
     })();
+    async function joinedNatively(u: string): Promise<boolean> {
+      const jitsi = nativeJitsi(client.kind, u);
+      if (pageOnly || jitsi === null || VoiceNative === null) return false;
+      try {
+        return await VoiceNative.connectJitsi(callId, jitsi.meeting, me, jitsi.token, title);
+      } catch {
+        return false;
+      }
+    }
     return () => {
       alive = false;
     };
-  }, [client, callId, rid,membership,attempt, t, router]);
+  }, [client, callId, rid,membership,attempt, t, router, me, title, pageOnly]);
 
   // Handler (outside the effect): resetting the state there is legitimate.
   const retry = useCallback(() => {
@@ -176,6 +193,25 @@ function Call({
   }, []);
 
   const finish = useCallback(() => router.back(), [router]);
+
+  // The native call's state; a join that fails opens the meeting's page instead.
+  const [snapshot, setSnapshot] = useState<VoiceSnapshot | null>(null);
+  useEffect(() => {
+    if (!native || VoiceNative === null) return;
+    const voice = VoiceNative;
+    const sub = voice.addListener('change', (next) => {
+      setSnapshot(next);
+      if (next.state !== 'disconnected') return;
+      if (next.reason === 'connect_failed' || next.reason === 'connection_failed') {
+        setNative(false);
+        setPageOnly(true);
+      } else finish();
+    });
+    return () => {
+      sub.remove();
+      void voice.disconnect();
+    };
+  }, [native, finish]);
 
   // Without a foreground service, Android silences the page's microphone and
   // freezes the process once the app is behind or the phone locked.
@@ -218,7 +254,9 @@ function Call({
         </Pressable>
       </View>
 
-      {error !== null ? (
+      {native ? (
+        <NativeCall c={c} snapshot={snapshot ?? VoiceNative?.snapshot() ?? null} />
+      ) : error !== null ? (
         <View style={styles.center}>
           <Text style={[styles.errorMessage, { color: c.errorText }]}>{error}</Text>
           <Pressable onPress={retry} style={styles.retry}>
@@ -271,7 +309,52 @@ function Call({
   );
 }
 
+/** Who is in a native Jitsi call, who speaks, and its controls. */
+function NativeCall({ c, snapshot }: { c: Colors; snapshot: VoiceSnapshot | null }) {
+  const t = useT();
+  if (snapshot === null || snapshot.state === 'connecting' || snapshot.state === 'idle') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={c.accent} size="large" />
+        <Text style={[styles.loadingText, { color: c.dimmed }]}>{t('call.connecting')}</Text>
+      </View>
+    );
+  }
+  const muted = snapshot.microphone === false || snapshot.deafened === true;
+  return (
+    <View style={styles.full}>
+      <View style={styles.people}>
+        {snapshot.participants.map((p) => (
+          <View key={p.identity} style={[styles.person, { backgroundColor: c.card, borderColor: p.speaking ? c.accent : 'transparent' }]}>
+            <Text style={[styles.personName, { color: c.text }]} numberOfLines={1}>
+              {p.local ? t('voice.you') : p.name || p.identity}
+            </Text>
+            {p.muted && <Text style={[styles.personState, { color: c.dimmed }]}>{t('voice.mute')}</Text>}
+          </View>
+        ))}
+      </View>
+      <View style={styles.controls}>
+        <Pressable onPress={() => void VoiceNative?.setMicrophone(muted)} accessibilityRole="button"
+          style={[styles.control, { backgroundColor: muted ? c.errorCard : c.card }]}>
+          <Text style={[styles.controlText, { color: c.text }]}>{muted ? t('voice.unmute') : t('voice.mute')}</Text>
+        </Pressable>
+        <Pressable onPress={() => void VoiceNative?.setDeafened(!snapshot.deafened)} accessibilityRole="button"
+          style={[styles.control, { backgroundColor: snapshot.deafened ? c.errorCard : c.card }]}>
+          <Text style={[styles.controlText, { color: c.text }]}>{snapshot.deafened ? t('voice.undeafen') : t('voice.deafen')}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  people: { flex: 1, padding: 16, gap: 10 },
+  person: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 14, borderWidth: 2, paddingHorizontal: 16, paddingVertical: 14 },
+  personName: { fontFamily: FONTS.bodyBold, fontSize: 16, flexShrink: 1 },
+  personState: { fontFamily: FONTS.body, fontSize: 13 },
+  controls: { flexDirection: 'row', justifyContent: 'center', gap: 12, padding: 20 },
+  control: { borderRadius: 24, paddingHorizontal: 20, paddingVertical: 12 },
+  controlText: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
   full: { flex: 1 },
   veil: {
     position: 'absolute',

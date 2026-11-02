@@ -122,7 +122,7 @@ struct RocketVibeApp: App {
                 NSApp.activate()
                 if accept {
                     let title = L("call.window_title", ["room": call.caller])
-                    Task { if let link = await app.answerBackgroundCall(call), let url = URL(string: link) { CallWindow.show(url, title: title) } }
+                    Task { if let link = await app.answerBackgroundCall(call), let url = URL(string: link) { CallWindow.show(url, title: title, displayName: app.account?.username) } }
                 } else {
                     app.declineBackgroundCall(call)
                 }
@@ -132,7 +132,7 @@ struct RocketVibeApp: App {
             NSApp.activate()
             if accept {
                 let title = L("call.window_title", ["room": app.callerName(call)])
-                Task { if let link = await app.answerCall(call), let url = URL(string: link) { CallWindow.show(url, title: title) } }
+                Task { if let link = await app.answerCall(call), let url = URL(string: link) { CallWindow.show(url, title: title, displayName: app.account?.username) } }
             } else {
                 app.declineCall(call)
             }

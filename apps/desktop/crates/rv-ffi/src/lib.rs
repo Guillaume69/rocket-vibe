@@ -7,6 +7,7 @@ pub mod activity;
 mod admin;
 mod background;
 mod context;
+mod jitsi_call;
 mod links;
 pub mod markup;
 pub mod model;

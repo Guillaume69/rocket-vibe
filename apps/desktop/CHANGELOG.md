@@ -9,6 +9,8 @@ section here.
 
 ### Added
 
+- macOS (SwiftUI): Rocket.Chat Jitsi and kChat kMeet calls run inside the app as on Linux and Windows, audio only, in a small call window; the meeting's page stays the fallback.
+- kChat: a kMeet call runs inside the app too, like a Rocket.Chat Jitsi call (audio only), with its join token; it falls back to the meeting's page when it cannot be joined.
 - Rocket.Chat: a video conference on a Jitsi Meet server (the Jitsi provider, self-hosted or not) runs inside the app, audio only: who is in the call and who speaks, mute, deafen, hang up, the call's length. A call that cannot be joined this way opens the meeting's page as before.
 - Teams (experimental): a chat's Notes tab shows its notes (the Loop page Teams keeps for the chat), rendered like messages, read-only; the chat shows when they were created.
 - Slack (experimental): the Notes tab shows a conversation's canvas, rendered like messages, and edits it as markdown (saved over the version you read, created if the conversation has none).

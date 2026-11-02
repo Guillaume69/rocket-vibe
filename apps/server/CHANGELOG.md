@@ -11,6 +11,8 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-02
+
 ### Added
 
 - Room notes: one markdown document per room (`GET`/`PUT /api/v1/rooms/{id}/notes`, the `room_notes` capability), saved against the revision read (409 `revision_conflict` when stale), editable by those who may post, refused in an encrypted room. The web client shows them in a Notes panel of the room header.
@@ -265,7 +267,8 @@ first release: everything before it is under that section.
 - Web client: Serialize call teardown before rejoining and ignore stale voice grants after leaving or signing out.
 - Web client: Restore drafts before enabling the editor so opening a fresh room cannot erase the first typed characters.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.11.0...HEAD
+[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.1...vibez-v0.11.0
 [0.10.1]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.10.0...vibez-v0.10.1
 [0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.9.0...vibez-v0.10.0
 [0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/vibez-v0.8.0...vibez-v0.9.0

@@ -482,6 +482,18 @@ test('a Teams call screen stays on Microsoft\'s pages; a call link names the peo
   assert.equal(callLink(['a@x.fr', 'b@x.fr'], '8:orgid:me'), 'https://teams.microsoft.com/l/call/0/0?users=a%40x.fr%2Cb%40x.fr');
 });
 
+test('the notes created event keeps its page address', () => {
+  const uri = 'https://t.sharepoint.com/contentstorage/CSP_g/Document%20Library/19_c_thread_v2/loop_loopThread.loop?nav=cz0x&amp;x=1';
+  const raw = (subtype: string) => ({
+    id: '1793576966428', messagetype: 'ThreadActivity/FileAdd', from: 'https://x/v1/users/ME/contacts/19:c@thread.v2',
+    originalarrivaltime: '2026-11-02T00:49:26.428Z',
+    content: `<fileadd><initiator>8:orgid:abc</initiator><target><uri>${uri}</uri><type>loop</type><subtype>${subtype}</subtype></target></fileadd>`,
+  });
+  const m = toMessage('19:c@thread.v2', raw('loopthread'), new TeamsDirectory())!;
+  assert.deepEqual([m.systemType, m.text], ['rv-notes-created', uri.replace('&amp;', '&')]);
+  assert.equal(toMessage('19:c@thread.v2', raw('other'), new TeamsDirectory()), null);
+});
+
 test('a topic change is named after its initiator, never the conversation', () => {
   const directory = new TeamsDirectory();
   directory.remember('8:orgid:abc', 'Ada Lovelace');

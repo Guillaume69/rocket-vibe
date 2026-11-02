@@ -177,6 +177,12 @@ beta does.
 | Follow or unfollow a thread, from the list and from the open thread, shown live | done | done | done | done | Native apps: Rocket.Chat servers (`chat.followMessage`), same limits as the list. The Vibez server now offers `PUT /messages/{id}/follow` and a private live root upsert with `personal_follow` (`thread_follow`): Mobile, GTK and SwiftUI still owe it on Vibez accounts. SwiftUI checked by the macOS CI build only. Web: Follow / Unfollow on each list row and a bell in the open thread's header, repainted on every sync frame. |
 | "Also send to the room" (`tshow`) from the thread composer | done | done | done | done | Rocket.Chat (`Capabilities.alsoInRoom`, desktop `Session::also_in_room_available`): a one-shot checkbox above the thread composer, kept in the outbox row (`outbox.shown`) for the replay. The Vibez server now offers `SendMessage.also_in_room` and `?also_in_room=true` history (`thread_also_in_room`): Mobile, GTK and SwiftUI still owe it on Vibez accounts. SwiftUI's view checked by the macOS CI build only. Web: the same one-shot checkbox, kept in the outbox payload; text replies only, not files. |
 
+### Notes - [notes](features/notes.md)
+
+| Feature | Mobile | GTK | SwiftUI | Web | Notes |
+|---|---|---|---|---|---|
+| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server only so far (`room_notes`); never an encrypted room (refused server-side). Slack canvases and Teams Notes owed on all three native apps. SwiftUI checked by the macOS CI build only. |
+
 ### Discussions - [discussions](features/discussions.md)
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
@@ -380,6 +386,7 @@ beta does.
 
 ## Open debt
 
+- **Notes**: Slack canvases and the Teams chat Notes tab are owed on all three native apps; a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
 - **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
 - **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Android owes nothing of the desktop's set (live checks of notifications and sends pending); SwiftUI owes the whole account. Web is `n/a` (serving origin only).
 

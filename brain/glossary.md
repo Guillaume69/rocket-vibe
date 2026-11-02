@@ -8,6 +8,7 @@ All code, comments and docs are in English. French survives in two places only: 
 
 | Term | Meaning | More |
 |---|---|---|
+| Room notes | One markdown document per room, rendered and edited natively in its Notes tab, saved whole against the revision read (`room_notes`). | [notes](features/notes.md) |
 | Voice session | A room's live audio on the LiveKit SFU, LiveKit room `rv:{epoch}:{room}`. Every room has one. | [voice](features/voice.md) |
 | Voice channel | A room flagged `voice`: selecting it joins its session. | [voice](features/voice.md) |
 | Grant | `VoiceGrant`: the SFU URL and a 5-minute token for one member and one room. | [voice](features/voice.md) |

@@ -527,3 +527,15 @@ User decisions, 2026-11-02. **Source**: the Rocket.Chat MongoDB (live or a resto
 
 When a Vibez account already has the username a Rocket.Chat account maps to, the import maps the Rocket.Chat person onto it instead of creating `<name>_rc`: an operator typically creates their own account first, and splitting their history from it would be the surprise. The Vibez account keeps its password. Only an account no earlier pass mapped is joined this way, and the report counts it (`users_joined_to_existing_accounts`). See [Rocket.Chat import](features/rocketchat-import.md).
 
+## Room notes are saved whole and refused in encrypted rooms (2026-11-02)
+
+The Notes tab keeps one markdown document per room, saved whole against the
+revision it was read at; a stale save answers 409 `revision_conflict` and the
+apps keep the draft so the next save goes over the newer version. Live
+co-editing (operational transforms, CRDTs) is out of proportion for notes edited
+now and then, and a whole-document save is what Slack canvases and the server
+can both offer. An encrypted Vibez room refuses notes: stored in clear, they
+would leak what the room hides; encrypting them under the room's MLS group is
+recorded as debt. Saving publishes the room rather than adding a wire event, so
+older clients keep decoding the journal. See [notes](features/notes.md).
+

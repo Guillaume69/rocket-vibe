@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { decodeNative } from './validation.ts';
-import { effectiveCapabilities, VIBEZ_CAPABILITIES } from './index.ts';
+import { effectiveCapabilities, roomNotes, VIBEZ_CAPABILITIES } from './index.ts';
 import { ROCKETCHAT_CAPABILITIES } from '../../lib/provider.ts';
 const fixture = JSON.parse(readFileSync(new URL('../../../../docs/protocol/v1.fixture.json',import.meta.url),'utf8'));
 
@@ -34,4 +34,13 @@ test('a server flag alone cannot expose a feature absent from the installed app'
   assert.equal(effectiveCapabilities({...announced,read_markers:true}).roomReads,true);
   assert.equal(effectiveCapabilities({...announced,read_markers:false}).roomReads,false);
   assert.equal(effectiveCapabilities({...announced,read_markers:true},{...VIBEZ_CAPABILITIES,roomReads:false}).roomReads,false);
+});
+
+test('room notes need both the server and this app, and read as the providers share them', () => {
+  assert.equal(effectiveCapabilities({ room_notes: true } as never).notes, true);
+  assert.equal(effectiveCapabilities({ room_notes: false } as never).notes, false);
+  assert.equal(effectiveCapabilities({ room_notes: true } as never, { ...VIBEZ_CAPABILITIES, notes: false }).notes, false);
+  const notes = roomNotes({ room_id: 'r1', body: '# Plan', revision: '3', editable: true, updated_by: 'alice', updated_at: '2026-11-02T10:00:00.000Z' });
+  assert.deepEqual(notes, { markdown: '# Plan', revision: '3', editable: true, updatedBy: 'alice', updatedAt: Date.UTC(2026, 10, 2, 10) });
+  assert.equal(roomNotes({ room_id: 'r1', body: '', revision: '0', editable: false }).updatedAt, null);
 });

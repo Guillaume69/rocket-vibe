@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {describe,test} from 'node:test';
 import {RestClient} from './rest.ts';
-import {memoizedCallAvailable,callContext,setProviderCalls,startConference,joinConference,probeCallAvailable,withoutToken,type NativeCalls} from './call.ts';
+import {memoizedCallAvailable,callContext,setProviderCalls,startConference,joinConference,probeCallAvailable,withoutToken,nativeJitsi,type NativeCalls} from './call.ts';
 
 test('existing Rocket.Chat call endpoints and media state remain unchanged',async()=>{
   const requests:{path:string;method:string;body:unknown}[]=[];
@@ -62,4 +62,12 @@ describe('withoutToken', () => {
     assert.equal(withoutToken('https://meet.example/room#x'), 'https://meet.example/room');
     assert.equal(withoutToken('https://meet.example/room'), 'https://meet.example/room');
   });
+});
+
+test('a Jitsi or kMeet meeting is joined natively with its token, nothing else is',()=>{
+  assert.deepEqual(nativeJitsi('rocketchat','https://meet.barrut.me/RocketChatX#config.startWithAudioMuted=true'),{meeting:'https://meet.barrut.me/RocketChatX',token:null});
+  assert.deepEqual(nativeJitsi('kchat','https://kmeet.infomaniak.com/abc-def?jwt=a.b%2Bc.d'),{meeting:'https://kmeet.infomaniak.com/abc-def',token:'a.b+c.d'});
+  assert.equal(nativeJitsi('teams','https://teams.microsoft.com/l/call/0/0?users=a'),null);
+  assert.equal(nativeJitsi('slack','https://app.slack.com/client/T/C?open=start_huddle'),null);
+  assert.equal(nativeJitsi('rocketchat','http://meet.example/room'),null);
 });

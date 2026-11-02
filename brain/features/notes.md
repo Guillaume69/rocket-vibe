@@ -8,7 +8,7 @@ answers a conflict, the draft stays in the editor and the next save goes over th
 newer version. A provider without notes hides the entry.
 
 Providers: the Vibez server and Slack (a conversation's canvas). The Teams chat
-Notes tab (a Loop page) comes in a later layer; until then it shows no Notes entry.
+Notes tab (a Loop page) is researched, not offered: see [Teams](#teams).
 
 ## Server (Vibez)
 
@@ -58,6 +58,17 @@ A conversation's canvas is its notes, in the same tab:
   `Capabilities.notes`.
 - Not run against a real workspace: no Slack account was signed in on the
   development machine. Tested against fake Web API servers on both sides.
+
+## Teams
+
+Not offered. The page is a Loop file our own tokens read (a SharePoint bearer
+minted from the account's refresh token), its text a Fluid merge-tree: the
+summary's segments plus the operations since, all confirmed live, read-only, on
+2026-11-02. What blocks it: a chat's page lives in a container of its own, found
+only through `POST {chat}/v1/threads/<id>/files`, which the web app sends when
+the tab opens and which creates an empty page when there is none; that write is
+not verified. Writing the page means joining Fluid's delta stream. Details:
+[teams](../architecture/teams.md), Notes row.
 
 ## Desktop
 

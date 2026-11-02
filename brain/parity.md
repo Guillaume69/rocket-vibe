@@ -386,7 +386,7 @@ beta does.
 
 ## Open debt
 
-- **Notes**: the Teams chat Notes tab is owed on all three native apps; a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
+- **Notes**: the Teams chat Notes tab is owed on all three native apps (researched: readable with our tokens, but locating a chat's page needs an unverified create-or-get write); a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
 - **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
 - **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Android owes nothing of the desktop's set (live checks of notifications and sends pending); SwiftUI owes the whole account. Web is `n/a` (serving origin only).
 

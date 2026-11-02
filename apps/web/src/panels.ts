@@ -583,7 +583,8 @@ export async function notes(app: App): Promise<void> {
       current = notes;
       if (!editing) paint();
     } catch (error) {
-      if (!current && active()) view.replaceChildren(el("p", "dim", nt("notes.load_failed")));
+      if (!current && active())
+        view.replaceChildren(el("p", "dim", nt("notes.load_failed")));
       else noteError(error);
     }
   };

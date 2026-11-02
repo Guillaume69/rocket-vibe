@@ -40,7 +40,7 @@ pub struct RoomNotes {
     pub updated_at_ms: Option<i64>,
 }
 impl RoomNotes {
-    fn new(notes: rv_core::notes::Notes, me: &str) -> Self {
+    pub(crate) fn new(notes: rv_core::notes::Notes, me: &str) -> Self {
         let ctx = rv_core::markdown::Context { me, names: None };
         RoomNotes {
             body: crate::markup::blocks(rv_core::markdown::render(None, Some(&notes.markdown), &ctx)),

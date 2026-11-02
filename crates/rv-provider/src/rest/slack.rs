@@ -39,6 +39,10 @@ pub const METHODS: &[&str] = &[
     "users.profile.set",
     "files.getUploadURLExternal",
     "files.completeUploadExternal",
+    "conversations.info",
+    "files.info",
+    "canvases.edit",
+    "conversations.canvases.create",
 ];
 
 /// `RestError::error_type` of an envelope that ends the session.

@@ -163,8 +163,13 @@ impl ChatPage {
     }
 
     pub(super) fn open_notes(self: &Rc<Self>) {
-        let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
-        crate::notes::open(&self.split, &self.current_name(), native_notes(&session, &rid));
+        let Some(rid) = self.current_rid() else { return };
+        let source = match (self.native_session(), self.session()) {
+            (Some(native), _) => native_notes(&native, &rid),
+            (None, Some(session)) => session_notes(&session, &rid),
+            (None, None) => return,
+        };
+        crate::notes::open(&self.split, &self.current_name(), source);
     }
 
     pub(super) fn native_rooms(&self) -> Vec<RoomRow> {
@@ -1195,6 +1200,27 @@ fn native_notes(session: &Arc<NativeSession>, rid: &str) -> crate::notes::Source
         stamp: Box::new(move || {
             stamp_session.store.rooms().ok()?.into_iter().find(|r| r.id == stamp_room).map(|r| r.revision)
         }),
+        me: session.info.username.clone(),
+    }
+}
+
+/// A Slack conversation's canvas: no live signal, read again on each opening.
+fn session_notes(session: &Arc<rv_core::session::Session>, rid: &str) -> crate::notes::Source {
+    let (load_session, load_room) = (session.clone(), rid.to_owned());
+    let (save_session, save_room) = (session.clone(), rid.to_owned());
+    let code = |e: rv_core::rest::RestError| e.error.unwrap_or(e.message);
+    crate::notes::Source {
+        load: Box::new(move || {
+            let (session, room) = (load_session.clone(), load_room.clone());
+            Box::pin(async move { on_tokio(async move { session.room_notes(&room).await }).await.map_err(code) })
+        }),
+        save: Box::new(move |markdown, revision| {
+            let (session, room) = (save_session.clone(), save_room.clone());
+            Box::pin(async move {
+                on_tokio(async move { session.save_room_notes(&room, &markdown, &revision).await }).await.map_err(code)
+            })
+        }),
+        stamp: Box::new(|| None),
         me: session.info.username.clone(),
     }
 }

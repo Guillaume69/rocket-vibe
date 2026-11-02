@@ -3,6 +3,7 @@
 pub mod account;
 pub use rv_provider::rest::slack as api;
 pub mod browser_login;
+pub mod canvas;
 pub mod directory;
 pub mod emojis;
 pub mod handoff;

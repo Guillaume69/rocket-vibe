@@ -3146,7 +3146,7 @@ impl ChatPage {
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
         self.threads_button.set_visible(session.threads_available());
-        self.notes_button.set_visible(false);
+        self.notes_button.set_visible(session.notes_available(rid));
         self.call_button.set_icon_name("camera-video-symbolic");
         self.call_button.set_tooltip_text(Some(t("room.call")));
         // Read-only, or made so while open: those my roles let write (`post-readonly`)

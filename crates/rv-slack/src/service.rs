@@ -21,6 +21,28 @@ const THREAD_PAGES: usize = 20;
 pub const CUSTOM_EMOJI_ORIGIN: &str = "https://emoji.slack-edge.com/";
 const GONE: [&str; 4] = ["channel_not_found", "thread_not_found", "message_not_found", "not_in_channel"];
 
+/// A conversation's canvas, as the Notes tab shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Canvas {
+    pub markdown: String,
+    /// The file's last update, in seconds: Slack keeps no revision.
+    pub revision: String,
+    pub editable: bool,
+    pub updated_by: Option<String>,
+    pub updated_ms: Option<i64>,
+}
+
+/// `RestError::error` of a save over a canvas changed in between.
+pub const CANVAS_CONFLICT: &str = "revision_conflict";
+
+fn canvas_conflict() -> RestError {
+    RestError { error: Some(CANVAS_CONFLICT.to_owned()), ..RestError::incomplete("canvas: changed meanwhile") }
+}
+
+fn canvas_revision(file: &Value) -> String {
+    file.get("updated").and_then(Value::as_i64).map_or_else(|| "0".to_owned(), |s| s.to_string())
+}
+
 pub fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -257,6 +279,57 @@ impl Service {
         let body =
             self.call("conversations.rename", vec![("channel", rid.to_owned()), ("name", name.to_owned())]).await?;
         Ok(body.pointer("/channel/name").and_then(Value::as_str).unwrap_or(name).to_owned())
+    }
+
+    /// The conversation's canvas read as markdown; None when it has none.
+    pub async fn canvas(&self, rid: &str) -> Result<Option<Canvas>, RestError> {
+        let Some(file) = self.canvas_file(rid).await? else { return Ok(None) };
+        let meta = self.call("files.info", vec![("file", file.clone())]).await?;
+        let info = meta.get("file").unwrap_or(&Value::Null);
+        let url = text(info, "url_private").ok_or_else(|| RestError::incomplete("canvas: no content link"))?;
+        let (bytes, _) = self.rest.fetch_protected(url).await?;
+        let editor = text(info, "last_editor").or_else(|| text(info, "user")).map(str::to_owned);
+        if let Some(id) = &editor {
+            self.ensure_people([id.clone()]).await;
+        }
+        Ok(Some(Canvas {
+            markdown: crate::canvas::markdown(&String::from_utf8_lossy(&bytes)),
+            revision: canvas_revision(info),
+            editable: info.get("editable").and_then(Value::as_bool).unwrap_or(true),
+            updated_by: editor.and_then(|id| self.directory.display_name(&id)),
+            updated_ms: info.get("updated").and_then(Value::as_i64).map(|s| s * 1000),
+        }))
+    }
+
+    /// Replaces the canvas with `markdown`, or creates it when the conversation
+    /// has none and `revision` is "0". A canvas changed since `revision` is
+    /// left alone: [`CANVAS_CONFLICT`].
+    pub async fn save_canvas(&self, rid: &str, markdown: &str, revision: &str) -> Result<(), RestError> {
+        let content = serde_json::json!({"type": "markdown", "markdown": markdown}).to_string();
+        match self.canvas_file(rid).await? {
+            None if revision == "0" => {
+                self.call(
+                    "conversations.canvases.create",
+                    vec![("channel_id", rid.to_owned()), ("document_content", content)],
+                )
+                .await?;
+            }
+            None => return Err(canvas_conflict()),
+            Some(file) => {
+                let meta = self.call("files.info", vec![("file", file.clone())]).await?;
+                if canvas_revision(meta.get("file").unwrap_or(&Value::Null)) != revision {
+                    return Err(canvas_conflict());
+                }
+                let changes = format!(r#"[{{"operation":"replace","document_content":{content}}}]"#);
+                self.call("canvases.edit", vec![("canvas_id", file), ("changes", changes)]).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn canvas_file(&self, rid: &str) -> Result<Option<String>, RestError> {
+        let info = self.call("conversations.info", vec![("channel", rid.to_owned())]).await?;
+        Ok(crate::canvas::canvas_file(info.get("channel").unwrap_or(&Value::Null)))
     }
 
     /// Rewrites my message; answers its new copy, people resolved, when Slack gives it.

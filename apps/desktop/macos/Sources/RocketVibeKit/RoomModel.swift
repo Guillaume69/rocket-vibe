@@ -155,18 +155,28 @@ public final class RoomModel {
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }
-    /// The room keeps notes: Vibez, never an encrypted room.
-    public var supportsNotes: Bool { active && provider.native?.notesAvailable(room: room.rid) == true }
+    /// The room keeps notes: Vibez (never an encrypted room) or a Slack canvas.
+    public var supportsNotes: Bool {
+        guard active else { return false }
+        if let native = provider.native { return native.notesAvailable(room: room.rid) }
+        return chat?.notesAvailable(rid: room.rid) == true
+    }
     public func roomNotes() async throws -> RoomNotes {
-        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
-        let result = try await native.roomNotes(room: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        let result: RoomNotes
+        if let native = provider.native { result = try await native.roomNotes(room: room.rid) }
+        else if let chat { result = try await chat.roomNotes(rid: room.rid) }
+        else { throw CancellationError() }
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }
     /// Fails with the server code `revision_conflict` when someone saved over `revision`.
     public func saveRoomNotes(markdown: String, revision: String) async throws -> RoomNotes {
-        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
-        let result = try await native.saveRoomNotes(room: room.rid, markdown: markdown, revision: revision)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        let result: RoomNotes
+        if let native = provider.native { result = try await native.saveRoomNotes(room: room.rid, markdown: markdown, revision: revision) }
+        else if let chat { result = try await chat.saveRoomNotes(rid: room.rid, markdown: markdown, revision: revision) }
+        else { throw CancellationError() }
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }

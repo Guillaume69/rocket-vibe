@@ -260,6 +260,31 @@ impl Chat {
         self.session.threads_available()
     }
 
+    /// The room has a Notes tab (a Slack conversation's canvas).
+    pub fn notes_available(&self, rid: String) -> bool {
+        self.session.notes_available(&rid)
+    }
+
+    pub async fn room_notes(&self, rid: String) -> Result<crate::native_rooms::RoomNotes, RvError> {
+        let s = self.session.clone();
+        let me = self.session.info.username.clone();
+        let notes = on_tokio(async move { s.room_notes(&rid).await }).await?;
+        Ok(crate::native_rooms::RoomNotes::new(notes, &me))
+    }
+
+    /// A save over a newer version fails with the server error `revision_conflict`.
+    pub async fn save_room_notes(
+        &self,
+        rid: String,
+        markdown: String,
+        revision: String,
+    ) -> Result<crate::native_rooms::RoomNotes, RvError> {
+        let s = self.session.clone();
+        let me = self.session.info.username.clone();
+        let notes = on_tokio(async move { s.save_room_notes(&rid, &markdown, &revision).await }).await?;
+        Ok(crate::native_rooms::RoomNotes::new(notes, &me))
+    }
+
     /// One page of the room's threads, every one or those I follow, the
     /// most recently answered first.
     pub async fn threads(&self, rid: String, following: bool, offset: u32, count: u32) -> Result<ThreadsPage, RvError> {

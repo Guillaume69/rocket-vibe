@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-730 production files scanned; 757 occurrences.
+734 production files scanned; 757 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -339,7 +339,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/uploads.rs:626](../../apps/desktop/crates/rv-core/src/uploads.rs#L626) | endpoint | rooms.media/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:628](../../apps/desktop/crates/rv-core/src/uploads.rs#L628) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-ffi/src/model.rs:282](../../apps/desktop/crates/rv-ffi/src/model.rs#L282) | endpoint | rooms.quoted_message |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:1078](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1078) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:1087](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1087) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
@@ -475,12 +475,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:110](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L110) | endpoint | rooms.pending |
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:120](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L120) | endpoint | rooms.failed |
 | [apps/desktop/macos/Sources/RocketVibe/Notifier.swift:48](../../apps/desktop/macos/Sources/RocketVibe/Notifier.swift#L48) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:158](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L158) | endpoint | e2e.read_only |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:161](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L161) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:179](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L179) | endpoint | e2e.title |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:180](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L180) | endpoint | e2e.body |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:181](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L181) | endpoint | e2e.password |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:189](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L189) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:161](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L161) | endpoint | e2e.read_only |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:164](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L164) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:182](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L182) | endpoint | e2e.title |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:183](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L183) | endpoint | e2e.body |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:184](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L184) | endpoint | e2e.password |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:192](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L192) | endpoint | e2e.unlock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:153](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L153) | endpoint | rooms.sign_out |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:246](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L246) | endpoint | e2e.status |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:248](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L248) | endpoint | e2e.locked |
@@ -715,12 +715,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:1285](../../apps/mobile/ui/messages.ts#L1285) | endpoint | e2e.unlock |
 | [apps/mobile/ui/messages.ts:1286](../../apps/mobile/ui/messages.ts#L1286) | endpoint | e2e.wrongPassword |
 | [apps/mobile/ui/messages.ts:1287](../../apps/mobile/ui/messages.ts#L1287) | endpoint | e2e.genericError |
-| [apps/mobile/ui/messages.ts:3007](../../apps/mobile/ui/messages.ts#L3007) | endpoint | e2e.title |
-| [apps/mobile/ui/messages.ts:3008](../../apps/mobile/ui/messages.ts#L3008) | endpoint | e2e.explanation |
-| [apps/mobile/ui/messages.ts:3010](../../apps/mobile/ui/messages.ts#L3010) | endpoint | e2e.field |
-| [apps/mobile/ui/messages.ts:3011](../../apps/mobile/ui/messages.ts#L3011) | endpoint | e2e.unlock |
-| [apps/mobile/ui/messages.ts:3012](../../apps/mobile/ui/messages.ts#L3012) | endpoint | e2e.wrongPassword |
-| [apps/mobile/ui/messages.ts:3013](../../apps/mobile/ui/messages.ts#L3013) | endpoint | e2e.genericError |
+| [apps/mobile/ui/messages.ts:3018](../../apps/mobile/ui/messages.ts#L3018) | endpoint | e2e.title |
+| [apps/mobile/ui/messages.ts:3019](../../apps/mobile/ui/messages.ts#L3019) | endpoint | e2e.explanation |
+| [apps/mobile/ui/messages.ts:3021](../../apps/mobile/ui/messages.ts#L3021) | endpoint | e2e.field |
+| [apps/mobile/ui/messages.ts:3022](../../apps/mobile/ui/messages.ts#L3022) | endpoint | e2e.unlock |
+| [apps/mobile/ui/messages.ts:3023](../../apps/mobile/ui/messages.ts#L3023) | endpoint | e2e.wrongPassword |
+| [apps/mobile/ui/messages.ts:3024](../../apps/mobile/ui/messages.ts#L3024) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
 | [apps/mobile/ui/serverRail.tsx:48](../../apps/mobile/ui/serverRail.tsx#L48) | endpoint | subscriptions.get |

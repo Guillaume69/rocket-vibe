@@ -7,6 +7,11 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): start a group chat with two or more people from New conversation, and rename a group chat from its settings.
+- Teams (experimental): react with any emoji Teams offers, not only the six classic ones.
+
 ### Fixed
 
 - Teams (experimental): every reaction Teams offers shows its emoji (🚀 rather than ":launch:"), skin tones included: the app now reads Microsoft's full list of Teams reaction ids.

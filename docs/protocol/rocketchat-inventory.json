@@ -3657,13 +3657,13 @@
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 120,
+      "line": 121,
       "kind": "call:GET",
       "surface": "'settings.public'"
     },
     {
       "file": "apps/mobile/app/message-actions.tsx",
-      "line": 121,
+      "line": 122,
       "kind": "endpoint",
       "surface": "settings.public"
     },

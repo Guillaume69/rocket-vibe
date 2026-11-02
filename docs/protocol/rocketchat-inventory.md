@@ -494,8 +494,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1008](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1008) | endpoint | e2e.failed |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1011](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1011) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:578](../../apps/mobile/app/login.tsx#L578) | endpoint | chat.example.org |
-| [apps/mobile/app/message-actions.tsx:120](../../apps/mobile/app/message-actions.tsx#L120) | call:GET | 'settings.public' |
-| [apps/mobile/app/message-actions.tsx:121](../../apps/mobile/app/message-actions.tsx#L121) | endpoint | settings.public |
+| [apps/mobile/app/message-actions.tsx:121](../../apps/mobile/app/message-actions.tsx#L121) | call:GET | 'settings.public' |
+| [apps/mobile/app/message-actions.tsx:122](../../apps/mobile/app/message-actions.tsx#L122) | endpoint | settings.public |
 | [apps/mobile/app/my-profile.tsx:189](../../apps/mobile/app/my-profile.tsx#L189) | call:POST | 'users.resetAvatar' |
 | [apps/mobile/app/my-profile.tsx:189](../../apps/mobile/app/my-profile.tsx#L189) | endpoint | users.resetAvatar |
 | [apps/mobile/app/new-discussion.tsx:42](../../apps/mobile/app/new-discussion.tsx#L42) | call:POST | 'rooms.createDiscussion' |

@@ -21,7 +21,7 @@ import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
-import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, isGraphShare, mriOf, newOneOnOne, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
+import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, groupThread, isGraphShare, isGroupChat, mriOf, newGroupChat, newOneOnOne, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { TeamsTrouter } from './trouter.ts';
 
 type Doc = Record<string, unknown>;
@@ -181,13 +181,20 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       },
       editableSettings: async (rid: string): Promise<EditableSettings | null> => {
         const known = rooms.entries.get(rid);
-        return known?.team && str(known.entry, 'groupId') && str(known.entry, 'substrateGroupId') ? { name: true, texts: false, readOnly: false } : null;
+        const channel = known?.team && str(known.entry, 'groupId') && str(known.entry, 'substrateGroupId');
+        return channel || (known && !known.team && isGroupChat(known.entry)) ? { name: true, texts: false, readOnly: false } : null;
       },
       saveRoomSettings: async (rid: string, fields: RoomSettingsChange): Promise<void> => {
         const known = rooms.entries.get(rid);
+        if (fields.name === undefined) return;
+        if (known && !known.team && isGroupChat(known.entry)) {
+          await client.setTopic(rid, fields.name);
+          known.entry.title = fields.name;
+          if (engine) await engine.ingestSubscriptions([{ ...known.entry, __team: null }]);
+          return;
+        }
         const group = known?.team ? str(known.entry, 'groupId') : null;
         const oid = known?.team ? str(known.entry, 'substrateGroupId') : null;
-        if (fields.name === undefined) return;
         if (!known || !group || !oid) throw new TeamsError('team_not_found');
         await client.rename(group, oid, session.teamsTenantId ?? '', fields.name);
         known.entry.displayName = fields.name;
@@ -206,6 +213,16 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
         const marked = await actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null, rooms.lastId(rid));
         const entry = marked === null ? null : rooms.readUpTo(rid, marked);
         if (entry && engine) await engine.ingestSubscriptions([entry]);
+      },
+      openOrCreateGroupDm: async (people) => {
+        const others = people.map((p) => p.uid ?? '');
+        if (others.length < 2 || others.some((mri) => !mri.startsWith('8:'))) throw new TeamsError('group_chat_unknown_person');
+        const rid = await client.createGroupChat(groupThread(session.userId, others));
+        const chat = newGroupChat(rid, session.userId, others, Date.now());
+        rooms.open(chat);
+        const raw = { ...chat, __team: null };
+        if (engine) await engine.ingestSubscriptions([raw]);
+        return { rid, rawRoom: raw };
       },
       openOrCreateDm: async (_name: string, uid?: string) => {
         const mri = uid ?? '';

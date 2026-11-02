@@ -155,6 +155,21 @@ public final class RoomModel {
         guard active, !Task.isCancelled else { throw CancellationError() }
         return result
     }
+    /// The room keeps notes: Vibez, never an encrypted room.
+    public var supportsNotes: Bool { active && provider.native?.notesAvailable(room: room.rid) == true }
+    public func roomNotes() async throws -> RoomNotes {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        let result = try await native.roomNotes(room: room.rid)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
+    /// Fails with the server code `revision_conflict` when someone saved over `revision`.
+    public func saveRoomNotes(markdown: String, revision: String) async throws -> RoomNotes {
+        guard active, !Task.isCancelled, let native = provider.native else { throw CancellationError() }
+        let result = try await native.saveRoomNotes(room: room.rid, markdown: markdown, revision: revision)
+        guard active, !Task.isCancelled else { throw CancellationError() }
+        return result
+    }
     /// The room's thread list and following a thread: Rocket.Chat only.
     public var supportsThreads: Bool { active && chat?.threadsAvailable() == true }
     /// "Also send to the room" (Rocket.Chat): a thread's next reply only, unchecked once it goes.

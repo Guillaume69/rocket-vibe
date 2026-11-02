@@ -67,6 +67,9 @@ struct RoomView: View {
                     Button { panel = .threads } label: { Image(systemName: "bubble.left.and.bubble.right") }
                         .help(L("threads.title"))
                 }
+                if model.supportsNotes {
+                    Button { panel = .notes } label: { Image(systemName: "note.text") }.help(L("notes.title"))
+                }
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .windowShortcut(KeyboardShortcut("f", modifiers: .command))
                     .disabled(!model.supportsSearch)

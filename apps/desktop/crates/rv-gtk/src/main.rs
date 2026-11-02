@@ -39,6 +39,7 @@ mod native_crypto;
 mod native_quote_cards;
 mod native_security;
 mod new_channel;
+mod notes;
 mod notifier;
 mod player;
 mod rail;

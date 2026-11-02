@@ -25,6 +25,9 @@ impl ChatPage {
         }
         self.refresh_uploads();
         self.refresh_room_header();
+        if let Some(rid) = self.current_rid() {
+            self.notes_button.set_visible(session.notes_available(&rid));
+        }
         self.refresh_voice();
         if let Some(rid) = self.current_rid() {
             self.on_typing(&rid);
@@ -159,6 +162,11 @@ impl ChatPage {
         self.local_search_button.set_visible(false);
     }
 
+    pub(super) fn open_notes(self: &Rc<Self>) {
+        let (Some(session), Some(rid)) = (self.native_session(), self.current_rid()) else { return };
+        crate::notes::open(&self.split, &self.current_name(), native_notes(&session, &rid));
+    }
+
     pub(super) fn native_rooms(&self) -> Vec<RoomRow> {
         let Some(session) = self.native_session() else {
             return vec![];
@@ -209,6 +217,7 @@ impl ChatPage {
         self.typing_label.set_visible(false);
         self.call_button.set_visible(false);
         self.threads_button.set_visible(false);
+        self.notes_button.set_visible(session.notes_available(rid));
         self.upload_strip.set_visible(false);
         self.list.set_unread_after(None);
         self.select_current(true);
@@ -1160,5 +1169,32 @@ fn native_error_key(code: &str) -> &'static str {
         "user_not_found" => "native.user_missing",
         "bot_encrypted_room" | "crypto_bot_member" => rv_core::native::bots::error_key(code, 409),
         _ => "native.error",
+    }
+}
+
+fn native_notes(session: &Arc<NativeSession>, rid: &str) -> crate::notes::Source {
+    let (load_session, load_room) = (session.clone(), rid.to_owned());
+    let (save_session, save_room) = (session.clone(), rid.to_owned());
+    let (stamp_session, stamp_room) = (session.clone(), rid.to_owned());
+    crate::notes::Source {
+        load: Box::new(move || {
+            let (session, room) = (load_session.clone(), load_room.clone());
+            Box::pin(async move {
+                on_tokio(async move { session.room_notes(&room).await }).await.map_err(|e| e.code().to_owned())
+            })
+        }),
+        save: Box::new(move |markdown, revision| {
+            let (session, room) = (save_session.clone(), save_room.clone());
+            Box::pin(async move {
+                on_tokio(async move { session.save_room_notes(&room, &markdown, &revision).await })
+                    .await
+                    .map_err(|e| e.code().to_owned())
+            })
+        }),
+        // A save publishes the room: its revision moves.
+        stamp: Box::new(move || {
+            stamp_session.store.rooms().ok()?.into_iter().find(|r| r.id == stamp_room).map(|r| r.revision)
+        }),
+        me: session.info.username.clone(),
     }
 }

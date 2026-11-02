@@ -72,4 +72,5 @@ two-way parity tracker is [../parity.md](../parity.md). Back to
 | [calls.md](calls.md) | Rocket.Chat servers: Jitsi over `video-conference.*`, availability probe, the mobile WebView exception and its origin lock, desktop call windows per platform, ringing in direct rooms (Rocket.Chat and kChat). |
 | [sharing-and-links.md](sharing-and-links.md) | `rocketvibe://room/<rid>?host=` deep links, the incoming share screen, the outgoing-link guard, desktop drag and paste. |
 | [mobile-updates.md](mobile-updates.md) | Android GitHub APK updates: release checks, verified download, native installer and recovery. |
+| [rocketchat-import.md](rocketchat-import.md) | Vibez server: `vibez import rocketchat` from a Rocket.Chat MongoDB, people with their passwords, rooms, messages, files, emoji, avatars; encrypted messages kept as ciphertext; resumable passes. |
 | [desktop-updates.md](desktop-updates.md) | GitHub release discovery, cached check and dismissal, in-place replacement on Linux, installer on Windows, DMG on macOS. |

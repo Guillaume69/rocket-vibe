@@ -21,6 +21,26 @@ pub fn random_token() -> String {
 pub fn hash_token(token: &str) -> String {
     hash_token_bytes(token.as_bytes())
 }
+
+/// A password hash brought over from Rocket.Chat: bcrypt of the password's
+/// hex SHA-256. Replaced by Argon2 at the account's first sign-in.
+pub const ROCKETCHAT_BCRYPT: &str = "rc-bcrypt:";
+
+pub(crate) fn password_matches(hash: &str, password: &[u8]) -> bool {
+    match hash.strip_prefix(ROCKETCHAT_BCRYPT) {
+        Some(bcrypt) => bcrypt::verify(hash_token_bytes(password), bcrypt).unwrap_or(false),
+        None => PasswordHash::new(hash)
+            .ok()
+            .is_some_and(|h| Argon2::default().verify_password(password, &h).is_ok()),
+    }
+}
+
+pub(crate) fn hash_password(password: &[u8]) -> Result<String> {
+    Argon2::default()
+        .hash_password(password, &SaltString::generate(&mut OsRng))
+        .map(|v| v.to_string())
+        .map_err(|_| Error::internal())
+}
 pub fn hash_token_bytes(token: &[u8]) -> String {
     Sha256::digest(token)
         .iter()
@@ -250,18 +270,19 @@ async fn password_login(
         .as_ref()
         .map(|r| r.3.clone())
         .unwrap_or_else(|| app.dummy_password_hash.clone());
-    let valid = tokio::task::spawn_blocking(move || {
+    let (valid, upgraded) = tokio::task::spawn_blocking(move || {
         // Dropping a cancelled HTTP future must not release the slot while
         // Argon2 is still running in the blocking thread pool.
         let _permit = permit;
-        PasswordHash::new(&hash).ok().is_some_and(|h| {
-            Argon2::default()
-                .verify_password(password.as_bytes(), &h)
-                .is_ok()
-        })
+        let valid = password_matches(&hash, password.as_bytes());
+        let upgraded = (valid && hash.starts_with(ROCKETCHAT_BCRYPT))
+            .then(|| hash_password(password.as_bytes()))
+            .transpose();
+        (valid, upgraded)
     })
     .await
     .map_err(|_| Error::internal())?;
+    let upgraded = upgraded?;
     let Some((id, username, display_name, verified_hash)) = record.filter(|_| valid) else {
         return Err(Error::unauthorized());
     };
@@ -279,6 +300,13 @@ async fn password_login(
     .await?;
     if active.as_deref() != Some(&verified_hash) {
         return Err(Error::unauthorized());
+    }
+    if let Some(upgraded) = upgraded {
+        sqlx::query("UPDATE users SET password_hash=$2 WHERE id=$1")
+            .bind(&id)
+            .bind(upgraded)
+            .execute(&mut *tx)
+            .await?;
     }
     let user = User {
         id,
@@ -357,4 +385,23 @@ pub(crate) async fn create_session(
         expires_at: expires_at.to_rfc3339(),
         user: user.clone(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rocketchat_hash_checks_the_hex_sha256_of_the_password() {
+        let stored = format!(
+            "{ROCKETCHAT_BCRYPT}{}",
+            bcrypt::hash(hash_token_bytes(b"correct horse"), 4).unwrap()
+        );
+        assert!(password_matches(&stored, b"correct horse"));
+        assert!(!password_matches(&stored, b"wrong horse"));
+        assert!(!password_matches("rc-bcrypt:not-a-hash", b"correct horse"));
+        let argon = hash_password(b"correct horse").unwrap();
+        assert!(password_matches(&argon, b"correct horse"));
+        assert!(!password_matches(&argon, b"wrong horse"));
+    }
 }

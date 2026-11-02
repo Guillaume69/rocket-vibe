@@ -184,6 +184,33 @@ enum Command {
         #[arg(long, action = clap::ArgAction::Set)]
         user_bots: bool,
     },
+    /// Bring another server's data into this instance.
+    Import {
+        #[command(subcommand)]
+        source: ImportSource,
+    },
+}
+
+#[derive(Subcommand)]
+enum ImportSource {
+    /// A Rocket.Chat server, from its MongoDB (live, or a restored mongodump):
+    /// people with their passwords, rooms, messages, files, emoji, avatars.
+    /// Safe to run again: what is already imported is skipped.
+    Rocketchat {
+        /// The MongoDB connection string, e.g. mongodb://host:27017/?directConnection=true
+        #[arg(long, env = "VIBEZ_IMPORT_MONGO_URL")]
+        mongo: String,
+        /// The Rocket.Chat database name.
+        #[arg(long, default_value = "rocketchat")]
+        db: String,
+        /// A copy of the FileSystem upload store, when it is not at the path
+        /// Rocket.Chat's FileUpload_FileSystemPath setting names.
+        #[arg(long)]
+        uploads_dir: Option<std::path::PathBuf>,
+        /// Count what would be imported, write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 type CliResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -317,6 +344,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .await,
             )?,
         },
+        Command::Import {
+            source:
+                ImportSource::Rocketchat {
+                    mongo,
+                    db,
+                    uploads_dir,
+                    dry_run,
+                },
+        } => {
+            let app = app.with_objects(vibez::objects::LocalObjects::open(&args.objects_dir)?);
+            let report = vibez::rocketchat_import::run(
+                &app,
+                vibez::rocketchat_import::Options {
+                    mongo_url: mongo,
+                    database: db,
+                    uploads_dir,
+                    dry_run,
+                },
+            )
+            .await?;
+            output(report)?;
+        }
         Command::Serve { bind } => {
             let app = app.with_objects(vibez::objects::LocalObjects::open(&args.objects_dir)?);
             app.cleanup().await?;

@@ -308,8 +308,9 @@ pub struct JitsiCall {
 }
 
 /// The call behind a meeting URL when its host runs Jitsi Meet (its
-/// `config.js` names an XMPP domain); `None` for any other provider, or when
-/// the host does not answer within five seconds.
+/// `config.js` names an XMPP domain), with kMeet's `jwt` query as the token;
+/// `None` for any other provider, or when the host does not answer within
+/// five seconds.
 pub async fn discover_jitsi(meeting_url: &str, display_name: &str) -> Option<JitsiCall> {
     let parsed = url::Url::parse(meeting_url).ok()?;
     if parsed.scheme() != "https" {
@@ -322,7 +323,8 @@ pub async fn discover_jitsi(meeting_url: &str, display_name: &str) -> Option<Jit
     if !rv_call::jitsi::Config::is_jitsi(&config_js) {
         return None;
     }
-    let c = rv_call::jitsi::Config::from_meeting(meeting_url, &config_js, display_name, None)?;
+    let token = meeting_token(&parsed);
+    let c = rv_call::jitsi::Config::from_meeting(meeting_url, &config_js, display_name, token)?;
     Some(JitsiCall {
         websocket: c.websocket,
         domain: c.domain,
@@ -332,6 +334,11 @@ pub async fn discover_jitsi(meeting_url: &str, display_name: &str) -> Option<Jit
         display_name: c.display_name,
         token: c.token,
     })
+}
+
+/// kMeet's join token, carried by its meeting URL as `?jwt=`.
+fn meeting_token(meeting: &url::Url) -> Option<String> {
+    meeting.query_pairs().find(|(k, _)| k == "jwt").map(|(_, v)| v.into_owned()).filter(|t| !t.is_empty())
 }
 
 #[derive(Clone)]
@@ -899,6 +906,15 @@ async fn stop(mut sidecar: Sidecar) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kmeet_meeting_carries_its_token_and_a_plain_jitsi_one_none() {
+        let kmeet = url::Url::parse("https://kmeet.infomaniak.com/abc-def?jwt=a.b%2Bc.d").unwrap();
+        assert_eq!(meeting_token(&kmeet).as_deref(), Some("a.b+c.d"));
+        let jitsi = url::Url::parse("https://meet.barrut.me/RocketChatX#config.startWithAudioMuted=true").unwrap();
+        assert_eq!(meeting_token(&jitsi), None);
+        assert_eq!(meeting_token(&url::Url::parse("https://kmeet.infomaniak.com/r?jwt=").unwrap()), None);
+    }
 
     #[test]
     fn muted_speech_ignores_stale_unmuted_and_disconnected_sidecars() {

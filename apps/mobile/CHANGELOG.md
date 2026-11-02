@@ -7,6 +7,8 @@ release, and its notes are that version's section here.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-02
+
 ### Fixed
 
 - Server rail: an account whose server has no icon of its own now shows its service's logo (Rocket.Chat, Mattermost, kChat, Slack, Microsoft Teams, WhatsApp) instead of RocketVibe's; only a Vibez server without an icon keeps RocketVibe's.
@@ -951,7 +953,8 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.1...HEAD
+[0.26.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.0...mobile-v0.26.1
 [0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.1...mobile-v0.26.0
 [0.25.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...mobile-v0.25.1
 [0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0

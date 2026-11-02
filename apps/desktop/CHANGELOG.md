@@ -7,6 +7,8 @@ section here.
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-11-02
+
 ### Fixed
 
 - Server rail: an account whose server has no icon of its own now shows its service's logo (Rocket.Chat, Mattermost, kChat, Slack, Microsoft Teams, WhatsApp) instead of RocketVibe's; only a Vibez server without an icon keeps RocketVibe's.
@@ -1447,7 +1449,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.1...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.2...HEAD
+[0.30.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.1...desktop-v0.30.2
 [0.30.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.0...desktop-v0.30.1
 [0.30.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...desktop-v0.30.0
 [0.29.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0

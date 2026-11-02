@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-740 production files scanned; 758 occurrences.
+741 production files scanned; 758 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -723,7 +723,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/messages.ts:3025](../../apps/mobile/ui/messages.ts#L3025) | endpoint | e2e.genericError |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | call:GET | 'settings.public' |
 | [apps/mobile/ui/realNames.ts:47](../../apps/mobile/ui/realNames.ts#L47) | endpoint | settings.public |
-| [apps/mobile/ui/serverRail.tsx:48](../../apps/mobile/ui/serverRail.tsx#L48) | endpoint | subscriptions.get |
+| [apps/mobile/ui/serverRail.tsx:63](../../apps/mobile/ui/serverRail.tsx#L63) | endpoint | subscriptions.get |
 | [apps/mobile/ui/settingsSections.tsx:381](../../apps/mobile/ui/settingsSections.tsx#L381) | call:GET | 'me' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | call:POST | 'users.setPreferences' |
 | [apps/mobile/ui/settingsSections.tsx:410](../../apps/mobile/ui/settingsSections.tsx#L410) | endpoint | users.setPreferences |

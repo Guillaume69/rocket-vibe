@@ -509,6 +509,7 @@
     "apps/mobile/lib/providerCalls.ts",
     "apps/mobile/lib/providerEmojis.ts",
     "apps/mobile/lib/providerError.ts",
+    "apps/mobile/lib/providerMark.ts",
     "apps/mobile/lib/providerProfiles.ts",
     "apps/mobile/lib/push.ts",
     "apps/mobile/lib/pushToken.ts",
@@ -5042,7 +5043,7 @@
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 48,
+      "line": 63,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

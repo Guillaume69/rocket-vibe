@@ -238,7 +238,7 @@ try {
         .map((node) => node.getAttribute("aria-label"))
         .filter(Boolean),
     ),
-    ["Pinned and starred", "Search in room", "Join voice"],
+    ["Pinned and starred", "Notes", "Search in room", "Join voice"],
   );
   await page.screenshot({
     path: "../../.cache/web-shots/web-shell-parity.png",

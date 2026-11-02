@@ -756,9 +756,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-slack/src/service.rs:484](../../crates/rv-slack/src/service.rs#L484) | endpoint | users.list |
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
-| [crates/rv-teams/src/auth.rs:2033](../../crates/rv-teams/src/auth.rs#L2033) | url | /api/v1/suggestions |
-| [crates/rv-teams/src/auth.rs:2041](../../crates/rv-teams/src/auth.rs#L2041) | url | /api/v1/suggestions |
-| [crates/rv-teams/src/auth.rs:2199](../../crates/rv-teams/src/auth.rs#L2199) | url | /api/csa |
+| [crates/rv-teams/src/auth.rs:2111](../../crates/rv-teams/src/auth.rs#L2111) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/auth.rs:2119](../../crates/rv-teams/src/auth.rs#L2119) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/auth.rs:2277](../../crates/rv-teams/src/auth.rs#L2277) | url | /api/csa |
 | [crates/rv-teams/src/service.rs:293](../../crates/rv-teams/src/service.rs#L293) | url | /api/v1/suggestions |
 | [crates/rv-teams/src/service.rs:311](../../crates/rv-teams/src/service.rs#L311) | url | /api/v2/query |
 | [crates/rv-teams/src/service.rs:484](../../crates/rv-teams/src/service.rs#L484) | url | /api/csa |

@@ -344,6 +344,7 @@
     "apps/desktop/macos/Sources/RocketVibe/Media.swift",
     "apps/desktop/macos/Sources/RocketVibe/Members.swift",
     "apps/desktop/macos/Sources/RocketVibe/Modals.swift",
+    "apps/desktop/macos/Sources/RocketVibe/NativeCallWindow.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeFavoriteControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift",
     "apps/desktop/macos/Sources/RocketVibe/NewGroup.swift",

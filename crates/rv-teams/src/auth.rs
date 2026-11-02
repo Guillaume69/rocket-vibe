@@ -874,6 +874,7 @@ struct Held {
     substrate: Option<Lease>,
     graph: Option<Lease>,
     templates: Option<Lease>,
+    sharepoint: Option<(String, Lease)>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -903,6 +904,7 @@ impl Tokens {
             substrate: None,
             graph: None,
             templates: None,
+            sharepoint: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -1020,6 +1022,21 @@ impl Tokens {
         let lease = self.access(GRAPH).await?;
         let token = lease.value.clone();
         held.graph = Some(lease);
+        Ok(token)
+    }
+
+    /// A SharePoint bearer for the tenant's `host` (`https://<tenant>.sharepoint.com`),
+    /// for chat notes pages.
+    pub async fn sharepoint(&self, host: &str) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some((_, lease)) = held.sharepoint.as_ref().filter(|(h, _)| h == host)
+            && let Some(token) = lease.fresh()
+        {
+            return Ok(token);
+        }
+        let lease = self.access(host).await?;
+        let token = lease.value.clone();
+        held.sharepoint = Some((host.to_owned(), lease));
         Ok(token)
     }
 

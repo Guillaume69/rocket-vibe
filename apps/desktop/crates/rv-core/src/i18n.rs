@@ -2207,6 +2207,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("sys.wm_empty", "bienvenue !", "welcome!"),
     ("sys.wm", "bienvenue, {p} !", "welcome, {p}!"),
     ("sys.uploaded", "a envoyé le fichier {p}", "sent the file {p}"),
+    ("sys.notes_created", "a créé les notes de la conversation", "created the chat's notes"),
     ("sys.pinned", "a épinglé un message", "pinned a message"),
     ("sys.unpinned", "a désépinglé un message", "unpinned a message"),
     ("sys.topic_removed", "a retiré le sujet", "removed the topic"),
@@ -2851,6 +2852,7 @@ pub fn system_message(kind: &str, param: &str) -> String {
         "r" => with_p("sys.r"),
         "rm" => with_p("sys.rm"),
         "uploaded" => with_p("sys.uploaded"),
+        "rv-notes-created" => t("sys.notes_created").to_owned(),
         "message_pinned" | "message_pinned_e2e" => with_p("sys.pinned"),
         "message_unpinned" | "message_unpinned_e2e" => with_p("sys.unpinned"),
         "room_changed_avatar" => with_p("sys.avatar"),
@@ -2950,6 +2952,7 @@ mod tests {
         assert_eq!(system_message("uj", ""), "joined the channel");
         assert_eq!(system_message("room_changed_topic", ""), "removed the topic");
         assert_eq!(system_message("room_changed_topic", "Tea"), "changed the topic: Tea");
+        assert_eq!(system_message("rv-notes-created", "https://x.sharepoint.com/p.loop"), "created the chat's notes");
         assert_eq!(system_message("au", "bob"), "added bob to the channel");
         assert_eq!(system_message("livechat-close", ""), "(system action “livechat-close”)");
         set(Lang::Fr);

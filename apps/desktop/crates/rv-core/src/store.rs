@@ -577,6 +577,21 @@ impl Store {
     }
 
     /// A message's `t`, when it is a system or encrypted one.
+    /// The text of the room's newest message of this system type.
+    pub fn latest_system_text(&self, rid: &str, system_type: &str) -> Option<String> {
+        self.read(|c| {
+            c.query_row(
+                "SELECT text FROM messages WHERE rid = ?1 AND system_type = ?2 AND text IS NOT NULL ORDER BY ts DESC LIMIT 1",
+                [rid, system_type],
+                |r| r.get(0),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten()
+        .flatten()
+    }
+
     pub fn message_type(&self, id: &str) -> Option<String> {
         self.read(|c| c.query_row("SELECT system_type FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional())
             .ok()
@@ -1942,6 +1957,23 @@ mod tests {
             w.upsert_subscription(&Subscription { rid: "d1".into(), open: true, updated_at: 1, ..Default::default() })
         });
         assert!(store.listed("d1"));
+    }
+
+    #[test]
+    fn the_newest_system_message_of_a_kind_is_found_per_room() {
+        let store = Store::in_memory().unwrap();
+        store.write(|w| {
+            for (id, ts, rid, kind) in
+                [("a", 10, "r", "x"), ("b", 30, "r", "x"), ("c", 20, "r", "y"), ("d", 40, "s", "x")]
+            {
+                let mut m = message(id, Some(id), 0, rid);
+                m.ts = ts;
+                m.system_type = Some(kind.into());
+                w.upsert_message(&m);
+            }
+        });
+        assert_eq!(store.latest_system_text("r", "x").as_deref(), Some("b"));
+        assert_eq!(store.latest_system_text("r", "z"), None);
     }
 
     #[test]

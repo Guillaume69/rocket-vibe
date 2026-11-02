@@ -2097,14 +2097,20 @@ impl Session {
         Ok(self.store.messages_by_id(&ids))
     }
 
-    /// The room has a Notes tab: a Slack conversation's canvas.
-    pub fn notes_available(&self, _rid: &str) -> bool {
-        matches!(self.backend(), Backend::Slack(_))
+    /// The room has a Notes tab: a Slack conversation's canvas, a Teams chat's
+    /// Loop page once it exists.
+    pub fn notes_available(&self, rid: &str) -> bool {
+        match self.backend() {
+            Backend::Slack(_) => true,
+            Backend::Teams(teams) => teams.notes_page(rid).is_some(),
+            _ => false,
+        }
     }
 
     pub async fn room_notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
         match self.backend() {
             Backend::Slack(slack) => slack.notes(rid).await,
+            Backend::Teams(teams) => teams.notes(rid).await,
             _ => Err(crate::slack::not_supported("notes")),
         }
     }

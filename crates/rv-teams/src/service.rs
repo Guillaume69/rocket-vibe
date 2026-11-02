@@ -626,6 +626,23 @@ impl Service {
         })
     }
 
+    /// Declines a ringing call through the `reject` link its ring carried (a
+    /// `DELETE` with a `callEnd`, as Teams' web client sends it). The calling
+    /// service takes the Skype token when it asks for no other.
+    pub async fn decline_call(&self, reject: &str) -> Result<(), RestError> {
+        let url = calling_url(reject).ok_or_else(|| RestError::incomplete("decline: not a Teams calling link"))?;
+        let (skype, _) = self.tokens.chat().await?;
+        client::call(
+            &self.http,
+            Method::DELETE,
+            url,
+            ("X-Skypetoken", skype.as_str()),
+            Some(&crate::frames::decline_body()),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// Posts text into a room, or into a channel thread under `root`; answers
     /// the new message's server id.
     pub async fn send(&self, rid: &str, root: Option<&str>, text: &str, client_id: &str) -> Result<String, RestError> {
@@ -762,6 +779,15 @@ impl Service {
 
 fn ids(id: &str) -> Result<(&str, &str), RestError> {
     split_id(id).ok_or_else(|| refusal("message_id", 0))
+}
+
+/// A link of Teams' calling service: https on its own hosts only, since the
+/// Skype token goes with it.
+fn calling_url(raw: &str) -> Option<url::Url> {
+    let url = url::Url::parse(raw).ok()?;
+    let host = url.host_str()?;
+    let ours = [".teams.microsoft.com", ".skype.com"].iter().any(|d| host.ends_with(d));
+    (url.scheme() == "https" && url.username().is_empty() && ours).then_some(url)
 }
 
 fn thread_target(rid: &str, root: Option<&str>) -> String {
@@ -1004,6 +1030,20 @@ fn search_hits(body: &Value, rid: &str, directory: &Directory) -> Vec<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_decline_only_goes_to_teams_calling_hosts() {
+        assert!(calling_url("https://api.flightproxy.teams.microsoft.com/api/v2/ep/cc/forked/x/reject?i=1").is_some());
+        assert!(calling_url("https://cc-euwe-01-prod-aks.cc.skype.com/cc/v1/forked/x/reject").is_some());
+        for bad in [
+            "http://api.flightproxy.teams.microsoft.com/reject",
+            "https://teams.microsoft.com.evil.example/reject",
+            "https://user@api.flightproxy.teams.microsoft.com/reject",
+            "https://evil.example/reject",
+        ] {
+            assert!(calling_url(bad).is_none(), "{bad}");
+        }
+    }
 
     #[test]
     fn people_are_the_suggestions_with_an_id_me_left_out() {

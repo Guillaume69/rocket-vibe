@@ -36,6 +36,9 @@ const MAX_RECONNECT_DELAY_MS: u64 = 30_000;
 pub const GROUP_DM_MAX: usize = 7;
 /// Slack expires a typing frame on its own: one every few seconds keeps it up.
 const TYPING_EVERY: Duration = Duration::from_secs(3);
+/// How long a Teams call rings here when nothing says it stopped: its push
+/// for a caller who gives up was not seen.
+const TEAMS_RING_MS: i64 = 45_000;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionInfo {
@@ -579,6 +582,7 @@ impl Session {
             match event {
                 LiveEvent::Event { name, data, broadcast } => match s.backend() {
                     Backend::Slack(_) => s.apply_slack(&name, &data).await,
+                    Backend::Teams(_) if name == crate::teams::live::CALL_EVENT => s.teams_call(&data),
                     Backend::Teams(teams) => {
                         if let Some((rid, who, on)) = teams.typing_event(&name, &data) {
                             s.typing.lock().unwrap().apply(&rid, &who, on, Instant::now());
@@ -2274,12 +2278,72 @@ impl Session {
 
     /// Declines a ringing call. kChat: its conference's `decline`. Rocket.Chat:
     /// `video-conference.cancel`, which only its licensed direct calls accept.
+    /// Teams: the `reject` link its ring carried.
     pub async fn decline_call(&self, call_id: &str) -> Result<(), RestError> {
+        let decline =
+            self.rings.lock().unwrap().current().filter(|c| c.call_id == call_id).and_then(|c| c.decline.clone());
         self.dismiss_call();
         match self.backend() {
             Backend::Mattermost(_) => mattermost::actions::decline_conference(&self.rest, call_id).await,
-            Backend::Slack(_) | Backend::Teams(_) => Err(crate::slack::not_supported("calls")),
+            Backend::Teams(teams) => match decline {
+                Some(link) => teams.service.decline_call(&link).await,
+                None => Ok(()),
+            },
+            Backend::Slack(_) => Err(crate::slack::not_supported("calls")),
             Backend::RocketChat => actions::cancel_call(&self.rest, call_id).await,
+        }
+    }
+
+    /// A call Teams pushed to the calling registration: a ring opens the
+    /// prompt on the conversation it comes from (Accept opens that
+    /// conversation in the call window, where Teams' own client answers it),
+    /// and the same call answered elsewhere or over stops it.
+    fn teams_call(self: &Arc<Self>, envelope: &Value) {
+        use crate::teams::frames::CallPush;
+        match crate::teams::frames::call_push(envelope) {
+            Some(CallPush::Ring(ring)) => {
+                let me = self.info.user_id.as_str();
+                if ring.caller_mri == me {
+                    return;
+                }
+                let rid = ring.thread.clone().or_else(|| {
+                    (!ring.multi_party).then(|| crate::teams::translate::one_on_one_id(me, &ring.caller_mri)).flatten()
+                });
+                let Some(rid) = rid else { return };
+                let call = crate::call_ring::IncomingCall {
+                    message_id: ring.call_id,
+                    rid: rid.clone(),
+                    call_id: rid,
+                    caller_id: ring.caller_mri,
+                    caller_name: ring.caller_name,
+                    until: chrono::Utc::now().timestamp_millis() + TEAMS_RING_MS,
+                    decline: ring.reject,
+                };
+                if !self.rings.lock().unwrap().ring(call.clone()) {
+                    return;
+                }
+                let _ = self.events.send(SessionEvent::CallRing);
+                let weak = Arc::downgrade(self);
+                let expiry = tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(TEAMS_RING_MS as u64)).await;
+                    if let Some(s) = weak.upgrade()
+                        && s.rings.lock().unwrap().stop_if(|c| c.message_id == call.message_id)
+                    {
+                        let _ = s.events.send(SessionEvent::CallRing);
+                    }
+                });
+                let mut tasks = self.tasks.lock().unwrap();
+                tasks.retain(|t| !t.is_finished());
+                tasks.push(expiry);
+            }
+            Some(CallPush::Moved { call_id }) => {
+                let stopped =
+                    self.rings.lock().unwrap().stop_if(|c| call_id.as_ref().is_none_or(|id| &c.message_id == id));
+                if stopped {
+                    let _ = self.events.send(SessionEvent::CallRing);
+                }
+            }
+            None => {}
         }
     }
 

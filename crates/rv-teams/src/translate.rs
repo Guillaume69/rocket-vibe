@@ -566,6 +566,23 @@ fn tag_value<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
     Some(&xml[start..start + end])
 }
 
+/// Who a message is from. A thread event (`ThreadActivity/*`) comes from the
+/// conversation itself: its `<initiator>` is the person, and a conversation id
+/// never stands for one.
+fn actor(raw: &Value) -> String {
+    let from = str_of(raw, "from").map(mri_of).unwrap_or_default();
+    let event = str_of(raw, "messagetype").is_some_and(|k| k.starts_with("ThreadActivity/"));
+    let initiator = event.then(|| tag_value(str_of(raw, "content").unwrap_or_default(), "initiator")).flatten();
+    match initiator.map(str::trim).filter(|m| !m.is_empty()) {
+        Some(person) => person.to_owned(),
+        None if from.starts_with("19:") => String::new(),
+        None => from.to_owned(),
+    }
+}
+
+/// The name of a thread event's unknown actor.
+const SOMEONE: &str = "Someone";
+
 fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<String>)> {
     let kind = str_of(raw, "messagetype")?.strip_prefix("ThreadActivity/")?;
     let content = str_of(raw, "content").unwrap_or_default();
@@ -901,7 +918,7 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         return None;
     }
     directory.learn(raw);
-    let author = str_of(raw, "from").map(mri_of).unwrap_or_default().to_owned();
+    let author = actor(raw);
     let system = system(raw, directory);
     if kind.starts_with("ThreadActivity/") && system.is_none() {
         return None;
@@ -932,7 +949,7 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         rid: conversation.to_owned(),
         text,
         ts: at,
-        author_name: Some(directory.shown(&author)),
+        author_name: Some(if author.is_empty() { SOMEONE.to_owned() } else { directory.shown(&author) }),
         author_id: author,
         system_type: system.map(|(t, _)| t.to_owned()),
         thread_id,
@@ -1272,6 +1289,28 @@ mod tests {
         assert!(call_link(&[], None).is_none());
         assert_eq!(call_profile("8:orgid:884c3588-78ab/../x"), "call-window-teams-884c3588-78abx");
         assert!(call_allowed(&call_link(&users, None).unwrap(), ""));
+    }
+
+    #[test]
+    fn a_topic_change_is_named_after_its_initiator_not_the_conversation() {
+        let directory = Directory::default();
+        directory.remember("8:orgid:abc", "Ada Lovelace");
+        let raw = |content: &str| {
+            json!({
+                "id": "1793576411256", "messagetype": "ThreadActivity/TopicUpdate",
+                "from": "https://x/v1/users/ME/contacts/19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2",
+                "content": content, "originalarrivaltime": "2026-11-01T23:40:11.348Z",
+            })
+        };
+        let named = raw(
+            "<topicupdate><eventtime>1</eventtime><initiator>8:orgid:abc</initiator><value>Axeo devs</value></topicupdate>",
+        );
+        let m = message("19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2", &named, &directory).unwrap();
+        assert_eq!((m.author_id.as_str(), m.author_name.as_deref()), ("8:orgid:abc", Some("Ada Lovelace")));
+        assert_eq!((m.system_type.as_deref(), m.text.as_deref()), (Some("room_changed_topic"), Some("Axeo devs")));
+        let anonymous = raw("<topicupdate><value>Axeo devs</value></topicupdate>");
+        let m = message("19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2", &anonymous, &directory).unwrap();
+        assert_eq!((m.author_id.as_str(), m.author_name.as_deref()), ("", Some("Someone")));
     }
 
     #[test]

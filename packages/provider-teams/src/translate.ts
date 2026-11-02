@@ -689,6 +689,20 @@ export function chatLink(chat: string, tenant: string): string {
   return `https://teams.microsoft.com/l/chat/${encodeURIComponent(chat)}/conversations?${new URLSearchParams({ tenantId: tenant })}`;
 }
 
+/** Who a message is from. A thread event (`ThreadActivity/*`) comes from the
+ *  conversation itself: its `<initiator>` is the person, and a conversation id
+ *  never stands for one. Mirrors `actor` in `crates/rv-teams/src/translate.rs`. */
+export function actor(raw: unknown): string {
+  const from = mriOf(str(raw, 'from') ?? '');
+  const event = (str(raw, 'messagetype') ?? '').startsWith('ThreadActivity/');
+  const initiator = event ? tagValue(str(raw, 'content') ?? '', 'initiator')?.trim() ?? '' : '';
+  if (initiator !== '') return initiator;
+  return from.startsWith('19:') ? '' : from;
+}
+
+/** The name of a thread event's unknown actor. */
+const SOMEONE = 'Someone';
+
 /** One chat service message, or null for a kind the app does not show. */
 export function toMessage(conversation: string, raw: unknown, directory: TeamsDirectory): LocalMessage | null {
   const id = str(raw, 'id') ?? (int(raw, 'id') !== null ? String(int(raw, 'id')) : null);
@@ -703,7 +717,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
   if (kind.startsWith('ThreadActivity/') && !activity) return null;
   const ts = instant(raw, 'originalarrivaltime') ?? instant(raw, 'composetime') ?? Number(id);
   if (!Number.isFinite(ts)) return null;
-  const author = mriOf(str(raw, 'from') ?? '');
+  const author = actor(raw);
   const edited = int((raw as Doc).properties, 'edittime');
   const root = rootOf(raw, id);
   const converted = body(raw);
@@ -716,7 +730,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     text: activity ? activity.text : converted.text,
     ts,
     authorId: author,
-    authorName: directory.shown(author),
+    authorName: author === '' ? SOMEONE : directory.shown(author),
     systemType: activity?.type ?? null,
     threadId: root ? messageId(conversation, root) : null,
     threadCount: 0,

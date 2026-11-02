@@ -56,6 +56,8 @@ pub struct IncomingCall {
     pub caller_name: Option<String>,
     /// Epoch milliseconds when it stops ringing.
     pub until: i64,
+    /// Where declining it goes, when the ring named it (Teams' `reject` link).
+    pub decline: Option<String>,
 }
 
 pub fn signal_of(message: &Message) -> Option<CallSignal> {
@@ -147,9 +149,22 @@ impl Rings {
             caller_id: caller.to_owned(),
             caller_name: check.and_then(|c| c.caller_name.clone()).or_else(|| name.map(str::to_owned)),
             until: (*ts).min(now) + RING_MS,
+            decline: None,
         };
         self.current = Some(call.clone());
         Some(call)
+    }
+
+    /// A call the server rang here itself (Teams): rings unless another one
+    /// does or this one already rang.
+    pub fn ring(&mut self, call: IncomingCall) -> bool {
+        let known = |ids: &VecDeque<String>| ids.iter().any(|id| id == &call.message_id);
+        if self.current.is_some() || known(&self.seen) || known(&self.over) {
+            return false;
+        }
+        remember(&mut self.seen, &call.message_id);
+        self.current = Some(call);
+        true
     }
 
     /// The call message became an ended call (kChat's edited post). True when it rang.
@@ -198,6 +213,29 @@ mod tests {
             over,
             joined: joined.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    #[test]
+    fn a_call_the_server_rang_rings_once_and_not_over_another() {
+        let teams = |id: &str| IncomingCall {
+            message_id: id.into(),
+            rid: "19:a_b@unq.gbl.spaces".into(),
+            call_id: "19:a_b@unq.gbl.spaces".into(),
+            caller_id: "8:orgid:a".into(),
+            caller_name: Some("Ada".into()),
+            until: 45_000,
+            decline: Some("https://api.flightproxy.teams.microsoft.com/reject".into()),
+        };
+        let mut rings = Rings::default();
+        assert!(rings.ring(teams("call-1")));
+        assert!(!rings.ring(teams("call-2")), "one rings at a time");
+        assert!(rings.stop_if(|c| c.message_id == "call-1"));
+        assert!(!rings.ring(teams("call-1")), "a call rings once");
+        assert!(rings.ring(teams("call-2")));
+        assert_eq!(
+            rings.current().and_then(|c| c.decline.as_deref()),
+            Some("https://api.flightproxy.teams.microsoft.com/reject")
+        );
     }
 
     #[test]

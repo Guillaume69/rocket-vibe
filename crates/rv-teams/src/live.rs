@@ -23,6 +23,11 @@ const HANDSHAKE: Duration = Duration::from_secs(15);
 const SILENCE_MAX: Duration = Duration::from_secs(210);
 const REGISTER_AGAIN: Duration = Duration::from_secs(6 * 3600);
 const TROUTER_HOSTS: &str = ".trouter.teams.microsoft.com";
+const CHAT_APP: (&str, &str) = ("TeamsCDLWebWorker", "TeamsCDLWebWorker_2.6");
+const CALLING_APP: (&str, &str) = ("SkypeSpacesWeb", "SkypeSpacesWeb_2.6");
+/// The `LiveEvent` name of a pushed call; its data is the pushed request, read
+/// again with [`frames::call_push`].
+pub const CALL_EVENT: &str = "TeamsCall";
 
 enum Command {
     Open,
@@ -62,6 +67,18 @@ fn endpoint_id() -> Option<String> {
     Some(format!("{}-{}-{}-{}-{}", &hex[..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..]))
 }
 
+fn registration(id: &str, surl: &str, app: &str, template: &str) -> Value {
+    json!({
+        "clientDescription": {
+            "appId": app, "aesKey": "", "languageId": "en-US", "platform": "edge",
+            "templateKey": template, "platformUIVersion": "49/26.10.0.0",
+        },
+        "registrationId": id,
+        "nodeId": "",
+        "transports": {"TROUTER": [{"context": "", "path": surl, "ttl": 86400}]},
+    })
+}
+
 /// An `https` URL on one of Trouter's hosts.
 fn trouter_url(raw: &str) -> Option<url::Url> {
     let url = url::Url::parse(raw).ok()?;
@@ -79,6 +96,8 @@ struct Socket {
     sink: Sink,
     stream: Stream,
     epid: String,
+    /// The calling registration's own id, on the same socket.
+    calling_id: String,
     surl: String,
 }
 
@@ -182,29 +201,33 @@ impl Actor {
         })
         .await
         .unwrap_or(false);
-        connected.then_some(Socket { sink, stream, epid, surl })
+        let calling_id = endpoint_id()?;
+        connected.then_some(Socket { sink, stream, epid, calling_id, surl })
     }
 
-    /// Asks the registrar to route this account's chat events to the socket.
-    async fn register(&self, epid: &str, surl: &str) -> bool {
+    /// Asks the registrar to route this account's chat events to the socket,
+    /// then its calls, which Teams pushes only to a calling registration
+    /// (`SkypeSpacesWeb`, as its web client makes beside the chat one). A
+    /// refused calling registration leaves chat working, with no ring.
+    async fn register(&self, socket: &Socket) -> bool {
+        if !self.register_app(&socket.epid, &socket.surl, CHAT_APP).await {
+            return false;
+        }
+        let _ = self.register_app(&socket.calling_id, &socket.surl, CALLING_APP).await;
+        true
+    }
+
+    async fn register_app(&self, id: &str, surl: &str, (app, template): (&str, &str)) -> bool {
         let Ok((skype, routes)) = self.tokens.chat().await else { return false };
         let Ok(registrar) = url::Url::parse(&routes.registrar) else { return false };
-        let body = json!({
-            "clientDescription": {
-                "appId": "TeamsCDLWebWorker", "aesKey": "", "languageId": "en-US", "platform": "edge",
-                "templateKey": "TeamsCDLWebWorker_2.6", "platformUIVersion": "49/26.10.0.0",
-            },
-            "registrationId": epid,
-            "nodeId": "",
-            "transports": {"TROUTER": [{"context": "", "path": surl, "ttl": 86400}]},
-        });
+        let body = registration(id, surl, app, template);
         let sent =
             super::client::http().post(registrar).header("X-Skypetoken", skype.as_str()).json(&body).send().await;
         sent.is_ok_and(|r| r.status().is_success())
     }
 
     async fn serve(&self, mut socket: Socket, commands: &mut mpsc::UnboundedReceiver<Command>) -> Ended {
-        if !self.register(&socket.epid, &socket.surl).await {
+        if !self.register(&socket).await {
             return Ended::Lost;
         }
         self.emit(LiveEvent::State(State::Authenticated));
@@ -242,7 +265,7 @@ impl Actor {
                     }
                 }
                 _ = renew.tick() => {
-                    if !self.register(&socket.epid, &socket.surl).await {
+                    if !self.register(&socket).await {
                         return Ended::Lost;
                     }
                 }
@@ -273,6 +296,8 @@ impl Actor {
                 }
                 if let Some((name, data)) = frames::chat_event(&envelope) {
                     self.emit(LiveEvent::Event { name, data, broadcast: Value::Null });
+                } else if frames::call_push(&envelope).is_some() {
+                    self.emit(LiveEvent::Event { name: CALL_EVENT.to_owned(), data: envelope, broadcast: Value::Null });
                 }
                 true
             }
@@ -284,6 +309,16 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calls_are_registered_beside_chat_on_the_same_path() {
+        let chat = registration("a", "https://x.trouter.teams.microsoft.com/v4/f/p/", CHAT_APP.0, CHAT_APP.1);
+        let calls = registration("b", "https://x.trouter.teams.microsoft.com/v4/f/p/", CALLING_APP.0, CALLING_APP.1);
+        assert_eq!(calls["clientDescription"]["appId"], "SkypeSpacesWeb");
+        assert_eq!(calls["clientDescription"]["templateKey"], "SkypeSpacesWeb_2.6");
+        assert_eq!(chat["transports"], calls["transports"]);
+        assert_ne!(chat["registrationId"], calls["registrationId"]);
+    }
 
     #[test]
     fn endpoint_ids_are_v4_uuids() {

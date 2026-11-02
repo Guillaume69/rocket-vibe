@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Rocket.Chat: a video conference on a Jitsi Meet server (the Jitsi provider, self-hosted or not) runs inside the app, audio only: who is in the call and who speaks, mute, deafen, hang up, the call's length. A call that cannot be joined this way opens the meeting's page as before.
 - Teams (experimental): a chat's Notes tab shows its notes (the Loop page Teams keeps for the chat), rendered like messages, read-only; the chat shows when they were created.
 - Slack (experimental): the Notes tab shows a conversation's canvas, rendered like messages, and edits it as markdown (saved over the version you read, created if the conversation has none).
 - Vibez: a Notes tab in every room that is not encrypted, one markdown document its members read and anyone who may post edits, rendered like messages, saved against the version you read (a save made meanwhile keeps your text and says so).

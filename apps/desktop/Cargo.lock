@@ -4432,6 +4432,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a993555f31e5a609f617c12db6250dedcac1b0a85076912c436e6fc9b2c8e6a3"
 
 [[package]]
+name = "quick-xml"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4956,6 +4965,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rv-call"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "quick-xml",
+]
+
+[[package]]
 name = "rv-client"
 version = "0.1.0"
 dependencies = [
@@ -4984,6 +5001,7 @@ dependencies = [
  "reqwest 0.13.5",
  "rusqlite",
  "rustls",
+ "rv-call",
  "rv-client",
  "rv-crypto",
  "rv-crypto-public",

@@ -108,10 +108,52 @@ in `#caca`):
   `X-Amzn-Chime-Send-Close-On-Error`, `X-Amzn-Version`, `X-Amzn-User-Agent`, the JoinToken
   as `Sec-WebSocket-Protocol` (`_aws_wt_session`); binary protobuf frames (first ones 24 B
   each way, then a 152 B join, 288 B join ack, a 2324 B frame carrying the SDP offer);
-- the TURN credential request to `TurnControlUrl` is not in the capture (the huddle opened a
-  second window), and the `WebRTC Internals.html` saved is the page only: it shows
-  getUserMedia audio constraints (`echoCancellation`, `autoGainControl` ideal) but no peer
-  connection, no SDP; a "Create dump" JSON is needed for the SDP.
+- the first capture missed the TURN step and the SDP; the second one
+  (`app.slack.com_huddle2.har` plus a `webrtc_internals_dump.gz` "Create dump", 2026-11-02)
+  has the whole signalling WebSocket, decoded with the SDK's own
+  [SignalingProtocol.proto](https://github.com/aws/amazon-chime-sdk-js/blob/main/protocol/SignalingProtocol.proto).
+
+**The whole Chime flow, end to end** (second capture):
+1. `rooms.join {channel_id, regions, multidevice}` → `call.free_willy` as above (a huddle
+   in a channel: `ExternalMeetingId` = `<team>-<call id>-<user>`, `huddle.external_unique_id`
+   = the Chime `MeetingId`);
+2. WebSocket to `SignalingUrl` with the JoinToken as subprotocol. Each binary frame is one
+   type byte then a protobuf `SdkSignalFrame {timestamp_ms, type, <one body>}`; the client
+   sends type `0x05`, the server's frames start with `0x02`
+   ([DefaultSignalingClient.ts](https://github.com/aws/amazon-chime-sdk-js/blob/main/src/signalingclient/DefaultSignalingClient.ts));
+3. the sequence: `PING_PONG`, then `JOIN {protocol_version 2, flags, client_details
+   (client_source "amazon-chime-sdk-js", chime_sdk_version 3.32.0, platform, os),
+   audio_session_id, wants_compressed_sdp, server_side_network_adaption}` (113 B);
+   `JOIN_ACK {turn_credentials {username, password, ttl 300, uris: turn:ice.<cell>.m.chime.aws:3478?transport=udp,
+   turns:...:443?transport=tcp}, video_subscription_limit 25, wants_compressed_sdp}`;
+   `INDEX {num_participants, at_capacity, supported_receive_codec_intersection}`;
+   `SUBSCRIBE {duplex RX, send_streams [{stream_id, group_id, track_label
+   "AmazonChimeExpressAudio", media_type AUDIO, attendee_id, max_bitrate_kbps}],
+   audio_host (the AudioHostUrl, :3478), audio_muted, compressed_sdp_offer}`;
+   `SUBSCRIBE_ACK {duplex, allocations [{stream_id, group_id}], compressed_sdp_answer}`;
+   `AUDIO_STREAM_ID_INFO {streams [{audio_stream_id, attendee_id, external_user_id, muted}]}`
+   (who is in the huddle), then every ~100 ms `AUDIO_METADATA` (levels), every second
+   `CLIENT_METRIC` (sent) and `BITRATES`, `DATA_MESSAGE {topic "awareness-sync-channel"}`,
+   a `PING_PONG` every 10 s. No `LEAVE` in the capture (it ends before hanging up);
+4. **TURN comes in the JOIN_ACK**: the capture has no request to `TurnControlUrl`, and the
+   peer connection is created with
+   `iceTransportPolicy: relay`, `bundlePolicy: max-bundle` and that single TURN host
+   (webrtc-internals): all media goes through Chime's TURN;
+5. **the SDP is compressed**: `deflateRaw` (pako) seeded with the previous SDP of the same
+   direction as dictionary, empty for the first offer and answer
+   ([ZLIBTextCompressor.ts](https://github.com/aws/amazon-chime-sdk-js/blob/main/src/sdp/ZLIBTextCompressor.ts));
+6. the SDP itself is plain WebRTC: client offer `setup:actpass`, server answer `passive`,
+   `BUNDLE 0 1` (audio `sendrecv`, video `inactive` until a camera or share), `rtcp-mux`,
+   UDP/TLS/RTP/SAVPF; offer codecs Opus, red, G722, PCMU/PCMA, CN, telephone-event, and for
+   video VP8, VP9, H264, AV1 with rtx/red/ulpfec; the answer keeps Opus+red and
+   VP8/VP9/H264/AV1+rtx; header extensions transport-wide-cc, abs-send-time, sdes:mid,
+   rid, ssrc-audio-level (offer only), dependency-descriptor, video-layers-allocation.
+   A second offer/answer pair follows once connected (renegotiation).
+
+So the Slack side gives everything a native Chime client needs: credentials, signalling
+sequence, TURN, SDP. Still unseen: `LEAVE`, video subscription (another participant with a
+camera or a share: `SUBSCRIBE` with `receive_stream_ids` and the `INDEX` source list),
+and the screen-share path (`ScreenSharingUrl`, a separate WebSocket).
 
 Media is standard WebRTC with the client always offering. AWS publishes the signalling for
 custom media stacks: [amazon-chime-sdk-cpp signaling](https://github.com/aws/amazon-chime-sdk-cpp/blob/main/chime-sdk-signaling-cpp/README.md)
@@ -177,12 +219,24 @@ From the user's HARs (2026-11-01/02, see [teams.md](teams.md) Live and Calls):
   `callModalities ["Audio", "ScreenViewer"]`, and an offer with one audio, ten
   `main-video`, one `applicationsharing-video` and the `x-data` m-lines. A meeting
   (`meetingInfo`, meetup-join) has not been captured;
-- **screen sharing**: every offer negotiates the `applicationsharing-video` m-line, but
-  none of the captures shares a screen (no `addModality`, no `ScreenSharer` modality);
+- **screen sharing** (`..._screenshare.har`, 2026-11-02, the same `ic3` bearer on every
+  request): starting a share is `POST {cc}/cc/v1/active/<call>/.../renegotiate
+  {mediaNegotiation {callModalities, sender, links {mediaAnswer, rejection}, mediaContent
+  {blob: SDP offer, negotiationTag, mediaLegId}}}` whose offer turns the
+  `applicationsharing-video` m-line `sendonly` (audio `sendrecv`, `main-video` `inactive`,
+  `x-data` `sendrecv`), plus `conv/<id>/updateParticipantProperties` with a
+  `screenSharerAttributes` property; the answer comes back on the `mediaAnswer` callback
+  and is confirmed by `POST {cc}/cc/v1/mediaAnswers/.../acknowledge`. Stopping is another
+  `renegotiate` with that m-line rejected (one payload type, no direction). When the other
+  side shares, the far end renegotiates and the client answers on
+  `{cc}/cc/v1/negotiations/.../answer {mediaAnswer {mediaContent, clientContentForMediaController
+  {controlVideoStreaming, csrcInfo}, links {mediaAcknowledgement}}}` with that m-line
+  `recvonly`. The screen is captured at up to 1920x1080, 15 fps (`getDisplayMedia`,
+  webrtc-internals);
 - **still missing**: the Trouter frames of a call (the `mediaAnswer` on an outgoing call,
   the ring in a fresh session), where the relay (TURN/MRAS) credentials come from (no
-  such request in these HARs), a meeting join, a screen share, and a
-  `chrome://webrtc-internals` dump;
+  such request in these HARs), a meeting join, and a `chrome://webrtc-internals` dump of a
+  Teams call (the 2026-11-02 dump holds only Slack's peer connection);
 - the SDP (`application/sdp-ngc-1.0`): DTLS-SRTP, shared transport, Opus/G722/PCM, H264/AV1,
   transport-wide-cc, plus Microsoft extensions: an `m=x-data` SCTP channel,
   `a=x-ssrc-range` (100 video SSRCs reserved in a group call),
@@ -209,14 +263,16 @@ Teams meetings and video last.
 
 - **kMeet**: one live call in `#testtest` from the kChat app itself (the `/conferences`
   answer's `url` shape, the XMPP `session-initiate`, the TURN servers from XEP-0215).
-- **Slack**: the TURN session request (`TurnControlUrl`) and a `chrome://webrtc-internals`
-  "Create dump" JSON of a huddle, for the SDP.
+- **Slack**: nothing blocking (the second capture has credentials, signalling, TURN and SDP).
+  Useful later: a huddle with a second participant's camera or a screen share (video
+  subscription, the `ScreenSharingUrl` socket) and a `LEAVE`. A huddle opens in its own
+  window: Chrome's DevTools setting "Auto-open DevTools for popups" catches it from the start.
 - **Teams**: the Trouter frames of a call (a HAR started before Teams loads, or a
   webrtc-internals dump plus the Trouter socket's frames): the outgoing call's
   `mediaAnswer` and the ring of a fresh session; where the relay (TURN/MRAS) credentials
-  come from; a meeting join (`meetingInfo`); a screen share (`addModality`); a
-  webrtc-internals dump of a group call (the `x-data` channel's messages). The auth
-  audience and the outgoing call's creating request are captured (2026-11-02).
+  come from; a meeting join (`meetingInfo`); a webrtc-internals dump of a Teams call (the
+  `x-data` channel's messages). The auth audience, the outgoing call's creating request and
+  screen sharing are captured (2026-11-02).
 
 ## Sources
 
@@ -226,6 +282,9 @@ Teams meetings and video last.
 - docs/MATTERMOST.md (kMeet conferences)
 - brain/features/calls.md, brain/architecture/teams.md, brain/architecture/slack-session.md
 - crates/rv-teams/examples/teams-ic3.rs (ic3 token probe), crates/rv-teams/examples/teams-foci.rs
+- https://github.com/aws/amazon-chime-sdk-js/blob/main/protocol/SignalingProtocol.proto
+- https://github.com/aws/amazon-chime-sdk-js/blob/main/src/signalingclient/DefaultSignalingClient.ts
+- https://github.com/aws/amazon-chime-sdk-js/blob/main/src/sdp/ZLIBTextCompressor.ts
 - Captures 2026-11-02: chat.barrut.me `#test` call, meet.barrut.me/config.js,
   kmeet.infomaniak.com/config.js, `app.slack.com_huddle.har`, `WebRTC Internals.html`,
   `teams.cloud.microsoft*.har` (incl. `_call_out`, `_call_in`, `_group_call`, `_group_call2`)

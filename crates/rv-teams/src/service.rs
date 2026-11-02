@@ -359,11 +359,13 @@ impl Service {
         stream_response(response, dest, progress).await
     }
 
-    /// The preview of an image shared from SharePoint or OneDrive: Graph's large
-    /// thumbnail of the item, else the file itself; both answer a redirect to a
-    /// pre-signed url, followed without the bearer.
+    /// The preview of a file shared from SharePoint or OneDrive: Graph's large
+    /// thumbnail of the item, else, for an image, the file itself; both answer a
+    /// redirect to a pre-signed url, followed without the bearer. A document's
+    /// url carries `THUMBNAIL_ONLY`: it is never downloaded whole for a preview.
     pub async fn fetch_share_preview(&self, url: &str) -> Result<(Vec<u8>, String), RestError> {
         use base64::Engine;
+        let (url, thumbnail_only) = translate::thumbnail_only(url);
         if !translate::is_graph_share(url) {
             return Err(RestError::network(format!("{url}: not a shared file.")));
         }
@@ -371,7 +373,12 @@ impl Service {
         let enc = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url.as_bytes());
         let net = |e: reqwest::Error| RestError::network(format!("teams preview: {e}"));
         let mut last = 0;
-        for tail in ["driveItem/thumbnails/0/large/content", "driveItem/content"] {
+        let tails: &[&str] = if thumbnail_only {
+            &["driveItem/thumbnails/0/large/content"]
+        } else {
+            &["driveItem/thumbnails/0/large/content", "driveItem/content"]
+        };
+        for tail in tails {
             let item = format!("https://graph.microsoft.com/v1.0/shares/u!{enc}/{tail}");
             let first = self.http.get(&item).bearer_auth(token.as_str()).send().await.map_err(net)?;
             let status = first.status().as_u16();
@@ -448,6 +455,26 @@ impl Service {
         let url = self.conversation_url(rid, &["messages", server], &format!("view={VIEW}")).await?;
         let start = self.chat(Method::GET, url, None).await?.body;
         Ok(str_of(&start, "from").map(translate::mri_of).and_then(translate::object_id).map(str::to_owned))
+    }
+
+    /// Creates a group chat of me and `others` (MRIs), as Teams' web app does:
+    /// the chat service's threads, which answer the new chat's id.
+    pub async fn create_group_chat(&self, others: &[String]) -> Result<String, RestError> {
+        let url = self.chat_url(&["threads"], "").await?;
+        let answer = self.chat(Method::POST, url, Some(&translate::group_thread(&self.me, others))).await?;
+        answer
+            .body
+            .pointer("/threadResource/id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| refusal("group_chat_answer", answer.status))
+    }
+
+    /// Names a chat (its topic), as Teams' web app does.
+    pub async fn set_topic(&self, rid: &str, topic: &str) -> Result<(), RestError> {
+        let url = self.chat_url(&["threads", rid, "properties"], "name=topic").await?;
+        self.chat(Method::PUT, url, Some(&json!({"topic": topic}))).await?;
+        Ok(())
     }
 
     /// Renames a channel as Teams' web app does: its templates service,

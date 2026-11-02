@@ -2409,127 +2409,127 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1609,
+      "line": 1605,
       "kind": "call:GET",
       "surface": "\"settings.public\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1609,
+      "line": 1605,
       "kind": "endpoint",
       "surface": "settings.public"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1647,
+      "line": 1643,
       "kind": "call:GET",
       "surface": "\"emoji-custom.list\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1647,
+      "line": 1643,
       "kind": "endpoint",
       "surface": "emoji-custom.list"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1702,
+      "line": 1698,
       "kind": "call:POST",
       "surface": "\"subscriptions.read\", read).await;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1702,
+      "line": 1698,
       "kind": "endpoint",
       "surface": "subscriptions.read"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1783,
+      "line": 1779,
       "kind": "call:GET",
       "surface": "\"permissions.listAll\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1783,
+      "line": 1779,
       "kind": "endpoint",
       "surface": "permissions.listAll"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1784,
+      "line": 1780,
       "kind": "call:GET",
       "surface": "\"me\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1808,
+      "line": 1804,
       "kind": "call:GET",
       "surface": "\"commands.list\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 1842,
+      "line": 1838,
       "kind": "call:POST",
       "surface": "\"commands.run\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2057,
+      "line": 2053,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2057,
+      "line": 2053,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2315,
+      "line": 2311,
       "kind": "call:GET",
       "surface": "\"video-conference.info\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2315,
+      "line": 2311,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2409,
+      "line": 2405,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2409,
+      "line": 2405,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2420,
+      "line": 2416,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2420,
+      "line": 2416,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2787,
+      "line": 2783,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2787,
+      "line": 2783,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },
@@ -5253,7 +5253,7 @@
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 457,
+      "line": 484,
       "kind": "url",
       "surface": "/api/csa"
     },

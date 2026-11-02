@@ -7,6 +7,12 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): start a group chat with two or more people from New conversation, and rename a group chat from its settings.
+- Teams (experimental): react with any emoji Teams offers, not only the six classic ones.
+- Teams (experimental): a PDF, Word, Excel, PowerPoint or text file shared in a conversation shows a preview image above it.
+
 ### Fixed
 
 - Teams (experimental): every reaction Teams offers shows its emoji (🚀 rather than ":launch:"), skin tones included: the app now reads Microsoft's full list of Teams reaction ids.

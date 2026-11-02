@@ -399,6 +399,31 @@ impl TeamsSync {
         Ok(rid)
     }
 
+    /// A group chat with these people (MRIs, or handles a people search gave),
+    /// created on Teams and listed at once: its rid.
+    pub async fn open_group(&self, handles: &[String]) -> Result<String, RestError> {
+        let others = {
+            let found = self.found.lock().unwrap();
+            handles
+                .iter()
+                .map(|h| if h.starts_with("8:") { Some(h.clone()) } else { found.get(h).cloned() })
+                .collect::<Option<Vec<String>>>()
+                .ok_or_else(|| RestError::incomplete("group chat: unknown person"))?
+        };
+        let rid = self.service.create_group_chat(&others).await?;
+        let chat = translate::new_group_chat(&rid, &self.me, &others, chrono::Utc::now().timestamp_millis())
+            .ok_or_else(|| RestError::incomplete("group chat: bad clock"))?;
+        if let Some((room, sub)) = self.row(&chat, None) {
+            self.store.write(|w| {
+                w.upsert_room(&room);
+                w.upsert_subscription(&sub);
+            });
+        }
+        self.entries.lock().unwrap().insert(rid.clone(), (chat.clone(), None));
+        self.pending.lock().unwrap().insert(rid.clone(), chat);
+        Ok(rid)
+    }
+
     /// Presence for a batch of people (UPS getpresence), best effort.
     pub async fn get_presence(&self, mris: &[String]) -> Vec<(String, crate::live::Presence)> {
         self.service.get_presence(mris).await
@@ -541,24 +566,47 @@ impl TeamsSync {
         }
     }
 
-    /// Whether a room is a channel Teams lets me rename here: one whose
-    /// aggregator entry names its team's group and its own Substrate group.
+    /// Whether a room is one Teams lets me rename here: a channel whose
+    /// aggregator entry names its team's group and its own Substrate group, or
+    /// a group chat (not a one-to-one, nor a meeting's).
     pub fn renamable(&self, rid: &str) -> bool {
-        self.entries.lock().unwrap().get(rid).is_some_and(|(entry, team)| {
-            team.is_some() && str_of(entry, "groupId").is_some() && str_of(entry, "substrateGroupId").is_some()
+        self.entries.lock().unwrap().get(rid).is_some_and(|(entry, team)| match team {
+            Some(_) => str_of(entry, "groupId").is_some() && str_of(entry, "substrateGroupId").is_some(),
+            None => group_chat(entry),
         })
     }
 
-    /// Renames a channel as Teams' web app does: its templates service,
-    /// addressed by the team's Graph group and the channel's Substrate group.
+    /// Renames a channel as Teams' web app does, through its templates
+    /// service addressed by the team's Graph group and the channel's Substrate
+    /// group; a group chat through its topic.
     pub async fn rename(&self, rid: &str, name: &str, tenant: &str) -> Result<(), RestError> {
-        let ids = self.entries.lock().unwrap().get(rid).and_then(|(entry, _)| {
-            Some((str_of(entry, "groupId")?.to_owned(), str_of(entry, "substrateGroupId")?.to_owned()))
+        let target = self.entries.lock().unwrap().get(rid).map(|(entry, team)| match team {
+            Some(_) => str_of(entry, "groupId")
+                .zip(str_of(entry, "substrateGroupId"))
+                .map(|(g, o)| (Some((g.to_owned(), o.to_owned())), false)),
+            None => group_chat(entry).then_some((None, true)),
         });
-        let Some((group, oid)) = ids else { return Err(crate::teams::auth::refusal("teams_team_not_found", 0)) };
-        self.service.rename(&group, &oid, tenant, name).await?;
-        if let Some((entry, _)) = self.entries.lock().unwrap().get_mut(rid) {
-            entry["displayName"] = Value::from(name);
+        match target.flatten() {
+            Some((Some((group, oid)), _)) => {
+                self.service.rename(&group, &oid, tenant, name).await?;
+                if let Some((entry, _)) = self.entries.lock().unwrap().get_mut(rid) {
+                    entry["displayName"] = Value::from(name);
+                }
+            }
+            Some((None, true)) => {
+                self.service.set_topic(rid, name).await?;
+                if let Some((entry, _)) = self.entries.lock().unwrap().get_mut(rid) {
+                    entry["title"] = Value::from(name);
+                }
+                let row = self.entries.lock().unwrap().get(rid).and_then(|(entry, _)| self.row(entry, None));
+                if let Some((room, sub)) = row {
+                    self.store.write(|w| {
+                        w.upsert_room(&room);
+                        w.upsert_subscription(&sub);
+                    });
+                }
+            }
+            _ => return Err(crate::teams::auth::refusal("teams_team_not_found", 0)),
         }
         Ok(())
     }
@@ -761,6 +809,13 @@ fn roster_page(body: &Value, directory: &Directory) -> crate::members::MemberPag
         .collect();
     let total = members.len() as u32;
     crate::members::MemberPage { members, total }
+}
+
+/// A chat of several people: neither a one-to-one nor a meeting's chat.
+fn group_chat(entry: &Value) -> bool {
+    str_of(entry, "id").is_some_and(|id| id.ends_with("@thread.v2"))
+        && entry.get("isOneOnOne").and_then(Value::as_bool) != Some(true)
+        && str_of(entry, "chatType") != Some("meeting")
 }
 
 #[cfg(test)]

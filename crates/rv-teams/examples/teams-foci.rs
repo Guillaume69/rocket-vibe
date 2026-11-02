@@ -22,12 +22,7 @@ const OWN_CLIENT: &str = "1fec8e78-bce4-4aaf-ab1b-5451cc387264";
 const WEB_CLIENT: &str = "5e3ce6c0-2b1f-4285-8d4b-75ee78787346";
 
 async fn redeem(tenant: &str, client: &str, refresh: &str, scope: &str) -> (u16, Value) {
-    let fields = [
-        ("client_id", client),
-        ("grant_type", "refresh_token"),
-        ("refresh_token", refresh),
-        ("scope", scope),
-    ];
+    let fields = [("client_id", client), ("grant_type", "refresh_token"), ("refresh_token", refresh), ("scope", scope)];
     let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(&fields).finish();
     let http = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)).build().unwrap();
     let response = http
@@ -69,7 +64,8 @@ async fn main() {
     };
 
     let (status, v) =
-        redeem(&tenant, OWN_CLIENT, &refresh, "https://api.spaces.skype.com/.default openid profile offline_access").await;
+        redeem(&tenant, OWN_CLIENT, &refresh, "https://api.spaces.skype.com/.default openid profile offline_access")
+            .await;
     report("own 1fec8e78", status, &v);
     match v["refresh_token"].as_str().filter(|t| !t.is_empty()) {
         None => {

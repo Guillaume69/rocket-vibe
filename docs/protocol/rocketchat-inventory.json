@@ -158,6 +158,7 @@
     "apps/desktop/crates/rv-ffi/src/background.rs",
     "apps/desktop/crates/rv-ffi/src/bin/uniffi-bindgen-swift.rs",
     "apps/desktop/crates/rv-ffi/src/context.rs",
+    "apps/desktop/crates/rv-ffi/src/jitsi_call.rs",
     "apps/desktop/crates/rv-ffi/src/lib.rs",
     "apps/desktop/crates/rv-ffi/src/links.rs",
     "apps/desktop/crates/rv-ffi/src/markup.rs",

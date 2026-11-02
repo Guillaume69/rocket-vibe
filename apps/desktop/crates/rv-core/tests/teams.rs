@@ -79,6 +79,20 @@ fn handler(server_url: String) -> impl Fn(&Request) -> Response + Send + Sync + 
         if path.ends_with("/users/ME/conversations") {
             return respond(200, &json!({"conversations": [], "_metadata": {}}).to_string());
         }
+        if request.method == "POST" && path.ends_with("/v1/threads") {
+            let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+            assert_eq!(body["properties"]["threadType"], "chat");
+            assert_eq!(body["members"].as_array().unwrap().len(), 3, "me and the two others");
+            return respond(
+                201,
+                &json!({"threadResource": {"id": "19:group@thread.v2", "type": "Thread"}}).to_string(),
+            );
+        }
+        if request.method == "PUT" && path.ends_with("/v1/threads/19:group@thread.v2/properties") {
+            assert!(request.target.contains("name=topic"));
+            assert_eq!(serde_json::from_str::<serde_json::Value>(&request.body).unwrap()["topic"], "Devs");
+            return respond(200, "{}");
+        }
         assert!(path.contains("/conversations/19:chat@thread.v2/messages"), "{path}");
         let query = request.target.split_once('?').map(|(_, q)| q).unwrap_or_default();
         if query.contains("syncState=older") {
@@ -153,14 +167,16 @@ async fn send_edit_react_delete_and_mark_read() {
     let msg = format!("{ROOM}/500");
     sync.react(&msg, ":thumbsup:", true).await.unwrap();
     sync.react(&msg, "thumbsup", false).await.unwrap();
-    assert!(sync.react(&msg, "fire", true).await.is_err(), "only Teams' own reactions are sent");
+    sync.react(&msg, "fire", true).await.unwrap();
+    assert!(sync.react(&msg, "not_an_emoji", true).await.is_err(), "only glyphs Teams has a key for are sent");
     sync.edit(&msg, "changed").await.unwrap();
     sync.delete(&msg).await.unwrap();
     let requests = server.requests();
     let reacts: Vec<&Request> = requests.iter().filter(|r| r.target.contains("name=emotions")).collect();
-    assert_eq!(reacts.len(), 2);
+    assert_eq!(reacts.len(), 3);
     assert_eq!((reacts[0].method.as_str(), reacts[1].method.as_str()), ("PUT", "DELETE"));
     assert_eq!(serde_json::from_str::<Value>(&reacts[0].body).unwrap()["emotions"]["key"], "like");
+    assert_eq!(serde_json::from_str::<Value>(&reacts[2].body).unwrap()["emotions"]["key"], "fire");
     assert!(
         requests.iter().any(|r| r.method == "PUT" && r.path().ends_with("/messages/500") && r.body.contains("changed"))
     );
@@ -206,6 +222,30 @@ async fn pushed_messages_update_the_room_and_only_others_notify() {
     gone["properties"] = json!({"deletetime": "1"});
     assert!(sync.apply_event("MessageUpdate", &gone).await.is_none());
     assert!(!store.messages(ROOM, 50).iter().any(|m| m.id == format!("{ROOM}/1792540600000")));
+}
+
+#[tokio::test]
+async fn a_group_chat_is_created_listed_and_renamed() {
+    let url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let shared = url.clone();
+    let server = FakeHttp::start(move |r| handler(shared.lock().unwrap().clone())(r)).await;
+    *url.lock().unwrap() = server.url.to_string();
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+
+    let (a, b) = ("8:orgid:00000000-0000-4000-8000-000000000001", "8:orgid:00000000-0000-4000-8000-000000000002");
+    sync.directory.remember(a, "Fairouz");
+    sync.directory.remember(b, "Emilie");
+    let rid = sync.open_group(&[a.to_owned(), b.to_owned()]).await.unwrap();
+    assert_eq!(rid, "19:group@thread.v2");
+    let room = store.rooms().into_iter().find(|r| r.rid == rid).expect("listed at once");
+    assert_eq!(room.name.as_str(), "Fairouz, Emilie");
+    assert!(sync.renamable(&rid));
+    sync.rename(&rid, "Devs", "tenant").await.unwrap();
+    let room = store.rooms().into_iter().find(|r| r.rid == rid).unwrap();
+    assert_eq!(room.name.as_str(), "Devs");
+    assert!(!sync.renamable(ROOM), "a one-to-one keeps its name");
+    assert!(sync.open_group(&["nobody@example.com".to_owned(), a.to_owned()]).await.is_err());
 }
 
 #[tokio::test]

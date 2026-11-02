@@ -10,6 +10,8 @@ release, and its notes are that version's section here.
 ### Added
 
 - Teams (experimental): incoming calls ring, with the same prompt as other servers' calls. Decline declines it in Teams; Accept opens the conversation in the call screen, where Teams answers it once signed in there.
+- Teams (experimental): start a group chat with two or more people from New conversation, and rename a group chat from its settings.
+- Teams (experimental): react with any emoji Teams offers, not only the six classic ones.
 
 ### Fixed
 

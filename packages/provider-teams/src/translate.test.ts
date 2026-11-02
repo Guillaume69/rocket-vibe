@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
+import { shortcodeOfUnicode, unicodeOfShortcode } from '@rocket-vibe/provider-api/emojis';
 
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, people, peopleRequest,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
   convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor,
 } from './translate.ts';
 
@@ -118,7 +118,11 @@ test('reaction keys both ways', () => {
   assert.equal(reactionCode('1f525_fire'), 'fire');
   assert.equal(reactionKey(':thumbsup:'), 'like');
   assert.equal(reactionKey('joy'), 'laugh');
-  assert.equal(reactionKey('fire'), null);
+  assert.equal(reactionKey(':tada:'), '1f389_partypopper');
+  assert.equal(reactionKey('rocket'), 'launch');
+  assert.equal(reactionKey('heavy_check_mark'), '2714_heavycheckmark');
+  assert.equal(unicodeOfShortcode(reactionCode(reactionKey('tada') ?? '')), '🎉');
+  assert.equal(reactionKey('not_an_emoji'), null);
 });
 
 test('chats, channels and their read state', () => {
@@ -491,4 +495,21 @@ test('a topic change is named after its initiator, never the conversation', () =
   const anonymous = toMessage('19:f1f2ff4f747c4c0da8a4a856c2abd7da@thread.v2', raw('<topicupdate><value>Axeo devs</value></topicupdate>'), directory)!;
   assert.deepEqual([anonymous.authorId, anonymous.authorName], ['', 'Someone']);
   assert.equal(actor({ messagetype: 'RichText/Html', from: '8:orgid:bob' }), '8:orgid:bob');
+});
+
+test('a group chat is created as the web app does, then listed and renamable', () => {
+  const me = '8:orgid:me';
+  const others = ['8:orgid:a', '8:orgid:b'];
+  assert.deepEqual(groupThread(me, others), {
+    members: [{ id: me, role: 'Admin' }, { id: '8:orgid:a', role: 'Admin' }, { id: '8:orgid:b', role: 'Admin' }],
+    properties: { threadType: 'chat' },
+  });
+  const chat = newGroupChat('19:g@thread.v2', me, others, 1_700_000_000_000);
+  assert.equal(isGroupChat(chat), true);
+  const directory = new TeamsDirectory();
+  directory.remember('8:orgid:a', 'Fairouz');
+  directory.remember('8:orgid:b', 'Emilie');
+  assert.equal(chatRoom(me, chat, directory)?.name, 'Fairouz, Emilie');
+  assert.equal(isGroupChat(newOneOnOne('8:orgid:00000000-0000-4000-8000-000000000001', '8:orgid:00000000-0000-4000-8000-000000000002', 0)), false);
+  assert.equal(isGroupChat({ id: '19:m@thread.v2', chatType: 'meeting' }), false);
 });

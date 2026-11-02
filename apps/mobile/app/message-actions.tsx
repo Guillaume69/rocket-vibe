@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { subscriptions, messages, rooms } from '../db/schema.ts';
 import { slackReactable } from '@rocket-vibe/provider-slack/emojis';
+import { reactionKey as teamsReactionKey } from '@rocket-vibe/provider-teams/translate';
 import { nativeReactions } from '../providers/vibez/store.ts';
 import { NativeError } from '../providers/vibez/transport.ts';
 import {nativeRoomPermalink} from '../lib/roomLinks.ts';
@@ -373,15 +374,19 @@ export default function MessageActionsScreen() {
       alive = false;
     };
   }, []);
-  // Rocket.Chat and Slack react only with the codes of their own lists: a
-  // glyph with no code there is left out of the quick row and the picker
-  // (`lib/rocketchatReactions.ts`, `@rocket-vibe/provider-slack/emojis`); Vibez and
-  // WhatsApp take every standard emoji.
+  // Rocket.Chat, Slack and Teams react only with the codes of their own lists:
+  // a glyph with no code there is left out of the quick row and the picker
+  // (`lib/rocketchatReactions.ts`, `@rocket-vibe/provider-slack/emojis`, Teams'
+  // reaction table); Vibez and WhatsApp take every standard emoji.
   const onSlack = client?.kind === 'slack';
-  const onRocketChat = !reactsWithAnyEmoji(client?.kind) && !onSlack;
+  const onTeams = client?.kind === 'teams';
+  const onRocketChat = !reactsWithAnyEmoji(client?.kind) && !onSlack && !onTeams;
   const reactable = useCallback(
-    (code: string) => (onSlack ? slackReactable(code) : !onRocketChat || rocketChatReaction(code) !== null),
-    [onRocketChat, onSlack],
+    (code: string) =>
+      onSlack ? slackReactable(code)
+        : onTeams ? teamsReactionKey(code) !== null
+        : !onRocketChat || rocketChatReaction(code) !== null,
+    [onRocketChat, onSlack, onTeams],
   );
   const quickReactions = useMemo(
     () =>

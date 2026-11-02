@@ -1450,13 +1450,9 @@ impl Session {
         Ok(rid)
     }
 
-    /// Rocket.Chat, Mattermost, kChat and Slack open a direct conversation
-    /// with several people.
+    /// Every server opens a direct conversation with several people.
     pub fn group_dms_supported(&self) -> bool {
-        match self.backend() {
-            Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => true,
-            Backend::Teams(_) => false,
-        }
+        true
     }
 
     /// The direct conversation with these people and me, created if needed:
@@ -1472,7 +1468,7 @@ impl Session {
                 rid
             }
             Backend::Slack(slack) => return slack.open_direct(usernames).await,
-            Backend::Teams(_) => return Err(crate::slack::not_supported("group direct message")),
+            Backend::Teams(teams) => return teams.open_group(usernames).await,
             Backend::RocketChat => rocketchat::actions::open_group_dm(&self.rest, usernames).await?,
         };
         self.sync.catch_up_global().await?;

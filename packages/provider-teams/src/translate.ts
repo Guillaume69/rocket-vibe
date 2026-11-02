@@ -5,7 +5,7 @@
  * `crates/rv-teams/src/translate.rs`.
  */
 
-import { shortcodeOfUnicode } from '@rocket-vibe/provider-api/emojis';
+import { shortcodeOfUnicode, unicodeOfShortcode } from '@rocket-vibe/provider-api/emojis';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
 import type { MemberPage, RoomMember } from '@rocket-vibe/provider-api/provider';
 import { TEAMS_EMOTICONS } from './emoticons.generated.ts';
@@ -93,8 +93,9 @@ const KEYS: readonly (readonly [string, string])[] = [
 
 let emoticons: Map<string, string> | null = null;
 
-/** Teams' reaction ids that do not carry their code points (`launch`, not
- *  `1f680_rocket`), from Microsoft's reference table (`emoticons.generated.ts`). */
+/** Teams' reaction ids and their glyphs, named (`launch`) or carrying their
+ *  code points (`1f389_partypopper`), from Microsoft's reference table
+ *  (`emoticons.generated.ts`). */
 function emoticon(id: string): string | null {
   if (emoticons === null) {
     emoticons = new Map();
@@ -129,7 +130,10 @@ export function reactionCode(key: string): string {
   return (glyph !== null ? shortcodeOfUnicode(glyph) : null) ?? name;
 }
 
-/** The key a shortcode is sent as; only the classic keys are known to be accepted. */
+/** The key a shortcode is sent as: a classic key, else the id Microsoft's
+ *  table gives its glyph, the one carrying its code points first (`coolcat` and
+ *  `1f60e_smilingfacewithsunglasses` share a glyph), with a `-tone<n>` suffix for
+ *  a skin tone. Null for a glyph Teams has no reaction for. */
 export function reactionKey(shortcode: string): string | null {
   const code = shortcode.replace(/^:|:$/g, '');
   const alias: Record<string, string> = {
@@ -137,7 +141,30 @@ export function reactionKey(shortcode: string): string | null {
     astonished: 'open_mouth', hushed: 'open_mouth', sob: 'cry', disappointed: 'cry', rage: 'angry',
   };
   const wanted = alias[code] ?? code;
-  return KEYS.find(([, c]) => c === wanted)?.[0] ?? null;
+  const classic = KEYS.find(([, c]) => c === wanted)?.[0];
+  if (classic !== undefined) return classic;
+  const glyph = unicodeOfShortcode(code);
+  if (glyph === null) return null;
+  const points = [...glyph].map((c) => c.codePointAt(0) ?? 0).filter((c) => c !== 0xfe0f);
+  const last = points[points.length - 1] ?? 0;
+  const toned = points.length > 1 && last >= 0x1f3fb && last <= 0x1f3ff;
+  const key = glyphKey(toned ? points.slice(0, -1) : points);
+  if (key === null) return null;
+  return toned ? `${key}-tone${last - 0x1f3fa}` : key;
+}
+
+function glyphKey(points: readonly number[]): string | null {
+  const wanted = points.join('-');
+  let named: string | null = null;
+  for (const line of TEAMS_EMOTICONS.split('\n')) {
+    const [id, hex] = line.split('\t');
+    if (!id || !hex) continue;
+    const row = hex.split('-').map((p) => parseInt(p, 16)).filter((c) => c !== 0xfe0f).join('-');
+    if (row !== wanted) continue;
+    if (id.includes('_')) return id;
+    named ??= id;
+  }
+  return named;
 }
 
 /** People named by MRI: display names from messages, members and profiles. */
@@ -995,6 +1022,23 @@ export function newOneOnOne(me: string, other: string, now: number): Doc | null 
   const id = oneOnOneId(me, other);
   if (id === null) return null;
   return { id, chatType: 'chat', isOneOnOne: true, isRead: true, members: [{ mri: me }, { mri: other }], createdAt: new Date(now).toISOString() };
+}
+
+/** The chat service's request creating a group chat of me and these people,
+ *  as Teams' web app sends it: every member an admin, no topic. */
+export function groupThread(me: string, others: readonly string[]): Doc {
+  return { members: [me, ...others].map((id) => ({ id, role: 'Admin' })), properties: { threadType: 'chat' } };
+}
+
+/** A group chat just created, as an aggregator entry, listed until Teams lists it. */
+export function newGroupChat(id: string, me: string, others: readonly string[], now: number): Doc {
+  return { id, chatType: 'chat', isOneOnOne: false, isRead: true, members: [me, ...others].map((mri) => ({ mri })), createdAt: new Date(now).toISOString() };
+}
+
+/** A chat of several people: neither a one-to-one nor a meeting's chat. */
+export function isGroupChat(entry: unknown): boolean {
+  const id = str(entry, 'id');
+  return id !== null && id.endsWith('@thread.v2') && (entry as Doc).isOneOnOne !== true && str(entry, 'chatType') !== 'meeting';
 }
 
 /** A bot or app member (`28:`): Teams leaves it out of a chat's name. */

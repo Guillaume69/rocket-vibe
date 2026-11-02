@@ -179,6 +179,22 @@ export class TeamsClient {
     await this.chat('POST', serviceUrl(`${routes.chat}/v1`, ['threads']), body);
   }
 
+  /** Creates a group chat through the threads service, as Teams' web app
+   *  does: the new chat's id. */
+  async createGroupChat(body: unknown): Promise<string> {
+    const { routes } = await this.tokens.chat();
+    const answer = await this.chat('POST', serviceUrl(`${routes.chat}/v1`, ['threads']), body);
+    const id = (answer.body.threadResource as Doc | undefined)?.id;
+    if (typeof id !== 'string') throw new TeamsError('group_chat_answer', answer.status, null);
+    return id;
+  }
+
+  /** Names a chat (its topic), as Teams' web app does. */
+  async setTopic(rid: string, topic: string): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    await this.chat('PUT', serviceUrl(`${routes.chat}/v1`, ['threads', rid, 'properties'], 'name=topic'), { topic });
+  }
+
   /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */
   async roster(rid: string): Promise<Doc> {
     const { routes } = await this.tokens.chat();

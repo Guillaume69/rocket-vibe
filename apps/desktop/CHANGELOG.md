@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Vibez: a Notes tab in every room that is not encrypted, one markdown document its members read and anyone who may post edits, rendered like messages, saved against the version you read (a save made meanwhile keeps your text and says so).
 - Teams (experimental): incoming calls ring, with the same prompt as other servers' calls. Decline declines it in Teams; Accept opens the conversation in the call window, where Teams answers it once signed in there.
 - Teams (experimental): start a group chat with two or more people from New conversation, and rename a group chat from its settings.
 - Teams (experimental): react with any emoji Teams offers, not only the six classic ones.

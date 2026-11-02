@@ -539,3 +539,15 @@ would leak what the room hides; encrypting them under the room's MLS group is
 recorded as debt. Saving publishes the room rather than adding a wire event, so
 older clients keep decoding the journal. See [notes](features/notes.md).
 
+## Calls go native on every provider, research first (2026-11-02)
+
+User decision, 2026-11-02: calls on Teams, Rocket.Chat (Jitsi), kChat (kMeet) and Slack
+(huddles) are to be carried by the apps themselves, with no web page, WebView or browser:
+a call window on the provider's web page asks Teams users for a Microsoft sign-in the app
+cannot spare them (the FOCI exchange is refused) and keeps every provider's media outside
+the app's audio chain. The research comes first, provider by provider, before any build;
+the result is [native-calls](architecture/native-calls.md): one `rv-call` crate with a
+signalling adapter per protocol over the libwebrtc both apps already ship through LiveKit,
+in the order Jitsi, Chime, Teams 1:1 audio, Teams meetings and video. Each provider's call
+window stays as the fallback until its adapter is proven.
+

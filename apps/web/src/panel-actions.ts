@@ -14,6 +14,8 @@ export const activityFeed = (
 ) => import("./panels").then((panel) => panel.activityFeed(...args));
 export const marked = (...args: Parameters<typeof import("./panels").marked>) =>
   import("./panels").then((panel) => panel.marked(...args));
+export const notes = (...args: Parameters<typeof import("./panels").notes>) =>
+  import("./panels").then((panel) => panel.notes(...args));
 export const threads = (
   ...args: Parameters<typeof import("./panels").threads>
 ) => import("./panels").then((panel) => panel.threads(...args));

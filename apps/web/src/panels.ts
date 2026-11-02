@@ -19,6 +19,7 @@ import type {
   DeviceSession,
   ThreadEntry,
   ThreadList,
+  RoomNotes,
 } from "./protocol";
 import { when } from "./scheduled";
 import { operation, segment } from "./api";
@@ -27,7 +28,7 @@ import { matchRooms } from "./room-match";
 import { searchLocal } from "./local-search";
 import { collectActivity } from "./activity-feed";
 import { emojiGlyph } from "./emoji";
-import { downloadDiagnostics } from "./diagnostics";
+import { downloadDiagnostics, noteError } from "./diagnostics";
 import { clock, minuteOf, nextMorning } from "./quiet";
 import { ownSound, setOwnSound } from "./notifications";
 import { t, language } from "./i18n";
@@ -501,6 +502,114 @@ export async function marked(app: App): Promise<void> {
     tab.append(icon(name), el("span", "", label));
     tabs.append(tab);
   }
+  await load();
+}
+/**
+ * The room's notes: rendered like messages, edited as markdown and saved whole
+ * against the revision read. A save made meanwhile keeps the draft and says so;
+ * saving again goes over it. Read again now and then while shown.
+ */
+export async function notes(app: App): Promise<void> {
+  if (!app.room || !app.account) return;
+  const room = app.room,
+    account = app.account.key,
+    generation = app.generation;
+  const [node, body] = dialog(nt("notes.title"));
+  node.classList.add("notes-dialog");
+  const view = el("div", "details-text message-body notes-view"),
+    editor = el("textarea", "notes-editor"),
+    notice = el("p", "notes-notice"),
+    footer = el("p", "dim notes-footer"),
+    actions = el("div", "notes-actions");
+  editor.hidden = true;
+  notice.hidden = true;
+  editor.setAttribute("aria-label", nt("notes.title"));
+  body.append(notice, view, editor, footer, actions);
+  const active = () =>
+    node.open &&
+    account === app.account?.key &&
+    generation === app.generation &&
+    room === app.room;
+  const path = "/api/v1/rooms/" + segment(room) + "/notes";
+  let current: RoomNotes | undefined,
+    editing = false;
+  const say = (text: string) => {
+    notice.textContent = text;
+    notice.hidden = !text;
+  };
+  const paint = () => {
+    if (!current) return;
+    editor.hidden = !editing;
+    view.hidden = editing;
+    view.replaceChildren(
+      current.body.trim()
+        ? markdown(metadataMarkdown(current.body))
+        : el("p", "dim", nt("notes.empty")),
+    );
+    footer.textContent =
+      !editing && current.updated_by && current.updated_at
+        ? nt("notes.edited", {
+            name: current.updated_by,
+            time: when(new Date(current.updated_at), language),
+          })
+        : "";
+    actions.replaceChildren(
+      ...(editing
+        ? [
+            button(nt("notes.cancel"), () => {
+              editing = false;
+              say("");
+              paint();
+            }),
+            button(nt("notes.save"), save),
+          ]
+        : current.editable
+          ? [
+              button(nt("notes.edit"), () => {
+                editing = true;
+                editor.value = current?.body ?? "";
+                say("");
+                paint();
+                editor.focus();
+              }),
+            ]
+          : []),
+    );
+  };
+  const load = async () => {
+    try {
+      const notes = await app.api.request<RoomNotes>(path);
+      if (!active()) return;
+      current = notes;
+      if (!editing) paint();
+    } catch (error) {
+      if (!current && active()) view.replaceChildren(el("p", "dim", nt("notes.load_failed")));
+      else noteError(error);
+    }
+  };
+  async function save() {
+    if (!current) return;
+    try {
+      const notes = await app.api.request<RoomNotes>(path, "PUT", {
+        body: editor.value,
+        expected_revision: current.revision,
+      });
+      if (!active()) return;
+      current = notes;
+      editing = false;
+      say("");
+      paint();
+    } catch (error) {
+      if ((error as { code?: string }).code === "revision_conflict") {
+        await load();
+        say(nt("notes.conflict"));
+      } else say(nt("notes.save_failed"));
+    }
+  }
+  const timer = window.setInterval(() => {
+    if (!active()) window.clearInterval(timer);
+    else if (!editing) void load();
+  }, 10_000);
   await load();
 }
 /**

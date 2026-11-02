@@ -19,6 +19,7 @@ import {
   search,
   newConversation,
   threads,
+  notes,
 } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
@@ -491,6 +492,13 @@ function RoomHeader({ app }: { app: App }) {
             label={nt("marked.title")}
             action={() => marked(app)}
           />
+          {app.info?.capabilities.room_notes && !room.encrypted && (
+            <IconButton
+              name="notes"
+              label={nt("notes.title")}
+              action={() => notes(app)}
+            />
+          )}
           <IconButton
             name="search"
             label={nt("search.title")}

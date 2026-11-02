@@ -943,3 +943,35 @@ dialog.new-message-dialog:not(.sidebar-dialog):not(.call-ring):not(
   text-align: right;
   white-space: nowrap;
 }
+.notes-dialog {
+  width: 640px;
+  max-width: calc(100vw - 32px);
+}
+.notes-dialog .dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  max-height: min(70dvh, 640px);
+  overflow: auto;
+}
+.notes-editor {
+  min-height: 320px;
+  resize: vertical;
+  font-family: var(--monospace-font-family, monospace);
+  font-size: 0.95em;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15));
+  background: var(--view-bg-color, transparent);
+  color: inherit;
+}
+.notes-notice {
+  margin: 0;
+  color: var(--warning-color, var(--accent-color));
+}
+.notes-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

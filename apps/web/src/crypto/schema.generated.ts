@@ -1514,6 +1514,12 @@ export const nativeSchema = {
           default: false,
           type: "boolean",
         },
+        room_notes: {
+          default: false,
+          description:
+            "`GET`/`PUT /api/v1/rooms/{id}/notes`: one markdown document per room.",
+          type: "boolean",
+        },
         room_roles: {
           default: false,
           type: "boolean",
@@ -5279,6 +5285,16 @@ export const nativeSchema = {
             },
           ],
         },
+        room_notes: {
+          anyOf: [
+            {
+              $ref: "#/$defs/RoomNotes",
+            },
+            {
+              type: "null",
+            },
+          ],
+        },
         room_permissions: {
           $ref: "#/$defs/RoomPermissions",
         },
@@ -5286,6 +5302,16 @@ export const nativeSchema = {
           anyOf: [
             {
               $ref: "#/$defs/UpdateRoom",
+            },
+            {
+              type: "null",
+            },
+          ],
+        },
+        update_room_notes: {
+          anyOf: [
+            {
+              $ref: "#/$defs/UpdateRoomNotes",
             },
             {
               type: "null",
@@ -6473,6 +6499,36 @@ export const nativeSchema = {
         },
       },
       required: ["room_id", "revision", "members"],
+      type: "object",
+    },
+    RoomNotes: {
+      description:
+        "A room's notes: one markdown document its members read and anyone who may\npost edits. Refused in an encrypted room.",
+      properties: {
+        body: {
+          type: "string",
+        },
+        editable: {
+          description: "Whether this account may save.",
+          type: "boolean",
+        },
+        revision: {
+          description: '"0" before the first save; any other value is opaque.',
+          type: "string",
+        },
+        room_id: {
+          type: "string",
+        },
+        updated_at: {
+          description: "RFC 3339, UTC.",
+          type: ["string", "null"],
+        },
+        updated_by: {
+          description: "Username of the last editor.",
+          type: ["string", "null"],
+        },
+      },
+      required: ["room_id", "body", "revision", "editable"],
       type: "object",
     },
     RoomPermissions: {
@@ -8066,6 +8122,21 @@ export const nativeSchema = {
         "announcement",
         "read_only",
       ],
+      type: "object",
+    },
+    UpdateRoomNotes: {
+      additionalProperties: false,
+      description:
+        "Replaces the notes when `expected_revision` is still current, else 409 `revision_conflict`.",
+      properties: {
+        body: {
+          type: "string",
+        },
+        expected_revision: {
+          type: "string",
+        },
+      },
+      required: ["body", "expected_revision"],
       type: "object",
     },
     UpdateWorkflow: {

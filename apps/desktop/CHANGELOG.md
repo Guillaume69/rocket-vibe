@@ -7,6 +7,13 @@ section here.
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-02
+
+### Fixed
+
+- Vibez: renewing the session no longer drops the connection. A request still carrying the token being replaced was taken for a revocation and the account went offline; it is now retried with the new token, and a real revocation still signs out.
+- macOS: the 0.30.0 build of the SwiftUI app failed on the new native call window; 0.30.1 ships it.
+
 ## [0.30.0] - 2026-11-02
 
 ### Added
@@ -1436,7 +1443,8 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.0...HEAD
+[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.1...HEAD
+[0.30.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.0...desktop-v0.30.1
 [0.30.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...desktop-v0.30.0
 [0.29.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0
 [0.28.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0

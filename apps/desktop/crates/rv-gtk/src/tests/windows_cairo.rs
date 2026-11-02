@@ -182,6 +182,7 @@ fn windows_cairo_voice_to_room_keeps_zero_blur_speaking_and_button_feedback() {
             level: 0.5,
             camera: false,
             screen: false,
+            name: None,
         }],
         ..Default::default()
     };

@@ -678,10 +678,21 @@ impl Audio {
         voice: bool,
         track: RemoteAudioTrack,
     ) -> tokio::task::JoinHandle<()> {
+        self.listen_rtc(sid, identity, voice, track.rtc_track())
+    }
+
+    /// The same for a track of a peer connection this sidecar drives itself (call.rs).
+    pub fn listen_rtc(
+        &self,
+        sid: String,
+        identity: String,
+        voice: bool,
+        track: livekit::webrtc::audio_track::RtcAudioTrack,
+    ) -> tokio::task::JoinHandle<()> {
         use futures_util::StreamExt;
         let (mix, play) = (self.mix.clone(), !self.fake);
         tokio::spawn(async move {
-            let mut stream = NativeAudioStream::new(track.rtc_track(), RATE as i32, 2);
+            let mut stream = NativeAudioStream::new(track, RATE as i32, 2);
             while let Some(frame) = stream.next().await {
                 mix.receive(&sid, &identity, voice, &frame.data, play);
             }

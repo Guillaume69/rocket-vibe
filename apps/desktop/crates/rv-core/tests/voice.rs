@@ -1,6 +1,6 @@
 //! The voice controller against a fake sidecar (tests/support/fake_voice_sidecar.rs).
 use rv_core::voice::{
-    ConnectionState, Ended, PersonVolume, ScreenKind, ScreenQuality, Snapshot, VideoSource, VoiceController,
+    ConnectionState, Ended, JitsiCall, PersonVolume, ScreenKind, ScreenQuality, Snapshot, VideoSource, VoiceController,
     VoiceError, VoiceKey, VoiceKeys, thumbnail,
 };
 use rv_protocol::voice::VoiceGrant;
@@ -67,6 +67,26 @@ async fn a_session_reports_participants_choices_and_leaving() {
     assert!(snapshot.participants.is_empty());
     assert_eq!(snapshot.ended, Some(Ended::Left));
     assert!(snapshot.deafened, "choices outlive the connection");
+}
+
+#[tokio::test]
+async fn a_jitsi_call_runs_in_the_same_controller() {
+    let voice = fake(&[]);
+    let call = JitsiCall {
+        websocket: "wss://meet/xmpp-websocket".into(),
+        domain: "meet.jitsi".into(),
+        muc: "muc.meet.jitsi".into(),
+        focus: "focus.meet.jitsi".into(),
+        room: "rocketchatabc".into(),
+        display_name: "Ana".into(),
+        token: None,
+    };
+    voice.connect_jitsi("RocketChatABC", &call).await.unwrap();
+    let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && s.local().is_some()).await;
+    assert_eq!(snapshot.room.as_deref(), Some("RocketChatABC"));
+    assert_eq!(snapshot.local().unwrap().identity, "Ana");
+    voice.disconnect().await;
+    assert_eq!(voice.snapshot().ended, Some(Ended::Left));
 }
 
 #[tokio::test]

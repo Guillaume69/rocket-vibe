@@ -9,12 +9,14 @@ on:
       - 'crates/rv-provider/**'
       - 'crates/rv-slack/**'
       - 'crates/rv-teams/**'
+      - 'crates/rv-call/**'
       - '.github/workflows/providers.yml'
   pull_request:
     paths:
       - 'crates/rv-provider/**'
       - 'crates/rv-slack/**'
       - 'crates/rv-teams/**'
+      - 'crates/rv-call/**'
       - '.github/workflows/providers.yml'
   workflow_dispatch:
 
@@ -31,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        crate: [rv-provider, rv-slack, rv-teams]
+        crate: [rv-provider, rv-slack, rv-teams, rv-call]
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.97.1

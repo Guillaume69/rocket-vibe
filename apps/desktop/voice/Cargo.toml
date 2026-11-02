@@ -25,6 +25,8 @@ all = { level = "warn", priority = -1 }
 # livekit has no websocket/http client at all.
 livekit = { version = "=0.9.3", default-features = false, features = ["native", "rustls-tls-native-roots"] }
 rv-voice-protocol = { path = "../crates/rv-voice-protocol" }
+# Signalling of the providers carried natively without LiveKit (call.rs).
+rv-call = { path = "../../../crates/rv-call" }
 futures-util = { version = "0.3", default-features = false }
 serde_json = "=1.0.151"
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "time", "sync"] }

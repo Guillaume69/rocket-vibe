@@ -295,6 +295,45 @@ struct Inner {
     input_level: AtomicU32,
 }
 
+/// A Jitsi Meet call to carry natively: where its conference is and as whom.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JitsiCall {
+    pub websocket: String,
+    pub domain: String,
+    pub muc: String,
+    pub focus: String,
+    pub room: String,
+    pub display_name: String,
+    pub token: Option<String>,
+}
+
+/// The call behind a meeting URL when its host runs Jitsi Meet (its
+/// `config.js` names an XMPP domain); `None` for any other provider, or when
+/// the host does not answer within five seconds.
+pub async fn discover_jitsi(meeting_url: &str, display_name: &str) -> Option<JitsiCall> {
+    let parsed = url::Url::parse(meeting_url).ok()?;
+    if parsed.scheme() != "https" {
+        return None;
+    }
+    let config_url = format!("https://{}/config.js", parsed.host_str()?);
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().ok()?;
+    let response = client.get(config_url).send().await.ok()?.error_for_status().ok()?;
+    let config_js = response.text().await.ok()?;
+    if !rv_call::jitsi::Config::is_jitsi(&config_js) {
+        return None;
+    }
+    let c = rv_call::jitsi::Config::from_meeting(meeting_url, &config_js, display_name, None)?;
+    Some(JitsiCall {
+        websocket: c.websocket,
+        domain: c.domain,
+        muc: c.muc,
+        focus: c.focus,
+        room: c.room,
+        display_name: c.display_name,
+        token: c.token,
+    })
+}
+
 #[derive(Clone)]
 pub struct VoiceController {
     inner: Arc<Inner>,
@@ -373,6 +412,38 @@ impl VoiceController {
             (true, key) => key,
             (false, _) => None,
         };
+        let connect = Command::Connect {
+            url: grant.url.clone(),
+            token: grant.token.clone(),
+            e2ee_key: key.as_ref().map(|k| k.key.to_string()),
+        };
+        self.start(grant.room_id.clone(), grant.can_publish, key, keys, connect).await
+    }
+
+    /// Joins a Jitsi Meet call natively (Rocket.Chat's Jitsi provider): the
+    /// sidecar speaks its signalling itself. `label` names the call in the
+    /// snapshot's `room`. Audio only.
+    pub async fn connect_jitsi(&self, label: &str, call: &JitsiCall) -> Result<(), VoiceError> {
+        let connect = Command::ConnectJitsi {
+            websocket: call.websocket.clone(),
+            domain: call.domain.clone(),
+            muc: call.muc.clone(),
+            focus: call.focus.clone(),
+            room: call.room.clone(),
+            display_name: call.display_name.clone(),
+            token: call.token.clone(),
+        };
+        self.start(label.to_owned(), true, None, None, connect).await
+    }
+
+    async fn start(
+        &self,
+        room: String,
+        can_publish: bool,
+        key: Option<VoiceKey>,
+        keys: Option<VoiceKeys>,
+        connect: Command,
+    ) -> Result<(), VoiceError> {
         let mut process = self.inner.process.lock().await;
         // A new generation first: the old sidecar's last words are ignored.
         let generation = self.inner.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -386,9 +457,9 @@ impl VoiceController {
         let token = video_token();
         let commands = self.inner.update(|s| {
             s.snapshot = Snapshot {
-                room: Some(grant.room_id.clone()),
+                room: Some(room.clone()),
                 state: ConnectionState::Connecting,
-                can_publish: grant.can_publish,
+                can_publish,
                 encrypted: key.is_some(),
                 microphone: s.snapshot.microphone,
                 deafened: s.snapshot.deafened,
@@ -403,11 +474,7 @@ impl VoiceController {
             commands.extend(s.output.iter().map(|d| Command::SetOutput { device: d.clone() }));
             commands.push(Command::SetMicrophone { enabled: s.snapshot.microphone });
             commands.push(Command::SetDeafened { deafened: s.snapshot.deafened });
-            commands.push(Command::Connect {
-                url: grant.url.clone(),
-                token: grant.token.clone(),
-                e2ee_key: key.as_ref().map(|k| k.key.to_string()),
-            });
+            commands.push(connect.clone());
             commands
         });
         let started = async {

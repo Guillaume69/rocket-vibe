@@ -50,6 +50,7 @@ fn main() {
         level: 0.0,
         camera: false,
         screen: false,
+        name: None,
     };
     let peer = Participant {
         identity: "peer".into(),
@@ -60,6 +61,7 @@ fn main() {
         level: 0.4,
         camera: false,
         screen: false,
+        name: None,
     };
     let mut connected = false;
     let mut url = String::new();
@@ -91,6 +93,14 @@ fn main() {
                 if url == "fake://moved" {
                     return ended("duplicate_identity");
                 }
+            }
+            Command::ConnectJitsi { room, display_name, .. } => {
+                url = format!("jitsi://{room}");
+                me.identity = display_name;
+                emit(Event::State { state: ConnectionState::Connecting });
+                emit(Event::State { state: ConnectionState::Connected });
+                connected = true;
+                publish(&me);
             }
             Command::SetMicrophone { enabled } => {
                 me.muted = !enabled;

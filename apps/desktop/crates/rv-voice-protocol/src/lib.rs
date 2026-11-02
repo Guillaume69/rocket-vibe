@@ -33,6 +33,21 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         e2ee_key: Option<String>,
     },
+    /// Join a Jitsi Meet conference natively (Rocket.Chat's Jitsi provider, kChat's
+    /// kMeet): the sidecar speaks its signalling itself (rv-call). Audio only.
+    ConnectJitsi {
+        /// `wss://host/xmpp-websocket`, without its query.
+        websocket: String,
+        /// `config.js` `hosts.domain`, `hosts.muc` and the focus component.
+        domain: String,
+        muc: String,
+        focus: String,
+        room: String,
+        display_name: String,
+        /// kMeet's JWT; none for an anonymous deployment.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token: Option<String>,
+    },
     /// The room's group reached a new epoch: frames from now on use its key.
     SetKey {
         key: String,
@@ -114,6 +129,12 @@ impl std::fmt::Debug for Command {
                 .field("url", url)
                 .field("encrypted", &e2ee_key.is_some())
                 .finish_non_exhaustive(),
+            Self::ConnectJitsi { websocket, room, token, .. } => f
+                .debug_struct("ConnectJitsi")
+                .field("websocket", websocket)
+                .field("room", room)
+                .field("token", &token.is_some())
+                .finish_non_exhaustive(),
             Self::SetKey { .. } => f.write_str("SetKey"),
             Self::SetMicrophone { enabled } => f.debug_struct("SetMicrophone").field("enabled", enabled).finish(),
             Self::SetDeafened { deafened } => f.debug_struct("SetDeafened").field("deafened", deafened).finish(),
@@ -175,6 +196,9 @@ pub struct Participant {
     /// Sharing a screen.
     #[serde(default)]
     pub screen: bool,
+    /// The name the call gives them (Jitsi's); none where the identity is an account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,6 +388,20 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn a_jitsi_token_is_never_printed() {
+        let command = Command::ConnectJitsi {
+            websocket: "wss://k/xmpp-websocket".into(),
+            domain: "k".into(),
+            muc: "muc.k".into(),
+            focus: "focus.k".into(),
+            room: "r".into(),
+            display_name: "Ana".into(),
+            token: Some("secret.jwt".into()),
+        };
+        assert!(!format!("{command:?}").contains("secret"));
+    }
+
+    #[test]
     fn commands_round_trip_with_snake_case_tags() {
         let cases = [
             (
@@ -373,6 +411,19 @@ mod tests {
             (
                 Command::Connect { url: "wss://lk".into(), token: "t".into(), e2ee_key: Some("a2V5".into()) },
                 json!({"type":"connect","url":"wss://lk","token":"t","e2ee_key":"a2V5"}),
+            ),
+            (
+                Command::ConnectJitsi {
+                    websocket: "wss://meet/xmpp-websocket".into(),
+                    domain: "meet.jitsi".into(),
+                    muc: "muc.meet.jitsi".into(),
+                    focus: "focus.meet.jitsi".into(),
+                    room: "r".into(),
+                    display_name: "Ana".into(),
+                    token: None,
+                },
+                json!({"type":"connect_jitsi","websocket":"wss://meet/xmpp-websocket","domain":"meet.jitsi",
+                    "muc":"muc.meet.jitsi","focus":"focus.meet.jitsi","room":"r","display_name":"Ana"}),
             ),
             (Command::SetKey { key: "a2V5".into() }, json!({"type":"set_key","key":"a2V5"})),
             (Command::SetMicrophone { enabled: false }, json!({"type":"set_microphone","enabled":false})),
@@ -459,6 +510,7 @@ mod tests {
             level: 0.5,
             camera: false,
             screen: true,
+            name: None,
         };
         let cases = [
             (

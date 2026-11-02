@@ -3794,6 +3794,29 @@ impl ChatPage {
             });
             return;
         }
+        // A Rocket.Chat call on a Jitsi Meet server runs natively; kMeet's
+        // JWT calls and any other provider keep the meeting's page.
+        let rocket_chat = self.session().filter(|s| s.info.mattermost.is_none() && s.info.native.is_none());
+        if let Some(session) = rocket_chat
+            && !url.contains("jwt=")
+        {
+            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
+            let name = session.info.username.clone();
+            glib::spawn_future_local(async move {
+                let target = url.clone();
+                let call = on_tokio(async move { rv_core::voice::discover_jitsi(&target, &name).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                let Some(call) = call else { return this.open_call_window(&url, &room) };
+                let (back, title) = (Rc::downgrade(&this), room.clone());
+                crate::native_call::open(call, &title, move || {
+                    if let Some(this) = back.upgrade() {
+                        this.toast(t("call.native_fallback").to_owned());
+                        this.open_call_window(&url, &room);
+                    }
+                });
+            });
+            return;
+        }
         self.open_call_window(url, room);
     }
 

@@ -5,6 +5,8 @@
 //! probability (0 to 1) tells who speaks. A voice gate then closes the
 //! microphone between words (a keyboard's clicks, which RNNoise only softens),
 //! as the desktop sidecar does.
+pub mod call;
+
 use jni::JNIEnv;
 use jni::objects::{JClass, JShortArray};
 use jni::sys::{jfloat, jlong};

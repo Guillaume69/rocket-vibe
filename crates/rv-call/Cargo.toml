@@ -18,6 +18,8 @@ all = { level = "warn", priority = -1 }
 default = ["client"]
 # The network side; without it only the parsing (a meeting's join parameters) is built.
 client = ["dep:futures-util", "dep:rustls", "dep:tokio", "dep:tokio-tungstenite"]
+# Mozilla's roots beside the system's: Android has none rustls-native-certs can read.
+webpki-roots = ["client", "tokio-tungstenite/rustls-tls-webpki-roots"]
 
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }

@@ -58,6 +58,7 @@ use the indexes.
 | [desktop-macos.md](architecture/desktop-macos.md) | The SwiftUI macOS app over rv-ffi (UniFFI), its view models, status. |
 | [web-client.md](architecture/web-client.md) | Server-embedded browser application, its build chain, origin/session rules, IndexedDB and browser transports. |
 | [server.md](architecture/server.md) | The Vibez server: CLI and configuration, HTTP layers, sessions and limits, the journal, cursors and WebSocket, files, background loops, tests and release. |
+| [native-calls.md](architecture/native-calls.md) | Research for native calls (Teams, Jitsi for Rocket.Chat and kChat, Chime for Slack): architecture, captures, order. |
 | [shared-crates.md](architecture/shared-crates.md) | `crates/`: the native protocol and its generated copies, the HTTP client, the MLS engine and its vault, the Android and wasm bridges, the seven workspaces and their locks. |
 
 The experimental [Slack session provider](architecture/slack-session.md) is a full server

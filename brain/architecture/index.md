@@ -21,6 +21,7 @@ shared docs or to the app you are working on. Back to [../BRAIN.md](../BRAIN.md)
 | [teams.md](teams.md) | The experimental Teams server kind: device-code sign-in and its rotating refresh token, aggregator rooms, backward-paged history, Trouter live updates, delivery proof by client id. |
 | [canaries.md](canaries.md) | The daily account-free checks that WhatsApp, Teams and Slack's private surfaces have not moved, what each reads from the code, the one-issue-per-provider rule, what stays out of reach. |
 | [slack-session.md](slack-session.md) | Slack Session mode research: measured token/cookie RTM behaviour, protocol handoff, provider parity limits and pending qualification. Saved accounts, RTM, writes, files, search, pins, saves, presence and huddles on all three apps, behind the experimental unlock. |
+| [native-calls.md](native-calls.md) | Research for native calls on Teams, Rocket.Chat/kChat (Jitsi), Slack (Chime): the shared `rv-call` design over the libwebrtc already shipped, per-provider signalling and captures, the order, the captures still owed. |
 
 ## Mobile (`apps/mobile`)
 

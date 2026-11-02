@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Rocket.Chat and kChat: a Jitsi Meet or kMeet call runs inside the app, audio only (who is in the call and who speaks, mute, deafen, hang up), instead of the meeting's web page; a call that cannot be joined this way opens the page as before.
 - Teams (experimental): a chat's Notes tab shows its notes (the Loop page Teams keeps for the chat), rendered like messages, read-only; the chat shows when they were created.
 - Slack (experimental): the Notes screen shows a conversation's canvas, rendered like messages, and edits it as markdown (saved over the version you read, created if the conversation has none).
 - Vibez: a Notes screen in every room that is not encrypted, one markdown document its members read and anyone who may post edits, rendered like messages, saved against the version you read (a save made meanwhile keeps your text and says so).

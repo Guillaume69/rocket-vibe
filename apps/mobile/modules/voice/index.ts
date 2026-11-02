@@ -4,7 +4,9 @@ import type {ViewProps} from 'react-native';
 
 export type VoiceState='idle'|'connecting'|'connected'|'reconnecting'|'disconnected';
 export type VoiceRoute='speaker'|'earpiece'|'bluetooth'|'wired';
-export type VoiceMember={identity:string;speaking:boolean;muted:boolean;deafened:boolean;level:number;local:boolean;camera?:boolean;screen?:boolean};
+export type VoiceMember={identity:string;speaking:boolean;muted:boolean;deafened:boolean;level:number;local:boolean;camera?:boolean;screen?:boolean;
+  /** A native Jitsi call's display name (the room's nick); Vibez members are named by the app. */
+  name?:string};
 /** The process's one voice connection, as the native engine sees it. */
 export type VoiceSnapshot={
   state:VoiceState;
@@ -30,6 +32,11 @@ type Bridge={
   snapshot():VoiceSnapshot;
   connect(options:VoiceConnect):Promise<void>;
   disconnect():Promise<void>;
+  /**
+   * Joins a Jitsi Meet conference natively, audio only (Rocket.Chat's Jitsi provider,
+   * kChat's kMeet with its `jwt`); false when this build cannot, so the meeting's page is kept.
+   */
+  connectJitsi(callId:string,meeting:string,displayName:string,token:string|null,title:string):Promise<boolean>;
   /** Replaces the frame key when the room's group reaches a new epoch. */
   setE2eeKey(key:string):Promise<void>;
   setMicrophone(enabled:boolean):Promise<void>;

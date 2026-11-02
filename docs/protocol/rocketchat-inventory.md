@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-734 production files scanned; 757 occurrences.
+735 production files scanned; 758 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -299,14 +299,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1842](../../apps/desktop/crates/rv-core/src/session.rs#L1842) | call:POST | "commands.run" |
 | [apps/desktop/crates/rv-core/src/session.rs:2057](../../apps/desktop/crates/rv-core/src/session.rs#L2057) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/session.rs:2057](../../apps/desktop/crates/rv-core/src/session.rs#L2057) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2375](../../apps/desktop/crates/rv-core/src/session.rs#L2375) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/session.rs:2375](../../apps/desktop/crates/rv-core/src/session.rs#L2375) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/session.rs:2469](../../apps/desktop/crates/rv-core/src/session.rs#L2469) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:2469](../../apps/desktop/crates/rv-core/src/session.rs#L2469) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2480](../../apps/desktop/crates/rv-core/src/session.rs#L2480) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:2480](../../apps/desktop/crates/rv-core/src/session.rs#L2480) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2847](../../apps/desktop/crates/rv-core/src/session.rs#L2847) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2847](../../apps/desktop/crates/rv-core/src/session.rs#L2847) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:2401](../../apps/desktop/crates/rv-core/src/session.rs#L2401) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/session.rs:2401](../../apps/desktop/crates/rv-core/src/session.rs#L2401) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/session.rs:2495](../../apps/desktop/crates/rv-core/src/session.rs#L2495) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:2495](../../apps/desktop/crates/rv-core/src/session.rs#L2495) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2506](../../apps/desktop/crates/rv-core/src/session.rs#L2506) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:2506](../../apps/desktop/crates/rv-core/src/session.rs#L2506) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:2873](../../apps/desktop/crates/rv-core/src/session.rs#L2873) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2873](../../apps/desktop/crates/rv-core/src/session.rs#L2873) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |
@@ -339,7 +339,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/uploads.rs:626](../../apps/desktop/crates/rv-core/src/uploads.rs#L626) | endpoint | rooms.media/{…} |
 | [apps/desktop/crates/rv-core/src/uploads.rs:628](../../apps/desktop/crates/rv-core/src/uploads.rs#L628) | call:UPLOAD | &path, field, upload.bytes, &upload.name, &upload.mime, upload.texts, move \|sent, total\| { |
 | [apps/desktop/crates/rv-ffi/src/model.rs:282](../../apps/desktop/crates/rv-ffi/src/model.rs#L282) | endpoint | rooms.quoted_message |
-| [apps/desktop/crates/rv-gtk/src/chat_native.rs:1087](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1087) | endpoint | rooms.new |
+| [apps/desktop/crates/rv-gtk/src/chat_native.rs:1092](../../apps/desktop/crates/rv-gtk/src/chat_native.rs#L1092) | endpoint | rooms.new |
 | [apps/desktop/crates/rv-gtk/src/chat_quotes.rs:98](../../apps/desktop/crates/rv-gtk/src/chat_quotes.rs#L98) | endpoint | spotlight |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_add |
 | [apps/desktop/crates/rv-gtk/src/details/native_favorites.rs:19](../../apps/desktop/crates/rv-gtk/src/details/native_favorites.rs#L19) | endpoint | rooms.favorite_remove |
@@ -744,15 +744,16 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-slack/src/directory.rs:116](../../crates/rv-slack/src/directory.rs#L116) | call:POST | "users.info" |
 | [crates/rv-slack/src/directory.rs:116](../../crates/rv-slack/src/directory.rs#L116) | endpoint | users.info |
 | [crates/rv-slack/src/directory.rs:138](../../crates/rv-slack/src/directory.rs#L138) | call:POST | "bots.info" |
-| [crates/rv-slack/src/lib.rs:302](../../crates/rv-slack/src/lib.rs#L302) | endpoint | users.conversations |
+| [crates/rv-slack/src/lib.rs:303](../../crates/rv-slack/src/lib.rs#L303) | endpoint | users.conversations |
 | [crates/rv-slack/src/live.rs:137](../../crates/rv-slack/src/live.rs#L137) | call:POST | "rtm.connect" |
-| [crates/rv-slack/src/service.rs:84](../../crates/rv-slack/src/service.rs#L84) | call:POST | method |
-| [crates/rv-slack/src/service.rs:135](../../crates/rv-slack/src/service.rs#L135) | endpoint | users.conversations |
-| [crates/rv-slack/src/service.rs:137](../../crates/rv-slack/src/service.rs#L137) | endpoint | users.conversations |
-| [crates/rv-slack/src/service.rs:271](../../crates/rv-slack/src/service.rs#L271) | endpoint | chat.update |
-| [crates/rv-slack/src/service.rs:281](../../crates/rv-slack/src/service.rs#L281) | endpoint | chat.delete |
-| [crates/rv-slack/src/service.rs:406](../../crates/rv-slack/src/service.rs#L406) | endpoint | users.list |
-| [crates/rv-slack/src/service.rs:411](../../crates/rv-slack/src/service.rs#L411) | endpoint | users.list |
+| [crates/rv-slack/src/service.rs:106](../../crates/rv-slack/src/service.rs#L106) | call:POST | method |
+| [crates/rv-slack/src/service.rs:157](../../crates/rv-slack/src/service.rs#L157) | endpoint | users.conversations |
+| [crates/rv-slack/src/service.rs:159](../../crates/rv-slack/src/service.rs#L159) | endpoint | users.conversations |
+| [crates/rv-slack/src/service.rs:290](../../crates/rv-slack/src/service.rs#L290) | call:FETCH_PROTECTED | url).await?; |
+| [crates/rv-slack/src/service.rs:344](../../crates/rv-slack/src/service.rs#L344) | endpoint | chat.update |
+| [crates/rv-slack/src/service.rs:354](../../crates/rv-slack/src/service.rs#L354) | endpoint | chat.delete |
+| [crates/rv-slack/src/service.rs:479](../../crates/rv-slack/src/service.rs#L479) | endpoint | users.list |
+| [crates/rv-slack/src/service.rs:484](../../crates/rv-slack/src/service.rs#L484) | endpoint | users.list |
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1168](../../crates/rv-teams/src/auth.rs#L1168) | url | /api/v2/query |
 | [crates/rv-teams/src/auth.rs:2033](../../crates/rv-teams/src/auth.rs#L2033) | url | /api/v1/suggestions |

@@ -644,6 +644,34 @@ impl SlackSync {
         Ok(rid)
     }
 
+    /// The conversation's canvas as notes: empty at revision "0" while it has none.
+    pub async fn notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
+        Ok(match self.service.canvas(rid).await? {
+            Some(canvas) => crate::notes::Notes {
+                markdown: canvas.markdown,
+                revision: canvas.revision,
+                editable: canvas.editable,
+                updated_by: canvas.updated_by,
+                updated_at: canvas
+                    .updated_ms
+                    .and_then(chrono::DateTime::from_timestamp_millis)
+                    .map(|at| at.to_rfc3339()),
+            },
+            None => crate::notes::Notes { revision: "0".into(), editable: true, ..Default::default() },
+        })
+    }
+
+    /// Writes the canvas whole (creating it the first time), then reads it back.
+    pub async fn save_notes(
+        &self,
+        rid: &str,
+        markdown: &str,
+        revision: &str,
+    ) -> Result<crate::notes::Notes, RestError> {
+        self.service.save_canvas(rid, markdown, revision).await?;
+        self.notes(rid).await
+    }
+
     /// The room's messages Slack's search finds for `query`, newest first.
     pub async fn search(&self, rid: &str, query: &str) -> Result<Vec<Message>, RestError> {
         let matches = self.service.search(rid, query).await?;

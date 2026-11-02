@@ -23,6 +23,9 @@ export type SlackMethod =
   | 'reactions.remove'
   | 'conversations.mark'
   | 'conversations.info'
+  | 'files.info'
+  | 'canvases.edit'
+  | 'conversations.canvases.create'
   | 'conversations.rename'
   | 'files.getUploadURLExternal'
   | 'files.completeUploadExternal'
@@ -163,6 +166,22 @@ export class SlackClient {
   close(): void {
     this.#closed = true; this.#token = ''; this.#cookie = ''; this.#identity = null;
     for (const request of this.#requests) request.abort();
+  }
+
+  /** A file's text on Slack's file host, read with the session (a canvas's HTML). */
+  async fileText(url: string): Promise<string> {
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { throw new SlackError('invalid_response'); }
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'files.slack.com' || parsed.username || parsed.password || parsed.port) throw new SlackError('invalid_response');
+    if (this.#closed) throw new SlackError('cancelled');
+    const response = await this.#fetcher(parsed.href, {
+      method: 'GET', redirect: 'error', credentials: 'omit',
+      headers: { Authorization: 'Bearer ' + this.#token, Cookie: 'd=' + this.#cookie },
+    });
+    if (!response.ok) throw new SlackError('http_error', response.status);
+    const raw = await response.text();
+    if (raw.length > MAX_RESPONSE) throw new SlackError('response_too_large', response.status);
+    return raw;
   }
 
   /** A rate limit is retried once, after `Retry-After` capped at 30 s. */

@@ -648,3 +648,54 @@ async fn a_lost_answer_finds_the_message_it_sent() {
     assert!(store.pending_outbox().is_empty(), "my own marker proves the delivery");
     assert!(store.has_message("C001:1700000500.000009"));
 }
+
+#[tokio::test]
+async fn a_canvas_reads_as_notes_and_is_saved_over_the_version_read() {
+    let edits = Arc::new(std::sync::Mutex::new(Vec::<HashMap<String, String>>::new()));
+    let seen = edits.clone();
+    let server = FakeHttp::start(move |request| {
+        if request.path() == "/files/F001/canvas.html" {
+            return respond(200, "<html><body><h1>Plan</h1><ul><li>ship</li></ul></body></html>");
+        }
+        let form = form(request);
+        match method(request) {
+            "conversations.info" => match form["channel"].as_str() {
+                "C001" => ok(json!({"channel": {"id": "C001", "properties": {"canvas": {"file_id": "F001"}}}})),
+                _ => ok(json!({"channel": {"id": "C002", "properties": {}}})),
+            },
+            "files.info" => ok(json!({"file": {"id": "F001", "updated": 1_700_000_500, "last_editor": "U001",
+                "url_private": format!("{}/files/F001/canvas.html", request.headers.get("host").map(|h| format!("http://{h}")).unwrap_or_default())}})),
+            "users.info" => ok(json!({"user": user("U001", "alice")})),
+            "canvases.edit" | "conversations.canvases.create" => {
+                let mut form = form;
+                form.insert("method".into(), method(request).to_owned());
+                seen.lock().unwrap().push(form);
+                ok(json!({}))
+            }
+            other => panic!("unexpected {other}"),
+        }
+    })
+    .await;
+    let (_, sync) = sync(&server);
+    let notes = sync.notes("C001").await.unwrap();
+    assert_eq!(notes.markdown, "# Plan\n\n- ship");
+    assert_eq!(notes.revision, "1700000500");
+    assert_eq!(notes.updated_by.as_deref(), Some("ALICE"));
+    let stale = sync.save_notes("C001", "# Plan v2", "1700000400").await.unwrap_err();
+    assert_eq!(stale.error.as_deref(), Some(rv_core::notes::CONFLICT));
+    assert!(edits.lock().unwrap().is_empty());
+    sync.save_notes("C001", "# Plan v2", "1700000500").await.unwrap();
+    let empty = sync.notes("C002").await.unwrap();
+    assert_eq!((empty.markdown.as_str(), empty.revision.as_str(), empty.editable), ("", "0", true));
+    sync.save_notes("C002", "first", "0").await.unwrap();
+    let edits = edits.lock().unwrap();
+    assert_eq!(edits[0]["method"], "canvases.edit");
+    assert_eq!(edits[0]["canvas_id"], "F001");
+    let changes: Value = serde_json::from_str(&edits[0]["changes"]).unwrap();
+    assert_eq!(
+        changes,
+        json!([{"operation": "replace", "document_content": {"type": "markdown", "markdown": "# Plan v2"}}])
+    );
+    assert_eq!(edits[1]["method"], "conversations.canvases.create");
+    assert_eq!(edits[1]["channel_id"], "C002");
+}

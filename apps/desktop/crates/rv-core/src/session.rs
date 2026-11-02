@@ -2097,6 +2097,32 @@ impl Session {
         Ok(self.store.messages_by_id(&ids))
     }
 
+    /// The room has a Notes tab: a Slack conversation's canvas.
+    pub fn notes_available(&self, _rid: &str) -> bool {
+        matches!(self.backend(), Backend::Slack(_))
+    }
+
+    pub async fn room_notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
+        match self.backend() {
+            Backend::Slack(slack) => slack.notes(rid).await,
+            _ => Err(crate::slack::not_supported("notes")),
+        }
+    }
+
+    /// Saves the notes whole over `revision`; a newer version answers the
+    /// error [`crate::notes::CONFLICT`].
+    pub async fn save_room_notes(
+        &self,
+        rid: &str,
+        markdown: &str,
+        revision: &str,
+    ) -> Result<crate::notes::Notes, RestError> {
+        match self.backend() {
+            Backend::Slack(slack) => slack.save_notes(rid, markdown, revision).await,
+            _ => Err(crate::slack::not_supported("notes")),
+        }
+    }
+
     /// Whether the server lists a room's threads and lets me follow one:
     /// Rocket.Chat only, Mattermost and kChat have no such list.
     pub fn threads_available(&self) -> bool {

@@ -176,6 +176,22 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // A chat's notes read the way the apps read them, read-only.
+    if let Some(chat) = std::env::var_os("TEAMS_PROBE_NOTES_READ").and_then(|v| v.into_string().ok()) {
+        let shapes = tokens.probe_notes_read(&chat).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
+    // A chat's non-text messages and their Loop references, read-only.
+    if let Some(chat) = std::env::var_os("TEAMS_PROBE_NOTES_MESSAGES").and_then(|v| v.into_string().ok()) {
+        let shapes = tokens.probe_notes_messages(&chat).await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // A chat's Notes page, read-only: TEAMS_PROBE_NOTES names the chat;
     // TEAMS_NOTES_SHAREPOINT, TEAMS_NOTES_DRIVE and TEAMS_NOTES_ITEM the page.
     if let Some(chat) = std::env::var_os("TEAMS_PROBE_NOTES").and_then(|v| v.into_string().ok()) {

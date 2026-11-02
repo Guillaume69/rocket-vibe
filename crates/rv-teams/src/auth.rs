@@ -1992,6 +1992,84 @@ impl Tokens {
     /// and v3), the CSA channel record, Graph's team and channel records and
     /// the chat-service thread, and reports every JSON path whose string value
     /// contains `needle`, with the status of each read. Throwaway.
+    /// A chat's Notes (a Loop page), read-only: the thread's properties
+    /// searched for the page's file, a SharePoint token for `sharepoint`
+    /// minted from the refresh token, and the page's latest Fluid snapshot at
+    /// `drive`/`item` (its size, content type and the mergeTree chunks found,
+    /// never the token). Throwaway.
+    pub async fn probe_notes(&self, chat: &str, sharepoint: &str, drive: &str, item: &str) -> Value {
+        let mut out = serde_json::Map::new();
+        let Ok((skype, routes)) = self.chat().await else { return json!({ "error": "chat token" }) };
+        let header = format!("skypetoken={}", skype.as_str());
+        let base = format!("{}/v1", routes.chat);
+        let Ok(thread) = crate::client::service_url(&base, &["threads", chat], "view=msnp24Equivalent&threadProperties=1")
+        else {
+            return json!({ "error": "chat id" });
+        };
+        let answer = describe(http().get(thread).header("authentication", &header).send().await).await;
+        let properties = answer.pointer("/body/properties").cloned().unwrap_or(Value::Null);
+        let keys: Vec<String> = properties.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
+        let loopish: Vec<(String, String)> = properties
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .filter_map(|(k, v)| {
+                        let text = v.to_string();
+                        (text.contains(".loop") || text.contains("contentstorage") || k.to_lowercase().contains("loop") || k.to_lowercase().contains("file"))
+                            .then(|| (k.clone(), text.chars().take(400).collect()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.insert("thread_status".into(), answer["status"].clone());
+        out.insert("thread_property_keys".into(), json!(keys));
+        out.insert("thread_loop_properties".into(), json!(loopish));
+        let Ok(files) = crate::client::service_url(&base, &["threads", chat, "files"], "") else { return json!({}) };
+        let listed = describe(http().get(files).header("authentication", &header).send().await).await;
+        out.insert("files_get".into(), json!({"status": listed["status"], "body": listed["body"].to_string().chars().take(600).collect::<String>()}));
+        let token = match self.access(sharepoint).await {
+            Ok(lease) => {
+                out.insert("sharepoint_token".into(), json!("minted"));
+                lease.value
+            }
+            Err(e) => {
+                out.insert("sharepoint_token".into(), json!(format!("refused: {} {}", e.status, e.message)));
+                return Value::Object(out);
+            }
+        };
+        let children = format!("{sharepoint}/_api/v2.1/drives/{drive}/root/children?$select=name&$top=200");
+        if let Ok(resp) = http().get(&children).bearer_auth(token.as_str()).send().await {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            let names: Vec<&str> = body["value"].as_array().map(|v| v.iter().filter_map(|c| c["name"].as_str()).collect()).unwrap_or_default();
+            let chats = names.iter().filter(|n| n.starts_with("19_")).count();
+            out.insert("drive_root".into(), json!({"status": status, "entries": names.len(), "chat_folders": chats}));
+        }
+        let by_path = format!("{sharepoint}/_api/v2.1/drives/{drive}/root:/{}_thread_v2/loop_loopThread.loop?$select=id,name", chat.trim_end_matches("@thread.v2").replace(':', "_"));
+        if let Ok(resp) = http().get(&by_path).bearer_auth(token.as_str()).send().await {
+            let status = resp.status().as_u16();
+            let body: Value = resp.json().await.unwrap_or(Value::Null);
+            out.insert("page_by_path".into(), json!({"status": status, "same_item": body["id"].as_str() == Some(item)}));
+        }
+        let url = format!("{sharepoint}/_api/v2.1/drives/{drive}/items/{item}/opStream/snapshots/trees/latest?ump=1");
+        match http().get(&url).bearer_auth(token.as_str()).send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let kind = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(str::to_owned);
+                let bytes = resp.bytes().await.unwrap_or_default();
+                let chunks = bytes.windows(26).filter(|w| w == b"{\"chunkStartSegmentIndex\"").count();
+                if let Some(path) = std::env::var_os("TEAMS_NOTES_DUMP") {
+                    let _ = std::fs::write(path, &bytes);
+                }
+                out.insert("snapshot".into(), json!({"status": status, "content_type": kind, "bytes": bytes.len(), "merge_tree_chunks": chunks}));
+            }
+            Err(e) => {
+                out.insert("snapshot".into(), json!({"error": e.to_string()}));
+            }
+        }
+        Value::Object(out)
+    }
+
     /// People search for `query`, read-only: the middle tier's `searchV2`
     /// (Spaces bearer) and Substrate's people suggestions (Substrate bearer),
     /// a few body shapes each. Throwaway.

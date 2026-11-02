@@ -176,6 +176,18 @@ async fn main() {
         println!("SHAPES_END");
         return;
     }
+    // A chat's Notes page, read-only: TEAMS_PROBE_NOTES names the chat;
+    // TEAMS_NOTES_SHAREPOINT, TEAMS_NOTES_DRIVE and TEAMS_NOTES_ITEM the page.
+    if let Some(chat) = std::env::var_os("TEAMS_PROBE_NOTES").and_then(|v| v.into_string().ok()) {
+        let var = |name: &str| std::env::var(name).unwrap_or_default();
+        let shapes = tokens
+            .probe_notes(&chat, &var("TEAMS_NOTES_SHAREPOINT"), &var("TEAMS_NOTES_DRIVE"), &var("TEAMS_NOTES_ITEM"))
+            .await;
+        println!("SHAPES_BEGIN");
+        println!("{}", serde_json::to_string_pretty(&shapes).unwrap_or_default());
+        println!("SHAPES_END");
+        return;
+    }
     // TEAMS_PROBE_FIND, with its JSON path.
     if let Some(needle) = std::env::var_os("TEAMS_PROBE_FIND").and_then(|v| v.into_string().ok()) {
         let team = std::env::var("TEAMS_PIN_TEAM")

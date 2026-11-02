@@ -291,8 +291,11 @@ meetings with video (2 to 3 months more).
   an unclicked tab keeps its remote `<audio>` paused by autoplay rules and reports level 0), and the
   browser's hang-up removed it from the native roster at once (a closed tab only leaves when the
   server times it out). Browser to native was not run with a live microphone; two native clients
-  hear each other through the bridge. Not yet run: the GTK window against a real Rocket.Chat call with a web
-  participant, kMeet (JWT; its calls keep the page), SwiftUI and Android, video.
+  hear each other through the bridge. kMeet (2026-11-02): the GTK call path takes kChat calls too, the
+  `?jwt=` of the conference answer's URL becoming the XMPP token (`voice::meeting_token`, unit-tested);
+  not run live: kChat sits in a cross-origin frame inside kSuite that the browser automation cannot
+  drive, and the `kchat-smoke` example needs the user's Infomaniak API token. Not yet run: the GTK window itself against a real Rocket.Chat call (the
+  sidecar path under it was), kMeet live, SwiftUI and Android, video.
 
 ## Order
 

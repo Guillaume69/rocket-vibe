@@ -753,14 +753,24 @@ impl NativeSession {
     }
     async fn refresh_credentials(&self) -> Result<(), Error> {
         if let Some(credentials) = &self.credentials {
-            let fresh = credentials.resume(self.credential_info()).await?;
+            self.client.begin_rotation();
+            let resumed = credentials.resume(self.credential_info()).await;
+            let fresh = match resumed {
+                Ok(fresh) => fresh,
+                Err(error) => {
+                    self.client.end_rotation();
+                    return Err(error);
+                }
+            };
             if fresh.base_url != self.info.base_url
                 || fresh.user_id != self.info.user_id
                 || fresh.native != self.info.native
             {
+                self.client.end_rotation();
                 return Err(Error::Protocol("server_identity_changed"));
             }
             self.client.update_token(fresh.auth_token);
+            self.client.end_rotation();
         }
         Ok(())
     }

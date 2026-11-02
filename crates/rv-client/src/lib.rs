@@ -50,6 +50,9 @@ pub struct NativeClient {
     base: String,
     http: reqwest::Client,
     token: Arc<Mutex<Option<String>>>,
+    /// The credential a renewal is replacing: the server forgets it as soon as
+    /// the successor exists, before `update_token` can install that successor.
+    rotating: Arc<Mutex<Option<String>>>,
     cooldowns: Arc<Mutex<HashMap<&'static str, Cooldown>>>,
     snapshot_paging: Arc<Mutex<Option<bool>>>,
 }
@@ -539,6 +542,7 @@ impl NativeClient {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             token: Arc::default(),
+            rotating: Arc::default(),
             cooldowns: Arc::default(),
             snapshot_paging: Arc::default(),
         })
@@ -613,8 +617,7 @@ impl NativeClient {
     ) -> Error {
         if status == 401
             && error.code == "session_rejected"
-            && sent.is_some()
-            && sent != self.saved_token()
+            && sent.as_deref().is_some_and(|sent| self.superseded(sent))
         {
             return Error::Server {
                 status: 409,
@@ -1027,6 +1030,23 @@ impl NativeClient {
     }
     pub fn saved_token(&self) -> Option<String> {
         self.token.lock().expect("native credential lock").clone()
+    }
+    /// A renewal of the current credential is under way: until `end_rotation`,
+    /// a rejection of that credential is a superseded request, not a revocation.
+    pub fn begin_rotation(&self) {
+        *self.rotating.lock().expect("native rotation lock") = self.saved_token();
+    }
+    pub fn end_rotation(&self) {
+        *self.rotating.lock().expect("native rotation lock") = None;
+    }
+    fn superseded(&self, sent: &str) -> bool {
+        self.saved_token().as_deref() != Some(sent)
+            || self
+                .rotating
+                .lock()
+                .expect("native rotation lock")
+                .as_deref()
+                == Some(sent)
     }
     pub async fn renew(&self, input: &rv_protocol::parity::RenewSession) -> Result<Session, Error> {
         self.post("/api/v1/auth/renew", input).await
@@ -2414,10 +2434,7 @@ impl NativeClient {
             let status = response.status().as_u16();
             let retry = retry_after(&response);
             let error: ApiError = response.json().await?;
-            if status == 401
-                && error.code == "session_rejected"
-                && self.saved_token().as_deref() != Some(sent.as_str())
-            {
+            if status == 401 && error.code == "session_rejected" && self.superseded(&sent) {
                 return Err(Error::Server {
                     status: 409,
                     code: "delivery_revalidate".into(),
@@ -2675,3 +2692,32 @@ fn path_segment(value: &str) -> bool {
 
 #[cfg(test)]
 mod crypto_tests;
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    fn rejected(client: &NativeClient, sent: &str) -> String {
+        let error = ApiError {
+            code: "session_rejected".into(),
+            request_id: "r".into(),
+        };
+        match client.server_error(401, None, None, Some(sent.into()), error) {
+            Error::Server { code, .. } => code,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_rejection_during_renewal_is_a_superseded_request_not_a_revocation() {
+        let client = NativeClient::new("http://server").unwrap();
+        client.update_token("old".into());
+        assert_eq!(rejected(&client, "old"), "session_rejected");
+        client.begin_rotation();
+        assert_eq!(rejected(&client, "old"), "delivery_revalidate");
+        client.update_token("new".into());
+        client.end_rotation();
+        assert_eq!(rejected(&client, "old"), "delivery_revalidate");
+        assert_eq!(rejected(&client, "new"), "session_rejected");
+    }
+}

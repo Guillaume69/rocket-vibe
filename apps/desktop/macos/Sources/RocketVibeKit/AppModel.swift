@@ -262,6 +262,9 @@ public final class AppModel {
     /// changed one); a read that concludes nothing keeps the icon shown.
     public func refreshServerIcons() async {
         for one in accounts {
+            if serverIcons[one.key] == nil, let mark = await client.serverIconFallback(key: one.key) {
+                serverIcons[one.key] = mark
+            }
             switch await client.serverIcon(key: one.key) {
             case let .image(bytes): serverIcons[one.key] = bytes
             case .absent: serverIcons.removeValue(forKey: one.key)

@@ -165,7 +165,7 @@ struct ServerRail: View {
     func tile(_ account: Account, open: Bool, host: String, slot: Int) -> some View {
         Button { Task { await app.switchAccount(account) } } label: {
             Group {
-                // The server's own icon when it has one, else the app's.
+                // The server's own icon, else its provider's mark, else (Vibez) the app's.
                 if let data = app.serverIcons[account.key], let image = NSImage(data: data) {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {

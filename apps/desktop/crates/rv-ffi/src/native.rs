@@ -181,7 +181,7 @@ impl Drop for NativeChat {
 pub enum ServerIcon {
     /// PNG or JPEG bytes.
     Image { bytes: Vec<u8> },
-    /// No icon of its own: the initial.
+    /// No icon of its own and no provider mark (a Vibez server): the app's icon.
     Absent,
     /// Nothing to conclude (offline, refused): keep what is shown.
     Unknown,
@@ -207,7 +207,22 @@ impl Client {
         })
         .await;
         let Some(info) = info else { return ServerIcon::Unknown };
-        on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await.into()
+        let fallback = rv_core::server_icon::fallback(&info);
+        match on_tokio(async move { rv_core::server_icon::fetch(&info).await }).await {
+            rv_core::server_icon::Icon::Absent => {
+                fallback.map_or(ServerIcon::Absent, |bytes| ServerIcon::Image { bytes: bytes.to_vec() })
+            }
+            icon => icon.into(),
+        }
+    }
+
+    /// The mark the tile of account `key` shows until its server's own icon is
+    /// read, or when it cannot be: its provider's, none for a Vibez server.
+    pub async fn server_icon_fallback(&self, key: String) -> Option<Vec<u8>> {
+        let dirs = self.dirs.clone();
+        blocking(move || crate::accounts::load_all(&dirs).into_iter().find(|info| crate::accounts::key(info) == key))
+            .await
+            .and_then(|info| rv_core::server_icon::fallback(&info).map(<[u8]>::to_vec))
     }
 
     /// Whether the address is a Vibez server, under the user's choice of kind.

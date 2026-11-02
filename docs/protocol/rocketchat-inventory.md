@@ -269,7 +269,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:219](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L219) | endpoint | rooms.saveRoomSettings |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:240](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L240) | call:POST | "rooms.createDiscussion" |
 | [apps/desktop/crates/rv-core/src/rocketchat/actions.rs:240](../../apps/desktop/crates/rv-core/src/rocketchat/actions.rs#L240) | endpoint | rooms.createDiscussion |
-| [apps/desktop/crates/rv-core/src/server_icon.rs:94](../../apps/desktop/crates/rv-core/src/server_icon.rs#L94) | endpoint | settings.public |
+| [apps/desktop/crates/rv-core/src/server_icon.rs:142](../../apps/desktop/crates/rv-core/src/server_icon.rs#L142) | endpoint | settings.public |
 | [apps/desktop/crates/rv-core/src/server.rs:127](../../apps/desktop/crates/rv-core/src/server.rs#L127) | call:GET | "api/info", info), rest.get("settings.public", settings)); |
 | [apps/desktop/crates/rv-core/src/server.rs:127](../../apps/desktop/crates/rv-core/src/server.rs#L127) | endpoint | api/info |
 | [apps/desktop/crates/rv-core/src/server.rs:127](../../apps/desktop/crates/rv-core/src/server.rs#L127) | endpoint | settings.public |
@@ -487,12 +487,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:248](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L248) | endpoint | e2e.unlocked |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:251](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L251) | endpoint | e2e.lock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:253](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L253) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:978](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L978) | endpoint | rooms.nothing_unread |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:980](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L980) | endpoint | rooms.mark_failed |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1006](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1006) | endpoint | e2e.wrong |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1007](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1007) | endpoint | e2e.no_keys |
-| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1008](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1008) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:981](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L981) | endpoint | rooms.nothing_unread |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:983](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L983) | endpoint | rooms.mark_failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1009](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1009) | endpoint | e2e.wrong |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1010](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1010) | endpoint | e2e.no_keys |
 | [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1011](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1011) | endpoint | e2e.failed |
+| [apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift:1014](../../apps/desktop/macos/Sources/RocketVibeKit/AppModel.swift#L1014) | endpoint | e2e.failed |
 | [apps/mobile/app/login.tsx:578](../../apps/mobile/app/login.tsx#L578) | endpoint | chat.example.org |
 | [apps/mobile/app/message-actions.tsx:121](../../apps/mobile/app/message-actions.tsx#L121) | call:GET | 'settings.public' |
 | [apps/mobile/app/message-actions.tsx:122](../../apps/mobile/app/message-actions.tsx#L122) | endpoint | settings.public |

@@ -2,8 +2,10 @@
 //! without signing in for every account the rail lists: Rocket.Chat's
 //! `favicon_192` asset when an administrator set one (its default logo is
 //! not the server's own), Vibez's instance icon (`Discovery.icon_revision`).
-//! Mattermost and kChat show the app's. Read afresh on each rail rebuild:
-//! Rocket.Chat serves the asset at a fixed URL with no ETag.
+//! Any other account, or a server without an icon of its own, shows its
+//! provider's mark (`fallback`); a Vibez server without one, the app's.
+//! Read afresh on each rail rebuild: Rocket.Chat serves the asset at a fixed
+//! URL with no ETag.
 
 use std::time::Duration;
 
@@ -24,10 +26,56 @@ const MAX_BYTES: usize = 2 * 1024 * 1024;
 pub enum Icon {
     /// A PNG or JPEG of at most 2 MiB.
     Image(Vec<u8>),
-    /// The server has no icon of its own: show the app's.
+    /// The server has no icon of its own: show `fallback`.
     Absent,
     /// Nothing to conclude (unreachable, refused, not an image): keep what is shown.
     Unknown,
+}
+
+/// The service an account belongs to, as the rail's fallback mark names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    RocketChat,
+    Vibez,
+    Mattermost,
+    Kchat,
+    Slack,
+    Teams,
+    WhatsApp,
+}
+
+pub fn provider(info: &SessionInfo) -> Provider {
+    if crate::whatsapp::is_whatsapp(info) {
+        Provider::WhatsApp
+    } else if info.teams.is_some() {
+        Provider::Teams
+    } else if info.slack.is_some() {
+        Provider::Slack
+    } else if let Some(flavor) = info.mattermost {
+        match flavor {
+            crate::mattermost::Flavor::Mattermost => Provider::Mattermost,
+            crate::mattermost::Flavor::Kchat => Provider::Kchat,
+        }
+    } else if info.native.is_some() {
+        Provider::Vibez
+    } else {
+        Provider::RocketChat
+    }
+}
+
+/// The provider's mark (a PNG tile, `scripts/brand-tiles/NOTICE.md`) shown
+/// while the server's own icon is unknown, absent or unreadable; a Vibez
+/// server falls back to the app's icon.
+pub fn fallback(info: &SessionInfo) -> Option<&'static [u8]> {
+    Some(match provider(info) {
+        Provider::Vibez => return None,
+        Provider::RocketChat => include_bytes!("../assets/brands/rocketchat.png"),
+        Provider::Mattermost => include_bytes!("../assets/brands/mattermost.png"),
+        Provider::Kchat => include_bytes!("../assets/brands/kchat.png"),
+        Provider::Slack => include_bytes!("../assets/brands/slack.png"),
+        Provider::Teams => include_bytes!("../assets/brands/teams.png"),
+        Provider::WhatsApp => include_bytes!("../assets/brands/whatsapp.png"),
+    })
 }
 
 /// `settings.public?_id=Assets_favicon_192`: the asset's path when set
@@ -116,6 +164,53 @@ mod tests {
             let odd = json!({"settings": [{"_id": "Assets_favicon_192", "value": {"url": hostile}}]});
             assert_eq!(rc_icon_path(&odd), None, "{hostile}");
         }
+    }
+
+    #[test]
+    fn every_provider_but_vibez_falls_back_to_its_own_mark() {
+        let rocket_chat = SessionInfo {
+            base_url: "https://chat.example.com".into(),
+            user_id: "u".into(),
+            username: "me".into(),
+            auth_token: "t".into(),
+            native: None,
+            mattermost: None,
+            slack: None,
+            teams: None,
+        };
+        let kchat = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Kchat), ..rocket_chat.clone() };
+        let mattermost = SessionInfo { mattermost: Some(crate::mattermost::Flavor::Mattermost), ..rocket_chat.clone() };
+        let teams = SessionInfo {
+            teams: Some(crate::teams::auth::TeamsAccount { tenant_id: "t".into(), refresh: "r".to_owned().into() }),
+            ..rocket_chat.clone()
+        };
+        let slack = SessionInfo {
+            slack: Some(crate::slack::SlackAccount { team_id: "T1".into(), cookie: "d".to_owned().into() }),
+            ..rocket_chat.clone()
+        };
+        let vibez = SessionInfo {
+            native: Some(crate::native::Identity { instance_id: "i".into(), data_epoch: "e".into() }),
+            ..rocket_chat.clone()
+        };
+        let whatsapp = crate::whatsapp::account_info("abc123", "33600000000@s.whatsapp.net", "Me");
+        let cases = [
+            (&rocket_chat, Provider::RocketChat),
+            (&kchat, Provider::Kchat),
+            (&mattermost, Provider::Mattermost),
+            (&teams, Provider::Teams),
+            (&slack, Provider::Slack),
+            (&vibez, Provider::Vibez),
+            (&whatsapp, Provider::WhatsApp),
+        ];
+        for (info, expected) in cases {
+            assert_eq!(provider(info), expected);
+            match fallback(info) {
+                Some(bytes) => assert!(is_png_or_jpeg(bytes) && expected != Provider::Vibez, "{expected:?}"),
+                None => assert_eq!(expected, Provider::Vibez),
+            }
+        }
+        let marks: std::collections::HashSet<_> = cases.iter().filter_map(|(info, _)| fallback(info)).collect();
+        assert_eq!(marks.len(), 6, "each provider has its own mark");
     }
 
     #[test]

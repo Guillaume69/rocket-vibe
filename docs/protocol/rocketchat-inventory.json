@@ -242,6 +242,7 @@
     "apps/desktop/crates/rv-gtk/src/marked.rs",
     "apps/desktop/crates/rv-gtk/src/media.rs",
     "apps/desktop/crates/rv-gtk/src/message_list.rs",
+    "apps/desktop/crates/rv-gtk/src/native_call.rs",
     "apps/desktop/crates/rv-gtk/src/native_crypto.rs",
     "apps/desktop/crates/rv-gtk/src/native_crypto/history.rs",
     "apps/desktop/crates/rv-gtk/src/native_crypto/history_backup.rs",
@@ -1517,7 +1518,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 2091,
+      "line": 2099,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },

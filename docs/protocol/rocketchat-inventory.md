@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-737 production files scanned; 758 occurrences.
+738 production files scanned; 758 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -136,7 +136,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/i18n.rs:1990](../../apps/desktop/crates/rv-core/src/i18n.rs#L1990) | endpoint | e2e.status |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1991](../../apps/desktop/crates/rv-core/src/i18n.rs#L1991) | endpoint | e2e.locked |
 | [apps/desktop/crates/rv-core/src/i18n.rs:1992](../../apps/desktop/crates/rv-core/src/i18n.rs#L1992) | endpoint | e2e.unlocked |
-| [apps/desktop/crates/rv-core/src/i18n.rs:2091](../../apps/desktop/crates/rv-core/src/i18n.rs#L2091) | endpoint | rooms.quoted_message |
+| [apps/desktop/crates/rv-core/src/i18n.rs:2099](../../apps/desktop/crates/rv-core/src/i18n.rs#L2099) | endpoint | rooms.quoted_message |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:32](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L32) | call:POST | "reactions" |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:34](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L34) | call:DELETE | &format!("users/{…}/posts/{…}/reactions/{…}") |
 | [apps/desktop/crates/rv-core/src/mattermost/actions.rs:40](../../apps/desktop/crates/rv-core/src/mattermost/actions.rs#L40) | call:PUT | &format!("channels/{…}/patch") |

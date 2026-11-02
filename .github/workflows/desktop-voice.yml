@@ -12,11 +12,13 @@ on:
     paths:
       - 'apps/desktop/voice/**'
       - 'apps/desktop/crates/rv-voice-protocol/**'
+      - 'crates/rv-call/**'
       - '.github/workflows/desktop-voice.yml'
   pull_request:
     paths:
       - 'apps/desktop/voice/**'
       - 'apps/desktop/crates/rv-voice-protocol/**'
+      - 'crates/rv-call/**'
       - '.github/workflows/desktop-voice.yml'
   workflow_dispatch:
 

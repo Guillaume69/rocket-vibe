@@ -2499,49 +2499,49 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2407,
+      "line": 2408,
       "kind": "call:GET",
       "surface": "\"video-conference.info\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2407,
+      "line": 2408,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2501,
+      "line": 2502,
       "kind": "call:GET",
       "surface": "\"chat.getMessage\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2501,
+      "line": 2502,
       "kind": "endpoint",
       "surface": "chat.getMessage"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2512,
+      "line": 2513,
       "kind": "call:GET",
       "surface": "\"chat.getThreadMessages\", options).await?;"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2512,
+      "line": 2513,
       "kind": "endpoint",
       "surface": "chat.getThreadMessages"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2879,
+      "line": 2880,
       "kind": "call:POST",
       "surface": "\"users.setPresence\""
     },
     {
       "file": "apps/desktop/crates/rv-core/src/session.rs",
-      "line": 2879,
+      "line": 2880,
       "kind": "endpoint",
       "surface": "users.setPresence"
     },
@@ -5235,43 +5235,43 @@
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 1185,
+      "line": 1202,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2247,
+      "line": 2308,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2255,
+      "line": 2316,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2413,
+      "line": 2474,
       "kind": "url",
       "surface": "/api/csa"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 299,
+      "line": 319,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 317,
+      "line": 337,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 490,
+      "line": 510,
       "kind": "url",
       "surface": "/api/csa"
     },

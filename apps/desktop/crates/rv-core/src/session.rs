@@ -2125,6 +2125,7 @@ impl Session {
     ) -> Result<crate::notes::Notes, RestError> {
         match self.backend() {
             Backend::Slack(slack) => slack.save_notes(rid, markdown, revision).await,
+            Backend::Teams(teams) => teams.save_notes(rid, markdown, revision).await,
             _ => Err(crate::slack::not_supported("notes")),
         }
     }

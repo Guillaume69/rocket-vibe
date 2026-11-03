@@ -69,18 +69,23 @@ impl TeamsSync {
         self.store.latest_system_text(rid, rv_teams::notes::CREATED).as_deref().and_then(rv_teams::notes::page)
     }
 
-    /// The chat's notes as markdown, read-only: writing a Loop page means
-    /// joining Fluid's delta stream.
+    /// The chat's notes as markdown; the revision is the page's sequence number.
     pub async fn notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
         let page = self.notes_page(rid).ok_or_else(|| RestError::incomplete("notes: none in this chat"))?;
-        let text = self.service.notes(&page).await?;
-        Ok(crate::notes::Notes {
-            markdown: text.markdown,
-            revision: text.sequence.to_string(),
-            editable: false,
-            updated_by: text.updated_by,
-            updated_at: text.updated_at.and_then(chrono::DateTime::from_timestamp_millis).map(|at| at.to_rfc3339()),
-        })
+        Ok(notes_of(self.service.notes(&page).await?))
+    }
+
+    /// Saves the chat's notes over `revision`, rewriting the paragraphs that
+    /// changed through Fluid's delta stream.
+    pub async fn save_notes(
+        &self,
+        rid: &str,
+        markdown: &str,
+        revision: &str,
+    ) -> Result<crate::notes::Notes, RestError> {
+        let page = self.notes_page(rid).ok_or_else(|| RestError::incomplete("notes: none in this chat"))?;
+        let expected = revision.parse::<i64>().map_err(|_| RestError::incomplete("notes: revision"))?;
+        self.service.save_notes(&page, expected, markdown).await.map(notes_of)
     }
 
     /// The newest message id of the room, stored or listed by the aggregator,
@@ -836,6 +841,16 @@ fn group_chat(entry: &Value) -> bool {
     str_of(entry, "id").is_some_and(|id| id.ends_with("@thread.v2"))
         && entry.get("isOneOnOne").and_then(Value::as_bool) != Some(true)
         && str_of(entry, "chatType") != Some("meeting")
+}
+
+fn notes_of(text: rv_teams::notes::Text) -> crate::notes::Notes {
+    crate::notes::Notes {
+        markdown: text.markdown,
+        revision: text.sequence.to_string(),
+        editable: true,
+        updated_by: text.updated_by,
+        updated_at: text.updated_at.and_then(chrono::DateTime::from_timestamp_millis).map(|at| at.to_rfc3339()),
+    }
 }
 
 #[cfg(test)]

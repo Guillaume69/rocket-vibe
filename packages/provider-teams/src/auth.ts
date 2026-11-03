@@ -17,6 +17,8 @@ const AGGREGATOR = 'https://chatsvcagg.teams.microsoft.com';
 const GRAPH = 'https://graph.microsoft.com';
 /** Teams' templates service, which renames a channel (verified 2026-10-23). */
 const TEMPLATES = 'https://templates.teams.microsoft.com';
+/** OneDrive's push channel: Fluid's delta stream for pages in SharePoint. */
+const PUSH = 'https://pushchannel.1drv.ms';
 const AUTHZ = 'https://teams.microsoft.com/api/authsvc/v1.0/authz';
 /** The `baseUrl` of every Teams account: its services live behind routes discovered per tenant. */
 export const TEAMS_ORIGIN = 'https://teams.microsoft.com';
@@ -193,6 +195,7 @@ export class TeamsTokens {
   private graphLease: Lease | null = null;
   private templatesLease: Lease | null = null;
   private sharepointLease: { host: string; lease: Lease } | null = null;
+  private pushLease: Lease | null = null;
   private routesHeld: TeamsRoutes | null = null;
   private pending = new Map<string, Promise<Lease>>();
   private readonly onSkype: TeamsOptions['onSkype'];
@@ -292,6 +295,14 @@ export class TeamsTokens {
     if (held) return held;
     this.templatesLease = await this.access(TEMPLATES);
     return this.templatesLease.value;
+  }
+
+  /** The bearer of OneDrive's push channel, which Fluid's delta stream checks for a notes page. */
+  async push(): Promise<string> {
+    const held = fresh(this.pushLease);
+    if (held) return held;
+    this.pushLease = await this.access(PUSH);
+    return this.pushLease.value;
   }
 
   /** A SharePoint bearer for the tenant's host (`https://<tenant>.sharepoint.com`), for chat notes pages. */

@@ -7,6 +7,16 @@ section here.
 
 ## [Unreleased]
 
+### Added
+
+- Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.
+
+### Fixed
+
+- Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
+- Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
+
+
 ## [0.30.2] - 2026-11-02
 
 ### Fixed

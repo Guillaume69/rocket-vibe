@@ -15,13 +15,13 @@ import { availabilityStatus, readPresence, statusAvailability } from './presence
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
 import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
-import type { Capabilities, EditableSettings, Listener, MemberPage, Provider, ProviderError, RoomInformation, RoomNotes, RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
+import { NOTES_CONFLICT, type Capabilities, type EditableSettings, type Listener, type MemberPage, type Provider, type ProviderError, type RoomInformation, type RoomNotes, type RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, TeamsTokens } from './auth.ts';
 import { TeamsClient } from './client.ts';
 import { TeamsMessageActions, TeamsOutbox } from './outbox.ts';
 import { TeamsUploadQueue } from './uploads.ts';
 import { teamsCalls } from './calls.ts';
-import { NOTES_CREATED, notesPage, readNotes } from './notes.ts';
+import { NOTES_CREATED, NOTES_SAVE_CONFLICT, notesEdit, notesPage, notesSubmit, readNotes, type NotesPage, type NotesText } from './notes.ts';
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, groupThread, isGraphShare, isGroupChat, mriOf, newGroupChat, newOneOnOne, oneOnOneId, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { CALL_COLLECTION, TeamsTrouter, type CallPush } from './trouter.ts';
@@ -42,18 +42,20 @@ export async function teamsPinned(client: TeamsClient, directory: TeamsDirectory
     .sort((a, b) => b.ts - a.ts);
 }
 
-/** A chat's notes, read-only: the page the newest `FileAdd` event among the
- *  chat's newest `PINNED_LOOKBACK` messages names, read whole; a chat without
- *  one reads as empty. Mirrors `TeamsSync::notes` in the desktop core. */
-export async function teamsNotes(client: TeamsClient, directory: TeamsDirectory, rid: string): Promise<RoomNotes> {
+/** The chat's notes page, named by the newest `FileAdd` event among the chat's
+ *  newest `PINNED_LOOKBACK` messages; `null` when the chat has none. */
+async function notesPageOf(client: TeamsClient, directory: TeamsDirectory, rid: string): Promise<NotesPage | null> {
   const url = await client.conversation(rid, ['messages'], `view=msnp24Equivalent%7CsupportsMessageProperties&pageSize=${PINNED_LOOKBACK}`);
   const body = (await client.chat('GET', url)).body;
   const created = (Array.isArray(body.messages) ? (body.messages as Doc[]) : [])
     .map((m) => toMessage(rid, m, directory))
     .filter((m): m is LocalMessage => m?.systemType === NOTES_CREATED && typeof m.text === 'string')
     .sort((a, b) => b.ts - a.ts)[0];
-  const page = created?.text ? notesPage(created.text) : null;
-  if (page === null) return { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null };
+  return created?.text ? notesPage(created.text) : null;
+}
+
+/** The page read whole: its latest snapshot, then the operations after it. */
+async function notesRead(client: TeamsClient, page: NotesPage): Promise<NotesText> {
   const snapshot = await client.notesStream(page, '/snapshots/trees/latest?ump=1');
   const latest = typeof snapshot.latestSequenceNumber === 'number' ? snapshot.latestSequenceNumber : 0;
   // The service refuses an open range ("must specify 'AND' filter").
@@ -63,7 +65,44 @@ export async function teamsNotes(client: TeamsClient, directory: TeamsDirectory,
     .catch(() => []);
   const text = readNotes(snapshot, later);
   if (text === null) throw new TeamsError('notes_format');
-  return { markdown: text.markdown, revision: String(text.sequence), editable: false, updatedBy: text.updatedBy, updatedAt: text.updatedAt };
+  return text;
+}
+
+const asNotes = (text: NotesText): RoomNotes =>
+  ({ markdown: text.markdown, revision: String(text.sequence), editable: true, updatedBy: text.updatedBy, updatedAt: text.updatedAt });
+
+/** A chat's notes; a chat without a page reads as empty. Mirrors `TeamsSync::notes`. */
+export async function teamsNotes(client: TeamsClient, directory: TeamsDirectory, rid: string): Promise<RoomNotes> {
+  const page = await notesPageOf(client, directory, rid);
+  if (page === null) return { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null };
+  return asNotes(await notesRead(client, page));
+}
+
+/** Saves a chat's notes over `revision`, rewriting the paragraphs that changed
+ *  through Fluid's delta stream; a page changed since fails with
+ *  `NOTES_CONFLICT`. Mirrors `TeamsSync::save_notes`. */
+export async function saveTeamsNotes(client: TeamsClient, directory: TeamsDirectory, me: string, rid: string, markdown: string, revision: string): Promise<RoomNotes> {
+  const page = await notesPageOf(client, directory, rid);
+  if (page === null) throw new TeamsError('notes_none');
+  const current = await notesRead(client, page);
+  if (String(current.sequence) !== revision) throw new TeamsError(NOTES_CONFLICT);
+  const author = { id: me, name: directory.shown(me), timestamp: Date.now(), dataSource: 0 };
+  const ops = notesEdit(current.blocks, markdown, author);
+  if (ops.length === 0) return asNotes(current);
+  const [session, push] = await Promise.all([client.notesJoin(page), client.notesPush()]);
+  let sequenced: number;
+  try {
+    sequenced = await notesSubmit(session, push, current, ops);
+  } catch (e) {
+    throw new TeamsError(e instanceof Error && e.message === NOTES_SAVE_CONFLICT ? NOTES_CONFLICT : 'notes_save');
+  }
+  // The op stream serves a sequenced op a moment after the socket confirms it.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const text = await notesRead(client, page);
+    if (text.sequence >= sequenced) return asNotes(text);
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  return asNotes(await notesRead(client, page));
 }
 
 export const TEAMS_CAPABILITIES: Capabilities = {
@@ -249,6 +288,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       star: refuse('star'),
       listPinned: (rid) => teamsPinned(client, directory, rid),
       roomNotes: (rid) => teamsNotes(client, directory, rid),
+      saveRoomNotes: (rid, markdown, revision) => saveTeamsNotes(client, directory, session.userId, rid, markdown, revision),
       listStarred: async (): Promise<LocalMessage[]> => [],
       markRead: async (rid) => {
         const marked = await actionsFor(ingestLive).markRead(rid, newest.get(rid) ?? null, rooms.lastId(rid));

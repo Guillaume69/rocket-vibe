@@ -137,10 +137,12 @@ export class SlackActions implements ProviderActions {
     return this.translated(await this.saved.messages(rid));
   }
 
-  /** The conversation's canvas as notes: empty at revision "0" while it has none. */
+  /** The conversation's canvas as notes, read-only: Slack answers every
+   *  `canvases.*` method `not_allowed_token_type` for a browser session's token
+   *  (seen 2026-11-03), so neither an edit nor a first canvas can be saved. */
   async roomNotes(rid: string): Promise<RoomNotes> {
     const file = await this.canvas(rid);
-    if (file === null) return { markdown: '', revision: '0', editable: true, updatedBy: null, updatedAt: null };
+    if (file === null) return { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null };
     const info = record((await this.client.call('files.info', { file })).file);
     const url = typeof info.url_private === 'string' ? info.url_private : null;
     if (url === null) throw new SlackError('invalid_response');
@@ -149,7 +151,7 @@ export class SlackActions implements ProviderActions {
     return {
       markdown: canvasMarkdown(await this.client.fileText(url)),
       revision: canvasRevision(info),
-      editable: info.editable !== false,
+      editable: false,
       updatedBy: editor === null ? null : this.directory.displayName(editor),
       updatedAt: typeof info.updated === 'number' ? info.updated * 1000 : null,
     };

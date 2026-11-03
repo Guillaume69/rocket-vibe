@@ -202,6 +202,17 @@ export class TeamsClient {
     return (await this.send(url, ['authorization', `Bearer ${await this.tokens.sharepoint(page.host)}`], 'GET')).body;
   }
 
+  /** Joins a notes page's Fluid session: where its delta stream listens. */
+  async notesJoin(page: NotesPage): Promise<Doc> {
+    const url = `${page.host}/_api/v2.1/drives/${page.drive}/items/${page.item}/opStream/joinSession`;
+    return (await this.send(url, ['authorization', `Bearer ${await this.tokens.sharepoint(page.host)}`], 'POST', {})).body;
+  }
+
+  /** The bearer Fluid's delta stream checks in `connect_document`. */
+  notesPush(): Promise<string> {
+    return this.tokens.push();
+  }
+
   /** The room's roster, from the threads service (`GET /v1/threads/<rid>`). */
   async roster(rid: string): Promise<Doc> {
     const { routes } = await this.tokens.chat();

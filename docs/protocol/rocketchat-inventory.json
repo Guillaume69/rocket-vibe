@@ -5241,19 +5241,19 @@
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2264,
+      "line": 2308,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2272,
+      "line": 2316,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2430,
+      "line": 2474,
       "kind": "url",
       "surface": "/api/csa"
     },

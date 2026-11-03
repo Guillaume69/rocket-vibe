@@ -2123,6 +2123,50 @@ impl Tokens {
             };
             ops_shape.insert(query.to_owned(), shape);
         }
+        if let Some(line) = std::env::var_os("TEAMS_NOTES_APPEND").and_then(|v| v.into_string().ok()) {
+            let read = match crate::notes::fetch(&http(), token.as_str(), &page).await {
+                Ok(t) => t,
+                Err(e) => return json!({"append": format!("read refused {}", e.status)}),
+            };
+            let author = json!({"id": "rocketvibe-probe", "name": "RocketVibe probe", "timestamp": chrono::Utc::now().timestamp_millis(), "dataSource": 0});
+            let wanted = match std::env::var_os("TEAMS_NOTES_SET").and_then(|v| v.into_string().ok()) {
+                Some(whole) => whole.replace("\\n", "\n"),
+                None => format!("{}\n\n{line}", read.markdown),
+            };
+            let push = match self.push().await {
+                Ok(p) => p,
+                Err(e) => return json!({"append": format!("push token refused {} {}", e.status, e.message)}),
+            };
+            let saved =
+                crate::notes::save(&http(), token.as_str(), push.as_str(), &page, read.sequence, &wanted, &author)
+                    .await;
+            return json!({
+                "before": read.markdown, "sequence_before": read.sequence,
+                "after": saved.as_ref().map(|t| t.markdown.clone()).map_err(|e| format!("{} {}", e.status, e.message)),
+                "sequence_after": saved.as_ref().ok().map(|t| t.sequence),
+            });
+        }
+        if let Some(dir) = std::env::var_os("TEAMS_NOTES_DUMP") {
+            let dir = std::path::PathBuf::from(dir);
+            let get = |url: String| {
+                let token = token.clone();
+                async move {
+                    let r = http().get(url).bearer_auth(token.as_str()).send().await.ok()?;
+                    r.json::<Value>().await.ok()
+                }
+            };
+            if let Some(snapshot) = get(format!("{item}/snapshots/trees/latest?ump=1")).await {
+                let latest = snapshot["latestSequenceNumber"].as_i64().unwrap_or(0);
+                let later = get(format!(
+                    "{item}?ump=1&filter=sequenceNumber%20ge%20{}%20and%20sequenceNumber%20le%20{}",
+                    latest + 1,
+                    latest + 5000
+                ))
+                .await;
+                let _ = std::fs::write(dir.join("snapshot.json"), snapshot.to_string());
+                let _ = std::fs::write(dir.join("later.json"), later.unwrap_or(Value::Null).to_string());
+            }
+        }
         let text = crate::notes::fetch(&http(), token.as_str(), &page).await;
         json!({
             "page": true,

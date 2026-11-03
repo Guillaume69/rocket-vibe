@@ -58,23 +58,11 @@ A conversation's canvas is its notes, in the same tab:
   Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `SlackClient.fileText`,
   `Capabilities.notes`.
 - Reading a real canvas is not verified yet; tested against fake Web API servers.
-- **How Slack's web client edits a canvas** (captured live in a test channel,
-  2026-11-03; the way to make Slack notes editable, not built): the editor is
-  Quip's (`quip-collab-webapp`, a WebAssembly module) and talks protobuf, the
-  message descriptors compiled readable into that bundle (`syncer.Section`,
-  `syncer.Document`, `proto.handlers.*`). Creating: `POST
-  /canvas/-/call-handler/create-collab-document`, then `quip.lookupFileId`,
-  `conversations.addTab`, `conversations.setProperties`. Opening:
-  `quip.getControllerInitData`, `POST /canvas/-/load-data/editor/<n>` and
-  `/canvas/-/fetch-latest` (form `request_binary`, protobuf, plus `token`).
-  Saving: `POST /canvas/-/edit-document`, a form with `thread`, `document`,
-  `session`, `sequence`, `title`, `token` (the `xoxc` token works here) and
-  `data_binary`, the changed `syncer.Section`s. A paragraph's text is an
-  **Automerge** document (chunk magic `85 6F 4A 83`) carried in the section
-  with the hashes of the changes it builds on; the section also keeps the plain
-  text. So a native save means producing Automerge changes on the server's
-  heads (the `automerge` crate on desktop; Hermes has no WebAssembly, so a
-  native bridge on Android) plus the protobuf encoding of the sections.
+- **How Slack's web client edits a canvas**: Quip's collaborative protocol, protobuf
+  sections whose text is an Automerge document, written through
+  `/canvas/-/edit-document` with the `xoxc` token (captured 2026-11-03, a person's
+  session included); the wire format is in
+  [slack-session](../architecture/slack-session.md#canvases-quips-collab-protocol).
   Redacted shapes: kept outside the repo with the session's captures.
 
 ## Teams

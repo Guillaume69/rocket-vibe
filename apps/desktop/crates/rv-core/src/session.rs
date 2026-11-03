@@ -39,6 +39,8 @@ const TYPING_EVERY: Duration = Duration::from_secs(3);
 /// How long a Teams call rings here when nothing says it stopped: its push
 /// for a caller who gives up was not seen.
 const TEAMS_RING_MS: i64 = 45_000;
+/// How often Teams presence is read again besides its pushes.
+const TEAMS_PRESENCE_EVERY: Duration = Duration::from_secs(120);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionInfo {
@@ -514,6 +516,10 @@ impl Session {
         let watcher = tokio::spawn(Self::watch_token(Arc::downgrade(&session), session.rest.token_rejected()));
         let progress = tokio::spawn(Self::forward_uploads(Arc::downgrade(&session), session.uploads.changes()));
         session.tasks.lock().unwrap().extend([listener, watcher, progress]);
+        if matches!(session.backend(), Backend::Teams(_)) {
+            let presence = tokio::spawn(Self::refresh_presence(Arc::downgrade(&session)));
+            session.tasks.lock().unwrap().push(presence);
+        }
 
         session.transport.open(&session.info.auth_token);
         // The read the user sees: not sequenced behind the socket negotiation.
@@ -583,6 +589,16 @@ impl Session {
                 LiveEvent::Event { name, data, broadcast } => match s.backend() {
                     Backend::Slack(_) => s.apply_slack(&name, &data).await,
                     Backend::Teams(_) if name == crate::teams::live::CALL_EVENT => s.teams_call(&data),
+                    Backend::Teams(teams) if name == crate::teams::live::REGISTERED_EVENT => {
+                        teams.set_presence_route(&data);
+                        tokio::spawn(async move { s.load_presence().await });
+                    }
+                    Backend::Teams(_) if name == crate::teams::live::PRESENCE_EVENT => {
+                        for (uid, presence) in crate::teams::service::presence_rows(&data) {
+                            s.presence.lock().unwrap().update(uid, presence);
+                        }
+                        let _ = s.events.send(SessionEvent::Presence);
+                    }
                     Backend::Teams(teams) => {
                         if let Some((rid, who, on)) = teams.typing_event(&name, &data) {
                             s.typing.lock().unwrap().apply(&rid, &who, on, Instant::now());
@@ -1539,6 +1555,18 @@ impl Session {
         Ok(())
     }
 
+    /// Teams pushes presence only for the people subscribed, and a missed
+    /// push would stay wrong until the next reconnection: read again now and then.
+    async fn refresh_presence(session: std::sync::Weak<Session>) {
+        loop {
+            tokio::time::sleep(TEAMS_PRESENCE_EVERY).await;
+            let Some(s) = session.upgrade() else { return };
+            if *s.connection.lock().unwrap() == Connection::Online {
+                s.load_presence().await;
+            }
+        }
+    }
+
     async fn watch_token(session: std::sync::Weak<Session>, mut rejected: broadcast::Receiver<String>) {
         while let Ok(token) = rejected.recv().await {
             let Some(s) = session.upgrade() else { return };
@@ -1859,7 +1887,7 @@ impl Session {
     /// Whether a message can be forwarded to another room: Rocket.Chat only
     /// (its server builds the quote of a permalink), not Mattermost and kChat.
     /// The message actions the current provider supports, over the server's
-    /// own rules: Teams has no quotes, channel threads, pins or saves yet.
+    /// own rules: Teams has no saves.
     /// Whether the room header offers message search: not Teams yet.
     pub fn search_available(&self) -> bool {
         true
@@ -1873,7 +1901,7 @@ impl Session {
     pub fn provider_actions(&self) -> crate::actions::ProviderActions {
         match self.backend() {
             Backend::Teams(_) => {
-                crate::actions::ProviderActions { quotes: false, threads: true, pins: true, stars: false }
+                crate::actions::ProviderActions { quotes: true, threads: true, pins: true, stars: false }
             }
             Backend::RocketChat | Backend::Mattermost(_) | Backend::Slack(_) => {
                 crate::actions::ProviderActions::default()

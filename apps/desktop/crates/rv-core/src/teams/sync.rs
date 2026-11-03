@@ -43,6 +43,8 @@ pub struct TeamsSync {
     pending: Mutex<HashMap<String, Value>>,
     /// The handle (sign-in name) each person a people search found goes by, to their MRI.
     found: Mutex<HashMap<String, String>>,
+    /// Where presence subscriptions point: the chat registration's push path and id.
+    presence_route: Mutex<Option<(String, String)>>,
 }
 
 impl TeamsSync {
@@ -60,6 +62,7 @@ impl TeamsSync {
             listed: Mutex::default(),
             pending: Mutex::default(),
             found: Mutex::default(),
+            presence_route: Mutex::default(),
         }
     }
 
@@ -315,6 +318,9 @@ impl TeamsSync {
             "ConversationUpdate" | "ThreadUpdate" => {
                 if !known {
                     let _ = self.catch_up_global().await;
+                    if !self.entries.lock().unwrap().contains_key(&rid) {
+                        self.adopt(&rid, &Value::Null).await;
+                    }
                 }
                 return None;
             }
@@ -340,6 +346,9 @@ impl TeamsSync {
         let mine = message.author_id == self.me;
         if !known {
             let _ = self.catch_up_global().await;
+            if !self.entries.lock().unwrap().contains_key(&rid) {
+                self.adopt(&rid, resource).await;
+            }
         }
         let updated = (fresh && message.thread_id.is_none()).then(|| self.with_last(&rid, resource, mine)).flatten();
         let row = updated.and_then(|(entry, team)| self.row(&entry, team.as_ref()));
@@ -359,6 +368,42 @@ impl TeamsSync {
             }
         });
         (fresh && !mine).then_some(message)
+    }
+
+    /// A chat a live event names that neither the snapshot nor the chat
+    /// service's list (read at most every `LISTED_FOR`) holds yet, someone new
+    /// writing first: read on its own and listed at once, kept until the lists
+    /// catch up. `resource` stands in for its last message when it has none.
+    async fn adopt(&self, rid: &str, resource: &Value) {
+        let Some(mut conversation) = self.service.conversation(rid).await else { return };
+        if conversation.get("lastMessage").and_then(|l| l.get("id")).is_none() && resource.is_object() {
+            conversation["lastMessage"] = resource.clone();
+        }
+        let Some(chat) = translate::listed_chat(&conversation) else { return };
+        self.directory.learn_last(&chat);
+        let unnamed: Vec<String> = chat
+            .get("members")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| str_of(m, "mri"))
+            .filter(|m| *m != self.me && !self.directory.known(m))
+            .map(str::to_owned)
+            .collect();
+        for row in self.service.profiles(&unnamed).await {
+            if let (Some(mri), Some(name)) = (str_of(&row, "mri"), str_of(&row, "displayName")) {
+                self.directory.remember(mri, name);
+            }
+        }
+        let row = self.row(&chat, None);
+        self.entries.lock().unwrap().insert(rid.to_owned(), (chat.clone(), None));
+        self.pending.lock().unwrap().insert(rid.to_owned(), chat);
+        if let Some((room, sub)) = row {
+            self.store.write(|w| {
+                w.upsert_room(&room);
+                w.upsert_subscription(&sub);
+            });
+        }
     }
 
     /// Forgets the rooms the list no longer has; a room the last catch-up or
@@ -449,9 +494,24 @@ impl TeamsSync {
         Ok(rid)
     }
 
-    /// Presence for a batch of people (UPS getpresence), best effort.
+    /// Presence for a batch of people (UPS getpresence), best effort, and
+    /// their later changes pushed, once the socket's registration is known.
     pub async fn get_presence(&self, mris: &[String]) -> Vec<(String, crate::live::Presence)> {
+        let route = self.presence_route.lock().unwrap().clone();
+        if let Some((uri, registration)) = route {
+            self.service.subscribe_presence(&uri, &registration, mris).await;
+        }
         self.service.get_presence(mris).await
+    }
+
+    /// The socket registered again: presence subscriptions now point at
+    /// `{trouterUri, registration}`.
+    pub fn set_presence_route(&self, registered: &Value) {
+        let (Some(uri), Some(registration)) = (str_of(registered, "trouterUri"), str_of(registered, "registration"))
+        else {
+            return;
+        };
+        *self.presence_route.lock().unwrap() = Some((uri.to_owned(), registration.to_owned()));
     }
 
     /// Sets my availability (UPS forceavailability).

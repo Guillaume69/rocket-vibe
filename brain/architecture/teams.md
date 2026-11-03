@@ -90,7 +90,13 @@ out (`convert`, `spell_mentions` / `convert`, `spellMentions`). A reply quoting 
 `<blockquote itemtype=".../Reply" itemid=<message id>>` with its author's
 `<strong itemprop="mri">`, its `<span itemprop="time">` and its `<p itemprop="preview">`,
 is left out of the text and becomes a quote attachment (author, text, time,
-`message_link` to the message in Teams) shown as the other servers' quotes. A channel post's subject (`properties.subject`, or
+`message_link` to the message in Teams) shown as the other servers' quotes. Replying
+sends the same block: the composer's `[ ](<link>) text` (the GTK reply bar's Teams
+permalink, the Android app's `?msg=<rid>/<id>` link) is turned into that quote, built from
+the original message read back by id, before the reply's paragraphs (`reply_target` /
+`reply_quote` in `rv-teams` used by `Service::send`; `replyTarget` / `replyQuote` in
+`provider-teams` used by `TeamsOutbox`); an unreadable original sends the reply alone.
+A channel post's subject (`properties.subject`, or
 `subject` on a list entry) is its title: the text starts with it in bold, and an edit
 sends the body without it, the subject staying the message's own property (`body_text`,
 `without_subject` in `rv-teams`; `bodyText`, `withoutSubject` in `provider-teams`; the
@@ -139,7 +145,21 @@ over) carry `cp`, base64 gzip JSON whose `correlationId` is that call id
 `NewMessage`, `MessageUpdate` (edits by `edittime`, reactions by `emotions`, deletions
 by `deletetime`) and `ConversationUpdate`. Every conversation arrives on the one socket;
 nothing is subscribed per room. A new message also rewrites its room's last message and
-unread state. `trouter.message_loss` or a dropped socket reconnects, then catches up.
+unread state. A message from a conversation neither list holds yet (someone new writing
+first: the aggregator lags, and the chat service's list is read at most once a minute)
+is filed at once from that conversation's own document (`GET users/ME/conversations/<id>`),
+kept as pending until a list has it (`TeamsSync::adopt`, `TeamsSync.adopt`); it showed
+up to a minute late before 2026-11-03. Presence is pushed only for the people Unified
+Presence was asked to watch: after each registration the apps subscribe them with
+`POST {unifiedPresence}/v1/pubsub/subscriptions/<chat registrationId>`
+`{trouterUri: <surl>/unifiedPresenceService, shouldPurgePreviousSubscriptions: false,
+subscriptionsToAdd: [{mri, source: "ups"}], subscriptionsToRemove: []}` (the web app's
+request, HAR 2026-11-01; answers `addStatuses` `20200`), and the changes arrive as requests
+to that path, `{presence: [{mri, presence: {availability, activity}}]}`
+(`frames::presence_push`, `presencePush`). Presence is also read again every two minutes,
+a missed push being otherwise wrong until the next reconnection (before 2026-11-03 it was
+read only at connection setup, so a colleague stayed "Busy" long after a call).
+`trouter.message_loss` or a dropped socket reconnects, then catches up.
 
 ## Writes
 

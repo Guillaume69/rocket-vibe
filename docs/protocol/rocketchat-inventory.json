@@ -5259,19 +5259,19 @@
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 319,
+      "line": 339,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 337,
+      "line": 357,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 510,
+      "line": 530,
       "kind": "url",
       "surface": "/api/csa"
     },

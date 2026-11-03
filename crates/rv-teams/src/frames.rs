@@ -77,6 +77,21 @@ pub fn chat_event(envelope: &Value) -> Option<(String, Value)> {
     Some((kind, resource))
 }
 
+/// The presence changes Unified Presence pushes to the chat registration's
+/// `unifiedPresenceService` path, for the people it was asked to watch:
+/// `{presence: [{mri, presence: {availability, activity, ...}}]}`.
+pub fn presence_push(envelope: &Value) -> Option<Value> {
+    let url = envelope.get("url").and_then(Value::as_str)?;
+    if !url.trim_end_matches('/').ends_with("/unifiedPresenceService") {
+        return None;
+    }
+    let body: Value = match envelope.get("body")? {
+        Value::String(raw) => serde_json::from_str(raw).ok()?,
+        other => other.clone(),
+    };
+    body.get("presence").is_some_and(Value::is_array).then_some(body)
+}
+
 /// A call pushed to the calling registration (`SkypeSpacesWeb`): `evt` 107
 /// rings, the conversation events after it (115 joined elsewhere, 116 over)
 /// end the ring of the same call.
@@ -176,6 +191,16 @@ fn thread_in(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_presence_push_is_read_from_its_path_only() {
+        let body = r#"{"presence":[{"mri":"8:orgid:a","etag":"A1","presence":{"availability":"Available","activity":"Available"}}]}"#;
+        let push = json!({"id": 1, "method": "POST", "url": "/v4/f/abc/unifiedPresenceService", "body": body});
+        let read = presence_push(&push).unwrap();
+        assert_eq!(read["presence"][0]["presence"]["availability"], "Available");
+        assert!(presence_push(&json!({"id": 1, "url": "/v4/f/abc/messaging", "body": body})).is_none());
+        assert!(presence_push(&json!({"id": 1, "url": "/v4/f/abc/unifiedPresenceService", "body": "{}"})).is_none());
+    }
 
     #[test]
     fn frames_by_type() {

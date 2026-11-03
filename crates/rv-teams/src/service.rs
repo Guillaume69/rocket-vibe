@@ -271,6 +271,26 @@ impl Service {
         }
     }
 
+    /// Asks Unified Presence to push these people's changes to the chat
+    /// registration's `unifiedPresenceService` path (`trouter_uri`), as Teams'
+    /// web app does; `registration` is that registration's id. Best effort.
+    pub async fn subscribe_presence(&self, trouter_uri: &str, registration: &str, mris: &[String]) -> bool {
+        if mris.is_empty() {
+            return true;
+        }
+        let Ok((_, routes)) = self.tokens.chat().await else { return false };
+        if routes.presence.is_empty() {
+            return false;
+        }
+        let Ok(url) = url::Url::parse(&format!("{}/v1/pubsub/subscriptions/{registration}", routes.presence)) else {
+            return false;
+        };
+        let Ok(token) = self.tokens.presence().await else { return false };
+        let header = format!("Bearer {}", token.as_str());
+        let body = presence_subscription(trouter_uri, mris);
+        client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await.is_ok()
+    }
+
     /// Sets my availability (UPS forceavailability), with the presence bearer.
     pub async fn set_presence(&self, availability: &str) -> Result<(), RestError> {
         let (_, routes) = self.tokens.chat().await?;
@@ -699,8 +719,15 @@ impl Service {
     /// Posts text into a room, or into a channel thread under `root`; answers
     /// the new message's server id.
     pub async fn send(&self, rid: &str, root: Option<&str>, text: &str, client_id: &str) -> Result<String, RestError> {
+        let (quote, text) = match translate::reply_target(rid, text) {
+            Some((id, rest)) => {
+                let original = self.message(&translate::message_id(rid, &id)).await.ok().flatten();
+                (original.and_then(|(_, raw)| translate::reply_quote(&raw, &self.directory)), rest)
+            }
+            None => (None, text),
+        };
         let body = json!({
-            "content": to_html(text),
+            "content": format!("{}{}", quote.unwrap_or_default(), to_html(text)),
             "messagetype": "RichText/Html",
             "contenttype": "text",
             "clientmessageid": client_id,
@@ -920,12 +947,24 @@ pub fn typing(name: &str, resource: &Value) -> Option<Typing> {
     Some(Typing { rid, from_mri, display, active })
 }
 
-/// (mri, presence) rows from a getpresence response (array or {responses:[]}).
-fn presence_rows(body: &Value) -> Vec<(String, Presence)> {
+/// The subscription request for `mris`, pushed to `trouter_uri`.
+pub fn presence_subscription(trouter_uri: &str, mris: &[String]) -> Value {
+    json!({
+        "trouterUri": trouter_uri,
+        "shouldPurgePreviousSubscriptions": false,
+        "subscriptionsToAdd": mris.iter().map(|m| json!({"mri": m, "source": "ups"})).collect::<Vec<_>>(),
+        "subscriptionsToRemove": [],
+    })
+}
+
+/// (mri, presence) rows from a getpresence response (array or
+/// {responses:[]}) or a pushed change ({presence:[]}).
+pub fn presence_rows(body: &Value) -> Vec<(String, Presence)> {
     let rows = body
         .as_array()
         .cloned()
         .or_else(|| body.get("responses").and_then(Value::as_array).cloned())
+        .or_else(|| body.get("presence").and_then(Value::as_array).cloned())
         .unwrap_or_default();
     rows.iter()
         .filter_map(|r| {
@@ -1199,6 +1238,17 @@ mod tests {
         assert_eq!(availability_presence("PresenceUnknown"), Presence::Offline);
         assert_eq!(presence_availability(Presence::Online), "Available");
         assert_eq!(presence_availability(Presence::Busy), "DoNotDisturb");
+        let pushed = json!({"presence": [{"mri": "8:orgid:a", "presence": {"availability": "Available"}}, {"mri": "8:orgid:b", "presence": {"availability": "BusyIdle"}}]});
+        assert_eq!(
+            presence_rows(&pushed),
+            vec![("8:orgid:a".to_owned(), Presence::Online), ("8:orgid:b".to_owned(), Presence::Busy)]
+        );
+        let request = presence_subscription(
+            "https://x.trouter.teams.microsoft.com:3443/v4/f/k/unifiedPresenceService",
+            &["8:orgid:a".to_owned()],
+        );
+        assert_eq!(request["subscriptionsToAdd"][0], json!({"mri": "8:orgid:a", "source": "ups"}));
+        assert_eq!(request["shouldPurgePreviousSubscriptions"], false);
     }
 
     #[test]

@@ -28,6 +28,60 @@ pub fn permalink(rid: &str, msg_id: &str) -> String {
     url.to_string()
 }
 
+/// The message a reply quotes, from the `[ ](<Teams permalink>) text` the
+/// composer sends for a reply: its server id and the reply's own text.
+pub fn reply_target<'a>(rid: &str, text: &'a str) -> Option<(String, &'a str)> {
+    let rest = text.trim_start().strip_prefix("[ ](")?;
+    let end = rest.find(')')?;
+    let link = &rest[..end];
+    let id = link.rsplit('/').next().filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()))?;
+    (permalink(rid, id) == link).then(|| (id.to_owned(), rest[end + 1..].trim_start()))
+}
+
+/// The quote a Teams reply starts with, as Teams' clients write it and as
+/// `convert` reads it back: the quoted message's id, author, time and a
+/// one-paragraph preview.
+pub fn reply_quote(original: &Value, directory: &Directory) -> Option<String> {
+    let id = int_of(original, "id")?;
+    let mri = mri_of(str_of(original, "from").unwrap_or_default()).to_owned();
+    let name = str_of(original, "imdisplayname").map(str::to_owned).unwrap_or_else(|| directory.shown(&mri));
+    let preview: String = plain_text(str_of(original, "content").unwrap_or_default())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(QUOTE_PREVIEW)
+        .collect();
+    let html = |v: &str| v.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+    Some(format!(
+        r#"<blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="{id}"><strong itemprop="mri" itemid="{}">{}</strong><span itemprop="time" itemid="{id}"></span><p itemprop="preview">{}</p></blockquote>"#,
+        html(&mri),
+        html(&name),
+        html(&preview)
+    ))
+}
+
+const QUOTE_PREVIEW: usize = 200;
+
+/// A message's HTML as plain words, past the reply it may itself quote.
+fn plain_text(html: &str) -> String {
+    let own = html.rsplit_once("</blockquote>").map_or(html, |(_, after)| after);
+    let mut out = String::with_capacity(own.len());
+    let mut in_tag = false;
+    for c in own.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    rv_provider::text::decode_entities(&out)
+}
+
 pub fn str_of<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
@@ -1958,6 +2012,27 @@ mod tests {
         assert_eq!(reaction_code("1f44b_wavinghand-tone1"), rv_provider::emoji::shortcode("👋🏻").unwrap());
         assert_eq!(reaction_code("yes-tone3"), rv_provider::emoji::shortcode("👍🏽").unwrap());
         assert_eq!(reaction_code("zzzunknown"), "zzzunknown");
+    }
+
+    #[test]
+    fn a_reply_is_sent_as_the_quote_teams_reads_back() {
+        let rid = "19:c@thread.v2";
+        let link = permalink(rid, "1792500000000");
+        let text = format!("[ ]({link}) bien vu");
+        assert_eq!(reply_target(rid, &text), Some(("1792500000000".to_owned(), "bien vu")));
+        assert_eq!(reply_target("19:other@thread.v2", &text), None);
+        assert_eq!(reply_target(rid, "[ ](https://example.org/1) hi"), None);
+        assert_eq!(reply_target(rid, "plain"), None);
+        let original = json!({"id": "1792500000000", "from": "https://x/v1/users/ME/contacts/8:orgid:marc",
+            "imdisplayname": "Marc <B>", "content": "<p>Je suis <b>outré</b></p>"});
+        let quote = reply_quote(&original, &Directory::default()).unwrap();
+        let converted = convert(&format!("{quote}<p>bien vu</p>"), &[]);
+        assert_eq!(converted.text, "bien vu");
+        assert_eq!(converted.quotes.len(), 1);
+        assert_eq!(converted.quotes[0].id.as_deref(), Some("1792500000000"));
+        assert_eq!(converted.quotes[0].author.as_deref(), Some("Marc <B>"));
+        assert_eq!(converted.quotes[0].author_mri.as_deref(), Some("8:orgid:marc"));
+        assert_eq!(converted.quotes[0].text, "Je suis outré");
     }
 
     #[test]

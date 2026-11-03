@@ -67,14 +67,14 @@ test('a canvas reads as notes and is saved only over the version read', async ()
   const actions = new SlackActions({ client, directory, history, live, translator: new SlackTranslator(directory, 'U000', new Map(), saved.ids), saved });
 
   const notes = await actions.roomNotes('C001');
-  assert.deepEqual(notes, { markdown: '# Plan\n\n- ship', revision: '1780000500', editable: true, updatedBy: 'Alice', updatedAt: 1780000500000 });
+  assert.deepEqual(notes, { markdown: '# Plan\n\n- ship', revision: '1780000500', editable: false, updatedBy: 'Alice', updatedAt: 1780000500000 });
   await assert.rejects(actions.saveRoomNotes('C001', 'x', '1780000400'), (e: { code?: string }) => e.code === NOTES_CONFLICT);
   assert.equal(server.calls.filter((c) => c.method === 'canvases.edit').length, 0);
   await actions.saveRoomNotes('C001', '# Plan v2', '1780000500');
   const edit = server.calls.find((c) => c.method === 'canvases.edit');
   assert.equal(edit?.args.canvas_id, 'F001');
   assert.deepEqual(JSON.parse(edit?.args.changes ?? ''), [{ operation: 'replace', document_content: { type: 'markdown', markdown: '# Plan v2' } }]);
-  assert.deepEqual(await actions.roomNotes('C002'), { markdown: '', revision: '0', editable: true, updatedBy: null, updatedAt: null });
+  assert.deepEqual(await actions.roomNotes('C002'), { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null });
   await actions.saveRoomNotes('C002', 'first', '0');
   const create = server.calls.find((c) => c.method === 'conversations.canvases.create');
   assert.equal(create?.args.channel_id, 'C002');

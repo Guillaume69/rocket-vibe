@@ -5235,43 +5235,43 @@
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 1185,
+      "line": 1202,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2247,
+      "line": 2264,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2255,
+      "line": 2272,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2413,
+      "line": 2430,
       "kind": "url",
       "surface": "/api/csa"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 299,
+      "line": 319,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 317,
+      "line": 337,
       "kind": "url",
       "surface": "/api/v2/query"
     },
     {
       "file": "crates/rv-teams/src/service.rs",
-      "line": 490,
+      "line": 510,
       "kind": "url",
       "surface": "/api/csa"
     },

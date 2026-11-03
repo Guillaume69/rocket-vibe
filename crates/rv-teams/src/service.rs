@@ -90,6 +90,26 @@ impl Service {
         crate::notes::fetch(&self.http, token.as_str(), page).await
     }
 
+    /// Saves a chat's notes over the version read at `expected`, as me (see
+    /// [`crate::notes::save`]); a page changed since answers
+    /// [`crate::notes::CONFLICT`].
+    pub async fn save_notes(
+        &self,
+        page: &crate::notes::Page,
+        expected: i64,
+        markdown: &str,
+    ) -> Result<crate::notes::Text, RestError> {
+        let token = self.tokens.sharepoint(&page.host).await?;
+        let push = self.tokens.push().await?;
+        let author = serde_json::json!({
+            "id": self.me,
+            "name": self.directory.shown(&self.me),
+            "timestamp": chrono::Utc::now().timestamp_millis(),
+            "dataSource": 0,
+        });
+        crate::notes::save(&self.http, token.as_str(), push.as_str(), page, expected, markdown, &author).await
+    }
+
     /// The aggregator's list of chats and teams.
     pub async fn snapshot(&self) -> Result<Value, RestError> {
         self.aggregator_call(

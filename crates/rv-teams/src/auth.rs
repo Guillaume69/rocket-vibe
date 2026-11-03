@@ -28,6 +28,8 @@ const TEMPLATES: &str = "https://templates.teams.microsoft.com";
 /// Microsoft Graph, for what the chat service does not reach: file download
 /// (SharePoint/OneDrive drive items), room-settings edits, pins.
 const GRAPH: &str = "https://graph.microsoft.com";
+/// OneDrive's push channel: Fluid's delta stream for pages in SharePoint.
+const PUSH: &str = "https://pushchannel.1drv.ms";
 /// The `base_url` of every Teams account: the conversations live behind routes
 /// discovered per tenant, not at one address.
 pub const ORIGIN: &str = "https://teams.microsoft.com";
@@ -875,6 +877,7 @@ struct Held {
     graph: Option<Lease>,
     templates: Option<Lease>,
     sharepoint: Option<(String, Lease)>,
+    push: Option<Lease>,
     skype: Option<Lease>,
     routes: Option<Routes>,
 }
@@ -905,6 +908,7 @@ impl Tokens {
             graph: None,
             templates: None,
             sharepoint: None,
+            push: None,
             skype: Some(lease(skype)),
             routes: Some(routes),
         };
@@ -1027,6 +1031,19 @@ impl Tokens {
 
     /// A SharePoint bearer for the tenant's `host` (`https://<tenant>.sharepoint.com`),
     /// for chat notes pages.
+    /// The bearer of OneDrive's push channel, which Fluid's delta stream checks
+    /// in `connect_document` for a page in SharePoint.
+    pub async fn push(&self) -> Result<Zeroizing<String>, RestError> {
+        let mut held = self.held.lock().await;
+        if let Some(token) = held.push.as_ref().and_then(Lease::fresh) {
+            return Ok(token);
+        }
+        let lease = self.access(PUSH).await?;
+        let token = lease.value.clone();
+        held.push = Some(lease);
+        Ok(token)
+    }
+
     pub async fn sharepoint(&self, host: &str) -> Result<Zeroizing<String>, RestError> {
         let mut held = self.held.lock().await;
         if let Some((_, lease)) = held.sharepoint.as_ref().filter(|(h, _)| h == host)

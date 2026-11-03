@@ -181,7 +181,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps (fake-server tested only). Teams: a chat's Loop page, read-only, on the three native apps (located from the `FileAdd` event, read live 2026-11-02); editing it is owed. SwiftUI checked by the macOS CI build only. |
+| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps, read-only (Slack refuses `canvases.*` to the browser session's token, seen 2026-11-03; editing and a first canvas are owed, reading fake-server tested only). Teams: a chat's Loop page on the three native apps, rendered with its headings, marks and links and edited natively through Fluid's delta stream (verified live 2026-11-03); quotes and new lists are written as text, native checkboxes cannot be toggled. SwiftUI checked by the macOS CI build only. |
 
 ### Discussions - [discussions](features/discussions.md)
 

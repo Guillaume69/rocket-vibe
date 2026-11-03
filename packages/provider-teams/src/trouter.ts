@@ -10,6 +10,7 @@
 import type { DdpEvent, DdpState, WebSocketLike } from '@rocket-vibe/provider-api/ddp';
 import type { Listener } from '@rocket-vibe/provider-api/provider';
 import { TeamsError, type TeamsTokens } from './auth.ts';
+import { presenceEvents, presenceRows } from './presence.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -84,6 +85,22 @@ export function chatEvent(envelope: Doc): { name: string; resource: Doc } | null
 export type CallPush =
   | { kind: 'ring'; callId: string; callerMri: string; callerName: string | null; reject: string | null; multiParty: boolean; thread: string | null }
   | { kind: 'moved' };
+
+/** The presence changes pushed to the chat registration's
+ *  `unifiedPresenceService` path: `{presence: [{mri, presence: {availability}}]}`. */
+export function presencePush(envelope: Doc): Doc[] | null {
+  const url = typeof envelope.url === 'string' ? envelope.url.replace(/\/+$/, '') : '';
+  if (!url.endsWith('/unifiedPresenceService')) return null;
+  let body: unknown = envelope.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { return null; } }
+  const presence = (body as Doc | null)?.presence;
+  return Array.isArray(presence) ? (presence as Doc[]) : null;
+}
+
+/** Where Unified Presence pushes for the registration at `surl`. */
+export function presenceUri(surl: string): string {
+  return `${surl.replace(/\/+$/, '')}/unifiedPresenceService`;
+}
 
 /** The `DdpEvent` collection a call push is emitted on. */
 export const CALL_COLLECTION = 'teams-call';
@@ -170,12 +187,19 @@ export function endpointId(random: (n: number) => Uint8Array = (n) => globalThis
 
 export type Expand = (name: string, resource: Doc) => Promise<DdpEvent[]>;
 export type CreateSocket = (url: string, headers: Record<string, string>) => WebSocketLike;
-export type TrouterOptions = { fetch?: typeof fetch; createSocket?: CreateSocket; timeoutMs?: number };
+export type TrouterOptions = {
+  fetch?: typeof fetch;
+  createSocket?: CreateSocket;
+  timeoutMs?: number;
+  /** Presence read again now and then, Teams pushing only for the people subscribed. */
+  refreshPresence?: () => Promise<DdpEvent[]>;
+};
 
 const CLIENT_INFO = JSON.stringify({ cv: '2026.10.0.1', ua: 'TeamsCDL', hr: '', v: '1415/26.10.0.0' });
 /** Trouter's heartbeat is 70 s: three missed are a dead socket. */
 const SILENCE_MS = 210_000;
 const REGISTER_EVERY_MS = 6 * 3600_000;
+const PRESENCE_EVERY_MS = 120_000;
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve = () => {};
@@ -190,7 +214,10 @@ export class TeamsTrouter implements Listener {
   private readonly fetcher: typeof fetch;
   private readonly createSocket: CreateSocket;
   private readonly timeoutMs: number;
+  private readonly refreshPresence: (() => Promise<DdpEvent[]>) | null;
   private ws: WebSocketLike | null = null;
+  /** The chat registration's push path and id, where presence subscriptions point. */
+  private route: { uri: string; registration: string } | null = null;
   /** The calling registration's own id, on the chat socket's path. */
   private callingId: string | null = null;
   private readonly listeners = new Set<(event: DdpEvent) => void>();
@@ -208,6 +235,12 @@ export class TeamsTrouter implements Listener {
     this.createSocket = options.createSocket ?? ((url, headers) =>
       new (WebSocket as unknown as new (u: string, p: undefined, o: { headers: Record<string, string> }) => WebSocketLike)(url, undefined, { headers }));
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.refreshPresence = options.refreshPresence ?? null;
+  }
+
+  /** Where presence subscriptions point, once the socket is registered. */
+  presenceRoute(): { uri: string; registration: string } | null {
+    return this.route;
   }
 
   onEvent(listener: (event: DdpEvent) => void): () => void {
@@ -305,6 +338,12 @@ export class TeamsTrouter implements Listener {
     this.timers.push(setInterval(() => {
       void this.register(epid, surl.href).then((ok) => { if (!ok) { this.ws?.close(); this.cleanUp(); } });
     }, REGISTER_EVERY_MS));
+    const refresh = this.refreshPresence;
+    if (refresh) {
+      this.timers.push(setInterval(() => {
+        void refresh().then((events) => { if (this.state !== 'closed') for (const e of events) this.emit(e); }).catch(() => {});
+      }, PRESENCE_EVERY_MS));
+    }
   }
 
   /** Chat events, then calls, which Teams pushes only to a calling
@@ -312,6 +351,7 @@ export class TeamsTrouter implements Listener {
    *  chat working, with no ring. */
   private async register(epid: string, surl: string): Promise<boolean> {
     if (!(await this.registerApp(epid, surl, CHAT_APP))) return false;
+    this.route = { uri: presenceUri(surl), registration: epid };
     this.callingId ??= endpointId();
     await this.registerApp(this.callingId, surl, CALL_APP);
     return true;
@@ -350,6 +390,11 @@ export class TeamsTrouter implements Listener {
         const reply = replyFrame(frame.envelope);
         if (reply) this.send(reply);
         if (frame.ack) this.send(`6:::${frame.ack}`);
+        const pushed = presencePush(frame.envelope);
+        if (pushed) {
+          for (const e of presenceEvents(presenceRows(pushed))) this.emit(e);
+          return;
+        }
         const event = chatEvent(frame.envelope);
         if (!event) {
           const call = callPush(frame.envelope);

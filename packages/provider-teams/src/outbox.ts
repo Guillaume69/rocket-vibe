@@ -13,7 +13,7 @@ import type { OutboxRow, OutboxStore } from '@rocket-vibe/provider-api/outbox';
 import type { Ingest, Outbox } from '@rocket-vibe/provider-api/provider';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
-import { TeamsDirectory, int, mriOf, oneOnOneThread, reactionKey, splitId, str, withoutSubject } from './translate.ts';
+import { TeamsDirectory, int, mriOf, oneOnOneThread, reactionKey, replyQuote, replyTarget, splitId, str, withoutSubject } from './translate.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -108,6 +108,16 @@ export class TeamsOutbox implements Outbox {
     await this.process();
   }
 
+  /** The text as Teams HTML, a reply's leading link turned into the quote
+   *  Teams shows; the quoted message unreadable, the reply goes alone. */
+  private async withQuote(rid: string, text: string): Promise<string> {
+    const target = replyTarget(rid, text);
+    if (target === null) return toHtml(text);
+    const original = await this.client.chat('GET', await this.client.conversation(rid, ['messages', target.server], VIEW)).then((r) => r.body as Doc, () => null);
+    const quote = original === null ? null : replyQuote(original, this.directory);
+    return `${quote ?? ''}${toHtml(target.rest)}`;
+  }
+
   private async runPass(): Promise<boolean> {
     for (const row of await this.store.listToSend()) {
       const marker = clientMessageId(row.id);
@@ -122,7 +132,7 @@ export class TeamsOutbox implements Outbox {
       try {
         const url = await this.client.conversation(threadTarget(row.rid, row.threadId), ['messages']);
         const message = {
-          content: toHtml(row.text), messagetype: 'RichText/Html', contenttype: 'text', clientmessageid: marker,
+          content: await this.withQuote(row.rid, row.text), messagetype: 'RichText/Html', contenttype: 'text', clientmessageid: marker,
           imdisplayname: this.directory.shown(this.me.id),
         };
         try {

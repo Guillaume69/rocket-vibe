@@ -299,14 +299,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1842](../../apps/desktop/crates/rv-core/src/session.rs#L1842) | call:POST | "commands.run" |
 | [apps/desktop/crates/rv-core/src/session.rs:2057](../../apps/desktop/crates/rv-core/src/session.rs#L2057) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/session.rs:2057](../../apps/desktop/crates/rv-core/src/session.rs#L2057) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2407](../../apps/desktop/crates/rv-core/src/session.rs#L2407) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/session.rs:2407](../../apps/desktop/crates/rv-core/src/session.rs#L2407) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/session.rs:2501](../../apps/desktop/crates/rv-core/src/session.rs#L2501) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:2501](../../apps/desktop/crates/rv-core/src/session.rs#L2501) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2512](../../apps/desktop/crates/rv-core/src/session.rs#L2512) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:2512](../../apps/desktop/crates/rv-core/src/session.rs#L2512) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2879](../../apps/desktop/crates/rv-core/src/session.rs#L2879) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2879](../../apps/desktop/crates/rv-core/src/session.rs#L2879) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:2408](../../apps/desktop/crates/rv-core/src/session.rs#L2408) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/session.rs:2408](../../apps/desktop/crates/rv-core/src/session.rs#L2408) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/session.rs:2502](../../apps/desktop/crates/rv-core/src/session.rs#L2502) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:2502](../../apps/desktop/crates/rv-core/src/session.rs#L2502) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2513](../../apps/desktop/crates/rv-core/src/session.rs#L2513) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:2513](../../apps/desktop/crates/rv-core/src/session.rs#L2513) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:2880](../../apps/desktop/crates/rv-core/src/session.rs#L2880) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2880](../../apps/desktop/crates/rv-core/src/session.rs#L2880) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |

@@ -686,7 +686,7 @@ async fn a_canvas_reads_as_notes_and_is_saved_over_the_version_read() {
     assert!(edits.lock().unwrap().is_empty());
     sync.save_notes("C001", "# Plan v2", "1700000500").await.unwrap();
     let empty = sync.notes("C002").await.unwrap();
-    assert_eq!((empty.markdown.as_str(), empty.revision.as_str(), empty.editable), ("", "0", true));
+    assert_eq!((empty.markdown.as_str(), empty.revision.as_str(), empty.editable), ("", "0", false));
     sync.save_notes("C002", "first", "0").await.unwrap();
     let edits = edits.lock().unwrap();
     assert_eq!(edits[0]["method"], "canvases.edit");

@@ -15,6 +15,8 @@ use zeroize::Zeroizing;
 
 const ME: &str = "8:orgid:00000000-0000-4000-8000-0000000000aa";
 const ROOM: &str = "19:chat@thread.v2";
+const NEWCOMER: &str = "8:orgid:00000000-0000-4000-8000-0000000000bb";
+const NEW_CHAT: &str = "19:00000000-0000-4000-8000-0000000000aa_00000000-0000-4000-8000-0000000000bb@unq.gbl.spaces";
 
 fn info() -> SessionInfo {
     SessionInfo {
@@ -78,6 +80,16 @@ fn handler(server_url: String) -> impl Fn(&Request) -> Response + Send + Sync + 
         assert_eq!(header(request, "authentication"), Some("skypetoken=skype-x"));
         if path.ends_with("/users/ME/conversations") {
             return respond(200, &json!({"conversations": [], "_metadata": {}}).to_string());
+        }
+        if request.method == "GET" && path.ends_with(&format!("/users/ME/conversations/{NEW_CHAT}")) {
+            return respond(
+                200,
+                &json!({"id": NEW_CHAT, "threadProperties": {"threadType": "chat"},
+                    "lastMessage": {"id": "1792540700000", "messagetype": "RichText/Html", "content": "<p>hello</p>",
+                        "from": format!("https://x/v1/users/ME/contacts/{NEWCOMER}"), "imdisplayname": "Nina",
+                        "composetime": "2026-10-20T10:00:00Z"}})
+                .to_string(),
+            );
         }
         if request.method == "POST" && path.ends_with("/v1/threads") {
             let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
@@ -222,6 +234,27 @@ async fn pushed_messages_update_the_room_and_only_others_notify() {
     gone["properties"] = json!({"deletetime": "1"});
     assert!(sync.apply_event("MessageUpdate", &gone).await.is_none());
     assert!(!store.messages(ROOM, 50).iter().any(|m| m.id == format!("{ROOM}/1792540600000")));
+}
+
+#[tokio::test]
+async fn a_first_message_from_someone_new_lists_its_chat_at_once() {
+    let url = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let shared = url.clone();
+    let server = FakeHttp::start(move |r| handler(shared.lock().unwrap().clone())(r)).await;
+    *url.lock().unwrap() = server.url.to_string();
+    let (store, sync) = sync(&server);
+    sync.catch_up_global().await.unwrap();
+    assert!(!store.rooms().iter().any(|r| r.rid == NEW_CHAT));
+
+    let mut first = message(1792540700000, "hello");
+    first["conversationLink"] = json!(format!("https://x/v1/users/ME/conversations/{NEW_CHAT}"));
+    first["from"] = json!(format!("https://x/v1/users/ME/contacts/{NEWCOMER}"));
+    first["imdisplayname"] = json!("Nina");
+    let notified = sync.apply_event("NewMessage", &first).await.expect("the newcomer's message notifies");
+    assert_eq!(notified.text.as_deref(), Some("hello"));
+    let room = store.rooms().into_iter().find(|r| r.rid == NEW_CHAT).expect("the new chat is listed at once");
+    assert_eq!((room.last_message.as_deref(), room.alert), (Some("hello"), true));
+    assert!(store.messages(NEW_CHAT, 50).iter().any(|m| m.text.as_deref() == Some("hello")));
 }
 
 #[tokio::test]

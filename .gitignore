@@ -22,6 +22,7 @@ GoogleService-Info.plist
 /crates/rv-provider/target/
 /crates/rv-slack/target/
 /crates/rv-teams/target/
+/crates/rv-canvas/target/
 /crates/rv-crypto-web/target/
 /artifacts/
 /.cache/

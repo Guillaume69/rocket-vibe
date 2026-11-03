@@ -57,8 +57,25 @@ A conversation's canvas is its notes, in the same tab:
   (no live signal: read on opening), SwiftUI through rv-ffi `Chat.room_notes`.
   Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `SlackClient.fileText`,
   `Capabilities.notes`.
-- Reading a real canvas is not verified yet (the test channel had none, and none
-  can be created with this token); tested against fake Web API servers.
+- Reading a real canvas is not verified yet; tested against fake Web API servers.
+- **How Slack's web client edits a canvas** (captured live in a test channel,
+  2026-11-03; the way to make Slack notes editable, not built): the editor is
+  Quip's (`quip-collab-webapp`, a WebAssembly module) and talks protobuf, the
+  message descriptors compiled readable into that bundle (`syncer.Section`,
+  `syncer.Document`, `proto.handlers.*`). Creating: `POST
+  /canvas/-/call-handler/create-collab-document`, then `quip.lookupFileId`,
+  `conversations.addTab`, `conversations.setProperties`. Opening:
+  `quip.getControllerInitData`, `POST /canvas/-/load-data/editor/<n>` and
+  `/canvas/-/fetch-latest` (form `request_binary`, protobuf, plus `token`).
+  Saving: `POST /canvas/-/edit-document`, a form with `thread`, `document`,
+  `session`, `sequence`, `title`, `token` (the `xoxc` token works here) and
+  `data_binary`, the changed `syncer.Section`s. A paragraph's text is an
+  **Automerge** document (chunk magic `85 6F 4A 83`) carried in the section
+  with the hashes of the changes it builds on; the section also keeps the plain
+  text. So a native save means producing Automerge changes on the server's
+  heads (the `automerge` crate on desktop; Hermes has no WebAssembly, so a
+  native bridge on Android) plus the protobuf encoding of the sections.
+  Redacted shapes: kept outside the repo with the session's captures.
 
 ## Teams
 

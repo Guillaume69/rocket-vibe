@@ -15,6 +15,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Native Jitsi and kMeet calls no longer just close: a call lost on the way shows "Reconnecting…" and joins again, keeping the microphone and sound choices; if it cannot, the screen stays and says why the call ended. A failure after the call had connected no longer switches to the web page.
 - Teams (experimental): a new chat no longer starts with "X added X to the channel". Chat members are added "to the chat", people adding themselves when a chat is created and a one-to-one's members are not shown, as in Teams; "channel" stays for channels.
 - Teams (experimental): a reaction's tooltip names the people who reacted instead of their Teams ids: unknown people are looked up before a page of messages is stored.
 - Teams (experimental): formatting you type reaches Teams formatted: code blocks, inline code, bold, italic, strikethrough, headings, lists, quotes and links are sent as the HTML Teams renders; they arrived as plain text with the markdown signs.
@@ -23,6 +24,11 @@ release, and its notes are that version's section here.
 - Mattermost and kChat: scrolling up no longer stops while older history exists. A page holding only deleted posts ended the history, and after a restart paging could not start from an older message on screen; it now follows the server's own "older posts" answer and pages from the message shown.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
+
+### Changed
+
+- The native call screen now looks like the Vibez voice screen: a tile per person whose border lights while they speak, and the same control buttons.
+
 
 ## [0.26.1] - 2026-11-02
 

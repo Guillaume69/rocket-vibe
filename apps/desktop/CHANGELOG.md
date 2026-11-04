@@ -16,6 +16,7 @@ section here.
 ### Fixed
 
 - Mattermost and kChat: scrolling up no longer stops while older history exists. Paging trusted the posts left after deleted ones were dropped, and after a restart it could not page back from a message stored in an earlier session; it now follows the server's own "older posts" answer and pages from the stored post.
+- Native Jitsi and kMeet calls no longer just close: a call whose connection, audio or call server session is lost shows "Reconnecting…" and joins again, keeping your microphone and sound choices; if it cannot, the window stays open and says why the call ended. The connection to the call server is now also declared lost after 90 seconds of silence, and a session the server restarts (`transport-replace`) is joined again at once.
 - Animated custom emoji (GIF) now play in messages, reactions, the picker, completion and the administration list, on Linux, Windows and macOS (both apps); they showed their first frame only. They stay still when the system's animations or Reduce motion are off.
 - Teams (experimental): a new chat no longer starts with "X added X to the channel". Chat members are added "to the chat", people adding themselves when a chat is created and a one-to-one's members are not shown, as in Teams; "channel" stays for channels.
 - Teams (experimental): a reaction's tooltip names the people who reacted instead of their Teams ids: unknown people are looked up before a page of messages is stored.
@@ -24,6 +25,11 @@ section here.
 - Teams (experimental): a first message from someone you never talked to shows at once, in its new chat; it could take up to a minute or more to appear.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
+
+### Changed
+
+- The native call window (Linux, Windows, macOS) now looks like the Vibez voice page: a tile per person with the speaking ring, the same round microphone, sound and hang-up buttons, and on Linux the microphone menu with the input and output devices.
+
 
 ## [0.30.2] - 2026-11-02
 

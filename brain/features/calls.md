@@ -39,6 +39,7 @@ The desktop applies the same exception with the same bounds (2026-09-30), and th
 
 ## Desktop
 
+- **Native Jitsi recovery (2026-11-05)**: a native call lost on the way (socket, media or the call server) is joined again while the window shows "Reconnecting…"; one that ends otherwise than by hanging up keeps the window with the reason. See [native-calls](../architecture/native-calls.md#long-calls-what-ended-them-and-recovery-2026-11-05).
 - **Native Jitsi (GTK, 2026-11-02)**: a Rocket.Chat call whose meeting host serves a Jitsi Meet `config.js` opens `native_call.rs` instead of the call window: the voice sidecar joins the conference itself (rv-call's signalling, libwebrtc media), audio only; no sidecar or a failed join falls back to the call window below. A kChat kMeet call takes the same path since 2026-11-02, its `?jwt=` read off the answer's URL as the conference token (`voice::meeting_token`); not yet run against kMeet live. See [native calls](../architecture/native-calls.md#implementation-status).
 
 - **Entry points** (`rv-gtk/src/chat.rs`): the header call button (shown only for writable rooms whose server passes `call_available`), the profile dialog's Call button (opens the DM, then starts), and the call card's Join (`RowEvent::JoinCall`). `Session::start_call` chains start and join. The card also has an info action (`RowEvent::CallInfo`): `call_window::info` shows the meeting link without the joiner's token (`call::meeting_link` drops the query), to copy or open in the browser.

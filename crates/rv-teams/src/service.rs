@@ -983,7 +983,7 @@ fn list_item(line: &str) -> Option<(bool, &str)> {
 fn inline(line: &str) -> String {
     let mut out = String::new();
     for (i, part) in line.split('`').enumerate() {
-        if i % 2 == 1 && line.matches('`').count() >= i + 1 {
+        if i % 2 == 1 && line.matches('`').count() > i {
             out.push_str(&format!("<code>{}</code>", escape(part)));
         } else if i % 2 == 1 {
             out.push('`');
@@ -1036,8 +1036,7 @@ fn emphasis(text: &str) -> String {
 fn wrap(text: &str, mark: &str, tag: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
-    loop {
-        let Some(open) = find_mark(rest, mark, true) else { break };
+    while let Some(open) = find_mark(rest, mark, true) {
         let inner_start = open + mark.len();
         let Some(close) = find_mark(&rest[inner_start..], mark, false).map(|c| c + inner_start) else { break };
         let inner = &rest[inner_start..close];

@@ -70,6 +70,11 @@ internal class JitsiSession(
   private val heard = ConcurrentHashMap<String, Long>()
   private val levels = ConcurrentHashMap<String, Double>()
   @Volatile var connected = false; private set
+  /** Lost on the way and joining again. */
+  @Volatile var reconnecting = false; private set
+  /** Why the current session was lost (a media failure), read by the reader thread. */
+  @Volatile private var lost: String? = null
+  private var everConnected = false
 
   /** Joins on a thread of its own; false at once when the library is missing. */
   fun start(meeting: String, displayName: String, token: String?): Boolean {
@@ -78,21 +83,47 @@ internal class JitsiSession(
     return true
   }
 
+  /**
+   * Joins, then joins again whenever the session is lost on the way (the socket
+   * dropped, the media failed, the focus ended or replaced the session), keeping
+   * the microphone and deafen choices, until it holds or every retry failed.
+   * A first join that fails ends at once, so the meeting's page takes over.
+   */
   private fun run(meeting: String, displayName: String, token: String?) {
     val configJs = fetchConfig(meeting)
-    val h = if (configJs == null) 0L else JitsiCall.start(meeting, configJs, displayName, token)
-    if (h == 0L) return main.post { if (!closed) onEnd("connect_failed") }.let {}
-    handle = h
+    var tries = 0
+    var reason = "connect_failed"
     while (!closed) {
-      val line = JitsiCall.next(h, 500) ?: continue
-      val event = runCatching { JSONObject(line) }.getOrNull() ?: continue
-      main.post { if (!closed) handle(event) }
-      if (event.optString("type") in setOf("ended", "gone")) break
+      val h = if (configJs == null) 0L else JitsiCall.start(meeting, configJs, displayName, token)
+      if (h == 0L && !everConnected) break
+      if (h != 0L) {
+        handle = h
+        lost = null
+        while (!closed && lost == null) {
+          val line = JitsiCall.next(h, 500) ?: continue
+          val event = runCatching { JSONObject(line) }.getOrNull() ?: continue
+          if (event.optString("type") in setOf("ended", "gone")) {
+            lost = event.optString("reason", "terminated")
+            break
+          }
+          main.post { if (!closed) handle(event) }
+        }
+        // Only this thread enters the library once joined: leaving and freeing never race a read.
+        handle = 0L
+        JitsiCall.leave(h)
+        JitsiCall.free(h)
+        if (closed) return
+        reason = lost ?: "terminated"
+        if (connected) tries = 0
+      }
+      if (tries >= REJOIN_DELAYS_S.size) break
+      Log.i("RocketVibeVoice", "jitsi: lost ($reason), joining again")
+      reconnecting = true
+      connected = false
+      main.post { if (!closed) { dropMedia(); onChange() } }
+      Thread.sleep(REJOIN_DELAYS_S[tries++] * 1000)
     }
-    // Only this thread enters the library once joined: leaving and freeing never race a read.
-    handle = 0L
-    if (closed) JitsiCall.leave(h)
-    JitsiCall.free(h)
+    if (!closed) main.post { if (!closed) onEnd(reason) }
   }
 
   private fun fetchConfig(meeting: String): String? = runCatching {
@@ -125,7 +156,6 @@ internal class JitsiSession(
         }
         onChange()
       }
-      "ended", "gone" -> onEnd(event.optString("reason", "terminated"))
     }
   }
 
@@ -173,8 +203,10 @@ internal class JitsiSession(
       main.post {
         if (closed) return@post
         when (state) {
-          PeerConnection.PeerConnectionState.CONNECTED -> { connected = true; onChange() }
-          PeerConnection.PeerConnectionState.FAILED -> onEnd("connection_failed")
+          PeerConnection.PeerConnectionState.CONNECTED -> {
+            connected = true; everConnected = true; reconnecting = false; onChange()
+          }
+          PeerConnection.PeerConnectionState.FAILED -> lost = "connection_failed"
           else -> {}
         }
       }
@@ -239,10 +271,16 @@ internal class JitsiSession(
   fun close() {
     if (closed) return
     closed = true
+    dropMedia()
+  }
+
+  /** One session's media: the peer connection, its tracks, who was heard. */
+  private fun dropMedia() {
     pc?.close(); pc?.dispose(); pc = null
     microphone = null
     factory?.dispose(); factory = null
     audio?.release(); audio = null
+    tracks.clear(); heard.clear(); levels.clear(); roster.clear()
   }
 
   private open class Sdp : SdpObserver {
@@ -255,5 +293,7 @@ internal class JitsiSession(
   private companion object {
     const val SPEAKING = 0.02
     const val HANGOVER_MS = 350L
+    /** The pause before each rejoin; as many tries. */
+    val REJOIN_DELAYS_S = longArrayOf(1, 2, 4, 8, 15)
   }
 }

@@ -12,7 +12,8 @@ async fn main() {
         std::fs::read_to_string(std::env::var("JITSI_CONFIG_JS").expect("JITSI_CONFIG_JS")).expect("config.js");
     let seconds: u64 = std::env::var("JITSI_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
     // kMeet carries its join token as `?jwt=`, as the app reads it (`voice::meeting_token`).
-    let token = url.split_once('?').and_then(|(_, q)| q.split('&').find_map(|p| p.strip_prefix("jwt="))).map(str::to_owned);
+    let token =
+        url.split_once('?').and_then(|(_, q)| q.split('&').find_map(|p| p.strip_prefix("jwt="))).map(str::to_owned);
     let config = Config::from_meeting(&url, &config_js, "RocketVibe probe", token).expect("config");
     println!("joining room {} on {}", config.room, config.websocket);
     let mut session = match join(config).await {

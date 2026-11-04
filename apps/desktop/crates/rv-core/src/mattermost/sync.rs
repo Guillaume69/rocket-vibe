@@ -651,7 +651,11 @@ impl MmSync {
                 w.write_cursor(rid, "messages", newest);
             }
         });
-        Ok(HistoryPage { count: posts.len(), oldest_ts: posts.iter().map(|p| int(p, "create_at")).min(), more: Some(more) })
+        Ok(HistoryPage {
+            count: posts.len(),
+            oldest_ts: posts.iter().map(|p| int(p, "create_at")).min(),
+            more: Some(more),
+        })
     }
 
     /// Up to a page of posts in `[oldest, latest]`, newest first, never stored.
@@ -1265,7 +1269,12 @@ mod tests {
         let body = json!({"order": ["p0"], "posts": {"p0": at("p0", 5)}, "prev_post_id": "p-older"});
         let (base, seen) = answering(body).await;
         let restarted = MmSync::new(store.clone(), RestClient::mattermost(base.parse().unwrap()), "u-me", "me", false);
-        restarted.directory.remember(User { id: "u-bob".into(), username: "bob".into(), display: None, ..Default::default() });
+        restarted.directory.remember(User {
+            id: "u-bob".into(),
+            username: "bob".into(),
+            display: None,
+            ..Default::default()
+        });
         let page = restarted.load_history("ch1", Some(10)).await.unwrap();
         let requests = seen.lock().unwrap().clone();
         assert!(requests[0].contains("/channels/ch1/posts?") && requests[0].contains("before=p-old"), "{requests:?}");

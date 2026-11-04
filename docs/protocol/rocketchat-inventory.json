@@ -1905,43 +1905,43 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 690,
+      "line": 694,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 705,
+      "line": 709,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}/thread\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 716,
+      "line": 720,
       "kind": "call:GET",
       "surface": "&channel_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 719,
+      "line": 723,
       "kind": "call:GET",
       "surface": "&member_path"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 785,
+      "line": 789,
       "kind": "call:POST",
       "surface": "&format!(\"posts/{…}/actions/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 829,
+      "line": 833,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/mattermost/sync.rs",
-      "line": 995,
+      "line": 999,
       "kind": "call:GET",
       "surface": "&format!(\"posts/{…}\")"
     },

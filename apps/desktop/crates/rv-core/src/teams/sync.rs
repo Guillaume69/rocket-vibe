@@ -741,9 +741,9 @@ impl TeamsSync {
                 continue;
             }
             let rows = self.ingest(rid, &below);
-            return Ok(HistoryPage { count: below.len(), oldest_ts: rows.iter().map(|m| m.ts).min() });
+            return Ok(HistoryPage { count: below.len(), oldest_ts: rows.iter().map(|m| m.ts).min(), more: None });
         }
-        Ok(HistoryPage { count: 0, oldest_ts: None })
+        Ok(HistoryPage { count: 0, oldest_ts: None, more: None })
     }
 
     /// What arrived since the room's newest stored message; a full page

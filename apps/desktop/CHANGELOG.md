@@ -13,6 +13,7 @@ section here.
 
 ### Fixed
 
+- Mattermost and kChat: scrolling up no longer stops while older history exists. Paging trusted the posts left after deleted ones were dropped, and after a restart it could not page back from a message stored in an earlier session; it now follows the server's own "older posts" answer and pages from the stored post.
 - Animated custom emoji (GIF) now play in messages, reactions, the picker, completion and the administration list, on Linux, Windows and macOS (both apps); they showed their first frame only. They stay still when the system's animations or Reduce motion are off.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.

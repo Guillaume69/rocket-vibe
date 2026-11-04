@@ -226,7 +226,7 @@ impl SlackSync {
         let (messages, _) = self.service.history(rid, params).await?;
         self.ingest(rid, &messages);
         let instants = messages.iter().filter_map(|m| text(m, "ts").and_then(ts_ms));
-        Ok(HistoryPage { count: messages.len(), oldest_ts: instants.min() })
+        Ok(HistoryPage { count: messages.len(), oldest_ts: instants.min(), more: None })
     }
 
     /// Up to a page of messages in `[oldest, latest]`, newest first, never stored.

@@ -3237,7 +3237,7 @@ impl ChatPage {
             }
             if this.current.borrow().as_ref().is_some_and(|c| c.rid == rid) {
                 if let Ok(page) = page {
-                    this.has_older.set(page.count as i64 >= HISTORY_PAGE);
+                    this.has_older.set(page.more.unwrap_or(page.count as i64 >= HISTORY_PAGE));
                 }
                 this.set_loading(false);
                 if !this.list.holds_reveal() {
@@ -3299,7 +3299,7 @@ impl ChatPage {
             && let Ok(page) = page
         {
             // `inclusive` returns the boundary message again: one row means nothing older.
-            if page.count <= 1 {
+            if !page.more.unwrap_or(page.count > 1) {
                 self.has_older.set(false);
             }
             // Down to the page and no further: an older message stored on its own

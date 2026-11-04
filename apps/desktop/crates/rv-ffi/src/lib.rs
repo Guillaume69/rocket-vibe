@@ -589,7 +589,7 @@ impl Chat {
     pub async fn open_room(&self, rid: String, kind: String) -> Result<bool, RvError> {
         let s = self.session.clone();
         let page = on_tokio(async move { s.open_room(&rid, &kind).await }).await?;
-        Ok(page.count as i64 >= rv_core::sync::HISTORY_PAGE)
+        Ok(page.more.unwrap_or(page.count as i64 >= rv_core::sync::HISTORY_PAGE))
     }
 
     /// One more page before `oldest_ts`.
@@ -599,7 +599,7 @@ impl Chat {
         // Down to the page and no further: an older message stored on its own
         // (starred, edited) would hide the hole above it.
         let limit = page.oldest_ts.map(|ts| self.session.store.count_since(&rid, ts));
-        Ok(model::OlderPage { more: page.count > 1, limit })
+        Ok(model::OlderPage { more: page.more.unwrap_or(page.count > 1), limit })
     }
 
     pub async fn load_thread(&self, root_id: String) -> Result<(), RvError> {

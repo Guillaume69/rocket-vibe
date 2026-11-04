@@ -13,6 +13,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Mattermost and kChat: scrolling up no longer stops while older history exists. A page holding only deleted posts ended the history, and after a restart paging could not start from an older message on screen; it now follows the server's own "older posts" answer and pages from the message shown.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
 

@@ -8,7 +8,7 @@
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RestClient } from '../../lib/rest.ts';
@@ -18,13 +18,10 @@ import { useSession } from '../../ui/session.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
 import { Icon, InlineIcon } from '../../ui/icon.tsx';
 import { VoiceReactions } from '../../ui/social.tsx';
-import { SpeakingAvatar, VoiceControls, useJoinVoice, useListening, usePeople, usePersonSheet, useRoomVoice, useVoice } from '../../ui/voice.tsx';
+import { SpeakingAvatar, VoiceControls, VoiceTile, type VoiceCard, useVoiceGlow, useJoinVoice, useListening, usePeople, usePersonSheet, useRoomVoice, useVoice } from '../../ui/voice.tsx';
 import { VoiceVideoView } from '../../modules/voice/index.ts';
 
-type Card = {
-  uid: string; name: string; speaking: boolean; muted: boolean; deafened: boolean; local: boolean;
-  camera: boolean; screen: boolean; mutedHere: boolean;
-};
+type Card = VoiceCard;
 
 export default function VoiceScreen() {
   const { rid, title, direct: directParam } = useLocalSearchParams<{ rid: string; title?: string; direct?: string }>();
@@ -123,7 +120,7 @@ export default function VoiceScreen() {
           {area.width > 0 && rows.map(row => (
             <View key={row[0]!.uid} style={styles.gridRow}>
               {row.map(card => (
-                <Tile key={card.uid} c={c} client={state.client} card={card} width={layout.width} height={layout.height}
+                <VoiceTile key={card.uid} c={c} client={state.client} card={card} width={layout.width} height={layout.height}
                   you={t('voice.you')} onLongPress={press(card)} />
               ))}
             </View>
@@ -156,29 +153,11 @@ export default function VoiceScreen() {
   );
 }
 
-/** The border that lights up while the person speaks. */
-function useGlow(speaking: boolean) {
-  const glow = useSharedValue(0);
-  useEffect(() => { glow.value = withTiming(speaking ? 1 : 0, { duration: speaking ? 120 : 320 }); }, [speaking, glow]);
-  return useAnimatedStyle(() => ({ opacity: glow.value }));
-}
 
-/** Muted, deafened, muted for this side. */
-function Icons({ card }: { card: Card }) {
-  const c = useColors();
-  const t = useT();
-  return (
-    <>
-      {card.muted && <Icon name="microphone-disabled" size={12} color={c.dimmed} label={t('voice.stateMuted')} />}
-      {card.deafened && <Icon name="audio-volume-muted" size={12} color={c.dimmed} label={t('voice.stateDeafened')} />}
-      {card.mutedHere && <Icon name="notifications-disabled" size={12} color={c.dimmed} label={t('voice.mutedHere')} />}
-    </>
-  );
-}
 
 /** Someone beside a shared screen: a small camera, or the avatar, and the name. */
 function MiniCard({ c, client, card, onLongPress }: { c: Colors; client: RestClient; card: Card; onLongPress?: () => void }) {
-  const border = useGlow(card.speaking);
+  const border = useVoiceGlow(card.speaking);
   return (
     <Pressable onLongPress={onLongPress} delayLongPress={350} style={[styles.mini, { backgroundColor: c.card, borderColor: c.border }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.miniGlow, { borderColor: c.online }, border]} />
@@ -194,30 +173,6 @@ function MiniCard({ c, client, card, onLongPress }: { c: Colors; client: RestCli
   );
 }
 
-/** Someone on the voice screen: their camera filling the tile, or their avatar in its middle, and their name. */
-function Tile({ c, client, card, width, height, you, onLongPress }: {
-  c: Colors; client: RestClient; card: Card; width: number; height: number; you: string; onLongPress?: () => void;
-}) {
-  const border = useGlow(card.speaking);
-  const avatar = Math.round(Math.max(44, Math.min(112, Math.min(width, height) * 0.38)));
-  return (
-    <Pressable onLongPress={onLongPress} delayLongPress={350}
-      style={[styles.tile, { width, height, backgroundColor: c.card, borderColor: c.border }]}>
-      {card.camera && VoiceVideoView !== null ? (
-        <VoiceVideoView identity={card.uid} source="camera" fit="cover" style={StyleSheet.absoluteFill} />
-      ) : (
-        <SpeakingAvatar c={c} client={client} uid={card.uid} name={card.name} speaking={card.speaking} size={avatar} radius={avatar / 2} />
-      )}
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.tileGlow, { borderColor: c.online }, border]} />
-      <View style={[styles.tag, { backgroundColor: c.background }]}>
-        <Text style={[styles.tagName, { color: c.text }]} numberOfLines={1}>
-          {card.name}{card.local ? ` (${you})` : ''}
-        </Text>
-        <Icons card={card} />
-      </View>
-    </Pressable>
-  );
-}
 
 const styles = StyleSheet.create({
   full: { flex: 1 },
@@ -228,10 +183,6 @@ const styles = StyleSheet.create({
   status: { fontFamily: FONTS.bodyBold, fontSize: 12 },
   grid: { flex: 1, margin: 12, gap: TILE_GAP, justifyContent: 'center' },
   gridRow: { flexDirection: 'row', justifyContent: 'center', gap: TILE_GAP },
-  tile: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  tileGlow: { borderRadius: 20, borderWidth: 3, zIndex: 1 },
-  tag: { position: 'absolute', left: 8, bottom: 8, maxWidth: '85%', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, opacity: 0.85 },
-  tagName: { fontFamily: FONTS.bodyStrong, fontSize: 13, flexShrink: 1 },
   shareRow: { flex: 1, flexDirection: 'row', gap: 10, padding: 12 },
   stage: { flex: 1, borderRadius: 18, borderWidth: 1, overflow: 'hidden' },
   strip: { width: 92, flexGrow: 0 },

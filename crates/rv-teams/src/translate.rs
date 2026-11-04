@@ -670,13 +670,61 @@ fn actor(raw: &Value) -> String {
 /// The name of a thread event's unknown actor.
 const SOMEONE: &str = "Someone";
 
-fn system(raw: &Value, directory: &Directory) -> Option<(&'static str, Option<String>)> {
+/// Whether a conversation is a team's channel, not a chat.
+pub fn is_channel(rid: &str) -> bool {
+    rid.ends_with("@thread.tacv2") || rid.ends_with("@thread.skype")
+}
+
+/// Every value of a tag repeated in a thread event (`<target>` once per person).
+fn tag_values<'a>(xml: &'a str, tag: &str) -> Vec<&'a str> {
+    let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(start) = rest.find(&open) {
+        let after = &rest[start + open.len()..];
+        let Some(end) = after.find(&close) else { break };
+        out.push(after[..end].trim());
+        rest = &after[end + close.len()..];
+    }
+    out
+}
+
+/// A membership event: a channel's wording, or a chat's. In a chat, people
+/// adding themselves (a chat being created) and a one-to-one's members are
+/// not shown, as in Teams.
+fn membership(rid: &str, content: &str, added: bool, directory: &Directory) -> Option<(&'static str, Option<String>)> {
+    let initiator = tag_value(content, "initiator").map(str::trim).unwrap_or_default();
+    let mut targets = tag_values(content, "target");
+    if targets.is_empty() {
+        targets = tag_values(content, "id");
+    }
+    if !is_channel(rid) {
+        targets.retain(|t| !t.eq_ignore_ascii_case(initiator));
+        if rid.ends_with("@unq.gbl.spaces") || targets.is_empty() {
+            return None;
+        }
+    }
+    let names =
+        (!targets.is_empty()).then(|| targets.iter().map(|m| directory.shown(m)).collect::<Vec<_>>().join(", "));
+    let kind = match (is_channel(rid), added) {
+        (true, true) => "au",
+        (true, false) => "ru",
+        (false, true) => CHAT_ADDED,
+        (false, false) => CHAT_REMOVED,
+    };
+    Some((kind, names))
+}
+
+/// Someone added to, or removed from, a chat (not a channel).
+pub const CHAT_ADDED: &str = "rv-chat-added";
+pub const CHAT_REMOVED: &str = "rv-chat-removed";
+
+fn system(rid: &str, raw: &Value, directory: &Directory) -> Option<(&'static str, Option<String>)> {
     let kind = str_of(raw, "messagetype")?.strip_prefix("ThreadActivity/")?;
     let content = str_of(raw, "content").unwrap_or_default();
-    let target = || tag_value(content, "target").or_else(|| tag_value(content, "id")).map(|m| directory.shown(m));
     match kind {
-        "AddMember" => Some(("au", target())),
-        "DeleteMember" => Some(("ru", target())),
+        "AddMember" => membership(rid, content, true, directory),
+        "DeleteMember" => membership(rid, content, false, directory),
         "TopicUpdate" => {
             Some(("room_changed_topic", tag_value(content, "value").map(rv_provider::text::decode_entities)))
         }
@@ -1038,7 +1086,7 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
     }
     directory.learn(raw);
     let author = actor(raw);
-    let system = system(raw, directory);
+    let system = system(conversation, raw, directory);
     if kind.starts_with("ThreadActivity/") && system.is_none() {
         return None;
     }
@@ -1079,6 +1127,33 @@ pub fn message(conversation: &str, raw: &Value, directory: &Directory) -> Option
         updated_at: edited_at.unwrap_or(at).max(int_of(raw, "version").unwrap_or(0)),
         ..Default::default()
     })
+}
+
+/// The people a page of messages names that the directory does not know
+/// yet: reactors, authors and thread events' people, `me` left out.
+pub fn unknown_people(raw: &[Value], directory: &Directory, me: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |mri: &str| {
+        let mri = mri.trim();
+        if mri.starts_with("8:") && mri != me && !directory.known(mri) && !out.iter().any(|m| m == mri) {
+            out.push(mri.to_owned());
+        }
+    };
+    for m in raw {
+        for emotion in emotions(m) {
+            for user in emotion.get("users").and_then(Value::as_array).into_iter().flatten() {
+                if let Some(mri) = str_of(user, "mri") {
+                    add(mri);
+                }
+            }
+        }
+        add(&actor(m));
+        let content = str_of(m, "content").unwrap_or_default();
+        if str_of(m, "messagetype").is_some_and(|k| k.starts_with("ThreadActivity/")) {
+            tag_values(content, "target").into_iter().for_each(&mut add);
+        }
+    }
+    out
 }
 
 fn reactions(raw: &Value, directory: &Directory) -> Option<String> {
@@ -1728,11 +1803,36 @@ mod tests {
             "30",
             json!({"messagetype": "ThreadActivity/AddMember", "content": "<addmember><eventtime>1</eventtime><target>8:orgid:bbb</target></addmember>"}),
         );
-        let m = message("c", &added, &d).unwrap();
+        let m = message("19:ch@thread.tacv2", &added, &d).unwrap();
         assert_eq!((m.system_type.as_deref(), m.text.as_deref()), (Some("au"), Some("Bob")));
+        let group = raw(
+            "31",
+            json!({"messagetype": "ThreadActivity/AddMember", "content": "<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target><target>8:orgid:bbb</target><target>8:orgid:ccc</target></addmember>"}),
+        );
+        let m = message("19:g@thread.v2", &group, &d).unwrap();
+        assert_eq!((m.system_type.as_deref(), m.text.as_deref()), (Some(CHAT_ADDED), Some("Bob, 8:orgid:ccc")));
+        let created = raw(
+            "32",
+            json!({"messagetype": "ThreadActivity/AddMember", "content": "<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target></addmember>"}),
+        );
+        assert!(message("19:g@thread.v2", &created, &d).is_none());
+        assert!(message("19:aaa_bbb@unq.gbl.spaces", &group, &d).is_none());
         for kind in ["Event/Call", "ThreadActivity/MemberJoined", "Control/Typing"] {
             assert!(message("c", &raw("40", json!({"messagetype": kind})), &d).is_none(), "{kind}");
         }
+    }
+
+    #[test]
+    fn the_people_a_page_names_that_the_directory_does_not_know() {
+        let d = Directory::default();
+        d.remember("8:orgid:aaa", "Ada");
+        let page = [
+            json!({"id": "1", "from": "https://x/contacts/8:orgid:me", "properties": {"emotions": [
+                {"key": "like", "users": [{"mri": "8:orgid:bbb"}, {"mri": "8:orgid:aaa"}, {"mri": "8:orgid:me"}]}]}}),
+            json!({"id": "2", "messagetype": "ThreadActivity/AddMember", "from": "https://x/contacts/19:c@thread.v2",
+                "content": "<addmember><initiator>8:orgid:ccc</initiator><target>8:orgid:ddd</target></addmember>"}),
+        ];
+        assert_eq!(unknown_people(&page, &d, "8:orgid:me"), ["8:orgid:bbb", "8:orgid:ccc", "8:orgid:ddd"]);
     }
 
     #[test]

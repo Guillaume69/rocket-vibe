@@ -524,14 +524,54 @@ function tagValue(xml: string, tag: string): string | null {
   return end < 0 ? null : xml.slice(from, end);
 }
 
-function system(raw: unknown, directory: TeamsDirectory): { type: string; text: string | null } | null {
+/** Whether a conversation is a team's channel, not a chat. */
+export function isChannel(rid: string): boolean {
+  return rid.endsWith('@thread.tacv2') || rid.endsWith('@thread.skype');
+}
+
+/** Someone added to, or removed from, a chat (not a channel). */
+export const CHAT_ADDED = 'rv-chat-added';
+export const CHAT_REMOVED = 'rv-chat-removed';
+
+function tagValues(xml: string, tag: string): string[] {
+  const out: string[] = [];
+  const open = `<${tag}>`, close = `</${tag}>`;
+  let at = 0;
+  for (;;) {
+    const start = xml.indexOf(open, at);
+    if (start < 0) break;
+    const end = xml.indexOf(close, start + open.length);
+    if (end < 0) break;
+    out.push(xml.slice(start + open.length, end).trim());
+    at = end + close.length;
+  }
+  return out;
+}
+
+/** A membership event: a channel's wording, or a chat's. In a chat, people
+ *  adding themselves (a chat being created) and a one-to-one's members are
+ *  not shown, as in Teams. */
+function membership(rid: string, content: string, added: boolean, directory: TeamsDirectory): { type: string; text: string | null } | null {
+  const initiator = (tagValue(content, 'initiator') ?? '').trim().toLowerCase();
+  let targets = tagValues(content, 'target');
+  if (targets.length === 0) targets = tagValues(content, 'id');
+  const channel = isChannel(rid);
+  if (!channel) {
+    targets = targets.filter((t) => t.toLowerCase() !== initiator);
+    if (rid.endsWith('@unq.gbl.spaces') || targets.length === 0) return null;
+  }
+  const text = targets.length ? targets.map((m) => directory.shown(m)).join(', ') : null;
+  const type = channel ? (added ? 'au' : 'ru') : added ? CHAT_ADDED : CHAT_REMOVED;
+  return { type, text };
+}
+
+function system(rid: string, raw: unknown, directory: TeamsDirectory): { type: string; text: string | null } | null {
   const kind = str(raw, 'messagetype')?.replace(/^ThreadActivity\//, '');
   if (!kind || kind === str(raw, 'messagetype')) return null;
   const content = str(raw, 'content') ?? '';
-  const target = tagValue(content, 'target') ?? tagValue(content, 'id');
   switch (kind) {
-    case 'AddMember': return { type: 'au', text: target ? directory.shown(target) : null };
-    case 'DeleteMember': return { type: 'ru', text: target ? directory.shown(target) : null };
+    case 'AddMember': return membership(rid, content, true, directory);
+    case 'DeleteMember': return membership(rid, content, false, directory);
     case 'TopicUpdate': {
       const value = tagValue(content, 'value');
       return { type: 'room_changed_topic', text: value === null ? null : decodeEntities(value) };
@@ -768,6 +808,22 @@ export function actor(raw: unknown): string {
   return from.startsWith('19:') ? '' : from;
 }
 
+/** The people a page of messages names that the directory does not know
+ *  yet: reactors, authors and thread events' people, `me` left out. */
+export function unknownPeople(raw: readonly unknown[], directory: TeamsDirectory, me: string): string[] {
+  const out: string[] = [];
+  const add = (mri: string | null | undefined) => {
+    const m = (mri ?? '').trim();
+    if (m.startsWith('8:') && m !== me && directory.name(m) === null && !out.includes(m)) out.push(m);
+  };
+  for (const m of raw) {
+    for (const emotion of emotions(m)) for (const user of (emotion.users as Doc[] | undefined) ?? []) add(str(user, 'mri'));
+    add(actor(m));
+    if ((str(m, 'messagetype') ?? '').startsWith('ThreadActivity/')) tagValues(str(m, 'content') ?? '', 'target').forEach(add);
+  }
+  return out;
+}
+
 /** The name of a thread event's unknown actor. */
 const SOMEONE = 'Someone';
 
@@ -781,7 +837,7 @@ export function toMessage(conversation: string, raw: unknown, directory: TeamsDi
     kind === 'Text' || kind === 'RichText/Html' || kind === 'RichText' || kind.startsWith('ThreadActivity/') || attachments !== null;
   if (!id || !shown || deleted(raw)) return null;
   directory.learn(raw);
-  const activity = system(raw, directory);
+  const activity = system(conversation, raw, directory);
   if (kind.startsWith('ThreadActivity/') && !activity) return null;
   const ts = instant(raw, 'originalarrivaltime') ?? instant(raw, 'composetime') ?? Number(id);
   if (!Number.isFinite(ts)) return null;
@@ -1200,4 +1256,16 @@ export function toSubscription(rid: string, entry: unknown, me: string, team: { 
     e2eKeyId: null,
     updatedAt: Date.now(),
   };
+}
+
+/** The `{user_id, root_position}` marks of a `consumptionhorizons` body; the
+ *  first field of `consumptionhorizon` is the last read message's arrival time. */
+export function readPositions(body: unknown): { user_id: string; root_position: string }[] {
+  const rows = (body as Doc | null)?.consumptionhorizons;
+  if (!Array.isArray(rows)) return [];
+  return (rows as Doc[]).flatMap((h) => {
+    const id = str(h, 'id');
+    const at = (str(h, 'consumptionhorizon') ?? '').split(';')[0] ?? '';
+    return id && /^[1-9]\d*$/.test(at) ? [{ user_id: id, root_position: at }] : [];
+  });
 }

@@ -6,7 +6,7 @@ import { shortcodeOfUnicode, unicodeOfShortcode } from '@rocket-vibe/provider-ap
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, unknownPeople, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
   convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor, replyTarget, replyQuote,
 } from './translate.ts';
 
@@ -106,8 +106,14 @@ test('replies, member activity and skipped kinds', () => {
   assert.equal(conversationOf({ conversationLink: 'https://t/conversations/19%3Ax%40thread.v2' }), '19:x@thread.v2');
   assert.equal(toMessage('19:ch@thread.tacv2', reply, d)!.threadId, '19:ch@thread.tacv2/10');
   const added = raw('30', { messagetype: 'ThreadActivity/AddMember', content: '<addmember><target>8:orgid:bbb</target></addmember>' });
-  const a = toMessage('c', added, d)!;
+  const a = toMessage('19:ch@thread.tacv2', added, d)!;
   assert.deepEqual([a.systemType, a.text], ['au', 'Bob']);
+  const group = raw('31', { messagetype: 'ThreadActivity/AddMember', content: '<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target><target>8:orgid:bbb</target><target>8:orgid:ccc</target></addmember>' });
+  const g = toMessage('19:g@thread.v2', group, d)!;
+  assert.deepEqual([g.systemType, g.text], ['rv-chat-added', 'Bob, 8:orgid:ccc']);
+  const created = raw('32', { messagetype: 'ThreadActivity/AddMember', content: '<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target></addmember>' });
+  assert.equal(toMessage('19:g@thread.v2', created, d), null);
+  assert.equal(toMessage('19:aaa_bbb@unq.gbl.spaces', group, d), null);
   for (const kind of ['Event/Call', 'ThreadActivity/MemberJoined', 'RichText/Media_CallRecording']) {
     assert.equal(toMessage('c', raw('40', { messagetype: kind }), d), null, kind);
   }
@@ -538,4 +544,30 @@ test('a reply is sent as the quote Teams reads back', () => {
   assert.equal(back.text, 'bien vu');
   assert.equal(back.quotes.length, 1);
   assert.deepEqual([back.quotes[0].id, back.quotes[0].author, back.quotes[0].authorMri, back.quotes[0].text], ['1792500000000', 'Marc <B>', '8:orgid:marc', 'Je suis outré']);
+});
+
+test('typed markdown becomes the HTML Teams renders, and reads back the same', async () => {
+  const { toHtml } = await import('./outbox.ts');
+  assert.equal(toHtml('**bold** _it_ ~~gone~~ `a<b`'), '<p><b>bold</b> <i>it</i> <s>gone</s> <code>a&lt;b</code></p>');
+  assert.equal(toHtml('```\nfn x() {}\n  <y>\n```'), '<pre><code>fn x() {}\n  &lt;y&gt;</code></pre>');
+  assert.equal(toHtml('# Title\n## Sub'), '<h1>Title</h1><h2>Sub</h2>');
+  assert.equal(toHtml('- a\n- **b**\n1. one\n2. two'), '<ul><li>a</li><li><b>b</b></li></ul><ol><li>one</li><li>two</li></ol>');
+  assert.equal(toHtml('> said\n> twice'), '<blockquote><p>said<br>twice</p></blockquote>');
+  assert.equal(toHtml('see [docs](https://x.y/a_b) now'), '<p>see <a href="https://x.y/a_b">docs</a> now</p>');
+  assert.equal(toHtml('snake_case_name and 2*3*4'), '<p>snake_case_name and 2<i>3</i>4</p>');
+  assert.equal(toHtml('a <b> & "c"\nnext'), '<p>a &lt;b&gt; &amp; &quot;c&quot;</p><p>next</p>');
+  assert.equal(toHtml(''), '<p></p>');
+  for (const text of ['**bold** and _it_', '- a\n- b', '```\ncode\n```']) {
+    assert.equal(convert(toHtml(text), []).text.trim(), text.trim(), text);
+  }
+});
+
+test('the people a page names that the directory does not know, me left out', () => {
+  const d = new TeamsDirectory();
+  d.remember('8:orgid:aaa', 'Ada');
+  const page = [
+    { id: '1', from: 'https://x/contacts/8:orgid:me', properties: { emotions: [{ key: 'like', users: [{ mri: '8:orgid:bbb' }, { mri: '8:orgid:aaa' }, { mri: '8:orgid:me' }] }] } },
+    { id: '2', messagetype: 'ThreadActivity/AddMember', from: 'https://x/contacts/19:c@thread.v2', content: '<addmember><initiator>8:orgid:ccc</initiator><target>8:orgid:ddd</target></addmember>' },
+  ];
+  assert.deepEqual(unknownPeople(page, d, '8:orgid:me'), ['8:orgid:bbb', '8:orgid:ccc', '8:orgid:ddd']);
 });

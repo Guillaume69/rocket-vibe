@@ -8,10 +8,19 @@ import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { readReceipt, type ReceiptLine, type ReceiptRow } from '../lib/readReceipts.ts';
-import type { NativeLive } from '../providers/vibez/live.ts';
+import type { ReceiptMark } from '../lib/readReceipts.ts';
 import { useT } from './i18n.ts';
 import { Icon } from './icon.tsx';
 import { type Colors, FONTS } from './theme.ts';
+
+/** What the line reads from: the Vibez live photo, or a provider's own
+ *  receipts (Teams). `state` changes whenever the marks do. */
+export type ReceiptLive = {
+  readonly state: unknown;
+  subscribe(fn: () => void): () => void;
+  reads(rid: string): readonly ReceiptMark[];
+  memberName(uid: string): string | null;
+};
 
 /**
  * Which message carries the line, and its text; `null` for nothing. `live` is
@@ -19,7 +28,7 @@ import { type Colors, FONTS } from './theme.ts';
  * a frame changes it.
  */
 export function useReadReceipt(input: {
-  live: NativeLive | undefined;
+  live: ReceiptLive | undefined;
   rid: string;
   enabled: boolean;
   rowsDesc: readonly ReceiptRow[];

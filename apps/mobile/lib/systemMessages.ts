@@ -35,6 +35,8 @@ const KEYS = {
   ult: 'sys.ult',
   ru: 'sys.ru',
   au: 'sys.au',
+  'rv-chat-added': 'sys.chatAdded',
+  'rv-chat-removed': 'sys.chatRemoved',
   r: 'sys.r',
   rm: 'sys.rm',
   uploaded: 'sys.uploaded',

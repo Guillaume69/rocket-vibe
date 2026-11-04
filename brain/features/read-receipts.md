@@ -1,6 +1,6 @@
 # Read receipts (Vibez server)
 
-On a Vibez server, the room shows how far the others read: under my most recent message, "Seen" in a direct conversation, "Seen by Bob, Carol" in a group. It is live (the server's live frame, every 2 seconds) and needs no request of its own. An account can turn it off, both ways. Rocket.Chat (whose read receipts are an Enterprise feature) and Mattermost accounts have none here.
+On a Vibez server, the room shows how far the others read: under my most recent message, "Seen" in a direct conversation, "Seen by Bob, Carol" in a group. It is live (the server's live frame, every 2 seconds) and needs no request of its own. An account can turn it off, both ways. Rocket.Chat (whose read receipts are an Enterprise feature) and Mattermost accounts have none here. A Teams account shows the same line from Teams' read positions (see "Teams" below).
 
 ## The contract
 
@@ -39,7 +39,16 @@ GTK and SwiftUI, over rv-core.
 - **The setting**: GTK's account page gets a "Privacy" group with an `adw::SwitchRow` "Share read receipts" and its hint (`rv-gtk/src/settings/native_profiles.rs`); it sends `preferences_input` with `share_read_receipts: Some(_)` alone, and the page's 250 ms refresh shows the saved value (or a queued change's). SwiftUI: `PrivacySection` under My account (`SettingsView.swift`), `MyProfileModel.setShareReadReceipts`, rv-ffi `NativeChat::set_share_read_receipts` and `NativePreferences.share_read_receipts` (`native_profiles.rs`).
 - Not run against a server: the GTK and SwiftUI screens were not walked against a Vibez server with migration 0056; SwiftUI is checked by `swiftc -parse` and the macOS CI only.
 
+## Teams
+
+How far each member read a chat is the chat service's `GET /v1/threads/<rid>/consumptionhorizons` (seen in Teams web's own requests, 2026-11-02): `{consumptionhorizons: [{id: <mri>, consumptionhorizon: "<arrival time of the last read message>;<time>;<client id>"}]}`. A message of mine is read once another member's first field is at least its arrival time, which is also its id. Read when the room opens (its catch-up) and, while open: on desktop on that room's live events (`ConversationUpdate`, `ThreadUpdate`, a new message from someone else), on Android every 30 s (`REFRESH_MS`). The Vibez rule decides the line (`native::receipts::receipt` with `ReadMark { user_id: mri, root_position: arrival }`; `lib/readReceipts.ts`), names from the Teams directory.
+- **Desktop**: `TeamsSync::refresh_read_positions` / `read_receipt` (`rv-core/src/teams/sync.rs`), `Service::read_positions` (`crates/rv-teams/src/service.rs`); `Session::read_receipt` hands it to GTK (`MessageList::set_receipt`, placed in `set_rows`) and SwiftUI (`lay_out` in `rv-ffi/src/lib.rs`). A changed position touches the room (`Writer::touch_room`) so the open room draws again.
+- **Android**: `Provider.readReceipts` (`ReadReceiptSource`, `packages/provider-api/src/provider.ts`), Teams' `teamsReadReceipts` (`packages/provider-teams/src/receipts.ts`); the room screen follows the open room and feeds `useReadReceipt` with it when the account is not Vibez.
+- Not verified live: the positions' shape is from captures; no real chat was read from the app.
+
 ## Sources
+
+- `crates/rv-teams/src/service.rs`, `apps/desktop/crates/rv-core/src/teams/sync.rs`, `packages/provider-teams/src/receipts.ts`
 
 - apps/web/src/receipts.ts
 - apps/web/src/app.ts

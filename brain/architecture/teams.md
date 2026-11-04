@@ -240,6 +240,14 @@ Microsoft's link (`show_teams_code`) and waits with Cancel (window.rs
 LoginView. Rocket.Chat's own GIFs, stickers, encryption settings, server icon and X
 cards are left out of Teams accounts (`info.teams`, `is_teams`).
 
+
+### Round 4 (2026-11-04)
+
+- **Chat membership events**: `ThreadActivity/AddMember` / `DeleteMember` carry `<initiator>` and one `<target>` per person. In a channel they stay `au` / `ru` ("to the channel"); in a chat they become `rv-chat-added` / `rv-chat-removed` ("to the chat"), the initiator left out of the targets; nothing left (a chat being created) or a one-to-one (`@unq.gbl.spaces`) shows nothing, as in Teams (`membership` in `translate.rs` / `translate.ts`).
+- **Names before storing**: `unknown_people` / `unknownPeople` list a page's reactors, authors and event people the directory lacks; the sync reads their short profiles in batches before storing the page (history, catch-up, threads, pins, live messages), so reactions store names, not MRIs.
+- **Sending formatting**: `to_html` / `toHtml` turn typed markdown into the tags the receive side reads (`convert`): `<pre><code>`, `<code>`, `<b>`, `<i>`, `<s>`, `<h1>`..`<h6>`, `<ul>`/`<ol>`/`<li>`, `<blockquote>`, `<a href>`, plain `<p>` lines; tested to read back the same. Not captured from Teams web's composer: no formatted message was in the captures.
+- **Read receipts**: see [read-receipts](../features/read-receipts.md#teams).
+
 ## Sources
 
 - packages/provider-teams/src/auth.ts

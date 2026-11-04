@@ -25,6 +25,7 @@ import { NOTES_CREATED, NOTES_SAVE_CONFLICT, notesEdit, notesPage, notesSubmit, 
 import { TEAMS_EVENTS, TEAMS_HISTORY_PAGE, THREAD_COUNTERS, TeamsRooms, TeamsSync, TeamsThreads, TeamsTranslator } from './sync.ts';
 import { TeamsDirectory, channelRoom, chatRoom, conversationOf, conversationTopic, deleted, groupThread, isGraphShare, isGroupChat, mriOf, newGroupChat, newOneOnOne, oneOnOneId, people, profileFields, rootOf, rosterPage, searchHits, str, toMessage } from './translate.ts';
 import { CALL_COLLECTION, TeamsTrouter, type CallPush } from './trouter.ts';
+import { teamsReadReceipts } from './receipts.ts';
 
 type Doc = Record<string, unknown>;
 
@@ -329,6 +330,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
         return { rid, rawRoom: raw };
       },
     },
+    readReceipts: teamsReadReceipts(client, directory),
     searchPeople: async (query) =>
       people(await client.searchPeople(query), session.userId).map((p) => {
         directory.remember(p.mri, p.name);

@@ -937,6 +937,12 @@ impl Writer<'_> {
         self.change.rids.insert(rid.to_owned());
     }
 
+    /// Tells the room's views to read again, nothing stored having moved:
+    /// something drawn from outside the store (a read position) changed.
+    pub fn touch_room(&mut self, rid: &str) {
+        self.touch_messages(rid);
+    }
+
     fn rid_of(&self, sql: &str, key: &str) -> Option<String> {
         self.conn.query_row(sql, [key], |r| r.get(0)).optional().ok().flatten()
     }

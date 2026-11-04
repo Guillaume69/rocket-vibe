@@ -1018,9 +1018,13 @@ fn lay_out(
     unread_after: Option<i64>,
 ) -> Vec<model::MessageItem> {
     let info = &session.info;
+    let receipt = rows.first().and_then(|r| session.read_receipt(&r.rid, &rows));
     let mut laid = timeline::group(rows.into_iter().map(|r| session.open_row(r)).collect());
     if let Some(seen) = unread_after {
         timeline::mark_new(&mut laid, seen, &info.user_id);
+    }
+    if receipt.is_some() {
+        rv_core::native::receipts::place(&mut laid, receipt.as_ref());
     }
     let reactor = session.reactor_names();
     laid.into_iter()

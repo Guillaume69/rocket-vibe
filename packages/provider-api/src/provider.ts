@@ -449,6 +449,21 @@ export interface FileOutbox {
  * object. The still RC-only extras (presence, custom emojis, push, E2EE) stay
  * outside this facade in 4a, guarded by `capabilities`, to absorb later.
  */
+/** How far the other members of a room read, where the provider tells it
+ *  (Teams' consumption horizons): what the room screen's "Seen" line reads.
+ *  `state` changes whenever a room's marks do. */
+export interface ReadReceiptSource {
+  readonly state: number;
+  subscribe(listener: () => void): () => void;
+  /** Starts reading `rid`'s marks (the room is open) and keeps them fresh
+   *  until the returned function is called. */
+  follow(rid: string): () => void;
+  reads(rid: string): { user_id: string; root_position: string }[];
+  memberName(userId: string): string | null;
+  /** A message's position, comparable with the marks; null when unknown. */
+  position(messageId: string): string | null;
+}
+
 export interface Provider {
   readonly identity: ProviderIdentity;
   describeError(error: unknown, authenticated: boolean): ProviderError;
@@ -482,6 +497,8 @@ export interface Provider {
    * `id` opens with `openOrCreateDm(name, id)`.
    */
   searchPeople?(query: string): Promise<{ id: string; name: string; detail: string }[]>;
+  /** The other members' read positions, where the provider has them. */
+  readReceipts?: ReadReceiptSource;
   /** Says I am typing in a room (`active`) or stopped, where the protocol carries it outside the native runner (WhatsApp). */
   setTyping?(rid: string, active: boolean): void;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */

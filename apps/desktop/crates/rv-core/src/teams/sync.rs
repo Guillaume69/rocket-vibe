@@ -45,6 +45,8 @@ pub struct TeamsSync {
     found: Mutex<HashMap<String, String>>,
     /// Where presence subscriptions point: the chat registration's push path and id.
     presence_route: Mutex<Option<(String, String)>>,
+    /// How far the other members read each room read so far: (MRI, arrival time).
+    read_positions: Mutex<HashMap<String, Vec<(String, i64)>>>,
 }
 
 impl TeamsSync {
@@ -63,7 +65,44 @@ impl TeamsSync {
             pending: Mutex::default(),
             found: Mutex::default(),
             presence_route: Mutex::default(),
+            read_positions: Mutex::default(),
         }
+    }
+
+    /// Reads how far each member read `rid` (Teams' consumption horizons) and,
+    /// when it moved, has the room's views draw their receipt again.
+    pub async fn refresh_read_positions(&self, rid: &str) {
+        let Ok(positions) = self.service.read_positions(rid).await else { return };
+        let changed = self.read_positions.lock().unwrap().insert(rid.to_owned(), positions.clone()) != Some(positions);
+        if changed {
+            self.store.write(|w| w.touch_room(rid));
+        }
+    }
+
+    /// The "Seen" / "Seen by" line under my latest message of a room, from
+    /// the other members' read positions; None before they were read or
+    /// when nobody else reached it.
+    pub fn read_receipt(
+        &self,
+        rid: &str,
+        rows: &[crate::store::MessageRow],
+        direct: bool,
+    ) -> Option<crate::native::receipts::Receipt> {
+        use crate::native::receipts::{Candidate, receipt};
+        let positions = self.read_positions.lock().unwrap().get(rid).cloned()?;
+        let marks: Vec<rv_protocol::live::ReadMark> = positions
+            .into_iter()
+            .map(|(user_id, at)| rv_protocol::live::ReadMark { user_id, root_position: at.to_string() })
+            .collect();
+        let candidates = rows.iter().map(|row| Candidate {
+            id: &row.id,
+            author_id: &row.author_id,
+            position: split_id(&row.id).map(|(_, server)| server),
+            system: row.system_type.is_some(),
+            reply: row.thread_id.as_deref().is_some_and(|t| t != row.id),
+            pending: row.outbox_status.is_some(),
+        });
+        receipt(candidates, &self.me, &marks, direct, |mri| self.directory.name(mri))
     }
 
     /// The chat's notes page, named by the `FileAdd` event Teams posted when they
@@ -321,6 +360,8 @@ impl TeamsSync {
                     if !self.entries.lock().unwrap().contains_key(&rid) {
                         self.adopt(&rid, &Value::Null).await;
                     }
+                } else if self.reads_followed(&rid) {
+                    self.refresh_read_positions(&rid).await;
                 }
                 return None;
             }
@@ -341,6 +382,7 @@ impl TeamsSync {
             }
             return None;
         }
+        self.name_people(std::slice::from_ref(resource)).await;
         let message = translate::message(&rid, resource, &self.directory)?;
         let fresh = name == "NewMessage" && !self.store.has_message(&message.id);
         let mine = message.author_id == self.me;
@@ -367,7 +409,15 @@ impl TeamsSync {
                 w.upsert_room(room);
             }
         });
+        if fresh && !mine && self.reads_followed(&rid) {
+            self.refresh_read_positions(&rid).await;
+        }
         (fresh && !mine).then_some(message)
+    }
+
+    /// Whether a room's read positions were read: a room opened here.
+    fn reads_followed(&self, rid: &str) -> bool {
+        self.read_positions.lock().unwrap().contains_key(rid)
     }
 
     /// A chat a live event names that neither the snapshot nor the chat
@@ -725,6 +775,7 @@ impl TeamsSync {
         }
         let target = format!("{rid};messageid={server}");
         let (rows, _older) = self.service.messages(&target, &format!("view={VIEW}&pageSize={HISTORY_PAGE}")).await?;
+        self.name_people(&rows).await;
         self.ingest(rid, &rows);
         Ok(())
     }
@@ -734,9 +785,23 @@ impl TeamsSync {
     /// holds on `properties.pinned` (seen in a capture, 2026-10-23).
     pub async fn pinned(&self, rid: &str) -> Result<Vec<String>, RestError> {
         let (rows, _older) = self.service.messages(rid, &format!("view={VIEW}&pageSize={PINNED_LOOKBACK}")).await?;
+        self.name_people(&rows).await;
         let mut pinned: Vec<Message> = self.ingest(rid, &rows).into_iter().filter(|m| m.pinned).collect();
         pinned.sort_by_key(|m| std::cmp::Reverse(m.ts));
         Ok(pinned.into_iter().map(|m| m.id).collect())
+    }
+
+    /// Names the people a page mentions that the directory does not know yet
+    /// (reactors above all), so the page is stored with names, not ids.
+    async fn name_people(&self, raw: &[Value]) {
+        let unknown = translate::unknown_people(raw, &self.directory, &self.me);
+        for batch in unknown.chunks(PROFILE_BATCH) {
+            for row in self.service.profiles(batch).await {
+                if let (Some(mri), Some(name)) = (str_of(&row, "mri"), str_of(&row, "displayName")) {
+                    self.directory.remember(mri, name);
+                }
+            }
+        }
     }
 
     fn ingest(&self, rid: &str, raw: &[Value]) -> Vec<Message> {
@@ -800,6 +865,7 @@ impl TeamsSync {
                 url = older;
                 continue;
             }
+            self.name_people(&below).await;
             let rows = self.ingest(rid, &below);
             return Ok(HistoryPage { count: below.len(), oldest_ts: rows.iter().map(|m| m.ts).min() });
         }
@@ -818,7 +884,9 @@ impl TeamsSync {
         let query = format!("view={VIEW}&pageSize={HISTORY_PAGE}&startTime={since}");
         let (messages, _) = self.service.messages(rid, &query).await?;
         if (messages.len() as i64) < HISTORY_PAGE {
+            self.name_people(&messages).await;
             self.ingest(rid, &messages);
+            self.refresh_read_positions(rid).await;
             return Ok(());
         }
         let query = format!("view={VIEW}&pageSize={HISTORY_PAGE}");
@@ -830,6 +898,7 @@ impl TeamsSync {
             w.recount_threads(rid);
         });
         self.remember_older(rid, &newest, link);
+        self.refresh_read_positions(rid).await;
         Ok(())
     }
 

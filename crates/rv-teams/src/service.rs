@@ -716,6 +716,14 @@ impl Service {
         .map(|_| ())
     }
 
+    /// How far each member read a conversation (the chat service's
+    /// `consumptionhorizons`): each member's MRI and the arrival time of the
+    /// last message they read, as Teams' web app reads it for its receipts.
+    pub async fn read_positions(&self, rid: &str) -> Result<Vec<(String, i64)>, RestError> {
+        let url = self.chat_url(&["threads", rid, "consumptionhorizons"], "").await?;
+        Ok(read_positions(&self.chat(Method::GET, url, None).await?.body))
+    }
+
     /// Posts text into a room, or into a channel thread under `root`; answers
     /// the new message's server id.
     pub async fn send(&self, rid: &str, root: Option<&str>, text: &str, client_id: &str) -> Result<String, RestError> {
@@ -890,10 +898,176 @@ fn encode_segment(s: &str) -> String {
     out
 }
 
+/// The `(mri, arrival time)` rows of a `consumptionhorizons` body; the first
+/// field of `consumptionhorizon` is the last read message's arrival time.
+pub fn read_positions(body: &Value) -> Vec<(String, i64)> {
+    body.get("consumptionhorizons")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|h| {
+            let mri = str_of(h, "id")?;
+            let at = str_of(h, "consumptionhorizon")?.split(';').next()?.parse::<i64>().ok()?;
+            (at > 0).then(|| (mri.to_owned(), at))
+        })
+        .collect()
+}
+
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// Typed markdown as the HTML Teams' own composer stores and renders: code
+/// blocks, headings, lists, quotes, then bold, italic, strikethrough, inline
+/// code and links inside each line; anything else stays text.
 pub fn to_html(text: &str) -> String {
-    let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
-    let lines: Vec<String> = escaped.lines().map(|l| format!("<p>{l}</p>")).collect();
-    if lines.is_empty() { "<p></p>".to_owned() } else { lines.concat() }
+    let mut out = String::new();
+    let mut lines = text.lines().peekable();
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            let mut code = Vec::new();
+            for next in lines.by_ref() {
+                if next.trim_start().starts_with("```") {
+                    break;
+                }
+                code.push(escape(next));
+            }
+            out.push_str(&format!("<pre><code>{}</code></pre>", code.join("\n")));
+        } else if let Some((level, rest)) = heading(trimmed) {
+            out.push_str(&format!("<h{level}>{}</h{level}>", inline(rest)));
+        } else if let Some(rest) = trimmed.strip_prefix("> ").or_else(|| (trimmed == ">").then_some("")) {
+            let mut quoted = vec![inline(rest)];
+            while let Some(next) = lines.peek().map(|l| l.trim_start()) {
+                let Some(more) = next.strip_prefix("> ").or_else(|| (next == ">").then_some("")) else { break };
+                quoted.push(inline(more));
+                lines.next();
+            }
+            out.push_str(&format!("<blockquote><p>{}</p></blockquote>", quoted.join("<br>")));
+        } else if let Some((ordered, item)) = list_item(trimmed) {
+            let tag = if ordered { "ol" } else { "ul" };
+            let mut items = vec![inline(item)];
+            while let Some(next) = lines.peek().map(|l| l.trim_start()) {
+                match list_item(next) {
+                    Some((o, more)) if o == ordered => {
+                        items.push(inline(more));
+                        lines.next();
+                    }
+                    _ => break,
+                }
+            }
+            let items: String = items.iter().map(|i| format!("<li>{i}</li>")).collect();
+            out.push_str(&format!("<{tag}>{items}</{tag}>"));
+        } else {
+            out.push_str(&format!("<p>{}</p>", inline(line)));
+        }
+    }
+    if out.is_empty() { "<p></p>".to_owned() } else { out }
+}
+
+fn heading(line: &str) -> Option<(usize, &str)> {
+    let level = line.bytes().take_while(|b| *b == b'#').count();
+    (1..=6).contains(&level).then(|| line[level..].strip_prefix(' ')).flatten().map(|rest| (level, rest))
+}
+
+fn list_item(line: &str) -> Option<(bool, &str)> {
+    if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+        return Some((false, rest));
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    (digits > 0).then(|| line[digits..].strip_prefix(". ")).flatten().map(|rest| (true, rest))
+}
+
+/// One line's inline marks: `code` first (its content kept verbatim), then
+/// links, then bold, italic and strikethrough on the escaped text.
+fn inline(line: &str) -> String {
+    let mut out = String::new();
+    for (i, part) in line.split('`').enumerate() {
+        if i % 2 == 1 && line.matches('`').count() > i {
+            out.push_str(&format!("<code>{}</code>", escape(part)));
+        } else if i % 2 == 1 {
+            out.push('`');
+            out.push_str(&marks(part));
+        } else {
+            out.push_str(&marks(part));
+        }
+    }
+    out
+}
+
+fn marks(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let link = after.find("](").and_then(|mid| {
+            let url = &after[mid + 2..];
+            let close = url.find(')')?;
+            let href = &url[..close];
+            (href.starts_with("https://") || href.starts_with("http://"))
+                .then(|| (&after[..mid], href, open + 1 + mid + 2 + close + 1))
+        });
+        match link {
+            Some((label, href, end)) => {
+                out.push_str(&emphasis(&escape(&rest[..open])));
+                out.push_str(&format!("<a href=\"{}\">{}</a>", escape(href), emphasis(&escape(label))));
+                rest = &rest[end..];
+            }
+            None => {
+                out.push_str(&emphasis(&escape(&rest[..=open])));
+                rest = &rest[open + 1..];
+            }
+        }
+    }
+    out.push_str(&emphasis(&escape(rest)));
+    out
+}
+
+fn emphasis(text: &str) -> String {
+    let text = wrap(text, "**", "b");
+    let text = wrap(&text, "~~", "s");
+    let text = wrap(&text, "__", "b");
+    let text = wrap(&text, "*", "i");
+    wrap(&text, "_", "i")
+}
+
+/// Pairs of `mark` around non-blank text become `<tag>`; an unpaired mark
+/// stays as typed, and `_` inside a word (snake_case) is left alone.
+fn wrap(text: &str, mark: &str, tag: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = find_mark(rest, mark, true) {
+        let inner_start = open + mark.len();
+        let Some(close) = find_mark(&rest[inner_start..], mark, false).map(|c| c + inner_start) else { break };
+        let inner = &rest[inner_start..close];
+        if inner.trim().is_empty() || inner.starts_with(' ') || inner.ends_with(' ') {
+            out.push_str(&rest[..inner_start]);
+            rest = &rest[inner_start..];
+            continue;
+        }
+        out.push_str(&rest[..open]);
+        out.push_str(&format!("<{tag}>{inner}</{tag}>"));
+        rest = &rest[close + mark.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn find_mark(text: &str, mark: &str, opening: bool) -> Option<usize> {
+    let mut from = 0;
+    while let Some(at) = text[from..].find(mark).map(|i| i + from) {
+        let before = text[..at].chars().next_back();
+        let after = text[at + mark.len()..].chars().next();
+        let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+        let intraword = mark.starts_with('_') && word(before) && word(after);
+        let doubled = mark.len() == 1 && (after == mark.chars().next() || before == mark.chars().next());
+        let ok = if opening { !word(before) || !mark.starts_with('_') } else { !word(after) || !mark.starts_with('_') };
+        if !intraword && !doubled && ok {
+            return Some(at);
+        }
+        from = at + mark.len();
+    }
+    None
 }
 
 pub fn client_message_id(entry_id: &str) -> String {
@@ -1288,5 +1462,40 @@ mod tests {
     fn typed_text_is_escaped_html() {
         assert_eq!(to_html("a <b> & \"c\"\nnext"), "<p>a &lt;b&gt; &amp; &quot;c&quot;</p><p>next</p>");
         assert_eq!(to_html(""), "<p></p>");
+    }
+
+    #[test]
+    fn read_positions_are_each_members_last_read_arrival() {
+        let body = json!({"id": "19:c@thread.v2", "consumptionhorizons": [
+            {"id": "8:orgid:a", "consumptionhorizon": "1793586249089;1793586249674;1793586249033"},
+            {"id": "8:orgid:b", "consumptionhorizon": "0;0;0"},
+            {"id": "8:orgid:c"}]});
+        assert_eq!(read_positions(&body), [("8:orgid:a".to_owned(), 1793586249089)]);
+        assert!(read_positions(&json!({"consumptionhorizons": []})).is_empty());
+    }
+
+    #[test]
+    fn typed_markdown_becomes_the_html_teams_renders() {
+        assert_eq!(
+            to_html("**bold** _it_ ~~gone~~ `a<b`"),
+            "<p><b>bold</b> <i>it</i> <s>gone</s> <code>a&lt;b</code></p>"
+        );
+        assert_eq!(to_html("```\nfn x() {}\n  <y>\n```"), "<pre><code>fn x() {}\n  &lt;y&gt;</code></pre>");
+        assert_eq!(to_html("# Title\n## Sub"), "<h1>Title</h1><h2>Sub</h2>");
+        assert_eq!(
+            to_html("- a\n- **b**\n1. one\n2. two"),
+            "<ul><li>a</li><li><b>b</b></li></ul><ol><li>one</li><li>two</li></ol>"
+        );
+        assert_eq!(to_html("> said\n> twice"), "<blockquote><p>said<br>twice</p></blockquote>");
+        assert_eq!(to_html("see [docs](https://x.y/a_b) now"), "<p>see <a href=\"https://x.y/a_b\">docs</a> now</p>");
+        assert_eq!(to_html("snake_case_name and 2*3*4"), "<p>snake_case_name and 2<i>3</i>4</p>");
+    }
+
+    #[test]
+    fn sent_markdown_reads_back_the_same() {
+        for text in ["**bold** and _it_", "- a\n- b", "```\ncode\n```"] {
+            let back = crate::translate::convert(&to_html(text), &[]).text;
+            assert_eq!(back.trim(), text.trim(), "{text}");
+        }
     }
 }

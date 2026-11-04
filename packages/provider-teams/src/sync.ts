@@ -14,7 +14,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, listedChat, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, listedChat, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription, unknownPeople,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
@@ -302,7 +302,22 @@ export class TeamsSync {
   }
 
   /** Stores a page, then sets the reply count of each post a reply of it is under. */
+/** Names the people a page mentions that the directory does not know yet
+   *  (reactors above all), so the page is stored with names, not ids. */
+  async namePeople(messages: readonly Doc[]): Promise<void> {
+    const directory = this.directory;
+    if (!directory) return;
+    const unknown = unknownPeople(messages, directory, this.me);
+    for (let i = 0; i < unknown.length; i += PROFILE_BATCH) {
+      for (const row of await this.client.profiles(unknown.slice(i, i + PROFILE_BATCH)).catch(() => [] as Doc[])) {
+        const mri = str(row, 'mri'), name = str(row, 'displayName');
+        if (mri && name) directory.remember(mri, name);
+      }
+    }
+  }
+
   private async ingest(engine: SyncEngine, rid: string, messages: Doc[]): Promise<void> {
+    await this.namePeople(messages);
     const posts = new Set<string>();
     for (const m of messages) {
       const id = str(m, 'id');

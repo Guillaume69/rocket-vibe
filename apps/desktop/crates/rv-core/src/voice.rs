@@ -147,6 +147,24 @@ pub enum Ended {
     Failed(String),
 }
 impl Ended {
+    /// The words for why a call ended: an `i18n` key, and the raw reason for
+    /// `call.end.other`, its `{reason}`.
+    pub fn explained(&self) -> (&'static str, Option<&str>) {
+        match self {
+            Self::Left => ("call.end.left", None),
+            Self::MovedElsewhere => ("call.end.elsewhere", None),
+            Self::Removed(_) => ("call.end.removed", None),
+            Self::Failed(reason) => match reason.as_str() {
+                "connection_lost" | "connection_closed" => ("call.end.connection_lost", None),
+                "connection_failed" => ("call.end.media_failed", None),
+                "terminated" | "transport_replaced" => ("call.end.server", None),
+                "connect_failed" => ("call.end.join_failed", None),
+                "sidecar_exited" => ("call.end.sidecar", None),
+                other => ("call.end.other", Some(other)),
+            },
+        }
+    }
+
     pub fn from_reason(reason: &str) -> Self {
         match reason {
             "client_initiated" => Self::Left,
@@ -952,6 +970,15 @@ mod tests {
         assert_eq!(Ended::from_reason("client_initiated"), Ended::Left);
         assert_eq!(Ended::from_reason("participant_removed"), Ended::Removed("participant_removed".into()));
         assert_eq!(Ended::from_reason("signal_close"), Ended::Failed("signal_close".into()));
+    }
+
+    #[test]
+    fn a_native_call_ending_is_explained() {
+        assert_eq!(Ended::from_reason("connection_lost").explained(), ("call.end.connection_lost", None));
+        assert_eq!(Ended::from_reason("transport_replaced").explained(), ("call.end.server", None));
+        assert_eq!(Ended::from_reason("connection_failed").explained(), ("call.end.media_failed", None));
+        assert_eq!(Ended::from_reason("client_initiated").explained(), ("call.end.left", None));
+        assert_eq!(Ended::from_reason("weird").explained(), ("call.end.other", Some("weird")));
     }
 
     #[tokio::test]

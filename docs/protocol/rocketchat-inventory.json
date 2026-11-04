@@ -1521,7 +1521,7 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/i18n.rs",
-      "line": 2099,
+      "line": 2111,
       "kind": "endpoint",
       "surface": "rooms.quoted_message"
     },

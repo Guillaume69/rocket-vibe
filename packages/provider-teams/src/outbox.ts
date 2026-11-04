@@ -24,11 +24,120 @@ const CHECK_DEPTH = 200;
 const CLOCK_SKEW_MS = 120_000;
 const VIEW = 'view=msnp24Equivalent%7CsupportsMessageProperties';
 
-/** Typed markdown as the HTML Teams stores: text escaped, lines kept. */
+const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** Typed markdown as the HTML Teams' own composer stores and renders: code
+ *  blocks, headings, lists, quotes, then bold, italic, strikethrough, inline
+ *  code and links inside each line; anything else stays text. */
 export function toHtml(text: string): string {
-  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const lines = escaped.split('\n');
-  return lines.length === 0 ? '<p></p>' : lines.map((l) => `<p>${l}</p>`).join('');
+  const lines = text.split('\n');
+  if (text.endsWith('\n')) lines.pop();
+  let out = '';
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('```')) {
+      const code: string[] = [];
+      for (i++; i < lines.length && !lines[i]!.trimStart().startsWith('```'); i++) code.push(escape(lines[i]!));
+      out += `<pre><code>${code.join('\n')}</code></pre>`;
+      continue;
+    }
+    const heading = /^(#{1,6}) (.*)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1]!.length;
+      out += `<h${level}>${inline(heading[2]!)}</h${level}>`;
+      continue;
+    }
+    const quote = quoted(trimmed);
+    if (quote !== null) {
+      const parts = [inline(quote)];
+      while (i + 1 < lines.length && quoted(lines[i + 1]!.trimStart()) !== null) parts.push(inline(quoted(lines[++i]!.trimStart())!));
+      out += `<blockquote><p>${parts.join('<br>')}</p></blockquote>`;
+      continue;
+    }
+    const item = listItem(trimmed);
+    if (item) {
+      const items = [inline(item.text)];
+      for (let next = listItem(lines[i + 1]?.trimStart() ?? ''); next && next.ordered === item.ordered; next = listItem(lines[i + 1]?.trimStart() ?? '')) {
+        items.push(inline(next.text));
+        i++;
+      }
+      const tag = item.ordered ? 'ol' : 'ul';
+      out += `<${tag}>${items.map((x) => `<li>${x}</li>`).join('')}</${tag}>`;
+      continue;
+    }
+    out += `<p>${inline(line)}</p>`;
+  }
+  return out || '<p></p>';
+}
+
+const quoted = (line: string): string | null => (line.startsWith('> ') ? line.slice(2) : line === '>' ? '' : null);
+
+function listItem(line: string): { ordered: boolean; text: string } | null {
+  if (line.startsWith('- ') || line.startsWith('* ')) return { ordered: false, text: line.slice(2) };
+  const m = /^(\d+)\. (.*)$/.exec(line);
+  return m ? { ordered: true, text: m[2]! } : null;
+}
+
+/** One line's inline marks: `code` first (kept verbatim), then links, then
+ *  bold, italic and strikethrough on the escaped text. */
+function inline(line: string): string {
+  const parts = line.split('`');
+  const ticks = parts.length - 1;
+  return parts.map((part, i) => (i % 2 === 1 ? (ticks >= i + 1 ? `<code>${escape(part)}</code>` : '`' + marks(part)) : marks(part))).join('');
+}
+
+function marks(text: string): string {
+  let out = '';
+  let rest = text;
+  for (;;) {
+    const m = /\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/.exec(rest);
+    if (!m) break;
+    out += emphasis(escape(rest.slice(0, m.index))) + `<a href="${escape(m[2]!)}">${emphasis(escape(m[1]!))}</a>`;
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return out + emphasis(escape(rest));
+}
+
+function emphasis(text: string): string {
+  return wrap(wrap(wrap(wrap(wrap(text, '**', 'b'), '~~', 's'), '__', 'b'), '*', 'i'), '_', 'i');
+}
+
+const wordChar = (c: string | undefined) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
+
+function findMark(text: string, mark: string, opening: boolean, from = 0): number {
+  for (let at = text.indexOf(mark, from); at >= 0; at = text.indexOf(mark, at + mark.length)) {
+    const before = text[at - 1], after = text[at + mark.length];
+    const underscore = mark.startsWith('_');
+    const intraword = underscore && wordChar(before) && wordChar(after);
+    const doubled = mark.length === 1 && (after === mark || before === mark);
+    const ok = opening ? !wordChar(before) || !underscore : !wordChar(after) || !underscore;
+    if (!intraword && !doubled && ok) return at;
+  }
+  return -1;
+}
+
+/** Pairs of `mark` around non-blank text become `<tag>`; an unpaired mark
+ *  stays as typed, and `_` inside a word (snake_case) is left alone. */
+function wrap(text: string, mark: string, tag: string): string {
+  let out = '';
+  let rest = text;
+  for (;;) {
+    const open = findMark(rest, mark, true);
+    if (open < 0) break;
+    const start = open + mark.length;
+    const close = findMark(rest, mark, false, start);
+    if (close < 0) break;
+    const inner = rest.slice(start, close);
+    if (!inner.trim() || inner.startsWith(' ') || inner.endsWith(' ')) {
+      out += rest.slice(0, start);
+      rest = rest.slice(start);
+      continue;
+    }
+    out += rest.slice(0, open) + `<${tag}>${inner}</${tag}>`;
+    rest = rest.slice(close + mark.length);
+  }
+  return out + rest;
 }
 
 /** The client id a queued row is sent with: digits, like Teams' own, and the same on every try. */

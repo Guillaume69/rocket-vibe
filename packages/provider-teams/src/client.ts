@@ -6,7 +6,7 @@
  */
 
 import { TeamsError, type TeamsRoutes, type TeamsTokens } from './auth.ts';
-import { peopleRequest } from './translate.ts';
+import { peopleRequest, readPositions } from './translate.ts';
 import type { NotesPage } from './notes.ts';
 import { DECLINE_BODY } from './trouter.ts';
 
@@ -166,6 +166,14 @@ export class TeamsClient {
 
   /** Short profiles (name, title, avatar etag) by MRI, via the middle tier with
    *  the Spaces bearer. Best effort: returns [] when the route or token is absent. */
+  /** How far each member read `rid` (`consumptionhorizons`): each member's
+   *  MRI and the last read message's arrival time. */
+  async readPositions(rid: string): Promise<{ user_id: string; root_position: string }[]> {
+    const { routes } = await this.tokens.chat();
+    const body = (await this.chat('GET', serviceUrl(`${routes.chat}/v1`, ['threads', rid, 'consumptionhorizons']))).body;
+    return readPositions(body);
+  }
+
   async profiles(mris: string[]): Promise<Doc[]> {
     const { routes } = await this.tokens.chat();
     if (!routes.middleTier || mris.length === 0) return [];

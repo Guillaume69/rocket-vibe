@@ -1094,16 +1094,27 @@ function Room({
     [outboxRows],
   );
   const highlighted = jumpIndex >= 0 ? targetJump : null;
-  // Read receipts (Vibez): the line under my latest confirmed root
+  // Read receipts (Vibez, and Teams through the provider): the line under my latest confirmed root
   // message, from the live frame. Not in a context window (an older stretch)
   // nor in an encrypted room, whose rows carry no stored position.
+  const receiptSource = native ? undefined : provider.readReceipts;
+  useEffect(() => receiptSource?.follow(rid), [receiptSource, rid]);
+  const sourcePositions = useMemo(() => {
+    if (!receiptSource) return null;
+    const out = new Map<string, string>();
+    for (const row of data) {
+      const at = 'id' in row ? receiptSource.position(row.id) : null;
+      if (at !== null && 'id' in row) out.set(row.id, at);
+    }
+    return out;
+  }, [receiptSource, data]);
   const receipt = useReadReceipt({
-    live: native ? nativeChat?.live : undefined,
+    live: native ? nativeChat?.live : receiptSource,
     rid,
-    enabled: native && !protectedRoom && context === null,
+    enabled: (native || receiptSource !== undefined) && !protectedRoom && context === null,
     rowsDesc: data,
     me: provider.identity.accountId,
-    positions,
+    positions: sourcePositions ?? positions,
     pending: outboxById,
     direct: room?.type === 'd',
   });

@@ -174,16 +174,32 @@ struct VoiceTile: View {
     let mine: Bool
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: 16).fill(Vibe.card)
+        VoiceTileFace(member: member) {
             if mine && member.camera {
                 VoiceVideo(native: voice.native, identity: member.id, fill: true)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
                 SpeakingAvatar(member: member, size: 96).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .contextMenu { if !member.local { PersonMenu(voice: voice, member: member) } }
+    }
+}
+
+/// A voice tile without its session: `content` (a camera or the avatar), the
+/// name and state in a corner, the border lit while the person speaks.
+struct VoiceTileFace<Content: View>: View {
+    let member: VoiceMember
+    /// The name is already "You" (a native call), not to be wrapped again.
+    var named = false
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            RoundedRectangle(cornerRadius: 16).fill(Vibe.card)
+            content()
             HStack(spacing: 6) {
-                Text(member.local ? L("voice_session.you", ["name": member.name]) : member.name)
+                Text(member.local && !named ? L("voice_session.you", ["name": member.name]) : member.name)
                     .font(.vibe(13, .heavy)).lineLimit(1)
                 MemberIcons(member: member)
             }
@@ -194,7 +210,6 @@ struct VoiceTile: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(member.speaking ? Vibe.mint : Vibe.line, lineWidth: 2))
         .shadow(color: member.speaking ? Vibe.mint.opacity(0.35) : .clear, radius: 12)
         .animation(.easeOut(duration: member.speaking ? 0.12 : 0.32), value: member.speaking)
-        .contextMenu { if !member.local { PersonMenu(voice: voice, member: member) } }
     }
 }
 
@@ -497,23 +512,49 @@ struct VoiceControls: View {
                 .modalOverlay(isPresented: $picker, style: .sheet(width: 760, height: 560)) { SharePicker(voice: voice) }
             }
             VoiceReactionsView(voice: voice)
-            Button { Task { await voice.leave() } } label: {
-                Image(systemName: "phone.down.fill")
-                    .frame(width: compact ? 26 : 46, height: compact ? 26 : 46)
-                    .background(compact ? Color.clear : Vibe.pink, in: Circle())
-                    .foregroundStyle(compact ? Vibe.pink : Vibe.ink)
-            }
-            .buttonStyle(.plain)
-            .help(L("voice_session.leave"))
+            VoiceHangUpButton(compact: compact, help: "voice_session.leave") { Task { await voice.leave() } }
         }
     }
 
     func control(_ icon: String, off: Bool = false, on: Bool = false, help: String, action: @escaping () -> Void) -> some View {
+        VoiceControlButton(icon: icon, off: off, on: on, compact: compact, help: help, action: action)
+    }
+}
+
+/// A round button of the voice control bar: off (a muted microphone) in pink,
+/// on (sharing) in mint.
+struct VoiceControlButton: View {
+    let icon: String
+    var off = false
+    var on = false
+    var compact = false
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
         Button(action: action) {
             Image(systemName: icon)
                 .frame(width: compact ? 26 : 46, height: compact ? 26 : 46)
                 .background(compact ? Color.clear : on ? Vibe.mint : Vibe.card, in: Circle())
                 .foregroundStyle(on && !compact ? Vibe.ink : off ? Vibe.pink : Vibe.text)
+        }
+        .buttonStyle(.plain)
+        .help(L(help))
+    }
+}
+
+/// The hang up button of the voice control bar.
+struct VoiceHangUpButton: View {
+    var compact = false
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "phone.down.fill")
+                .frame(width: compact ? 26 : 46, height: compact ? 26 : 46)
+                .background(compact ? Color.clear : Vibe.pink, in: Circle())
+                .foregroundStyle(compact ? Vibe.pink : Vibe.ink)
         }
         .buttonStyle(.plain)
         .help(L(help))

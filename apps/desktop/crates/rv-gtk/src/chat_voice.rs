@@ -19,33 +19,33 @@ mod windows_cairo_tests;
 
 /// Someone in a room's voice session, as a row or a card shows them.
 #[derive(Debug, Clone, PartialEq)]
-struct Occupant {
-    uid: String,
-    name: String,
-    muted: bool,
-    deafened: bool,
-    local: bool,
-    camera: bool,
-    screen: bool,
+pub(crate) struct Occupant {
+    pub(crate) uid: String,
+    pub(crate) name: String,
+    pub(crate) muted: bool,
+    pub(crate) deafened: bool,
+    pub(crate) local: bool,
+    pub(crate) camera: bool,
+    pub(crate) screen: bool,
     /// Muted for this side only (its listening choices).
-    muted_here: bool,
+    pub(crate) muted_here: bool,
 }
 
 /// Microphone, sound, camera, screen and leave: the panel and the voice page
 /// each have a set (the panel's camera and screen stay hidden).
-struct Controls {
-    row: gtk::Box,
-    mic: gtk::Button,
+pub(crate) struct Controls {
+    pub(crate) row: gtk::Box,
+    pub(crate) mic: gtk::Button,
     /// Beside the microphone: devices, volumes, the meter, noise, deafen.
-    menu: gtk::MenuButton,
-    deafen: gtk::Button,
-    camera: gtk::Button,
-    screen: gtk::Button,
-    leave: gtk::Button,
-    reaction: gtk::Button,
+    pub(crate) menu: gtk::MenuButton,
+    pub(crate) deafen: gtk::Button,
+    pub(crate) camera: gtk::Button,
+    pub(crate) screen: gtk::Button,
+    pub(crate) leave: gtk::Button,
+    pub(crate) reaction: gtk::Button,
 }
 
-fn controls(classes: &[&str]) -> Controls {
+pub(crate) fn controls(classes: &[&str]) -> Controls {
     let button = |icon: &str, tooltip: &str| {
         let button = gtk::Button::builder().icon_name(icon).tooltip_text(tooltip).valign(gtk::Align::Center).build();
         for class in classes {
@@ -79,7 +79,7 @@ fn controls(classes: &[&str]) -> Controls {
 }
 
 impl Controls {
-    fn sync(&self, snapshot: &Snapshot) {
+    pub(crate) fn sync(&self, snapshot: &Snapshot) {
         let muted = !snapshot.microphone || !snapshot.can_publish;
         self.mic.set_icon_name(if muted { "microphone-disabled-symbolic" } else { "audio-input-microphone-symbolic" });
         self.mic.set_sensitive(snapshot.can_publish);
@@ -311,9 +311,7 @@ fn speaking_avatar(session: &Arc<NativeSession>, o: &Occupant, size: TileSize, c
     }
     let photo = session.store.profile_identity(&o.uid).ok().flatten().and_then(|p| p.avatar_file_id);
     let tile = crate::rows::with_native_photo(tile, session, photo);
-    let frame = gtk::Box::builder().css_classes(["voice-avatar", class]).halign(gtk::Align::Center).build();
-    frame.append(&tile);
-    frame
+    avatar_frame(&tile, class)
 }
 
 fn state_icons(o: &Occupant) -> Vec<gtk::Image> {
@@ -349,18 +347,45 @@ fn state_icons(o: &Occupant) -> Vec<gtk::Image> {
 /// Someone on the voice page: their camera filling the tile, or their avatar
 /// in its middle, and their name in a corner.
 fn tile(session: &Arc<NativeSession>, o: &Occupant, mine: bool) -> gtk::Overlay {
+    let tile = if mine && o.camera {
+        let tile = card();
+        tile.add_overlay(&video_view(session, &o.uid, VideoSource::Camera, gtk::ContentFit::Cover));
+        tile
+    } else {
+        avatar_card(&speaking_avatar(session, o, TileSize::Profile, "large"))
+    };
+    tile.add_overlay(&name_tag(o));
+    if !o.local {
+        person_menu_on(session, &tile, o);
+    }
+    tile
+}
+
+fn card() -> gtk::Overlay {
     let tile = gtk::Overlay::builder().css_classes(["voice-card", "tile"]).build();
     tile.set_overflow(gtk::Overflow::Hidden);
     tile.set_child(Some(&gtk::Box::builder().hexpand(true).vexpand(true).build()));
-    if mine && o.camera {
-        tile.add_overlay(&video_view(session, &o.uid, VideoSource::Camera, gtk::ContentFit::Cover));
-    } else {
-        let avatar = speaking_avatar(session, o, TileSize::Profile, "large");
-        avatar.set_valign(gtk::Align::Center);
-        tile.add_overlay(&avatar);
-        // The tile is never smaller than the avatar.
-        tile.set_measure_overlay(&avatar, true);
-    }
+    tile
+}
+
+/// A voice tile holding `avatar` in its middle, never smaller than it.
+pub(crate) fn avatar_card(avatar: &gtk::Box) -> gtk::Overlay {
+    let tile = card();
+    avatar.set_valign(gtk::Align::Center);
+    tile.add_overlay(avatar);
+    tile.set_measure_overlay(avatar, true);
+    tile
+}
+
+/// An avatar framed for the voice page, its ring lit while the person speaks.
+pub(crate) fn avatar_frame(avatar: &impl IsA<gtk::Widget>, class: &str) -> gtk::Box {
+    let frame = gtk::Box::builder().css_classes(["voice-avatar", class]).halign(gtk::Align::Center).build();
+    frame.append(avatar);
+    frame
+}
+
+/// A tile's corner: the name and the person's microphone, sound and media.
+pub(crate) fn name_tag(o: &Occupant) -> gtk::Box {
     let tag = gtk::Box::builder()
         .spacing(6)
         .halign(gtk::Align::Start)
@@ -378,11 +403,7 @@ fn tile(session: &Arc<NativeSession>, o: &Occupant, mine: bool) -> gtk::Overlay 
     for icon in state_icons(o) {
         tag.append(&icon);
     }
-    tile.add_overlay(&tag);
-    if !o.local {
-        person_menu_on(session, &tile, o);
-    }
-    tile
+    tag
 }
 
 /// A screen or a window in the share picker: its thumbnail (when it has one)

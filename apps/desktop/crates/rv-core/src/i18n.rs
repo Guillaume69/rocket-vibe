@@ -2204,6 +2204,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("sys.ult", "a quitté l'équipe", "left the team"),
     ("sys.ru", "a retiré {p} du salon", "removed {p} from the channel"),
     ("sys.au", "a ajouté {p} au salon", "added {p} to the channel"),
+    ("sys.chat_added", "a ajouté {p} à la conversation", "added {p} to the chat"),
+    ("sys.chat_removed", "a retiré {p} de la conversation", "removed {p} from the chat"),
     ("sys.r", "a renommé le salon en {p}", "renamed the channel to {p}"),
     ("sys.room_created", "a créé le salon {p}", "created the channel {p}"),
     ("sys.room_private", "a rendu le salon privé", "made the channel private"),
@@ -2857,6 +2859,8 @@ pub fn system_message(kind: &str, param: &str) -> String {
         "ult" => with_p("sys.ult"),
         "ru" => with_p("sys.ru"),
         "au" => with_p("sys.au"),
+        "rv-chat-added" => with_p("sys.chat_added"),
+        "rv-chat-removed" => with_p("sys.chat_removed"),
         "r" => with_p("sys.r"),
         "rm" => with_p("sys.rm"),
         "uploaded" => with_p("sys.uploaded"),
@@ -2962,6 +2966,7 @@ mod tests {
         assert_eq!(system_message("room_changed_topic", "Tea"), "changed the topic: Tea");
         assert_eq!(system_message("rv-notes-created", "https://x.sharepoint.com/p.loop"), "created the chat's notes");
         assert_eq!(system_message("au", "bob"), "added bob to the channel");
+        assert_eq!(system_message("rv-chat-added", "bob, carol"), "added bob, carol to the chat");
         assert_eq!(system_message("livechat-close", ""), "(system action “livechat-close”)");
         set(Lang::Fr);
         assert_eq!(system_message("r", "général"), "a renommé le salon en général");

@@ -3040,6 +3040,7 @@ impl ChatPage {
             }
             None => session.store.messages(&open.rid, self.limit.get()),
         };
+        self.list.set_receipt(session.read_receipt(&open.rid, &rows));
         self.list.set_rows(rows);
     }
 

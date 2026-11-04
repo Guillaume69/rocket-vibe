@@ -240,6 +240,8 @@ pub struct MessageList {
     detached: Cell<bool>,
     /// (last seen, my uid): the first later message from someone else gets the marker.
     unread_after: RefCell<Option<(i64, String)>>,
+    /// The "Seen" line under my latest message, where the provider tells it.
+    receipt: RefCell<Option<rv_core::native::receipts::Receipt>>,
     /// Over the top of the list while the new-messages marker is above the view.
     new_pill: gtk::Button,
     /// The marker has been on screen, or the pill clicked: the pill is done.
@@ -376,6 +378,7 @@ impl MessageList {
             on_latest: RefCell::default(),
             detached: Cell::new(false),
             unread_after: RefCell::default(),
+            receipt: RefCell::default(),
             new_pill,
             marker_seen: Cell::new(false),
             session,
@@ -910,11 +913,19 @@ impl MessageList {
         }
     }
 
+    /// The read receipt the next rows carry.
+    pub fn set_receipt(&self, receipt: Option<rv_core::native::receipts::Receipt>) {
+        self.receipt.replace(receipt);
+    }
+
     /// Applies the new rows as splices, keeping the scroll position.
     pub fn set_rows(self: &Rc<Self>, fresh: Vec<MessageRow>) {
         let mut fresh = rows::group(self.opened(fresh));
         if let Some((seen, me)) = self.unread_after.borrow().as_ref() {
             rv_core::timeline::mark_new(&mut fresh, *seen, me);
+        }
+        if let Some(receipt) = self.receipt.borrow().as_ref() {
+            rv_core::native::receipts::place(&mut fresh, Some(receipt));
         }
         let old = self.rows.replace(fresh.clone());
         let splices = diff_sorted(

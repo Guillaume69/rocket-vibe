@@ -1215,6 +1215,22 @@ impl Session {
         shown.unwrap_or_else(|| username.to_owned())
     }
 
+    /// The "Seen" line under my latest message of a room, where the provider
+    /// tells how far the others read (Teams' consumption horizons); None elsewhere.
+    pub fn read_receipt(
+        &self,
+        rid: &str,
+        rows: &[crate::store::MessageRow],
+    ) -> Option<crate::native::receipts::Receipt> {
+        match self.backend() {
+            Backend::Teams(teams) => {
+                let direct = self.store.room_kind(rid).as_deref() == Some("d");
+                teams.read_receipt(rid, rows, direct)
+            }
+            _ => None,
+        }
+    }
+
     /// The word a mention of me is written as: my username, my object id on Teams.
     pub fn mention_self(&self) -> String {
         match self.backend() {

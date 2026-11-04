@@ -79,6 +79,7 @@ struct RoomTile: View {
 /// A server image (an upload, a card's picture), fetched with the session.
 struct RemoteImage: View {
     @Environment(AppModel.self) var app
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     let path: String
     var width: CGFloat? = nil
     var height: CGFloat? = nil
@@ -94,7 +95,13 @@ struct RemoteImage: View {
     var body: some View {
         Group {
             if app.media?.current(path) != false,(!path.hasPrefix("rv-preview:")||authority==app.media?.scope(path)), let shown = image ?? Pictures.cached(path, pixels: pixels) {
-                Image(nsImage: shown).resizable().scaledToFill()
+                if !reduceMotion, let animation = Pictures.animation(path, pixels: pixels) {
+                    TimelineView(.animation(minimumInterval: 0.04)) { context in
+                        Image(nsImage: animation.frame(at: context.date)).resizable().scaledToFill()
+                    }
+                } else {
+                    Image(nsImage: shown).resizable().scaledToFill()
+                }
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
             } else {

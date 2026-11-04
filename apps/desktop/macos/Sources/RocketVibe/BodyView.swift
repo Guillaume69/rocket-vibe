@@ -63,6 +63,7 @@ enum StyledText {
 /// Runs as one text, a server emoji drawn as its picture once loaded.
 struct RunsText: View {
     @Environment(AppModel.self) var app
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     let runs: [Run]
     var size: CGFloat = 18
     @State var loaded = 0
@@ -71,13 +72,33 @@ struct RunsText: View {
         if runs.allSatisfy({ $0.customEmoji == nil }) {
             Text(StyledText.of(runs))
         } else {
-            runs.reduce(Text("")) { text, run in
-                if let code = run.customEmoji, let image = picture(code) {
-                    return text + Text(Image(nsImage: image)).baselineOffset(-3)
+            Group {
+                if animated {
+                    TimelineView(.animation(minimumInterval: 0.04)) { context in text(at: context.date) }
+                } else {
+                    text(at: nil)
                 }
-                return text + Text(StyledText.of([run]))
             }
             .task(id: "\(app.sessionId)#\(app.imagesVersion)#\(runs.compactMap(\.customEmoji).joined(separator: ","))") { await load() }
+        }
+    }
+
+    var animated: Bool {
+        !reduceMotion && runs.contains { $0.customEmoji.flatMap(animation) != nil }
+    }
+
+    /// The runs with each server emoji drawn, an animated one at its frame for `date`.
+    func text(at date: Date?) -> Text {
+        runs.reduce(Text("")) { text, run in
+            if let code = run.customEmoji {
+                if let date, let animation = animation(code) {
+                    return text + Text(Image(nsImage: animation.frame(at: date))).baselineOffset(-3)
+                }
+                if let image = picture(code) {
+                    return text + Text(Image(nsImage: image)).baselineOffset(-3)
+                }
+            }
+            return text + Text(StyledText.of([run]))
         }
     }
 
@@ -85,6 +106,12 @@ struct RunsText: View {
         _ = loaded
         guard let media=app.media,let path = media.customEmoji(code),media.current(path) else { return nil }
         return Pictures.cached(path, pixels: Pictures.pixels(size))
+    }
+
+    func animation(_ code: String) -> Pictures.Animation? {
+        _ = loaded
+        guard let media=app.media,let path = media.customEmoji(code),media.current(path) else { return nil }
+        return Pictures.animation(path, pixels: Pictures.pixels(size))
     }
 
     func load() async {

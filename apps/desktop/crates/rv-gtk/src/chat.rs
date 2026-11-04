@@ -841,15 +841,20 @@ impl ChatPage {
                 widget.set_visible(false);
             });
             let (target, code) = (frame.downgrade(), code.to_owned());
+            let frames_of = (session.clone(), path.clone());
             crate::media::load_provider(session, &path, move |texture| {
                 if let Some(frame) = target.upgrade() {
-                    frame.add_overlay(
-                        &gtk::Picture::builder()
-                            .paintable(texture)
-                            .content_fit(gtk::ContentFit::Contain)
-                            .can_shrink(true)
-                            .build(),
-                    );
+                    let picture = gtk::Picture::builder()
+                        .paintable(texture)
+                        .content_fit(gtk::ContentFit::Contain)
+                        .can_shrink(true)
+                        .build();
+                    if gtk::Settings::default().is_some_and(|s| s.is_gtk_enable_animations())
+                        && let Some(frames) = crate::media::provider_frames(&frames_of.0, &frames_of.1)
+                    {
+                        crate::media::play(&picture, frames);
+                    }
+                    frame.add_overlay(&picture);
                     let texture = texture.clone();
                     frame.set_has_tooltip(true);
                     frame.connect_query_tooltip(move |_, _, _, _, tooltip| {

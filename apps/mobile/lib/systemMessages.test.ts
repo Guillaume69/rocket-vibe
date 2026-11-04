@@ -39,6 +39,7 @@ describe('systemText', () => {
     const en: TranslateFn = (key, params) => translate('en', key, params);
     assert.equal(systemText(en, 'uj', null), 'joined the channel');
     assert.equal(systemText(en, 'au', 'bob'), 'added bob to the channel');
+    assert.equal(systemText(en, 'rv-chat-added', 'bob, carol'), 'added bob, carol to the chat');
   });
 });
 

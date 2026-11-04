@@ -26,6 +26,8 @@ pub const HISTORY_PAGE: i64 = 50;
 pub struct HistoryPage {
     pub count: usize,
     pub oldest_ts: Option<i64>,
+    /// Whether the server says older posts exist; `None` leaves it to `count`.
+    pub more: Option<bool>,
 }
 
 pub fn history_endpoint(kind: &str) -> &'static str {
@@ -383,6 +385,7 @@ impl SyncEngine {
         Ok(HistoryPage {
             count: messages.len(),
             oldest_ts: messages.iter().filter_map(|m| m.get("ts").and_then(to_epoch)).min(),
+            more: None,
         })
     }
 

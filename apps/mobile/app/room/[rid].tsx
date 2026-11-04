@@ -759,7 +759,7 @@ function Room({
   // cursor) lives in the provider; the screen only keeps the backward
   // criterion (`oldest`) for its pagination.
   const loadHistory = useCallback(
-    (type: string, latest?: string) => provider.loadHistory(engine, rid, type, latest),
+    (type: string, latest?: string, latestId?: string) => provider.loadHistory(engine, rid, type, latest, latestId),
     [provider, engine, rid],
   );
 
@@ -962,7 +962,7 @@ function Room({
       return;
     }
     inFlight.current = true;
-    loadHistory(type, new Date(older.ts).toISOString())
+    loadHistory(type, new Date(older.ts).toISOString(), older.id)
       .then(({ oldest, movedBack }) => {
         if (movedBack ?? pageMovedBack(oldest, older.ts)) {
           setLimit((l) => l + PAGE);

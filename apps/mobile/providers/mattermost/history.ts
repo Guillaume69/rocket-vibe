@@ -33,18 +33,42 @@ export class MmHistory {
 
   /** Posts newest first, deleted ones dropped, every author known to the directory. */
   async page(rid: string, before: string | null, perPage = MM_HISTORY_PAGE): Promise<Doc[]> {
+    return (await this.listed(rid, before, perPage)).posts;
+  }
+
+  /**
+   * The page, whether the server has older posts (a full `order` or a
+   * `prev_post_id`, counted before deleted posts are dropped) and the last id
+   * it listed, deleted or not, to page on from.
+   */
+  private async listed(rid: string, before: string | null, perPage = MM_HISTORY_PAGE): Promise<Listed> {
     const list = await this.client.get<PostList>(`/channels/${rid}/posts`, {
       query: { per_page: perPage, before: before ?? undefined, collapsedThreads: true },
     });
     const posts = ordered(list);
     this.remember(rid, posts);
     await this.live.ensureAuthors(posts);
-    return posts;
+    const order = list.order ?? [];
+    return { posts, more: olderPosts(list, perPage), last: order.length > 0 ? order[order.length - 1]! : null };
   }
 
-  async loadHistory(engine: SyncEngine, rid: string, latest?: string): Promise<{ oldest: number | null }> {
+  /**
+   * `latestId`: the post the screen shows at `latest`, which pages back from
+   * it after a restart, when this session's index no longer knows it.
+   */
+  async loadHistory(
+    engine: SyncEngine,
+    rid: string,
+    latest?: string,
+    latestId?: string,
+  ): Promise<{ oldest: number | null; movedBack?: boolean }> {
     const bound = latest === undefined ? null : Date.parse(latest);
-    const posts = bound === null || Number.isNaN(bound) ? await this.page(rid, null) : await this.olderThan(rid, bound);
+    if (bound === null || Number.isNaN(bound)) {
+      const posts = await this.page(rid, null);
+      await engine.ingestMessages(posts);
+      return { oldest: oldestOf(posts) };
+    }
+    const posts = await this.olderThan(rid, bound, latestId ?? null);
     await engine.ingestMessages(posts);
     return { oldest: oldestOf(posts) };
   }
@@ -54,7 +78,7 @@ export class MmHistory {
     const out: Doc[] = [];
     let before: string | null = latest === null ? null : this.idAt(rid, latest);
     for (let walked = 0; walked < MAX_WALK_PAGES; walked++) {
-      const posts = await this.page(rid, before);
+      const { posts, more, last } = await this.listed(rid, before);
       for (const post of posts) {
         const at = createdAt(post);
         if (latest !== null && at > latest) continue;
@@ -62,8 +86,8 @@ export class MmHistory {
         out.push(post);
         if (out.length >= MM_HISTORY_PAGE) return out;
       }
-      if (posts.length < MM_HISTORY_PAGE) return out;
-      before = String(posts[posts.length - 1]!.id);
+      if (!more || last === null) return out;
+      before = last;
     }
     return out;
   }
@@ -87,15 +111,19 @@ export class MmHistory {
     await engine.ingestMessages(posts);
   }
 
-  private async olderThan(rid: string, bound: number): Promise<Doc[]> {
-    const known = this.idAt(rid, bound);
-    if (known !== null) return this.page(rid, known);
-    let before: string | null = null;
+  /**
+   * Posts older than `bound`, from the post shown there when known (this
+   * session's index, else the screen's), else walking back from the newest;
+   * a page left empty by deleted posts is paged past while the server says
+   * older ones exist.
+   */
+  private async olderThan(rid: string, bound: number, shownId: string | null): Promise<Doc[]> {
+    let before: string | null = this.idAt(rid, bound) ?? shownId;
     for (let walked = 0; walked < MAX_WALK_PAGES; walked++) {
-      const posts = await this.page(rid, before);
+      const { posts, more, last } = await this.listed(rid, before);
       const older = posts.filter((p) => createdAt(p) < bound);
-      if (older.length > 0 || posts.length < MM_HISTORY_PAGE) return older;
-      before = String(posts[posts.length - 1]!.id);
+      if (older.length > 0 || !more || last === null) return older;
+      before = last;
     }
     return [];
   }
@@ -114,6 +142,13 @@ export class MmHistory {
       if (typeof post.id === 'string') byTime.set(createdAt(post), post.id);
     }
   }
+}
+
+type Listed = { posts: Doc[]; more: boolean; last: string | null };
+
+/** Whether a `/posts` page says older posts exist: its own count, before any post is dropped, or the `prev_post_id` it names. */
+export function olderPosts(list: PostList, perPage: number): boolean {
+  return (list.order ?? []).length >= perPage || (typeof list.prev_post_id === 'string' && list.prev_post_id !== '');
 }
 
 export function ordered(list: PostList): Doc[] {

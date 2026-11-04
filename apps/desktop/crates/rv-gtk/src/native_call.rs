@@ -129,7 +129,8 @@ pub fn open(call: JitsiCall, title: &str, fallback: impl Fn() + 'static) {
     let label = title.to_owned();
     glib::spawn_future_local(async move {
         let joined = on_tokio(async move { v.connect_jitsi(&label, &call).await }).await;
-        if joined.is_err() {
+        if let Err(e) = joined {
+            eprintln!("Native call not joined ({e}), opening the meeting's page");
             fb();
         }
     });

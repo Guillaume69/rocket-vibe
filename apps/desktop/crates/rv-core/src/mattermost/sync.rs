@@ -107,6 +107,21 @@ fn changed_at(channel: &Value) -> i64 {
 }
 
 /// Posts of a `{order, posts}` list, in order, deleted ones dropped.
+/// One `/posts` page as `MmSync::listed` reads it.
+struct Listed {
+    posts: Vec<Value>,
+    more: bool,
+    last: Option<String>,
+}
+
+/// Whether a `/posts` page says older posts exist: its own count, before any
+/// post is dropped, or the `prev_post_id` it names.
+pub fn older_posts(list: &Value, per_page: usize) -> bool {
+    let listed = list.get("order").and_then(Value::as_array).map_or(0, Vec::len);
+    let previous = list.get("prev_post_id").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+    listed >= per_page || previous
+}
+
 pub fn ordered(list: &Value) -> Vec<Value> {
     let posts = list.get("posts").cloned().unwrap_or(Value::Null);
     list.get("order")
@@ -575,40 +590,57 @@ impl MmSync {
 
     /// Root posts newest first, deleted ones dropped, authors resolved.
     async fn page(&self, rid: &str, before: Option<&str>, per_page: usize) -> Result<Vec<Value>, RestError> {
+        Ok(self.listed(rid, before, per_page).await?.posts)
+    }
+
+    /// The page, whether the server has older posts (a full `order` or a
+    /// `prev_post_id`, counted before deleted posts are dropped) and the last
+    /// id it listed, deleted or not, to page on from.
+    async fn listed(&self, rid: &str, before: Option<&str>, per_page: usize) -> Result<Listed, RestError> {
         let mut options =
             CallOptions::params([("per_page", per_page.to_string()), ("collapsedThreads", "true".to_owned())]);
         if let Some(before) = before {
             options.params.push(("before".into(), before.to_owned()));
         }
-        let posts = ordered(&self.rest.get(&format!("channels/{rid}/posts"), options).await?);
+        let list = self.rest.get(&format!("channels/{rid}/posts"), options).await?;
+        let more = older_posts(&list, per_page);
+        let last = list.get("order").and_then(Value::as_array).and_then(|o| o.last()).and_then(Value::as_str);
+        let last = last.map(str::to_owned);
+        let posts = ordered(&list);
         self.remember_ids(&posts);
         self.ensure_authors(&posts).await;
-        Ok(posts)
+        Ok(Listed { posts, more, last })
     }
 
+    /// The post a room shows at `at`: this session's index, else the store,
+    /// which keeps the server's post ids across restarts.
     fn id_at(&self, rid: &str, at: i64) -> Option<String> {
-        self.index.lock().unwrap().get(rid)?.get(&at).cloned()
+        let known = self.index.lock().unwrap().get(rid).and_then(|ids| ids.get(&at).cloned());
+        known.or_else(|| self.store.first_shown_at(rid, at))
     }
 
-    async fn older_than(&self, rid: &str, bound: i64) -> Result<Vec<Value>, RestError> {
-        if let Some(id) = self.id_at(rid, bound) {
-            return self.page(rid, Some(&id), HISTORY_PAGE as usize).await;
-        }
-        let mut before: Option<String> = None;
+    /// Posts older than `bound`, from the post shown there when it is known,
+    /// else walking back from the newest; a page left empty by deleted posts
+    /// is paged past while the server says older ones exist.
+    async fn older_than(&self, rid: &str, bound: i64) -> Result<(Vec<Value>, bool), RestError> {
+        let mut before = self.id_at(rid, bound);
         for _ in 0..MAX_WALK {
-            let posts = self.page(rid, before.as_deref(), HISTORY_PAGE as usize).await?;
-            let older: Vec<Value> = posts.iter().filter(|p| int(p, "create_at") < bound).cloned().collect();
-            if !older.is_empty() || posts.len() < HISTORY_PAGE as usize {
-                return Ok(older);
+            let page = self.listed(rid, before.as_deref(), HISTORY_PAGE as usize).await?;
+            let older: Vec<Value> = page.posts.into_iter().filter(|p| int(p, "create_at") < bound).collect();
+            if !older.is_empty() || !page.more || page.last.is_none() {
+                return Ok((older, page.more));
             }
-            before = posts.last().and_then(|p| text(p, "id")).map(str::to_owned);
+            before = page.last;
         }
-        Ok(Vec::new())
+        Ok((Vec::new(), true))
     }
 
     pub async fn load_history(&self, rid: &str, latest: Option<i64>) -> Result<HistoryPage, RestError> {
-        let posts = match latest {
-            None => self.page(rid, None, HISTORY_PAGE as usize).await?,
+        let (posts, more) = match latest {
+            None => {
+                let page = self.listed(rid, None, HISTORY_PAGE as usize).await?;
+                (page.posts, page.more)
+            }
             Some(bound) => self.older_than(rid, bound).await?,
         };
         self.store.write(|w| {
@@ -619,7 +651,11 @@ impl MmSync {
                 w.write_cursor(rid, "messages", newest);
             }
         });
-        Ok(HistoryPage { count: posts.len(), oldest_ts: posts.iter().map(|p| int(p, "create_at")).min() })
+        Ok(HistoryPage {
+            count: posts.len(),
+            oldest_ts: posts.iter().map(|p| int(p, "create_at")).min(),
+            more: Some(more),
+        })
     }
 
     /// Up to a page of posts in `[oldest, latest]`, newest first, never stored.
@@ -632,7 +668,7 @@ impl MmSync {
         let mut out = Vec::new();
         let mut before = latest.and_then(|l| self.id_at(rid, l));
         for _ in 0..MAX_WALK {
-            let posts = self.page(rid, before.as_deref(), HISTORY_PAGE as usize).await?;
+            let Listed { posts, more, last } = self.listed(rid, before.as_deref(), HISTORY_PAGE as usize).await?;
             for post in &posts {
                 let at = int(post, "create_at");
                 if latest.is_some_and(|l| at > l) {
@@ -646,10 +682,10 @@ impl MmSync {
                     return Ok(out);
                 }
             }
-            if posts.len() < HISTORY_PAGE as usize {
+            if !more || last.is_none() {
                 return Ok(out);
             }
-            before = posts.last().and_then(|p| text(p, "id")).map(str::to_owned);
+            before = last;
         }
         Ok(out)
     }
@@ -1213,6 +1249,36 @@ mod tests {
         let mut p = post(id, "u-bob", "");
         p["create_at"] = json!(create_at);
         p
+    }
+
+    #[test]
+    fn older_posts_trusts_the_server_count_not_what_survives_the_filter() {
+        let mut deleted = at("d", 5);
+        deleted["delete_at"] = json!(9);
+        let full = json!({"order": ["a", "d"], "posts": {"a": at("a", 6), "d": deleted}});
+        assert!(older_posts(&full, 2), "a full page with a deleted post still has older ones");
+        assert_eq!(ordered(&full).len(), 1);
+        assert!(older_posts(&json!({"order": ["a"], "prev_post_id": "z"}), 50));
+        assert!(!older_posts(&json!({"order": ["a"], "prev_post_id": ""}), 50));
+    }
+
+    #[tokio::test]
+    async fn older_history_after_a_restart_pages_from_the_stored_post() {
+        let (store, first) = sync();
+        first.apply_event("posted", &json!({"post": at("p-old", 10)}), &json!({})).await;
+        let body = json!({"order": ["p0"], "posts": {"p0": at("p0", 5)}, "prev_post_id": "p-older"});
+        let (base, seen) = answering(body).await;
+        let restarted = MmSync::new(store.clone(), RestClient::mattermost(base.parse().unwrap()), "u-me", "me", false);
+        restarted.directory.remember(User {
+            id: "u-bob".into(),
+            username: "bob".into(),
+            display: None,
+            ..Default::default()
+        });
+        let page = restarted.load_history("ch1", Some(10)).await.unwrap();
+        let requests = seen.lock().unwrap().clone();
+        assert!(requests[0].contains("/channels/ch1/posts?") && requests[0].contains("before=p-old"), "{requests:?}");
+        assert_eq!((page.count, page.more), (1, Some(true)));
     }
 
     fn room(store: &Store) -> crate::store::RoomRow {

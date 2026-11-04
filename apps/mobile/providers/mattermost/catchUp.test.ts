@@ -128,6 +128,29 @@ describe('MmHistory', () => {
     assert.equal(older.oldest, 49);
     assert.equal(server.calls.at(-1)?.query.get('collapsedThreads'), 'true');
   });
+
+  test('after a restart the bound pages from the post the screen shows there', async () => {
+    const { history, engine, server } = setup((call) => {
+      if (call.path !== '/channels/ch1/posts') return undefined;
+      if (call.query.get('before') === 'p-old') return { body: { ...postList([post('p9', { channel_id: 'ch1', create_at: 9 })]), prev_post_id: 'p8' } };
+      return { body: postList([]) };
+    });
+    const page = await history.loadHistory(engine, 'ch1', new Date(10).toISOString(), 'p-old');
+    assert.equal(page.oldest, 9);
+    assert.equal(server.calls.filter((c) => c.path === '/channels/ch1/posts').length, 1);
+  });
+
+  test('a page of deleted posts is paged past while the server says older ones exist', async () => {
+    const deleted = (id: string) => post(id, { channel_id: 'ch1', create_at: 8, delete_at: 99 });
+    const { history, engine } = setup((call) => {
+      if (call.path !== '/channels/ch1/posts') return undefined;
+      if (call.query.get('before') === 'p-old') return { body: { ...postList([deleted('d1'), deleted('d2')]), prev_post_id: 'p7' } };
+      if (call.query.get('before') === 'd2') return { body: postList([post('p7', { channel_id: 'ch1', create_at: 7 })]) };
+      return { body: postList([]) };
+    });
+    const page = await history.loadHistory(engine, 'ch1', new Date(10).toISOString(), 'p-old');
+    assert.equal(page.oldest, 7);
+  });
 });
 
 describe('MmCatchUp against a live session', () => {

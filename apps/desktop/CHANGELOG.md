@@ -15,6 +15,7 @@ section here.
 
 ### Fixed
 
+- Mattermost and kChat: scrolling up no longer stops while older history exists. Paging trusted the posts left after deleted ones were dropped, and after a restart it could not page back from a message stored in an earlier session; it now follows the server's own "older posts" answer and pages from the stored post.
 - Animated custom emoji (GIF) now play in messages, reactions, the picker, completion and the administration list, on Linux, Windows and macOS (both apps); they showed their first frame only. They stay still when the system's animations or Reduce motion are off.
 - Teams (experimental): a new chat no longer starts with "X added X to the channel". Chat members are added "to the chat", people adding themselves when a chat is created and a one-to-one's members are not shown, as in Teams; "channel" stays for channels.
 - Teams (experimental): a reaction's tooltip names the people who reacted instead of their Teams ids: unknown people are looked up before a page of messages is stored.

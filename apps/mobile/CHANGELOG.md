@@ -20,6 +20,7 @@ release, and its notes are that version's section here.
 - Teams (experimental): formatting you type reaches Teams formatted: code blocks, inline code, bold, italic, strikethrough, headings, lists, quotes and links are sent as the HTML Teams renders; they arrived as plain text with the markdown signs.
 - Teams (experimental): people's presence follows Teams live. It was read only when the account connected, so a colleague could stay "Busy" long after a call; the app now asks Teams to push their changes and reads them again every two minutes.
 - Teams (experimental): a first message from someone you never talked to shows at once, in its new chat; it could take up to a minute or more to appear.
+- Mattermost and kChat: scrolling up no longer stops while older history exists. A page holding only deleted posts ended the history, and after a restart paging could not start from an older message on screen; it now follows the server's own "older posts" answer and pages from the message shown.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
 

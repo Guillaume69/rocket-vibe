@@ -527,14 +527,16 @@ export interface Provider {
   /**
    * A page of the room's history (newest first), ingested into the engine.
    * `type`: the room type as stored (`rooms.type`); `latest`: ISO keyset
-   * bound; absent, the page starts from now. Returns the page's oldest
-   * timestamp: the screen's pagination step-back criterion.
+   * bound; absent, the page starts from now; `latestId`: the message the
+   * screen shows at `latest`, for a server that pages by id. Returns the
+   * page's oldest timestamp: the screen's pagination step-back criterion.
    */
   loadHistory(
     engine: SyncEngine,
     rid: string,
     type: string,
     latest?: string,
+    latestId?: string,
   ): Promise<{ oldest: number | null; movedBack?: boolean }>;
   /**
    * The history between two instants (epoch ms), bounds included, NOT

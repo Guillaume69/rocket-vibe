@@ -158,7 +158,7 @@ export function createMattermostProvider(
       return note;
     },
     callSignal: (event: DdpEvent) => liveCallSignal(translator, event),
-    loadHistory: (engine, rid, _type, latest) => history.loadHistory(engine, rid, latest),
+    loadHistory: (engine, rid, _type, latest, latestId) => history.loadHistory(engine, rid, latest, latestId),
     historyRange: (rid, _type, latest, oldest) => history.range(rid, latest, oldest),
     fetchMessage: (id) => history.fetch(id),
     historyPage: MM_HISTORY_PAGE,

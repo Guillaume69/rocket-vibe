@@ -11,7 +11,10 @@ async fn main() {
     let config_js =
         std::fs::read_to_string(std::env::var("JITSI_CONFIG_JS").expect("JITSI_CONFIG_JS")).expect("config.js");
     let seconds: u64 = std::env::var("JITSI_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
-    let config = Config::from_meeting(&url, &config_js, "RocketVibe probe", None).expect("config");
+    // kMeet carries its join token as `?jwt=`, as the app reads it (`voice::meeting_token`).
+    let token =
+        url.split_once('?').and_then(|(_, q)| q.split('&').find_map(|p| p.strip_prefix("jwt="))).map(str::to_owned);
+    let config = Config::from_meeting(&url, &config_js, "RocketVibe probe", token).expect("config");
     println!("joining room {} on {}", config.room, config.websocket);
     let mut session = match join(config).await {
         Ok(s) => s,
@@ -31,7 +34,7 @@ async fn main() {
                     let candidates = sdp.lines().filter(|l| l.starts_with("a=candidate:")).count();
                     println!("offer: {} media sections, {ssrcs} remote sources, {candidates} candidates", sdp.matches("\nm=").count());
                 }
-                Some(rv_call::Event::IceServers(s)) => println!("ice servers: {}", s.len()),
+                Some(rv_call::Event::IceServers(s)) => println!("ice servers: {:?}", s.iter().map(|i| &i.urls).collect::<Vec<_>>()),
                 Some(rv_call::Event::Roster(m)) => println!("roster: {:?}", m.iter().map(|m| (&m.id, &m.name, m.muted)).collect::<Vec<_>>()),
                 Some(other) => println!("event: {other:?}"),
                 None => { println!("session gone"); return; }

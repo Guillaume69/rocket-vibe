@@ -198,6 +198,14 @@ Mobile session exit removes media bearers, username mappings and session-owned p
 - History pages by post id (`before=`), never by time; `MmHistory` turns the
   screen's ISO bound back into the id seen at that instant, or walks back from the
   newest page. `collapsedThreads=true` keeps replies in their thread.
+- Whether older posts exist is the server's answer, not the posts left after deleted
+  ones are dropped: a full `order` or a non-empty `prev_post_id` (`older_posts` /
+  `olderPosts`), and a page emptied by deleted posts is paged past from its last
+  listed id while that holds (fixed 2026-11-04: a channel stopped scrolling up with
+  history left). The instant-to-id index lives in memory, so after a restart the
+  bound's id comes from the store (desktop `Store::first_shown_at`) or from the
+  screen (mobile `loadHistory`'s `latestId`), not from a walk back from the newest
+  page that gave up after 20 pages.
 - Global catch-up reads `/users/me/channels` and `/users/me/channel_members`
   (across teams) and fetches the newest root post of the 40 most recently changed
   rooms for the list preview; an unchanged room is not rewritten. A room's

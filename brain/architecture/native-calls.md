@@ -292,9 +292,16 @@ meetings with video (2 to 3 months more).
   browser's hang-up removed it from the native roster at once (a closed tab only leaves when the
   server times it out). Browser to native was not run with a live microphone; two native clients
   hear each other through the bridge. kMeet (2026-11-02): the GTK call path takes kChat calls too, the
-  `?jwt=` of the conference answer's URL becoming the XMPP token (`voice::meeting_token`, unit-tested);
-  not run live: kChat sits in a cross-origin frame inside kSuite that the browser automation cannot
-  drive, and the `kchat-smoke` example needs the user's Infomaniak API token. Not yet run: the GTK window itself against a real Rocket.Chat call (the
+  `?jwt=` of the conference answer's URL becoming the XMPP token (`voice::meeting_token`, unit-tested).
+  Live on kMeet (2026-11-04), in `rocketvibe-native-test-*` rooms: kMeet admits an anonymous join (no
+  token): login, conference and room, one TURN server `turns:coturn.infomaniak.com:443?transport=tcp`
+  (XEP-0215), the bridge's offer (1 audio section, 1 candidate) to each of two probes; two `rv-voice`
+  sidecars (`RV_VOICE_FAKE_AUDIO=sine`) each heard the other at level 0.8. An invalid `?jwt=` makes
+  SASL ANONYMOUS answer failure (`login refused`): the token is checked at login. A call started
+  from kChat (a valid JWT) was not run natively: its token stayed in the browser (Chrome refused
+  handing it to a local probe), so the user's "native kMeet call does not work" is not reproduced;
+  GTK now logs why a native join fell back to the page (`native_call.rs`), the sidecar its rv-call
+  error (`call: join failed: ...`). Not yet run: the GTK window itself against a real Rocket.Chat call (the
   sidecar path under it was), kMeet live, SwiftUI on a Mac, Android on a device, video.
 - **SwiftUI (2026-11-02)**: rv-ffi `jitsi_call.rs` exports `start_jitsi_call(meeting_url, display_name,
   title)`, which discovers the meeting (`voice::discover_jitsi`, kMeet's `?jwt=` included) and joins it

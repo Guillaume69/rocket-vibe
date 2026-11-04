@@ -28,6 +28,11 @@ const CALLING_APP: (&str, &str) = ("SkypeSpacesWeb", "SkypeSpacesWeb_2.6");
 /// The `LiveEvent` name of a pushed call; its data is the pushed request, read
 /// again with [`frames::call_push`].
 pub const CALL_EVENT: &str = "TeamsCall";
+/// Presence changes Unified Presence pushed: `{presence: [...]}`.
+pub const PRESENCE_EVENT: &str = "TeamsPresence";
+/// The chat registration made on this socket: `{trouterUri, registration}`,
+/// where presence subscriptions point.
+pub const REGISTERED_EVENT: &str = "TeamsRegistered";
 
 enum Command {
     Open,
@@ -77,6 +82,11 @@ fn registration(id: &str, surl: &str, app: &str, template: &str) -> Value {
         "nodeId": "",
         "transports": {"TROUTER": [{"context": "", "path": surl, "ttl": 86400}]},
     })
+}
+
+/// Where Unified Presence pushes for the registration at `surl`.
+fn presence_uri(surl: &str) -> String {
+    format!("{}/unifiedPresenceService", surl.trim_end_matches('/'))
 }
 
 /// An `https` URL on one of Trouter's hosts.
@@ -214,6 +224,8 @@ impl Actor {
             return false;
         }
         let _ = self.register_app(&socket.calling_id, &socket.surl, CALLING_APP).await;
+        let data = json!({"trouterUri": presence_uri(&socket.surl), "registration": socket.epid});
+        self.emit(LiveEvent::Event { name: REGISTERED_EVENT.to_owned(), data, broadcast: Value::Null });
         true
     }
 
@@ -296,6 +308,8 @@ impl Actor {
                 }
                 if let Some((name, data)) = frames::chat_event(&envelope) {
                     self.emit(LiveEvent::Event { name, data, broadcast: Value::Null });
+                } else if let Some(data) = frames::presence_push(&envelope) {
+                    self.emit(LiveEvent::Event { name: PRESENCE_EVENT.to_owned(), data, broadcast: Value::Null });
                 } else if frames::call_push(&envelope).is_some() {
                     self.emit(LiveEvent::Event { name: CALL_EVENT.to_owned(), data: envelope, broadcast: Value::Null });
                 }
@@ -309,6 +323,14 @@ impl Actor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presence_is_pushed_under_the_registration_path() {
+        assert_eq!(
+            presence_uri("https://pub-ent-euno-13-f.trouter.teams.microsoft.com:3443/v4/f/KcH2/"),
+            "https://pub-ent-euno-13-f.trouter.teams.microsoft.com:3443/v4/f/KcH2/unifiedPresenceService"
+        );
+    }
 
     #[test]
     fn calls_are_registered_beside_chat_on_the_same_path() {

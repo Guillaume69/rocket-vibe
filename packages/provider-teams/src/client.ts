@@ -146,6 +146,16 @@ export class TeamsClient {
   }
 
   /** Sets my availability (UPS forceavailability), with the presence bearer. */
+  /** Asks Unified Presence to push these people's changes to the chat
+   *  registration's `unifiedPresenceService` path, as Teams' web app does. */
+  async subscribePresence(trouterUri: string, registration: string, mris: string[]): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.presence || mris.length === 0) return;
+    const bearer = await this.tokens.presence();
+    const url = `${routes.presence}/v1/pubsub/subscriptions/${encodeURIComponent(registration)}`;
+    await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', presenceSubscription(trouterUri, mris));
+  }
+
   async setPresence(availability: string): Promise<void> {
     const { routes } = await this.tokens.chat();
     if (!routes.presence) return;
@@ -442,4 +452,9 @@ export class TeamsClient {
     try { url = new URL(link); base = new URL(routes.chat); } catch { return null; }
     return url.protocol === base.protocol && url.host === base.host && url.pathname.startsWith(base.pathname) ? url.href : null;
   }
+}
+
+/** The presence subscription request for `mris`, pushed to `trouterUri`. */
+export function presenceSubscription(trouterUri: string, mris: readonly string[]): Doc {
+  return { trouterUri, shouldPurgePreviousSubscriptions: false, subscriptionsToAdd: mris.map((mri) => ({ mri, source: 'ups' })), subscriptionsToRemove: [] };
 }

@@ -7,7 +7,7 @@ import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './aut
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
-  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor,
+  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor, replyTarget, replyQuote,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -524,4 +524,18 @@ test('a group chat is created as the web app does, then listed and renamable', (
   assert.equal(chatRoom(me, chat, directory)?.name, 'Fairouz, Emilie');
   assert.equal(isGroupChat(newOneOnOne('8:orgid:00000000-0000-4000-8000-000000000001', '8:orgid:00000000-0000-4000-8000-000000000002', 0)), false);
   assert.equal(isGroupChat({ id: '19:m@thread.v2', chatType: 'meeting' }), false);
+});
+
+test('a reply is sent as the quote Teams reads back', () => {
+  const rid = '19:c@thread.v2';
+  const app = `[ ](https://teams.microsoft.com/direct/${encodeURIComponent(rid)}?msg=${encodeURIComponent(`${rid}/1792500000000`)}) bien vu`;
+  assert.deepEqual(replyTarget(rid, app), { server: '1792500000000', rest: 'bien vu' });
+  assert.deepEqual(replyTarget(rid, `[ ](${permalink(rid, '1792500000000')}) ok`), { server: '1792500000000', rest: 'ok' });
+  assert.equal(replyTarget('19:other@thread.v2', app), null);
+  assert.equal(replyTarget(rid, 'plain text'), null);
+  const quote = replyQuote({ id: '1792500000000', from: 'https://x/v1/users/ME/contacts/8:orgid:marc', imdisplayname: 'Marc <B>', content: '<p>Je suis <b>outré</b></p>' }, new TeamsDirectory())!;
+  const back = convert(`${quote}<p>bien vu</p>`, []);
+  assert.equal(back.text, 'bien vu');
+  assert.equal(back.quotes.length, 1);
+  assert.deepEqual([back.quotes[0].id, back.quotes[0].author, back.quotes[0].authorMri, back.quotes[0].text], ['1792500000000', 'Marc <B>', '8:orgid:marc', 'Je suis outré']);
 });

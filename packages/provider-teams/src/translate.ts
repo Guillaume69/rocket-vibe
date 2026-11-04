@@ -25,6 +25,41 @@ export function permalink(rid: string, msgId: string): string {
   return `https://teams.microsoft.com/l/message/${segment(rid)}/${segment(server)}`;
 }
 
+/** The message a reply quotes, from the `[ ](<link>) text` the composer sends:
+ *  the app's `?msg=<rid>/<id>` permalink or a Teams message link of this room. */
+export function replyTarget(rid: string, text: string): { server: string; rest: string } | null {
+  const match = /^\s*\[ ?\]\((https?:\/\/[^)\s]+)\)\s*/.exec(text);
+  if (!match) return null;
+  const link = match[1];
+  let server: string | null = null;
+  try {
+    const msg = new URL(link).searchParams.get('msg');
+    const split = msg === null ? null : splitId(msg);
+    if (split && split.rid === rid) server = split.server;
+  } catch { return null; }
+  if (server === null) {
+    const last = link.split('/').pop() ?? '';
+    if (/^\d+$/.test(last) && permalink(rid, last) === link) server = last;
+  }
+  return server === null ? null : { server, rest: text.slice(match[0].length) };
+}
+
+const QUOTE_PREVIEW = 200;
+
+/** The quote a Teams reply starts with, as Teams' clients write it and as
+ *  `convert` reads it back: the quoted message's id, author, time and preview. */
+export function replyQuote(original: Doc, directory: TeamsDirectory): string | null {
+  const id = str(original, 'id');
+  if (id === null || !/^\d+$/.test(id)) return null;
+  const mri = mriOf(str(original, 'from') ?? '');
+  const name = str(original, 'imdisplayname') ?? directory.shown(mri);
+  const html = str(original, 'content') ?? '';
+  const own = html.includes('</blockquote>') ? html.slice(html.lastIndexOf('</blockquote>') + '</blockquote>'.length) : html;
+  const preview = decodeEntities(own.replace(/<[^>]*>/g, ' ')).split(/\s+/).filter(Boolean).join(' ').slice(0, QUOTE_PREVIEW);
+  const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `<blockquote itemscope="" itemtype="http://schema.skype.com/Reply" itemid="${id}"><strong itemprop="mri" itemid="${esc(mri)}">${esc(name)}</strong><span itemprop="time" itemid="${id}"></span><p itemprop="preview">${esc(preview)}</p></blockquote>`;
+}
+
 export function splitId(id: string): { rid: string; server: string } | null {
   const at = id.lastIndexOf('/');
   if (at <= 0) return null;

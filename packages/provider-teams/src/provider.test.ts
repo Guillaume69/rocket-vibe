@@ -124,6 +124,39 @@ test('a sent message is delivered once Teams echoes its client id from me', asyn
   assert.deepEqual(ingested.map((d) => [d.id, d.__rid]), [['5000', RID]]);
 });
 
+test('a reply is posted with the quote of the message it answers', async () => {
+  const rowId = '0123456789abcdef01234568';
+  const marker = clientMessageId(rowId);
+  const original = message('4000', { content: '<p>Je suis outré</p>', from: `${CHAT}/v1/users/ME/contacts/8:orgid:marc`, imdisplayname: 'Marc' });
+  const { calls, client } = fake((call) => {
+    if (call.method === 'POST') return { status: 201, body: {} };
+    if (call.url.includes('/messages/4000')) return { body: original };
+    return { body: { messages: [message('5001', { clientmessageid: marker, from: `${CHAT}/v1/users/ME/contacts/${ME}` })] } };
+  });
+  const { store } = outboxStore();
+  const outbox = new TeamsOutbox({ store, client, directory: new TeamsDirectory(), me: { id: ME, username: 'Me' }, generateId: () => rowId, ingest: async () => {} });
+  const link = `https://teams.microsoft.com/direct/${encodeURIComponent(RID)}?msg=${encodeURIComponent(`${RID}/4000`)}`;
+  await outbox.send(RID, `[ ](${link}) bien vu`);
+  const post = calls.find((c) => c.method === 'POST')!;
+  const content = String(post.body?.content);
+  assert.match(content, /^<blockquote itemscope="" itemtype="http:\/\/schema\.skype\.com\/Reply" itemid="4000">/);
+  assert.match(content, /<p itemprop="preview">Je suis outré<\/p><\/blockquote><p>bien vu<\/p>$/);
+});
+
+test('a first message from someone new files their chat at once', async () => {
+  const newChat = '19:me_nina@unq.gbl.spaces';
+  const { client } = fake((call) => call.url.endsWith(`/conversations/${encodeURIComponent(newChat).replace(/%3A/gi, ':').replace(/%40/g, '@')}?view=msnp24Equivalent`)
+    ? { body: { id: newChat, threadProperties: { threadType: 'chat' }, lastMessage: { id: '6000', messagetype: 'RichText/Html', content: '<p>hello</p>', from: `${CHAT}/v1/users/ME/contacts/8:orgid:nina`, imdisplayname: 'Nina', composetime: '2026-11-03T10:00:00Z' } } }
+    : { body: {} });
+  const rooms = new TeamsRooms();
+  const sync = new TeamsSync(client, rooms, new TeamsThreads(), new TeamsDirectory(), ME);
+  assert.equal(rooms.entries.has(newChat), false);
+  await sync.adopt(newChat, message('6000', { content: '<p>hello</p>' }));
+  assert.equal(rooms.entries.has(newChat), true, 'the chat is filed without waiting for the lists');
+  assert.equal(rooms.pending.has(newChat), true, 'and kept until a list has it');
+  assert.ok(rooms.withLast(newChat, message('6000', { content: '<p>hello</p>' }), false));
+});
+
 test('a lost answer with no echo is marked uncertain, never sent twice', async () => {
   const { calls, client } = fake((call) => call.method === 'POST' ? 'throw' : { body: { messages: [message('5000', { clientmessageid: 'someone-else' })] } });
   const { store, failed } = outboxStore();

@@ -374,6 +374,24 @@ export class TeamsSync {
     await this.ingest(engine, target.rid, messages);
   }
 
+  /** A chat a live message names that no list holds yet, someone new writing
+   *  first: read on its own and filed at once, kept until the lists catch up.
+   *  `resource` stands in for its last message when it has none. */
+  async adopt(rid: string, resource: Doc): Promise<void> {
+    const doc = await this.client.roomDocument(rid).catch(() => null);
+    if (!doc) return;
+    if (str(doc.lastMessage as Doc | undefined ?? {}, 'id') === null) doc.lastMessage = resource;
+    const chat = listedChat(doc);
+    if (!chat) return;
+    this.directory?.learn({ from: str(chat.lastMessage as Doc, 'from'), imdisplayname: str(chat.lastMessage as Doc, 'imDisplayName') });
+    const unnamed = (chat.members as Doc[]).map((m) => str(m, 'mri')).filter((m): m is string => m !== null && m !== this.me && this.directory?.name(m) === null);
+    for (const row of await this.client.profiles(unnamed).catch(() => [] as Doc[])) {
+      const mri = str(row, 'mri'), name = str(row, 'displayName');
+      if (mri && name) this.directory?.remember(mri, name);
+    }
+    this.rooms.open(chat);
+  }
+
   /** The newest message the room itself shows, for its preview once the previewed one is deleted. */
   async newestShown(rid: string): Promise<Doc | null | undefined> {
     try {

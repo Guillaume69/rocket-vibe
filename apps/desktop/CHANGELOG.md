@@ -9,14 +9,16 @@ section here.
 
 ### Added
 
+- Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.
 - Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.
 
 ### Fixed
 
 - Animated custom emoji (GIF) now play in messages, reactions, the picker, completion and the administration list, on Linux, Windows and macOS (both apps); they showed their first frame only. They stay still when the system's animations or Reduce motion are off.
+- Teams (experimental): people's presence follows Teams live. It was read only when the account connected, so a colleague could stay "Busy" long after a call; the app now asks Teams to push their changes and reads them again every two minutes.
+- Teams (experimental): a first message from someone you never talked to shows at once, in its new chat; it could take up to a minute or more to appear.
 - Teams (experimental): a chat's notes show their formatting (headings, bold, italic, strikethrough, links, lists) instead of plain text.
 - Slack (experimental): a canvas no longer offers an edit Slack refuses: notes from Slack are read-only, since Slack accepts canvas changes only from its own clients.
-
 
 ## [0.30.2] - 2026-11-02
 

@@ -11,7 +11,7 @@ import type { CallSignal } from '@rocket-vibe/provider-api/calls';
 import { setDownloadResolver } from '@rocket-vibe/provider-api/downloadResolver';
 import { setMediaLease } from '@rocket-vibe/provider-api/mediaAuth';
 import { STREAM_NOTIFY_ROOM_TYPING, TYPING_ACTIVITY } from '@rocket-vibe/provider-api/typing';
-import { availabilityStatus, readPresence, statusAvailability } from './presence.ts';
+import { availabilityStatus, presenceEvents, readPresence, statusAvailability } from './presence.ts';
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
 import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
@@ -120,7 +120,7 @@ export const TEAMS_CAPABILITIES: Capabilities = {
   leaveRoom: false,
   roomFavorites: false,
   roomReads: false,
-  quotes: false,
+  quotes: true,
   alsoInRoom: false,
   voice: false,
   administration: false,
@@ -191,6 +191,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     if (post !== null) events.push({ collection: TEAMS_EVENTS, eventKey: THREAD_COUNTERS, args: [{ id: `${rid}/${post}` }] });
     if (name === 'NewMessage' && !rooms.isPreview(rid, resource)) {
       await ingestOne({ ...resource, __rid: rid });
+      if (!rooms.entries.has(rid)) await sync.adopt(rid, resource);
       const mine = mriOf(str(resource, 'from') ?? '') === session.userId;
       const entry = id !== null && rootOf(resource, id) !== null ? null : rooms.withLast(rid, resource, mine);
       if (entry) {
@@ -204,7 +205,17 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
     }
     return events;
   };
-  const listener = options.listener ?? new TeamsTrouter(tokens, expand, { fetch: options.fetch });
+  // Read and watched: Teams pushes the changes of the people subscribed only.
+  const loadPresence = async () => {
+    const mris = [...directory.displayNames().keys()];
+    const route = listener instanceof TeamsTrouter ? listener.presenceRoute() : null;
+    if (route) await client.subscribePresence(route.uri, route.registration, mris).catch(() => {});
+    return readPresence(client, mris);
+  };
+  const listener = options.listener ?? new TeamsTrouter(tokens, expand, {
+    fetch: options.fetch,
+    refreshPresence: async () => presenceEvents(await loadPresence()),
+  });
   let messageActions: TeamsMessageActions | null = null;
   const actionsFor = (ingest: (raw: Doc) => Promise<void>) => (messageActions ??= new TeamsMessageActions(client, ingest));
   let ingestLive: (raw: Doc) => Promise<void> = async () => {};
@@ -329,7 +340,7 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       mentions: () => directory.mentionNames(),
       subscribe: (fn) => directory.onChange(fn),
     },
-    loadPresence: () => readPresence(client, [...directory.displayNames().keys()]),
+    loadPresence,
     ownActivity: {
       read: async () => {
         const [me] = await client.getPresence([session.userId]);

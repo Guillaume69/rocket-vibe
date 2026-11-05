@@ -28,6 +28,7 @@ section here.
 
 ### Changed
 
+- Updates and the install script now come from the project's new home, `MarcDownHQ/rocket-vibe` on GitHub (the old address still redirects).
 - The native call window (Linux, Windows, macOS) now looks like the Vibez voice page: a tile per person with the speaking ring, the same round microphone, sound and hang-up buttons, and on Linux the microphone menu with the input and output devices.
 
 
@@ -1473,45 +1474,45 @@ the mobile app (see `docs/PARITY.md`).
   `rocketvibe://` links) and zip; a macOS app in a DMG, signed with a Developer ID and
   notarized by Apple.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.2...HEAD
-[0.30.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.1...desktop-v0.30.2
-[0.30.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.30.0...desktop-v0.30.1
-[0.30.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.29.0...desktop-v0.30.0
-[0.29.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0
-[0.28.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0
-[0.27.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0
-[0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.25.0...desktop-v0.26.0
-[0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.24.0...desktop-v0.25.0
-[0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0
-[0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
-[0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
-[0.21.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1
-[0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.20.0...desktop-v0.21.0
-[0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.3...desktop-v0.20.0
-[0.19.3]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.2...desktop-v0.19.3
-[0.19.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2
-[0.19.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1
-[0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0
-[0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0
-[0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
-[0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
-[0.15.1]: https://github.com/Guillaume69/rocket-vibe/compare/24e6175c...desktop-v0.15.1
-[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.14.0...24e6175c
-[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
-[0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
-[0.12.2]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
-[0.12.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1
-[0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0
-[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
-[0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
-[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
-[0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0
-[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
-[0.6.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
-[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
-[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0
-[0.4.1]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.4.0...desktop-v0.4.1
-[0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.3.0...desktop-v0.4.0
-[0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.2.0...desktop-v0.3.0
-[0.2.0]: https://github.com/Guillaume69/rocket-vibe/compare/desktop-v0.1.0...desktop-v0.2.0
-[0.1.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/desktop-v0.1.0
+[Unreleased]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.30.2...HEAD
+[0.30.2]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.30.1...desktop-v0.30.2
+[0.30.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.30.0...desktop-v0.30.1
+[0.30.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.29.0...desktop-v0.30.0
+[0.29.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.28.0...desktop-v0.29.0
+[0.28.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.27.0...desktop-v0.28.0
+[0.27.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.26.0...desktop-v0.27.0
+[0.26.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.25.0...desktop-v0.26.0
+[0.25.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.24.0...desktop-v0.25.0
+[0.24.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.23.0...desktop-v0.24.0
+[0.23.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.22.0...desktop-v0.23.0
+[0.22.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.21.1...desktop-v0.22.0
+[0.21.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.21.0...desktop-v0.21.1
+[0.21.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.20.0...desktop-v0.21.0
+[0.20.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.19.3...desktop-v0.20.0
+[0.19.3]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.19.2...desktop-v0.19.3
+[0.19.2]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.19.1...desktop-v0.19.2
+[0.19.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.19.0...desktop-v0.19.1
+[0.19.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.18.0...desktop-v0.19.0
+[0.18.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.17.0...desktop-v0.18.0
+[0.17.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.16.0...desktop-v0.17.0
+[0.16.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.15.1...desktop-v0.16.0
+[0.15.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/24e6175c...desktop-v0.15.1
+[0.15.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.14.0...24e6175c
+[0.14.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.13.0...desktop-v0.14.0
+[0.13.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.12.2...desktop-v0.13.0
+[0.12.2]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.12.1...desktop-v0.12.2
+[0.12.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.12.0...desktop-v0.12.1
+[0.12.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.11.0...desktop-v0.12.0
+[0.11.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.10.0...desktop-v0.11.0
+[0.10.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.9.0...desktop-v0.10.0
+[0.9.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.8.0...desktop-v0.9.0
+[0.8.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.7.0...desktop-v0.8.0
+[0.7.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.6.1...desktop-v0.7.0
+[0.6.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.6.0...desktop-v0.6.1
+[0.6.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.5.0...desktop-v0.6.0
+[0.5.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.4.1...desktop-v0.5.0
+[0.4.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.4.0...desktop-v0.4.1
+[0.4.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.3.0...desktop-v0.4.0
+[0.3.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.2.0...desktop-v0.3.0
+[0.2.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/desktop-v0.1.0...desktop-v0.2.0
+[0.1.0]: https://github.com/MarcDownHQ/rocket-vibe/releases/tag/desktop-v0.1.0

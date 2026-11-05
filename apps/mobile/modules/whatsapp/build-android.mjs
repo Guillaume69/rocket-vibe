@@ -68,7 +68,7 @@ const meta = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version'
 const parts = [
   'The WhatsApp engine in RocketVibe is built from these Rust crates; their licences follow.',
   'whatsapp-rust and its wacore crates come from https://github.com/oxidezap/whatsapp-rust',
-  '(MIT), vendored with changes in crates/rv-whatsapp of https://github.com/Guillaume69/rocket-vibe.',
+  '(MIT), vendored with changes in crates/rv-whatsapp of https://github.com/MarcDownHQ/rocket-vibe.',
 ];
 const notices = name => /^(LICEN[CS]E|COPYING|NOTICE)/i.test(name);
 const ours = new Set(['rv-whatsapp-android', 'rv-whatsapp-engine']);

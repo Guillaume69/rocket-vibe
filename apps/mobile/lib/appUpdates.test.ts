@@ -7,7 +7,7 @@ const digest = 'a'.repeat(64);
 function release(version: string, changes: Record<string, unknown> = {}) {
   return { tag_name: `mobile-v${version}`, draft: false, prerelease: false, published_at: '2026-10-10T12:00:00Z',
     assets: [{ name: `rocket-vibe-mobile-${version}.apk`, state: 'uploaded', size: 100,
-      browser_download_url: `https://github.com/Guillaume69/rocket-vibe/releases/download/mobile-v${version}/rocket-vibe-mobile-${version}.apk`, digest: `sha256:${digest}` }], ...changes };
+      browser_download_url: `https://github.com/MarcDownHQ/rocket-vibe/releases/download/mobile-v${version}/rocket-vibe-mobile-${version}.apk`, digest: `sha256:${digest}` }], ...changes };
 }
 function cache() {
   const pages = new Map<number, CachedReleasePage>();

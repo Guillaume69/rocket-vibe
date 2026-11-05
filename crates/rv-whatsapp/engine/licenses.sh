@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 target=${1:-$(rustc -vV | sed -n 's/^host: //p')}
 echo "The WhatsApp engine in RocketVibe is built from these Rust crates; their licences follow."
 echo "whatsapp-rust and its wacore crates come from https://github.com/oxidezap/whatsapp-rust"
-echo "(MIT), vendored with changes in crates/rv-whatsapp of https://github.com/Guillaume69/rocket-vibe."
+echo "(MIT), vendored with changes in crates/rv-whatsapp of https://github.com/MarcDownHQ/rocket-vibe."
 used=$(cargo tree --locked -p rv-whatsapp-engine -e normal,build --target "$target" --prefix none -f '{p}' |
   awk '{print $1 " " substr($2, 2)}' | sort -u)
 cargo metadata --locked --format-version 1 |

@@ -429,7 +429,7 @@ export function updateStatus(current: string, latest: string | null): 'available
  */
 export const RELEASES: Record<AdminProduct, string> = {
   rocketchat: 'https://api.github.com/repos/RocketChat/Rocket.Chat/releases?per_page=30',
-  vibez: 'https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=100',
+  vibez: 'https://api.github.com/repos/MarcDownHQ/rocket-vibe/releases?per_page=100',
 };
 
 /**

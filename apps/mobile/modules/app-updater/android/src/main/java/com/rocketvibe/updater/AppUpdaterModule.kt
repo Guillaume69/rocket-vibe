@@ -170,7 +170,7 @@ class AppUpdaterModule : Module() {
 
   private fun download(context: Context, version: String, url: String, size: Double, digest: String) {
     if (!Regex("[0-9]+\\.[0-9]+\\.[0-9]+").matches(version) ||
-      url != "https://github.com/Guillaume69/rocket-vibe/releases/download/mobile-v$version/rocket-vibe-mobile-$version.apk" ||
+      url != "https://github.com/MarcDownHQ/rocket-vibe/releases/download/mobile-v$version/rocket-vibe-mobile-$version.apk" ||
       !Regex("[a-f0-9]{64}").matches(digest) || !size.isFinite() || size % 1.0 != 0.0 || size <= 0 || size > 512 * 1024 * 1024) throw UpdateFailure("asset")
     val prefs = UpdateFiles.prefs(context)
     if (prefs.contains("session")) throw UpdateFailure("busy")

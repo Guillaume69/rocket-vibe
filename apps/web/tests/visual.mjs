@@ -12,7 +12,7 @@ const context = await browser.newContext({
 const page = await context.newPage();
 let releaseFixture = [];
 await page.route(
-  "https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=50",
+  "https://api.github.com/repos/MarcDownHQ/rocket-vibe/releases?per_page=50",
   (route) => {
     assert.equal(route.request().headers().authorization, undefined);
     assert.equal(route.request().headers().referer, undefined);

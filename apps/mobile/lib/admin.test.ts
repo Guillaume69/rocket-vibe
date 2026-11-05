@@ -78,7 +78,7 @@ describe('versions', () => {
       return { ok: true, json: async () => [{ tag_name: 'vibez-v1.2.3' }] };
     });
     assert.equal(latest, '1.2.3');
-    assert.match(urls[0]!, /Guillaume69\/rocket-vibe\/releases/);
+    assert.match(urls[0]!, /MarcDownHQ\/rocket-vibe\/releases/);
   });
 });
 

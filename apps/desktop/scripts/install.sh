@@ -3,11 +3,11 @@
 # needed: the AppImage in ~/.local/bin, a launcher entry and icons, and the
 # rocketvibe:// links. Run it again to update; --uninstall removes it all but
 # your accounts and messages.
-#   curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/MarcDownHQ/rocket-vibe/master/apps/desktop/scripts/install.sh | sh
 #   curl -fsSL …/install.sh | sh -s -- --uninstall
 set -eu
 
-repo=Guillaume69/rocket-vibe
+repo=MarcDownHQ/rocket-vibe
 releases=${ROCKET_VIBE_RELEASES:-https://api.github.com/repos/$repo/releases?per_page=100}
 app_id=com.rocketvibe.app
 bin_dir=${XDG_BIN_HOME:-$HOME/.local/bin}

@@ -1,5 +1,5 @@
 /** GitHub APK discovery. No chat credentials or platform imports. */
-export const UPDATE_REPO = 'Guillaume69/rocket-vibe';
+export const UPDATE_REPO = 'MarcDownHQ/rocket-vibe';
 export const UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const RELEASES_URL = `https://api.github.com/repos/${UPDATE_REPO}/releases`;
 const MAX_PAGES = 5;

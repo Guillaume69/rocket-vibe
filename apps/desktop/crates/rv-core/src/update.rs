@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-pub const REPO: &str = "Guillaume69/rocket-vibe";
+pub const REPO: &str = "MarcDownHQ/rocket-vibe";
 pub const TAG_PREFIX: &str = "desktop-v";
 pub const CHECK_EVERY_MS: i64 = 6 * 60 * 60 * 1000;
 

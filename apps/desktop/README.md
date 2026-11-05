@@ -79,8 +79,8 @@ nothing installed: to install it for the current user (no root), with a launcher
 entry, its icon and `rocketvibe://` links, and to update it later:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/Guillaume69/rocket-vibe/master/apps/desktop/scripts/install.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/MarcDownHQ/rocket-vibe/master/apps/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MarcDownHQ/rocket-vibe/master/apps/desktop/scripts/install.sh | sh -s -- --uninstall
 ```
 
 The script (`scripts/install.sh`, curl or wget) takes the newest `desktop-v*`

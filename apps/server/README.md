@@ -72,7 +72,7 @@ The server binary now embeds [apps/web](../web/README.md). Open its origin at `/
 A `vibez-vX.Y.Z` tag publishes the server and its embedded web client (`.github/workflows/server-release.yml`): a GitHub
 Release with `vibez-X.Y.Z-linux-x86_64.tar.gz` (the binary built in
 `Dockerfile`'s Debian bookworm stage, so it needs glibc 2.36 or later) and its `SHA256SUMS`, and
-pushes that build's image to `ghcr.io/guillaume69/vibez` as `X.Y.Z` and `latest`
+pushes that build's image to `ghcr.io/marcdownhq/vibez` as `X.Y.Z` and `latest`
 (`server-image.yml`, dispatched with a tag, republishes an older one). The version lives in
 `Cargo.toml`, the notes are its section of [CHANGELOG.md](CHANGELOG.md). Each release embeds
 the web client of its commit. The apps' administration Dashboard compares the server's version

@@ -3,7 +3,7 @@ Pod::Spec.new do |s|
   s.version        = '1.0.0'
   s.summary        = 'iOS FCM token for rocket-vibe'
   s.author         = ''
-  s.homepage       = 'https://github.com/Guillaume69/rocket-vibe'
+  s.homepage       = 'https://github.com/MarcDownHQ/rocket-vibe'
   s.license        = { :type => 'MIT' }
   s.platforms      = { :ios => '16.4' }
   s.source         = { :git => '' }

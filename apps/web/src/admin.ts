@@ -32,7 +32,7 @@ const label = (en: string, fr: string) => (language === "fr" ? fr : en);
 async function latestServerVersion(): Promise<string | undefined> {
   try {
     const response = await fetch(
-      "https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=50",
+      "https://api.github.com/repos/MarcDownHQ/rocket-vibe/releases?per_page=50",
       {
         credentials: "omit",
         referrerPolicy: "no-referrer",

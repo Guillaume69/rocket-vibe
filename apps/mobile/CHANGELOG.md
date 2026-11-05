@@ -27,6 +27,7 @@ release, and its notes are that version's section here.
 
 ### Changed
 
+- The app now looks for updates in the project's new home, `MarcDownHQ/rocket-vibe` on GitHub. Versions up to 0.26.1 no longer find in-app updates since the move: install this one by hand once.
 - The native call screen now looks like the Vibez voice screen: a tile per person whose border lights while they speak, and the same control buttons.
 
 
@@ -976,35 +977,35 @@ First published version: Android, for Rocket.Chat 8 or later.
 - Profiles, room info, my profile (status, photo, information).
 - Interface in French and English.
 
-[Unreleased]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.1...HEAD
-[0.26.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.26.0...mobile-v0.26.1
-[0.26.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.1...mobile-v0.26.0
-[0.25.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.25.0...mobile-v0.25.1
-[0.25.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0
-[0.24.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.23.0...mobile-v0.24.0
-[0.23.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.22.0...mobile-v0.23.0
-[0.22.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.21.0...mobile-v0.22.0
-[0.21.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.20.0...mobile-v0.21.0
-[0.20.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0
-[0.19.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
-[0.18.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1
-[0.18.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0
-[0.17.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.16.0...mobile-v0.17.0
-[0.16.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.15.0...mobile-v0.16.0
-[0.15.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.14.0...mobile-v0.15.0
-[0.14.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.13.0...mobile-v0.14.0
-[0.13.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.12.0...mobile-v0.13.0
-[0.12.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.11.0...mobile-v0.12.0
-[0.11.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.10.0...mobile-v0.11.0
-[0.10.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.1...mobile-v0.10.0
-[0.9.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.9.0...mobile-v0.9.1
-[0.9.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0
-[0.8.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.7.0...mobile-v0.8.0
-[0.7.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.6.0...mobile-v0.7.0
-[0.6.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.5.0...mobile-v0.6.0
-[0.5.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
-[0.4.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0
-[0.3.1]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.3.0...mobile-v0.3.1
-[0.3.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.2.0...mobile-v0.3.0
-[0.2.0]: https://github.com/Guillaume69/rocket-vibe/compare/mobile-v0.1.0...mobile-v0.2.0
-[0.1.0]: https://github.com/Guillaume69/rocket-vibe/releases/tag/mobile-v0.1.0
+[Unreleased]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.26.1...HEAD
+[0.26.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.26.0...mobile-v0.26.1
+[0.26.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.25.1...mobile-v0.26.0
+[0.25.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.25.0...mobile-v0.25.1
+[0.25.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.24.0...mobile-v0.25.0
+[0.24.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.23.0...mobile-v0.24.0
+[0.23.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.22.0...mobile-v0.23.0
+[0.22.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.21.0...mobile-v0.22.0
+[0.21.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.20.0...mobile-v0.21.0
+[0.20.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.19.0...mobile-v0.20.0
+[0.19.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.18.1...mobile-v0.19.0
+[0.18.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.18.0...mobile-v0.18.1
+[0.18.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.17.0...mobile-v0.18.0
+[0.17.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.16.0...mobile-v0.17.0
+[0.16.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.15.0...mobile-v0.16.0
+[0.15.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.14.0...mobile-v0.15.0
+[0.14.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.13.0...mobile-v0.14.0
+[0.13.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.12.0...mobile-v0.13.0
+[0.12.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.11.0...mobile-v0.12.0
+[0.11.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.10.0...mobile-v0.11.0
+[0.10.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.9.1...mobile-v0.10.0
+[0.9.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.9.0...mobile-v0.9.1
+[0.9.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.8.0...mobile-v0.9.0
+[0.8.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.7.0...mobile-v0.8.0
+[0.7.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.6.0...mobile-v0.7.0
+[0.6.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.5.0...mobile-v0.6.0
+[0.5.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.4.0...mobile-v0.5.0
+[0.4.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.3.1...mobile-v0.4.0
+[0.3.1]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.3.0...mobile-v0.3.1
+[0.3.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.2.0...mobile-v0.3.0
+[0.2.0]: https://github.com/MarcDownHQ/rocket-vibe/compare/mobile-v0.1.0...mobile-v0.2.0
+[0.1.0]: https://github.com/MarcDownHQ/rocket-vibe/releases/tag/mobile-v0.1.0

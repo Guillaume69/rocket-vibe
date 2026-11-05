@@ -21,7 +21,7 @@ One neutral model per app: mobile `lib/admin.ts` (`ProviderAdmin`, `ProviderRepo
 
 ### Latest version
 
-Fetched by the client from GitHub, kept for the screen's life, shown as "Update available: X" or "Up to date", nothing when unknown. Rocket.Chat: the highest non-draft, non-prerelease version of `RocketChat/Rocket.Chat` `releases?per_page=30`, because `releases/latest` can name a backport of an older line. Vibez: the highest `vibez-vX.Y.Z` tag among the releases of `Guillaume69/rocket-vibe` (`rv_core::update::REPO`), pre-releases (`-rc`) ignored; none is published yet, so "unknown" is today's normal result. Mobile `fetchLatestVersion` / `latestFromReleases` / `updateStatus` in `lib/admin.ts`; desktop `admin::latest_version`, `highest_release`, `latest_server_tag`, `update_available` over `update::github_json`.
+Fetched by the client from GitHub, kept for the screen's life, shown as "Update available: X" or "Up to date", nothing when unknown. Rocket.Chat: the highest non-draft, non-prerelease version of `RocketChat/Rocket.Chat` `releases?per_page=30`, because `releases/latest` can name a backport of an older line. Vibez: the highest `vibez-vX.Y.Z` tag among the releases of `MarcDownHQ/rocket-vibe` (`rv_core::update::REPO`), pre-releases (`-rc`) ignored; none is published yet, so "unknown" is today's normal result. Mobile `fetchLatestVersion` / `latestFromReleases` / `updateStatus` in `lib/admin.ts`; desktop `admin::latest_version`, `highest_release`, `latest_server_tag`, `update_available` over `update::github_json`.
 
 ## Rocket.Chat mapping
 

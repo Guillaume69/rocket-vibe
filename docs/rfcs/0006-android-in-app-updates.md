@@ -28,13 +28,13 @@ The first APK containing the updater must still be installed through the existin
 
 On 2026-10-11, the public repository and release-list API both answered without credentials:
 
-- Repository: `Guillaume69/rocket-vibe`, public.
+- Repository: `MarcDownHQ/rocket-vibe`, public.
 - First release-list entry: `web-v0.3.0`. A repository-wide latest-release lookup is unsuitable for selecting Android updates.
 - 31 release entries returned, including 12 published stable mobile releases.
 - Newest published stable mobile release in the returned list: `mobile-v0.9.1`, published `2026-10-09T11:30:23Z`.
 - APK: `rocket-vibe-mobile-0.9.1.apk`, uploaded, 93,870,489 bytes (about 89.5 MiB).
 - GitHub asset digest: `sha256:02bb936a16dac1d773cbdbb2e21427a230e8274488d722ee36653c5470db7fd5`.
-- [Release page](https://github.com/Guillaume69/rocket-vibe/releases/tag/mobile-v0.9.1).
+- [Release page](https://github.com/MarcDownHQ/rocket-vibe/releases/tag/mobile-v0.9.1).
 
 The worktree version is already newer than that published mobile release. A correct checker therefore offers no update on this base. Do not confuse a master version bump with a published APK.
 
@@ -56,7 +56,7 @@ Local databases, drafts, queued work and stored credentials should survive a nor
 
 Use the public GitHub release-list API, not `/releases/latest`:
 
-`GET https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=100&page=1`
+`GET https://api.github.com/repos/MarcDownHQ/rocket-vibe/releases?per_page=100&page=1`
 
 - Use GitHub's JSON media type, a documented API version, a timeout and a User-Agent. Never send Rocket.Chat credentials or embed a GitHub token.
 - Accept only published, non-draft, non-prerelease entries matching strict `^mobile-v(\d+)\.(\d+)\.(\d+)$`.

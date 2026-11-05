@@ -102,8 +102,8 @@ The smoke sequence waits until login is visible, since GTK is_visible also
 checks ancestors. Real Slack credentials and installed Android/macOS remain
 unqualified.
 
-The pushed Slack increment also passes both [web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37960337293)
-and [macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/37960337204).
+The pushed Slack increment also passes both [web CI](https://github.com/MarcDownHQ/rocket-vibe/actions/runs/37960337293)
+and [macOS CI](https://github.com/MarcDownHQ/rocket-vibe/actions/runs/37960337204).
 The latter compiles, packages and launches the actual SwiftUI app. Manual
 nine-activation interaction and real Slack sessions on macOS remain unqualified.
 
@@ -144,9 +144,9 @@ identity mismatch, expiry and cancellation are covered by synthetic tests.
 
 The Fedora build.sh gate passes formatting, warnings-denied clippy, all 589 desktop
 tests and the workspace binary build.
-The [macOS CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38081199626)
+The [macOS CI](https://github.com/MarcDownHQ/rocket-vibe/actions/runs/38081199626)
 passes actual SwiftUI compilation, Swift tests, offline self-check, packaging,
-notarization and app launch. [Web CI](https://github.com/Guillaume69/rocket-vibe/actions/runs/38081199622)
+notarization and app launch. [Web CI](https://github.com/MarcDownHQ/rocket-vibe/actions/runs/38081199622)
 also passes its server build and browser compatibility checks. Live Slack browser
 sign-in, MFA and workspace acceptance still require the user's manual test;
 installed Android behavior and manual macOS interaction remain unqualified.

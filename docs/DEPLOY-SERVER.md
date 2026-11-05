@@ -1,6 +1,6 @@
 # Déployer un serveur Vibez
 
-Ce guide installe un serveur Vibez sur un serveur dédié, derrière un nom de domaine en HTTPS, avec le vocal (LiveKit). Tout part du dépôt : le serveur se construit depuis les sources. L'image `ghcr.io/guillaume69/vibez`, publiée pour chaque version `vibez-vX.Y.Z`, n'est pas utilisée ici.
+Ce guide installe un serveur Vibez sur un serveur dédié, derrière un nom de domaine en HTTPS, avec le vocal (LiveKit). Tout part du dépôt : le serveur se construit depuis les sources. L'image `ghcr.io/marcdownhq/vibez`, publiée pour chaque version `vibez-vX.Y.Z`, n'est pas utilisée ici.
 
 **Pile :** Linux, Docker Compose, PostgreSQL 18, LiveKit v1.13, Caddy pour le HTTPS. C'est un **serveur pilote** (voir les [limites connues](#limites-connues)).
 
@@ -52,7 +52,7 @@ docker compose version
 Récupérer le dépôt :
 
 ```bash
-git clone https://github.com/Guillaume69/rocket-vibe.git
+git clone https://github.com/MarcDownHQ/rocket-vibe.git
 cd rocket-vibe
 ```
 

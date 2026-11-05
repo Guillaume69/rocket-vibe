@@ -82,7 +82,7 @@ Per app, one commit `[release/<x.y.z>] chore(<app>): release <x.y.z>` holding:
   entry of the root `Cargo.lock`. The server embeds the committed `apps/web/dist`:
   if the web client changed, make sure `npm run build` in `apps/web/` left `dist/`
   committed and current. Its tag runs `server-release.yml` (gate, Docker build, the
-  `vibez-<x.y.z>-linux-x86_64.tar.gz` archive, the `ghcr.io/guillaume69/vibez` image,
+  `vibez-<x.y.z>-linux-x86_64.tar.gz` archive, the `ghcr.io/marcdownhq/vibez` image,
   release); the `release/**` branch push runs the same without publishing, so wait
   for it to be green before tagging.
 

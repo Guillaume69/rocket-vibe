@@ -4,7 +4,7 @@ The GTK desktop app updates itself from the repository's GitHub releases: it che
 
 ## Where releases come from
 
-- Monorepo tags are per app: `desktop-vX.Y.Z` and `mobile-vX.Y.Z`. Only `desktop-v` tags count (`update::TAG_PREFIX`); drafts and pre-releases are skipped. The release list is `https://api.github.com/repos/Guillaume69/rocket-vibe/releases?per_page=30` (`update::REPO`); `ROCKET_VIBE_RELEASES` points at another list (the smoke tests and `scripts/install.sh` honour it).
+- Monorepo tags are per app: `desktop-vX.Y.Z` and `mobile-vX.Y.Z`. Only `desktop-v` tags count (`update::TAG_PREFIX`); drafts and pre-releases are skipped. The release list is `https://api.github.com/repos/MarcDownHQ/rocket-vibe/releases?per_page=30` (`update::REPO`); `ROCKET_VIBE_RELEASES` points at another list (the smoke tests and `scripts/install.sh` honour it).
 - `.github/workflows/desktop.yml` builds and attaches the assets on a tag. Each platform picks its asset by suffix (`Platform::asset_suffix`):
 
 | Platform (`Platform::current`) | Asset suffix | Install |

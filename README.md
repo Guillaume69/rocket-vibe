@@ -97,7 +97,7 @@ release tag, or by hand through `workflow_dispatch`.
   platform keystores.
 - **`server-release`**: on a `vibez-vX.Y.Z` tag, the server gate, then one Docker build: its
   binary as a Linux x86_64 archive (`vibez-X.Y.Z-linux-x86_64.tar.gz`) with SHA-256 checksums and its image pushed to
-  `ghcr.io/guillaume69/vibez` (`X.Y.Z` and `latest`). A `release/**` branch runs it
+  `ghcr.io/marcdownhq/vibez` (`X.Y.Z` and `latest`). A `release/**` branch runs it
   without publishing; `server-image` republishes the image of an existing tag.
 - **`web-client`**: committed-bundle verification, server fmt/clippy/tests and real browser
   scenarios. It publishes nothing: the web client ships inside the server binary, under the

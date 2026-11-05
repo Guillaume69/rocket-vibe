@@ -1,5 +1,5 @@
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -18,7 +18,10 @@ import { callContext, joinConference, nativeJitsi } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
 import { VoiceNative, type VoiceSnapshot } from '../../modules/voice/index.ts';
 import type { RestClient } from '../../lib/rest.ts';
+import { TILE_GAP, arrangeTiles } from '../../lib/voiceGrid.ts';
 import { useT } from '../../ui/i18n.ts';
+import type { TranslateFn as T } from '../../ui/messages.ts';
+import { ControlButton, VoiceTile, type VoiceCard } from '../../ui/voice.tsx';
 import { useSession } from '../../ui/session.tsx';
 import {useSync} from '../../ui/sync.tsx';
 import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
@@ -196,16 +199,20 @@ function Call({
 
   // The native call's state; a join that fails opens the meeting's page instead.
   const [snapshot, setSnapshot] = useState<VoiceSnapshot | null>(null);
+  const connectedOnce = useRef(false);
   useEffect(() => {
     if (!native || VoiceNative === null) return;
     const voice = VoiceNative;
     const sub = voice.addListener('change', (next) => {
       setSnapshot(next);
+      if (next.state === 'connected') connectedOnce.current = true;
       if (next.state !== 'disconnected') return;
-      if (next.reason === 'connect_failed' || next.reason === 'connection_failed') {
+      if (!connectedOnce.current && (next.reason === 'connect_failed' || next.reason === 'connection_failed')) {
+        // Never joined: the meeting's page instead.
         setNative(false);
         setPageOnly(true);
-      } else finish();
+      } else if (next.reason === 'client_initiated') finish();
+      // Lost for good: the reason stays on screen until closed.
     });
     return () => {
       sub.remove();
@@ -255,7 +262,7 @@ function Call({
       </View>
 
       {native ? (
-        <NativeCall c={c} snapshot={snapshot ?? VoiceNative?.snapshot() ?? null} />
+        <NativeCall c={c} snapshot={snapshot ?? VoiceNative?.snapshot() ?? null} onClose={finish} />
       ) : error !== null ? (
         <View style={styles.center}>
           <Text style={[styles.errorMessage, { color: c.errorText }]}>{error}</Text>
@@ -309,9 +316,26 @@ function Call({
   );
 }
 
-/** Who is in a native Jitsi call, who speaks, and its controls. */
-function NativeCall({ c, snapshot }: { c: Colors; snapshot: VoiceSnapshot | null }) {
+/** Why a native call ended, in words. */
+function endReason(t: T, reason: string | null | undefined): string {
+  switch (reason) {
+    case 'connection_lost': case 'connection_closed': return t('call.endConnectionLost');
+    case 'connection_failed': return t('call.endMediaFailed');
+    case 'terminated': case 'transport_replaced': return t('call.endServer');
+    case 'connect_failed': return t('call.endJoinFailed');
+    default: return reason ? reason : t('call.endServer');
+  }
+}
+
+/**
+ * A native Jitsi call, drawn as the Vibez voice screen: a tile per person
+ * whose border lights while they speak, and the same control buttons. A lost
+ * call shows "Reconnecting…" while the engine joins again; one that ends stays
+ * on screen with the reason.
+ */
+function NativeCall({ c, snapshot, onClose }: { c: Colors; snapshot: VoiceSnapshot | null; onClose: () => void }) {
   const t = useT();
+  const [area, setArea] = useState({ width: 0, height: 0 });
   if (snapshot === null || snapshot.state === 'connecting' || snapshot.state === 'idle') {
     return (
       <View style={styles.center}>
@@ -320,40 +344,55 @@ function NativeCall({ c, snapshot }: { c: Colors; snapshot: VoiceSnapshot | null
       </View>
     );
   }
+  if (snapshot.state === 'disconnected') {
+    return (
+      <View style={styles.center}>
+        <Text style={[styles.loadingText, { color: c.text }]}>{t('call.ended', { reason: endReason(t, snapshot.reason) })}</Text>
+        <Pressable onPress={onClose} accessibilityRole="button" style={[styles.finish, { backgroundColor: c.card }]}>
+          <Text style={[styles.controlText, { color: c.text }]}>{t('common.close')}</Text>
+        </Pressable>
+      </View>
+    );
+  }
   const muted = snapshot.microphone === false || snapshot.deafened === true;
+  const cards: VoiceCard[] = snapshot.participants.map((p) => ({
+    uid: p.identity, name: p.local ? t('voice.you') : (p.name || p.identity), speaking: p.speaking, muted: p.muted,
+    deafened: p.deafened === true, local: false, camera: false, screen: false, mutedHere: false,
+  }));
+  const layout = arrangeTiles(cards.length, area.width, area.height);
+  const rows: VoiceCard[][] = [];
+  for (let i = 0; i < cards.length; i += layout.columns) rows.push(cards.slice(i, i + layout.columns));
   return (
     <View style={styles.full}>
-      <View style={styles.people}>
-        {snapshot.participants.map((p) => (
-          <View key={p.identity} style={[styles.person, { backgroundColor: c.card, borderColor: p.speaking ? c.accent : 'transparent' }]}>
-            <Text style={[styles.personName, { color: c.text }]} numberOfLines={1}>
-              {p.local ? t('voice.you') : p.name || p.identity}
-            </Text>
-            {p.muted && <Text style={[styles.personState, { color: c.dimmed }]}>{t('voice.mute')}</Text>}
+      <Text style={[styles.status, { color: snapshot.state === 'connected' ? c.online : c.dimmed }]}>
+        {snapshot.state === 'reconnecting' ? t('voice.reconnecting') : t('voice.connected')}
+      </Text>
+      <View style={styles.grid} onLayout={e => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
+        {area.width > 0 && rows.map(row => (
+          <View key={row[0]!.uid} style={styles.gridRow}>
+            {row.map(card => (
+              <VoiceTile key={card.uid} c={c} client={null} card={card} width={layout.width} height={layout.height} you={t('voice.you')} />
+            ))}
           </View>
         ))}
       </View>
       <View style={styles.controls}>
-        <Pressable onPress={() => void VoiceNative?.setMicrophone(muted)} accessibilityRole="button"
-          style={[styles.control, { backgroundColor: muted ? c.errorCard : c.card }]}>
-          <Text style={[styles.controlText, { color: c.text }]}>{muted ? t('voice.unmute') : t('voice.mute')}</Text>
-        </Pressable>
-        <Pressable onPress={() => void VoiceNative?.setDeafened(!snapshot.deafened)} accessibilityRole="button"
-          style={[styles.control, { backgroundColor: snapshot.deafened ? c.errorCard : c.card }]}>
-          <Text style={[styles.controlText, { color: c.text }]}>{snapshot.deafened ? t('voice.undeafen') : t('voice.deafen')}</Text>
-        </Pressable>
+        <ControlButton c={c} label={muted ? t('voice.unmute') : t('voice.mute')} icon={muted ? 'microphone-disabled' : 'audio-input-microphone'}
+          active={muted} onPress={() => void VoiceNative?.setMicrophone(muted)} />
+        <ControlButton c={c} label={snapshot.deafened ? t('voice.undeafen') : t('voice.deafen')}
+          icon={snapshot.deafened ? 'audio-volume-muted' : 'audio-headphones'} active={snapshot.deafened === true}
+          onPress={() => void VoiceNative?.setDeafened(!snapshot.deafened)} />
+        <ControlButton c={c} label={t('voice.leave')} icon="call-stop" danger onPress={onClose} />
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  people: { flex: 1, padding: 16, gap: 10 },
-  person: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 14, borderWidth: 2, paddingHorizontal: 16, paddingVertical: 14 },
-  personName: { fontFamily: FONTS.bodyBold, fontSize: 16, flexShrink: 1 },
-  personState: { fontFamily: FONTS.body, fontSize: 13 },
+  status: { fontFamily: FONTS.bodyBold, fontSize: 13, textAlign: 'center', paddingTop: 12 },
+  grid: { flex: 1, margin: 12, gap: TILE_GAP, justifyContent: 'center' },
+  gridRow: { flexDirection: 'row', justifyContent: 'center', gap: TILE_GAP },
   controls: { flexDirection: 'row', justifyContent: 'center', gap: 12, padding: 20 },
-  control: { borderRadius: 24, paddingHorizontal: 20, paddingVertical: 12 },
   controlText: { fontFamily: FONTS.bodyStrong, fontSize: 15 },
   full: { flex: 1 },
   veil: {

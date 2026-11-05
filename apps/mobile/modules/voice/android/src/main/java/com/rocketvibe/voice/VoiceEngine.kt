@@ -497,7 +497,15 @@ object VoiceEngine {
    */
   fun connectJitsi(callId: String, meeting: String, displayName: String, token: String?, title: String): Boolean {
     teardown(null, cue = false)
-    val session = JitsiSession(app, onChange = { if (jitsi != null) { if (state == "connecting" && jitsiConnected()) state = "connected"; changed() } },
+    val session = JitsiSession(app, onChange = {
+      if (jitsi != null) {
+        when {
+          jitsi?.reconnecting == true -> state = "reconnecting"
+          jitsiConnected() -> state = "connected"
+        }
+        changed()
+      }
+    },
       onEnd = { why -> if (jitsi != null) teardown(why, cue = state == "connected") })
     if (!session.start(meeting, displayName, token)) return false
     jitsi = session

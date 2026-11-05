@@ -143,7 +143,7 @@ async fn run() {
                         continue;
                     }
                     let config = rv_call::jitsi::Config { websocket, domain, muc, focus, room, display_name, token };
-                    return call::run(rv_call::jitsi::join(config), voice.fake, &mut commands).await;
+                    return call::run(|| rv_call::jitsi::join(config.clone()), voice.fake, &mut commands).await;
                 }
                 Some(Ok(Command::Connect { url, token, e2ee_key })) => {
                     if voice.room.is_some() {

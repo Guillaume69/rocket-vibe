@@ -25,6 +25,18 @@ const PING: &str = "urn:xmpp:ping";
 const EXTDISCO: &str = "urn:xmpp:extdisco:2";
 const FOCUS: &str = "http://jitsi.org/protocol/focus";
 
+/// How often the server is pinged, and how long without a frame from it means
+/// the socket is gone.
+const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(25);
+const SILENCE: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// `RV_CALL_DEBUG=1` prints each Jingle action and why a session ended, to stderr.
+fn debug(what: &str) {
+    if std::env::var("RV_CALL_DEBUG").as_deref() == Ok("1") {
+        eprintln!("rv-call: {what}");
+    }
+}
+
 /// What this client can do, as Jicofo reads it (disco#info): audio over ICE and
 /// DTLS-SRTP, bundled and multiplexed, with source names; no video, no SCTP.
 const FEATURES: [&str; 11] = [
@@ -181,12 +193,14 @@ struct State {
 
 impl State {
     async fn run(&mut self, mut socket: Socket, mut commands: mpsc::UnboundedReceiver<Command>) {
-        let mut ping = tokio::time::interval(std::time::Duration::from_secs(25));
+        let mut ping = tokio::time::interval(PING_EVERY);
         ping.tick().await;
+        let mut heard = tokio::time::Instant::now();
         let reason = loop {
             tokio::select! {
                 frame = socket.next() => {
                     let Some(Ok(frame)) = frame else { break "connection_lost" };
+                    heard = tokio::time::Instant::now();
                     let Message::Text(text) = frame else { continue };
                     let Some(stanza) = Element::parse(&text) else { continue };
                     if stanza.is("close", FRAMING) {
@@ -215,6 +229,10 @@ impl State {
                     }
                 }
                 _ = ping.tick() => {
+                    // Each ping is answered: a socket silent this long is dead even if TCP has not said so.
+                    if heard.elapsed() > SILENCE {
+                        break "connection_lost";
+                    }
                     let ping = iq("get", &self.config.domain).child(Element::new("ping", PING));
                     if send(&mut socket, &ping).await.is_err() {
                         break "connection_lost";
@@ -222,6 +240,7 @@ impl State {
                 }
             }
         };
+        debug(&format!("session ended: {reason}"));
         let _ = self.events.send(Event::Ended(reason.to_owned()));
     }
 
@@ -319,6 +338,11 @@ impl State {
         let Some(jingle) = iq_in.find("jingle", JINGLE) else { return vec![error_iq(&from, &id)] };
         let mut out = vec![result];
         let from_focus = from.ends_with("/focus") || from.split('@').next() == Some("focus");
+        debug(&format!(
+            "jingle {} from {}",
+            jingle.get("action").unwrap_or_default(),
+            if from_focus { "focus" } else { "peer" }
+        ));
         match jingle.get("action").unwrap_or_default() {
             "session-initiate" if !from_focus => {
                 // Another participant offering peer to peer: declined, the bridge carries the call.
@@ -370,6 +394,11 @@ impl State {
                         }
                     }
                 }
+            }
+            "transport-replace" if from_focus => {
+                // The focus restarting ICE or moving the call to another bridge: the
+                // session is joined again from scratch rather than patched.
+                let _ = self.events.send(Event::Ended("transport_replaced".to_owned()));
             }
             "session-terminate" if self.offer.as_ref().is_some_and(|o| Some(o.sid.as_str()) == jingle.get("sid")) => {
                 self.offer = None;
@@ -614,5 +643,19 @@ mod tests {
         let out = s.stanza(iq);
         assert_eq!(out.len(), 2);
         assert!(out[1].write().contains("session-terminate"));
+    }
+
+    #[test]
+    fn a_transport_replace_from_the_focus_ends_the_session_to_be_joined_again() {
+        let (events, mut rx) = mpsc::unbounded_channel();
+        let mut s = State { events, ..state() };
+        let iq = Element::new("iq", CLIENT)
+            .attr("type", "set")
+            .attr("from", "r@muc.meet.jitsi/focus")
+            .attr("id", "t1")
+            .child(Element::new("jingle", JINGLE).attr("action", "transport-replace").attr("sid", "s1"));
+        let out = s.stanza(iq);
+        assert_eq!(out.len(), 1, "only the iq result");
+        assert!(matches!(rx.try_recv(), Ok(Event::Ended(reason)) if reason == "transport_replaced"));
     }
 }

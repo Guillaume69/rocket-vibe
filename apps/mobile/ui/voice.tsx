@@ -16,7 +16,7 @@ import { avatarUrl } from '../lib/upload.ts';
 import type { RestClient } from '../lib/rest.ts';
 import { DEFAULT_LISTENING, type Listening, type ListeningStore, VoiceController, type VoiceView } from '../lib/voice.ts';
 import { CryptoNative } from '../modules/crypto-native/index.ts';
-import { VoiceNative } from '../modules/voice/index.ts';
+import { VoiceNative, VoiceVideoView } from '../modules/voice/index.ts';
 import type { NativeChat } from '../providers/vibez/chat.ts';
 import type { VoiceParticipant, VoiceRing } from '../providers/vibez/protocol.generated.ts';
 import { useT } from './i18n.ts';
@@ -164,7 +164,7 @@ export function useJoinVoice(): (room: string, title: string, ring?: boolean, di
 /** An avatar whose ring lights up while its person speaks. */
 export function SpeakingAvatar({
   c, client, uid, name, speaking, size = 44, radius = 15,
-}: { c: Colors; client: RestClient; uid: string; name: string; speaking: boolean; size?: number; radius?: number }) {
+}: { c: Colors; client: RestClient | null; uid: string; name: string; speaking: boolean; size?: number; radius?: number }) {
   const etags = useAvatarEtags();
   const glow = useSharedValue(0);
   useEffect(() => {
@@ -186,7 +186,7 @@ export function SpeakingAvatar({
         initial={name.charAt(0)}
         size={size}
         radius={radius}
-        uri={avatarUrl(client, { uid, etag: etags.byUid.get(uid) })}
+        uri={client === null ? undefined : avatarUrl(client, { uid, etag: etags.byUid.get(uid) })}
       />
     </View>
   );
@@ -239,7 +239,7 @@ export function usePersonSheet(): (uid: string, name: string) => void {
   return useCallback((uid, name) => router.push({ pathname: '/voice/person', params: { uid, name } }), [router]);
 }
 
-function ControlButton({ c, label, icon, active, danger, onPress }: { c: Colors; label: string; icon: IconName; active?: boolean; danger?: boolean; onPress: () => void }) {
+export function ControlButton({ c, label, icon, active, danger, onPress }: { c: Colors; label: string; icon: IconName; active?: boolean; danger?: boolean; onPress: () => void }) {
   return (
     <Pressable
       onPress={onPress}
@@ -251,6 +251,61 @@ function ControlButton({ c, label, icon, active, danger, onPress }: { c: Colors;
       style={[styles.control, { backgroundColor: danger ? c.danger : active ? c.border : c.card }]}
     >
       <Icon name={icon} size={18} color={danger ? c.onAccent : c.text} />
+    </Pressable>
+  );
+}
+
+/** Someone shown on a voice screen. */
+export type VoiceCard = {
+  uid: string; name: string; speaking: boolean; muted: boolean; deafened: boolean; local: boolean;
+  camera: boolean; screen: boolean; mutedHere: boolean;
+};
+
+/** The border that lights up while the person speaks. */
+export function useVoiceGlow(speaking: boolean) {
+  const glow = useSharedValue(0);
+  useEffect(() => { glow.value = withTiming(speaking ? 1 : 0, { duration: speaking ? 120 : 320 }); }, [speaking, glow]);
+  return useAnimatedStyle(() => ({ opacity: glow.value }));
+}
+
+/** Muted, deafened, muted for this side. */
+function VoiceStateIcons({ card }: { card: VoiceCard }) {
+  const c = useColors();
+  const t = useT();
+  return (
+    <>
+      {card.muted && <Icon name="microphone-disabled" size={12} color={c.dimmed} label={t('voice.stateMuted')} />}
+      {card.deafened && <Icon name="audio-volume-muted" size={12} color={c.dimmed} label={t('voice.stateDeafened')} />}
+      {card.mutedHere && <Icon name="notifications-disabled" size={12} color={c.dimmed} label={t('voice.mutedHere')} />}
+    </>
+  );
+}
+
+/**
+ * Someone on a voice screen: their camera filling the tile, or their avatar in
+ * its middle, the border lit while they speak, and their name. Without a
+ * client (a native Jitsi call) the avatar keeps its initial.
+ */
+export function VoiceTile({ c, client, card, width, height, you, onLongPress }: {
+  c: Colors; client: RestClient | null; card: VoiceCard; width: number; height: number; you: string; onLongPress?: () => void;
+}) {
+  const border = useVoiceGlow(card.speaking);
+  const avatar = Math.round(Math.max(44, Math.min(112, Math.min(width, height) * 0.38)));
+  return (
+    <Pressable onLongPress={onLongPress} delayLongPress={350}
+      style={[styles.tile, { width, height, backgroundColor: c.card, borderColor: c.border }]}>
+      {card.camera && VoiceVideoView !== null ? (
+        <VoiceVideoView identity={card.uid} source="camera" fit="cover" style={StyleSheet.absoluteFill} />
+      ) : (
+        <SpeakingAvatar c={c} client={client} uid={card.uid} name={card.name} speaking={card.speaking} size={avatar} radius={avatar / 2} />
+      )}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.tileGlow, { borderColor: c.online }, border]} />
+      <View style={[styles.tag, { backgroundColor: c.background }]}>
+        <Text style={[styles.tagName, { color: c.text }]} numberOfLines={1}>
+          {card.name}{card.local ? ` (${you})` : ''}
+        </Text>
+        <VoiceStateIcons card={card} />
+      </View>
     </Pressable>
   );
 }
@@ -424,6 +479,10 @@ export function IncomingCallPrompt({ c, client, callerId, caller, onAccept, onDe
 const NO_RINGS: VoiceRing[] = [];
 
 const styles = StyleSheet.create({
+  tile: { borderRadius: 20, borderWidth: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  tileGlow: { borderRadius: 20, borderWidth: 3, zIndex: 1 },
+  tag: { position: 'absolute', left: 8, bottom: 8, maxWidth: '85%', flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, opacity: 0.85 },
+  tagName: { fontFamily: FONTS.bodyStrong, fontSize: 13, flexShrink: 1 },
   occupants: { paddingLeft: 72, paddingRight: 16, paddingBottom: 6, gap: 2 },
   occupant: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   occupantName: { fontFamily: FONTS.bodyBold, fontSize: 13, flexShrink: 1 },

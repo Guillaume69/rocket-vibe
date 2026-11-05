@@ -33,7 +33,7 @@ mod native_navigation_tests;
 #[path = "chat_quotes.rs"]
 mod quotes;
 #[path = "chat_voice.rs"]
-mod voice;
+pub(crate) mod voice;
 #[path = "chat_whatsapp.rs"]
 mod whatsapp;
 

@@ -330,6 +330,41 @@ meetings with video (2 to 3 months more).
   tests, the module's Kotlin against LiveKit's WebRTC (`:voice:compileDebugKotlin`); not run on a
   device (an emulator call needs a signed-in Rocket.Chat account).
 
+### Long calls: what ended them, and recovery (2026-11-05)
+
+Two Rocket.Chat calls on meet.barrut.me closed by themselves after about an hour and a half. Nothing
+was logged, so the exact trigger of those two is not known; the code showed why any trigger closed
+the window without a word: the sidecar ended the call on the first of three events (the XMPP socket
+gone, `PeerConnectionState::Failed`, a Jicofo `session-terminate`), rv-call ignored a Jicofo
+`transport-replace` (its ICE restart or bridge move, which Jicofo then ends the participant for),
+and every window closed on `snapshot.ended` whatever the reason. Now:
+- **rv-call** (`jitsi/client.rs`): a socket with no frame for 90 s (`SILENCE`; pings every 25 s,
+  `PING_EVERY`, are answered) is lost, even when TCP has not said so; a `transport-replace` from the
+  focus ends the session at once (`transport_replaced`); `RV_CALL_DEBUG=1` prints each Jingle action
+  and why a session ended.
+- **rv-voice** (`call.rs`): `run` takes a joiner, not a join; a session lost on the way
+  (`Stop::Lost`) is joined again with a new peer connection after 1, 2, 4, 8, 15 s
+  (`REJOIN_DELAYS`; the count resets once a session connected), the window showing `Reconnecting`,
+  the microphone and deafen choices kept and told to the room again. Commands still work between
+  tries; hanging up stops at once. Only when every try failed is `Disconnected` sent, with the last
+  reason. `RV_CALL_DEBUG=1` prints the peer connection's states.
+- **Android** (`JitsiCall.kt`): the same loop in `JitsiSession.run`, a media `FAILED` recorded as
+  the session's loss rather than ending the call, `reconnecting` read by `VoiceEngine` as the
+  `reconnecting` state; only a first join that fails switches to the meeting's page.
+- **Windows**: GTK `native_call.rs`, SwiftUI `NativeCallWindow.swift` and Android's call screen show
+  "Reconnecting…" and, when a call ends other than by hanging up here, keep the window with "Call
+  ended: <reason>" (`Ended::explained`, rv-core; rv-ffi `JitsiCallState.ended_reason`) and a Close
+  button.
+- **Evidence**: a 105-minute probe (two sidecars sending a tone, `RV_CALL_DEBUG=1`, a test room on
+  meet.barrut.me) to see what the server does on a long call; see its result below.
+
+The windows are built from the Vibez voice page's parts: GTK `chat::voice` exports `controls`,
+`avatar_card`, `avatar_frame`, `name_tag` and `Occupant`; SwiftUI `VoiceTileFace`,
+`VoiceControlButton`, `VoiceHangUpButton`; Android `VoiceTile`, `VoiceCard`, `ControlButton` in
+`ui/voice.tsx`. No photos (Jitsi occupants are not accounts): the initial. Devices: GTK's microphone
+menu lists inputs and outputs (`VoiceController::devices`); SwiftUI and Android have no device menu
+in a native call yet.
+
 ## Order
 
 Jitsi first (open protocol, a Rust reference, the server offers, two providers at once;

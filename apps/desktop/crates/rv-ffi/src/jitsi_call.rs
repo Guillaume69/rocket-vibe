@@ -3,8 +3,9 @@
 //! of its own and its `rv-voice` sidecar, audio only. `start_jitsi_call` answers
 //! None when the meeting is not a Jitsi one or cannot be joined, and the app then
 //! opens the meeting's page.
+use crate::native_voice::VoiceMember;
 use crate::on_tokio;
-use rv_core::voice::{ConnectionState, VoiceController};
+use rv_core::voice::{ConnectionState, Ended, VoiceController};
 use std::sync::Arc;
 
 #[derive(uniffi::Object)]
@@ -13,23 +14,18 @@ pub struct JitsiCallSession {
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
-pub struct JitsiPerson {
-    pub id: String,
-    /// The room's display name; None for this side, or a nameless guest.
-    pub name: Option<String>,
-    pub local: bool,
-    pub muted: bool,
-    pub speaking: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct JitsiCallState {
     pub connected: bool,
-    /// The call is over: hung up here, or the conference ended it.
+    /// The sidecar lost the call and is joining it again.
+    pub reconnecting: bool,
+    /// The call is over: hung up here, or lost for good.
     pub ended: bool,
+    /// Why it ended, in words; None while it lives or when hung up here.
+    pub ended_reason: Option<String>,
     pub microphone: bool,
     pub deafened: bool,
-    pub people: Vec<JitsiPerson>,
+    /// Everyone in the call, as the Vibez voice page shows them (no photos).
+    pub members: Vec<VoiceMember>,
 }
 
 /// Joins the conference at `meeting_url` (kMeet's `?jwt=` included) as
@@ -53,20 +49,35 @@ pub async fn start_jitsi_call(
 impl JitsiCallSession {
     pub fn state(&self) -> JitsiCallState {
         let snapshot = self.voice.snapshot();
+        let ended_reason = snapshot.ended.as_ref().filter(|e| **e != Ended::Left).map(|e| match e.explained() {
+            (key, Some(reason)) => rv_core::i18n::tf(key, &[("reason", reason)]),
+            (key, None) => rv_core::i18n::t(key).to_owned(),
+        });
         JitsiCallState {
             connected: snapshot.state == ConnectionState::Connected,
+            reconnecting: snapshot.state == ConnectionState::Reconnecting,
             ended: snapshot.ended.is_some(),
+            ended_reason,
             microphone: snapshot.microphone,
             deafened: snapshot.deafened,
-            people: snapshot
+            members: snapshot
                 .participants
                 .iter()
-                .map(|p| JitsiPerson {
+                .map(|p| VoiceMember {
                     id: p.identity.clone(),
-                    name: p.name.clone(),
+                    name: if p.local {
+                        rv_core::i18n::t("call.you").to_owned()
+                    } else {
+                        p.name.clone().unwrap_or_else(|| p.identity.clone())
+                    },
                     local: p.local,
                     muted: p.muted,
+                    deafened: p.deafened,
                     speaking: p.speaking,
+                    camera: false,
+                    screen: false,
+                    muted_here: false,
+                    avatar: None,
                 })
                 .collect(),
         }

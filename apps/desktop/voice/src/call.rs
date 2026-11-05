@@ -24,14 +24,31 @@ enum Peer {
     Track { stream: String, id: String, track: livekit::webrtc::audio_track::RtcAudioTrack },
 }
 
-/// Runs one call until it ends, then reports `Disconnected`.
-pub async fn run<S: CallSignaling>(
-    joining: impl std::future::Future<Output = Result<S, rv_call::Error>>,
-    fake: bool,
-    commands: &mut mpsc::UnboundedReceiver<Result<Command, ()>>,
-) {
+/// How often a lost call is joined again before it is given up, and the pause
+/// before each try.
+const REJOIN_DELAYS: [u64; 5] = [1, 2, 4, 8, 15];
+
+/// How one joined session stopped.
+enum Stop {
+    /// This side hung up or the app went away: the call is over.
+    Left,
+    /// The connection, the media or the conference went away: worth joining again.
+    Lost(String),
+}
+
+/// Runs one call until it ends, then reports `Disconnected`. A call lost on the
+/// way (the signalling socket dropped, the media failed, the focus ended or
+/// replaced the session) is joined again with a new peer connection while the
+/// window shows `Reconnecting`, keeping the microphone and deafen choices; it is
+/// reported ended only when every rejoin failed, with the last reason.
+pub async fn run<S, J, F>(join: J, fake: bool, commands: &mut mpsc::UnboundedReceiver<Result<Command, ()>>)
+where
+    S: CallSignaling,
+    J: Fn() -> F,
+    F: std::future::Future<Output = Result<S, rv_call::Error>>,
+{
     emit(Event::State { state: State::Connecting });
-    let mut session = match joining.await {
+    let mut session = match join().await {
         Ok(session) => session,
         Err(e) => {
             diagnose(&format!("call: join failed: {e}"));
@@ -45,7 +62,6 @@ pub async fn run<S: CallSignaling>(
     report((input, output));
     let factory = PeerConnectionFactory::default();
     let microphone = factory.create_audio_track("microphone", sound.source.clone());
-    let (peer_tx, mut peer_rx) = mpsc::unbounded_channel();
     let mut call = Call {
         mix,
         pc: None,
@@ -58,41 +74,125 @@ pub async fn run<S: CallSignaling>(
         input_level: 0.0,
         last: None,
     };
+    let mut tries = 0;
+    let reason = loop {
+        let stop = joined(&mut session, &factory, &microphone, &mut sound, &mut call, commands).await;
+        call.reset();
+        let Stop::Lost(reason) = stop else { break "client_initiated".to_owned() };
+        diagnose(&format!("call: lost ({reason}), joining again"));
+        if call.connected {
+            tries = 0;
+        }
+        call.connected = false;
+        let Some(delay) = REJOIN_DELAYS.get(tries) else { break reason };
+        tries += 1;
+        emit(Event::State { state: State::Reconnecting });
+        if !wait(Duration::from_secs(*delay), commands, &mut call, &microphone, &mut sound).await {
+            break "client_initiated".to_owned();
+        }
+        match join().await {
+            Ok(next) => {
+                session = next;
+                if !call.microphone {
+                    let _ = session.set_muted(true).await;
+                }
+            }
+            Err(e) => {
+                diagnose(&format!("call: rejoin failed: {e}"));
+                if tries >= REJOIN_DELAYS.len() {
+                    break reason;
+                }
+            }
+        }
+    };
+    drop(sound);
+    emit(Event::State { state: State::Disconnected });
+    emit(Event::Disconnected { reason });
+}
+
+/// Waits `delay` between two tries, still taking the window's commands: false
+/// when the user hung up meanwhile.
+async fn wait(
+    delay: Duration,
+    commands: &mut mpsc::UnboundedReceiver<Result<Command, ()>>,
+    call: &mut Call,
+    microphone: &livekit::webrtc::audio_track::RtcAudioTrack,
+    sound: &mut audio::Audio,
+) -> bool {
+    let deadline = tokio::time::sleep(delay);
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => return true,
+            command = commands.recv() => match command {
+                None | Some(Ok(Command::Disconnect)) => return false,
+                Some(command) => local(command, call, microphone, sound),
+            },
+        }
+    }
+}
+
+/// A window command that needs no session: devices, volumes, deafen, the
+/// microphone's own state (told to the room on the next join).
+fn local(
+    command: Result<Command, ()>,
+    call: &mut Call,
+    microphone: &livekit::webrtc::audio_track::RtcAudioTrack,
+    sound: &mut audio::Audio,
+) {
+    match command {
+        Err(()) => error("invalid_command"),
+        Ok(Command::SetMicrophone { enabled }) => {
+            call.microphone = enabled;
+            call.apply(microphone);
+        }
+        Ok(Command::SetDeafened { deafened }) => {
+            call.deafened = deafened;
+            call.mix.set_deafened(deafened);
+            call.apply(microphone);
+        }
+        Ok(Command::ListDevices) => {
+            let (inputs, outputs) = audio::devices();
+            emit(Event::Devices { inputs, outputs });
+        }
+        Ok(Command::SetInput { device }) => report((sound.set_input(&device), audio::Opened::Chosen)),
+        Ok(Command::SetOutput { device }) => report((audio::Opened::Chosen, sound.set_output(&device))),
+        Ok(Command::SetParticipantVolume { identity, volume, muted }) => call.mix.set_gain(&identity, volume, muted),
+        Ok(Command::SetInputVolume { volume }) => call.mix.set_input_volume(volume),
+        Ok(Command::SetOutputVolume { volume }) => call.mix.set_output_volume(volume),
+        Ok(Command::SetNoiseSuppression { enabled }) => call.mix.set_denoise(enabled),
+        Ok(_) => error("unsupported"),
+    }
+}
+
+/// One joined session, until it stops.
+async fn joined<S: CallSignaling>(
+    session: &mut S,
+    factory: &PeerConnectionFactory,
+    microphone: &livekit::webrtc::audio_track::RtcAudioTrack,
+    sound: &mut audio::Audio,
+    call: &mut Call,
+    commands: &mut mpsc::UnboundedReceiver<Result<Command, ()>>,
+) -> Stop {
+    let (peer_tx, mut peer_rx) = mpsc::unbounded_channel();
     let mut activity = tokio::time::interval(Duration::from_millis(100));
     activity.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let reason = loop {
+    loop {
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Ok(Command::Disconnect)) => {
                     session.leave().await;
-                    break "client_initiated".to_owned();
+                    return Stop::Left;
                 }
-                Some(Err(())) => error("invalid_command"),
                 Some(Ok(Command::SetMicrophone { enabled })) => {
-                    call.microphone = enabled;
-                    call.apply(&microphone);
+                    local(Ok(Command::SetMicrophone { enabled }), call, microphone, sound);
                     let _ = session.set_muted(!enabled).await;
                 }
-                Some(Ok(Command::SetDeafened { deafened })) => {
-                    call.deafened = deafened;
-                    call.mix.set_deafened(deafened);
-                    call.apply(&microphone);
-                }
-                Some(Ok(Command::ListDevices)) => {
-                    let (inputs, outputs) = audio::devices();
-                    emit(Event::Devices { inputs, outputs });
-                }
-                Some(Ok(Command::SetInput { device })) => report((sound.set_input(&device), audio::Opened::Chosen)),
-                Some(Ok(Command::SetOutput { device })) => report((audio::Opened::Chosen, sound.set_output(&device))),
-                Some(Ok(Command::SetParticipantVolume { identity, volume, muted })) => call.mix.set_gain(&identity, volume, muted),
-                Some(Ok(Command::SetInputVolume { volume })) => call.mix.set_input_volume(volume),
-                Some(Ok(Command::SetOutputVolume { volume })) => call.mix.set_output_volume(volume),
-                Some(Ok(Command::SetNoiseSuppression { enabled })) => call.mix.set_denoise(enabled),
-                Some(Ok(_)) => error("unsupported"),
+                Some(command) => local(command, call, microphone, sound),
             },
             event = session.next_event() => match event {
-                None => break "other".to_owned(),
-                Some(CallEvent::Ended(reason)) => break reason,
+                None => return Stop::Lost("other".to_owned()),
+                Some(CallEvent::Ended(reason)) => return Stop::Lost(reason),
                 Some(CallEvent::IceServers(servers)) => {
                     call.ice = servers
                         .into_iter()
@@ -101,18 +201,18 @@ pub async fn run<S: CallSignaling>(
                 }
                 Some(CallEvent::Offer { sdp }) => {
                     if call.pc.is_none() {
-                        match open(&factory, call.ice.clone(), peer_tx.clone()) {
+                        match open(factory, call.ice.clone(), peer_tx.clone()) {
                             Ok(pc) => {
                                 if pc.add_track(MediaStreamTrack::Audio(microphone.clone()), &[session.local_id()]).is_err() {
                                     error("publish_failed");
                                 }
                                 call.pc = Some(pc);
-                                call.apply(&microphone);
+                                call.apply(microphone);
                             }
                             Err(e) => {
                                 diagnose(&format!("call: peer connection: {e}"));
                                 session.leave().await;
-                                break "connect_failed".to_owned();
+                                return Stop::Lost("connect_failed".to_owned());
                             }
                         }
                     }
@@ -120,7 +220,7 @@ pub async fn run<S: CallSignaling>(
                     match negotiate(pc, &sdp).await {
                         Ok(answer) => {
                             if session.answer(&answer).await.is_err() {
-                                break "other".to_owned();
+                                return Stop::Lost("other".to_owned());
                             }
                         }
                         Err(e) => diagnose(&format!("call: negotiation: {e}")),
@@ -140,15 +240,20 @@ pub async fn run<S: CallSignaling>(
                 Peer::Candidate(c) => {
                     let _ = session.local_candidate(Candidate { mid: c.sdp_mid(), line: c.candidate() }).await;
                 }
-                Peer::State(PeerConnectionState::Connected) if !call.connected => {
-                    call.connected = true;
-                    emit(Event::State { state: State::Connected });
+                Peer::State(state) => {
+                    debug(&format!("peer connection {state:?}"));
+                    match state {
+                        PeerConnectionState::Connected if !call.connected => {
+                            call.connected = true;
+                            emit(Event::State { state: State::Connected });
+                        }
+                        PeerConnectionState::Failed => {
+                            session.leave().await;
+                            return Stop::Lost("connection_failed".to_owned());
+                        }
+                        _ => {}
+                    }
                 }
-                Peer::State(PeerConnectionState::Failed) => {
-                    session.leave().await;
-                    break "connection_failed".to_owned();
-                }
-                Peer::State(_) => {}
                 Peer::Track { stream, id, track } => {
                     let task = sound.listen_rtc(id.clone(), stream, true, track);
                     if let Some(old) = call.heard.insert(id, task) {
@@ -158,16 +263,14 @@ pub async fn run<S: CallSignaling>(
             },
             _ = activity.tick() => call.tick(session.local_id()),
         }
-    };
-    for (_, task) in call.heard.drain() {
-        task.abort();
     }
-    if let Some(pc) = call.pc.take() {
-        pc.close();
+}
+
+/// `RV_CALL_DEBUG=1` prints the peer connection's states, to stderr.
+fn debug(what: &str) {
+    if std::env::var("RV_CALL_DEBUG").as_deref() == Ok("1") {
+        eprintln!("rv-voice: {what}");
     }
-    drop(sound);
-    emit(Event::State { state: State::Disconnected });
-    emit(Event::Disconnected { reason });
 }
 
 fn open(
@@ -220,6 +323,18 @@ struct Call {
 }
 
 impl Call {
+    /// Forgets one session's media: its peer connection, the tracks heard, the roster.
+    fn reset(&mut self) {
+        for (_, task) in self.heard.drain() {
+            task.abort();
+        }
+        if let Some(pc) = self.pc.take() {
+            pc.close();
+        }
+        self.roster.clear();
+        self.last = None;
+    }
+
     fn apply(&self, track: &livekit::webrtc::audio_track::RtcAudioTrack) {
         let sending = self.microphone && !self.deafened;
         self.mix.set_sending(sending);

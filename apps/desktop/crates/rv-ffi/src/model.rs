@@ -562,6 +562,8 @@ pub struct MessageItem {
     pub edited: bool,
     pub delivery: Delivery,
     pub thread_count: i64,
+    /// Replies newer than the last look at the thread.
+    pub thread_unread: i64,
     pub thread_id: Option<String>,
     pub pinned: bool,
     pub starred: bool,
@@ -716,6 +718,7 @@ pub fn message_named(
             _ => Delivery::Sent,
         },
         thread_count: row.thread_count,
+        thread_unread: row.thread_unread,
         pinned: row.pinned,
         starred: row.starred_by(me_id),
         author_bot: row.author_bot,

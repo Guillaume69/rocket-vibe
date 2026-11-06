@@ -17,6 +17,10 @@ section here.
 
 ### Fixed
 
+- Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.
+- Teams (experimental): a line break in a Teams message no longer adds two spaces at the start of the next line.
+- Teams (experimental): people shown by their id ("8:orgid:…") in system messages, call cards, authors and reactions are named once their profile is read, the rows stored earlier included; someone adding themselves to a channel reads "joined the channel".
+- Teams (experimental): a channel post shows how many of its thread's replies are new since the thread was last opened ("3 replies · 2 new"), and a reply in a thread you took part in marks the channel unread.
 - kChat and Mattermost: an account in the background reads its conversations again every two minutes, so its rail dot no longer misses messages its live connection did not deliver.
 - Teams (experimental): your status no longer drops to offline when you switch to another account or close Teams: every Teams account connected here now counts as one of your devices, as Teams' own clients do, and says it is active. "Keep my status online" (on by default) is in the account's menu in the server rail.
 - Teams (experimental): a room's last message in the list no longer goes back to an older one when Teams' list lags behind a message just received, and the open room catches up every two minutes, so a message Teams forgot to push still shows without reopening the room.

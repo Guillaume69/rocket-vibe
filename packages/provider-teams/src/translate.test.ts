@@ -7,7 +7,7 @@ import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './aut
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
   reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, keepNewerLast, newerLast, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, unknownPeople, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
-  convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor, replyTarget, replyQuote,
+  convert, isGiphy, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor, replyTarget, replyQuote,
 } from './translate.ts';
 
 test('ids split on the last slash', () => {
@@ -113,6 +113,8 @@ test('replies, member activity and skipped kinds', () => {
   assert.deepEqual([g.systemType, g.text], ['rv-chat-added', 'Bob, 8:orgid:ccc']);
   const created = raw('32', { messagetype: 'ThreadActivity/AddMember', content: '<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target></addmember>' });
   assert.equal(toMessage('19:g@thread.v2', created, d), null);
+  const joined = toMessage('19:ch@thread.tacv2', created, d)!;
+  assert.deepEqual([joined.systemType, joined.text], ['uj', null]);
   assert.equal(toMessage('19:aaa_bbb@unq.gbl.spaces', group, d), null);
   for (const kind of ['Event/Call', 'ThreadActivity/MemberJoined', 'RichText/Media_CallRecording']) {
     assert.equal(toMessage('c', raw('40', { messagetype: kind }), d), null, kind);
@@ -584,3 +586,19 @@ test('a lagging list never rewinds a last message', () => {
   assert.equal(newerLast({}, { lastMessage: { composeTime: '2026-11-06T10:00:00Z' } }), false);
 });
 
+
+test('HTML layout whitespace never starts a line', () => {
+  assert.equal(htmlToMarkdown('<p>Réponse de Cloud Temple :<br>\n  Après vérification,&nbsp; rien</p>\n  <p>  Fin</p>'), 'Réponse de Cloud Temple :\nAprès vérification, rien\nFin');
+  assert.equal(htmlToMarkdown('<p>a <b>b</b> c</p>'), 'a **b** c');
+  assert.equal(htmlToMarkdown('<pre><code>  x\n    y</code></pre>'), '```\n  x\n    y\n```');
+});
+
+test('a Giphy GIF is an image with its link', () => {
+  const gif = 'https://media4.giphy.com/media/abc/giphy.gif';
+  const raw = { messagetype: 'RichText/Html', content: `<p><img alt="Sent a GIF" src="${gif}" itemtype="http://schema.skype.com/Giphy" width="200" height="150"></p>` };
+  const found = JSON.parse(fileAttachments(raw)!) as Record<string, unknown>[];
+  assert.equal(found[0]!.image_url, gif);
+  assert.equal(found[0]!.title_link, gif);
+  assert.deepEqual(found[0]!.image_dimensions, { width: 200, height: 150 });
+  assert.ok(isGiphy('https://i.giphy.com/x.gif') && !isGiphy('https://giphy.com.evil.example/x.gif'));
+});

@@ -51,6 +51,10 @@ export interface Store {
   purgeMissingRooms(aliveRids: string[], knownRids: string[]): Promise<void>;
   /** Two-person DMs' real names (`fname`) on their other party (`UPDATE_DM_PEER_NAME`). */
   saveDmNames?(names: { rid: string; name: string }[]): Promise<void>;
+  /** Teams people (`8:` ids) stored rows still show by id: unnamed authors, ids in system texts or reactions. */
+  unnamedPeople?(): Promise<string[]>;
+  /** Writes a person's name where stored rows still show their id. */
+  renamePerson?(id: string, name: string): Promise<void>;
   /**
    * Retention: keep only the `nbMax` most recent messages of EACH
    * room, sparing optimistic ones and referenced thread roots.

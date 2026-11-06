@@ -48,6 +48,8 @@ pub struct TeamsSync {
     presence_route: Mutex<Option<(String, String)>>,
     /// Whether this connection holds my status online ("Keep my status online").
     keep_online: AtomicBool,
+    /// Whether stored rows showing people by id were named this session.
+    named_stored: AtomicBool,
     /// How far the other members read each room read so far: (MRI, arrival time).
     read_positions: Mutex<HashMap<String, Vec<(String, i64)>>>,
 }
@@ -69,6 +71,7 @@ impl TeamsSync {
             found: Mutex::default(),
             presence_route: Mutex::default(),
             keep_online: AtomicBool::new(true),
+            named_stored: AtomicBool::new(false),
             read_positions: Mutex::default(),
         }
     }
@@ -281,6 +284,9 @@ impl TeamsSync {
                 }
             }
         }
+        if !self.named_stored.swap(true, Ordering::SeqCst) {
+            self.name_stored_people().await;
+        }
         let rows: Vec<_> = entries.values().filter_map(|(entry, team)| self.row(entry, team.as_ref())).collect();
         *self.entries.lock().unwrap() = entries;
         self.store.write(|w| {
@@ -410,9 +416,23 @@ impl TeamsSync {
             .then(|| self.with_preview(&rid, Some(resource)))
             .flatten()
             .and_then(|(entry, team)| self.row(&entry, team.as_ref()));
+        let followed_reply = fresh
+            && !mine
+            && translate::is_channel(&rid)
+            && message.thread_id.as_deref().is_some_and(|root| self.store.took_part(root, &self.me));
         self.store.write(|w| {
             w.upsert_message(&message);
             w.recount_threads(&rid);
+            if let Some(root) = message.thread_id.as_deref().filter(|_| fresh) {
+                if mine {
+                    w.thread_seen(&rid, root, message.ts);
+                } else {
+                    w.thread_reply_arrived(&rid, root, message.ts);
+                }
+            }
+            if followed_reply {
+                w.set_unread_mark(&rid, true);
+            }
             if let Some((room, sub)) = &row {
                 w.upsert_room(room);
                 w.upsert_subscription(sub);
@@ -805,7 +825,10 @@ impl TeamsSync {
         let target = format!("{rid};messageid={server}");
         let (rows, _older) = self.service.messages(&target, &format!("view={VIEW}&pageSize={HISTORY_PAGE}")).await?;
         self.name_people(&rows).await;
-        self.ingest(rid, &rows);
+        let newest = self.ingest(rid, &rows).iter().map(|m| m.ts).max();
+        if let Some(ts) = newest {
+            self.store.write(|w| w.thread_seen(rid, root_id, ts));
+        }
         Ok(())
     }
 
@@ -824,11 +847,36 @@ impl TeamsSync {
     /// (reactors above all), so the page is stored with names, not ids.
     async fn name_people(&self, raw: &[Value]) {
         let unknown = translate::unknown_people(raw, &self.directory, &self.me);
-        for batch in unknown.chunks(PROFILE_BATCH) {
+        self.learn_names(&unknown).await;
+    }
+
+    /// Names, once a session, the people rows stored earlier still show by id
+    /// (before their profile was read, or by an older version).
+    async fn name_stored_people(&self) {
+        let unnamed: Vec<String> = self.store.unnamed_people().into_iter().filter(|mri| *mri != self.me).collect();
+        let (known, unknown): (Vec<String>, Vec<String>) =
+            unnamed.into_iter().partition(|mri| self.directory.known(mri));
+        self.store.write(|w| {
+            for mri in &known {
+                w.rename_person(mri, &self.directory.shown(mri));
+            }
+        });
+        self.learn_names(&unknown).await;
+    }
+
+    /// Reads these people's profiles and writes their names into the rows
+    /// that show them by id.
+    async fn learn_names(&self, mris: &[String]) {
+        for batch in mris.chunks(PROFILE_BATCH) {
+            let mut named = Vec::new();
             for row in self.service.profiles(batch).await {
                 if let (Some(mri), Some(name)) = (str_of(&row, "mri"), str_of(&row, "displayName")) {
                     self.directory.remember(mri, name);
+                    named.push((mri.to_owned(), name.to_owned()));
                 }
+            }
+            if !named.is_empty() {
+                self.store.write(|w| named.iter().for_each(|(mri, name)| w.rename_person(mri, name)));
             }
         }
     }

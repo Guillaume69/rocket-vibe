@@ -433,6 +433,12 @@ struct MessageList: View {
 struct MessageRow: View, Equatable {
     @Environment(AppModel.self) var app
     let message: MessageItem
+
+    static func repliesLabel(_ message: MessageItem, _ title: String?) -> String {
+        let replies = title ?? L("message.replies", count: Int(message.threadCount))
+        guard message.threadUnread > 0 else { return replies }
+        return "\(replies) · \(L("message.replies_new", count: Int(message.threadUnread)))"
+    }
     /// None in the sample gallery: no actions there.
     let model: RoomModel?
     let editing: Bool
@@ -625,7 +631,7 @@ struct MessageRow: View, Equatable {
             HStack(spacing: 10) {
                 if message.threadCount > 0 {
                     Button { app.openThread(message.id) } label: {
-                        Label(model?.repliesTitle(message.threadCount) ?? L("message.replies", count: Int(message.threadCount)), systemImage: "bubble.left")
+                        Label(Self.repliesLabel(message, model?.repliesTitle(message.threadCount)), systemImage: "bubble.left")
                     }
                         .buttonStyle(.link)
                         .foregroundStyle(Vibe.pinkSoft)

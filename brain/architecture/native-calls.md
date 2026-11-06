@@ -361,11 +361,17 @@ meetings with video (2 to 3 months more).
   `rv-voice-mobile`'s `startChime`/`offer`, the call screen's `joinedHuddle` (microphone permission
   only), the browser as the fallback.
 - **Checked live (2026-11-06)**, `rv-voice` with a tone against real huddles in a test channel,
-  credentials from `rooms.join`: join, TURN, the answer, `connected` in 3.7 s, held 90 s, LEAVE
-  answered, Slack's channel header showing a huddle avatar. **Not run**: anyone else in the
-  huddle, so audio in either direction, the roster and the levels are checked by unit tests only; the
-  GTK window on a signed-in Slack account (no Slack account on the test machine); SwiftUI (macOS CI
-  only); Android on a device (Kotlin and the Android cross-compile only).
+  credentials from `rooms.join`, the user in the same huddle from Slack's web app: join, TURN (UDP
+  relay), the answer, `connected` in under 2 s, held 4 min, LEAVE answered. The user heard the tone;
+  their arrival, departure, voice levels and mute reached the roster. They heard a few hiccups: the
+  stats (`RV_CALL_DEBUG=1`, every 5 s) showed 0 packets lost each way, 13 ms round trip, while the
+  tone's own timer stalled 6 times in about 2 min, up to 119 ms, on a machine at load 12.8. So the
+  evidence points at the loaded machine and the fake tone, not the path; no hiccup was matched to a
+  stall one by one. Inbound runs about 230 packets a second against 50 sent, unexplained (padding
+  probes, as the join declares bandwidth probing, is a guess). **Not run**: this client's playback (the
+  tone mode plays nothing, so a remote voice was seen as packets and levels, never heard here); a real
+  microphone in a huddle; the GTK window on a signed-in Slack account (none on the test machine);
+  SwiftUI (macOS CI only); Android on a device (Kotlin and the Android cross-compile only).
 
 ### Long calls: what ended them, and recovery (2026-11-05)
 

@@ -1593,6 +1593,15 @@ impl Session {
         }
     }
 
+    /// Reads the room list again (`catch_up_global`) and nothing else: what
+    /// a background account needs for its rail dot.
+    pub fn spawn_refresh_rooms(self: &Arc<Self>) {
+        let s = self.clone();
+        self.runtime.spawn(async move {
+            let _ = s.sync.catch_up_global().await;
+        });
+    }
+
     pub fn spawn_catch_up(self: &Arc<Self>) {
         let s = self.clone();
         self.runtime.spawn(async move { s.catch_up().await });

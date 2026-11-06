@@ -200,6 +200,21 @@ pub fn spotlight_results(response: &Value) -> Vec<Found> {
     users.chain(rooms).collect()
 }
 
+/// The room before or after `current` in the room list's order (Shift+Up /
+/// Shift+Down), section headers and rooms of folded sections already left out
+/// of `order`; the first or last room when none is open, nothing past an end.
+pub fn step(order: &[Option<String>], current: Option<&str>, forward: bool) -> Option<String> {
+    let rooms: Vec<&String> = order.iter().flatten().collect();
+    let at = current.and_then(|rid| rooms.iter().position(|r| r.as_str() == rid));
+    let next = match (at, forward) {
+        (None, true) => 0,
+        (None, false) => rooms.len().checked_sub(1)?,
+        (Some(at), true) => at + 1,
+        (Some(at), false) => at.checked_sub(1)?,
+    };
+    rooms.get(next).map(|rid| (*rid).clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,5 +371,17 @@ mod tests {
         alerted.alert = true;
         assert_eq!(badge(&[alerted]), Badge::Dot);
         assert_eq!(badge(&[room("c3", "c", 0)]), Badge::None);
+    }
+
+    #[test]
+    fn shift_arrows_walk_the_listed_rooms_and_stop_at_the_ends() {
+        let order = vec![None, Some("a".to_owned()), Some("b".to_owned()), None, Some("c".to_owned())];
+        assert_eq!(step(&order, Some("a"), true).as_deref(), Some("b"));
+        assert_eq!(step(&order, Some("b"), true).as_deref(), Some("c"));
+        assert_eq!(step(&order, Some("c"), true), None);
+        assert_eq!(step(&order, Some("a"), false), None);
+        assert_eq!(step(&order, None, true).as_deref(), Some("a"));
+        assert_eq!(step(&order, Some("gone"), false).as_deref(), Some("c"));
+        assert_eq!(step(&[None], None, true), None);
     }
 }

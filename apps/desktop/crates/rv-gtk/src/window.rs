@@ -269,7 +269,10 @@ impl AppWindow {
         // Below this width, one pane at a time: the room list, then the room
         // with a back button.
         let narrow = adw::Breakpoint::new(adw::BreakpointCondition::parse("max-width: 640sp").expect("condition"));
-        narrow.add_setter(chat.widget(), "collapsed", Some(&true.to_value()));
+        let page = chat.clone();
+        narrow.connect_apply(move |_| page.set_narrow(true));
+        let page = chat.clone();
+        narrow.connect_unapply(move |_| page.set_narrow(false));
         window.add_breakpoint(narrow);
 
         crate::widgets::badge_follows(&window);

@@ -5,6 +5,7 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppModel.self) var app
+    @State var columns: NavigationSplitViewVisibility = .automatic
 
     /// "(unread rooms) room - rocket-vibe", as the GTK app titles its window.
     var title: String {
@@ -27,7 +28,7 @@ struct ChatView: View {
     }
 
     var split: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             RoomListView()
                 .navigationSplitViewColumnWidth(min: 220, ideal: 280, max: 400)
         } detail: {
@@ -39,8 +40,15 @@ struct ChatView: View {
                     RoomView(model: room)
                         .id(ObjectIdentifier(room))
                         .transition(.opacity.combined(with: .offset(y: 8)))
-                        .inspector(isPresented: Binding(get: { app.thread != nil }, set: { if !$0 { app.closeThread() } })) {
-                            if let thread = app.thread {
+                        .inspector(isPresented: Binding(
+                            get: { app.thread != nil || app.notesOpen },
+                            set: { if !$0 { if app.notesOpen { app.toggleNotes() } else { app.closeThread() } } }
+                        )) {
+                            if app.notesOpen {
+                                NotesView(model: room)
+                                    .id(room.rid)
+                                    .inspectorColumnWidth(min: 320, ideal: 560, max: 1100)
+                            } else if let thread = app.thread {
                                 ThreadView(model: thread)
                                     .inspectorColumnWidth(min: 300, ideal: 380, max: 600)
                             }
@@ -58,6 +66,7 @@ struct ChatView: View {
             .animation(.snappy(duration: 0.22), value: app.voice?.shown)
             .background(Vibe.night)
         }
+        .onChange(of: app.notesOpen) { _, open in columns = open ? .detailOnly : .all }
         .modifier(IncomingCall())
         .modifier(RingingCallPrompt())
         .modifier(BackgroundCallPrompt())

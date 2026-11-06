@@ -98,6 +98,7 @@
 //!                          video must still play in its card; then opens the other room, and no
 //!                          card may still show its player
 //!   RV_SMOKE_DRAFT_TEXT=<text>  typed in the composer (\n breaks lines), for a screenshot
+//!   RV_SMOKE_NOTES_EDIT=1      with RV_SMOKE_NAV, leaves the notes pane open in its editor
 //!   RV_SMOKE_NAV=<other room>  opens the other room, then mouse back and forward between the two;
 //!                          in a narrow window, back to the list and forward into the room again
 //!   RV_SMOKE_GALLERY=1     sample messages and a composer, no server: see `gallery`
@@ -1926,6 +1927,31 @@ fn check_rail_positions(window: &AppWindow, users: &[&str], active: &str) {
     check("server rail marks the selected tile in place", selected == [active], &selected);
 }
 
+/// The notes pane as a state of the history: opening hides the list, back
+/// restores it with the conversation untouched, forward reopens; another room
+/// closes the pane, and going back to the state that had it open reopens it.
+fn notes_nav_checks(chat: &Rc<crate::chat::ChatPage>, first: &str, other: &str) {
+    let in_room = |rid: &str| chat.current_rid().as_deref() == Some(rid);
+    let list_hidden = || chat.widget().is_collapsed() && chat.shows_room();
+    chat.open_notes();
+    let opened = chat.notes_shown() && list_hidden() && in_room(other);
+    chat.navigate_back();
+    let closed = !chat.notes_shown() && !list_hidden() && in_room(other);
+    chat.navigate_forward();
+    let reopened = chat.notes_shown() && list_hidden() && in_room(other);
+    chat.open_room(first);
+    let left = !chat.notes_shown() && !list_hidden() && in_room(first);
+    chat.navigate_back();
+    let returned = chat.notes_shown() && list_hidden() && in_room(other);
+    println!("smoke: notes nav opened={opened} closed={closed} reopened={reopened} left={left} returned={returned}");
+    if !(opened && closed && reopened && left && returned) {
+        FAILED.store(true, Ordering::SeqCst);
+    }
+    if std::env::var_os("RV_SMOKE_NOTES_EDIT").is_some() {
+        chat.edit_notes();
+    }
+}
+
 fn nav_checks(chat: Rc<crate::chat::ChatPage>, first: String, other: String) {
     chat.open_room(&other);
     let narrow = chat.widget().is_collapsed();
@@ -1948,6 +1974,7 @@ fn nav_checks(chat: Rc<crate::chat::ChatPage>, first: String, other: String) {
     if !back || !forward {
         FAILED.store(true, Ordering::SeqCst);
     }
+    notes_nav_checks(&chat, &first, &other);
 }
 
 fn edit_checks(chat: Rc<crate::chat::ChatPage>, tag: String) {

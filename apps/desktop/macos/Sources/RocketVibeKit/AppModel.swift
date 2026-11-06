@@ -17,6 +17,16 @@ public final class TextScale: @unchecked Sendable {
 }
 
 /// The app's state: signed in or not, the room list, the open room.
+/// An edit left unsaved: its text and the revision it replaces.
+public struct NotesDraft {
+    public let text: String
+    public let revision: String
+    public init(text: String, revision: String) {
+        self.text = text
+        self.revision = revision
+    }
+}
+
 @MainActor @Observable
 public final class AppModel {
     public let client: Client
@@ -117,7 +127,13 @@ public final class AppModel {
     public private(set) var connection = ConnectionState.offline
     /// Encrypted rooms readable and writable (my E2E key unlocked).
     public private(set) var e2eUnlocked = false
-    public private(set) var room: RoomModel?
+    public private(set) var room: RoomModel? {
+        didSet { if room == nil { notesOpen = false } }
+    }
+    /// The open room's notes show beside it, the room list hidden meanwhile.
+    public private(set) var notesOpen = false
+    /// Edits left unsaved in a closed notes pane, per account and room.
+    public var notesDrafts: [String: NotesDraft] = [:]
     public private(set) var thread: RoomModel?
     /// The open account's folded sections, by `RoomGroup.key`.
     public private(set) var collapsed: Set<String> = []
@@ -164,6 +180,8 @@ public final class AppModel {
     struct Visit: Equatable {
         let account: String
         let rid: String
+        /// The room's notes were open beside it.
+        var notes = false
     }
     var history: [Visit] = []
     var historyAt = -1
@@ -888,6 +906,7 @@ public final class AppModel {
         // Another room: its chat, not the voice page shown before.
         if let voice, voice.shown != rid { voice.shown = nil }
         if room?.rid == rid { return }
+        notesOpen = false
         selectionId = UUID()
         if let key = account?.key {
             if remember {
@@ -980,6 +999,16 @@ public final class AppModel {
     public var canGoBack: Bool { historyAt > 0 }
     public var canGoForward: Bool { historyAt + 1 < history.count }
 
+    /// The header's notes button: each way is a state back and forward return to.
+    public func toggleNotes() {
+        guard let key = account?.key, let rid = room?.rid else { return }
+        notesOpen.toggle()
+        history = Array(history.prefix(historyAt + 1)) + [Visit(account: key, rid: rid, notes: notesOpen)]
+        historyAt = history.count - 1
+    }
+
+    public func notesDraftKey(_ rid: String) -> String { (account?.key ?? "") + "\n" + rid }
+
     public func goBack() {
         guard canGoBack else { return }
         Task { await step(-1) }
@@ -1014,7 +1043,9 @@ public final class AppModel {
                   await waitListed(visit.rid, account: sessionId, selected: selectionId) else { return false }
         }
         open(visit.rid, remember: false)
-        return room?.rid == visit.rid
+        guard room?.rid == visit.rid else { return false }
+        notesOpen = visit.notes
+        return true
     }
 
     /// The history without the visits `keep` refuses, the cursor on the

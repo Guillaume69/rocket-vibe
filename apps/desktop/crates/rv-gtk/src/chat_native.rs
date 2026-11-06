@@ -146,6 +146,7 @@ impl ChatPage {
         self.composer.set_text("");
         self.list.clear();
         self.room_nav.pop_to_tag("room");
+        self.hide_notes();
         self.content_stack.set_visible_child_name("empty");
         self.split.set_show_content(false);
         for f in self.on_room_changed.borrow().iter() {
@@ -162,14 +163,81 @@ impl ChatPage {
         self.local_search_button.set_visible(false);
     }
 
-    pub(super) fn open_notes(self: &Rc<Self>) {
-        let Some(rid) = self.current_rid() else { return };
+    /// The header's notes button: opens the pane, or closes it, each a new
+    /// state back and forward can return from.
+    pub(crate) fn open_notes(self: &Rc<Self>) {
+        if self.notes_panel.borrow().is_some() {
+            self.close_notes();
+            return;
+        }
+        let (Some(account), Some(rid)) = (self.account_key(), self.current_rid()) else { return };
+        self.show_notes_state(true);
+        if self.notes_panel.borrow().is_some() {
+            self.push_history(account, rid, true);
+        }
+    }
+
+    pub(super) fn close_notes(self: &Rc<Self>) {
+        let open = self.notes_panel.borrow().as_ref().map(|p| (p.account.clone(), p.rid.clone()));
+        self.hide_notes();
+        if let Some((account, rid)) = open {
+            self.push_history(account, rid, false);
+        }
+    }
+
+    pub(crate) fn notes_shown(&self) -> bool {
+        self.notes_panel.borrow().is_some()
+    }
+
+    pub(crate) fn edit_notes(&self) {
+        if let Some(panel) = self.notes_panel.borrow().as_ref() {
+            panel.page.start_editing();
+        }
+    }
+
+    /// The pane as a state of the history asks: shown or not, with no new entry.
+    pub(super) fn show_notes_state(self: &Rc<Self>, open: bool) {
+        if !open {
+            self.hide_notes();
+            return;
+        }
+        if self.notes_panel.borrow().is_some() {
+            return;
+        }
+        let (Some(account), Some(rid)) = (self.account_key(), self.current_rid()) else { return };
         let source = match (self.native_session(), self.session()) {
             (Some(native), _) => native_notes(&native, &rid),
             (None, Some(session)) => session_notes(&session, &rid),
             (None, None) => return,
         };
-        crate::notes::open(&self.split, &self.current_name(), source);
+        let draft = self.notes_drafts.borrow_mut().remove(&(account.clone(), rid.clone()));
+        let weak = Rc::downgrade(self);
+        let page = crate::notes::panel(&self.current_name(), source, draft, move || {
+            if let Some(this) = weak.upgrade() {
+                this.close_notes();
+            }
+        });
+        self.notes_split.set_sidebar(Some(page.widget()));
+        self.notes_panel.replace(Some(NotesPanel { page, account, rid }));
+        self.fit_panes();
+    }
+
+    /// Closes the pane, keeping an edit in progress for when it reopens.
+    pub(super) fn hide_notes(&self) {
+        let Some(panel) = self.notes_panel.take() else { return };
+        if let Some(draft) = panel.page.draft() {
+            self.notes_drafts.borrow_mut().insert((panel.account, panel.rid), draft);
+        }
+        self.fit_panes();
+        self.notes_split.set_sidebar(gtk::Widget::NONE);
+    }
+
+    /// Another room opened: the notes do not follow, and the list comes back.
+    pub(super) fn leave_notes_of_another_room(&self, rid: &str) {
+        let stays = self.notes_panel.borrow().as_ref().is_some_and(|p| p.rid == rid);
+        if !stays {
+            self.hide_notes();
+        }
     }
 
     pub(super) fn native_rooms(&self) -> Vec<RoomRow> {

@@ -1,6 +1,7 @@
-//! A room's notes in a dialog: the markdown rendered like messages, an edit
-//! mode on the raw text, saved whole against the revision it was read at.
-//! Whichever provider keeps the notes hands in its own load and save.
+//! A room's notes in a pane beside the conversation: the markdown rendered like
+//! messages, an edit mode on the raw text with a formatting bar, saved whole
+//! against the revision the edit started from. Whichever provider keeps the
+//! notes hands in its own load and save.
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -12,6 +13,7 @@ use gtk::glib;
 use rv_core::markdown;
 use rv_core::notes::{CONFLICT, Notes};
 
+use crate::composer::{Marks, toolbar};
 use crate::i18n::{t, tf};
 use crate::rows::short_time;
 
@@ -28,14 +30,28 @@ pub struct Source {
     pub me: String,
 }
 
-struct Page {
+/// An edit left unsaved when the pane closed: its text and the revision it replaces.
+#[derive(Debug, Clone)]
+pub struct Draft {
+    pub text: String,
+    pub revision: String,
+}
+
+pub struct Page {
+    root: adw::ToolbarView,
     source: Source,
     current: RefCell<Notes>,
     stamp: RefCell<Option<String>>,
     editing: Cell<bool>,
+    /// What a save replaces: the revision the edit started from, moved only
+    /// when a refused save has told the person about the newer one.
+    base: RefCell<String>,
+    adopt_revision: Cell<bool>,
     stack: gtk::Stack,
     view: gtk::ScrolledWindow,
     editor: gtk::TextView,
+    format: gtk::Revealer,
+    format_marks: Cell<Option<Marks>>,
     footer: gtk::Label,
     edit: gtk::Button,
     save: gtk::Button,
@@ -43,8 +59,16 @@ struct Page {
     toasts: adw::ToastOverlay,
 }
 
-pub fn open(parent: &impl IsA<gtk::Widget>, room: &str, source: Source) {
-    let header = adw::HeaderBar::new();
+pub fn panel(room: &str, source: Source, draft: Option<Draft>, on_close: impl Fn() + 'static) -> Rc<Page> {
+    let title = gtk::Label::builder()
+        .label(format!("{} · {room}", t("notes.title")))
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(["heading"])
+        .build();
+    let header = adw::HeaderBar::builder().title_widget(&title).show_back_button(false).build();
+    let close = gtk::Button::builder().icon_name("window-close-symbolic").tooltip_text(t("notes.close")).build();
+    close.connect_clicked(move |_| on_close());
+    header.pack_start(&close);
     let edit = gtk::Button::builder().label(t("notes.edit")).visible(false).build();
     let save = gtk::Button::builder().label(t("notes.save")).css_classes(["suggested-action"]).visible(false).build();
     let cancel = gtk::Button::builder().label(t("notes.cancel")).visible(false).build();
@@ -61,6 +85,7 @@ pub fn open(parent: &impl IsA<gtk::Widget>, room: &str, source: Source) {
         .right_margin(12)
         .build();
     let editor_scroll = gtk::ScrolledWindow::builder().vexpand(true).child(&editor).build();
+    let format = gtk::Revealer::builder().reveal_child(false).build();
     let stack = gtk::Stack::new();
     stack.add_named(
         &gtk::Spinner::builder().spinning(true).halign(gtk::Align::Center).valign(gtk::Align::Center).build(),
@@ -77,6 +102,7 @@ pub fn open(parent: &impl IsA<gtk::Widget>, room: &str, source: Source) {
         .margin_bottom(6)
         .build();
     let body = gtk::Box::builder().orientation(gtk::Orientation::Vertical).build();
+    body.append(&format);
     body.append(&stack);
     body.append(&footer);
     let toasts = adw::ToastOverlay::new();
@@ -84,20 +110,19 @@ pub fn open(parent: &impl IsA<gtk::Widget>, room: &str, source: Source) {
     let page = adw::ToolbarView::new();
     page.add_top_bar(&header);
     page.set_content(Some(&toasts));
-    let dialog = adw::Dialog::builder()
-        .title(format!("{} · {room}", t("notes.title")))
-        .content_width(640)
-        .content_height(560)
-        .child(&page)
-        .build();
     let this = Rc::new(Page {
+        root: page,
         stamp: RefCell::new((source.stamp)()),
         source,
         current: RefCell::default(),
         editing: Cell::new(false),
+        base: RefCell::default(),
+        adopt_revision: Cell::new(false),
         stack,
         view,
         editor,
+        format,
+        format_marks: Cell::new(None),
         footer,
         edit,
         save,
@@ -133,16 +158,30 @@ pub fn open(parent: &impl IsA<gtk::Widget>, room: &str, source: Source) {
         }
         glib::ControlFlow::Continue
     });
-    // The poll above holds the page weakly: the dialog keeps it alive.
-    let kept = this.clone();
-    dialog.connect_closed(move |_| {
-        let _ = &kept;
-    });
+    if let Some(draft) = draft {
+        this.edit_text(&draft.text, draft.revision);
+    }
     this.reload(true);
-    crate::widgets::present(&dialog, Some(parent));
+    this
 }
 
 impl Page {
+    pub fn widget(&self) -> &adw::ToolbarView {
+        &self.root
+    }
+
+    /// The edit in progress, for when the pane closes.
+    pub fn draft(&self) -> Option<Draft> {
+        if !self.editing.get() {
+            return None;
+        }
+        let buffer = self.editor.buffer();
+        Some(Draft {
+            text: buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string(),
+            revision: self.base.borrow().clone(),
+        })
+    }
+
     fn reload(self: &Rc<Self>, first: bool) {
         let weak = Rc::downgrade(self);
         let answer = (self.source.load)();
@@ -151,13 +190,18 @@ impl Page {
             let Some(this) = weak.upgrade() else { return };
             match result {
                 Ok(notes) => {
+                    if this.adopt_revision.take() {
+                        this.base.replace(notes.revision.clone());
+                    }
                     this.current.replace(notes);
                     // While editing, a newer version waits for the save, which says so.
-                    if !this.editing.get() {
+                    if this.editing.get() {
+                        this.fit_format_bar();
+                    } else {
                         this.show();
                     }
                 }
-                Err(_) if first => {
+                Err(_) if first && !this.editing.get() => {
                     this.stack.set_visible_child_name("view");
                     this.view.set_child(Some(&placeholder(t("notes.load_failed"))));
                 }
@@ -183,6 +227,7 @@ impl Page {
         };
         self.view.set_child(Some(&content));
         self.stack.set_visible_child_name("view");
+        self.format.set_reveal_child(false);
         self.edit.set_visible(notes.editable);
         self.save.set_visible(false);
         self.cancel.set_visible(false);
@@ -190,9 +235,20 @@ impl Page {
         self.footer.set_visible(!self.footer.label().is_empty());
     }
 
-    fn start_editing(&self) {
+    pub fn start_editing(&self) {
+        let (text, revision) = {
+            let notes = self.current.borrow();
+            (notes.markdown.clone(), notes.revision.clone())
+        };
+        self.edit_text(&text, revision);
+    }
+
+    fn edit_text(&self, text: &str, revision: String) {
         self.editing.set(true);
-        self.editor.buffer().set_text(&self.current.borrow().markdown);
+        self.base.replace(revision);
+        self.editor.buffer().set_text(text);
+        self.fit_format_bar();
+        self.format.set_reveal_child(true);
         self.stack.set_visible_child_name("edit");
         self.edit.set_visible(false);
         self.save.set_visible(true);
@@ -201,10 +257,19 @@ impl Page {
         self.editor.grab_focus();
     }
 
+    /// The bar follows what the provider keeps, known once the notes are read.
+    fn fit_format_bar(&self) {
+        let marks = if self.current.borrow().blocks_only { Marks::NotesBlocks } else { Marks::Notes };
+        if self.format_marks.get() != Some(marks) {
+            self.format_marks.set(Some(marks));
+            self.format.set_child(Some(&toolbar(&self.editor, marks)));
+        }
+    }
+
     fn commit(self: &Rc<Self>) {
         let buffer = self.editor.buffer();
         let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false).to_string();
-        let revision = self.current.borrow().revision.clone();
+        let revision = self.base.borrow().clone();
         self.save.set_sensitive(false);
         let weak = Rc::downgrade(self);
         let answer = (self.source.save)(text, revision);
@@ -222,6 +287,7 @@ impl Page {
                 Err(code) if code == CONFLICT => {
                     // Keep the text; the next save goes over the newer version.
                     this.toast(t("notes.conflict"));
+                    this.adopt_revision.set(true);
                     this.reload(false);
                 }
                 Err(_) => this.toast(t("notes.save_failed")),

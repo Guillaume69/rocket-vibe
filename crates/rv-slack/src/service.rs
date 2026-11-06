@@ -39,8 +39,16 @@ fn canvas_conflict() -> RestError {
     RestError { error: Some(CANVAS_CONFLICT.to_owned()), ..RestError::incomplete("canvas: changed meanwhile") }
 }
 
-fn canvas_revision(file: &Value) -> String {
-    file.get("updated").and_then(Value::as_i64).map_or_else(|| "0".to_owned(), |s| s.to_string())
+/// A fresh Quip editing session: its id and its Automerge actor's suffix.
+fn canvas_session() -> Result<rv_canvas::Session, RestError> {
+    let mut random = [0u8; 10];
+    getrandom::fill(&mut random).map_err(|_| RestError::incomplete("canvas: no randomness"))?;
+    let hex: String = random.iter().map(|b| format!("{b:02x}")).collect();
+    Ok(rv_canvas::Session {
+        id: hex[..12].to_owned(),
+        suffix: hex[12..20].to_owned(),
+        now_secs: chrono::Utc::now().timestamp(),
+    })
 }
 
 pub fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
@@ -281,50 +289,72 @@ impl Service {
         Ok(body.pointer("/channel/name").and_then(Value::as_str).unwrap_or(name).to_owned())
     }
 
-    /// The conversation's canvas read as markdown; None when it has none.
+    /// The conversation's canvas, read through Quip's canvas service: its
+    /// file, the Quip thread behind it, then `load-data`. The revision is the
+    /// document's version, which every save moves.
     pub async fn canvas(&self, rid: &str) -> Result<Option<Canvas>, RestError> {
         let Some(file) = self.canvas_file(rid).await? else { return Ok(None) };
+        let canvas = self.canvas_document(&file).await?;
         let meta = self.call("files.info", vec![("file", file.clone())]).await?;
         let info = meta.get("file").unwrap_or(&Value::Null);
-        let url = text(info, "url_private").ok_or_else(|| RestError::incomplete("canvas: no content link"))?;
-        let (bytes, _) = self.rest.fetch_protected(url).await?;
         let editor = text(info, "last_editor").or_else(|| text(info, "user")).map(str::to_owned);
         if let Some(id) = &editor {
             self.ensure_people([id.clone()]).await;
         }
         Ok(Some(Canvas {
-            markdown: crate::canvas::markdown(&String::from_utf8_lossy(&bytes)),
-            revision: canvas_revision(info),
+            markdown: rv_canvas::to_markdown(&canvas),
+            revision: canvas.version.to_string(),
             editable: info.get("editable").and_then(Value::as_bool).unwrap_or(true),
             updated_by: editor.and_then(|id| self.directory.display_name(&id)),
             updated_ms: info.get("updated").and_then(Value::as_i64).map(|s| s * 1000),
         }))
     }
 
-    /// Replaces the canvas with `markdown`, or creates it when the conversation
-    /// has none and `revision` is "0". A canvas changed since `revision` is
-    /// left alone: [`CANVAS_CONFLICT`].
+    /// Writes `markdown` over the canvas as Quip's editor would: only the
+    /// blocks that changed, read again first. A canvas whose version moved
+    /// since `revision` is left alone: [`CANVAS_CONFLICT`]. A conversation
+    /// with no canvas has nothing to write yet.
     pub async fn save_canvas(&self, rid: &str, markdown: &str, revision: &str) -> Result<(), RestError> {
-        let content = serde_json::json!({"type": "markdown", "markdown": markdown}).to_string();
-        match self.canvas_file(rid).await? {
-            None if revision == "0" => {
-                self.call(
-                    "conversations.canvases.create",
-                    vec![("channel_id", rid.to_owned()), ("document_content", content)],
-                )
-                .await?;
-            }
-            None => return Err(canvas_conflict()),
-            Some(file) => {
-                let meta = self.call("files.info", vec![("file", file.clone())]).await?;
-                if canvas_revision(meta.get("file").unwrap_or(&Value::Null)) != revision {
-                    return Err(canvas_conflict());
-                }
-                let changes = format!(r#"[{{"operation":"replace","document_content":{content}}}]"#);
-                self.call("canvases.edit", vec![("canvas_id", file), ("changes", changes)]).await?;
-            }
+        let Some(file) = self.canvas_file(rid).await? else {
+            return Err(crate::canvas::no_canvas());
+        };
+        let canvas = self.canvas_document(&file).await?;
+        if canvas.version.to_string() != revision {
+            return Err(canvas_conflict());
         }
+        let session = canvas_session()?;
+        let edit = rv_canvas::plan(&canvas, markdown, &session);
+        if edit.changed == 0 {
+            return Ok(());
+        }
+        use base64::Engine as _;
+        let form = vec![
+            ("thread".to_owned(), canvas.thread.clone()),
+            ("document".to_owned(), canvas.document.clone()),
+            ("retry_count".to_owned(), "0".to_owned()),
+            ("session".to_owned(), session.id.clone()),
+            ("sequence".to_owned(), "1".to_owned()),
+            ("nav_action_id".to_owned(), "null".to_owned()),
+            ("search_session_id".to_owned(), "null".to_owned()),
+            ("data_binary".to_owned(), base64::engine::general_purpose::STANDARD.encode(&edit.data)),
+            ("title".to_owned(), canvas.title.clone()),
+        ];
+        self.rest.slack_canvas("edit-document", form).await?;
         Ok(())
+    }
+
+    async fn canvas_document(&self, file: &str) -> Result<rv_canvas::Canvas, RestError> {
+        let lookup =
+            self.call("quip.lookupThreadIds", vec![("file_ids", serde_json::json!([file]).to_string())]).await?;
+        let thread = lookup
+            .pointer(&format!("/lookup/{file}"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| RestError::incomplete("canvas: no Quip thread"))?
+            .to_owned();
+        use base64::Engine as _;
+        let request = base64::engine::general_purpose::STANDARD.encode(rv_canvas::load_request(&thread, 1));
+        let bytes = self.rest.slack_canvas("load-data/editor/1", vec![("request_binary".to_owned(), request)]).await?;
+        rv_canvas::Canvas::from_load_data(&bytes).map_err(|_| RestError::incomplete("canvas: unreadable document"))
     }
 
     async fn canvas_file(&self, rid: &str) -> Result<Option<String>, RestError> {

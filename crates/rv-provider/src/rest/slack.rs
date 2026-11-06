@@ -43,7 +43,23 @@ pub const METHODS: &[&str] = &[
     "files.info",
     "canvases.edit",
     "conversations.canvases.create",
+    "quip.lookupThreadIds",
 ];
+
+/// The paths of Quip's canvas service (under `/canvas/-/`) a session may call:
+/// a canvas is read and written there, not through the `canvases.*` methods.
+pub const CANVAS_PATHS: &[&str] = &["load-data/editor/1", "edit-document"];
+
+/// Where the canvas service answers: Slack's web client's own origin, the
+/// API's `slack.com` host serving no `/canvas/`. Elsewhere (a test server) the
+/// client's base.
+pub fn canvas_origin(base: &url::Url) -> url::Url {
+    if base.host_str() == Some("slack.com") {
+        "https://app.slack.com".parse().expect("canvas origin")
+    } else {
+        base.clone()
+    }
+}
 
 /// `RestError::error_type` of an envelope that ends the session.
 pub const SESSION_REJECTED: &str = "slack-session-rejected";

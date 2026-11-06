@@ -579,13 +579,36 @@ pub fn convert(html: &str, mentions: &[Mentioned]) -> Converted {
     Converted { text: joined.trim().to_owned(), quotes, people }
 }
 
+/// Text between tags. Outside `<pre>`, HTML whitespace collapses: the source's
+/// line breaks and indentation are layout, not text, and none starts a line.
 fn push_text(out: &mut String, text: &str, pre: bool) {
     let decoded = rv_provider::text::decode_entities(text);
     if pre {
         out.push_str(&decoded);
+        return;
+    }
+    let mut collapsed = String::with_capacity(decoded.len());
+    let mut space = false;
+    for c in decoded.chars() {
+        if c.is_whitespace() {
+            space = true;
+        } else {
+            if space {
+                collapsed.push(' ');
+            }
+            space = false;
+            collapsed.push(c);
+        }
+    }
+    if space {
+        collapsed.push(' ');
+    }
+    let line_start = out.is_empty() || out.ends_with('\n');
+    let shown = if line_start { collapsed.trim_start() } else { &collapsed };
+    if out.ends_with(' ') {
+        out.push_str(shown.trim_start());
     } else {
-        let collapsed: String = decoded.split(['\n', '\r']).collect::<Vec<_>>().join(" ");
-        out.push_str(&collapsed.replace('\u{a0}', " "));
+        out.push_str(shown);
     }
 }
 
@@ -703,6 +726,8 @@ fn membership(rid: &str, content: &str, added: bool, directory: &Directory) -> O
         if rid.ends_with("@unq.gbl.spaces") || targets.is_empty() {
             return None;
         }
+    } else if !targets.is_empty() && targets.iter().all(|t| t.eq_ignore_ascii_case(initiator)) {
+        return Some((if added { "uj" } else { "ul" }, None));
     }
     let names =
         (!targets.is_empty()).then(|| targets.iter().map(|m| directory.shown(m)).collect::<Vec<_>>().join(", "));
@@ -972,12 +997,24 @@ fn inline_images(content: &str) -> Vec<Value> {
             continue;
         }
         let Some(src) = attribute(tag, "src").map(rv_provider::text::decode_entities) else { continue };
+        let size = |name: &str| attribute(tag, name).and_then(|v| v.trim_end_matches("px").parse::<i64>().ok());
         if is_teams_image(&src) {
-            let size = |name: &str| attribute(tag, name).and_then(|v| v.trim_end_matches("px").parse::<i64>().ok());
             out.push(image_attachment(&src, None, size("width"), size("height")));
+        } else if attribute(tag, "itemtype").is_some_and(|t| t.ends_with("/Giphy")) || is_giphy(&src) {
+            let mut gif = image_attachment(&src, Some("GIF"), size("width"), size("height"));
+            gif["title_link"] = json!(src);
+            out.push(gif);
         }
     }
     out
+}
+
+/// A GIF Teams' picker inserts: an `<img>` on Giphy's media hosts, fetched
+/// without credentials like any other site's image.
+pub fn is_giphy(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        u.scheme() == "https" && u.host_str().is_some_and(|h| h == "giphy.com" || h.ends_with(".giphy.com"))
+    })
 }
 
 /// The shared file's own address on SharePoint or OneDrive. Office documents
@@ -1850,6 +1887,8 @@ mod tests {
             json!({"messagetype": "ThreadActivity/AddMember", "content": "<addmember><initiator>8:orgid:aaa</initiator><target>8:orgid:aaa</target></addmember>"}),
         );
         assert!(message("19:g@thread.v2", &created, &d).is_none());
+        let joined = message("19:ch@thread.tacv2", &created, &d).unwrap();
+        assert_eq!((joined.system_type.as_deref(), joined.text.as_deref()), (Some("uj"), None));
         assert!(message("19:aaa_bbb@unq.gbl.spaces", &group, &d).is_none());
         for kind in ["Event/Call", "ThreadActivity/MemberJoined", "Control/Typing"] {
             assert!(message("c", &raw("40", json!({"messagetype": kind})), &d).is_none(), "{kind}");
@@ -2254,5 +2293,26 @@ mod tests {
         let lower = one_on_one_id("8:orgid:aaaa", "8:orgid:bbbb").unwrap();
         assert_eq!(one_on_one_id("8:orgid:aaaa", "8:orgid:BBBB").as_deref(), Some(lower.as_str()));
         assert_eq!(one_on_one_id("8:orgid:AAAA", "8:orgid:aaaa"), None);
+    }
+
+    #[test]
+    fn html_layout_whitespace_never_starts_a_line() {
+        let html = "<p>Réponse de Cloud Temple :<br>\n  Après vérification,&nbsp; rien</p>\n  <p>  Fin</p>";
+        assert_eq!(html_to_markdown(html), "Réponse de Cloud Temple :\nAprès vérification, rien\nFin");
+        assert_eq!(html_to_markdown("<p>a <b>b</b> c</p>"), "a **b** c");
+        assert_eq!(html_to_markdown("<pre><code>  x\n    y</code></pre>"), "```\n  x\n    y\n```");
+    }
+
+    #[test]
+    fn a_giphy_gif_is_an_image_with_its_link() {
+        let gif = "https://media4.giphy.com/media/abc/giphy.gif";
+        let raw = json!({"messagetype": "RichText/Html", "content": format!(
+            "<p><img alt=\"Sent a GIF\" src=\"{gif}\" itemtype=\"http://schema.skype.com/Giphy\" width=\"200\" height=\"150\"></p>"
+        )});
+        let found: Vec<Value> = serde_json::from_str(&file_attachments(&raw).unwrap()).unwrap();
+        assert_eq!(found[0]["image_url"], json!(gif));
+        assert_eq!(found[0]["title_link"], json!(gif));
+        assert_eq!(found[0]["image_dimensions"], json!({"width": 200, "height": 150}));
+        assert!(is_giphy("https://i.giphy.com/x.gif") && !is_giphy("https://giphy.com.evil.example/x.gif"));
     }
 }

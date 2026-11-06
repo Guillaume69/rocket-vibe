@@ -930,6 +930,7 @@ struct ReactionPress: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.86 : 1)
             .animation(Vibe.spring, value: configuration.isPressed)
+            .pointerStyle(.link)
     }
 }
 

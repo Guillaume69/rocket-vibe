@@ -1,3 +1,4 @@
+import { editingText, stepRoom } from "./room-step";
 import { formatShortcut } from "./ui/format";
 import { pickTimeDialog } from "./time-picker";
 import { gifs } from "./social";
@@ -336,6 +337,27 @@ export class App implements RowActions {
       "keydown",
       (event) => {
         if (event.defaultPrevented || !this.account) return;
+        // Shift+Up / Shift+Down: the previous or next room in the list, unless
+        // a text field holding text has the focus.
+        if (
+          event.shiftKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+          !editingText(event.target) &&
+          !document.querySelector("dialog[open]")
+        ) {
+          const order = [
+            ...(this.rooms?.querySelectorAll<HTMLElement>("[data-room]") ?? []),
+          ].map((node) => node.dataset.room ?? "");
+          const next = stepRoom(order, this.room, event.key === "ArrowDown");
+          if (next) {
+            event.preventDefault();
+            void this.openRoom(next).catch(toast);
+          }
+          return;
+        }
         // The room switcher; in the composer, Ctrl+Shift+K is the link.
         if (
           (event.ctrlKey || event.metaKey) &&

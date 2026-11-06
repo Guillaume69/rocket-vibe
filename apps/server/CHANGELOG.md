@@ -11,6 +11,10 @@ first release: everything before it is under that section.
 
 ## [Unreleased]
 
+### Added
+
+- Web client: Shift+Up / Shift+Down opens the previous or next room in the list, skipping folded sections; inside a text field holding text they still select text.
+
 ### Changed
 
 - The project moved to `MarcDownHQ/rocket-vibe` on GitHub: the Docker image is now published to `ghcr.io/marcdownhq/vibez` (versions up to 0.11.0 stay at `ghcr.io/guillaume69/vibez`), and the administration's update check reads the new repository.

@@ -199,7 +199,17 @@ impl State {
         let reason = loop {
             tokio::select! {
                 frame = socket.next() => {
-                    let Some(Ok(frame)) = frame else { break "connection_lost" };
+                    let frame = match frame {
+                        Some(Ok(frame)) => frame,
+                        Some(Err(e)) => {
+                            eprintln!("rv-call: connection lost: {e}");
+                            break "connection_lost";
+                        }
+                        None => {
+                            eprintln!("rv-call: connection closed by the server");
+                            break "connection_lost";
+                        }
+                    };
                     heard = tokio::time::Instant::now();
                     let Message::Text(text) = frame else { continue };
                     let Some(stanza) = Element::parse(&text) else { continue };

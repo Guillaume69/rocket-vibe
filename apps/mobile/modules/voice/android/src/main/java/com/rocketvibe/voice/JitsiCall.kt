@@ -35,6 +35,8 @@ internal object JitsiCall {
   }
 
   @JvmStatic external fun start(meeting: String, configJs: String, displayName: String, token: String?): Long
+  @JvmStatic external fun startChime(signalingUrl: String, audioHost: String, attendeeId: String, joinToken: String, origin: String): Long
+  @JvmStatic external fun offer(handle: Long, sdp: String)
   @JvmStatic external fun next(handle: Long, timeoutMs: Long): String?
   @JvmStatic external fun answer(handle: Long, sdp: String)
   @JvmStatic external fun candidate(handle: Long, mid: String, line: String)
@@ -43,10 +45,19 @@ internal object JitsiCall {
   @JvmStatic external fun free(handle: Long)
 }
 
+/** An Amazon Chime attendee's credentials (a Slack huddle). */
+internal data class ChimeCredentials(
+  val signalingUrl: String,
+  val audioHost: String,
+  val attendeeId: String,
+  val joinToken: String,
+  val origin: String,
+)
+
 /**
- * One native Jitsi call, audio only: libwebrtc (the copy LiveKit ships) answers
- * the bridge's offer, the signalling runs in Rust. [onChange] and [onEnd] are
- * called on the main thread.
+ * One native call, audio only: libwebrtc (the copy LiveKit ships) answers a Jitsi
+ * bridge's offer or offers to Chime, the signalling runs in Rust. [onChange] and
+ * [onEnd] are called on the main thread.
  */
 internal class JitsiSession(
   private val app: Context,
@@ -76,10 +87,26 @@ internal class JitsiSession(
   @Volatile private var lost: String? = null
   private var everConnected = false
 
+  /** The offer waiting for ICE gathering, sent once at most. */
+  private var offering = false
+  private var relayOnly = false
+
   /** Joins on a thread of its own; false at once when the library is missing. */
   fun start(meeting: String, displayName: String, token: String?): Boolean {
     if (!JitsiCall.available) return false
-    Thread({ run(meeting, displayName, token) }, "jitsi-call").start()
+    Thread({
+      val configJs = fetchConfig(meeting)
+      hold { if (configJs == null) 0L else JitsiCall.start(meeting, configJs, displayName, token) }
+    }, "jitsi-call").start()
+    return true
+  }
+
+  /** Joins a Chime meeting on a thread of its own; false at once when the library is missing. */
+  fun startChime(c: ChimeCredentials): Boolean {
+    if (!JitsiCall.available) return false
+    Thread({
+      hold { JitsiCall.startChime(c.signalingUrl, c.audioHost, c.attendeeId, c.joinToken, c.origin) }
+    }, "chime-call").start()
     return true
   }
 
@@ -89,12 +116,12 @@ internal class JitsiSession(
    * the microphone and deafen choices, until it holds or every retry failed.
    * A first join that fails ends at once, so the meeting's page takes over.
    */
-  private fun run(meeting: String, displayName: String, token: String?) {
-    val configJs = fetchConfig(meeting)
+  private fun hold(join: () -> Long) {
     var tries = 0
     var reason = "connect_failed"
+    var over = false
     while (!closed) {
-      val h = if (configJs == null) 0L else JitsiCall.start(meeting, configJs, displayName, token)
+      val h = join()
       if (h == 0L && !everConnected) break
       if (h != 0L) {
         handle = h
@@ -102,7 +129,9 @@ internal class JitsiSession(
         while (!closed && lost == null) {
           val line = JitsiCall.next(h, 500) ?: continue
           val event = runCatching { JSONObject(line) }.getOrNull() ?: continue
-          if (event.optString("type") in setOf("ended", "gone")) {
+          val type = event.optString("type")
+          if (type in setOf("ended", "gone", "over")) {
+            over = type == "over"
             lost = event.optString("reason", "terminated")
             break
           }
@@ -116,7 +145,7 @@ internal class JitsiSession(
         reason = lost ?: "terminated"
         if (connected) tries = 0
       }
-      if (tries >= REJOIN_DELAYS_S.size) break
+      if (over || tries >= REJOIN_DELAYS_S.size) break
       Log.i("RocketVibeVoice", "jitsi: lost ($reason), joining again")
       reconnecting = true
       connected = false
@@ -146,6 +175,22 @@ internal class JitsiSession(
         }
       }
       "offer" -> offer(event.getString("sdp"))
+      "offerWanted" -> {
+        relayOnly = event.optBoolean("relayOnly")
+        localOffer()
+      }
+      "answer" -> pc?.setRemoteDescription(Sdp(), SessionDescription(SessionDescription.Type.ANSWER, event.getString("sdp")))
+      "levels" -> {
+        val list = event.getJSONArray("levels")
+        val now = SystemClock.elapsedRealtime()
+        for (i in 0 until list.length()) {
+          val item = list.getJSONObject(i)
+          val id = item.getString("id")
+          val level = item.optDouble("level")
+          levels[id] = level
+          if (level > REPORTED_SPEAKING) heard[id] = now
+        }
+      }
       "candidate" -> pc?.addIceCandidate(IceCandidate(event.getString("mid"), 0, event.getString("line")))
       "roster" -> {
         roster.clear()
@@ -172,6 +217,7 @@ internal class JitsiSession(
       sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
       bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
       rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+      if (relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
     }
     val created = f.createPeerConnection(config, observer) ?: return null
     val track = f.createAudioTrack("${localId}-a0", f.createAudioSource(MediaConstraints()))
@@ -197,8 +243,40 @@ internal class JitsiSession(
     }, SessionDescription(SessionDescription.Type.OFFER, sdp))
   }
 
+  /** The local offer made and set; it goes out once gathering completed, or after a moment. */
+  private fun localOffer() {
+    val p = peer() ?: return onEnd("connect_failed")
+    p.createOffer(object : Sdp() {
+      override fun onCreateSuccess(offer: SessionDescription) {
+        p.setLocalDescription(object : Sdp() {
+          override fun onSetSuccess() {
+            main.post {
+              offering = true
+              main.postDelayed({ sendOffer() }, GATHERING_MS)
+              if (p.iceGatheringState() == PeerConnection.IceGatheringState.COMPLETE) sendOffer()
+            }
+          }
+        }, offer)
+      }
+    }, MediaConstraints().apply {
+      mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))
+    })
+  }
+
+  /** Sends the local description, its gathered candidates in it. */
+  private fun sendOffer() {
+    if (closed || !offering) return
+    val sdp = pc?.localDescription?.description ?: return
+    offering = false
+    if (handle != 0L) JitsiCall.offer(handle, sdp)
+  }
+
   private val observer = object : PeerConnection.Observer {
-    override fun onIceCandidate(c: IceCandidate) { if (handle != 0L) JitsiCall.candidate(handle, c.sdpMid ?: "", c.sdp) }
+    override fun onIceCandidate(c: IceCandidate) {
+      if (handle != 0L) JitsiCall.candidate(handle, c.sdpMid ?: "", c.sdp)
+      // One relay candidate is all a relayed call needs: gathering may take long to say it is done.
+      if (relayOnly) main.postDelayed({ sendOffer() }, FIRST_CANDIDATE_MS)
+    }
     override fun onConnectionChange(state: PeerConnection.PeerConnectionState) {
       main.post {
         if (closed) return@post
@@ -220,7 +298,9 @@ internal class JitsiSession(
     override fun onSignalingChange(state: PeerConnection.SignalingState) {}
     override fun onIceConnectionChange(state: PeerConnection.IceConnectionState) {}
     override fun onIceConnectionReceivingChange(receiving: Boolean) {}
-    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {}
+    override fun onIceGatheringChange(state: PeerConnection.IceGatheringState) {
+      if (state == PeerConnection.IceGatheringState.COMPLETE) main.post { sendOffer() }
+    }
     override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>) {}
     override fun onAddStream(stream: MediaStream) {}
     override fun onRemoveStream(stream: MediaStream) {}
@@ -281,6 +361,7 @@ internal class JitsiSession(
     factory?.dispose(); factory = null
     audio?.release(); audio = null
     tracks.clear(); heard.clear(); levels.clear(); roster.clear()
+    offering = false
   }
 
   private open class Sdp : SdpObserver {
@@ -292,6 +373,10 @@ internal class JitsiSession(
 
   private companion object {
     const val SPEAKING = 0.02
+    /** The loudness, as the provider reports it, above which a member speaks. */
+    const val REPORTED_SPEAKING = 0.15
+    const val GATHERING_MS = 5000L
+    const val FIRST_CANDIDATE_MS = 500L
     const val HANGOVER_MS = 350L
     /** The pause before each rejoin; as many tries. */
     val REJOIN_DELAYS_S = longArrayOf(1, 2, 4, 8, 15)

@@ -938,8 +938,14 @@ async fn sine(mix: Arc<Mix>, frames: mpsc::UnboundedSender<Vec<i16>>) {
     let step = 2.0 * std::f32::consts::PI * 440.0 / RATE as f32;
     let mut phase = 0f32;
     let mut tick = tokio::time::interval(Duration::from_millis(10));
+    let debugging = std::env::var("RV_CALL_DEBUG").as_deref() == Ok("1");
+    let mut last = std::time::Instant::now();
     loop {
         tick.tick().await;
+        if debugging && last.elapsed() > Duration::from_millis(40) {
+            eprintln!("rv-voice: the tone stalled {} ms", last.elapsed().as_millis());
+        }
+        last = std::time::Instant::now();
         let mut pcm = vec![0i16; FRAME];
         for sample in pcm.iter_mut() {
             *sample = (phase.sin() * 12_000.0) as i16;

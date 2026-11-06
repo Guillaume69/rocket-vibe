@@ -8,7 +8,7 @@ import { glyphOf, reactionCode, replaceSlackEmojis, slackName, slackReactable } 
 import { slackCustomEmojis } from './index.ts';
 import { COOKIE, TOKEN, fakeSlack } from './testing.ts';
 import { slackCalls } from './calls.ts';
-import { huddleCall } from './translator.ts';
+import { huddleCall, huddleChannel, huddleMedia, huddlePerson } from './translator.ts';
 
 describe('Slack emoji names', () => {
   test('text names and skin tones become glyphs; custom and unknown stay', () => {
@@ -58,6 +58,29 @@ describe('huddles', () => {
     assert.equal(await calls.join(page, {}, () => true), page);
     assert.equal(await calls.join('https://app.slack.com/huddle/T1/C9', {}, () => true), page);
     await assert.rejects(calls.join('https://evil.example/x', {}, () => true));
+  });
+  test('a huddle joins through rooms.join for its Chime credentials', async () => {
+    const asked: unknown[] = [];
+    const calls = slackCalls('T1', {
+      call: async (method, args) => {
+        asked.push([method, args]);
+        return { call: { free_willy: {
+          meeting: { MediaPlacement: { SignalingUrl: 'wss://signal.x.m.chime.aws/control/m', AudioHostUrl: 'h:3478' } },
+          attendee: { AttendeeId: 'a', JoinToken: 'tok' },
+        } } };
+      },
+      ensure: async () => {},
+      displayName: (id) => (id === 'U1' ? 'Ana' : null),
+    });
+    assert.deepEqual(await calls.chime?.('https://app.slack.com/client/T1/C9?open=start_huddle'), {
+      signalingUrl: 'wss://signal.x.m.chime.aws/control/m', audioHost: 'h:3478', attendeeId: 'a', joinToken: 'tok', origin: 'https://app.slack.com',
+    });
+    assert.deepEqual(asked, [['rooms.join', { channel_id: 'C9', multidevice: 'false' }]]);
+    await assert.rejects(Promise.resolve(calls.chime?.('https://evil.example/client/T1/C9')));
+    assert.equal(await calls.personName?.('T1-R1-U1-1256'), 'Ana');
+    assert.equal(huddleMedia({ call: {} }), null);
+    assert.equal(huddleChannel('https://app.slack.com/huddle/T1/C9'), 'C9');
+    assert.equal(huddlePerson('T1-R1-U1'), 'U1');
   });
 });
 

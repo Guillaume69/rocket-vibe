@@ -194,6 +194,33 @@ export function huddlePage(link: string): string | null {
   return parts.length === 3 && parts[0] === 'huddle' ? huddleUrl(parts[1]!, parts[2]!) : link;
 }
 
+/** The channel whose huddle a call id names: the room's page or a `huddle/<team>/<channel>` link. */
+export function huddleChannel(callId: string): string | null {
+  const page = huddlePage(callId);
+  if (page === null) return null;
+  const parts = page.split(/[?#]/)[0]!.replace(/^https:\/\/[^/]+\//, '').split('/');
+  return parts.length === 3 && parts[0] === 'client' && parts[2] !== '' ? parts[2]! : null;
+}
+
+/** `rooms.join`'s `call.free_willy`: the meeting's media placement and this attendee's join token. */
+export function huddleMedia(body: Doc): { signalingUrl: string; audioHost: string; attendeeId: string; joinToken: string; origin: string } | null {
+  const willy = record(record(body.call)?.free_willy);
+  const placement = record(record(willy?.meeting)?.MediaPlacement);
+  const attendee = record(willy?.attendee);
+  const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : null);
+  const signalingUrl = text(placement?.SignalingUrl);
+  const audioHost = text(placement?.AudioHostUrl);
+  const attendeeId = text(attendee?.AttendeeId);
+  const joinToken = text(attendee?.JoinToken);
+  if (signalingUrl === null || audioHost === null || attendeeId === null || joinToken === null) return null;
+  return { signalingUrl, audioHost, attendeeId, joinToken, origin: 'https://app.slack.com' };
+}
+
+/** The Slack user behind a huddle attendee's external id (`<team>-<huddle>-<user>`, then `-<device>` with `multidevice`). */
+export function huddlePerson(externalId: string): string {
+  return externalId.split('-')[2] ?? externalId;
+}
+
 /** An `https` page of Slack's own web app, the only kind a huddle opens. */
 export function slackWeb(link: string): boolean {
   try {

@@ -365,7 +365,7 @@ accepts a pasted token and cookie, and phone-only acquisition remains debt. See
 
 ## Slack huddles open signed in on GTK Linux, in the browser elsewhere (2026-10-15)
 
-Slack's huddle media has no session API, so a huddle opens in Slack's web app. The user
+Since 2026-11-06 a huddle is carried natively first ([native-calls](architecture/native-calls.md#slack-huddles-over-chime-audio-2026-11-06)): this is its fallback. A huddle's page opens in Slack's web app. The user
 did not want a second sign-in for it: on GTK Linux the app opens the room's huddle page in
 a temporary Chromium app window whose profile already holds the account's `d` cookie
 (set over the debugging protocol, a session cookie, the profile 0700 and deleted on close,

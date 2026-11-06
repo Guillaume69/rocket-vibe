@@ -531,6 +531,14 @@ impl Service {
             .ok_or_else(|| RestError::incomplete("conversations.open: no channel"))
     }
 
+    /// Joins the channel's huddle, starting it when none runs: its Chime
+    /// credentials, for the native call.
+    pub async fn join_huddle(&self, channel: &str) -> Result<translate::HuddleMedia, RestError> {
+        let params = vec![("channel_id", channel.to_owned()), ("multidevice", "false".to_owned())];
+        let body = self.call("rooms.join", params).await?;
+        translate::huddle_media(&body).ok_or_else(|| RestError::incomplete("rooms.join: no media"))
+    }
+
     /// Where a file's bytes go, and the id Slack gave it. Only Slack's file
     /// host is accepted as the destination.
     pub async fn upload_url(&self, name: &str, length: u64) -> Result<(url::Url, String), RestError> {

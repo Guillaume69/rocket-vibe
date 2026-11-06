@@ -107,7 +107,8 @@ struct RoomView: View {
             guard !Task.isCancelled, app.sessionId == expected, model.membershipIsCurrent else { return }
             if let link, let url = URL(string: link) {
                 CallWindow.show(url, title: L("call.window_title", ["room": model.room.name]),
-                                slackCookie: model.provider.legacy?.huddleCookie(), displayName: app.account?.username)
+                                slackCookie: model.provider.legacy?.huddleCookie(), displayName: app.account?.username,
+                                chat: model.provider.legacy)
             } else {
                 app.notice = L("call.failed")
             }
@@ -1390,7 +1391,7 @@ struct CallCard: View {
                     guard !Task.isCancelled, expected == app.sessionId, model.membershipIsCurrent else { return }
                     if let link, let url = URL(string: link) {
                         CallWindow.show(url, title: L("message.call"), slackCookie: model.provider.legacy?.huddleCookie(),
-                                        displayName: app.account?.username)
+                                        displayName: app.account?.username, chat: model.provider.legacy)
                     } else {
                         app.notice = L("call.failed")
                     }

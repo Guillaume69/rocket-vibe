@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Slack (experimental): a huddle runs inside the app, audio only (who is there, who speaks, mute, deafen, hang up); the browser stays the fallback when the join fails.
 - Server rail: a server can be disabled with a long press on its tile: it stays on the rail, greyed and after the others, keeps its session and is no longer read in the background, until enabled again without signing in.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
 - Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.

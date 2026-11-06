@@ -195,8 +195,10 @@ call id is the room's page in Slack's web app with `?open=start_huddle`
 (`app.slack.com/huddle/...`) only offers to launch Slack's desktop app, so it is
 ignored, and a stored one is rewritten on join (`huddle_page` / `huddlePage`). Once
 over, an ended call (`videoconf-ended`) with the length from `date_start`/`date_end`. The end arrives as an edit of the same message. The room
-header's call button and the card's Join both open that Slack page
-(`Session::start_call` / `join_call`). On GTK Linux it opens already signed in
+header's call button and the card's Join both name that Slack page
+(`Session::start_call` / `join_call`). The apps first carry the huddle natively, audio only,
+from `rooms.join`'s Chime credentials ([native calls](native-calls.md#slack-huddles-over-chime-audio-2026-11-06));
+what follows is the fallback, the page. On GTK Linux it opens already signed in
 (`browser_login::open_signed_in`, `Session::open_huddle_window`, `ChatView::open_call`): an
 app window of a Chromium-family browser on a temporary profile (created 0700) whose `d`
 cookie is set as a session cookie over the debugging protocol (`Storage.setCookies`)
@@ -211,7 +213,7 @@ own, and stays on Slack's pages and their blobs (`translate::huddle_allowed`, rv
 `slack_huddle_allowed`); camera and microphone are granted on Slack's pages only
 (`call_window::open_slack`, `ChatPage::open_call`). On Android the huddle opens in the
 system browser (`packages/provider-slack/src/calls.ts` and the Slack branch of `app/call/[callId].tsx`,
-which asks no camera permission). Huddle media has no session API: no native participation. Slackbot's
+which asks no camera permission). Slackbot's
 auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Files
@@ -333,7 +335,7 @@ Outbox ambiguity and one-shot file completion require explicit persisted states.
 
 The handoff maps all P01-P23 provider families and records each method's evidence
 and remaining probes. There is no demonstrated session path for killed-app Android
-push, client E2EE, native huddles/LiveKit/Jitsi parity, in-app administration or
+push, client E2EE, LiveKit/Jitsi parity, in-app administration or
 reporting; corresponding runtime capabilities stay false until separately supported.
 Current platform debt is recorded in [parity](../parity.md#19-experimental-integrations).
 

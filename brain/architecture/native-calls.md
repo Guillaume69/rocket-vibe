@@ -2,11 +2,11 @@
 
 The goal: calls on Teams, Rocket.Chat (Jitsi), kChat (kMeet) and Slack (huddles) carried
 by the apps themselves, with no web page, no WebView and no browser: our own signalling
-client per provider, our own WebRTC media, the existing call UI. Nothing is built yet; this
-page records what the research and the captures established, the architecture chosen, the
-order, and the captures still owed. Today's behaviour (a call window on the provider's web
-page, Teams' one-time Microsoft sign-in) is in [../features/calls.md](../features/calls.md);
-the decision is in [../decisions.md](../decisions.md).
+client per provider, our own WebRTC media, the existing call UI. This page records what the
+research and the captures established, the architecture chosen, what is built ("Implementation
+status": Jitsi and kMeet, Slack huddles; Teams not yet), the order, and the captures still owed.
+The fallback (a call window on the provider's web page, Teams' one-time Microsoft sign-in) is in
+[../features/calls.md](../features/calls.md); the decision is in [../decisions.md](../decisions.md).
 
 ## What the apps already ship
 
@@ -151,7 +151,7 @@ in `#caca`):
    A second offer/answer pair follows once connected (renegotiation).
 
 So the Slack side gives everything a native Chime client needs: credentials, signalling
-sequence, TURN, SDP. Still unseen: `LEAVE`, video subscription (another participant with a
+sequence, TURN, SDP; built, see "Slack huddles" under "Implementation status". Still unseen: a captured `LEAVE` (the SDK's own is what is sent), video subscription (another participant with a
 camera or a share: `SUBSCRIBE` with `receive_stream_ids` and the `INDEX` source list),
 and the screen-share path (`ScreenSharingUrl`, a separate WebSocket).
 
@@ -329,6 +329,49 @@ meetings with video (2 to 3 months more).
   WebView for good if the join fails. Checked: host and Android cross-compile of the crate, its unit
   tests, the module's Kotlin against LiveKit's WebRTC (`:voice:compileDebugKotlin`); not run on a
   device (an emulator call needs a signed-in Rocket.Chat account).
+
+### Slack huddles over Chime, audio (2026-11-06)
+
+- **rv-call `chime`**: `proto.rs` writes and reads the few protobuf messages by hand (field numbers
+  of the SDK's `SignalingProtocol.proto`), `mod.rs` builds the frames (`join`, `subscribe`,
+  `audio_control`, `leave`, `ping_pong`) and reads who is in the call (`Roster`), `client.rs` is the
+  socket: the join token as `Sec-WebSocket-Protocol: _aws_wt_session, <token>`, JOIN, JOIN_ACK's TURN
+  servers, then the engine offers. The trait gained that direction: `Event::OfferWanted { relay_only }`,
+  `CallSignaling::offer`, `Event::Answer`, as Chime's client always offers and takes no trickle. The
+  SDP is raw deflate (`miniz_oxide`), with no dictionary as this client sends one offer per session.
+  The server mixes everyone into one audio stream (`msid:audio audio`), so who speaks comes from
+  AUDIO_METADATA, `Event::Levels` (minus decibels over the SDK's -42 to -14 dB); the volume of one
+  person cannot be set.
+- **Ending**: AUDIO_STATUS 200 is fine; 301 (joined elsewhere), 403, 409, 410 (meeting ended), 411
+  (removed) are `Event::Over`, which is not rejoined; anything else is a loss, rejoined like Jitsi's
+  with the same token. A meeting ends when its last attendee leaves: a rejoin then answers `refused:
+  meeting unavailable`.
+- **Sidecar** (`call.rs`): `Peer::Gathered`, the offer waiting for ICE. libwebrtc's
+  `current_local_description` stays empty until the answer is set, so the offer's text gets the
+  gathered candidates itself (`rv_call::sdp_with_candidates`). It goes when gathering completes, 500 ms
+  after the first candidate (live, gathering had not said it was done after 5 s), or after 5 s.
+- **Slack**: `rooms.join {channel_id, multidevice: false}` starts or joins the room's huddle
+  (`regions` is optional: Slack then picks). `multidevice: true` gives the attendee a device suffix
+  (`<team>-<huddle>-<user>-<device>`, `huddle_person` takes the third part). A free workspace answers
+  `freemium_max_participants` to a second attendee of the same user. Attendees are named by the app
+  (`Session::huddle_person_name`, `callPersonName`), read once each from Slack's directory.
+- **Apps**: GTK `open_call` tries it first (`Session::join_huddle`, `native_call::open` with a
+  `NativeCall` and `Names`), the huddle's page as the fallback (`open_huddle_page`); rv-ffi
+  `Chat::start_huddle_call`, SwiftUI `CallWindow.show(chat:)`; Android `JitsiSession.startChime` over
+  `rv-voice-mobile`'s `startChime`/`offer`, the call screen's `joinedHuddle` (microphone permission
+  only), the browser as the fallback.
+- **Checked live (2026-11-06)**, `rv-voice` with a tone against real huddles in a test channel,
+  credentials from `rooms.join`, the user in the same huddle from Slack's web app: join, TURN (UDP
+  relay), the answer, `connected` in under 2 s, held 4 min, LEAVE answered. The user heard the tone;
+  their arrival, departure, voice levels and mute reached the roster. They heard a few hiccups: the
+  stats (`RV_CALL_DEBUG=1`, every 5 s) showed 0 packets lost each way, 13 ms round trip, while the
+  tone's own timer stalled 6 times in about 2 min, up to 119 ms, on a machine at load 12.8. So the
+  evidence points at the loaded machine and the fake tone, not the path; no hiccup was matched to a
+  stall one by one. Inbound runs about 230 packets a second against 50 sent, unexplained (padding
+  probes, as the join declares bandwidth probing, is a guess). **Not run**: this client's playback (the
+  tone mode plays nothing, so a remote voice was seen as packets and levels, never heard here); a real
+  microphone in a huddle; the GTK window on a signed-in Slack account (none on the test machine);
+  SwiftUI (macOS CI only); Android on a device (Kotlin and the Android cross-compile only).
 
 ### Long calls: what ended them, and recovery (2026-11-05)
 

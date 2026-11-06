@@ -495,7 +495,14 @@ object VoiceEngine {
    * natively, audio only; false when this build cannot, so the caller keeps the
    * meeting's page. [callId] stands for the room in the snapshot.
    */
-  fun connectJitsi(callId: String, meeting: String, displayName: String, token: String?, title: String): Boolean {
+  fun connectJitsi(callId: String, meeting: String, displayName: String, token: String?, title: String): Boolean =
+    connectNative(callId, title) { it.start(meeting, displayName, token) }
+
+  /** Joins an Amazon Chime meeting (a Slack huddle) natively, audio only; false when this build cannot. */
+  internal fun connectChime(callId: String, credentials: ChimeCredentials, title: String): Boolean =
+    connectNative(callId, title) { it.startChime(credentials) }
+
+  private fun connectNative(callId: String, title: String, start: (JitsiSession) -> Boolean): Boolean {
     teardown(null, cue = false)
     val session = JitsiSession(app, onChange = {
       if (jitsi != null) {
@@ -507,7 +514,7 @@ object VoiceEngine {
       }
     },
       onEnd = { why -> if (jitsi != null) teardown(why, cue = state == "connected") })
-    if (!session.start(meeting, displayName, token)) return false
+    if (!start(session)) return false
     jitsi = session
     roomId = callId; this.title = title; link = null
     microphone = true; deafened = false; camera = false; sharing = false; reason = null; state = "connecting"

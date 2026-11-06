@@ -18,12 +18,23 @@ final class CallWindow: NSObject, WKUIDelegate, WKNavigationDelegate, NSWindowDe
     private let huddle: Bool
     private let teams: Bool
 
-    /// A Slack huddle opens signed in with `slackCookie`, its store kept in
-    /// memory; without the cookie it goes to the browser, signed in there.
+    /// A Slack huddle runs natively first on `chat`'s account; failing that it
+    /// opens signed in with `slackCookie`, its store kept in memory, and without
+    /// the cookie it goes to the browser, signed in there.
     /// A Jitsi Meet or kMeet meeting runs natively first (`NativeCallWindow`,
     /// `displayName` its name there); its page opens when that cannot be done.
-    static func show(_ url: URL, title: String, slackCookie: String? = nil, displayName: String? = nil) {
+    static func show(_ url: URL, title: String, slackCookie: String? = nil, displayName: String? = nil, chat: Chat? = nil) {
         let slack = url.scheme == "https" && slackHuddleAllowed(url: url.absoluteString)
+        if slack, let chat {
+            Task {
+                if let native = await chat.startHuddleCall(callUrl: url.absoluteString, title: title) {
+                    NativeCallWindow.show(native, title: title)
+                } else {
+                    show(url, title: title, slackCookie: slackCookie, displayName: displayName)
+                }
+            }
+            return
+        }
         if slack && slackCookie == nil {
             NSWorkspace.shared.open(url)
             return

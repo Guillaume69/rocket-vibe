@@ -9,9 +9,9 @@ package com.rocketvibe.voice
 internal object Canvas {
   private val available: Boolean = Denoiser.available
 
-  fun read(load: String): String? = if (available) read0(load) else null
+  fun readDocument(load: String): String? = if (available) read0(load) else null
 
-  fun plan(load: String, markdown: String, session: String, suffix: String, nowSecs: Long): String? =
+  fun planSave(load: String, markdown: String, session: String, suffix: String, nowSecs: Long): String? =
     if (available) plan0(load, markdown, session, suffix, nowSecs) else null
 
   @JvmStatic @JvmName("read") private external fun read0(load: String): String?

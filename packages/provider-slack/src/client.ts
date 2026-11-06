@@ -13,6 +13,7 @@ export type SlackMethod =
   | 'users.info'
   | 'users.list'
   | 'conversations.open'
+  | 'rooms.join'
   | 'bots.info'
   | 'client.counts'
   | 'emoji.list'

@@ -3773,6 +3773,72 @@ impl ChatPage {
             });
             return;
         }
+        if let Some(session) = self.session().filter(|s| s.info.slack.is_some()) {
+            if !rv_core::voice::available() {
+                return self.open_huddle_page(url, room);
+            }
+            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
+            glib::spawn_future_local(async move {
+                let (target, joining) = (url.clone(), session.clone());
+                let call = on_tokio(async move { joining.join_huddle(&target).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                let call = match call {
+                    Ok(call) => call,
+                    Err(e) => {
+                        eprintln!("Huddle not joined natively ({}), opening its page", e.message);
+                        return this.open_huddle_page(&url, &room);
+                    }
+                };
+                let (lookup, fetch) = (session.clone(), session.clone());
+                let names = crate::native_call::Names::new(
+                    move |id| lookup.huddle_person_name(id),
+                    move |ids| {
+                        let fetch = fetch.clone();
+                        glib::spawn_future_local(async move {
+                            on_tokio(async move { fetch.ensure_huddle_people(ids).await }).await
+                        });
+                    },
+                );
+                let (back, title) = (Rc::downgrade(&this), room.clone());
+                crate::native_call::open(rv_core::voice::NativeCall::Chime(call), &title, names, move || {
+                    if let Some(this) = back.upgrade() {
+                        this.toast(t("call.native_fallback").to_owned());
+                        this.open_huddle_page(&url, &room);
+                    }
+                });
+            });
+            return;
+        }
+        // A Rocket.Chat call on a Jitsi Meet server and a kChat kMeet call run
+        // natively; any other provider keeps the meeting's page.
+        let jitsi = self.session().filter(|s| {
+            s.info.native.is_none() && (s.info.mattermost.is_none() || rv_core::mattermost::translate::is_kmeet(url))
+        });
+        if let Some(session) = jitsi {
+            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
+            let name = session.info.username.clone();
+            glib::spawn_future_local(async move {
+                let target = url.clone();
+                let call = on_tokio(async move { rv_core::voice::discover_jitsi(&target, &name).await }).await;
+                let Some(this) = weak.upgrade() else { return };
+                let Some(call) = call else { return this.open_call_window(&url, &room) };
+                let (back, title) = (Rc::downgrade(&this), room.clone());
+                let call = rv_core::voice::NativeCall::Jitsi(call);
+                crate::native_call::open(call, &title, crate::native_call::Names::none(), move || {
+                    if let Some(this) = back.upgrade() {
+                        this.toast(t("call.native_fallback").to_owned());
+                        this.open_call_window(&url, &room);
+                    }
+                });
+            });
+            return;
+        }
+        self.open_call_window(url, room);
+    }
+
+    /// A huddle's page: in a call window signed in with the session, else in
+    /// an app window of the browser signed in the same way, else the plain call window.
+    fn open_huddle_page(self: &Rc<Self>, url: &str, room: &str) {
         let slack = self.session().filter(|s| s.info.slack.is_some());
         #[cfg(not(target_os = "linux"))]
         if let Some(cookie) = slack.as_ref().and_then(|s| s.huddle_cookie()) {
@@ -3797,29 +3863,6 @@ impl ChatPage {
                         this.open_call_window(&url, &room);
                     }
                 }
-            });
-            return;
-        }
-        // A Rocket.Chat call on a Jitsi Meet server and a kChat kMeet call run
-        // natively; any other provider keeps the meeting's page.
-        let jitsi = self.session().filter(|s| {
-            s.info.native.is_none() && (s.info.mattermost.is_none() || rv_core::mattermost::translate::is_kmeet(url))
-        });
-        if let Some(session) = jitsi {
-            let (weak, url, room) = (Rc::downgrade(self), url.to_owned(), room.to_owned());
-            let name = session.info.username.clone();
-            glib::spawn_future_local(async move {
-                let target = url.clone();
-                let call = on_tokio(async move { rv_core::voice::discover_jitsi(&target, &name).await }).await;
-                let Some(this) = weak.upgrade() else { return };
-                let Some(call) = call else { return this.open_call_window(&url, &room) };
-                let (back, title) = (Rc::downgrade(&this), room.clone());
-                crate::native_call::open(call, &title, move || {
-                    if let Some(this) = back.upgrade() {
-                        this.toast(t("call.native_fallback").to_owned());
-                        this.open_call_window(&url, &room);
-                    }
-                });
             });
             return;
         }

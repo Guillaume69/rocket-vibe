@@ -48,15 +48,18 @@ class VoiceModule : Module() {
       CallService.unlisten(hangUpListener)
     }
     Function("snapshot") { VoiceEngine.last }
-    Function("canvasRead") { load: String -> Canvas.read(load) }
+    Function("canvasRead") { load: String -> Canvas.readDocument(load) }
     Function("canvasPlan") { load: String, markdown: String, session: String, suffix: String, nowSecs: Long ->
-      Canvas.plan(load, markdown, session, suffix, nowSecs)
+      Canvas.planSave(load, markdown, session, suffix, nowSecs)
     }
     AsyncFunction("connect") { o: ConnectOptions ->
       VoiceEngine.connect(o.room, o.url, o.token, o.title, o.link, o.microphone, o.e2eeKey)
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("connectJitsi") { callId: String, meeting: String, displayName: String, token: String?, title: String ->
       VoiceEngine.connectJitsi(callId, meeting, displayName, token, title)
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("connectChime") { callId: String, signalingUrl: String, audioHost: String, attendeeId: String, joinToken: String, origin: String, title: String ->
+      VoiceEngine.connectChime(callId, ChimeCredentials(signalingUrl, audioHost, attendeeId, joinToken, origin), title)
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("disconnect") { VoiceEngine.leave() }.runOnQueue(Queues.MAIN)
     AsyncFunction("setE2eeKey") { key: String -> VoiceEngine.setE2eeKey(key) }.runOnQueue(Queues.MAIN)

@@ -1,7 +1,8 @@
-//! A Jitsi Meet call's signalling for the Android voice engine (rv-call, as the
+//! A native call's signalling for the Android voice engine (rv-call, as the
 //! desktop sidecar runs it), over JNI. `com.rocketvibe.voice.JitsiCall` starts one
-//! from a meeting URL and its host's `config.js`, reads the session's events as
-//! JSON on a thread of its own, and hands back libwebrtc's answer, candidates and
+//! from a meeting URL and its host's `config.js` (Jitsi Meet) or an attendee's
+//! credentials (Chime, a Slack huddle), reads the session's events as JSON on a
+//! thread of its own, and hands back libwebrtc's offer or answer, candidates and
 //! the microphone's state. The peer connection itself stays on the Kotlin side.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -12,12 +13,13 @@ use std::time::Duration;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jlong, jstring};
-use rv_call::jitsi::{Config, Session};
+use rv_call::jitsi::Config;
 use rv_call::{CallSignaling, Candidate, Event};
 use serde_json::{Value, json};
 use tokio::sync::mpsc as async_mpsc;
 
 enum Command {
+    Offer(String),
     Answer(String),
     Candidate(Candidate),
     Muted(bool),
@@ -46,12 +48,21 @@ pub fn event_json(event: &Event) -> Value {
             "servers": servers.iter().map(|s| json!({"urls": s.urls, "username": s.username, "credential": s.credential})).collect::<Vec<_>>(),
         }),
         Event::Offer { sdp } => json!({"type": "offer", "sdp": sdp}),
+        Event::OfferWanted { relay_only } => {
+            json!({"type": "offerWanted", "relayOnly": relay_only})
+        }
+        Event::Answer { sdp } => json!({"type": "answer", "sdp": sdp}),
+        Event::Levels(levels) => json!({
+            "type": "levels",
+            "levels": levels.iter().map(|(id, level)| json!({"id": id, "level": level})).collect::<Vec<_>>(),
+        }),
         Event::RemoteCandidate(c) => json!({"type": "candidate", "mid": c.mid, "line": c.line}),
         Event::Roster(members) => json!({
             "type": "roster",
             "members": members.iter().map(|m| json!({"id": m.id, "name": m.name, "muted": m.muted})).collect::<Vec<_>>(),
         }),
         Event::Ended(reason) => json!({"type": "ended", "reason": reason}),
+        Event::Over(reason) => json!({"type": "over", "reason": reason}),
     }
 }
 
@@ -67,22 +78,42 @@ impl Call {
             return None;
         }
         let config = Config::from_meeting(meeting, config_js, display_name, token)?;
-        let runtime = tokio::runtime::Builder::new_multi_thread()
+        let runtime = Self::runtime()?;
+        let session = runtime.block_on(rv_call::jitsi::join(config)).ok()?;
+        Some(Self::driven(runtime, session))
+    }
+
+    /// Joins a Chime meeting with an attendee's credentials; `None` when it fails.
+    pub fn start_chime(config: rv_call::chime::Config) -> Option<Call> {
+        let runtime = Self::runtime()?;
+        let session = runtime
+            .block_on(rv_call::chime::client::join(config))
+            .ok()?;
+        Some(Self::driven(runtime, session))
+    }
+
+    fn runtime() -> Option<tokio::runtime::Runtime> {
+        tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
-            .ok()?;
-        let session = runtime.block_on(rv_call::jitsi::join(config)).ok()?;
+            .ok()
+    }
+
+    fn driven<S: CallSignaling + Send + 'static>(
+        runtime: tokio::runtime::Runtime,
+        session: S,
+    ) -> Call {
         let (commands, command_rx) = async_mpsc::unbounded_channel();
         let (event_tx, events) = mpsc::channel();
         let local = session.local_id().to_owned();
         let _ = event_tx.send(json!({"type": "local", "id": local}).to_string());
         runtime.spawn(drive(session, command_rx, event_tx));
-        Some(Call {
+        Call {
             runtime,
             commands,
             events: Mutex::new(events),
-        })
+        }
     }
 
     /// The next event, waiting up to `timeout`; `None` on timeout, `"{\"type\":\"gone\"}"` once over.
@@ -99,8 +130,8 @@ impl Call {
     }
 }
 
-async fn drive(
-    mut session: Session,
+async fn drive<S: CallSignaling + Send>(
+    mut session: S,
     mut commands: async_mpsc::UnboundedReceiver<Command>,
     events: mpsc::Sender<String>,
 ) {
@@ -108,7 +139,7 @@ async fn drive(
         tokio::select! {
             event = session.next_event() => match event {
                 Some(event) => {
-                    let ended = matches!(event, Event::Ended(_));
+                    let ended = matches!(event, Event::Ended(_) | Event::Over(_));
                     if events.send(event_json(&event).to_string()).is_err() || ended {
                         break;
                     }
@@ -116,6 +147,11 @@ async fn drive(
                 None => break,
             },
             command = commands.recv() => match command {
+                Some(Command::Offer(sdp)) => {
+                    if let Err(e) = session.offer(&sdp).await {
+                        let _ = events.send(json!({"type": "error", "message": e.to_string()}).to_string());
+                    }
+                }
                 Some(Command::Answer(sdp)) => {
                     if let Err(e) = session.answer(&sdp).await {
                         let _ = events.send(json!({"type": "error", "message": e.to_string()}).to_string());
@@ -171,6 +207,44 @@ pub extern "system" fn Java_com_rocketvibe_voice_JitsiCall_start(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_com_rocketvibe_voice_JitsiCall_startChime(
+    mut env: JNIEnv,
+    _class: JClass,
+    signaling_url: JString,
+    audio_host: JString,
+    attendee_id: JString,
+    join_token: JString,
+    origin: JString,
+) -> jlong {
+    let (Some(signaling_url), Some(audio_host), Some(attendee_id), Some(join_token), Some(origin)) = (
+        text(&mut env, &signaling_url),
+        text(&mut env, &audio_host),
+        text(&mut env, &attendee_id),
+        text(&mut env, &join_token),
+        text(&mut env, &origin),
+    ) else {
+        return 0;
+    };
+    let config = rv_call::chime::Config {
+        signaling_url,
+        audio_host,
+        attendee_id,
+        join_token,
+        origin,
+    };
+    match Call::start_chime(config) {
+        Some(call) => {
+            let handle = NEXT.fetch_add(1, Ordering::Relaxed);
+            CALLS
+                .lock()
+                .map(|mut calls| calls.insert(handle, Arc::new(call)))
+                .map_or(0, |_| handle)
+        }
+        None => 0,
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_com_rocketvibe_voice_JitsiCall_next(
     env: JNIEnv,
     _class: JClass,
@@ -186,6 +260,18 @@ pub extern "system" fn Java_com_rocketvibe_voice_JitsiCall_next(
             .map(|s| s.into_raw())
             .unwrap_or(std::ptr::null_mut()),
         None => std::ptr::null_mut(),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_rocketvibe_voice_JitsiCall_offer(
+    mut env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    sdp: JString,
+) {
+    if let (Some(call), Some(sdp)) = (call(handle), text(&mut env, &sdp)) {
+        call.send(Command::Offer(sdp));
     }
 }
 
@@ -291,6 +377,22 @@ mod tests {
         assert_eq!(
             candidate,
             json!({"type": "candidate", "mid": "audio", "line": "candidate:1"})
+        );
+        assert_eq!(
+            event_json(&Event::OfferWanted { relay_only: true }),
+            json!({"type": "offerWanted", "relayOnly": true})
+        );
+        assert_eq!(
+            event_json(&Event::Answer { sdp: "v=0".into() }),
+            json!({"type": "answer", "sdp": "v=0"})
+        );
+        assert_eq!(
+            event_json(&Event::Levels(vec![("a".into(), 0.5)])),
+            json!({"type": "levels", "levels": [{"id": "a", "level": 0.5}]})
+        );
+        assert_eq!(
+            event_json(&Event::Over("meeting_ended".into())),
+            json!({"type": "over", "reason": "meeting_ended"})
         );
         assert_eq!(
             event_json(&Event::Ended("terminated".into())),

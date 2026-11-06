@@ -622,6 +622,15 @@ impl Chat {
         self.session.huddle_cookie().map(|c| c.to_string())
     }
 
+    /// Joins this Slack call's huddle natively; None to open its page instead.
+    pub async fn start_huddle_call(
+        &self,
+        call_url: String,
+        title: String,
+    ) -> Option<Arc<jitsi_call::JitsiCallSession>> {
+        jitsi_call::start_huddle(self.session.clone(), call_url, title).await
+    }
+
     pub fn is_slack(&self) -> bool {
         self.session.info.slack.is_some()
     }

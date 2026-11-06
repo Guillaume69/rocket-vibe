@@ -315,7 +315,15 @@ export type EditableSettings = { name: boolean; texts: boolean; readOnly: boolea
 /** One page of `ProviderActions.listThreads`. */
 export type ThreadPage = { threads: LocalMessage[]; total: number };
 /** A room's notes: markdown saved whole against `revision`. `updatedAt` in ms. */
-export type RoomNotes = { markdown: string; revision: string; editable: boolean; updatedBy: string | null; updatedAt: number | null };
+export type RoomNotes = {
+  markdown: string;
+  revision: string;
+  editable: boolean;
+  updatedBy: string | null;
+  updatedAt: number | null;
+  /** The provider keeps no inline marks: they would be stored as their literal characters. */
+  blocksOnly?: boolean;
+};
 /** The error code of a save over a revision someone else replaced. */
 export const NOTES_CONFLICT = 'revision_conflict';
 

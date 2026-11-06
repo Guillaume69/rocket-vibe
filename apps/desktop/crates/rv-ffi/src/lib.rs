@@ -171,6 +171,8 @@ impl Client {
                 }
             }
         });
+        let _ = std::fs::create_dir_all(&dirs.cache);
+        rv_core::voice::set_log(dirs.cache.join("voice.log"));
         Arc::new(Client::with_dirs(dirs))
     }
 

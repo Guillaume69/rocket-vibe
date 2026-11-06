@@ -76,6 +76,7 @@ pub fn row(
             .tooltip_text(format!(":{code}:"))
             .css_classes(if is_mine { vec!["quick-reaction", "mine"] } else { vec!["quick-reaction"] })
             .build();
+        crate::widgets::pointer(&button);
         match (glyph, image) {
             (Some(glyph), _) => button.set_label(glyph),
             (None, Some(image)) => button.set_child(Some(&image)),
@@ -96,6 +97,7 @@ pub fn row(
         .tooltip_text(t("actions.react_more"))
         .css_classes(["quick-reaction", "more-reactions"])
         .build();
+    crate::widgets::pointer(&more);
     let menu = menu.clone();
     more.connect_clicked(move |_| {
         let Some(anchor) = menu.parent() else { return };

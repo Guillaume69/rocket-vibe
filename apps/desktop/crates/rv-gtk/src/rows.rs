@@ -502,7 +502,9 @@ fn editor(buffer: &gtk::TextBuffer, on_event: OnRowEvent) -> gtk::Widget {
     });
     text.add_controller(keys);
     let cancel = gtk::Button::builder().label(t("actions.cancel")).css_classes(["flat", "edit-button"]).build();
+    crate::widgets::pointer(&cancel);
     let save = gtk::Button::builder().label(t("actions.save")).css_classes(["edit-button", "save"]).build();
+    crate::widgets::pointer(&save);
     let on_cancel = on_event.clone();
     cancel.connect_clicked(move |_| on_cancel(RowEvent::CancelEdit));
     save.connect_clicked(move |_| on_event(RowEvent::SaveEdit));
@@ -886,6 +888,7 @@ fn message_from_provider(
             let chip = gtk::Button::builder()
                 .css_classes(if reaction.mine { vec!["reaction", "mine"] } else { vec!["reaction"] })
                 .build();
+            crate::widgets::pointer(&chip);
             let code = reaction.shortcode.trim_matches(':');
             // A glyph with no shortcode (WhatsApp sends any emoji) is keyed by itself.
             let glyph = rv_core::emoji::unicode(&reaction.shortcode)
@@ -941,6 +944,7 @@ fn message_from_provider(
                 .css_classes(["thread-chip"])
                 .margin_top(3)
                 .build();
+            crate::widgets::pointer(&chip);
             let (on_event, id) = (on_event.clone(), row.id.clone());
             chip.connect_clicked(move |_| on_event(RowEvent::OpenThread(id.clone())));
             footer.append(&chip);
@@ -953,6 +957,7 @@ fn message_from_provider(
         }
         if failed {
             let retry = gtk::Button::builder().label(t("message.failed")).css_classes(["flat", "retry"]).build();
+            crate::widgets::pointer(&retry);
             let (on_event, id) = (on_event.clone(), row.id.clone());
             retry.connect_clicked(move |_| on_event(RowEvent::Retry(id.clone())));
             footer.append(&retry);
@@ -971,6 +976,7 @@ fn message_from_provider(
         .valign(gtk::Align::Start)
         .tooltip_text(t("actions.more"))
         .build();
+    crate::widgets::pointer(&more);
     if rv_core::actions::has_actions(row.system_type.as_deref(), row.text.as_deref()) {
         let (on_menu, menu_row) = (on_event.clone(), row.clone());
         more.connect_clicked(move |button| {

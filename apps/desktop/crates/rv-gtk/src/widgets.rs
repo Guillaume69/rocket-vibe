@@ -97,6 +97,11 @@ fn tile_with(key: &str, child: &impl IsA<gtk::Widget>, size: TileSize, neutral: 
 }
 
 /// A frame `width` × `height` when there is room, scaled down in a narrow window.
+/// The hand cursor over something clickable.
+pub fn pointer(widget: &impl IsA<gtk::Widget>) {
+    widget.as_ref().set_cursor_from_name(Some("pointer"));
+}
+
 pub fn media_frame(width: i32, height: i32, classes: &[&str]) -> gtk::Overlay {
     gtk::Overlay::builder()
         .child(&crate::sizer::Sizer::new(width, height))

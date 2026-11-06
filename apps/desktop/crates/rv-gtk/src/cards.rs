@@ -270,12 +270,14 @@ pub fn file_provider(session: media::Provider, f: &FileAttachment) -> gtk::Widge
         .css_classes(["file-action"])
         .valign(gtk::Align::Center)
         .build();
+    action.set_cursor(pointer().as_ref());
     let save = gtk::Button::builder()
         .icon_name("folder-download-symbolic")
         .tooltip_text(t("actions.download"))
         .css_classes(["flat", "circular", "file-save"])
         .valign(gtk::Align::Center)
         .build();
+    save.set_cursor(pointer().as_ref());
     top.append(&save);
     top.append(&action);
     card.append(&top);
@@ -880,6 +882,7 @@ pub fn attachment_card(card: &CardAttachment, ctx: &markdown::Context, press: Op
                 continue;
             }
             let button = gtk::Button::builder().label(&action.name).css_classes(["card-action"]).build();
+            button.set_cursor(pointer().as_ref());
             match action.style.as_str() {
                 "danger" => button.add_css_class("danger"),
                 "primary" | "good" | "success" => button.add_css_class("primary"),
@@ -918,6 +921,7 @@ fn matching<'a>(options: &'a [(String, String)], term: &str) -> Vec<&'a (String,
 fn card_menu(action: &CardAction, menu: &CardMenu, press: &PressAction) -> gtk::Widget {
     let shown = Rc::new(RefCell::new(menu.initial_label().unwrap_or(&action.name).to_owned()));
     let button = gtk::MenuButton::builder().label(shown.borrow().as_str()).css_classes(["card-menu"]).build();
+    button.set_cursor(pointer().as_ref());
     let search = gtk::SearchEntry::builder().placeholder_text(t("card.menu_search")).build();
     let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["card-menu-list"]).build();
     let scroller = gtk::ScrolledWindow::builder()
@@ -951,6 +955,7 @@ fn card_menu(action: &CardAction, menu: &CardMenu, press: &PressAction) -> gtk::
                     )
                     .css_classes(["flat"])
                     .build();
+                row.set_cursor(pointer().as_ref());
                 let (button, popover, shown, press, action) =
                     (button.clone(), popover.clone(), shown.clone(), press.clone(), action.clone());
                 row.connect_clicked(move |_| {

@@ -17,6 +17,7 @@ section here.
 
 ### Fixed
 
+- The mouse pointer turns into a hand over reactions (GTK, macOS), and on GTK also over the quick reactions and "more reactions" buttons, a thread's reply count, a failed message's retry, the edit buttons and the actions of file and integration cards.
 - Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.
 - Teams (experimental): a line break in a Teams message no longer adds two spaces at the start of the next line.
 - Teams (experimental): people shown by their id ("8:orgid:…") in system messages, call cards, authors and reactions are named once their profile is read, the rows stored earlier included; someone adding themselves to a channel reads "joined the channel".

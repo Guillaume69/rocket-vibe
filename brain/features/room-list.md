@@ -49,6 +49,10 @@ The home screen of both apps: every room the account is subscribed to, grouped i
 
 [Parity](../parity.md) §2 is implemented, Favourites and sidebar categories included (`rooms::Section::Favorites` and `Section::Group`, `homeSections` keys `favorites` and `group:<id>`). Visible differences: desktop keeps the padlock tile on encrypted rooms even when unlocked, mobile switches back to the normal tile; desktop treats an unlisted user as offline once presence loaded, mobile shows nothing for an unknown status.
 
+## Moving between rooms by keyboard
+
+Shift+Up / Shift+Down opens the room before or after the open one in the list's order, sections included, rooms of folded sections skipped, stopping at either end (none open: the first or the last room) (user request, 2026-11-06). In a text field that holds text (the composer while typing, a search) the keys keep selecting text; in an empty one they move between rooms. GTK: the window's capture-phase key handler (`AppWindow::new`, `editing_text` checks the focused `gtk::TextView` / `gtk::Text`), `ChatView::step_room` over `rv_core::rooms::step` and the list's `slots` (headers and folded rooms are not in it). SwiftUI: a local key monitor in `RocketVibeApp.start` (not a menu command, which would take the keys from text fields), `AppModel.stepRoom` over `groups` minus `collapsed`. Web: the document key handler in `app.ts` over the rendered `[data-room]` entries (`room-step.ts`), not under a dialog. Android has no hardware-keyboard navigation (n/a).
+
 ## Account activity shortcut
 
 GTK and SwiftUI split the footer into an avatar activity menu and the name/gear account menu. The avatar offers Online, Away, Busy and Offline; its badge reflects my activity, independently of the server connection dot beside the account controls. A status choice reads the current profile and keeps its status text. Native accounts use the existing revision-checked, persisted profile operations; legacy accounts use the provider's status action. GTK ignores completions from a previous session. SwiftUI reuses MyProfileModel's account and pending-operation guards. Native own-profile revisions refresh the badge when another client changes my choice; legacy presence events update it.
@@ -58,6 +62,9 @@ Web provides the same avatar shortcut, presence badge and footer connection cont
 The quick activity picker preserves profile text. Mattermost and kChat use the status-only endpoint, retaining their entire custom status including emoji and expiry. Legacy desktop activity confirmations keep a newer streamed status and cannot be undone by an older presence snapshot. Native clients display the current own-profile response, including when a durable operation replays an earlier receipt. Mobile publishes successful own-profile revisions to subscribed avatar controls even without live profile observations. SwiftUI scopes refreshes and saves to the account and retries failed profile reads with backoff.
 
 ## Sources
+
+- apps/desktop/crates/rv-core/src/rooms.rs (`step`)
+- apps/web/src/room-step.ts
 
 - apps/mobile/app/index.tsx
 - apps/mobile/app/presence.tsx

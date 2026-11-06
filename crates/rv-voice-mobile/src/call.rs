@@ -52,6 +52,7 @@ pub fn event_json(event: &Event) -> Value {
             "members": members.iter().map(|m| json!({"id": m.id, "name": m.name, "muted": m.muted})).collect::<Vec<_>>(),
         }),
         Event::Ended(reason) => json!({"type": "ended", "reason": reason}),
+        Event::MediaEnded => json!({"type": "media_ended"}),
     }
 }
 
@@ -295,6 +296,10 @@ mod tests {
         assert_eq!(
             event_json(&Event::Ended("terminated".into())),
             json!({"type": "ended", "reason": "terminated"})
+        );
+        assert_eq!(
+            event_json(&Event::MediaEnded),
+            json!({"type": "media_ended"})
         );
     }
 

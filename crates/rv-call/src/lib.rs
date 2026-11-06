@@ -46,6 +46,11 @@ pub enum Event {
     RemoteCandidate(Candidate),
     /// Everyone else, whenever anyone joins, leaves or changes.
     Roster(Vec<Member>),
+    /// The media session is over but this client is still in the call: close
+    /// the peer connection and wait for the next [`Event::Offer`] (Jitsi's focus
+    /// ends the session of a participant left alone, and offers a new one when
+    /// someone comes back).
+    MediaEnded,
     /// The call is over for this client; the reason in snake case.
     Ended(String),
 }

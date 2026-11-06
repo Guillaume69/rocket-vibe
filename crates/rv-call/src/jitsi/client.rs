@@ -401,8 +401,13 @@ impl State {
                 let _ = self.events.send(Event::Ended("transport_replaced".to_owned()));
             }
             "session-terminate" if self.offer.as_ref().is_some_and(|o| Some(o.sid.as_str()) == jingle.get("sid")) => {
+                // The focus ends the session of a participant left alone (Jicofo's
+                // single-participant timeout) and invites them again when someone
+                // joins: the call goes on, in the room, without media meanwhile.
                 self.offer = None;
-                let _ = self.events.send(Event::Ended("terminated".to_owned()));
+                self.initiator = None;
+                self.answer = None;
+                let _ = self.events.send(Event::MediaEnded);
             }
             _ => {}
         }
@@ -643,6 +648,25 @@ mod tests {
         let out = s.stanza(iq);
         assert_eq!(out.len(), 2);
         assert!(out[1].write().contains("session-terminate"));
+    }
+
+    #[test]
+    fn a_session_the_focus_terminates_leaves_the_call_waiting_for_the_next_offer() {
+        let (events, mut rx) = mpsc::unbounded_channel();
+        let mut s = State { events, ..state() };
+        let initiate = || Element::parse(sdp::tests::INITIATE).unwrap();
+        s.stanza(initiate());
+        assert!(matches!(rx.try_recv(), Ok(Event::Offer { .. })));
+        let terminate = Element::new("iq", CLIENT)
+            .attr("type", "set")
+            .attr("from", "room@muc.meet.jitsi/focus")
+            .attr("id", "t2")
+            .child(Element::new("jingle", JINGLE).attr("action", "session-terminate").attr("sid", "7a1b2c3d4e"));
+        assert_eq!(s.stanza(terminate).len(), 1, "only the iq result");
+        assert!(matches!(rx.try_recv(), Ok(Event::MediaEnded)));
+        assert!(rx.try_recv().is_err(), "the call is not ended");
+        s.stanza(initiate());
+        assert!(matches!(rx.try_recv(), Ok(Event::Offer { .. })), "a new session is taken");
     }
 
     #[test]

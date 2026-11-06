@@ -102,6 +102,9 @@ pub struct MessageRow {
     pub starred: Option<String>,
     /// A thread root's last reply time (`tlm`).
     pub thread_last: Option<i64>,
+    /// Replies newer than the last look at the thread (`thread_seen`): a
+    /// thread never followed here counts none. Teams only, for now.
+    pub thread_unread: i64,
     /// A thread root's followers, by id, comma-separated. Always None outside Rocket.Chat.
     pub thread_followers: Option<String>,
     /// Written by a bot account (Vibez, RFC 0003): a "BOT" badge beside
@@ -143,6 +146,7 @@ impl From<&Message> for MessageRow {
             pinned: m.pinned,
             starred: m.starred.clone(),
             thread_last: m.thread_last,
+            thread_unread: 0,
             thread_followers: m.thread_followers.clone(),
             author_bot: m.author_bot,
             form: None,
@@ -272,6 +276,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN alias TEXT;
      ALTER TABLE messages ADD COLUMN alias_avatar TEXT;
      ALTER TABLE messages ADD COLUMN author_bot INTEGER NOT NULL DEFAULT 0",
+    "CREATE TABLE thread_seen (root TEXT PRIMARY KEY, seen INTEGER NOT NULL)",
 ];
 
 /// How many messages a search across rooms answers at most.
@@ -592,6 +597,49 @@ impl Store {
         .flatten()
     }
 
+    /// The Teams people (`8:` ids) stored rows still show by id: authors
+    /// without a name, and ids written into system texts or reactions.
+    pub fn unnamed_people(&self) -> Vec<String> {
+        let rows: Vec<String> = self
+            .read(|c| {
+                let mut statement = c.prepare(
+                    "SELECT author_id FROM messages WHERE author_id LIKE '8:%' AND (author_name IS NULL OR author_name = author_id)
+                     UNION SELECT text FROM messages WHERE system_type IS NOT NULL AND text LIKE '%8:%'
+                     UNION SELECT reactions FROM messages WHERE reactions LIKE '%8:%'",
+                )?;
+                let found = statement.query_map([], |r| r.get::<_, Option<String>>(0))?;
+                found.collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut out: Vec<String> = Vec::new();
+        for row in rows {
+            for word in row.split(|c: char| !(c.is_ascii_alphanumeric() || c == ':' || c == '-' || c == '_')) {
+                if word.starts_with("8:") && word.len() > 8 && !out.iter().any(|w| w == word) {
+                    out.push(word.to_owned());
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether `who` wrote a thread's root or one of its replies.
+    pub fn took_part(&self, root: &str, who: &str) -> bool {
+        self.read(|c| {
+            c.query_row(
+                "SELECT 1 FROM messages WHERE (id = ?1 OR thread_id = ?1) AND author_id = ?2 LIMIT 1",
+                [root, who],
+                |_| Ok(()),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten()
+        .is_some()
+    }
+
     pub fn message_type(&self, id: &str) -> Option<String> {
         self.read(|c| c.query_row("SELECT system_type FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional())
             .ok()
@@ -813,7 +861,9 @@ impl Store {
             "SELECT m.id, m.ts, m.text, m.author_name, m.author_id, m.system_type, m.edited_at IS NOT NULL,
                     m.attachments, m.thread_count, o.status, m.md, m.reactions, m.thread_id, m.urls, m.call_id, m.encrypted_raw, m.rid,
                     m.pinned, m.starred, m.thread_last, m.thread_followers,
-                    m.discussion_id, m.discussion_count, m.discussion_last, m.alias, m.alias_avatar, m.author_bot
+                    m.discussion_id, m.discussion_count, m.discussion_last, m.alias, m.alias_avatar, m.author_bot,
+                    (SELECT COUNT(*) FROM messages r JOIN thread_seen s ON s.root = m.id
+                       WHERE r.rid = m.rid AND r.thread_id = m.id AND r.ts > s.seen)
              FROM messages m LEFT JOIN outbox o ON o.id = m.id
              WHERE {filter}
              ORDER BY m.ts DESC, m.id DESC LIMIT ?2"
@@ -845,6 +895,7 @@ impl Store {
                         thread_last: r.get(19)?,
                         thread_followers: r.get(20)?,
                         author_bot: r.get(26)?,
+                        thread_unread: r.get(27)?,
                         form: None,
                         discussion_id: r.get(21)?,
                         discussion_count: r.get(22)?,
@@ -935,6 +986,62 @@ impl Writer<'_> {
 
     fn touch_messages(&mut self, rid: &str) {
         self.change.rids.insert(rid.to_owned());
+    }
+
+    /// Writes a person's name where stored rows still show their id: as the
+    /// author, in system texts and in reactions. Their rooms redraw.
+    pub fn rename_person(&mut self, id: &str, name: &str) {
+        if name.is_empty() || name == id {
+            return;
+        }
+        let rids: Vec<String> = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT rid FROM messages WHERE (author_id = ?1 AND (author_name IS NULL OR author_name = ?1))
+                 OR (system_type IS NOT NULL AND instr(text, ?1) > 0) OR instr(reactions, ?1) > 0",
+            )
+            .and_then(|mut s| s.query_map([id], |r| r.get::<_, String>(0))?.collect())
+            .unwrap_or_default();
+        if rids.is_empty() {
+            return;
+        }
+        let _ = self.conn.execute(
+            "UPDATE messages SET author_name = ?2 WHERE author_id = ?1 AND (author_name IS NULL OR author_name = ?1)",
+            [id, name],
+        );
+        let _ = self.conn.execute(
+            "UPDATE messages SET text = replace(text, ?1, ?2) WHERE system_type IS NOT NULL AND instr(text, ?1) > 0",
+            [id, name],
+        );
+        let quoted = serde_json::to_string(name).unwrap_or_default();
+        let in_json = quoted.get(1..quoted.len().saturating_sub(1)).unwrap_or(name);
+        let _ = self.conn.execute(
+            "UPDATE messages SET reactions = replace(reactions, ?1, ?2) WHERE instr(reactions, ?1) > 0",
+            [id, in_json],
+        );
+        rids.iter().for_each(|rid| self.touch_messages(rid));
+    }
+
+    /// A reply someone else posted at `ts`: its thread starts counting new
+    /// replies from just before it, unless a look at it already counts.
+    pub fn thread_reply_arrived(&mut self, rid: &str, root: &str, ts: i64) {
+        self.conn
+            .execute("INSERT OR IGNORE INTO thread_seen (root, seen) VALUES (?1, ?2)", params![root, ts - 1])
+            .or_note(&mut self.failed, "thread reply");
+        self.touch_messages(rid);
+    }
+
+    /// The thread looked at (opened, or replied to) up to `ts`: its replies
+    /// until then are no longer new.
+    pub fn thread_seen(&mut self, rid: &str, root: &str, ts: i64) {
+        self.conn
+            .execute(
+                "INSERT INTO thread_seen (root, seen) VALUES (?1, ?2)
+                 ON CONFLICT(root) DO UPDATE SET seen = MAX(seen, excluded.seen)",
+                params![root, ts],
+            )
+            .or_note(&mut self.failed, "thread seen");
+        self.touch_messages(rid);
     }
 
     /// Tells the room's views to read again, nothing stored having moved:
@@ -1423,6 +1530,63 @@ mod tests {
         assert!(store.file_posted("C1", "F0AB12"));
         assert!(!store.file_posted("C1", "F0AB1"), "a prefix of the id is another file");
         assert!(!store.file_posted("C2", "F0AB12"), "another room");
+    }
+
+    #[test]
+    fn a_thread_counts_the_replies_since_it_was_last_looked_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("threads.sqlite")).unwrap();
+        let root = message("ch:1", Some("post"), 1, "ch");
+        let reply =
+            |id: &str, ts: i64| Message { thread_id: Some("ch:1".into()), ts, ..message(id, Some("r"), 1, "ch") };
+        let unread =
+            |store: &Store| store.messages("ch", 50).into_iter().find(|r| r.id == "ch:1").unwrap().thread_unread;
+        store.write(|w| {
+            w.upsert_message(&root);
+            w.upsert_message(&reply("ch:2", 200));
+            w.recount_threads("ch");
+        });
+        assert_eq!(unread(&store), 0, "never followed here");
+        store.write(|w| {
+            w.upsert_message(&reply("ch:3", 300));
+            w.thread_reply_arrived("ch", "ch:1", 300);
+            w.upsert_message(&reply("ch:4", 400));
+            w.thread_reply_arrived("ch", "ch:1", 400);
+        });
+        assert_eq!(unread(&store), 2);
+        store.write(|w| w.thread_seen("ch", "ch:1", 400));
+        assert_eq!(unread(&store), 0);
+        assert!(!store.took_part("ch:1", "me"));
+        assert!(store.took_part("ch:1", "u"));
+    }
+
+    #[test]
+    fn teams_people_shown_by_id_are_renamed_once_known() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("names.sqlite")).unwrap();
+        let id = "8:orgid:d56e7928-37a8-4ea2-9f21-e27e9e0b2292";
+        let card = Message { author_id: id.into(), author_name: Some(id.into()), ..message("c:1", None, 1, "c") };
+        let joined = Message {
+            system_type: Some("au".into()),
+            author_id: "8:orgid:aaa".into(),
+            author_name: Some("Ada".into()),
+            ..message("c:2", Some(id), 1, "c")
+        };
+        let reacted = Message {
+            reactions: Some(format!(r#"{{":+1:":{{"usernames":["{id}"]}}}}"#)),
+            ..message("c:3", Some("ok"), 1, "c")
+        };
+        store.write(|w| [&card, &joined, &reacted].iter().for_each(|m| w.upsert_message(m)));
+        assert_eq!(store.unnamed_people(), vec![id.to_owned()]);
+        store.write(|w| w.rename_person(id, "Pierre \"P\" COULAUX"));
+        assert!(store.unnamed_people().is_empty());
+        assert_eq!(text_of(&store, "c:2").as_deref(), Some("Pierre \"P\" COULAUX"));
+        let reactions: String =
+            store.read(|c| c.query_row("SELECT reactions FROM messages WHERE id = 'c:3'", [], |r| r.get(0))).unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&reactions).is_ok());
+        let author: String =
+            store.read(|c| c.query_row("SELECT author_name FROM messages WHERE id = 'c:1'", [], |r| r.get(0))).unwrap();
+        assert_eq!(author, "Pierre \"P\" COULAUX");
     }
 
     fn message(id: &str, text: Option<&str>, updated_at: i64, rid: &str) -> Message {

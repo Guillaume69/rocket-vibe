@@ -1163,6 +1163,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("message.sending", "⏳ envoi…", "⏳ sending…"),
     ("message.failed", "⚠️ Échec, réessayer", "⚠️ Failed, retry"),
     ("message.replies", "{n} réponse | {n} réponses", "{n} reply | {n} replies"),
+    ("message.replies_new", "{n} nouvelle | {n} nouvelles", "{n} new | {n} new"),
     ("message.encrypted", "🔒 Message chiffré, non pris en charge", "🔒 Encrypted message, not supported"),
     ("message.image", "Image", "Image"),
     ("room.new_messages", "Nouveaux messages", "New messages"),

@@ -931,7 +931,11 @@ fn message_from_provider(
             let chip = gtk::Button::builder()
                 .child(&widgets::with_icon(
                     "chat-message-new-symbolic",
-                    &gtk::Label::new(Some(&tn("message.replies", n))),
+                    &gtk::Label::new(Some(&if row.thread_unread > 0 {
+                        format!("{} · {}", tn("message.replies", n), tn("message.replies_new", row.thread_unread))
+                    } else {
+                        tn("message.replies", n)
+                    })),
                     &[],
                 ))
                 .css_classes(["thread-chip"])

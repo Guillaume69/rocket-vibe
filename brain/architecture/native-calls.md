@@ -357,6 +357,22 @@ and every window closed on `snapshot.ended` whatever the reason. Now:
   button.
 - **Evidence**: a 105-minute probe (two sidecars sending a tone, `RV_CALL_DEBUG=1`, a test room on
   meet.barrut.me) to see what the server does on a long call; see its result below.
+- **The window that closed on long calls (2026-11-06)**: Jicofo ends the Jingle session of a participant
+  alone in the room (`single-participant-timeout`, about 20 s) with a `session-terminate`, and offers a
+  new session when someone joins. rv-call took that for the end of the call (`Ended("terminated")`), so
+  the shipped 0.30.2 window closed: reproduced on meet.barrut.me with its own sidecar (B leaves, A
+  `disconnected: terminated` 28 s later). The Jitsi web client stays in the room. Now rv-call emits
+  `Event::MediaEnded`: the sidecar and Android close the peer connection and wait in the room for the next
+  offer. The two sidecars of a 105-minute probe stayed connected because neither was ever alone, which is
+  why that probe saw nothing.
+- **A fresh factory per media session**: a second peer connection on a `PeerConnectionFactory` whose first
+  connection closed gets the remote tracks but no audio frames (reproduced: A level 0.0 for C while C heard
+  A; with a new factory A heard C at 0.8). `call.rs` `media()` makes the factory and the microphone track
+  anew for each session, after `MediaEnded` and after a lost session alike. Android already rebuilt its
+  factory (`dropMedia`).
+- **Traces**: `rv_core::voice::set_log` (GTK `crashlog::dir()/voice.log`, rv-ffi `<cache>/voice.log`, kept
+  under 4 MiB with one `voice.previous.log`) gives the sidecar its `RV_VOICE_LOG`; `call: lost`, `call:
+  ended (reason)`, `call: media session ended` and the controller's `session ended` land there.
 
 The windows are built from the Vibez voice page's parts: GTK `chat::voice` exports `controls`,
 `avatar_card`, `avatar_frame`, `name_tag` and `Occupant`; SwiftUI `VoiceTileFace`,

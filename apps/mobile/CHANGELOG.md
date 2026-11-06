@@ -9,6 +9,7 @@ release, and its notes are that version's section here.
 
 ### Added
 
+- Server rail: a server can be disabled with a long press on its tile: it stays on the rail, greyed and after the others, keeps its session and is no longer read in the background, until enabled again without signing in.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
 - Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.
 - Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.

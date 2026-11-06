@@ -100,6 +100,9 @@ export const FOLDS_BY_ACCOUNT_KEY = 'collapsed-sections-by-account';
 /** The room last opened on each account, reopened by a server switch. */
 export const LAST_ROOMS_KEY = 'last-rooms';
 
+/** The disabled servers, by host: on the rail, not read nor opened. */
+export const DISABLED_SERVERS_KEY = 'disabled-servers';
+
 export type StoredKey = { readonly key: string; readonly legacy: string };
 
 export type AsyncKeyStore = {

@@ -2,6 +2,7 @@
 //! or until unmuted (`rv_core::account_mute`, the file GTK reads too), and
 //! sign out an account that is not the open one.
 
+use rv_core::account_disable;
 use rv_core::account_mute::{self, Mute, MuteFor};
 use rv_core::provider::Chat as Account;
 
@@ -86,6 +87,17 @@ impl Client {
     /// The muted accounts' keys now.
     pub fn muted_accounts(&self) -> Vec<String> {
         account_mute::active(&self.dirs.config, now()).into_keys().collect()
+    }
+
+    /// Disables the account (kept on the rail, not connected) or enables it
+    /// again (`rv_core::account_disable`, the file GTK reads too).
+    pub fn set_account_disabled(&self, account: String, disabled: bool) {
+        account_disable::set(&self.dirs.config, &account, disabled);
+    }
+
+    /// The disabled accounts' keys.
+    pub fn disabled_accounts(&self) -> Vec<String> {
+        account_disable::disabled(&self.dirs.config).into_iter().collect()
     }
 
     /// When the earliest timed mute ends (ms), to show the accounts again then.

@@ -9,7 +9,8 @@ pub fn key(info: &SessionInfo) -> String {
 }
 
 /// Keep the initial account order across keychain reads and restarts. New
-/// accounts append; removed accounts leave the order. Only account keys are
+/// accounts append; removed accounts leave the order; disabled accounts
+/// (`account_disable`) come after the enabled ones. Only account keys are
 /// persisted, never tokens. GTK and SwiftUI share this file.
 pub fn order(accounts: &mut [SessionInfo], config: &Path) {
     // An unavailable keychain must not erase the previous order.
@@ -27,6 +28,7 @@ pub fn order(accounts: &mut [SessionInfo], config: &Path) {
         }
     }
     accounts.sort_by_key(|info| keys.iter().position(|k| *k == key(info)).unwrap_or(usize::MAX));
+    crate::account_disable::last(accounts, &crate::account_disable::disabled(config));
     let updated = keys.join("\n");
     if saved != updated && std::fs::create_dir_all(config).is_ok() {
         let _ = std::fs::write(file, updated);

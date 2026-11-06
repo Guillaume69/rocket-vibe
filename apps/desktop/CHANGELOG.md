@@ -9,12 +9,15 @@ section here.
 
 ### Added
 
+- Server rail: an account can be disabled from its tile's menu: it stays on the rail, greyed and after the others, with its sign-in and stored messages, but is not connected (no sync, notification, call or presence) until enabled again, without re-entering credentials.
+- Shift+Up / Shift+Down opens the previous or next conversation in the list, skipping folded sections; inside a text field holding text they still select text.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
 - Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.
 - Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.
 
 ### Fixed
 
+- kChat and Mattermost: an account in the background reads its conversations again every two minutes, so its rail dot no longer misses messages its live connection did not deliver.
 - Mattermost and kChat: scrolling up no longer stops while older history exists. Paging trusted the posts left after deleted ones were dropped, and after a restart it could not page back from a message stored in an earlier session; it now follows the server's own "older posts" answer and pages from the stored post.
 - Native Jitsi and kMeet calls no longer just close: a call whose connection, audio or call server session is lost shows "Reconnecting…" and joins again, keeping your microphone and sound choices; if it cannot, the window stays open and says why the call ended. The connection to the call server is now also declared lost after 90 seconds of silence, and a session the server restarts (`transport-replace`) is joined again at once.
 - Animated custom emoji (GIF) now play in messages, reactions, the picker, completion and the administration list, on Linux, Windows and macOS (both apps); they showed their first frame only. They stay still when the system's animations or Reduce motion are off.

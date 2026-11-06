@@ -1717,6 +1717,15 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("mute.muted", "En sourdine", "Muted"),
     ("mute.muted_until", "En sourdine jusqu'à {when}", "Muted until {when}"),
     ("rail.logout", "Se déconnecter", "Log out"),
+    ("rail.disable", "Désactiver", "Disable"),
+    ("rail.enable", "Activer", "Enable"),
+    ("rail.disabled_tooltip", "{server} · @{user} (désactivé)", "{server} · @{user} (disabled)"),
+    ("rail.enable_title", "Activer {server} ?", "Enable {server}?"),
+    (
+        "rail.enable_body",
+        "Ce compte est désactivé : il n'est pas connecté. L'activer le reconnecte, sans redemander vos identifiants.",
+        "This account is disabled: it is not connected. Enabling it connects it again, without asking for your credentials.",
+    ),
     ("rail.logout_title", "Se déconnecter de {server} ?", "Log out of {server}?"),
     (
         "rail.logout_body",

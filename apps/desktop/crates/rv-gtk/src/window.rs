@@ -592,7 +592,11 @@ impl AppWindow {
         let weak = Rc::downgrade(&this);
         this.rail.connect_switch(move |info| {
             if let Some(this) = weak.upgrade() {
-                this.switch_to(info);
+                if this.rail.is_disabled(&supervisor::key(&info)) {
+                    this.confirm_enable(info);
+                } else {
+                    this.switch_to(info);
+                }
             }
         });
         let weak = Rc::downgrade(&this);
@@ -624,6 +628,15 @@ impl AppWindow {
             let modifiers = state & (M::CONTROL_MASK | M::SHIFT_MASK | M::ALT_MASK | M::SUPER_MASK | M::META_MASK);
             if modifiers == M::CONTROL_MASK | M::SHIFT_MASK && key.to_lower() == gtk::gdk::Key::a {
                 this.open_activity();
+                return glib::Propagation::Stop;
+            }
+            // Shift+Up / Shift+Down: the previous or next room, unless a text
+            // field with text in it has the focus (there they select text).
+            if modifiers == M::SHIFT_MASK
+                && matches!(key, gtk::gdk::Key::Up | gtk::gdk::Key::Down)
+                && !editing_text(&this.window)
+            {
+                this.chat.step_room(key == gtk::gdk::Key::Down);
                 return glib::Propagation::Stop;
             }
             let slot = controller
@@ -762,7 +775,8 @@ impl AppWindow {
             } else if let Some(link) = this.pending_link.borrow().as_ref() {
                 rv_core::links::select(link, &accounts, None)
             } else {
-                (!accounts.is_empty()).then_some(0)
+                let disabled = rv_core::account_disable::disabled(&crate::config_dir());
+                accounts.iter().position(|info| !disabled.contains(&supervisor::key(info)))
             };
             match target.map(|i| accounts[i].clone()) {
                 Some(info) => this.start_session(info),
@@ -1502,7 +1516,11 @@ impl AppWindow {
         let this = self.clone();
         glib::spawn_future_local(async move {
             let accounts = on_tokio(secrets::load_for_rail()).await;
-            this.accounts.sync(&accounts);
+            let config = crate::config_dir();
+            rv_core::account_disable::retain(&config, &accounts);
+            let disabled = rv_core::account_disable::disabled(&config);
+            this.accounts.sync(&rv_core::account_disable::enabled(&accounts, &disabled));
+            this.rail.set_disabled(disabled);
             this.rail.set_accounts(accounts, current.as_ref());
             this.whatsapp_rail_photos();
             this.watch_whatsapp_calls();
@@ -1667,6 +1685,17 @@ impl AppWindow {
             }
         }
         list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        let disabled = self.rail.is_disabled(&supervisor::key(info));
+        let (weak, target) = (Rc::downgrade(self), info.clone());
+        item(
+            t(if disabled { "rail.enable" } else { "rail.disable" }),
+            &["rail-disable"],
+            Box::new(move || {
+                if let Some(this) = weak.upgrade() {
+                    this.set_account_disabled(target.clone(), !disabled);
+                }
+            }),
+        );
         let (weak, target) = (Rc::downgrade(self), info.clone());
         item(
             t("rail.logout"),
@@ -1705,6 +1734,61 @@ impl AppWindow {
             });
             self.mute_timer.replace(Some(timer));
         }
+    }
+
+    /// Disables an account (kept on the rail, not connected) or enables it
+    /// again. The open one leaves the screen first, for the next enabled
+    /// account or, without one, the login page.
+    fn set_account_disabled(self: &Rc<Self>, info: SessionInfo, disable: bool) {
+        let key = supervisor::key(&info);
+        rv_core::account_disable::set(&crate::config_dir(), &key, disable);
+        if !disable {
+            self.refresh_rail();
+            self.switch_to(info);
+            return;
+        }
+        self.end_background_ring_of(&key);
+        self.rail.forget_unread(&key);
+        crate::badge::set_account(&key, None);
+        if self.open_account().is_some_and(|open| supervisor::key(&open) == key) {
+            self.stop_session(false);
+            let this = self.clone();
+            glib::spawn_future_local(async move {
+                let accounts = on_tokio(secrets::load_for_rail()).await;
+                let disabled = rv_core::account_disable::disabled(&crate::config_dir());
+                match accounts.into_iter().find(|a| !disabled.contains(&supervisor::key(a))) {
+                    Some(next) => this.switch_to(next),
+                    None => {
+                        this.show_login(None);
+                        this.refresh_rail();
+                    }
+                }
+            });
+            return;
+        }
+        self.refresh_rail();
+    }
+
+    /// A disabled account's tile: asked first, then enabled and opened. Backdrop: Cancel.
+    fn confirm_enable(self: &Rc<Self>, info: SessionInfo) {
+        let dialog = adw::AlertDialog::builder()
+            .heading(tf("rail.enable_title", &[("server", &supervisor::server_label(&info))]))
+            .body(t("rail.enable_body"))
+            .close_response("cancel")
+            .default_response("enable")
+            .build();
+        dialog.add_response("cancel", t("actions.cancel"));
+        dialog.add_response("enable", t("rail.enable"));
+        dialog.set_response_appearance("enable", adw::ResponseAppearance::Suggested);
+        let weak = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response == "enable"
+                && let Some(this) = weak.upgrade()
+            {
+                this.set_account_disabled(info.clone(), false);
+            }
+        });
+        crate::widgets::present(&dialog, Some(&self.window));
     }
 
     /// "Log out" from the rail: asked first, then that account leaves this
@@ -2625,6 +2709,19 @@ impl AppWindow {
             self.start_session(previous);
         }
     }
+}
+
+/// Whether the focus is in an editable text field holding text: Shift+arrows
+/// select there, so they do not move between rooms.
+fn editing_text(window: &impl IsA<gtk::Window>) -> bool {
+    let Some(focus) = gtk::prelude::GtkWindowExt::focus(window) else { return false };
+    if let Some(view) = focus.downcast_ref::<gtk::TextView>() {
+        return view.is_editable() && view.buffer().char_count() > 0;
+    }
+    if let Some(text) = focus.downcast_ref::<gtk::Text>() {
+        return text.is_editable() && !text.text().is_empty();
+    }
+    false
 }
 
 #[cfg(test)]

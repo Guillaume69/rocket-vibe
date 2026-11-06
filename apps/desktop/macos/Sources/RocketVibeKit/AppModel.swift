@@ -30,7 +30,8 @@ public final class AppModel {
     public private(set) var accounts: [Account] = [] {
         didSet {
             let saved = (try? String(contentsOfFile: client.configDir() + "/server-rail-order", encoding: .utf8)) ?? ""
-            railAccounts = Self.orderForRail(accounts, keys: saved.split(separator: "\n").map(String.init))
+            disabledAccounts = Set(client.disabledAccounts())
+            railAccounts = Self.orderForRail(accounts, keys: saved.split(separator: "\n").map(String.init), disabled: disabledAccounts)
             let keys = Set(accounts.map(\.key))
             (history, historyAt) = Self.pruned(history, at: historyAt) { keys.contains($0.account) }
         }
@@ -38,11 +39,44 @@ public final class AppModel {
     /// Tile positions are independent of the active-first list used at startup.
     public private(set) var railAccounts: [Account] = []
 
+    /// The disabled accounts (`Client.setAccountDisabled`, the file GTK reads
+    /// too): on the rail, after the others and greyed, but not connected.
+    public private(set) var disabledAccounts: Set<String> = []
+
+    /// A disabled tile opened: the account waiting to be enabled.
+    public var enabling: Account?
+
+    public func isDisabled(_ key: String) -> Bool { disabledAccounts.contains(key) }
+
+    /// Disables an account (the open one leaves for the next enabled account,
+    /// or the login page) or enables it again and opens it.
+    public func setDisabled(_ target: Account, _ disabled: Bool) async {
+        client.setAccountDisabled(account: target.key, disabled: disabled)
+        disabledAccounts = Set(client.disabledAccounts())
+        let saved = (try? String(contentsOfFile: client.configDir() + "/server-rail-order", encoding: .utf8)) ?? ""
+        railAccounts = Self.orderForRail(accounts, keys: saved.split(separator: "\n").map(String.init), disabled: disabledAccounts)
+        showAttention()
+        if !disabled {
+            await client.keepAccountsConnected()
+            await switchAccount(target)
+            return
+        }
+        if target.key == account?.key {
+            end()
+            if let next = accounts.first(where: { !isDisabled($0.key) }), await resume(next) {
+                await client.keepAccountsConnected()
+                return
+            }
+            showLogin(error: nil)
+        }
+        await client.keepAccountsConnected()
+    }
+
     /// Drops the account `moved` on `target`'s tile: it takes that place,
     /// kept for the next launch and for GTK (`server-rail-order`).
     public func moveRailAccount(_ moved: String, onto target: String) -> Bool {
         guard let order = client.moveRailAccount(keys: railAccounts.map(\.key), moved: moved, target: target) else { return false }
-        railAccounts = Self.orderForRail(accounts, keys: order)
+        railAccounts = Self.orderForRail(accounts, keys: order, disabled: disabledAccounts)
         return true
     }
 
@@ -52,8 +86,10 @@ public final class AppModel {
         await switchAccount(railAccounts[slot])
     }
 
-    static func orderForRail(_ accounts: [Account], keys: [String]) -> [Account] {
+    static func orderForRail(_ accounts: [Account], keys: [String], disabled: Set<String> = []) -> [Account] {
         accounts.enumerated().sorted { left, right in
+            let (offA, offB) = (disabled.contains(left.element.key), disabled.contains(right.element.key))
+            if offA != offB { return !offA }
             let a = keys.firstIndex(of: left.element.key) ?? keys.count
             let b = keys.firstIndex(of: right.element.key) ?? keys.count
             return a == b ? left.offset < right.offset : a < b
@@ -211,7 +247,7 @@ public final class AppModel {
                 return
             }
         } catch { cancelNotificationNavigation(); notice = L("links.unavailable") }
-        if let first = accounts.first, await resume(first) { return }
+        if let first = accounts.first(where: { !isDisabled($0.key) }), await resume(first) { return }
         showLogin(error: nil)
     }
 
@@ -430,6 +466,10 @@ public final class AppModel {
     /// From the server rail: the account opens on its last room, unless it is the open one.
     public func switchAccount(_ target: Account, reopen: Bool = true) async {
         guard target.key != account?.key, !leaving.contains(target.key) else { return }
+        if isDisabled(target.key) {
+            enabling = target
+            return
+        }
         await resume(target, reopen: reopen)
     }
 
@@ -532,7 +572,7 @@ public final class AppModel {
         guard expected == sessionId else { return }
         end()
         accounts = await client.accounts()
-        if let next = accounts.first, await resume(next) { return }
+        if let next = accounts.first(where: { !isDisabled($0.key) }), await resume(next) { return }
         showLogin(error: nil)
     }
 
@@ -870,6 +910,26 @@ public final class AppModel {
         if let room, room.rid == rid, !(await room.jump(to: message)) {
             notice = L("marked.not_loaded")
         }
+    }
+
+    /// Shift+Up / Shift+Down: the room before or after the open one in the
+    /// list, folded sections skipped; false when there is none.
+    @discardableResult
+    public func stepRoom(forward: Bool) -> Bool {
+        let titled = groups.count > 1
+        let order = groups.filter { !(titled && collapsed.contains($0.key)) }.flatMap { $0.rooms.map(\.rid) }
+        guard !order.isEmpty else { return false }
+        let at = room.flatMap { open in order.firstIndex(of: open.rid) }
+        let next: Int
+        switch (at, forward) {
+        case (nil, true): next = 0
+        case (nil, false): next = order.count - 1
+        case let (at?, true): next = at + 1
+        case let (at?, false): next = at - 1
+        }
+        guard order.indices.contains(next) else { return false }
+        select(order[next])
+        return true
     }
 
     /// A room picked in the list: a voice channel joins its session and shows its page.

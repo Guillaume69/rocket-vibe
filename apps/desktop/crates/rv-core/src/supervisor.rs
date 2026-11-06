@@ -32,6 +32,10 @@ use crate::session::{SessionEvent, SessionInfo};
 
 /// How long the unread state waits for a burst of changes to settle.
 const UNREAD_SETTLE: Duration = Duration::from_millis(300);
+/// How often a Mattermost or kChat account in the background reads its rooms
+/// again: a post its stream missed (a socket that died unseen, a sleep) would
+/// otherwise wait for the account to be opened to show on the rail.
+const BACKGROUND_REFRESH: Duration = Duration::from_secs(120);
 const MAX_START_DELAY: Duration = Duration::from_secs(300);
 
 /// An account's key, as the keychain files spell it.
@@ -442,7 +446,27 @@ impl Inner {
         let (events, forward) = chat.events();
         let watcher =
             this.handle.spawn(Inner::hear(Arc::downgrade(this), key.to_owned(), info.clone(), chat.clone(), events));
-        vec![watcher, forward]
+        let mut tasks = vec![watcher, forward];
+        if let Chat::Legacy(session) = chat
+            && info.mattermost.is_some()
+        {
+            tasks.push(this.handle.spawn(Inner::refresh(Arc::downgrade(this), key.to_owned(), session.clone())));
+        }
+        tasks
+    }
+
+    /// Reads a background Mattermost or kChat account's rooms again every
+    /// `BACKGROUND_REFRESH`; the open account keeps to its own stream.
+    async fn refresh(inner: Weak<Inner>, key: String, session: Arc<crate::session::Session>) {
+        let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + BACKGROUND_REFRESH, BACKGROUND_REFRESH);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            let Some(this) = inner.upgrade() else { return };
+            if !this.is_active(&key) {
+                session.spawn_refresh_rooms();
+            }
+        }
     }
 
     async fn hear(

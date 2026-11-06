@@ -28,3 +28,8 @@ describe('formatting', () => {
     assert.deepEqual(link('site', 0, 4), edit('[site](https://)', 7, 15));
   });
 });
+
+test('a notes marker of two characters wraps and unwraps', () => {
+  assert.deepEqual(toggleWrap('say hi', 4, 6, '**'), { text: 'say **hi**', start: 6, end: 8 });
+  assert.deepEqual(toggleWrap('say **hi**', 6, 8, '**'), { text: 'say hi', start: 4, end: 6 });
+});

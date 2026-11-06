@@ -441,6 +441,9 @@ mod tests {
         assert_eq!(toggle_wrap("say *hi* now", 4, 8, "*"), edit("say hi now", 4, 6));
         assert_eq!(toggle_wrap("", 0, 0, "~"), edit("~~", 1, 1));
         assert_eq!(toggle_wrap("café", 0, 4, "_"), edit("_café_", 1, 5));
+        assert_eq!(toggle_wrap("say hi", 4, 6, "**"), edit("say **hi**", 6, 8));
+        assert_eq!(toggle_wrap("say **hi**", 6, 8, "**"), edit("say hi", 4, 6));
+        assert_eq!(toggle_wrap("a ~~b~~", 4, 5, "~~"), edit("a b", 2, 3));
     }
 
     #[test]

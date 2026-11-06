@@ -29,7 +29,6 @@ import {
   ActivityIndicator,
   Keyboard,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -38,7 +37,8 @@ import {
 
 import { quote } from '../lib/quote.ts';
 import { listBreak, typedBreak } from '../lib/listBreak.ts';
-import { codeBlock, link, toggleLines, toggleWrap, type Edited } from '../lib/formatting.ts';
+import type { Edited } from '../lib/formatting.ts';
+import { FormatRow } from './formatRow.tsx';
 import { requestGifSelection } from "./gifSelection.ts";
 import { SocialButton } from "./social.tsx";
 import { commandErrorKey, splitCommand, runCommand, textCommand } from '../lib/commands.ts';
@@ -57,7 +57,7 @@ import { deleteIfTemporary } from './temporaryFiles.ts';
 import { useScheduleFormatter, useT } from './i18n.ts';
 import { refreshScheduled, requestSendTime, scheduleError, scheduledAvailable, useScheduledList, useScheduledRefresh } from './scheduled.ts';
 import { AvatarTile, pillSurface } from './kit.tsx';
-import { Icon, InlineIcon, type IconName } from './icon.tsx';
+import { Icon, InlineIcon } from './icon.tsx';
 import { isViewTreeRejection, launchPickerWithRetry } from './launchPicker.ts';
 import { VideoModal } from './videoPlayer.tsx';
 import { isImage } from './mime.ts';
@@ -863,26 +863,7 @@ export function Composer({
           </Text>
         </Tappable>
       )}
-      {formatting && !emoji.open && (
-        <ScrollView horizontal keyboardShouldPersistTaps="always" showsHorizontalScrollIndicator={false} contentContainerStyle={styles.formatRow}>
-          {FORMATS.map((f) => (
-            <Tappable
-              key={f.key}
-              onPress={() => format(f.apply)}
-              accessibilityRole="button"
-              accessibilityLabel={t(f.key)}
-              android_ripple={{ color: c.ripple, borderless: true }}
-              style={[styles.formatButton, { borderColor: c.border }]}
-            >
-              {typeof f.glyph === 'string' ? (
-                <Text style={[styles.formatGlyph, f.style, { color: c.text }]}>{f.glyph}</Text>
-              ) : (
-                <Icon name={f.glyph.icon} size={17} color={c.text} />
-              )}
-            </Tappable>
-          ))}
-        </ScrollView>
-      )}
+      {formatting && !emoji.open && <FormatRow marks="message" c={c} apply={format} />}
       <View style={[styles.composer, { borderTopColor: c.softBorder }]}>
         {/* Like `PillField`: a tap anywhere in the pill, padding included, focuses the field. */}
         <Pressable
@@ -1047,29 +1028,7 @@ function LockedComposer({ c }: { c: Colors }) {
   );
 }
 
-/** The buttons, in the desktop toolbar's order (`rv-gtk/src/composer.rs::toolbar`). */
-const FORMATS: readonly {
-  key: 'format.bold' | 'format.italic' | 'format.strike' | 'format.code' | 'format.link' | 'format.codeBlock' | 'format.quote' | 'format.bullets' | 'format.numbers';
-  /** Text, or the desktop's icon where it draws one (link, bullets, numbers). */
-  glyph: string | { icon: IconName };
-  style?: object;
-  apply: (text: string, start: number, end: number) => Edited;
-}[] = [
-  { key: 'format.bold', glyph: 'B', style: { fontWeight: '700' }, apply: (x, s, e) => toggleWrap(x, s, e, '*') },
-  { key: 'format.italic', glyph: 'I', style: { fontStyle: 'italic' }, apply: (x, s, e) => toggleWrap(x, s, e, '_') },
-  { key: 'format.strike', glyph: 'S', style: { textDecorationLine: 'line-through' }, apply: (x, s, e) => toggleWrap(x, s, e, '~') },
-  { key: 'format.link', glyph: { icon: 'link' }, apply: link },
-  { key: 'format.code', glyph: '</>', apply: (x, s, e) => toggleWrap(x, s, e, '`') },
-  { key: 'format.codeBlock', glyph: '{ }', apply: codeBlock },
-  { key: 'format.quote', glyph: '“', apply: (x, s, e) => toggleLines(x, s, e, 'quote') },
-  { key: 'format.bullets', glyph: { icon: 'view-list-bullet' }, apply: (x, s, e) => toggleLines(x, s, e, 'bullet') },
-  { key: 'format.numbers', glyph: { icon: 'view-list-ordered' }, apply: (x, s, e) => toggleLines(x, s, e, 'numbered') },
-];
-
 const styles = StyleSheet.create({
-  formatRow: { gap: 6, paddingHorizontal: 12, paddingTop: 6, paddingBottom: 6 },
-  formatButton: { minWidth: 38, height: 34, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
-  formatGlyph: { fontFamily: FONTS.bodySemi, fontSize: 15 },
   alsoInRoom: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingTop: 6 },
   alsoInRoomText: { fontFamily: FONTS.bodySemi, fontSize: 13 },
   composer: {

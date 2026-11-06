@@ -763,6 +763,7 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "getrandom 0.3.4",
+ "miniz_oxide",
  "quick-xml",
  "rustls",
  "tokio",

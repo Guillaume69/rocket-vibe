@@ -48,6 +48,19 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         token: Option<String>,
     },
+    /// Join an Amazon Chime meeting natively (Slack's huddles) with an
+    /// attendee's credentials: the sidecar speaks its signalling itself
+    /// (rv-call). Audio only.
+    ConnectChime {
+        /// `MediaPlacement.SignalingUrl`.
+        signaling_url: String,
+        /// `MediaPlacement.AudioHostUrl`.
+        audio_host: String,
+        attendee_id: String,
+        join_token: String,
+        /// The provider's web origin the signalling expects.
+        origin: String,
+    },
     /// The room's group reached a new epoch: frames from now on use its key.
     SetKey {
         key: String,
@@ -134,6 +147,11 @@ impl std::fmt::Debug for Command {
                 .field("websocket", websocket)
                 .field("room", room)
                 .field("token", &token.is_some())
+                .finish_non_exhaustive(),
+            Self::ConnectChime { signaling_url, attendee_id, .. } => f
+                .debug_struct("ConnectChime")
+                .field("signaling_url", signaling_url)
+                .field("attendee_id", attendee_id)
                 .finish_non_exhaustive(),
             Self::SetKey { .. } => f.write_str("SetKey"),
             Self::SetMicrophone { enabled } => f.debug_struct("SetMicrophone").field("enabled", enabled).finish(),
@@ -386,6 +404,20 @@ pub mod frames {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_chime_join_token_is_never_printed() {
+        let command = Command::ConnectChime {
+            signaling_url: "wss://signal.x.m.chime.aws/control/m".into(),
+            audio_host: "h:3478".into(),
+            attendee_id: "a".into(),
+            join_token: "SECRET-TOKEN".into(),
+            origin: "https://app.slack.com".into(),
+        };
+        assert!(!format!("{command:?}").contains("SECRET"));
+        let wire = serde_json::to_string(&command).unwrap();
+        assert!(wire.contains("\"connect_chime\""), "{wire}");
+    }
 
     #[test]
     fn a_jitsi_token_is_never_printed() {

@@ -1,5 +1,5 @@
 //! A call carried natively for a provider other than LiveKit: rv-call speaks the
-//! provider's signalling (Jitsi Meet for now), this drives one libwebrtc peer
+//! provider's signalling (Jitsi Meet, Chime), this drives one libwebrtc peer
 //! connection with it, and the audio goes through the same chain as LiveKit's
 //! (audio.rs: devices, echo canceller, noise remover, per-person mix). Audio only.
 
@@ -8,9 +8,11 @@ use std::time::Duration;
 
 use livekit::webrtc::ice_candidate::IceCandidate;
 use livekit::webrtc::media_stream_track::MediaStreamTrack;
-use livekit::webrtc::peer_connection::{AnswerOptions, PeerConnection, PeerConnectionState};
+use livekit::webrtc::peer_connection::{
+    AnswerOptions, IceGatheringState, OfferOptions, PeerConnection, PeerConnectionState,
+};
 use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
-use livekit::webrtc::peer_connection_factory::{IceServer, PeerConnectionFactory, RtcConfiguration};
+use livekit::webrtc::peer_connection_factory::{IceServer, IceTransportsType, PeerConnectionFactory, RtcConfiguration};
 use livekit::webrtc::session_description::{SdpType, SessionDescription};
 use rv_call::{CallSignaling, Candidate, Event as CallEvent, Member as CallMember};
 use rv_voice_protocol::{Command, ConnectionState as State, Event, Participant};
@@ -21,8 +23,18 @@ use crate::{audio, diagnose, emit, error, level, report};
 enum Peer {
     Candidate(IceCandidate),
     State(PeerConnectionState),
+    Gathered,
     Track { stream: String, id: String, track: livekit::webrtc::audio_track::RtcAudioTrack },
 }
+
+/// How long an offer waits for ICE gathering before it goes with what was found.
+const GATHERING: Duration = Duration::from_secs(5);
+/// How long it waits once a candidate exists: gathering may never say it is done,
+/// and one relay candidate is all a relayed call needs.
+const FIRST_CANDIDATE: Duration = Duration::from_millis(500);
+
+/// The loudness, as the provider reports it, above which a member speaks.
+const SPEAKING: f32 = 0.15;
 
 /// How often a lost call is joined again before it is given up, and the pause
 /// before each try.
@@ -34,6 +46,8 @@ enum Stop {
     Left,
     /// The connection, the media or the conference went away: worth joining again.
     Lost(String),
+    /// The provider ended it for good: joining again would not bring it back.
+    Over(String),
 }
 
 /// Runs one call until it ends, then reports `Disconnected`. A call lost on the
@@ -68,6 +82,9 @@ where
         ice: Vec::new(),
         roster: Vec::new(),
         heard: HashMap::new(),
+        levels: HashMap::new(),
+        offering: None,
+        gathered: Vec::new(),
         microphone: true,
         deafened: false,
         connected: false,
@@ -78,7 +95,11 @@ where
     let reason = loop {
         let stop = joined(&mut session, &factory, &microphone, &mut sound, &mut call, commands).await;
         call.reset();
-        let Stop::Lost(reason) = stop else { break "client_initiated".to_owned() };
+        let reason = match stop {
+            Stop::Left => break "client_initiated".to_owned(),
+            Stop::Over(reason) => break reason,
+            Stop::Lost(reason) => reason,
+        };
         diagnose(&format!("call: lost ({reason}), joining again"));
         if call.connected {
             tries = 0;
@@ -193,28 +214,53 @@ async fn joined<S: CallSignaling>(
             event = session.next_event() => match event {
                 None => return Stop::Lost("other".to_owned()),
                 Some(CallEvent::Ended(reason)) => return Stop::Lost(reason),
+                Some(CallEvent::Over(reason)) => return Stop::Over(reason),
                 Some(CallEvent::IceServers(servers)) => {
                     call.ice = servers
                         .into_iter()
                         .map(|s| IceServer { urls: s.urls, username: s.username, password: s.credential })
                         .collect();
                 }
-                Some(CallEvent::Offer { sdp }) => {
-                    if call.pc.is_none() {
-                        match open(factory, call.ice.clone(), peer_tx.clone()) {
-                            Ok(pc) => {
-                                if pc.add_track(MediaStreamTrack::Audio(microphone.clone()), &[session.local_id()]).is_err() {
-                                    error("publish_failed");
-                                }
-                                call.pc = Some(pc);
-                                call.apply(microphone);
-                            }
-                            Err(e) => {
-                                diagnose(&format!("call: peer connection: {e}"));
-                                session.leave().await;
-                                return Stop::Lost("connect_failed".to_owned());
+                Some(CallEvent::OfferWanted { relay_only }) => {
+                    if !call.ensure_pc(factory, relay_only, &peer_tx, microphone, session.local_id()) {
+                        session.leave().await;
+                        return Stop::Lost("connect_failed".to_owned());
+                    }
+                    let Some(pc) = &call.pc else { continue };
+                    match offer(pc).await {
+                        Ok(sdp) => {
+                            call.offering = Some((sdp, tokio::time::Instant::now()));
+                            if pc.ice_gathering_state() == IceGatheringState::Complete {
+                                let _ = peer_tx.send(Peer::Gathered);
                             }
                         }
+                        Err(e) => {
+                            diagnose(&format!("call: offer: {e}"));
+                            session.leave().await;
+                            return Stop::Lost("connect_failed".to_owned());
+                        }
+                    }
+                }
+                Some(CallEvent::Answer { sdp }) => {
+                    let Some(pc) = &call.pc else { continue };
+                    let answer = SessionDescription::parse(&sdp, SdpType::Answer);
+                    let set = match answer {
+                        Ok(answer) => pc.set_remote_description(answer).await.map_err(|e| format!("{e:?}")),
+                        Err(e) => Err(format!("{e:?}")),
+                    };
+                    if let Err(e) = set {
+                        diagnose(&format!("call: answer: {e}"));
+                        session.leave().await;
+                        return Stop::Lost("connect_failed".to_owned());
+                    }
+                }
+                Some(CallEvent::Levels(levels)) => {
+                    call.levels = levels.into_iter().collect();
+                }
+                Some(CallEvent::Offer { sdp }) => {
+                    if !call.ensure_pc(factory, false, &peer_tx, microphone, session.local_id()) {
+                        session.leave().await;
+                        return Stop::Lost("connect_failed".to_owned());
                     }
                     let Some(pc) = &call.pc else { continue };
                     match negotiate(pc, &sdp).await {
@@ -238,7 +284,14 @@ async fn joined<S: CallSignaling>(
             },
             Some(peer) = peer_rx.recv() => match peer {
                 Peer::Candidate(c) => {
-                    let _ = session.local_candidate(Candidate { mid: c.sdp_mid(), line: c.candidate() }).await;
+                    let candidate = Candidate { mid: c.sdp_mid(), line: c.candidate() };
+                    call.gathered.push(candidate.clone());
+                    let _ = session.local_candidate(candidate).await;
+                }
+                Peer::Gathered => {
+                    if send_offer(session, call).await.is_err() {
+                        return Stop::Lost("other".to_owned());
+                    }
                 }
                 Peer::State(state) => {
                     debug(&format!("peer connection {state:?}"));
@@ -261,9 +314,25 @@ async fn joined<S: CallSignaling>(
                     }
                 }
             },
-            _ = activity.tick() => call.tick(session.local_id()),
+            _ = activity.tick() => {
+                if call
+                    .offering
+                    .as_ref()
+                    .is_some_and(|(_, at)| at.elapsed() > GATHERING || (!call.gathered.is_empty() && at.elapsed() > FIRST_CANDIDATE))
+                    && send_offer(session, call).await.is_err()
+                {
+                    return Stop::Lost("other".to_owned());
+                }
+                call.tick(session.local_id());
+            }
         }
     }
+}
+
+/// The offer waiting for gathering, with the candidates found so far.
+async fn send_offer<S: CallSignaling>(session: &mut S, call: &mut Call) -> Result<(), rv_call::Error> {
+    let Some((sdp, _)) = call.offering.take() else { return Ok(()) };
+    session.offer(&rv_call::sdp_with_candidates(&sdp, &call.gathered)).await
 }
 
 /// `RV_CALL_DEBUG=1` prints the peer connection's states, to stderr.
@@ -276,11 +345,21 @@ fn debug(what: &str) {
 fn open(
     factory: &PeerConnectionFactory,
     ice_servers: Vec<IceServer>,
+    relay_only: bool,
     events: mpsc::UnboundedSender<Peer>,
 ) -> Result<PeerConnection, String> {
     let mut config = RtcConfiguration::default();
     config.ice_servers = ice_servers;
+    if relay_only {
+        config.ice_transport_type = IceTransportsType::Relay;
+    }
     let pc = factory.create_peer_connection(config).map_err(|e| format!("{e:?}"))?;
+    let tx = events.clone();
+    pc.on_ice_gathering_state_change(Some(Box::new(move |state| {
+        if state == IceGatheringState::Complete {
+            let _ = tx.send(Peer::Gathered);
+        }
+    })));
     let tx = events.clone();
     pc.on_ice_candidate(Some(Box::new(move |c| {
         let _ = tx.send(Peer::Candidate(c));
@@ -299,6 +378,15 @@ fn open(
     Ok(pc)
 }
 
+/// The local offer made and set: its SDP, which goes out once gathering completed.
+async fn offer(pc: &PeerConnection) -> Result<String, String> {
+    let options = OfferOptions { offer_to_receive_audio: true, ..OfferOptions::default() };
+    let offer = pc.create_offer(options).await.map_err(|e| format!("create: {e:?}"))?;
+    let sdp = offer.to_string();
+    pc.set_local_description(offer).await.map_err(|e| format!("local: {e:?}"))?;
+    Ok(sdp)
+}
+
 /// The remote offer set, and the local answer made and set: its SDP.
 async fn negotiate(pc: &PeerConnection, offer: &str) -> Result<String, String> {
     let offer = SessionDescription::parse(offer, SdpType::Offer).map_err(|e| format!("offer: {e:?}"))?;
@@ -315,6 +403,12 @@ struct Call {
     ice: Vec<IceServer>,
     roster: Vec<CallMember>,
     heard: HashMap<String, tokio::task::JoinHandle<()>>,
+    /// Each member's loudness when the provider says it (Chime mixes the audio).
+    levels: HashMap<String, f32>,
+    /// An offer set, waiting for gathering to complete before it goes out, and since when.
+    offering: Option<(String, tokio::time::Instant)>,
+    /// The local candidates so far, which an offer that waited carries.
+    gathered: Vec<Candidate>,
     microphone: bool,
     deafened: bool,
     connected: bool,
@@ -332,7 +426,39 @@ impl Call {
             pc.close();
         }
         self.roster.clear();
+        self.levels.clear();
+        self.offering = None;
+        self.gathered.clear();
         self.last = None;
+    }
+
+    /// The peer connection, opened with the microphone on first need; false
+    /// when it cannot be.
+    fn ensure_pc(
+        &mut self,
+        factory: &PeerConnectionFactory,
+        relay_only: bool,
+        events: &mpsc::UnboundedSender<Peer>,
+        microphone: &livekit::webrtc::audio_track::RtcAudioTrack,
+        stream: &str,
+    ) -> bool {
+        if self.pc.is_some() {
+            return true;
+        }
+        match open(factory, self.ice.clone(), relay_only, events.clone()) {
+            Ok(pc) => {
+                if pc.add_track(MediaStreamTrack::Audio(microphone.clone()), &[stream]).is_err() {
+                    error("publish_failed");
+                }
+                self.pc = Some(pc);
+                self.apply(microphone);
+                true
+            }
+            Err(e) => {
+                diagnose(&format!("call: peer connection: {e}"));
+                false
+            }
+        }
     }
 
     fn apply(&self, track: &livekit::webrtc::audio_track::RtcAudioTrack) {
@@ -365,7 +491,10 @@ impl Call {
             name: None,
         }];
         for m in &self.roster {
-            let (speaking, loud) = self.mix.activity(&m.id, false);
+            let (speaking, loud) = match self.levels.get(&m.id) {
+                Some(level) => (*level > SPEAKING && !m.muted, *level),
+                None => self.mix.activity(&m.id, false),
+            };
             participants.push(Participant {
                 identity: m.id.clone(),
                 local: false,
@@ -375,7 +504,7 @@ impl Call {
                 level: level(loud),
                 camera: false,
                 screen: false,
-                name: Some(m.name.clone()),
+                name: Some(m.name.clone()).filter(|n| !n.is_empty()),
             });
         }
         if self.last.as_ref() != Some(&participants) {

@@ -145,6 +145,14 @@ async fn run() {
                     let config = rv_call::jitsi::Config { websocket, domain, muc, focus, room, display_name, token };
                     return call::run(|| rv_call::jitsi::join(config.clone()), voice.fake, &mut commands).await;
                 }
+                Some(Ok(Command::ConnectChime { signaling_url, audio_host, attendee_id, join_token, origin })) => {
+                    if voice.room.is_some() {
+                        error("already_connected");
+                        continue;
+                    }
+                    let config = rv_call::chime::Config { signaling_url, audio_host, attendee_id, join_token, origin };
+                    return call::run(|| rv_call::chime::client::join(config.clone()), voice.fake, &mut commands).await;
+                }
                 Some(Ok(Command::Connect { url, token, e2ee_key })) => {
                     if voice.room.is_some() {
                         error("already_connected");
@@ -377,7 +385,10 @@ impl Voice {
                 Some(keys) => keys.set_shared_key(key.into_bytes(), 0),
                 None => error("not_encrypted"),
             },
-            Command::Connect { .. } | Command::ConnectJitsi { .. } | Command::Disconnect => {}
+            Command::Connect { .. }
+            | Command::ConnectJitsi { .. }
+            | Command::ConnectChime { .. }
+            | Command::Disconnect => {}
         }
     }
 

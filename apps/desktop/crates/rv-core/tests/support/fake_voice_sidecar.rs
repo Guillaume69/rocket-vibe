@@ -102,6 +102,14 @@ fn main() {
                 connected = true;
                 publish(&me);
             }
+            Command::ConnectChime { signaling_url, attendee_id, .. } => {
+                url = signaling_url;
+                me.identity = attendee_id;
+                emit(Event::State { state: ConnectionState::Connecting });
+                emit(Event::State { state: ConnectionState::Connected });
+                connected = true;
+                publish(&me);
+            }
             Command::SetMicrophone { enabled } => {
                 me.muted = !enabled;
                 if connected {

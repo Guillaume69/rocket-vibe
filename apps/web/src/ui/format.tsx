@@ -44,11 +44,7 @@ type Field = Pick<
  * GTK's toolbar edits the selection in place, including a selected link address.
  * Notes are standard markdown (`**`, `~~`); messages the server's `*`, `~`.
  */
-export function formatDraft(
-  editor: Field,
-  kind: Format,
-  notes = false,
-): void {
+export function formatDraft(editor: Field, kind: Format, notes = false): void {
   const text = editor.value,
     a = editor.selectionStart,
     b = editor.selectionEnd;

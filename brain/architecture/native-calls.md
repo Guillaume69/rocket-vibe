@@ -363,8 +363,14 @@ and every window closed on `snapshot.ended` whatever the reason. Now:
   the shipped 0.30.2 window closed: reproduced on meet.barrut.me with its own sidecar (B leaves, A
   `disconnected: terminated` 28 s later). The Jitsi web client stays in the room. Now rv-call emits
   `Event::MediaEnded`: the sidecar and Android close the peer connection and wait in the room for the next
-  offer. The two sidecars of a 105-minute probe stayed connected because neither was ever alone, which is
-  why that probe saw nothing.
+  offer.
+- **The socket lost during a long call (2026-11-06)**: two 0.30.2 sidecars in a test room, both staying:
+  at 1 h 37 min 49 s one lost its signalling socket (`connection_lost`) and ended, the other one, alone,
+  got `terminated` 20 s later and ended too. That is the reported 1 h 30. meet.barrut.me is behind
+  Cloudflare, the other socket lived on on the same machine, and the media does not go through that socket:
+  losing it must not end a call. Now it rejoins: a real socket shut down mid-call (`shutdown` on the
+  sidecar's own descriptor) gave `reconnecting`, then connected and audio both ways 2 s later, with no
+  `disconnected`. rv-call prints the socket's error to standard error.
 - **A fresh factory per media session**: a second peer connection on a `PeerConnectionFactory` whose first
   connection closed gets the remote tracks but no audio frames (reproduced: A level 0.0 for C while C heard
   A; with a new factory A heard C at 0.8). `call.rs` `media()` makes the factory and the microphone track

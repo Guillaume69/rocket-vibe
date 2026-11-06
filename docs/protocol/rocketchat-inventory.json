@@ -5227,6 +5227,12 @@
       "surface": "users.list"
     },
     {
+      "file": "crates/rv-slack/src/service.rs",
+      "line": 538,
+      "kind": "endpoint",
+      "surface": "rooms.join"
+    },
+    {
       "file": "crates/rv-teams/src/auth.rs",
       "line": 19,
       "kind": "url",

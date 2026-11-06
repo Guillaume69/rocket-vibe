@@ -473,6 +473,55 @@ pub fn huddle_page(link: &str) -> Option<String> {
     }
 }
 
+/// The channel whose huddle a call id names: the room's page [`huddle_url`]
+/// builds, or a stored `huddle/<team>/<channel>` link.
+pub fn huddle_channel(call_id: &str) -> Option<String> {
+    let page = huddle_page(call_id)?;
+    let url = url::Url::parse(&page).ok()?;
+    let parts: Vec<&str> = url.path_segments()?.collect();
+    match parts.as_slice() {
+        ["client", _team, channel] if !channel.is_empty() => Some((*channel).to_owned()),
+        _ => None,
+    }
+}
+
+/// A huddle's Amazon Chime attendee credentials, from `rooms.join`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HuddleMedia {
+    pub signaling_url: String,
+    pub audio_host: String,
+    pub attendee_id: String,
+    pub join_token: String,
+}
+
+impl std::fmt::Debug for HuddleMedia {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HuddleMedia")
+            .field("signaling_url", &self.signaling_url)
+            .field("attendee_id", &self.attendee_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `rooms.join`'s `call.free_willy`: the meeting's media placement and this
+/// attendee's join token.
+pub fn huddle_media(body: &Value) -> Option<HuddleMedia> {
+    let willy = body.pointer("/call/free_willy")?;
+    let field = |path: &str| willy.pointer(path).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+    Some(HuddleMedia {
+        signaling_url: field("/meeting/MediaPlacement/SignalingUrl")?,
+        audio_host: field("/meeting/MediaPlacement/AudioHostUrl")?,
+        attendee_id: field("/attendee/AttendeeId")?,
+        join_token: field("/attendee/JoinToken")?,
+    })
+}
+
+/// The Slack user behind a huddle attendee's external id
+/// (`<team>-<huddle>-<user>`, then `-<device>` when joined with `multidevice`).
+pub fn huddle_person(external_id: &str) -> &str {
+    external_id.split('-').nth(2).unwrap_or(external_id)
+}
+
 /// Where a huddle's call window may go: Slack's own pages and the page's blobs.
 pub fn huddle_allowed(url: &str, _call_url: &str) -> bool {
     url == "about:blank" || url == "about:srcdoc" || url.strip_prefix("blob:").is_some_and(slack_web) || slack_web(url)
@@ -679,6 +728,30 @@ pub fn subscription(rid: &str, counts: Option<&Value>, updated_at: i64, open: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_huddle_join_gives_its_chime_credentials() {
+        let body = json!({"ok": true, "call": {"call_id": "R1", "free_willy": {
+            "meeting": {"MeetingId": "m", "MediaPlacement": {
+                "SignalingUrl": "wss://signal.z2.ew3.m.chime.aws/control/m",
+                "AudioHostUrl": "h.k.m2.ew3.app.chime.aws:3478"}},
+            "attendee": {"AttendeeId": "a", "ExternalUserId": "T1-R1-U1", "JoinToken": "tok"}}}});
+        let media = huddle_media(&body).unwrap();
+        assert_eq!(media.signaling_url, "wss://signal.z2.ew3.m.chime.aws/control/m");
+        assert_eq!((media.attendee_id.as_str(), media.join_token.as_str()), ("a", "tok"));
+        assert!(!format!("{media:?}").contains("tok"));
+        assert_eq!(huddle_media(&json!({"ok": true, "call": {}})), None);
+        assert_eq!(huddle_person("T0Y18HFQS-R0CEUDN9T1N-U0Y4V0AJZ"), "U0Y4V0AJZ");
+        assert_eq!(huddle_person("T0Y18HFQS-R0CFG2J4R19-U0Y4V0AJZ-12560692747392"), "U0Y4V0AJZ");
+    }
+
+    #[test]
+    fn a_huddle_call_id_names_its_channel() {
+        assert_eq!(huddle_channel("https://app.slack.com/client/T1/C2?open=start_huddle").as_deref(), Some("C2"));
+        assert_eq!(huddle_channel("https://app.slack.com/huddle/T1/C2").as_deref(), Some("C2"));
+        assert_eq!(huddle_channel("https://evil.example/client/T1/C2"), None);
+        assert_eq!(huddle_channel("https://app.slack.com/client/T1"), None);
+    }
 
     #[test]
     fn a_huddle_window_stays_on_slack() {

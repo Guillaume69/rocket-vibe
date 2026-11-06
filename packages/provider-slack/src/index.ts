@@ -117,7 +117,11 @@ export function createSlackProvider(session: Session, rest: TokenRejection, gene
       subscribe: (fn) => directory.onChange(fn),
     },
     listCustomEmojis: () => slackCustomEmojis(client),
-    calls: slackCalls(session.slackTeamId ?? ''),
+    calls: slackCalls(session.slackTeamId ?? '', {
+      call: (method, args) => client.call(method, args),
+      ensure: (users) => directory.ensure(users),
+      displayName: (id) => directory.displayName(id),
+    }),
     initialSubscriptions: () => [],
     roomSubscriptions: () => [],
     setTyping: (channel, active) => {

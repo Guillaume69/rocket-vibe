@@ -1290,7 +1290,11 @@ pub fn listed_chat(conversation: &Value) -> Option<Value> {
 /// The one-to-one chat of two people by their `8:orgid:` MRIs: Teams names
 /// it after their two directory ids in ascending order.
 pub fn one_on_one_id(me: &str, other: &str) -> Option<String> {
-    let oid = |mri: &str| mri.strip_prefix("8:orgid:").filter(|o| !o.is_empty() && !o.contains('_')).map(str::to_owned);
+    // Teams names it in lower case; a directory id read in upper case (some
+    // people searches) named another, never created, chat.
+    let oid = |mri: &str| {
+        mri.strip_prefix("8:orgid:").filter(|o| !o.is_empty() && !o.contains('_')).map(str::to_ascii_lowercase)
+    };
     let (mut a, mut b) = (oid(me)?, oid(other)?);
     if a == b {
         return None;
@@ -1485,6 +1489,36 @@ pub fn subscription(rid: &str, entry: &Value, me: &str, updated_at: i64, team: O
         group_name: team.map(|(_, name)| name.to_owned()),
         ..Default::default()
     }
+}
+
+/// Whether `held`'s last message is newer than `listed`'s, the same room as a
+/// lagging list sees it (the aggregator's snapshot trails live pushes by
+/// minutes): its last message, read state and time then stay. Compared by the
+/// message id, Teams' arrival time in ms, then by compose time.
+pub fn newer_last(held: &Value, listed: &Value) -> bool {
+    let (Some(held), Some(listed)) = (held.get("lastMessage"), listed.get("lastMessage")) else {
+        return held.get("lastMessage").is_some_and(Value::is_object) && listed.get("lastMessage").is_none();
+    };
+    let id = |m: &Value| m.get("id").and_then(|v| v.as_str().and_then(|s| s.parse::<i64>().ok()).or(v.as_i64()));
+    if let (Some(a), Some(b)) = (id(held), id(listed)) {
+        return a > b;
+    }
+    let at = |m: &Value| {
+        m.get("composeTime").and_then(Value::as_str).and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+    };
+    matches!((at(held), at(listed)), (Some(a), Some(b)) if a > b)
+}
+
+/// `listed` keeping `held`'s newer last message and read state.
+pub fn keep_newer_last(held: &Value, mut listed: Value) -> Value {
+    if newer_last(held, &listed) {
+        for key in ["lastMessage", "isRead", "isMessageRead", "isLastMessageFromMe"] {
+            if let Some(value) = held.get(key) {
+                listed[key] = value.clone();
+            }
+        }
+    }
+    listed
 }
 
 #[cfg(test)]
@@ -2196,5 +2230,29 @@ mod tests {
             "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info"
         );
         assert_eq!(html_to_markdown(html), "bien vu. @Marc-Etienne BARRUT pour action\n@Olivier DAUMIN pour info");
+    }
+
+    #[test]
+    fn a_lagging_list_never_rewinds_a_last_message() {
+        let held = json!({"lastMessage": {"id": "1793600000200", "content": "new"}, "isRead": false});
+        let listed =
+            json!({"lastMessage": {"id": "1793600000100", "content": "old"}, "isRead": true, "displayName": "x"});
+        assert!(newer_last(&held, &listed));
+        let merged = keep_newer_last(&held, listed.clone());
+        assert_eq!(merged["lastMessage"]["content"], "new");
+        assert_eq!(merged["isRead"], false);
+        assert_eq!(merged["displayName"], "x");
+        let fresher = json!({"lastMessage": {"id": "1793600000300", "content": "newest"}, "isRead": true});
+        assert_eq!(keep_newer_last(&held, fresher)["lastMessage"]["content"], "newest");
+        let timed = |t: &str| json!({"lastMessage": {"composeTime": t}});
+        assert!(newer_last(&timed("2026-11-06T10:00:01Z"), &timed("2026-11-06T10:00:00Z")));
+        assert!(!newer_last(&json!({}), &timed("2026-11-06T10:00:00Z")));
+    }
+
+    #[test]
+    fn a_one_on_one_id_ignores_the_case_a_search_spells() {
+        let lower = one_on_one_id("8:orgid:aaaa", "8:orgid:bbbb").unwrap();
+        assert_eq!(one_on_one_id("8:orgid:aaaa", "8:orgid:BBBB").as_deref(), Some(lower.as_str()));
+        assert_eq!(one_on_one_id("8:orgid:AAAA", "8:orgid:aaaa"), None);
     }
 }

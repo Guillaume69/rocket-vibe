@@ -48,6 +48,15 @@ pub fn authenticate(skype: &str, connect_params: &Value) -> String {
     format!("5:::{event}")
 }
 
+/// The socket's activity, as Teams' web app reports it (`state` "active" or
+/// "inactive"): Unified Presence counts an endpoint reporting through its
+/// transport as present only while it says so.
+pub fn user_activity(active: bool, cv: &str) -> String {
+    let state = if active { "active" } else { "inactive" };
+    let event = json!({"name": "user.activity", "args": [{"state": state, "cv": cv}]});
+    format!("5:::{event}")
+}
+
 /// The answer a pushed request expects, or Trouter delivers it again.
 pub fn reply(envelope: &Value) -> Option<String> {
     let id = envelope.get("id")?;
@@ -215,6 +224,15 @@ mod tests {
         assert_eq!((envelope["id"].as_i64(), ack.as_deref()), (Some(42), Some("7")));
         assert!(reply(&envelope).unwrap().starts_with(r#"3:::{"#));
         assert!(reply(&envelope).unwrap().contains(r#""status":200"#));
+    }
+
+    #[test]
+    fn activity_is_reported_as_the_web_app_does() {
+        assert_eq!(
+            user_activity(true, "cv1"),
+            r#"5:::{"args":[{"cv":"cv1","state":"active"}],"name":"user.activity"}"#
+        );
+        assert!(user_activity(false, "cv1").contains(r#""state":"inactive""#));
     }
 
     #[test]

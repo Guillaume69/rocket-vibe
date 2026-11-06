@@ -759,9 +759,9 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/auth.rs:2308](../../crates/rv-teams/src/auth.rs#L2308) | url | /api/v1/suggestions |
 | [crates/rv-teams/src/auth.rs:2316](../../crates/rv-teams/src/auth.rs#L2316) | url | /api/v1/suggestions |
 | [crates/rv-teams/src/auth.rs:2474](../../crates/rv-teams/src/auth.rs#L2474) | url | /api/csa |
-| [crates/rv-teams/src/service.rs:339](../../crates/rv-teams/src/service.rs#L339) | url | /api/v1/suggestions |
-| [crates/rv-teams/src/service.rs:357](../../crates/rv-teams/src/service.rs#L357) | url | /api/v2/query |
-| [crates/rv-teams/src/service.rs:530](../../crates/rv-teams/src/service.rs#L530) | url | /api/csa |
+| [crates/rv-teams/src/service.rs:364](../../crates/rv-teams/src/service.rs#L364) | url | /api/v1/suggestions |
+| [crates/rv-teams/src/service.rs:382](../../crates/rv-teams/src/service.rs#L382) | url | /api/v2/query |
+| [crates/rv-teams/src/service.rs:555](../../crates/rv-teams/src/service.rs#L555) | url | /api/csa |
 | [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
 | [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
 | [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |

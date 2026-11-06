@@ -4,6 +4,7 @@
 //! registered: there is nothing to subscribe per room.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
@@ -22,6 +23,9 @@ const HANDSHAKE: Duration = Duration::from_secs(15);
 /// Trouter's heartbeat is 70 s: three missed are a dead socket.
 const SILENCE_MAX: Duration = Duration::from_secs(210);
 const REGISTER_AGAIN: Duration = Duration::from_secs(6 * 3600);
+/// How often an endpoint kept online says it is active again; Teams' web app
+/// reports on user input, Unified Presence turning an endpoint Away after ~5 min.
+const ACTIVITY_EVERY: Duration = Duration::from_secs(150);
 const TROUTER_HOSTS: &str = ".trouter.teams.microsoft.com";
 const CHAT_APP: (&str, &str) = ("TeamsCDLWebWorker", "TeamsCDLWebWorker_2.6");
 const CALLING_APP: (&str, &str) = ("SkypeSpacesWeb", "SkypeSpacesWeb_2.6");
@@ -37,11 +41,13 @@ pub const REGISTERED_EVENT: &str = "TeamsRegistered";
 enum Command {
     Open,
     Close,
+    Activity,
 }
 
 #[derive(Clone)]
 pub struct LiveHandle {
     commands: mpsc::UnboundedSender<Command>,
+    keep_online: Arc<AtomicBool>,
 }
 
 impl LiveHandle {
@@ -53,13 +59,21 @@ impl LiveHandle {
     pub fn close(&self) {
         let _ = self.commands.send(Command::Close);
     }
+
+    /// Whether this endpoint keeps saying it is active, holding my status
+    /// online while the account is connected; said on the socket at once.
+    pub fn set_keep_online(&self, on: bool) {
+        self.keep_online.store(on, Ordering::SeqCst);
+        let _ = self.commands.send(Command::Activity);
+    }
 }
 
 pub fn spawn(tokens: Arc<Tokens>) -> (LiveHandle, mpsc::UnboundedReceiver<LiveEvent>) {
     let (commands, rx) = mpsc::unbounded_channel();
     let (events, events_rx) = mpsc::unbounded_channel();
-    tokio::spawn(Actor { tokens, events }.run(rx));
-    (LiveHandle { commands }, events_rx)
+    let keep_online = Arc::new(AtomicBool::new(true));
+    tokio::spawn(Actor { tokens, events, keep_online: keep_online.clone() }.run(rx));
+    (LiveHandle { commands, keep_online }, events_rx)
 }
 
 /// A fresh version-4 UUID naming this connection's endpoint.
@@ -114,6 +128,7 @@ struct Socket {
 struct Actor {
     tokens: Arc<Tokens>,
     events: mpsc::UnboundedSender<LiveEvent>,
+    keep_online: Arc<AtomicBool>,
 }
 
 impl Actor {
@@ -126,7 +141,7 @@ impl Actor {
             match commands.recv().await {
                 None => return,
                 Some(Command::Open) => {}
-                Some(Command::Close) => continue,
+                Some(Command::Close) | Some(Command::Activity) => continue,
             }
             self.emit(LiveEvent::State(State::Connecting));
             let ended = match self.connect().await {
@@ -224,7 +239,11 @@ impl Actor {
             return false;
         }
         let _ = self.register_app(&socket.calling_id, &socket.surl, CALLING_APP).await;
-        let data = json!({"trouterUri": presence_uri(&socket.surl), "registration": socket.epid});
+        let data = json!({
+            "trouterUri": presence_uri(&socket.surl),
+            "registration": socket.epid,
+            "keepOnline": self.keep_online.load(Ordering::SeqCst),
+        });
         self.emit(LiveEvent::Event { name: REGISTERED_EVENT.to_owned(), data, broadcast: Value::Null });
         true
     }
@@ -244,8 +263,12 @@ impl Actor {
         }
         self.emit(LiveEvent::State(State::Authenticated));
         self.emit(LiveEvent::Authenticated);
+        if !self.report_activity(&mut socket.sink).await {
+            return Ended::Lost;
+        }
         let mut last_traffic = Instant::now();
         let mut check = tokio::time::interval(Duration::from_secs(30));
+        let mut activity = tokio::time::interval_at(Instant::now() + ACTIVITY_EVERY, ACTIVITY_EVERY);
         let mut renew = tokio::time::interval_at(Instant::now() + REGISTER_AGAIN, REGISTER_AGAIN);
         loop {
             tokio::select! {
@@ -259,6 +282,11 @@ impl Actor {
                         return Ended::Closed;
                     }
                     Some(Command::Open) => {}
+                    Some(Command::Activity) => {
+                        if !self.report_activity(&mut socket.sink).await {
+                            return Ended::Lost;
+                        }
+                    }
                 },
                 frame = socket.stream.next() => {
                     let text = match frame {
@@ -276,6 +304,11 @@ impl Actor {
                         return Ended::Lost;
                     }
                 }
+                _ = activity.tick() => {
+                    if self.keep_online.load(Ordering::SeqCst) && !self.report_activity(&mut socket.sink).await {
+                        return Ended::Lost;
+                    }
+                }
                 _ = renew.tick() => {
                     if !self.register(&socket).await {
                         return Ended::Lost;
@@ -283,6 +316,14 @@ impl Actor {
                 }
             }
         }
+    }
+
+    /// Says on the socket whether this endpoint is active; false when it can
+    /// no longer be written.
+    async fn report_activity(&self, sink: &mut Sink) -> bool {
+        let cv = endpoint_id().unwrap_or_default();
+        let frame = frames::user_activity(self.keep_online.load(Ordering::SeqCst), &cv);
+        sink.send(WsMessage::text(frame)).await.is_ok()
     }
 
     /// Answers one frame; false when the socket can no longer be written.

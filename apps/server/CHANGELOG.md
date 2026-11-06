@@ -13,6 +13,7 @@ first release: everything before it is under that section.
 
 ### Added
 
+- Web client: notes open beside the conversation instead of in a dialog, the room list hidden meanwhile, with the browser's back and forward moving between the two and an address of their own; the editor has a formatting bar, and an unsaved edit comes back when they reopen.
 - Web client: Shift+Up / Shift+Down opens the previous or next room in the list, skipping folded sections; inside a text field holding text they still select text.
 
 ### Changed

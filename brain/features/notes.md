@@ -76,7 +76,7 @@ through Quip's canvas service, the way Slack's web client does (the public
 - Desktop: `Service::canvas` / `save_canvas` (`crates/rv-slack/src/service.rs`)
   over `RestClient::slack_canvas` (`crates/rv-provider/src/rest.rs`, paths
   `CANVAS_PATHS`), `SlackSync::notes` / `save_notes`, `Session::notes_available` /
-  `room_notes` / `save_room_notes`; GTK's dialog through `session_notes` (no live
+  `room_notes` / `save_room_notes`; GTK's pane through `session_notes` (no live
   signal: read on opening), SwiftUI through rv-ffi `Chat.room_notes`.
   Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `Capabilities.notes`.
 
@@ -152,23 +152,52 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
   `TeamsClient.notesJoin` / `notesPush`, `Capabilities.notes` on for Teams (a
   chat without notes shows the empty state, no edit).
 
+## The pane and the formatting bar
+
+On a desktop or web window the notes open beside the conversation, not in a modal
+(user decision, 2026-11-06): the room list is hidden while they show, the
+conversation stays as it was, each pane takes about half. Opening and closing are
+states of the back and forward history: back from the notes restores the list with
+the conversation untouched, forward reopens them, and a state of another room
+closes the pane (going back to the state that had it open reopens it). A narrow
+window shows the notes alone. An edit left unsaved when the pane closes, by back,
+Close or another room, comes back in the editor when it reopens, as long as the
+app runs; Cancel drops it.
+
+The editor carries a formatting bar in every app, the composers' buttons writing
+standard markdown (`**`, `_`, `~~`), since Teams' reader takes `*` for italic and
+ignores a single `~`. `Notes.blocks_only` / `RoomNotes.blocksOnly`, set for
+Slack, whose canvases keep no inline marks, leaves only the block buttons.
+
+A save replaces the revision the edit started from, moved only after a refused save
+has told the person about the newer one: a read in the background can no longer
+turn a stale draft into a silent overwrite.
+
 ## Desktop
 
 - `rv_core::notes::Notes` is the shape every provider's notes take (markdown,
-  revision, editable, editor, time); `NativeSession::notes_available`,
+  revision, editable, `blocks_only`, editor, time); `NativeSession::notes_available`,
   `room_notes`, `save_room_notes` serve Vibez rooms, never an encrypted one.
-- GTK: a header button (`text-x-generic-symbolic`) opens `notes.rs`, an
-  `adw::Dialog`: the markdown rendered by `markdown_view`, Edit switches to a
-  monospace `gtk::TextView`, Save and Cancel; a conflict keeps the text with a
-  toast. Each provider hands in its own `notes::Source` (load, save, a stamp
-  polled every 2 s while shown: for Vibez the room's revision, so a save
-  elsewhere reloads the notes). Wired in `chat_native.rs` (`open_notes`,
-  `native_notes`).
+- GTK: the header button (`text-x-generic-symbolic`) toggles `notes.rs`'s `Page`, the
+  sidebar (at the end) of an `adw::OverlaySplitView` around the content stack, which
+  handles the window buttons and lays the pane over the room when narrow. The list
+  goes by collapsing the `NavigationSplitView`: `ChatPage::fit_panes` sets
+  `collapsed = narrow || notes open`, so the window's breakpoint calls `set_narrow`
+  rather than setting `collapsed` itself; the room header's automatic back button then
+  means "back" (`connect_show_content_notify`). History entries are
+  `(account, rid, notes)` (`remember`, `push_history`, `walk_to`, `show_notes_state`;
+  `notes_after_walk` for a walk across accounts), drafts `ChatPage.notes_drafts`. The
+  markdown is rendered by `markdown_view`, Edit switches to a monospace `gtk::TextView`
+  under `composer::toolbar`; each provider hands in its own `notes::Source` (load,
+  save, a stamp polled every 2 s while shown: for Vibez the room's revision, so a save
+  elsewhere reloads the notes). Wired in `chat_native.rs`. Checked by `RV_SMOKE_NAV`.
 - SwiftUI: `RoomModel.supportsNotes`, `roomNotes`, `saveRoomNotes` over rv-ffi
-  `NativeChat.notes_available`, `room_notes`, `save_room_notes`, whose
-  `RoomNotes` carries the markdown already rendered to `BodyBlock`s; the header's
-  `note.text` button opens `NotesView` (a `SheetFrame` panel, `TextEditor` for the
-  markdown), read again every 10 s while shown and not editing. Checked by the
+  `NativeChat.notes_available`, `room_notes`, `save_room_notes`, whose `RoomNotes`
+  carries the markdown already rendered to `BodyBlock`s. The header's `note.text`
+  button calls `AppModel.toggleNotes`; `notesOpen` shows `NotesView` in the room's
+  inspector, in place of a thread, and hides the sidebar (`columnVisibility`), each
+  `Visit` remembering it. `TextEditor` with a selection, `NotesFormatBar` over rv-ffi
+  `format_notes`, read again every 10 s while shown and not editing. Checked by the
   macOS CI build only.
 
 ## Mobile
@@ -178,15 +207,22 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
   provider maps the server's answer (`roomNotes` in `providers/vibez/index.ts`).
 - The room header shows the notes button (`text-x-generic`) when the provider
   has notes and the room is not encrypted; `app/notes.tsx` renders with
-  `MessageBody`, edits in a multiline `TextInput`, Edit / Save / Cancel in the
-  header, read again every 10 s while shown and not editing.
+  `MessageBody`, edits in a multiline `TextInput` under `ui/formatRow.tsx` (the
+  composer's row), Edit / Save / Cancel in the header, read again every 10 s while
+  shown and not editing. A phone has one pane: the notes are a screen, and the
+  system's back returns to the conversation, keeping an unsaved edit
+  (`leftDrafts`, in memory).
 
 ## Web
 
-- The room header's notes button opens `panels.notes`: rendered with the
-  metadata markdown renderer (`metadataMarkdown`), a `textarea` for the edit,
-  read again every 10 s while shown. Strings come from the desktop's catalogue
-  (`nt("notes.…")`).
+- The room header's notes button (`App.toggleNotes`) fills `.notes-pane`, beside
+  `.room-content`, the sidebar hidden by CSS, the room alone under 900 px. The state
+  is the address: `/room/<id>?notes=1`, pushed on each toggle and followed on
+  `popstate` without reopening the room (`followNotesUrl`), so the browser's back and
+  forward and a reload all work. `panels.notes` renders with the metadata markdown
+  renderer (`metadataMarkdown`), a `textarea` under `NotesFormatBar`
+  (`ui/format.tsx`), read again every 10 s while shown, drafts in `App.notesDrafts`.
+  Strings come from the desktop's catalogue (`nt("notes.…")`).
 
 ## Sources
 
@@ -197,7 +233,9 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
 `apps/desktop/crates/rv-ffi/src/native_rooms.rs`,
 `apps/desktop/macos/Sources/RocketVibe/NotesView.swift`,
 `packages/provider-api/src/provider.ts`, `apps/mobile/app/notes.tsx`,
-`apps/mobile/providers/vibez/index.ts`, `apps/web/src/panels.ts`,
+`apps/mobile/providers/vibez/index.ts`, `apps/mobile/ui/formatRow.tsx`,
+`apps/web/src/panels.ts`, `apps/web/src/ui/format.tsx`, `apps/desktop/crates/rv-gtk/src/composer.rs`,
+`apps/desktop/crates/rv-ffi/src/writing.rs`,
 `crates/rv-canvas/src/`, `crates/rv-slack/src/service.rs`,
 `crates/rv-voice-mobile/src/canvas.rs`, `packages/provider-slack/src/actions.ts`,
 `packages/provider-slack/src/canvasEngine.ts`, `apps/mobile/providers/slackCanvas.ts`.

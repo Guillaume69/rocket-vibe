@@ -10,6 +10,8 @@ section here.
 ### Added
 
 - Slack (experimental): a huddle runs inside the app, audio only, in its own call window (who is there, who speaks, mute, deafen, hang up); its page stays the fallback when the join fails.
+- Notes open beside the conversation instead of in a dialog, the room list hidden meanwhile. Back returns to the conversation with the list restored, forward reopens the notes, and an unsaved edit comes back when they reopen.
+- Notes: the editor has a formatting bar (bold, italic, strikethrough, heading, link, code, quote, lists). Slack canvases offer the block formats only, since they keep no inline formatting.
 - Server rail: an account can be disabled from its tile's menu: it stays on the rail, greyed and after the others, with its sign-in and stored messages, but is not connected (no sync, notification, call or presence) until enabled again, without re-entering credentials.
 - Shift+Up / Shift+Down opens the previous or next conversation in the list, skipping folded sections; inside a text field holding text they still select text.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
@@ -19,6 +21,7 @@ section here.
 
 ### Fixed
 
+- Notes: saving after someone else changed them while you edited now always warns you and keeps your draft; a background refresh could let the save overwrite their change.
 - The mouse pointer turns into a hand over reactions (GTK, macOS), and on GTK also over the quick reactions and "more reactions" buttons, a thread's reply count, a failed message's retry, the edit buttons and the actions of file and integration cards.
 - Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.
 - Teams (experimental): a line break in a Teams message no longer adds two spaces at the start of the next line.

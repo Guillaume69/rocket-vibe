@@ -3,6 +3,7 @@
 //! reached through the backward link the service hands out.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
@@ -45,6 +46,8 @@ pub struct TeamsSync {
     found: Mutex<HashMap<String, String>>,
     /// Where presence subscriptions point: the chat registration's push path and id.
     presence_route: Mutex<Option<(String, String)>>,
+    /// Whether this connection holds my status online ("Keep my status online").
+    keep_online: AtomicBool,
     /// How far the other members read each room read so far: (MRI, arrival time).
     read_positions: Mutex<HashMap<String, Vec<(String, i64)>>>,
 }
@@ -65,6 +68,7 @@ impl TeamsSync {
             pending: Mutex::default(),
             found: Mutex::default(),
             presence_route: Mutex::default(),
+            keep_online: AtomicBool::new(true),
             read_positions: Mutex::default(),
         }
     }
@@ -268,7 +272,15 @@ impl TeamsSync {
 
     /// Every chat and channel with its read state and last message.
     pub async fn catch_up_global(&self) -> Result<(), RestError> {
-        let entries = self.listing().await?;
+        let mut entries = self.listing().await?;
+        {
+            let held = self.entries.lock().unwrap();
+            for (rid, (entry, _)) in entries.iter_mut() {
+                if let Some((before, _)) = held.get(rid) {
+                    *entry = translate::keep_newer_last(before, std::mem::take(entry));
+                }
+            }
+        }
         let rows: Vec<_> = entries.values().filter_map(|(entry, team)| self.row(entry, team.as_ref())).collect();
         *self.entries.lock().unwrap() = entries;
         self.store.write(|w| {
@@ -562,6 +574,23 @@ impl TeamsSync {
             return;
         };
         *self.presence_route.lock().unwrap() = Some((uri.to_owned(), registration.to_owned()));
+    }
+
+    /// Declares this connection's presence endpoint for the current
+    /// registration: Available while kept online, Away otherwise. Best effort.
+    pub async fn announce_endpoint(&self) {
+        let route = self.presence_route.lock().unwrap().clone();
+        if let Some((_, registration)) = route {
+            let _ = self.service.announce_endpoint(&registration, self.keep_online.load(Ordering::SeqCst)).await;
+        }
+    }
+
+    pub fn set_keep_online(&self, on: bool) {
+        self.keep_online.store(on, Ordering::SeqCst);
+    }
+
+    pub fn keeps_online(&self) -> bool {
+        self.keep_online.load(Ordering::SeqCst)
     }
 
     /// Sets my availability (UPS forceavailability).

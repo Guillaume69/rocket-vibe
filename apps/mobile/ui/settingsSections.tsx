@@ -31,6 +31,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { avatarUrl } from '../lib/upload.ts';
 import type { NativeChat } from '../providers/vibez/chat.ts';
 import type { Provider, SidebarSettings } from '../lib/provider.ts';
+import { setKeptOnline } from '../lib/keepOnline.ts';
 import { BotsSection } from './bots.tsx';
 import { WorkflowsSection } from './workflows.tsx';
 import { DevicesSection } from './devices.tsx';
@@ -219,7 +220,38 @@ function AccountCategory({ c, account }: { c: Colors; account: SettingsAccount }
       />
       {sidebar !== undefined && <SidebarSettingsCard c={c} source={sidebar} />}
       {account.client.kind === 'vibez' && <PrivacyCard c={c} />}
+      {sync.phase === 'ready' && sync.provider.keepOnline && (
+        <KeepOnlineCard c={c} baseUrl={account.baseUrl} source={sync.provider.keepOnline} />
+      )}
     </>
+  );
+}
+
+/**
+ * "Keep my status online" (Teams): this connection holds my status online
+ * while it runs; off, it no longer counts, my status following my other
+ * clients. The open account only: the others are not connected on mobile.
+ */
+function KeepOnlineCard({ c, baseUrl, source }: { c: Colors; baseUrl: string; source: { get(): boolean; set(on: boolean): void } }) {
+  const t = useT();
+  const [on, setOn] = useState(source.get());
+  return (
+    <View style={[styles.card, { backgroundColor: c.deepCard, borderColor: c.border }]}>
+      <View style={styles.switchRow}>
+        <Text style={[styles.settingLabel, styles.grow, { color: c.text }]}>{t('settings.keepOnline')}</Text>
+        <Switch
+          value={on}
+          onValueChange={(next) => {
+            setOn(next);
+            source.set(next);
+            void setKeptOnline(baseUrl, next);
+          }}
+          trackColor={{ true: c.accent }}
+          accessibilityLabel={t('settings.keepOnline')}
+        />
+      </View>
+      <Text style={[styles.settingHelp, { color: c.dimmed }]}>{t('settings.keepOnlineHelp')}</Text>
+    </View>
   );
 }
 

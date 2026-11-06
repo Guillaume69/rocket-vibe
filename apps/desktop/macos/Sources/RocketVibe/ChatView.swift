@@ -161,6 +161,12 @@ struct ServerRail: View {
                 }
             }
         }
+        if account.genre == "teams" {
+            let kept = app.client.keepsStatusOnline(account: account.key)
+            Button(L(kept ? "presence.stop_keeping" : "presence.keep")) {
+                app.client.setKeepStatusOnline(account: account.key, on: !kept)
+            }
+        }
         Divider()
         if app.isDisabled(account.key) {
             Button(L("rail.enable")) { Task { await app.setDisabled(account, false) } }

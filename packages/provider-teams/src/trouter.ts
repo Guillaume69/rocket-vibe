@@ -50,6 +50,11 @@ export function parseFrame(text: string): Frame {
 
 export const HEARTBEAT = '2::';
 
+/** The socket's activity, as Teams' web app reports it. Mirrors `frames::user_activity`. */
+export function activityFrame(active: boolean, cv: string): string {
+  return `5:::${JSON.stringify({ name: 'user.activity', args: [{ state: active ? 'active' : 'inactive', cv }] })}`;
+}
+
 export function authenticateFrame(skype: string, connectParams: Doc): string {
   return `5:::${JSON.stringify({ name: 'user.authenticate', args: [{ headers: { 'X-Skypetoken': skype }, connectparams: connectParams }] })}`;
 }
@@ -193,6 +198,8 @@ export type TrouterOptions = {
   timeoutMs?: number;
   /** Presence read again now and then, Teams pushing only for the people subscribed. */
   refreshPresence?: () => Promise<DdpEvent[]>;
+  /** Declares the chat registration as a presence endpoint (`announceEndpoint`). */
+  announce?: (registration: string, online: boolean) => Promise<void>;
 };
 
 const CLIENT_INFO = JSON.stringify({ cv: '2026.10.0.1', ua: 'TeamsCDL', hr: '', v: '1415/26.10.0.0' });
@@ -200,6 +207,8 @@ const CLIENT_INFO = JSON.stringify({ cv: '2026.10.0.1', ua: 'TeamsCDL', hr: '', 
 const SILENCE_MS = 210_000;
 const REGISTER_EVERY_MS = 6 * 3600_000;
 const PRESENCE_EVERY_MS = 120_000;
+/** How often an endpoint kept online says it is active again (Unified Presence turns one Away after ~5 min). */
+const ACTIVITY_EVERY_MS = 150_000;
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve = () => {};
@@ -215,6 +224,9 @@ export class TeamsTrouter implements Listener {
   private readonly createSocket: CreateSocket;
   private readonly timeoutMs: number;
   private readonly refreshPresence: (() => Promise<DdpEvent[]>) | null;
+  private readonly announce: ((registration: string, online: boolean) => Promise<void>) | null;
+  /** Whether this connection holds my status online ("Keep my status online"). */
+  private keepOnline = true;
   private ws: WebSocketLike | null = null;
   /** The chat registration's push path and id, where presence subscriptions point. */
   private route: { uri: string; registration: string } | null = null;
@@ -236,6 +248,16 @@ export class TeamsTrouter implements Listener {
       new (WebSocket as unknown as new (u: string, p: undefined, o: { headers: Record<string, string> }) => WebSocketLike)(url, undefined, { headers }));
     this.timeoutMs = options.timeoutMs ?? 15_000;
     this.refreshPresence = options.refreshPresence ?? null;
+    this.announce = options.announce ?? null;
+  }
+
+  /** Turns "Keep my status online" on or off, said on the socket at once. */
+  setKeepOnline(on: boolean): void {
+    this.keepOnline = on;
+    if (this.state === 'authenticated') {
+      this.send(activityFrame(on, endpointId()));
+      if (this.route) void this.announce?.(this.route.registration, on).catch(() => {});
+    }
   }
 
   /** Where presence subscriptions point, once the socket is registered. */
@@ -332,6 +354,10 @@ export class TeamsTrouter implements Listener {
     this.lastTraffic = Date.now();
     this.state = 'authenticated';
     this.armed.resolve();
+    this.send(activityFrame(this.keepOnline, endpointId()));
+    this.timers.push(setInterval(() => {
+      if (this.keepOnline) this.send(activityFrame(true, endpointId()));
+    }, ACTIVITY_EVERY_MS));
     this.timers.push(setInterval(() => {
       if (Date.now() - this.lastTraffic > SILENCE_MS) { this.ws?.close(); this.cleanUp(); }
     }, 30_000));
@@ -352,6 +378,7 @@ export class TeamsTrouter implements Listener {
   private async register(epid: string, surl: string): Promise<boolean> {
     if (!(await this.registerApp(epid, surl, CHAT_APP))) return false;
     this.route = { uri: presenceUri(surl), registration: epid };
+    void this.announce?.(epid, this.keepOnline).catch(() => {});
     this.callingId ??= endpointId();
     await this.registerApp(this.callingId, surl, CALL_APP);
     return true;

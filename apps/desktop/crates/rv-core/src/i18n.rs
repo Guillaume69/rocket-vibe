@@ -1708,6 +1708,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("login.kind", "Type de serveur", "Server type"),
     ("rail.add", "Ajouter un serveur", "Add a server"),
     ("mute.title", "Mettre en sourdine", "Mute"),
+    ("presence.keep", "Garder mon statut en ligne", "Keep my status online"),
+    ("presence.stop_keeping", "Ne plus garder mon statut en ligne", "Stop keeping my status online"),
     ("mute.hour", "Pendant 1 heure", "For 1 hour"),
     ("mute.four_hours", "Pendant 4 heures", "For 4 hours"),
     ("mute.tomorrow", "Jusqu'à demain 09:00", "Until tomorrow 09:00"),

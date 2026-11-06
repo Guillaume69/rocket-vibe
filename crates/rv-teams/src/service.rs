@@ -291,6 +291,31 @@ impl Service {
         client::call(&self.http, Method::POST, url, ("authorization", &header), Some(&body)).await.is_ok()
     }
 
+    /// Declares this connection as one of my presence endpoints, keyed by the
+    /// chat registration's id and kept alive by the socket (`Transport`), as
+    /// Teams' web app does (`PUT {ups}/v1/me/endpoints/`, HAR 2026-11-01):
+    /// without it my status follows only my other clients, offline once they
+    /// close. `online` false declares it Away, an idle device.
+    pub async fn announce_endpoint(&self, registration: &str, online: bool) -> Result<(), RestError> {
+        let (_, routes) = self.tokens.chat().await?;
+        if routes.presence.is_empty() {
+            return Ok(());
+        }
+        let url = url::Url::parse(&format!("{}/v1/me/endpoints/", routes.presence))
+            .map_err(|_| refusal("presence_url", 0))?;
+        let token = self.tokens.presence().await?;
+        let header = format!("Bearer {}", token.as_str());
+        client::call(
+            &self.http,
+            Method::PUT,
+            url,
+            ("authorization", &header),
+            Some(&endpoint_body(registration, online)),
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Sets my availability (UPS forceavailability), with the presence bearer.
     pub async fn set_presence(&self, availability: &str) -> Result<(), RestError> {
         let (_, routes) = self.tokens.chat().await?;
@@ -745,7 +770,11 @@ impl Service {
         let answer = match self.chat(Method::POST, url.clone(), Some(&body)).await {
             Err(e) if e.status == 404 && root.is_none() => {
                 let Some(thread) = translate::one_on_one_thread(rid) else { return Err(e) };
-                self.chat(Method::POST, self.chat_url(&["threads"], "").await?, Some(&thread)).await?;
+                // 409: the other person's first message created it meanwhile.
+                match self.chat(Method::POST, self.chat_url(&["threads"], "").await?, Some(&thread)).await {
+                    Err(created) if created.status != 409 => return Err(created),
+                    _ => {}
+                }
                 self.chat(Method::POST, url, Some(&body)).await?
             }
             other => other?,
@@ -1131,6 +1160,19 @@ pub fn presence_subscription(trouter_uri: &str, mris: &[String]) -> Value {
     })
 }
 
+/// A presence endpoint as Teams' web app declares it: Available while kept
+/// online, Away otherwise, its liveness reported by the socket.
+pub fn endpoint_body(registration: &str, online: bool) -> Value {
+    let state = if online { "Available" } else { "Away" };
+    json!({
+        "id": registration,
+        "availability": state,
+        "activity": state,
+        "activityReporting": "Transport",
+        "deviceType": "Desktop",
+    })
+}
+
 /// (mri, presence) rows from a getpresence response (array or
 /// {responses:[]}) or a pushed change ({presence:[]}).
 pub fn presence_rows(body: &Value) -> Vec<(String, Presence)> {
@@ -1195,6 +1237,10 @@ pub fn people(body: &Value, me: &str) -> Vec<Person> {
             let mri = str_of(row, "MRI")
                 .map(str::to_owned)
                 .or_else(|| str_of(row, "ExternalDirectoryObjectId").map(|oid| format!("8:orgid:{oid}")))?;
+            let mri = match mri.strip_prefix("8:orgid:") {
+                Some(oid) => format!("8:orgid:{}", oid.to_ascii_lowercase()),
+                None => mri,
+            };
             (mri != me).then(|| Person {
                 name: str_of(row, "DisplayName").unwrap_or(&mri).to_owned(),
                 upn: str_of(row, "UserPrincipalName").map(str::to_owned),
@@ -1398,6 +1444,15 @@ mod tests {
         assert_eq!(hit.id, "19:room@thread.tacv2/search:AAItem1");
         assert!(hit.ts > 0);
         assert!(search_hits(&serde_json::json!({}), "19:room@thread.tacv2", &dir).is_empty());
+    }
+
+    #[test]
+    fn an_endpoint_is_declared_as_the_web_app_does() {
+        let online = endpoint_body("reg-1", true);
+        assert_eq!(online["id"], "reg-1");
+        assert_eq!(online["availability"], "Available");
+        assert_eq!(online["activityReporting"], "Transport");
+        assert_eq!(endpoint_body("reg-1", false)["availability"], "Away");
     }
 
     #[test]

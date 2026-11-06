@@ -16,6 +16,9 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Teams (experimental): your status no longer drops to offline while the app is connected: the app now counts as one of your devices, as Teams' own clients do. "Keep my status online" (on by default) is in Settings, account.
+- Teams (experimental): a room's last message in the list no longer goes back to an older one when Teams' list lags behind a message just received.
+- Teams (experimental): starting a conversation with someone could create a chat Teams never knew when the people search spelled their id in capitals; the first message now always reaches the right chat, also when the other person wrote first meanwhile.
 - Native Jitsi and kMeet calls no longer just close: a call lost on the way shows "Reconnecting…" and joins again, keeping the microphone and sound choices; if it cannot, the screen stays and says why the call ended. A failure after the call had connected no longer switches to the web page.
 - Teams (experimental): a new chat no longer starts with "X added X to the channel". Chat members are added "to the chat", people adding themselves when a chat is created and a one-to-one's members are not shown, as in Teams; "channel" stays for channels.
 - Teams (experimental): a reaction's tooltip names the people who reacted instead of their Teams ids: unknown people are looked up before a page of messages is stored.

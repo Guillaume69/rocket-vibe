@@ -1752,6 +1752,11 @@
     "No Vibez server at this address"
   ],
   "login.kind": ["Type de serveur", "Server type"],
+  "presence.keep": ["Garder mon statut en ligne", "Keep my status online"],
+  "presence.stop_keeping": [
+    "Ne plus garder mon statut en ligne",
+    "Stop keeping my status online"
+  ],
   "login.kind_auto": ["Automatique", "Automatic"],
   "login.kind_rocketchat": ["Rocket.Chat", "Rocket.Chat"],
   "login.kind_vibez": ["Vibez", "Vibez"],

@@ -84,6 +84,20 @@ impl Client {
         })
     }
 
+    /// Whether the account holds my status online ("Keep my status online",
+    /// Teams accounts; `rv_core::keep_online`, the file GTK reads too).
+    pub fn keeps_status_online(&self, account: String) -> bool {
+        rv_core::keep_online::kept(&self.dirs.config, &account)
+    }
+
+    /// Turns "Keep my status online" on or off, on the running session too.
+    pub fn set_keep_status_online(&self, account: String, on: bool) {
+        rv_core::keep_online::set(&self.dirs.config, &account, on);
+        if let Some(chat) = self.accounts.chat(&account) {
+            chat.set_keep_online(on);
+        }
+    }
+
     /// The muted accounts' keys now.
     pub fn muted_accounts(&self) -> Vec<String> {
         account_mute::active(&self.dirs.config, now()).into_keys().collect()

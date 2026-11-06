@@ -1082,10 +1082,36 @@ export function people(body: unknown, me: string): TeamsPerson[] {
     if (type !== null && type !== 'People') continue;
     for (const row of Array.isArray(group.Suggestions) ? (group.Suggestions as Doc[]) : []) {
       const oid = str(row, 'ExternalDirectoryObjectId');
-      const mri = str(row, 'MRI') ?? (oid ? `8:orgid:${oid}` : null);
+      const raw = str(row, 'MRI') ?? (oid ? `8:orgid:${oid}` : null);
+      const mri = raw?.startsWith('8:orgid:') ? `8:orgid:${raw.slice(8).toLowerCase()}` : raw;
       if (!mri || mri === me) continue;
       out.push({ mri, name: str(row, 'DisplayName') ?? mri, upn: str(row, 'UserPrincipalName') });
     }
+  }
+  return out;
+}
+
+/** Whether `held`'s last message is newer than `listed`'s for the same room:
+ *  the aggregator's snapshot trails live pushes, and must not rewind a
+ *  preview. By message id (Teams' arrival ms), then compose time. Mirrors
+ *  `newer_last`. */
+export function newerLast(held: Doc, listed: Doc): boolean {
+  const a = held.lastMessage as Doc | undefined, b = listed.lastMessage as Doc | undefined;
+  if (!b) return a !== null && typeof a === 'object';
+  if (!a) return false;
+  const id = (m: Doc) => { const v = Number(m.id); return Number.isFinite(v) && m.id !== undefined && m.id !== null ? v : null; };
+  const ia = id(a), ib = id(b);
+  if (ia !== null && ib !== null) return ia > ib;
+  const ta = Date.parse(String(a.composeTime ?? '')), tb = Date.parse(String(b.composeTime ?? ''));
+  return Number.isFinite(ta) && Number.isFinite(tb) && ta > tb;
+}
+
+/** `listed` keeping `held`'s newer last message and read state. Mirrors `keep_newer_last`. */
+export function keepNewerLast(held: Doc, listed: Doc): Doc {
+  if (!newerLast(held, listed)) return listed;
+  const out: Doc = { ...listed };
+  for (const key of ['lastMessage', 'isRead', 'isMessageRead', 'isLastMessageFromMe']) {
+    if (key in held) out[key] = held[key];
   }
   return out;
 }
@@ -1094,7 +1120,8 @@ export function people(body: unknown, me: string): TeamsPerson[] {
  *  it after their two directory ids in ascending order. Mirrors `one_on_one_id`. */
 export function oneOnOneId(me: string, other: string): string | null {
   const oid = (mri: string) => {
-    const rest = mri.startsWith('8:orgid:') ? mri.slice(8) : '';
+    // Teams names it in lower case; an id a search spelled in upper case named another chat.
+    const rest = mri.startsWith('8:orgid:') ? mri.slice(8).toLowerCase() : '';
     return rest !== '' && !rest.includes('_') ? rest : null;
   };
   const a = oid(me), b = oid(other);

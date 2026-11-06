@@ -591,7 +591,11 @@ impl Session {
                     Backend::Teams(_) if name == crate::teams::live::CALL_EVENT => s.teams_call(&data),
                     Backend::Teams(teams) if name == crate::teams::live::REGISTERED_EVENT => {
                         teams.set_presence_route(&data);
-                        tokio::spawn(async move { s.load_presence().await });
+                        let teams = teams.clone();
+                        tokio::spawn(async move {
+                            teams.announce_endpoint().await;
+                            s.load_presence().await;
+                        });
                     }
                     Backend::Teams(_) if name == crate::teams::live::PRESENCE_EVENT => {
                         for (uid, presence) in crate::teams::service::presence_rows(&data) {
@@ -785,6 +789,24 @@ impl Session {
 
     /// Says I am typing in `rid`, where the account's protocol carries it
     /// (Slack's RTM, at most every few seconds); a no-op elsewhere.
+    /// Whether this account holds my status online while connected, in the
+    /// background too ("Keep my status online"). Teams only: the other servers
+    /// already count a connected client as online.
+    pub fn set_keep_online(self: &Arc<Self>, on: bool) {
+        let (Backend::Teams(teams), Transport::Teams(live)) = (self.backend(), &self.transport) else { return };
+        teams.set_keep_online(on);
+        live.set_keep_online(on);
+        let teams = teams.clone();
+        self.runtime.spawn(async move { teams.announce_endpoint().await });
+    }
+
+    pub fn keeps_online(&self) -> Option<bool> {
+        match self.backend() {
+            Backend::Teams(teams) => Some(teams.keeps_online()),
+            _ => None,
+        }
+    }
+
     pub fn set_typing(self: &Arc<Self>, rid: &str, active: bool) {
         if let Backend::Teams(teams) = self.backend() {
             {
@@ -1572,13 +1594,19 @@ impl Session {
     }
 
     /// Teams pushes presence only for the people subscribed, and a missed
-    /// push would stay wrong until the next reconnection: read again now and then.
+    /// push would stay wrong until the next reconnection: read again now and
+    /// then. The open room catches up too: Trouter drops a push now and then
+    /// without saying so (seen with Teams open beside this app), and the room
+    /// showed it only once reopened.
     async fn refresh_presence(session: std::sync::Weak<Session>) {
         loop {
             tokio::time::sleep(TEAMS_PRESENCE_EVERY).await;
             let Some(s) = session.upgrade() else { return };
             if *s.connection.lock().unwrap() == Connection::Online {
                 s.load_presence().await;
+                if let Some((rid, _)) = s.current_room() {
+                    let _ = s.sync.catch_up_room(&rid).await;
+                }
             }
         }
     }

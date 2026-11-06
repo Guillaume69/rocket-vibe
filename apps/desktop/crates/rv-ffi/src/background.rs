@@ -23,6 +23,9 @@ pub(crate) fn supervise(dirs: Arc<Dirs>) -> (Supervisor, Mutex<Option<UnboundedR
                 .map_err(|e| e.to_string());
         }
         let session = Session::start(info.clone(), &path).map_err(|e| e.to_string())?;
+        if info.teams.is_some() {
+            session.set_keep_online(rv_core::keep_online::kept(&dirs.config, &supervisor::key(info)));
+        }
         let resumed = session.clone();
         tokio::task::spawn_blocking(move || {
             if let Some(jwk) = accounts::e2e_key(&resumed.info) {

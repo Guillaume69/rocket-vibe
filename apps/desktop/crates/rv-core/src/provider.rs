@@ -72,6 +72,13 @@ impl From<Arc<NativeSession>> for Chat {
 }
 
 impl Chat {
+    /// "Keep my status online": a Teams account only, a no-op elsewhere.
+    pub fn set_keep_online(&self, on: bool) {
+        if let Chat::Legacy(session) = self {
+            session.set_keep_online(on);
+        }
+    }
+
     pub fn info(&self) -> &SessionInfo {
         match self {
             Chat::Legacy(session) => &session.info,

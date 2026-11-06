@@ -12,11 +12,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, AppState, Image, type ImageSourcePropType, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { dismissible } from './alerts.ts';
+import { disabledServers, setServerDisabled } from './disabledServerStore.ts';
 
 import type { Session } from '../lib/auth.ts';
 import { providerMark, type ProviderMark } from '../lib/providerMark.ts';
 import { serverIconUri } from '../lib/serverIcon.ts';
 import { nativeRoomsUnread, serverHost, subscriptionsUnread } from '../lib/accountUnread.ts';
+import { disabledLast } from '../lib/disabledServers.ts';
 import { listKnownServers, prepareNativeSession, readSession } from '../lib/sessionStore.ts';
 import { clientForSession } from '../lib/sessionTransport.ts';
 import { transportFor } from '../providers/vibez/auth.ts';
@@ -71,6 +73,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const [accounts, setAccounts] = useState<Session[]>([]);
   const [unread, setUnread] = useState<ReadonlySet<string>>(new Set());
   const [switching, setSwitching] = useState<string | null>(null);
+  const [disabled, setDisabled] = useState<ReadonlySet<string>>(disabledServers());
   /** Each server's own icon (`lib/serverIcon.ts`), by host; absent keeps the provider's mark. */
   const [icons, setIcons] = useState<ReadonlyMap<string, string>>(new Map());
   const visits = useRef(0);
@@ -87,7 +90,7 @@ export function ServerRail({ c }: { c: Colors }) {
   const poll = useCallback(() => {
     for (const session of accountsRef.current) {
       const host = serverHost(session.baseUrl);
-      if (host === activeRef.current) continue;
+      if (host === activeRef.current || disabledServers().has(host)) continue;
       // A failure (offline, a server refusing for a moment) leaves the dot as it was.
       accountUnread(session).then((on) => mark(host, on), () => {});
     }
@@ -95,9 +98,14 @@ export function ServerRail({ c }: { c: Colors }) {
 
   const load = useCallback(async () => {
     const sessions = await Promise.all((await listKnownServers()).map((url) => readSession(url).catch(() => null)));
-    const found = sessions.filter((s): s is Session => s !== null);
+    const found = disabledLast(
+      sessions.filter((s): s is Session => s !== null),
+      (s) => serverHost(s.baseUrl),
+      disabledServers(),
+    );
     accountsRef.current = found;
     setAccounts(found);
+    setDisabled(disabledServers());
     poll();
     // Each icon as soon as it is known (`lib/serverIcon.ts` reads a server
     // once per session); a read that concludes nothing keeps what is shown,
@@ -140,16 +148,50 @@ export function ServerRail({ c }: { c: Colors }) {
     }, [load, poll, mark, active]),
   );
 
+  const toggleDisabled = useCallback(
+    (session: Session, disable: boolean) => {
+      const host = serverHost(session.baseUrl);
+      if (disable && host === activeRef.current) {
+        const next = accountsRef.current.find((s) => {
+          const other = serverHost(s.baseUrl);
+          return other !== host && !disabledServers().has(other);
+        });
+        if (next === undefined) {
+          Alert.alert(t('rail.disable'), t('rail.disableLast'), [{ text: t('common.cancel'), style: 'cancel' }], dismissible());
+          return;
+        }
+        setServerDisabled(host, true);
+        setUnread((old) => without(old, host));
+        void load().catch(() => {});
+        switchServer(next.baseUrl).catch(() => {});
+        return;
+      }
+      setServerDisabled(host, disable);
+      if (disable) setUnread((old) => without(old, host));
+      void load().catch(() => {});
+      if (!disable) switchServer(session.baseUrl).catch(() => {});
+    },
+    [load, switchServer, t],
+  );
+
   const open = useCallback(
     (session: Session) => {
       const host = serverHost(session.baseUrl);
+      if (disabledServers().has(host)) {
+        const name = session.kind === 'whatsapp' ? 'WhatsApp' : host.replace(/^www\./, '');
+        Alert.alert(t('rail.enableTitle', { server: name }), t('rail.enableBody'), [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('rail.enable'), onPress: () => toggleDisabled(session, false) },
+        ], dismissible());
+        return;
+      }
       if (host === activeRef.current || switching !== null) return;
       setSwitching(host);
       // Its unread now shows in its own room list.
       setUnread((old) => without(old, host));
       switchServer(session.baseUrl).finally(() => setSwitching(null));
     },
-    [switchServer, switching],
+    [switchServer, switching, t, toggleDisabled],
   );
 
   return (
@@ -158,21 +200,26 @@ export function ServerRail({ c }: { c: Colors }) {
         {accounts.map((session) => {
           const host = serverHost(session.baseUrl);
           const isOpen = host === active;
+          const off = disabled.has(host);
           const name = session.kind === 'whatsapp' ? 'WhatsApp' : host.replace(/^www\./, '');
           return (
             <Tappable
               key={host}
               onPress={() => open(session)}
-              onLongPress={isOpen && admin !== null ? () => Alert.alert(name, `@${session.username}`, [
+              onLongPress={() => Alert.alert(name, `@${session.username}`, [
                 { text: t('common.cancel'), style: 'cancel' },
-                { text: t('settings.admin'), onPress: () => router.push('/admin') },
-              ], dismissible()) : undefined}
+                ...(isOpen && admin !== null ? [{ text: t('settings.admin'), onPress: () => router.push('/admin') }] : []),
+                { text: t(off ? 'rail.enable' : 'rail.disable'), onPress: () => toggleDisabled(session, !off) },
+              ], dismissible())}
               accessibilityRole="button"
-              accessibilityState={{ selected: isOpen, busy: switching === host }}
-              accessibilityLabel={`${name} · @${session.username}`}
+              accessibilityState={{ selected: isOpen, busy: switching === host, disabled: off }}
+              accessibilityLabel={off ? t('rail.disabled', { server: `${name} · @${session.username}` }) : `${name} · @${session.username}`}
               style={({ pressed }) => [
                 styles.slot,
-                { borderColor: isOpen ? c.accent : 'transparent', opacity: pressed || switching === host ? 0.6 : 1 },
+                {
+                  borderColor: isOpen ? c.accent : 'transparent',
+                  opacity: off ? 0.35 : pressed || switching === host ? 0.6 : 1,
+                },
               ]}
             >
               <AvatarTile
@@ -183,7 +230,7 @@ export function ServerRail({ c }: { c: Colors }) {
                 radius={15}
                 child={<Image source={fallbackIcon(session.kind)} style={[StyleSheet.absoluteFill, styles.appIcon]} />}
               />
-              {!isOpen && unread.has(host) && (
+              {!isOpen && !off && unread.has(host) && (
                 <View style={[styles.dot, { backgroundColor: c.yellow, borderColor: c.deepCard }]} />
               )}
             </Tappable>

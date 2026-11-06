@@ -469,6 +469,7 @@
     "apps/mobile/lib/ddp.ts",
     "apps/mobile/lib/deferredLogout.ts",
     "apps/mobile/lib/deletedUser.ts",
+    "apps/mobile/lib/disabledServers.ts",
     "apps/mobile/lib/discussions.ts",
     "apps/mobile/lib/displayNames.ts",
     "apps/mobile/lib/downloadResolver.ts",
@@ -592,6 +593,7 @@
     "apps/mobile/ui/debouncedSearch.ts",
     "apps/mobile/ui/deferredDraft.ts",
     "apps/mobile/ui/devices.tsx",
+    "apps/mobile/ui/disabledServerStore.ts",
     "apps/mobile/ui/discussion.tsx",
     "apps/mobile/ui/doNotDisturb.tsx",
     "apps/mobile/ui/drafts.ts",
@@ -4996,37 +4998,37 @@
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3026,
+      "line": 3032,
       "kind": "endpoint",
       "surface": "e2e.title"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3027,
+      "line": 3033,
       "kind": "endpoint",
       "surface": "e2e.explanation"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3029,
+      "line": 3035,
       "kind": "endpoint",
       "surface": "e2e.field"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3030,
+      "line": 3036,
       "kind": "endpoint",
       "surface": "e2e.unlock"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3031,
+      "line": 3037,
       "kind": "endpoint",
       "surface": "e2e.wrongPassword"
     },
     {
       "file": "apps/mobile/ui/messages.ts",
-      "line": 3032,
+      "line": 3038,
       "kind": "endpoint",
       "surface": "e2e.genericError"
     },
@@ -5044,7 +5046,7 @@
     },
     {
       "file": "apps/mobile/ui/serverRail.tsx",
-      "line": 63,
+      "line": 65,
       "kind": "endpoint",
       "surface": "subscriptions.get"
     },

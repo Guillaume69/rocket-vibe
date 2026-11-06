@@ -20,6 +20,9 @@ section here.
 ### Fixed
 
 - The mouse pointer turns into a hand over reactions (GTK, macOS), and on GTK also over the quick reactions and "more reactions" buttons, a thread's reply count, a failed message's retry, the edit buttons and the actions of file and integration cards.
+- Native Jitsi and kMeet calls: being left alone in a call no longer ends it. The server ends a lone participant's media session after about 20 seconds; the app took that for the end of the call and the window closed. It now stays in the room and the sound comes back as soon as someone returns.
+- Native calls: after a reconnection the others could be silent, the media having been reopened on the WebRTC factory of the closed connection.
+- Calls leave a trace: the app and its voice engine append why a call ended to `voice.log` in the cache folder (`~/.cache/rocket-vibe-rs` on Linux).
 - Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.
 - Teams (experimental): a line break in a Teams message no longer adds two spaces at the start of the next line.
 - Teams (experimental): people shown by their id ("8:orgid:…") in system messages, call cards, authors and reactions are named once their profile is read, the rows stored earlier included; someone adding themselves to a channel reads "joined the channel".

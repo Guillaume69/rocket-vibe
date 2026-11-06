@@ -55,6 +55,32 @@ impl std::fmt::Debug for VoiceKey {
 /// the current one (not welcomed, a group change not accepted yet).
 pub type VoiceKeys = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Option<VoiceKey>> + Send>> + Send + Sync>;
 const EXIT_TIMEOUT: Duration = Duration::from_secs(4);
+/// Past this size the voice log starts over, the previous one kept beside it.
+const LOG_CAP: u64 = 4 * 1024 * 1024;
+
+static LOG: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The file the controller and its sidecars append their diagnostics to (the
+/// sidecar through `RV_VOICE_LOG`), started over once past [`LOG_CAP`].
+pub fn set_log(path: PathBuf) {
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_CAP) {
+        let _ = std::fs::rename(&path, path.with_extension("previous.log"));
+    }
+    let _ = LOG.set(path);
+}
+
+/// One line in the voice log, else on standard error.
+fn note(line: &str) {
+    use std::io::Write as _;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let line = format!("{stamp} rv-core: {line}\n");
+    match LOG.get().and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()) {
+        Some(mut file) => {
+            let _ = file.write_all(line.as_bytes());
+        }
+        None => eprint!("{line}"),
+    }
+}
 /// The sidecar connects its frame stream right after starting.
 const VIDEO_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -225,6 +251,7 @@ impl Snapshot {
         self.ended == Some(Ended::MovedElsewhere)
     }
     fn end(&mut self, ended: Ended) {
+        note(&format!("session ended: {ended:?}"));
         self.room = None;
         self.state = ConnectionState::Disconnected;
         self.participants.clear();
@@ -801,6 +828,9 @@ impl Inner {
             .kill_on_drop(true);
         // A screen's sound leaves out the app's own sounds (cues, ringtone) with the call.
         command.env("RV_VOICE_APP_PID", std::process::id().to_string());
+        if let Some(log) = LOG.get().filter(|_| std::env::var_os("RV_VOICE_LOG").is_none()) {
+            command.env("RV_VOICE_LOG", log);
+        }
         // The GTK app has no console: without this, Windows opens one for the sidecar.
         #[cfg(windows)]
         command.creation_flags(0x0800_0000);

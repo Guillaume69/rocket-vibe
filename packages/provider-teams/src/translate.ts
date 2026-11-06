@@ -372,7 +372,13 @@ export function convert(html: string, mentions: readonly Mentioned[]): Converted
   let pre = false;
   const push = (text: string) => {
     const decoded = decodeEntities(text);
-    out += pre ? decoded : decoded.replace(/[\r\n]+/g, ' ').replace(/ /g, ' ');
+    if (pre) {
+      out += decoded;
+      return;
+    }
+    let collapsed = decoded.replace(/\s+/g, ' ');
+    if (out === '' || out.endsWith('\n') || out.endsWith(' ')) collapsed = collapsed.replace(/^ /, '');
+    out += collapsed;
   };
   for (;;) {
     const start = rest.indexOf('<');
@@ -559,6 +565,8 @@ function membership(rid: string, content: string, added: boolean, directory: Tea
   if (!channel) {
     targets = targets.filter((t) => t.toLowerCase() !== initiator);
     if (rid.endsWith('@unq.gbl.spaces') || targets.length === 0) return null;
+  } else if (targets.length > 0 && targets.every((t) => t.toLowerCase() === initiator)) {
+    return { type: added ? 'uj' : 'ul', text: null };
   }
   const text = targets.length ? targets.map((m) => directory.shown(m)).join(', ') : null;
   const type = channel ? (added ? 'au' : 'ru') : added ? CHAT_ADDED : CHAT_REMOVED;
@@ -633,6 +641,17 @@ function imageAttachment(url: string, title: string | null, width: number | null
   return a;
 }
 
+/** A GIF Teams' picker inserts: an `<img>` on Giphy's media hosts. Mirrors `is_giphy` in the desktop core. */
+export function isGiphy(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return u.protocol === 'https:' && (host === 'giphy.com' || host.endsWith('.giphy.com'));
+  } catch {
+    return false;
+  }
+}
+
 /** The images pasted into a message: its `<img>` tags on Teams' object store, emoji left to the text. */
 function inlineImages(content: string): Doc[] {
   const out: Doc[] = [];
@@ -642,12 +661,15 @@ function inlineImages(content: string): Doc[] {
     const src = attr('src');
     if (!src) continue;
     const url = decodeEntities(src);
-    if (!isTeamsImage(url)) continue;
     const size = (name: string): number | null => {
       const v = Number.parseInt(attr(name) ?? '', 10);
       return Number.isFinite(v) ? v : null;
     };
-    out.push(imageAttachment(url, null, size('width'), size('height')));
+    if (isTeamsImage(url)) {
+      out.push(imageAttachment(url, null, size('width'), size('height')));
+    } else if (/\/Giphy$/i.test(attr('itemtype') ?? '') || isGiphy(url)) {
+      out.push({ ...imageAttachment(url, 'GIF', size('width'), size('height')), title_link: url });
+    }
   }
   return out;
 }

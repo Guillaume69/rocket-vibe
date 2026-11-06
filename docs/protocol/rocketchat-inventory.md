@@ -763,7 +763,7 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-teams/src/service.rs:382](../../crates/rv-teams/src/service.rs#L382) | url | /api/v2/query |
 | [crates/rv-teams/src/service.rs:555](../../crates/rv-teams/src/service.rs#L555) | url | /api/csa |
 | [packages/provider-api/src/presence.ts:3](../../packages/provider-api/src/presence.ts#L3) | stream | stream-notify-logged |
-| [packages/provider-api/src/sync.ts:136](../../packages/provider-api/src/sync.ts#L136) | stream | stream-room-messages |
-| [packages/provider-api/src/sync.ts:137](../../packages/provider-api/src/sync.ts#L137) | stream | stream-notify-user |
-| [packages/provider-api/src/sync.ts:138](../../packages/provider-api/src/sync.ts#L138) | stream | stream-notify-room |
+| [packages/provider-api/src/sync.ts:140](../../packages/provider-api/src/sync.ts#L140) | stream | stream-room-messages |
+| [packages/provider-api/src/sync.ts:141](../../packages/provider-api/src/sync.ts#L141) | stream | stream-notify-user |
+| [packages/provider-api/src/sync.ts:142](../../packages/provider-api/src/sync.ts#L142) | stream | stream-notify-room |
 | [packages/provider-api/src/typing.ts:1](../../packages/provider-api/src/typing.ts#L1) | stream | stream-notify-room |

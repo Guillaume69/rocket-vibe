@@ -5288,19 +5288,19 @@
     },
     {
       "file": "packages/provider-api/src/sync.ts",
-      "line": 136,
+      "line": 140,
       "kind": "stream",
       "surface": "stream-room-messages"
     },
     {
       "file": "packages/provider-api/src/sync.ts",
-      "line": 137,
+      "line": 141,
       "kind": "stream",
       "surface": "stream-notify-user"
     },
     {
       "file": "packages/provider-api/src/sync.ts",
-      "line": 138,
+      "line": 142,
       "kind": "stream",
       "surface": "stream-notify-room"
     },

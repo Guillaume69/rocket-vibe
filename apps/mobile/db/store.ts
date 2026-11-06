@@ -203,6 +203,26 @@ export function createStore(raw: SQLiteDatabase, serially: WriteQueue): Store {
     deleteRoom: (rid) => serially(() => direct.deleteRoom(rid)),
     deleteSubscription: (rid) => serially(() => direct.deleteSubscription(rid)),
     deleteBySubId: (subId) => serially(() => direct.deleteBySubId(subId)),
+    async unnamedPeople() {
+      const rows = await raw.getAllAsync<{ v: string | null }>(
+        `SELECT author_id AS v FROM messages WHERE author_id LIKE '8:%' AND (author_name IS NULL OR author_name = author_id)
+         UNION SELECT text FROM messages WHERE system_type IS NOT NULL AND text LIKE '%8:%'
+         UNION SELECT reactions FROM messages WHERE reactions LIKE '%8:%'`,
+      );
+      const out = new Set<string>();
+      for (const { v } of rows) {
+        for (const word of (v ?? '').split(/[^A-Za-z0-9:_-]+/)) if (word.startsWith('8:') && word.length > 8) out.add(word);
+      }
+      return [...out];
+    },
+    renamePerson: (id, name) =>
+      serially(async () => {
+        if (!name || name === id) return;
+        const inJson = JSON.stringify(name).slice(1, -1);
+        await raw.runAsync('UPDATE messages SET author_name = ? WHERE author_id = ? AND (author_name IS NULL OR author_name = author_id)', [name, id]);
+        await raw.runAsync('UPDATE messages SET text = replace(text, ?, ?) WHERE system_type IS NOT NULL AND instr(text, ?) > 0', [id, name, id]);
+        await raw.runAsync('UPDATE messages SET reactions = replace(reactions, ?, ?) WHERE instr(reactions, ?) > 0', [id, inJson, id]);
+      }),
     saveDmNames: (names) =>
       serially(async () => {
         for (const { rid, name } of names) await raw.runAsync(UPDATE_DM_PEER_NAME, [name, rid, name]);

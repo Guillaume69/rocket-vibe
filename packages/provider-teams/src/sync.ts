@@ -10,7 +10,7 @@
 import type { DdpEvent } from '@rocket-vibe/provider-api/ddp';
 import type { LocalMessage, LocalRoom, LocalSubscription } from '@rocket-vibe/provider-api/rows';
 import type { Translation, Translator } from '@rocket-vibe/provider-api/provider';
-import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
+import type { Store, SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
@@ -204,6 +204,8 @@ export class TeamsSync {
   private readonly threads: TeamsThreads;
   private readonly directory: TeamsDirectory | null;
   private readonly me: string;
+  /** Whether stored rows showing people by id were named this session. */
+  private namedStored = false;
 
   constructor(client: TeamsClient, rooms: TeamsRooms, threads: TeamsThreads = new TeamsThreads(), directory: TeamsDirectory | null = null, me = '') {
     this.client = client;
@@ -311,20 +313,39 @@ export class TeamsSync {
   /** Stores a page, then sets the reply count of each post a reply of it is under. */
 /** Names the people a page mentions that the directory does not know yet
    *  (reactors above all), so the page is stored with names, not ids. */
-  async namePeople(messages: readonly Doc[]): Promise<void> {
+  async namePeople(messages: readonly Doc[], store?: Store): Promise<void> {
     const directory = this.directory;
     if (!directory) return;
-    const unknown = unknownPeople(messages, directory, this.me);
-    for (let i = 0; i < unknown.length; i += PROFILE_BATCH) {
-      for (const row of await this.client.profiles(unknown.slice(i, i + PROFILE_BATCH)).catch(() => [] as Doc[])) {
+    await this.learnNames(unknownPeople(messages, directory, this.me), store);
+  }
+
+  /** Names, once a session, the people rows stored earlier still show by id. */
+  async nameStoredPeople(store: Store): Promise<void> {
+    const directory = this.directory;
+    if (!directory || this.namedStored || !store.unnamedPeople) return;
+    this.namedStored = true;
+    const unnamed = (await store.unnamedPeople()).filter((mri) => mri !== this.me);
+    for (const mri of unnamed.filter((m) => directory.name(m) !== null)) await store.renamePerson?.(mri, directory.shown(mri));
+    await this.learnNames(unnamed.filter((m) => directory.name(m) === null), store);
+  }
+
+  private async learnNames(mris: readonly string[], store?: Store): Promise<void> {
+    const directory = this.directory;
+    if (!directory) return;
+    for (let i = 0; i < mris.length; i += PROFILE_BATCH) {
+      for (const row of await this.client.profiles(mris.slice(i, i + PROFILE_BATCH)).catch(() => [] as Doc[])) {
         const mri = str(row, 'mri'), name = str(row, 'displayName');
-        if (mri && name) directory.remember(mri, name);
+        if (mri && name) {
+          directory.remember(mri, name);
+          await store?.renamePerson?.(mri, name);
+        }
       }
     }
   }
 
   private async ingest(engine: SyncEngine, rid: string, messages: Doc[]): Promise<void> {
-    await this.namePeople(messages);
+    await this.nameStoredPeople(engine.syncStore);
+    await this.namePeople(messages, engine.syncStore);
     const posts = new Set<string>();
     for (const m of messages) {
       const id = str(m, 'id');

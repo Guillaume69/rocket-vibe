@@ -48,6 +48,10 @@ class VoiceModule : Module() {
       CallService.unlisten(hangUpListener)
     }
     Function("snapshot") { VoiceEngine.last }
+    Function("canvasRead") { load: String -> Canvas.read(load) }
+    Function("canvasPlan") { load: String, markdown: String, session: String, suffix: String, nowSecs: Long ->
+      Canvas.plan(load, markdown, session, suffix, nowSecs)
+    }
     AsyncFunction("connect") { o: ConnectOptions ->
       VoiceEngine.connect(o.room, o.url, o.token, o.title, o.link, o.microphone, o.e2eeKey)
     }.runOnQueue(Queues.MAIN)

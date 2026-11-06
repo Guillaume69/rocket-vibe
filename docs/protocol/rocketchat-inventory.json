@@ -5084,13 +5084,13 @@
     },
     {
       "file": "crates/rv-provider/src/rest.rs",
-      "line": 498,
+      "line": 539,
       "kind": "url",
       "surface": "/api/v1"
     },
     {
       "file": "crates/rv-provider/src/rest.rs",
-      "line": 499,
+      "line": 540,
       "kind": "url",
       "surface": "/api/v4"
     },
@@ -5186,49 +5186,43 @@
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 106,
+      "line": 114,
       "kind": "call:POST",
       "surface": "method"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 157,
+      "line": 165,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 159,
+      "line": 167,
       "kind": "endpoint",
       "surface": "users.conversations"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 290,
-      "kind": "call:FETCH_PROTECTED",
-      "surface": "url).await?;"
-    },
-    {
-      "file": "crates/rv-slack/src/service.rs",
-      "line": 344,
+      "line": 374,
       "kind": "endpoint",
       "surface": "chat.update"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 354,
+      "line": 384,
       "kind": "endpoint",
       "surface": "chat.delete"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 479,
+      "line": 509,
       "kind": "endpoint",
       "surface": "users.list"
     },
     {
       "file": "crates/rv-slack/src/service.rs",
-      "line": 484,
+      "line": 514,
       "kind": "endpoint",
       "surface": "users.list"
     },

@@ -26,6 +26,7 @@ export type SlackMethod =
   | 'files.info'
   | 'canvases.edit'
   | 'conversations.canvases.create'
+  | 'quip.lookupThreadIds'
   | 'conversations.rename'
   | 'files.getUploadURLExternal'
   | 'files.completeUploadExternal'
@@ -41,6 +42,8 @@ export type SlackMethod =
 export type SlackArgs = Record<string, string | number | boolean | readonly unknown[] | Doc | undefined>;
 
 const API = 'https://slack.com/api/';
+/** Quip's canvas service, on Slack's web client's origin: `slack.com` serves no `/canvas/`. */
+const CANVAS = 'https://app.slack.com/canvas/-/';
 
 /** What `openSocket` needs from a WebSocket: the upgrade must carry the session cookie. */
 export type CreateRtmSocket = (url: string, headers: Record<string, string>) => import('@rocket-vibe/provider-api/ddp').WebSocketLike;
@@ -182,6 +185,28 @@ export class SlackClient {
     const raw = await response.text();
     if (raw.length > MAX_RESPONSE) throw new SlackError('response_too_large', response.status);
     return raw;
+  }
+
+  /**
+   * A form POST to Slack's canvas service (Quip's, `/canvas/-/<path>` on the web
+   * client's origin), the session's token in the form as the web client sends
+   * it; its protobuf answer as base64.
+   */
+  async canvasService(path: 'load-data/editor/1' | 'edit-document', fields: Record<string, string>): Promise<string> {
+    if (this.#closed) throw new SlackError('cancelled');
+    const url = CANVAS + path;
+    const response = await this.#fetcher(url, {
+      method: 'POST', redirect: 'error', credentials: 'omit',
+      headers: { Authorization: 'Bearer ' + this.#token, Cookie: 'd=' + this.#cookie, 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+      body: new URLSearchParams({ ...fields, token: this.#token }).toString(),
+    });
+    if (response.redirected || (response.url !== '' && response.url !== url)) throw new SlackError('redirected', response.status);
+    if (!response.ok) throw new SlackError('http_error', response.status);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MAX_RESPONSE) throw new SlackError('response_too_large', response.status);
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
   }
 
   /** A rate limit is retried once, after `Retry-After` capped at 30 s. */

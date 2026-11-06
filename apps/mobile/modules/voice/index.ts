@@ -37,6 +37,10 @@ type Bridge={
    * kChat's kMeet with its `jwt`); false when this build cannot, so the meeting's page is kept.
    */
   connectJitsi(callId:string,meeting:string,displayName:string,token:string|null,title:string):Promise<boolean>;
+  /** A Slack canvas's `load-data` answer (base64) as JSON `{markdown, version, thread, document, title}`; null when unreadable. */
+  canvasRead(load:string):string|null;
+  /** The `data_binary` (base64) saving `markdown` over that answer, as JSON `{data, changed}`. */
+  canvasPlan(load:string,markdown:string,session:string,suffix:string,nowSecs:number):string|null;
   /** Replaces the frame key when the room's group reaches a new epoch. */
   setE2eeKey(key:string):Promise<void>;
   setMicrophone(enabled:boolean):Promise<void>;

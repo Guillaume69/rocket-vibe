@@ -7,8 +7,8 @@ whole against the revision it was read at; a save someone made in between
 answers a conflict, the draft stays in the editor and the next save goes over the
 newer version. A provider without notes hides the entry.
 
-Providers: the Vibez server, Slack (a conversation's canvas, read-only) and Teams
-(a chat's Loop page, read and edited): see [Slack](#slack) and [Teams](#teams).
+Providers: the Vibez server, Slack (a conversation's canvas) and Teams (a chat's
+Loop page), all three read and edited: see [Slack](#slack) and [Teams](#teams).
 
 ## Server (Vibez)
 
@@ -34,48 +34,51 @@ Providers: the Vibez server, Slack (a conversation's canvas, read-only) and Team
 
 ## Slack
 
-A conversation's canvas is its notes, in the same tab:
-- `conversations.info` gives the canvas's file id (`properties.canvas.file_id`,
-  else a `canvas` tab's `data.file_id`); `files.info` its `url_private`, `updated`
-  and `last_editor`; the HTML at `url_private` (Slack's file host, the session's
-  cookie) is read back into markdown by `rv_slack::canvas::markdown` (desktop)
-  and `canvasMarkdown` (`packages/provider-slack/src/canvas.ts`), same rules and
-  the same test cases: headings, paragraphs, bold, italic, strike, inline and
-  block code, links (http and https only), nested and numbered lists, checklists,
-  quotes, rules; anything else keeps its text.
-- **Read-only** (2026-11-03): Slack answers every `canvases.*` method
-  (`canvases.edit`, `canvases.sections.lookup`, `canvases.access.set`) and
-  `conversations.canvases.create` with `not_allowed_token_type` for the browser
-  session's `xoxc` token (tried live on a workspace's channel); its web client
-  edits canvases through internal `quip.*` methods instead. So the apps report
-  Slack notes as not editable and offer no first canvas; the save path
-  (`canvases.edit` replace, `conversations.canvases.create`, the file's `updated`
-  second as the revision) stays in the code, unreachable from the UI.
-- Desktop: `Service::canvas` / `save_canvas` (`crates/rv-slack/src/service.rs`),
-  `SlackSync::notes` / `save_notes`, `Session::notes_available` /
-  `room_notes` / `save_room_notes`; GTK's dialog through `session_notes`
-  (no live signal: read on opening), SwiftUI through rv-ffi `Chat.room_notes`.
-  Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `SlackClient.fileText`,
-  `Capabilities.notes`.
-- Reading a real canvas is not verified yet; tested against fake Web API servers.
-- **How Slack's web client edits a canvas** (captured live in a test channel,
-  2026-11-03; the way to make Slack notes editable, not built): the editor is
-  Quip's (`quip-collab-webapp`, a WebAssembly module) and talks protobuf, the
-  message descriptors compiled readable into that bundle (`syncer.Section`,
-  `syncer.Document`, `proto.handlers.*`). Creating: `POST
-  /canvas/-/call-handler/create-collab-document`, then `quip.lookupFileId`,
-  `conversations.addTab`, `conversations.setProperties`. Opening:
-  `quip.getControllerInitData`, `POST /canvas/-/load-data/editor/<n>` and
-  `/canvas/-/fetch-latest` (form `request_binary`, protobuf, plus `token`).
-  Saving: `POST /canvas/-/edit-document`, a form with `thread`, `document`,
-  `session`, `sequence`, `title`, `token` (the `xoxc` token works here) and
-  `data_binary`, the changed `syncer.Section`s. A paragraph's text is an
-  **Automerge** document (chunk magic `85 6F 4A 83`) carried in the section
-  with the hashes of the changes it builds on; the section also keeps the plain
-  text. So a native save means producing Automerge changes on the server's
-  heads (the `automerge` crate on desktop; Hermes has no WebAssembly, so a
-  native bridge on Android) plus the protobuf encoding of the sections.
-  Redacted shapes: kept outside the repo with the session's captures.
+A conversation's canvas is its notes, in the same tab, read and edited natively
+through Quip's canvas service, the way Slack's web client does (the public
+`canvases.*` methods answer `not_allowed_token_type` to the browser session's
+`xoxc` token, seen 2026-11-03). Wire format:
+[slack-session](../architecture/slack-session.md#canvases-quips-collab-protocol).
+
+- **Locating it**: `conversations.info` gives the canvas's file id
+  (`properties.canvas.file_id`, else a `canvas` tab's `data.file_id`), `files.info`
+  its `updated`, `last_editor` and `editable`, `quip.lookupThreadIds` the Quip
+  thread behind it.
+- **Reading**: `POST /canvas/-/load-data/editor/1` (form `request_binary`, the
+  session's token in the form) on the web client's origin `app.slack.com`
+  (`slack.com` serves no `/canvas/`); the protobuf answer is read by `rv-canvas`
+  (`crates/rv-canvas`) into one markdown line per block: headings, plain text,
+  code, quotes, bulleted, numbered and checklist items. The revision is the
+  document's version, which every save moves.
+- **Saving**: the canvas is read again and the save refused (`revision_conflict`)
+  if its version moved; `rv_canvas::plan` aligns the edited lines with the
+  blocks and builds only the sections that changed, each block's text a fresh
+  Automerge change on a new editing session (12 hex characters, plus 8 for the
+  actor), new blocks and list items placed between their neighbours, removed
+  ones deleted; then one `POST /canvas/-/edit-document`. Nothing changed sends
+  nothing. The engine was verified live in a test channel (2026-11-04,
+  `rv-canvas`'s `canvas-probe`): written, read back identical, a second save
+  empty; the apps' wiring is tested against fake servers (`rv-core/tests/slack.rs`,
+  `canvas.test.ts`), not yet against a live workspace.
+- **Mobile engine**: Hermes has no WebAssembly for Automerge, so Android runs the
+  same `rv-canvas` over JNI in the voice module's library
+  (`crates/rv-voice-mobile/src/canvas.rs`, `Canvas.kt`, `VoiceNative.canvasRead` /
+  `canvasPlan`, base64 in, JSON out); the app does the HTTP
+  (`SlackClient.canvasService`). `ui/sync.tsx` hands the engine to the provider
+  (`providers/slackCanvas.ts`); a build without the library falls back to the
+  canvas's HTML at `url_private`, read by `canvasMarkdown`
+  (`packages/provider-slack/src/canvas.ts`), read-only.
+- **Not covered**: inline formatting (bold, italic, links) is neither read nor
+  written, so a rewritten block loses it; a checklist item reads unchecked and
+  cannot be ticked; a conversation without a canvas offers no first one (Quip's
+  `create-collab-document` is captured, not built); tables, images and embeds
+  are skipped.
+- Desktop: `Service::canvas` / `save_canvas` (`crates/rv-slack/src/service.rs`)
+  over `RestClient::slack_canvas` (`crates/rv-provider/src/rest.rs`, paths
+  `CANVAS_PATHS`), `SlackSync::notes` / `save_notes`, `Session::notes_available` /
+  `room_notes` / `save_room_notes`; GTK's dialog through `session_notes` (no live
+  signal: read on opening), SwiftUI through rv-ffi `Chat.room_notes`.
+  Mobile: `SlackActions.roomNotes` / `saveRoomNotes`, `Capabilities.notes`.
 
 ## Teams
 
@@ -194,4 +197,7 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
 `apps/desktop/crates/rv-ffi/src/native_rooms.rs`,
 `apps/desktop/macos/Sources/RocketVibe/NotesView.swift`,
 `packages/provider-api/src/provider.ts`, `apps/mobile/app/notes.tsx`,
-`apps/mobile/providers/vibez/index.ts`, `apps/web/src/panels.ts`.
+`apps/mobile/providers/vibez/index.ts`, `apps/web/src/panels.ts`,
+`crates/rv-canvas/src/`, `crates/rv-slack/src/service.rs`,
+`crates/rv-voice-mobile/src/canvas.rs`, `packages/provider-slack/src/actions.ts`,
+`packages/provider-slack/src/canvasEngine.ts`, `apps/mobile/providers/slackCanvas.ts`.

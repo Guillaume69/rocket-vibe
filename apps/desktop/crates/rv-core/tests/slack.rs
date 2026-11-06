@@ -649,53 +649,86 @@ async fn a_lost_answer_finds_the_message_it_sent() {
     assert!(store.has_message("C001:1700000500.000009"));
 }
 
+/// A Quip `load-data` answer: a title, a heading and a one-item list, at `version`.
+fn quip_document(version: u64) -> Vec<u8> {
+    use rv_canvas::wire::Message;
+    let section = |id: &str, position: &str, kind: u64, style: u64| {
+        Message::default().with_str(1, id).with_int(2, 1000).with_str(8, position).with_int(9, kind).with_int(10, style)
+    };
+    let text = |t: &str| Message::default().with_message(1, &Message::default().with_str(1, t));
+    let data = Message::default()
+        .with_message(3, &Message::default().with_str(1, "TH1").with_int(2, 5))
+        .with_message(6, &Message::default().with_str(1, "DOC1").with_int(2, 9).with_int(48, version))
+        .with_message(
+            7,
+            &section("s-title", "aaa", 64, 48)
+                .with_message(12, &Message::default().with_message(58, &Message::default().with_str(1, "Plan"))),
+        )
+        .with_message(7, &section("s-h", "aab", 0, 1).with_message(12, &text("Plan")))
+        .with_message(7, &section("s-list", "aac", 1, 5))
+        .with_message(
+            7,
+            &section("s-ship", "aad", 0, 0)
+                .with_message(12, &text("ship"))
+                .with_message(13, &Message::default().with_str(1, "s-list").with_int(4, 5)),
+        );
+    Message::default().with_message(2, &Message::default().with_int(1, 1).with_message(2, &data)).encode()
+}
+
 #[tokio::test]
 async fn a_canvas_reads_as_notes_and_is_saved_over_the_version_read() {
+    use base64::Engine as _;
     let edits = Arc::new(std::sync::Mutex::new(Vec::<HashMap<String, String>>::new()));
     let seen = edits.clone();
     let server = FakeHttp::start(move |request| {
-        if request.path() == "/files/F001/canvas.html" {
-            return respond(200, "<html><body><h1>Plan</h1><ul><li>ship</li></ul></body></html>");
-        }
         let form = form(request);
+        match request.path() {
+            "/canvas/-/load-data/editor/1" => {
+                let asked = base64::engine::general_purpose::STANDARD.decode(&form["request_binary"]).unwrap();
+                assert_eq!(asked, rv_canvas::load_request("TH1", 1));
+                assert_eq!(form["token"], TOKEN);
+                return Response { binary: Some(quip_document(3000)), ..respond(200, "") };
+            }
+            "/canvas/-/edit-document" => {
+                seen.lock().unwrap().push(form);
+                return Response { binary: Some(Vec::new()), ..respond(200, "") };
+            }
+            _ => {}
+        }
         match method(request) {
             "conversations.info" => match form["channel"].as_str() {
                 "C001" => ok(json!({"channel": {"id": "C001", "properties": {"canvas": {"file_id": "F001"}}}})),
                 _ => ok(json!({"channel": {"id": "C002", "properties": {}}})),
             },
-            "files.info" => ok(json!({"file": {"id": "F001", "updated": 1_700_000_500, "last_editor": "U001",
-                "url_private": format!("{}/files/F001/canvas.html", request.headers.get("host").map(|h| format!("http://{h}")).unwrap_or_default())}})),
+            "quip.lookupThreadIds" => ok(json!({"lookup": {"F001": "TH1"}})),
+            "files.info" => ok(json!({"file": {"id": "F001", "updated": 1_700_000_500, "last_editor": "U001"}})),
             "users.info" => ok(json!({"user": user("U001", "alice")})),
-            "canvases.edit" | "conversations.canvases.create" => {
-                let mut form = form;
-                form.insert("method".into(), method(request).to_owned());
-                seen.lock().unwrap().push(form);
-                ok(json!({}))
-            }
             other => panic!("unexpected {other}"),
         }
     })
     .await;
     let (_, sync) = sync(&server);
     let notes = sync.notes("C001").await.unwrap();
-    assert_eq!(notes.markdown, "# Plan\n\n- ship");
-    assert_eq!(notes.revision, "1700000500");
+    assert_eq!(notes.markdown, "# Plan\n\n- ship\n");
+    assert_eq!(notes.revision, "3000");
+    assert!(notes.editable);
     assert_eq!(notes.updated_by.as_deref(), Some("ALICE"));
-    let stale = sync.save_notes("C001", "# Plan v2", "1700000400").await.unwrap_err();
+    let stale = sync.save_notes("C001", "# Plan v2", "2000").await.unwrap_err();
     assert_eq!(stale.error.as_deref(), Some(rv_core::notes::CONFLICT));
-    assert!(edits.lock().unwrap().is_empty());
-    sync.save_notes("C001", "# Plan v2", "1700000500").await.unwrap();
+    sync.save_notes("C001", "# Plan\n\n- ship\n", "3000").await.unwrap();
+    assert!(edits.lock().unwrap().is_empty(), "nothing changed, nothing sent");
+    sync.save_notes("C001", "# Plan v2\n\n- ship\n", "3000").await.unwrap();
     let empty = sync.notes("C002").await.unwrap();
     assert_eq!((empty.markdown.as_str(), empty.revision.as_str(), empty.editable), ("", "0", false));
-    sync.save_notes("C002", "first", "0").await.unwrap();
     let edits = edits.lock().unwrap();
-    assert_eq!(edits[0]["method"], "canvases.edit");
-    assert_eq!(edits[0]["canvas_id"], "F001");
-    let changes: Value = serde_json::from_str(&edits[0]["changes"]).unwrap();
-    assert_eq!(
-        changes,
-        json!([{"operation": "replace", "document_content": {"type": "markdown", "markdown": "# Plan v2"}}])
-    );
-    assert_eq!(edits[1]["method"], "conversations.canvases.create");
-    assert_eq!(edits[1]["channel_id"], "C002");
+    assert_eq!(edits.len(), 1);
+    assert_eq!((edits[0]["thread"].as_str(), edits[0]["document"].as_str()), ("TH1", "DOC1"));
+    assert_eq!(edits[0]["title"], "Plan");
+    assert_eq!(edits[0]["session"].len(), 12);
+    let data = base64::engine::general_purpose::STANDARD.decode(&edits[0]["data_binary"]).unwrap();
+    let sections = rv_canvas::wire::Message::parse(&data).unwrap().messages(1);
+    assert_eq!(sections.len(), 1);
+    assert_eq!(sections[0].string(1).as_deref(), Some("s-h"));
+    let document = sections[0].message(38).unwrap();
+    assert_eq!(rv_canvas::edit::document_text(document.bytes(5).unwrap()), Some((false, "Plan v2".to_owned())));
 }

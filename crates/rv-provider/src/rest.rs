@@ -418,6 +418,47 @@ impl RestClient {
         }
     }
 
+    /// A form POST to Slack's canvas service (`/canvas/-/<path>`), its answer a
+    /// protobuf: the session's token goes in the form, as the web client sends it.
+    pub async fn slack_canvas(&self, path: &str, mut form: Vec<(String, String)>) -> Result<Vec<u8>, RestError> {
+        if self.api != Api::Slack || !slack::CANVAS_PATHS.contains(&path) {
+            return Err(slack::not_supported(path));
+        }
+        let Some(credentials) = self.credentials() else {
+            return Err(RestError::incomplete(&format!("{path}: not signed in.")));
+        };
+        form.push(("token".to_owned(), credentials.auth_token.clone()));
+        let mut url = slack::canvas_origin(&self.base);
+        url.set_path(&format!("/canvas/-/{path}"));
+        let body = url::form_urlencoded::Serializer::new(String::new()).extend_pairs(form.iter()).finish();
+        let request = self
+            .http
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded; charset=utf-8")
+            .body(body);
+        let response = self
+            .authenticate(request, &credentials)
+            .send()
+            .await
+            .map_err(|_| RestError::network(format!("{path}: server unreachable.")))?;
+        let status = response.status().as_u16();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|_| RestError::network(format!("{path}: connection lost while reading.")))?;
+        if bytes.len() > slack::RESPONSE_CAP {
+            return Err(RestError::incomplete(&format!("{path}: response too large.")));
+        }
+        if !(200..300).contains(&status) {
+            return Err(RestError {
+                status,
+                message: format!("{path}: HTTP {status}."),
+                ..RestError::network(String::new())
+            });
+        }
+        Ok(bytes.to_vec())
+    }
+
     /// GET a protected file (avatar, upload). Returns its bytes and content type.
     pub async fn fetch_protected(&self, path_or_url: &str) -> Result<(Vec<u8>, String), RestError> {
         let Some(url) = self.file_url(path_or_url) else {

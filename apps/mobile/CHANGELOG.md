@@ -13,6 +13,7 @@ release, and its notes are that version's section here.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
 - Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.
 - Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.
+- Slack (experimental): a conversation's canvas can be edited in the app's Notes: the blocks you changed are written into the canvas itself, headings, lists, quotes and code included, and a change made meanwhile in Slack keeps your draft. Bold, italic and links are not shown or kept in a block you edit, and a checklist cannot be ticked.
 
 ### Fixed
 

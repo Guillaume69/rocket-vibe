@@ -49,6 +49,7 @@ zeroize = "1"
 
 [dev-dependencies]
 rv-crypto-public = { path = "../../../../crates/rv-crypto-public" }
+rv-canvas = { path = "../../../../crates/rv-canvas" }
 tempfile = "3"
 
 [[bin]]

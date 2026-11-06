@@ -7,6 +7,7 @@
 import type { LocalMessage } from '@rocket-vibe/provider-api/rows';
 import { NOTES_CONFLICT, type EditableSettings, type GroupDmPerson, type ProviderActions, type ReadObservation, type RoomInformation, type RoomNotes, type RoomSettingsChange } from '@rocket-vibe/provider-api/provider';
 import { canvasFile, canvasMarkdown } from './canvas.ts';
+import { canvasSession, loadRequest, type CanvasEngine } from './canvasEngine.ts';
 import type { SlackClient } from './client.ts';
 import { SlackError, compareTimestamp, record } from './client.ts';
 import type { SlackDirectory } from './directory.ts';
@@ -30,14 +31,16 @@ export class SlackActions implements ProviderActions {
   private readonly live: SlackLive;
   private readonly translator: SlackTranslator;
   private readonly saved: SlackSaved;
+  private readonly canvasEngine: CanvasEngine | null;
 
-  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; live: SlackLive; translator: SlackTranslator; saved: SlackSaved }) {
+  constructor(options: { client: SlackClient; directory: SlackDirectory; history: SlackHistory; live: SlackLive; translator: SlackTranslator; saved: SlackSaved; canvas?: CanvasEngine | null }) {
     this.client = options.client;
     this.directory = options.directory;
     this.history = options.history;
     this.live = options.live;
     this.translator = options.translator;
     this.saved = options.saved;
+    this.canvasEngine = options.canvas ?? null;
   }
 
   /** A conversation's name, kind, topic, purpose and member count, read from `conversations.info`. */
@@ -137,39 +140,58 @@ export class SlackActions implements ProviderActions {
     return this.translated(await this.saved.messages(rid));
   }
 
-  /** The conversation's canvas as notes, read-only: Slack answers every
-   *  `canvases.*` method `not_allowed_token_type` for a browser session's token
-   *  (seen 2026-11-03), so neither an edit nor a first canvas can be saved. */
+  /**
+   * A conversation's canvas as notes. With a canvas engine it is read through
+   * Quip's canvas service (its revision the document's version) and editable;
+   * without one, its HTML is read, read-only.
+   */
   async roomNotes(rid: string): Promise<RoomNotes> {
     const file = await this.canvas(rid);
     if (file === null) return { markdown: '', revision: '0', editable: false, updatedBy: null, updatedAt: null };
     const info = record((await this.client.call('files.info', { file })).file);
-    const url = typeof info.url_private === 'string' ? info.url_private : null;
-    if (url === null) throw new SlackError('invalid_response');
     const editor = typeof info.last_editor === 'string' ? info.last_editor : typeof info.user === 'string' ? info.user : null;
     if (editor !== null) await this.directory.ensure([editor]);
-    return {
-      markdown: canvasMarkdown(await this.client.fileText(url)),
-      revision: canvasRevision(info),
-      editable: false,
-      updatedBy: editor === null ? null : this.directory.displayName(editor),
-      updatedAt: typeof info.updated === 'number' ? info.updated * 1000 : null,
-    };
+    const updatedBy = editor === null ? null : this.directory.displayName(editor);
+    const updatedAt = typeof info.updated === 'number' ? info.updated * 1000 : null;
+    if (this.canvasEngine !== null) {
+      const { read } = await this.canvasDocument(file, this.canvasEngine);
+      return { markdown: read.markdown, revision: read.version, editable: info.editable !== false, updatedBy, updatedAt };
+    }
+    const url = typeof info.url_private === 'string' ? info.url_private : null;
+    if (url === null) throw new SlackError('invalid_response');
+    return { markdown: canvasMarkdown(await this.client.fileText(url)), revision: canvasRevision(info), editable: false, updatedBy, updatedAt };
   }
 
-  /** Replaces the canvas whole (creating it the first time) when it is still the version read. */
+  /**
+   * Writes the blocks that changed as Quip's editor would, over the version
+   * read: a canvas moved since then is left alone (NOTES_CONFLICT).
+   */
   async saveRoomNotes(rid: string, markdown: string, revision: string): Promise<RoomNotes> {
-    const content = { type: 'markdown', markdown };
+    const engine = this.canvasEngine;
     const file = await this.canvas(rid);
-    if (file === null) {
-      if (revision !== '0') throw new SlackError(NOTES_CONFLICT);
-      await this.client.call('conversations.canvases.create', { channel_id: rid, document_content: content });
-    } else {
-      const info = record((await this.client.call('files.info', { file })).file);
-      if (canvasRevision(info) !== revision) throw new SlackError(NOTES_CONFLICT);
-      await this.client.call('canvases.edit', { canvas_id: file, changes: [{ operation: 'replace', document_content: content }] });
+    if (engine === null || file === null) throw new SlackError('not_supported');
+    const { load, read } = await this.canvasDocument(file, engine);
+    if (read.version !== revision) throw new SlackError(NOTES_CONFLICT);
+    const session = canvasSession();
+    const plan = engine.plan(load, markdown, session.id, session.suffix, Math.floor(Date.now() / 1000));
+    if (plan === null) throw new SlackError('invalid_response');
+    if (plan.changed > 0) {
+      await this.client.canvasService('edit-document', {
+        thread: read.thread, document: read.document, retry_count: '0', session: session.id, sequence: '1',
+        nav_action_id: 'null', search_session_id: 'null', data_binary: plan.data, title: read.title,
+      });
     }
     return this.roomNotes(rid);
+  }
+
+  private async canvasDocument(file: string, engine: CanvasEngine): Promise<{ load: string; read: NonNullable<ReturnType<CanvasEngine['read']>> }> {
+    const lookup = record(record(await this.client.call('quip.lookupThreadIds', { file_ids: [file] })).lookup);
+    const thread = lookup[file];
+    if (typeof thread !== 'string' || thread === '') throw new SlackError('invalid_response');
+    const load = await this.client.canvasService('load-data/editor/1', { request_binary: loadRequest(thread) });
+    const read = engine.read(load);
+    if (read === null) throw new SlackError('invalid_response');
+    return { load, read };
   }
 
   private async canvas(rid: string): Promise<string | null> {

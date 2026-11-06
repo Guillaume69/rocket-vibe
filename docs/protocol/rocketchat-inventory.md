@@ -2,7 +2,7 @@
 
 Command: `node scripts/inventory-rocketchat.mjs`. Check: add `--check`.
 
-746 production files scanned; 758 occurrences.
+746 production files scanned; 757 occurrences.
 Calls with a dynamic first argument remain visible: their resolution is
 recorded in [the parity contract](PARITY.md). The lines are source
 markers at the time of generation. The JSON keeps the scope and all the files.
@@ -729,8 +729,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/mobile/ui/settingsSections.tsx:442](../../apps/mobile/ui/settingsSections.tsx#L442) | endpoint | users.setPreferences |
 | [crates/rv-provider/src/emoji.rs:168](../../crates/rv-provider/src/emoji.rs#L168) | resource | /emoji-custom/{…}.{…} |
 | [crates/rv-provider/src/live.rs:8](../../crates/rv-provider/src/live.rs#L8) | stream | stream-notify-logged |
-| [crates/rv-provider/src/rest.rs:498](../../crates/rv-provider/src/rest.rs#L498) | url | /api/v1 |
-| [crates/rv-provider/src/rest.rs:499](../../crates/rv-provider/src/rest.rs#L499) | url | /api/v4 |
+| [crates/rv-provider/src/rest.rs:539](../../crates/rv-provider/src/rest.rs#L539) | url | /api/v1 |
+| [crates/rv-provider/src/rest.rs:540](../../crates/rv-provider/src/rest.rs#L540) | url | /api/v4 |
 | [crates/rv-provider/src/rest/slack.rs:14](../../crates/rv-provider/src/rest/slack.rs#L14) | endpoint | users.conversations |
 | [crates/rv-provider/src/rest/slack.rs:18](../../crates/rv-provider/src/rest/slack.rs#L18) | endpoint | users.info |
 | [crates/rv-provider/src/rest/slack.rs:19](../../crates/rv-provider/src/rest/slack.rs#L19) | endpoint | users.list |
@@ -746,14 +746,13 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [crates/rv-slack/src/directory.rs:138](../../crates/rv-slack/src/directory.rs#L138) | call:POST | "bots.info" |
 | [crates/rv-slack/src/lib.rs:303](../../crates/rv-slack/src/lib.rs#L303) | endpoint | users.conversations |
 | [crates/rv-slack/src/live.rs:137](../../crates/rv-slack/src/live.rs#L137) | call:POST | "rtm.connect" |
-| [crates/rv-slack/src/service.rs:106](../../crates/rv-slack/src/service.rs#L106) | call:POST | method |
-| [crates/rv-slack/src/service.rs:157](../../crates/rv-slack/src/service.rs#L157) | endpoint | users.conversations |
-| [crates/rv-slack/src/service.rs:159](../../crates/rv-slack/src/service.rs#L159) | endpoint | users.conversations |
-| [crates/rv-slack/src/service.rs:290](../../crates/rv-slack/src/service.rs#L290) | call:FETCH_PROTECTED | url).await?; |
-| [crates/rv-slack/src/service.rs:344](../../crates/rv-slack/src/service.rs#L344) | endpoint | chat.update |
-| [crates/rv-slack/src/service.rs:354](../../crates/rv-slack/src/service.rs#L354) | endpoint | chat.delete |
-| [crates/rv-slack/src/service.rs:479](../../crates/rv-slack/src/service.rs#L479) | endpoint | users.list |
-| [crates/rv-slack/src/service.rs:484](../../crates/rv-slack/src/service.rs#L484) | endpoint | users.list |
+| [crates/rv-slack/src/service.rs:114](../../crates/rv-slack/src/service.rs#L114) | call:POST | method |
+| [crates/rv-slack/src/service.rs:165](../../crates/rv-slack/src/service.rs#L165) | endpoint | users.conversations |
+| [crates/rv-slack/src/service.rs:167](../../crates/rv-slack/src/service.rs#L167) | endpoint | users.conversations |
+| [crates/rv-slack/src/service.rs:374](../../crates/rv-slack/src/service.rs#L374) | endpoint | chat.update |
+| [crates/rv-slack/src/service.rs:384](../../crates/rv-slack/src/service.rs#L384) | endpoint | chat.delete |
+| [crates/rv-slack/src/service.rs:509](../../crates/rv-slack/src/service.rs#L509) | endpoint | users.list |
+| [crates/rv-slack/src/service.rs:514](../../crates/rv-slack/src/service.rs#L514) | endpoint | users.list |
 | [crates/rv-teams/src/auth.rs:19](../../crates/rv-teams/src/auth.rs#L19) | url | /api/authsvc/v1.0/authz |
 | [crates/rv-teams/src/auth.rs:1202](../../crates/rv-teams/src/auth.rs#L1202) | url | /api/v2/query |
 | [crates/rv-teams/src/auth.rs:2308](../../crates/rv-teams/src/auth.rs#L2308) | url | /api/v1/suggestions |

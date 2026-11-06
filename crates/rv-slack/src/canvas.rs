@@ -2,6 +2,7 @@
 //! back into the markdown the apps render, and written with `canvases.edit`.
 //! Only the tags a canvas holds are understood; anything else keeps its text.
 
+use rv_provider::rest::RestError;
 use serde_json::Value;
 
 /// Where a conversation's canvas lives: its file id, from `conversations.info`.
@@ -16,6 +17,11 @@ pub fn canvas_file(conversation: &Value) -> Option<String> {
         })
     };
     direct.or_else(tab).filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
+/// A save into a conversation with no canvas: creating one is not done here.
+pub fn no_canvas() -> RestError {
+    RestError::incomplete("canvas: this conversation has none")
 }
 
 /// The markdown of a canvas's HTML.

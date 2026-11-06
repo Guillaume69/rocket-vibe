@@ -184,7 +184,7 @@ beta does.
 
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
-| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps, read-only (Slack refuses `canvases.*` to the browser session's token, seen 2026-11-03; editing and a first canvas are owed, reading fake-server tested only) Its web client edits through Quip's protobuf `edit-document` with Automerge text, captured 2026-11-03 and recorded in [notes](features/notes.md); not built. Teams: a chat's Loop page on the three native apps, rendered with its headings, marks and links and edited natively through Fluid's delta stream (verified live 2026-11-03); quotes and new lists are written as text, native checkboxes cannot be toggled. SwiftUI checked by the macOS CI build only. |
+| A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps, read and edited through Quip's canvas service (`rv-canvas`, over JNI on Android; the engine verified live 2026-11-04, the apps' wiring fake-server tested); inline formatting is not carried, checklists cannot be ticked, no first canvas. Teams: a chat's Loop page on the three native apps, rendered with its headings, marks and links and edited natively through Fluid's delta stream (verified live 2026-11-03); quotes and new lists are written as text, native checkboxes cannot be toggled. SwiftUI checked by the macOS CI build only. |
 
 ### Discussions - [discussions](features/discussions.md)
 
@@ -389,7 +389,7 @@ beta does.
 
 ## Open debt
 
-- **Notes**: a Teams chat's notes are read-only on all three native apps (writing means Fluid's delta stream); a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
+- **Notes**: Slack canvases lose inline formatting and checklist state and cannot be created; Teams' native lists, quotes and checkboxes are written as text; a Vibez encrypted room's notes are refused until they can be encrypted with the room's group.
 - **Unsent text messages**: Android and Web owe Copy on a message still in the outbox (the desktop apps offer it).
 - **WhatsApp**: GTK owes contacts' presence (online, last seen) and the licence notice in the AppImage. Android owes nothing of the desktop's set (live checks of notifications and sends pending); SwiftUI owes the whole account. Web is `n/a` (serving origin only).
 

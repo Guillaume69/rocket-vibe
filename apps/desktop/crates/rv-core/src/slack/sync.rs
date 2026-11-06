@@ -644,15 +644,15 @@ impl SlackSync {
         Ok(rid)
     }
 
-    /// The conversation's canvas as notes, read-only: Slack answers every
-    /// `canvases.*` method `not_allowed_token_type` for a browser session's
-    /// token (seen 2026-11-03), so neither an edit nor a first canvas can be saved.
+    /// The conversation's canvas as notes, read and written through Quip's
+    /// canvas service (the `canvases.*` methods refuse a browser session's
+    /// token). A conversation with no canvas has nothing to edit yet.
     pub async fn notes(&self, rid: &str) -> Result<crate::notes::Notes, RestError> {
         Ok(match self.service.canvas(rid).await? {
             Some(canvas) => crate::notes::Notes {
                 markdown: canvas.markdown,
                 revision: canvas.revision,
-                editable: false,
+                editable: canvas.editable,
                 updated_by: canvas.updated_by,
                 updated_at: canvas
                     .updated_ms
@@ -663,7 +663,7 @@ impl SlackSync {
         })
     }
 
-    /// Writes the canvas whole (creating it the first time), then reads it back.
+    /// Writes the blocks that changed, then reads the canvas back.
     pub async fn save_notes(
         &self,
         rid: &str,

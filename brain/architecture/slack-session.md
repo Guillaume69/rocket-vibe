@@ -273,6 +273,56 @@ the three. The desktop REST client only
 calls the methods listed in `slack/api.rs` (`METHODS`), the mobile client those of its
 method type.
 
+## Canvases (Quip's collab protocol)
+
+A canvas is a Quip document; Slack's web client edits it through Quip's
+collaborative editor, not the public `canvases.*` API (which refuses the browser
+session's `xoxc` token with `not_allowed_token_type`). Captured live in a test
+channel on 2026-11-03 (an automated session, then one a person typed), the
+descriptors read from the editor's bundle (`gantry-v2-async-quip-collab-webapp`,
+`{0:{fullName_}, n:{name_, fieldType_}}` literals).
+
+- **Locating it:** `conversations.info` → the canvas file id; `quip.lookupThreadIds
+  {file_ids}` → its thread id; `load-data` → its document id. Every call goes to the
+  client's own origin (`app.slack.com/api/…`, `app.slack.com/canvas/-/…`) with the
+  `xoxc` token in the form and the `d` cookie; the workspace host refuses CORS.
+- **Reading:** `POST /canvas/-/load-data/editor/<n>`, form `request_binary` (base64
+  `syncer.LoadData.Request`: `1` object ids = the thread, `3` a bulk load `{1: 1, 2:
+  thread}`, `5` user action `"editor"`, `6` its sequence) answers the thread (with
+  its `sequence`), the document (`syncer.Document`: `1` id, `2` its own sequence, `48`
+  the document version) and every `syncer.Section`, each with its plain text but
+  **without** its Automerge document. `fetch-latest` (`1` a thread request `{1 thread,
+  2 thread sequence, 3 document version}`) answers only the sections changed since
+  that version, with their documents; from version 0 it answers nothing.
+- **A section** (`syncer.Section`) is one block: `1` id (client-made,
+  `temp:C:eTd<25 hex>`, kept for life), `2` sequence, `3` deleted, `8` position
+  (an orderable letter key, `aab`; a new one sent as `<key>:temp`), `21`
+  position path (`<parent position>-<own>` for a list item), `9` type (`0` text,
+  `1` list container, `64` title), `10` style (`0` plain, `1`/`2`/`3`/`39`/`40`/`41`
+  headings 1 to 6, `4` code, `5` bullets, `6` numbered, `7` checklist, `16` quote,
+  `48` title), `12` content (`1` text `{1: plain text}`, `58` title), `13` parents
+  (`{1: list container id, 4: its style}` on a list item), `16` attributes, `19`
+  modified, `20` local sequence, `33` trace id (`<session>-<n>`), `38` the CRDT
+  session (`syncer.CrdtSessionState`).
+- **The text of a block** is an Automerge document `{deleted: bool, text: Text}`, the
+  text ending with `U+FEFF`; no marks were seen (inline formatting not captured).
+  `CrdtSessionState`: `1` section id, `2` base sequence, `3` last saved sequence,
+  `5` the whole document (`Automerge::save`, chunk magic `85 6F 4A 83`), `6`
+  processed heads, `8` base head, `11` sequence heads `{1 head, 2 sequence}`, `12`
+  current head.
+- **Writing:** `POST /canvas/-/edit-document`, form `thread`, `document`, `session`
+  (12 hex characters the client draws; its Automerge actor is `<session><8 hex>`),
+  `sequence` (a counter per session), `retry_count`, `nav_action_id`,
+  `search_session_id`, `title`, `token`, and `data_binary`, the changed sections.
+  A client with no document for a block starts a session: one change writing the
+  block's current plain text, sent with base and last saved sequence = the
+  block's sequence and no heads; later saves in the same session add changes and
+  send the previous heads (`6`, `8`, `11`, `12`). A new block has sequences `0`;
+  a deleted one `3: true` and `deleted = true` in its document. A list is a
+  container section (type `1`, style `5`/`6`/`7`) whose items point to it in `13`.
+  The answer (`syncer.EditDocumentResponseWrapper`) carries the final sections with
+  their new sequences.
+
 ## Integration and parity
 
 The driver acts through Web API and listens through cookie-authenticated RTM.

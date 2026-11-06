@@ -72,6 +72,7 @@ import { registerToken } from '../lib/pushToken.ts';
 import { Reconnector } from '../lib/reconnect.ts';
 import { SyncEngine } from '../lib/sync.ts';
 import { createProvider } from '../providers/index.ts';
+import { slackCanvasEngine } from '../providers/slackCanvas.ts';
 import {
   clearE2EPrivateKey,
   saveE2EPrivateKey,
@@ -395,7 +396,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     let discarded = false;
     const isDiscarded = () => discarded;
     const provider = createProvider(session, client, () =>
-      idFromBytes(Crypto.getRandomBytes(12)),
+      idFromBytes(Crypto.getRandomBytes(12)), undefined, {}, slackCanvasEngine,
     );
     void applyKeptOnline(provider, session.baseUrl);
     const unprofile=mountProviderProfiles(client,provider);

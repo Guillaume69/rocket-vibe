@@ -18,6 +18,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
+- Native Jitsi and kMeet calls: being left alone in a call no longer ends it. The server ends a lone participant's media session after about 20 seconds; the app took that for the end of the call and the window closed. It now stays in the room and the sound comes back as soon as someone returns.
 - Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.
 - Teams (experimental): a line break in a Teams message no longer adds two spaces at the start of the next line.
 - Teams (experimental): people shown by their id ("8:orgid:…") in system messages, call cards, authors and reactions are named once their profile is read, the rows stored earlier included; someone adding themselves to a channel reads "joined the channel".

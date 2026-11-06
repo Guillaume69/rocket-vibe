@@ -75,8 +75,7 @@ where
     let mix = audio::Mix::new();
     let (mut sound, input, output) = audio::Audio::start(mix.clone(), fake, "", "");
     report((input, output));
-    let factory = PeerConnectionFactory::default();
-    let microphone = factory.create_audio_track("microphone", sound.source.clone());
+    let (mut factory, mut microphone) = media(&sound);
     let mut call = Call {
         mix,
         pc: None,
@@ -94,13 +93,14 @@ where
     };
     let mut tries = 0;
     let reason = loop {
-        let stop = joined(&mut session, &factory, &microphone, &mut sound, &mut call, commands).await;
+        let stop = joined(&mut session, &mut factory, &mut microphone, &mut sound, &mut call, commands).await;
         call.reset();
         let reason = match stop {
             Stop::Left => break "client_initiated".to_owned(),
             Stop::Over(reason) => break reason,
             Stop::Lost(reason) => reason,
         };
+        (factory, microphone) = media(&sound);
         diagnose(&format!("call: lost ({reason}), joining again"));
         if call.connected {
             tries = 0;
@@ -128,6 +128,7 @@ where
         }
     };
     drop(sound);
+    diagnose(&format!("call: ended ({reason})"));
     emit(Event::State { state: State::Disconnected });
     emit(Event::Disconnected { reason });
 }
@@ -190,8 +191,8 @@ fn local(
 /// One joined session, until it stops.
 async fn joined<S: CallSignaling>(
     session: &mut S,
-    factory: &PeerConnectionFactory,
-    microphone: &livekit::webrtc::audio_track::RtcAudioTrack,
+    factory: &mut PeerConnectionFactory,
+    microphone: &mut livekit::webrtc::audio_track::RtcAudioTrack,
     sound: &mut audio::Audio,
     call: &mut Call,
     commands: &mut mpsc::UnboundedReceiver<Result<Command, ()>>,
@@ -283,6 +284,12 @@ async fn joined<S: CallSignaling>(
                     call.roster = members;
                     call.publish(session.local_id());
                 }
+                Some(CallEvent::MediaEnded) => {
+                    diagnose("call: media session ended by the server, still in the call");
+                    call.drop_media();
+                    (*factory, *microphone) = media(sound);
+                    call.apply(microphone);
+                }
             },
             Some(peer) = peer_rx.recv() => match peer {
                 Peer::Candidate(c) => {
@@ -310,6 +317,7 @@ async fn joined<S: CallSignaling>(
                     }
                 }
                 Peer::Track { stream, id, track } => {
+                    debug(&format!("track {id} of {stream}"));
                     let task = sound.listen_rtc(id.clone(), stream, true, track);
                     if let Some(old) = call.heard.insert(id, task) {
                         old.abort();
@@ -418,6 +426,15 @@ async fn offer(pc: &PeerConnection) -> Result<String, String> {
     Ok(sdp)
 }
 
+/// A peer connection factory and the microphone track made from it, for one
+/// media session: a second peer connection on a factory whose first one closed
+/// receives the remote tracks but never plays them (seen on meet.barrut.me).
+fn media(sound: &audio::Audio) -> (PeerConnectionFactory, livekit::webrtc::audio_track::RtcAudioTrack) {
+    let factory = PeerConnectionFactory::default();
+    let microphone = factory.create_audio_track("microphone", sound.source.clone());
+    (factory, microphone)
+}
+
 /// The remote offer set, and the local answer made and set: its SDP.
 async fn negotiate(pc: &PeerConnection, offer: &str) -> Result<String, String> {
     let offer = SessionDescription::parse(offer, SdpType::Offer).map_err(|e| format!("offer: {e:?}"))?;
@@ -450,17 +467,22 @@ struct Call {
 impl Call {
     /// Forgets one session's media: its peer connection, the tracks heard, the roster.
     fn reset(&mut self) {
+        self.drop_media();
+        self.roster.clear();
+        self.last = None;
+    }
+
+    /// Forgets the peer connection and the tracks heard; the next offer opens a new one.
+    fn drop_media(&mut self) {
         for (_, task) in self.heard.drain() {
             task.abort();
         }
         if let Some(pc) = self.pc.take() {
             pc.close();
         }
-        self.roster.clear();
         self.levels.clear();
         self.offering = None;
         self.gathered.clear();
-        self.last = None;
     }
 
     /// The peer connection, opened with the microphone on first need; false

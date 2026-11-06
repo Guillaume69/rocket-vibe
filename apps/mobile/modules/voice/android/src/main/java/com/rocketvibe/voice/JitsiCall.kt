@@ -191,6 +191,13 @@ internal class JitsiSession(
           if (level > REPORTED_SPEAKING) heard[id] = now
         }
       }
+      // The focus ended the media of a participant left alone: still in the call, the next offer reopens it.
+      "media_ended" -> {
+        val members = LinkedHashMap(roster)
+        dropMedia()
+        roster.putAll(members)
+        onChange()
+      }
       "candidate" -> pc?.addIceCandidate(IceCandidate(event.getString("mid"), 0, event.getString("line")))
       "roster" -> {
         roster.clear()

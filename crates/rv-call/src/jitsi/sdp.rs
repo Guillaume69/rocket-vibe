@@ -508,11 +508,11 @@ pub fn remote_candidate(offer: &Offer, line: String) -> Candidate {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// The shape of meet.barrut.me's bridge offer (2026-11-02), values neutral.
-    const INITIATE: &str = r#"<iq xmlns="jabber:client" type="set" from="room@muc.meet.jitsi/focus" id="j1">
+    pub(crate) const INITIATE: &str = r#"<iq xmlns="jabber:client" type="set" from="room@muc.meet.jitsi/focus" id="j1">
 <jingle xmlns="urn:xmpp:jingle:1" action="session-initiate" initiator="focus@auth.meet.jitsi/focus" sid="7a1b2c3d4e">
 <content creator="initiator" name="audio" senders="both">
 <description xmlns="urn:xmpp:jingle:apps:rtp:1" media="audio" maxptime="60">

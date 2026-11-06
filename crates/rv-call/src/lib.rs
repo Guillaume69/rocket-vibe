@@ -62,6 +62,11 @@ pub enum Event {
     Levels(Vec<(String, f32)>),
     /// Everyone else, whenever anyone joins, leaves or changes.
     Roster(Vec<Member>),
+    /// The media session is over but this client is still in the call: close
+    /// the peer connection and wait for the next [`Event::Offer`] (Jitsi's focus
+    /// ends the session of a participant left alone, and offers a new one when
+    /// someone comes back).
+    MediaEnded,
     /// This session is gone, the reason in snake case; joining again may bring
     /// the call back.
     Ended(String),

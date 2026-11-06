@@ -140,6 +140,7 @@ fn main() -> glib::ExitCode {
     linux::webkit_renderer();
     rv_core::identify();
     crashlog::install();
+    rv_core::voice::set_log(crashlog::dir().join("voice.log"));
     logs::install();
     #[cfg(target_os = "macos")]
     macos::bundle_environment();

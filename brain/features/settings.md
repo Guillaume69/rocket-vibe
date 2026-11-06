@@ -8,6 +8,7 @@ The settings gather my profile, the notification preference, the language, the e
 |---|---|---|---|
 | Notification preference | server, per account (`users.setPreferences`) | `pushNotifications` | `desktopNotifications` |
 | Do not disturb (Vibez: quiet hours, a mute) | server, per account (`quiet_hours`, `muted_until`) | Notifications category, [do-not-disturb.md](do-not-disturb.md) | Notifications category, [do-not-disturb.md](do-not-disturb.md) |
+| Keep my status online (Teams) | per account, on by default | Settings, account (the open account only) | server rail's account menu, `rv_core::keep_online` (`<config>/presence-not-kept`), [teams](../architecture/teams.md#live) |
 | Read receipts (Vibez: share them, both ways) | server, per account (`share_read_receipts`) | My account, "Privacy" card, [read-receipts.md](read-receipts.md) | not offered yet |
 | Presence and status text | server (`users.setStatus`) | in My profile | in the My account category |
 | Profile fields, photo | server | My profile page | Edit profile subpage |

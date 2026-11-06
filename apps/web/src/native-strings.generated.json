@@ -2193,6 +2193,7 @@
   "notes.edit": ["Modifier", "Edit"],
   "notes.save": ["Enregistrer", "Save"],
   "notes.cancel": ["Annuler", "Cancel"],
+  "notes.close": ["Fermer les notes", "Close notes"],
   "notes.empty": [
     "Aucune note dans ce salon pour l'instant.",
     "No notes in this room yet."

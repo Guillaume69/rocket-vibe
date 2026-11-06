@@ -19,7 +19,6 @@ import {
   search,
   newConversation,
   threads,
-  notes,
 } from "../panel-actions";
 import { ActionButton, Avatar, Brand, IconButton, Symbol } from "./controls";
 import { forRoom } from "../scheduled";
@@ -421,6 +420,13 @@ function Shell({ app }: { app: App }) {
           if (node) app.threadPane = node;
         }}
       />
+      <aside
+        className="notes-pane"
+        hidden
+        ref={(node) => {
+          if (node) app.notesPane = node;
+        }}
+      />
     </main>
   );
 }
@@ -496,7 +502,7 @@ function RoomHeader({ app }: { app: App }) {
             <IconButton
               name="notes"
               label={nt("notes.title")}
-              action={() => notes(app)}
+              action={() => app.toggleNotes()}
             />
           )}
           <IconButton

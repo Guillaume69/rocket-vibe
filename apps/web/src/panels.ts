@@ -23,6 +23,10 @@ import type {
 } from "./protocol";
 import { when } from "./scheduled";
 import { operation, segment } from "./api";
+import { createElement } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
+import { NotesFormatBar } from "./ui/format";
 import { el, button, field, tile, dialog, toast, actionMenu } from "./dom";
 import { matchRooms } from "./room-match";
 import { searchLocal } from "./local-search";
@@ -505,49 +509,69 @@ export async function marked(app: App): Promise<void> {
   await load();
 }
 /**
- * The room's notes: rendered like messages, edited as markdown and saved whole
- * against the revision read. A save made meanwhile keeps the draft and says so;
- * saving again goes over it. Read again now and then while shown.
+ * The room's notes in a pane beside the conversation, the room list hidden:
+ * rendered like messages, edited as markdown with a formatting bar and saved
+ * whole against the revision the edit started from. A save over a newer one
+ * keeps the draft and says so, saving again goes over it. Read again now and
+ * then while shown; an edit left unsaved comes back when the pane reopens.
  */
 export async function notes(app: App): Promise<void> {
   if (!app.room || !app.account) return;
   const room = app.room,
     account = app.account.key,
-    generation = app.generation;
-  const [node, body] = dialog(nt("notes.title"));
-  node.classList.add("notes-dialog");
-  const view = el("div", "details-text message-body notes-view"),
+    generation = app.generation,
+    draftKey = account + "\n" + room;
+  app.hideNotes();
+  const pane = app.notesPane;
+  const header = el("header", "headerbar notes-header"),
+    title = el("span", "room-title", nt("notes.title")),
+    view = el("div", "details-text message-body notes-view"),
     editor = el("textarea", "notes-editor"),
+    bar = el("div", "notes-format"),
     notice = el("p", "notes-notice"),
     footer = el("p", "dim notes-footer"),
     actions = el("div", "notes-actions");
+  header.append(
+    title,
+    button(nt("notes.close"), () => app.toggleNotes()),
+  );
   editor.hidden = true;
+  bar.hidden = true;
   notice.hidden = true;
   editor.setAttribute("aria-label", nt("notes.title"));
-  body.append(notice, view, editor, footer, actions);
+  const barRoot = createRoot(bar);
+  flushSync(() => barRoot.render(createElement(NotesFormatBar, { editor })));
+  pane.replaceChildren(header, notice, bar, view, editor, footer, actions);
+  pane.hidden = false;
+  let closed = false;
   const active = () =>
-    node.open &&
+    !closed &&
     account === app.account?.key &&
     generation === app.generation &&
     room === app.room;
   const path = "/api/v1/rooms/" + segment(room) + "/notes";
+  const kept = app.notesDrafts.get(draftKey);
+  app.notesDrafts.delete(draftKey);
   let current: RoomNotes | undefined,
-    editing = false;
+    editing = kept !== undefined,
+    base = kept?.revision ?? "";
+  if (kept) editor.value = kept.text;
   const say = (text: string) => {
     notice.textContent = text;
     notice.hidden = !text;
   };
   const paint = () => {
-    if (!current) return;
     editor.hidden = !editing;
+    bar.hidden = !editing;
     view.hidden = editing;
-    view.replaceChildren(
-      current.body.trim()
-        ? markdown(metadataMarkdown(current.body))
-        : el("p", "dim", nt("notes.empty")),
-    );
+    if (current)
+      view.replaceChildren(
+        current.body.trim()
+          ? markdown(metadataMarkdown(current.body))
+          : el("p", "dim", nt("notes.empty")),
+      );
     footer.textContent =
-      !editing && current.updated_by && current.updated_at
+      !editing && current?.updated_by && current.updated_at
         ? nt("notes.edited", {
             name: current.updated_by,
             time: when(new Date(current.updated_at), language),
@@ -563,10 +587,11 @@ export async function notes(app: App): Promise<void> {
             }),
             button(nt("notes.save"), save),
           ]
-        : current.editable
+        : current?.editable
           ? [
               button(nt("notes.edit"), () => {
                 editing = true;
+                base = current?.revision ?? "";
                 editor.value = current?.body ?? "";
                 say("");
                 paint();
@@ -583,17 +608,16 @@ export async function notes(app: App): Promise<void> {
       current = notes;
       if (!editing) paint();
     } catch (error) {
-      if (!current && active())
+      if (!current && active() && !editing)
         view.replaceChildren(el("p", "dim", nt("notes.load_failed")));
       else noteError(error);
     }
   };
   async function save() {
-    if (!current) return;
     try {
       const notes = await app.api.request<RoomNotes>(path, "PUT", {
         body: editor.value,
-        expected_revision: current.revision,
+        expected_revision: base,
       });
       if (!active()) return;
       current = notes;
@@ -603,6 +627,7 @@ export async function notes(app: App): Promise<void> {
     } catch (error) {
       if ((error as { code?: string }).code === "revision_conflict") {
         await load();
+        if (current) base = current.revision;
         say(nt("notes.conflict"));
       } else say(nt("notes.save_failed"));
     }
@@ -611,6 +636,14 @@ export async function notes(app: App): Promise<void> {
     if (!active()) window.clearInterval(timer);
     else if (!editing) void load();
   }, 10_000);
+  app.notesClose = () => {
+    closed = true;
+    window.clearInterval(timer);
+    barRoot.unmount();
+    if (editing)
+      app.notesDrafts.set(draftKey, { text: editor.value, revision: base });
+  };
+  paint();
   await load();
 }
 /**

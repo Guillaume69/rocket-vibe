@@ -299,14 +299,14 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/session.rs:1923](../../apps/desktop/crates/rv-core/src/session.rs#L1923) | call:POST | "commands.run" |
 | [apps/desktop/crates/rv-core/src/session.rs:2138](../../apps/desktop/crates/rv-core/src/session.rs#L2138) | call:GET | "chat.getMessage" |
 | [apps/desktop/crates/rv-core/src/session.rs:2138](../../apps/desktop/crates/rv-core/src/session.rs#L2138) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2489](../../apps/desktop/crates/rv-core/src/session.rs#L2489) | call:GET | "video-conference.info" |
-| [apps/desktop/crates/rv-core/src/session.rs:2489](../../apps/desktop/crates/rv-core/src/session.rs#L2489) | endpoint | video-conference.info |
-| [apps/desktop/crates/rv-core/src/session.rs:2583](../../apps/desktop/crates/rv-core/src/session.rs#L2583) | call:GET | "chat.getMessage" |
-| [apps/desktop/crates/rv-core/src/session.rs:2583](../../apps/desktop/crates/rv-core/src/session.rs#L2583) | endpoint | chat.getMessage |
-| [apps/desktop/crates/rv-core/src/session.rs:2594](../../apps/desktop/crates/rv-core/src/session.rs#L2594) | call:GET | "chat.getThreadMessages", options).await?; |
-| [apps/desktop/crates/rv-core/src/session.rs:2594](../../apps/desktop/crates/rv-core/src/session.rs#L2594) | endpoint | chat.getThreadMessages |
-| [apps/desktop/crates/rv-core/src/session.rs:2961](../../apps/desktop/crates/rv-core/src/session.rs#L2961) | call:POST | "users.setPresence" |
-| [apps/desktop/crates/rv-core/src/session.rs:2961](../../apps/desktop/crates/rv-core/src/session.rs#L2961) | endpoint | users.setPresence |
+| [apps/desktop/crates/rv-core/src/session.rs:2519](../../apps/desktop/crates/rv-core/src/session.rs#L2519) | call:GET | "video-conference.info" |
+| [apps/desktop/crates/rv-core/src/session.rs:2519](../../apps/desktop/crates/rv-core/src/session.rs#L2519) | endpoint | video-conference.info |
+| [apps/desktop/crates/rv-core/src/session.rs:2613](../../apps/desktop/crates/rv-core/src/session.rs#L2613) | call:GET | "chat.getMessage" |
+| [apps/desktop/crates/rv-core/src/session.rs:2613](../../apps/desktop/crates/rv-core/src/session.rs#L2613) | endpoint | chat.getMessage |
+| [apps/desktop/crates/rv-core/src/session.rs:2624](../../apps/desktop/crates/rv-core/src/session.rs#L2624) | call:GET | "chat.getThreadMessages", options).await?; |
+| [apps/desktop/crates/rv-core/src/session.rs:2624](../../apps/desktop/crates/rv-core/src/session.rs#L2624) | endpoint | chat.getThreadMessages |
+| [apps/desktop/crates/rv-core/src/session.rs:2991](../../apps/desktop/crates/rv-core/src/session.rs#L2991) | call:POST | "users.setPresence" |
+| [apps/desktop/crates/rv-core/src/session.rs:2991](../../apps/desktop/crates/rv-core/src/session.rs#L2991) | endpoint | users.setPresence |
 | [apps/desktop/crates/rv-core/src/social.rs:37](../../apps/desktop/crates/rv-core/src/social.rs#L37) | call:GET | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:57](../../apps/desktop/crates/rv-core/src/social.rs#L57) | call:POST | "commands.preview" |
 | [apps/desktop/crates/rv-core/src/social.rs:95](../../apps/desktop/crates/rv-core/src/social.rs#L95) | call:POST | "chat.sendMessage" |
@@ -475,12 +475,12 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:110](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L110) | endpoint | rooms.pending |
 | [apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift:120](../../apps/desktop/macos/Sources/RocketVibe/NativeRoomControls.swift#L120) | endpoint | rooms.failed |
 | [apps/desktop/macos/Sources/RocketVibe/Notifier.swift:48](../../apps/desktop/macos/Sources/RocketVibe/Notifier.swift#L48) | endpoint | rooms.encrypted |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:161](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L161) | endpoint | e2e.read_only |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:164](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L164) | endpoint | e2e.unlock |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:182](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L182) | endpoint | e2e.title |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:183](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L183) | endpoint | e2e.body |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:184](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L184) | endpoint | e2e.password |
-| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:192](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L192) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:162](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L162) | endpoint | e2e.read_only |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:165](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L165) | endpoint | e2e.unlock |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:183](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L183) | endpoint | e2e.title |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:184](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L184) | endpoint | e2e.body |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:185](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L185) | endpoint | e2e.password |
+| [apps/desktop/macos/Sources/RocketVibe/RoomView.swift:193](../../apps/desktop/macos/Sources/RocketVibe/RoomView.swift#L193) | endpoint | e2e.unlock |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:153](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L153) | endpoint | rooms.sign_out |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:246](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L246) | endpoint | e2e.status |
 | [apps/desktop/macos/Sources/RocketVibe/SettingsView.swift:248](../../apps/desktop/macos/Sources/RocketVibe/SettingsView.swift#L248) | endpoint | e2e.locked |

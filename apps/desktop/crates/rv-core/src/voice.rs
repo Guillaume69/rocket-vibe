@@ -157,8 +157,8 @@ impl Ended {
             Self::Failed(reason) => match reason.as_str() {
                 "connection_lost" | "connection_closed" => ("call.end.connection_lost", None),
                 "connection_failed" => ("call.end.media_failed", None),
-                "terminated" | "transport_replaced" => ("call.end.server", None),
-                "connect_failed" => ("call.end.join_failed", None),
+                "terminated" | "transport_replaced" | "meeting_ended" => ("call.end.server", None),
+                "connect_failed" | "refused" | "at_capacity" => ("call.end.join_failed", None),
                 "sidecar_exited" => ("call.end.sidecar", None),
                 other => ("call.end.other", Some(other)),
             },
@@ -169,7 +169,7 @@ impl Ended {
         match reason {
             "client_initiated" => Self::Left,
             "duplicate_identity" => Self::MovedElsewhere,
-            "participant_removed" | "room_deleted" | "room_closed" => Self::Removed(reason.into()),
+            "participant_removed" | "room_deleted" | "room_closed" | "removed" => Self::Removed(reason.into()),
             other => Self::Failed(other.into()),
         }
     }
@@ -354,6 +354,30 @@ pub async fn discover_jitsi(meeting_url: &str, display_name: &str) -> Option<Jit
     })
 }
 
+/// An Amazon Chime meeting to carry natively (a Slack huddle): the attendee's
+/// credentials the provider handed out.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChimeCall {
+    pub signaling_url: String,
+    pub audio_host: String,
+    pub attendee_id: String,
+    pub join_token: String,
+    pub origin: String,
+}
+
+impl std::fmt::Debug for ChimeCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChimeCall").field("signaling_url", &self.signaling_url).finish_non_exhaustive()
+    }
+}
+
+/// A call the sidecar carries itself, whatever the provider's protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeCall {
+    Jitsi(JitsiCall),
+    Chime(ChimeCall),
+}
+
 /// kMeet's join token, carried by its meeting URL as `?jwt=`.
 fn meeting_token(meeting: &url::Url) -> Option<String> {
     meeting.query_pairs().find(|(k, _)| k == "jwt").map(|(_, v)| v.into_owned()).filter(|t| !t.is_empty())
@@ -459,6 +483,26 @@ impl VoiceController {
             token: call.token.clone(),
         };
         self.start(label.to_owned(), true, None, None, connect).await
+    }
+
+    /// Joins an Amazon Chime meeting natively (a Slack huddle). Audio only.
+    pub async fn connect_chime(&self, label: &str, call: &ChimeCall) -> Result<(), VoiceError> {
+        let connect = Command::ConnectChime {
+            signaling_url: call.signaling_url.clone(),
+            audio_host: call.audio_host.clone(),
+            attendee_id: call.attendee_id.clone(),
+            join_token: call.join_token.clone(),
+            origin: call.origin.clone(),
+        };
+        self.start(label.to_owned(), true, None, None, connect).await
+    }
+
+    /// Joins a call the sidecar carries itself.
+    pub async fn connect_native(&self, label: &str, call: &NativeCall) -> Result<(), VoiceError> {
+        match call {
+            NativeCall::Jitsi(jitsi) => self.connect_jitsi(label, jitsi).await,
+            NativeCall::Chime(chime) => self.connect_chime(label, chime).await,
+        }
     }
 
     async fn start(

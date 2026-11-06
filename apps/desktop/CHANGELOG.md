@@ -9,6 +9,7 @@ section here.
 
 ### Added
 
+- Slack (experimental): a huddle runs inside the app, audio only, in its own call window (who is there, who speaks, mute, deafen, hang up); its page stays the fallback when the join fails.
 - Server rail: an account can be disabled from its tile's menu: it stays on the rail, greyed and after the others, with its sign-in and stored messages, but is not connected (no sync, notification, call or presence) until enabled again, without re-entering credentials.
 - Shift+Up / Shift+Down opens the previous or next conversation in the list, skipping folded sections; inside a text field holding text they still select text.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.

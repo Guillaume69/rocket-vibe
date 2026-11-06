@@ -1,16 +1,39 @@
-//! A Jitsi Meet call carried natively for the SwiftUI app (Rocket.Chat's Jitsi
-//! provider, kChat's kMeet), as GTK's `native_call.rs` does: a voice controller
-//! of its own and its `rv-voice` sidecar, audio only. `start_jitsi_call` answers
-//! None when the meeting is not a Jitsi one or cannot be joined, and the app then
-//! opens the meeting's page.
+//! A call carried natively for the SwiftUI app (Rocket.Chat's Jitsi provider,
+//! kChat's kMeet, Slack's huddles), as GTK's `native_call.rs` does: a voice
+//! controller of its own and its `rv-voice` sidecar, audio only. `start_jitsi_call`
+//! and `Chat::start_huddle_call` answer None when the call cannot be joined, and
+//! the app then opens its page.
 use crate::native_voice::VoiceMember;
 use crate::on_tokio;
+use rv_core::session::Session;
 use rv_core::voice::{ConnectionState, Ended, VoiceController};
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 #[derive(uniffi::Object)]
 pub struct JitsiCallSession {
     voice: VoiceController,
+    /// The account of a call whose provider sends only ids (a Slack huddle), which names them.
+    naming: Option<Arc<Session>>,
+    asked: Mutex<HashSet<String>>,
+}
+
+/// Joins a Slack huddle, starting it when none runs; None to open its page instead.
+pub(crate) async fn start_huddle(
+    session: Arc<Session>,
+    call_url: String,
+    title: String,
+) -> Option<Arc<JitsiCallSession>> {
+    if !rv_core::voice::available() {
+        return None;
+    }
+    on_tokio(async move {
+        let call = session.join_huddle(&call_url).await.ok()?;
+        let voice = VoiceController::new();
+        voice.connect_chime(&title, &call).await.ok()?;
+        Some(Arc::new(JitsiCallSession { voice, naming: Some(session), asked: Mutex::default() }))
+    })
+    .await
 }
 
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -40,7 +63,7 @@ pub async fn start_jitsi_call(
         let call = rv_core::voice::discover_jitsi(&meeting_url, &display_name).await?;
         let voice = VoiceController::new();
         voice.connect_jitsi(&title, &call).await.ok()?;
-        Some(Arc::new(JitsiCallSession { voice }))
+        Some(Arc::new(JitsiCallSession { voice, naming: None, asked: Mutex::default() }))
     })
     .await
 }
@@ -68,7 +91,7 @@ impl JitsiCallSession {
                     name: if p.local {
                         rv_core::i18n::t("call.you").to_owned()
                     } else {
-                        p.name.clone().unwrap_or_else(|| p.identity.clone())
+                        p.name.clone().or_else(|| self.named(&p.identity)).unwrap_or_else(|| p.identity.clone())
                     },
                     local: p.local,
                     muted: p.muted,
@@ -96,5 +119,18 @@ impl JitsiCallSession {
     pub async fn leave(&self) {
         let voice = self.voice.clone();
         on_tokio(async move { voice.disconnect().await }).await
+    }
+}
+
+impl JitsiCallSession {
+    /// Who this id is, once known; the first time an unknown one is seen, reads it.
+    fn named(&self, identity: &str) -> Option<String> {
+        let session = self.naming.as_ref()?;
+        let name = session.huddle_person_name(identity);
+        if name.is_none() && self.asked.lock().unwrap().insert(identity.to_owned()) {
+            let (session, id) = (session.clone(), identity.to_owned());
+            crate::runtime().spawn(async move { session.ensure_huddle_people(vec![id]).await });
+        }
+        name
     }
 }

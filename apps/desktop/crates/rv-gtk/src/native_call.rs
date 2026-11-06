@@ -1,5 +1,5 @@
-//! A Jitsi Meet call carried natively by the voice sidecar (rv-call's
-//! signalling, libwebrtc's media), in a window built from the Vibez voice
+//! A call carried natively by the voice sidecar (rv-call's signalling for
+//! Jitsi Meet or a Slack huddle's Chime, libwebrtc's media), in a window built from the Vibez voice
 //! page's parts: the room's name and the call's state, a tile per person with
 //! the speaking ring, and the same control bar (microphone and its device menu,
 //! deafen, hang up). Audio only. A call the sidecar cannot join falls back to
@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use adw::prelude::*;
 use gtk::glib;
-use rv_core::voice::{ConnectionState, Ended, JitsiCall, Snapshot, VoiceController};
+use rv_core::voice::{ConnectionState, Ended, NativeCall, Snapshot, VoiceController};
 
 use crate::chat::voice::{Occupant, avatar_card, avatar_frame, controls, name_tag};
 use crate::i18n::{call_duration, t, tf};
@@ -20,9 +20,38 @@ use crate::on_tokio;
 use crate::tile_grid::TileGrid;
 use crate::widgets::{self, TileSize};
 
+type Lookup = Rc<dyn Fn(&str) -> Option<String>>;
+
+/// Names the people of a call whose provider sends only their ids (a Slack
+/// huddle): `lookup` from what is known, `fetch` to learn the others.
+#[derive(Clone)]
+pub struct Names {
+    lookup: Lookup,
+    fetch: Rc<dyn Fn(Vec<String>)>,
+    asked: Rc<RefCell<std::collections::HashSet<String>>>,
+}
+
+impl Names {
+    pub fn none() -> Self {
+        Self::new(|_| None, |_| {})
+    }
+
+    pub fn new(lookup: impl Fn(&str) -> Option<String> + 'static, fetch: impl Fn(Vec<String>) + 'static) -> Self {
+        Names { lookup: Rc::new(lookup), fetch: Rc::new(fetch), asked: Rc::default() }
+    }
+
+    fn name(&self, identity: &str) -> Option<String> {
+        let name = (self.lookup)(identity);
+        if name.is_none() && self.asked.borrow_mut().insert(identity.to_owned()) {
+            (self.fetch)(vec![identity.to_owned()]);
+        }
+        name
+    }
+}
+
 /// Opens the call; `fallback` opens the meeting's page instead when the
 /// sidecar is missing or could not join.
-pub fn open(call: JitsiCall, title: &str, fallback: impl Fn() + 'static) {
+pub fn open(call: NativeCall, title: &str, names: Names, fallback: impl Fn() + 'static) {
     if !rv_core::voice::available() {
         return fallback();
     }
@@ -143,7 +172,7 @@ pub fn open(call: JitsiCall, title: &str, fallback: impl Fn() + 'static) {
                 s.connected_at.set(Some(Instant::now()));
             }
             bar_ref.sync(&snapshot);
-            let people = occupants(&snapshot);
+            let people = occupants(&snapshot, &names);
             if s.shown.borrow().as_ref() != Some(&people) {
                 render(&cards_ref, &s, &people);
                 s.shown.replace(Some(people));
@@ -164,7 +193,7 @@ pub fn open(call: JitsiCall, title: &str, fallback: impl Fn() + 'static) {
     let fb = fallback.clone();
     let label = title.to_owned();
     glib::spawn_future_local(async move {
-        let joined = on_tokio(async move { v.connect_jitsi(&label, &call).await }).await;
+        let joined = on_tokio(async move { v.connect_native(&label, &call).await }).await;
         if let Err(e) = joined {
             eprintln!("Native call not joined ({e}), opening the meeting's page");
             fb();
@@ -201,13 +230,17 @@ fn end_reason(ended: &Ended) -> String {
     }
 }
 
-fn occupants(snapshot: &Snapshot) -> Vec<Occupant> {
+fn occupants(snapshot: &Snapshot, names: &Names) -> Vec<Occupant> {
     snapshot
         .participants
         .iter()
         .map(|p| Occupant {
             uid: p.identity.clone(),
-            name: if p.local { t("call.you").to_owned() } else { p.name.clone().unwrap_or_else(|| p.identity.clone()) },
+            name: if p.local {
+                t("call.you").to_owned()
+            } else {
+                p.name.clone().or_else(|| names.name(&p.identity)).unwrap_or_else(|| p.identity.clone())
+            },
             muted: p.muted,
             deafened: p.deafened,
             local: p.local,

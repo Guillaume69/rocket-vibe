@@ -1,7 +1,7 @@
 //! The voice controller against a fake sidecar (tests/support/fake_voice_sidecar.rs).
 use rv_core::voice::{
-    ConnectionState, Ended, JitsiCall, PersonVolume, ScreenKind, ScreenQuality, Snapshot, VideoSource, VoiceController,
-    VoiceError, VoiceKey, VoiceKeys, thumbnail,
+    ChimeCall, ConnectionState, Ended, JitsiCall, NativeCall, PersonVolume, ScreenKind, ScreenQuality, Snapshot,
+    VideoSource, VoiceController, VoiceError, VoiceKey, VoiceKeys, thumbnail,
 };
 use rv_protocol::voice::VoiceGrant;
 use std::path::PathBuf;
@@ -85,6 +85,25 @@ async fn a_jitsi_call_runs_in_the_same_controller() {
     let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && s.local().is_some()).await;
     assert_eq!(snapshot.room.as_deref(), Some("RocketChatABC"));
     assert_eq!(snapshot.local().unwrap().identity, "Ana");
+    voice.disconnect().await;
+    assert_eq!(voice.snapshot().ended, Some(Ended::Left));
+}
+
+#[tokio::test]
+async fn a_chime_call_joins_through_the_sidecar() {
+    let voice = fake(&[]);
+    let call = NativeCall::Chime(ChimeCall {
+        signaling_url: "wss://signal.x.m.chime.aws/control/m".into(),
+        audio_host: "h:3478".into(),
+        attendee_id: "attendee".into(),
+        join_token: "secret".into(),
+        origin: "https://app.slack.com".into(),
+    });
+    assert!(!format!("{call:?}").contains("secret"));
+    voice.connect_native("caca", &call).await.unwrap();
+    let snapshot = until(&voice, |s| s.state == ConnectionState::Connected && s.local().is_some()).await;
+    assert_eq!(snapshot.room.as_deref(), Some("caca"));
+    assert_eq!(snapshot.local().unwrap().identity, "attendee");
     voice.disconnect().await;
     assert_eq!(voice.snapshot().ended, Some(Ended::Left));
 }

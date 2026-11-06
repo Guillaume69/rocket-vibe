@@ -2360,6 +2360,36 @@ impl Session {
         actions::join_call(&self.rest, &call_id).await
     }
 
+    /// Joins the huddle a call id names (starting it when none runs), for
+    /// the voice sidecar to carry: its Chime credentials.
+    pub async fn join_huddle(&self, call_id: &str) -> Result<crate::voice::ChimeCall, RestError> {
+        let Backend::Slack(slack) = self.backend() else { return Err(RestError::incomplete("huddle: not Slack")) };
+        let channel = crate::slack::translate::huddle_channel(call_id)
+            .ok_or_else(|| RestError::incomplete("huddle: no channel"))?;
+        let media = slack.service.join_huddle(&channel).await?;
+        Ok(crate::voice::ChimeCall {
+            signaling_url: media.signaling_url,
+            audio_host: media.audio_host,
+            attendee_id: media.attendee_id,
+            join_token: media.join_token,
+            origin: "https://app.slack.com".to_owned(),
+        })
+    }
+
+    /// A huddle attendee's name, from the Slack user behind its external id.
+    pub fn huddle_person_name(&self, external_id: &str) -> Option<String> {
+        let Backend::Slack(slack) = self.backend() else { return None };
+        let user = crate::slack::translate::huddle_person(external_id);
+        slack.directory.display_name(user).or_else(|| slack.directory.username(user))
+    }
+
+    /// Reads the Slack users behind these huddle attendees into the directory.
+    pub async fn ensure_huddle_people(&self, external_ids: Vec<String>) {
+        let Backend::Slack(slack) = self.backend() else { return };
+        let users = external_ids.iter().map(|e| crate::slack::translate::huddle_person(e).to_owned());
+        slack.service.ensure_people(users).await;
+    }
+
     /// The session cookie a huddle's call window starts with, on a Slack account.
     pub fn huddle_cookie(&self) -> Option<zeroize::Zeroizing<String>> {
         self.info.slack.as_ref().map(|account| account.cookie.clone())

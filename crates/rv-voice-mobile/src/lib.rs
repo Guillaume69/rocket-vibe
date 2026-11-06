@@ -6,6 +6,7 @@
 //! microphone between words (a keyboard's clicks, which RNNoise only softens),
 //! as the desktop sidecar does.
 pub mod call;
+pub mod canvas;
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JShortArray};

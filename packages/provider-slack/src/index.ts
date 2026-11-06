@@ -7,6 +7,7 @@
  * opened from "New conversation"; creating rooms is still to come.
  */
 
+import type { CanvasEngine } from './canvasEngine.ts';
 import type { Session, TokenRejection } from '@rocket-vibe/provider-api/session';
 import type { Capabilities, Listener, Provider, ProviderError } from '@rocket-vibe/provider-api/provider';
 import { slackClientFor } from './auth.ts';
@@ -59,7 +60,7 @@ export const SLACK_CAPABILITIES: Capabilities = {
   threadTemplate: 'tmid',
 };
 
-export type SlackOptions = { fetch?: typeof fetch; listener?: Listener };
+export type SlackOptions = { fetch?: typeof fetch; listener?: Listener; canvas?: CanvasEngine | null };
 
 /** Slack's custom emoji, read from `emoji.list`, aliases of another custom one followed. */
 export async function slackCustomEmojis(client: SlackClient): Promise<CustomEmoji[]> {
@@ -91,7 +92,7 @@ export function createSlackProvider(session: Session, rest: TokenRejection, gene
   const rtm = options.listener ?? new SlackRtm(client, (frame) => live.expand(frame));
   const listener = rtm;
   if (rtm instanceof SlackRtm) rtm.onLoss(() => live.presence.clear());
-  const actions = new SlackActions({ client, directory, history, live, translator, saved });
+  const actions = new SlackActions({ client, directory, history, live, translator, saved, canvas: options.canvas ?? null });
 
   return {
     identity: { kind: 'slack', origin: session.baseUrl, accountId: session.userId, instanceId: null, generation: null },
@@ -159,3 +160,5 @@ export function describeSlackError(error: unknown, authenticated: boolean): Prov
   }
   return { code: 'connection_failed', status: 0, requestId: null, retryAfter: null, rejectsSession: false, twoFactorChallenge: false };
 }
+
+export { loadRequest, type CanvasEngine, type CanvasPlan, type CanvasRead } from './canvasEngine.ts';

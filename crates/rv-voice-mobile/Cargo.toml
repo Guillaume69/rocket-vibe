@@ -20,4 +20,7 @@ nnnoiseless = { version = "=0.5.2", default-features = false }
 # Jitsi Meet's signalling, as the desktop sidecar speaks it.
 rv-call = { path = "../rv-call", features = ["webpki-roots"] }
 serde_json = "1"
+# Slack canvases: Quip sections and their Automerge text, as on the desktop.
+rv-canvas = { path = "../rv-canvas" }
+base64 = "0.22.1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }

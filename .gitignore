@@ -29,3 +29,4 @@ GoogleService-Info.plist
 /native-mobile-tests.log
 /data/
 /apps/server/data/
+/crates/rv-voice-mobile/target/

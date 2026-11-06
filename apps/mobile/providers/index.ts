@@ -11,7 +11,7 @@ import type { RestClient } from '../lib/rest.ts';
 import { createMattermostProvider } from './mattermost/index.ts';
 import { createRcProvider } from './rocketchat/index.ts';
 import { createVibezProvider } from './vibez/index.ts';
-import { createSlackProvider } from '@rocket-vibe/provider-slack';
+import { createSlackProvider, type CanvasEngine } from '@rocket-vibe/provider-slack';
 import { createTeamsProvider } from '@rocket-vibe/provider-teams';
 import type { NativeStore } from './vibez/store.ts';
 
@@ -21,6 +21,7 @@ export function createProvider(
   generateId: () => string,
   nativeStore?: NativeStore,
   nativeOptions:Parameters<typeof createVibezProvider>[4]={},
+  slackCanvas: CanvasEngine | null = null,
 ): Provider {
   switch (session.kind) {
     case 'rocketchat':
@@ -32,7 +33,7 @@ export function createProvider(
     case 'kchat':
       return createMattermostProvider(session, client, generateId);
     case 'slack':
-      return createSlackProvider(session, client, generateId);
+      return createSlackProvider(session, client, generateId, { canvas: slackCanvas });
     case 'teams':
       return createTeamsProvider(session, client, generateId);
     case 'whatsapp':

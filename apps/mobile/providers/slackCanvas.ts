@@ -12,9 +12,14 @@ function parsed<T>(json: string | null | undefined): T | null {
   try { return JSON.parse(json) as T; } catch { return null; }
 }
 
-export const slackCanvasEngine: CanvasEngine | null = VoiceNative && typeof VoiceNative.canvasRead === 'function'
-  ? {
-      read: (load) => parsed<CanvasRead>(VoiceNative.canvasRead(load)),
-      plan: (load, markdown, session, suffix, nowSecs) => parsed<CanvasPlan>(VoiceNative.canvasPlan(load, markdown, session, suffix, nowSecs)),
-    }
-  : null;
+function engine(): CanvasEngine | null {
+  const native = VoiceNative;
+  if (native === null || typeof native.canvasRead !== 'function') return null;
+  return {
+    read: (load: string) => parsed<CanvasRead>(native.canvasRead(load)),
+    plan: (load: string, markdown: string, session: string, suffix: string, nowSecs: number) =>
+      parsed<CanvasPlan>(native.canvasPlan(load, markdown, session, suffix, nowSecs)),
+  };
+}
+
+export const slackCanvasEngine: CanvasEngine | null = engine();

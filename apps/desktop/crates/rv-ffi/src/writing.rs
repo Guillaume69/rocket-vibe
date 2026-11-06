@@ -126,6 +126,50 @@ pub fn list_break(text: String, cursor: u32) -> Option<ListBreak> {
         .map(|edited| ListBreak { text: edited.text, cursor: edited.start as u32 })
 }
 
+/// A button of the notes editor's formatting bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum NotesFormat {
+    Bold,
+    Italic,
+    Strike,
+    Heading,
+    Link,
+    Code,
+    CodeBlock,
+    Quote,
+    Bullets,
+    Numbers,
+}
+
+/// A notes draft after a format, its selection in Unicode scalars.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FormattedNotes {
+    pub text: String,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// A format applied to a notes draft's selection (in Unicode scalars): standard
+/// markdown, which every notes provider reads.
+#[uniffi::export]
+pub fn format_notes(text: String, start: u32, end: u32, format: NotesFormat) -> FormattedNotes {
+    use rv_core::compose::{self, LineKind};
+    let (a, b) = (start as usize, end as usize);
+    let edited = match format {
+        NotesFormat::Bold => compose::toggle_wrap(&text, a, b, "**"),
+        NotesFormat::Italic => compose::toggle_wrap(&text, a, b, "_"),
+        NotesFormat::Strike => compose::toggle_wrap(&text, a, b, "~~"),
+        NotesFormat::Code => compose::toggle_wrap(&text, a, b, "`"),
+        NotesFormat::Heading => compose::toggle_lines(&text, a, b, LineKind::Heading),
+        NotesFormat::Quote => compose::toggle_lines(&text, a, b, LineKind::Quote),
+        NotesFormat::Bullets => compose::toggle_lines(&text, a, b, LineKind::Bullet),
+        NotesFormat::Numbers => compose::toggle_lines(&text, a, b, LineKind::Numbered),
+        NotesFormat::CodeBlock => compose::code_block(&text, a, b),
+        NotesFormat::Link => compose::link(&text, a, b),
+    };
+    FormattedNotes { text: edited.text, start: edited.start as u32, end: edited.end as u32 }
+}
+
 /// The emoji picker's pages, in the Android app's order.
 #[uniffi::export]
 pub fn emoji_categories() -> Vec<EmojiCategory> {

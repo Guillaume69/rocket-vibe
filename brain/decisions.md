@@ -539,6 +539,17 @@ would leak what the room hides; encrypting them under the room's MLS group is
 recorded as debt. Saving publishes the room rather than adding a wire event, so
 older clients keep decoding the journal. See [notes](features/notes.md).
 
+## Notes open beside the conversation, as a state of the history (2026-11-06)
+
+User decision: not a modal. Opening the notes hides the room list and shows them next
+to the conversation, and back and forward walk those states like rooms. Closing pushes
+a state rather than popping one, like a browser link, so Close and back never disagree
+about what forward does. Notes do not follow to another room: the list returns, and
+an unsaved edit waits for the pane to reopen in memory. A phone keeps a screen: there
+is no second pane to show. The toolbar writes standard markdown rather than the
+composers' `*` and `~`, which Teams' notes reader takes for italic and for nothing.
+See [notes](features/notes.md).
+
 ## Calls go native on every provider, research first (2026-11-02)
 
 User decision, 2026-11-02: calls on Teams, Rocket.Chat (Jitsi), kChat (kMeet) and Slack

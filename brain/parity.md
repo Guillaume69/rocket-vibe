@@ -185,6 +185,8 @@ beta does.
 | Feature | Mobile | GTK | SwiftUI | Web | Notes |
 |---|---|---|---|---|---|
 | A room's notes: one markdown document rendered natively, edited and saved against its revision, a conflict keeping the draft | done | done | done | done | Vibez server (`room_notes`), never an encrypted room (refused server-side); Slack: the conversation's canvas on the three native apps, read and edited through Quip's canvas service (`rv-canvas`, over JNI on Android; the engine verified live 2026-11-04, the apps' wiring fake-server tested); inline formatting is not carried, checklists cannot be ticked, no first canvas. Teams: a chat's Loop page on the three native apps, rendered with its headings, marks and links and edited natively through Fluid's delta stream (verified live 2026-11-03); quotes and new lists are written as text, native checkboxes cannot be toggled. SwiftUI checked by the macOS CI build only. |
+| Notes beside the conversation, the room list hidden; opening and closing are states of back and forward; an unsaved edit returns when they reopen | mapped | done | done | done | Mobile: a phone has one pane, so the notes are a screen and the system's back returns to the conversation, keeping the edit; there is no forward. Web: the state is the address (`?notes=1`). SwiftUI checked by the macOS CI build only. |
+| The notes editor's formatting bar, in standard markdown; block buttons only where the provider keeps no inline marks (Slack) | done | done | done | done | Teams writes quotes and new lists as text ([notes](features/notes.md)). SwiftUI checked by the macOS CI build only. |
 
 ### Discussions - [discussions](features/discussions.md)
 

@@ -68,7 +68,7 @@ struct RoomView: View {
                         .help(L("threads.title"))
                 }
                 if model.supportsNotes {
-                    Button { panel = .notes } label: { Image(systemName: "note.text") }.help(L("notes.title"))
+                    Button { app.toggleNotes() } label: { Image(systemName: "note.text") }.help(L("notes.title"))
                 }
                 Button { panel = .search } label: { Image(systemName: "magnifyingglass") }.help(L("search.title"))
                     .windowShortcut(KeyboardShortcut("f", modifiers: .command))

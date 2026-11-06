@@ -10,6 +10,8 @@ section here.
 ### Added
 
 - Slack (experimental): a huddle runs inside the app, audio only, in its own call window (who is there, who speaks, mute, deafen, hang up); its page stays the fallback when the join fails.
+- Notes open beside the conversation instead of in a dialog, the room list hidden meanwhile. Back returns to the conversation with the list restored, forward reopens the notes, and an unsaved edit comes back when they reopen.
+- Notes: the editor has a formatting bar (bold, italic, strikethrough, heading, link, code, quote, lists). Slack canvases offer the block formats only, since they keep no inline formatting.
 - Server rail: an account can be disabled from its tile's menu: it stays on the rail, greyed and after the others, with its sign-in and stored messages, but is not connected (no sync, notification, call or presence) until enabled again, without re-entering credentials.
 - Shift+Up / Shift+Down opens the previous or next conversation in the list, skipping folded sections; inside a text field holding text they still select text.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
@@ -19,6 +21,7 @@ section here.
 
 ### Fixed
 
+- Notes: saving after someone else changed them while you edited now always warns you and keeps your draft; a background refresh could let the save overwrite their change.
 - The mouse pointer turns into a hand over reactions (GTK, macOS), and on GTK also over the quick reactions and "more reactions" buttons, a thread's reply count, a failed message's retry, the edit buttons and the actions of file and integration cards.
 - Native Jitsi and kMeet calls: being left alone in a call no longer ends it. The server ends a lone participant's media session after about 20 seconds; the app took that for the end of the call and the window closed. It now stays in the room and the sound comes back as soon as someone returns.
 - Native calls: after a reconnection the others could be silent, the media having been reopened on the WebRTC factory of the closed connection.

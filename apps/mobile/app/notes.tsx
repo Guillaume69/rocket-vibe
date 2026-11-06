@@ -4,6 +4,7 @@ import { ActivityIndicator, KeyboardAvoidingView, ScrollView, StyleSheet, Text, 
 
 import { messageTree } from '../lib/markdown.ts';
 import { NOTES_CONFLICT, type ProviderActions, type RoomNotes } from '../lib/provider.ts';
+import { FormatRow } from '../ui/formatRow.tsx';
 import { useT, useTimeFormatter } from '../ui/i18n.ts';
 import { MessageBody, RenderGuard } from '../ui/markdown.tsx';
 import { useSession } from '../ui/session.tsx';
@@ -13,11 +14,15 @@ import { type Colors, FONTS, useColors } from '../ui/theme.ts';
 
 /**
  * A room's notes: the markdown rendered like a message, an edit mode on the
- * raw text, saved whole against the revision it was read at. A save someone
- * made in between keeps the draft and says so; saving again goes over it.
+ * raw text with a formatting row, saved whole against the revision the edit
+ * started from. A save someone made in between keeps the draft and says so;
+ * saving again goes over it. Going back keeps an unsaved edit for when the
+ * screen reopens, as long as the app runs.
  */
 
 const REFRESH_MS = 10_000;
+
+const leftDrafts = new Map<string, { text: string; revision: string }>();
 
 export default function NotesScreen() {
   const { rid } = useLocalSearchParams<{ rid: string }>();
@@ -44,20 +49,33 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
   const t = useT();
   const formatTime = useTimeFormatter();
   const [state, setState] = useState<Phase>({ phase: 'loading' });
-  const [draft, setDraft] = useState<string | null>(null);
+  const account = useSession().state;
+  const draftKey = (account.phase === 'connected' ? account.session.baseUrl + '\n' + account.session.userId + '\n' : '') + rid;
+  const [kept] = useState(() => leftDrafts.get(draftKey) ?? null);
+  const [draft, setDraft] = useState<string | null>(kept?.text ?? null);
+  // What a save replaces: the revision the edit started from.
+  const base = useRef(kept?.revision ?? '');
+  const selected = useRef({ start: 0, end: 0 });
+  const [placed, setPlaced] = useState<{ start: number; end: number } | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const editing = draft !== null;
   const editingRef = useRef(editing);
   useEffect(() => { editingRef.current = editing; }, [editing]);
+  useEffect(() => {
+    if (draft === null) leftDrafts.delete(draftKey);
+    else leftDrafts.set(draftKey, { text: draft, revision: base.current });
+  }, [draft, draftKey]);
 
   const load = useCallback(async () => {
-    if (!actions.roomNotes) return;
+    if (!actions.roomNotes) return null;
     try {
       const notes = await actions.roomNotes(rid);
       setState({ phase: 'ready', notes });
+      return notes;
     } catch {
       setState((current) => (current.phase === 'ready' ? current : { phase: 'error' }));
+      return null;
     }
   }, [actions, rid]);
 
@@ -79,14 +97,18 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
     if (state.phase !== 'ready' || draft === null || !actions.saveRoomNotes) return;
     setSaving(true);
     try {
-      const notes = await actions.saveRoomNotes(rid, draft, state.notes.revision);
+      const notes = await actions.saveRoomNotes(rid, draft, base.current);
       setState({ phase: 'ready', notes });
       setDraft(null);
       setNotice(null);
     } catch (e) {
       if ((e as { code?: string }).code === NOTES_CONFLICT) {
         // The draft stays; the next save goes over the newer version.
-        await load();
+        const newer = await load();
+        if (newer !== null) {
+          base.current = newer.revision;
+          leftDrafts.set(draftKey, { text: draft, revision: newer.revision });
+        }
         setNotice(t('notes.conflict'));
       } else {
         setNotice(t('notes.saveFailed'));
@@ -112,7 +134,7 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
       );
     }
     if (notes?.editable) {
-      return <HeaderButton c={c} label={t('notes.edit')} onPress={() => { setDraft(notes.markdown); setNotice(null); }} />;
+      return <HeaderButton c={c} label={t('notes.edit')} onPress={() => { base.current = notes.revision; setDraft(notes.markdown); setNotice(null); }} />;
     }
     return null;
   };
@@ -124,10 +146,30 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
       {state.phase === 'loading' && <View style={styles.center}><ActivityIndicator /></View>}
       {state.phase === 'error' && <Text style={[styles.empty, { color: c.secondaryText }]}>{t('notes.loadFailed')}</Text>}
       {state.phase === 'ready' && editing && (
+        <FormatRow
+          marks={notes?.blocksOnly === true ? 'notesBlocks' : 'notes'}
+          c={c}
+          apply={(edit) => {
+            if (draft === null) return;
+            const { start, end } = selected.current;
+            const edited = edit(draft, Math.min(start, end), Math.max(start, end));
+            setDraft(edited.text);
+            selected.current = { start: edited.start, end: edited.end };
+            // A frame later: the field applies a selection against its new text.
+            requestAnimationFrame(() => setPlaced({ start: edited.start, end: edited.end }));
+          }}
+        />
+      )}
+      {state.phase === 'ready' && editing && (
         <TextInput
           style={[styles.editor, { color: c.text, borderColor: c.border }]}
           value={draft}
           onChangeText={setDraft}
+          selection={placed}
+          onSelectionChange={(event) => {
+            selected.current = event.nativeEvent.selection;
+            setPlaced(undefined);
+          }}
           multiline
           autoFocus
           textAlignVertical="top"

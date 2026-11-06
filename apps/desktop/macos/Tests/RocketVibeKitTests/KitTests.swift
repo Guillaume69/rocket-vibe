@@ -242,6 +242,13 @@ final class ServerRailOrderTests: XCTestCase {
 final class NavigationHistoryTests: XCTestCase {
     typealias Visit = AppModel.Visit
 
+    func testARoomWithItsNotesOpenIsItsOwnStateInTheHistory() {
+        let room = Visit(account: "a", rid: "1"), notes = Visit(account: "a", rid: "1", notes: true)
+        let (kept, at) = AppModel.pruned([room, notes, room], at: 1) { _ in true }
+        XCTAssertEqual(kept, [room, notes, room])
+        XCTAssertEqual(at, 1)
+    }
+
     func testAnAccountGoneLeavesTheHistoryWithTheCursorOnTheNearestVisit() {
         let one = Visit(account: "a", rid: "1"), two = Visit(account: "b", rid: "2"), three = Visit(account: "a", rid: "3")
         var pruned = AppModel.pruned([one, two, three, two], at: 3) { $0.account != "b" }

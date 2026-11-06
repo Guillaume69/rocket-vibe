@@ -86,6 +86,7 @@ import {
   profile,
   localSearch,
   activityFeed,
+  notes,
 } from "./panel-actions";
 import { quietNow } from "./quiet";
 import {
@@ -245,6 +246,11 @@ export class App implements RowActions {
   strip = el("div", "upload-strip");
   replyBar = el("div", "reply-bar");
   threadPane = el("aside", "thread-pane");
+  notesPane = el("aside", "notes-pane");
+  /** Ends the open notes pane's reading and keeps an edit in progress. */
+  notesClose?: () => void;
+  /** Edits left unsaved in a closed pane, per account and room. */
+  notesDrafts = new Map<string, { text: string; revision: string }>();
   threadTimeline = el("div", "timeline");
   threadReplyBar = el("div", "reply-bar");
   threadComposer = composer();
@@ -329,7 +335,10 @@ export class App implements RowActions {
         const id = location.pathname.startsWith("/room/")
           ? decodeURIComponent(location.pathname.slice(6))
           : undefined;
-        if (id && this.model.rooms.has(id)) void this.openRoom(id, false);
+        if (!id || !this.model.rooms.has(id)) return;
+        // The same room: only its notes moved, the conversation stays as it is.
+        if (id === this.room) this.followNotesUrl();
+        else void this.openRoom(id, false);
       },
       { signal: this.lifetime.signal },
     );
@@ -1004,6 +1013,7 @@ export class App implements RowActions {
     const lifetime = new AbortController();
     this.replyBar.hidden = true;
     this.threadPane.hidden = true;
+    this.notesPane.hidden = true;
     this.timeline.addEventListener(
       "scroll",
       () => {
@@ -1178,6 +1188,7 @@ export class App implements RowActions {
       this.room = undefined;
       this.root = undefined;
       this.threadPane.hidden = true;
+      this.hideNotes();
       stopMedia(this.timeline);
       clearView(this.timeline);
       this.composer.value = "";
@@ -1303,6 +1314,29 @@ export class App implements RowActions {
       params: (match[2] || "").trim(),
     });
   }
+  /** The header's notes button: each way is a state back and forward return to. */
+  toggleNotes(): void {
+    if (!this.room) return;
+    const open = this.notesPane.hidden;
+    history.pushState(
+      null,
+      "",
+      "/room/" + segment(this.room) + (open ? "?notes=1" : ""),
+    );
+    this.followNotesUrl();
+  }
+  /** The pane as the address says: the room's notes open, or not. */
+  followNotesUrl(): void {
+    const open = new URLSearchParams(location.search).has("notes");
+    if (!open) this.hideNotes();
+    else if (this.room && this.notesPane.hidden) void notes(this).catch(toast);
+  }
+  hideNotes(): void {
+    this.notesClose?.();
+    this.notesClose = undefined;
+    this.notesPane.hidden = true;
+    this.notesPane.replaceChildren();
+  }
   async openRoom(id: string, navigate = true, mark = true): Promise<void> {
     const previous = this.privateChat;
     this.privateChat = undefined;
@@ -1332,10 +1366,12 @@ export class App implements RowActions {
     this.root = undefined;
     this.quote = undefined;
     this.threadPane.hidden = true;
+    this.hideNotes();
     this.replyBar.hidden = true;
     stopMedia(this.timeline);
     clearView(this.timeline);
     if (navigate) history.pushState(null, "", "/room/" + segment(id));
+    else this.followNotesUrl();
     // A sent one leaves the list silently: read it again while the room shows.
     clearInterval(this.scheduledTimer);
     void this.refreshScheduled().catch(() => {});

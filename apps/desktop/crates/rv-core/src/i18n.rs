@@ -2207,6 +2207,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notes.edit", "Modifier", "Edit"),
     ("notes.save", "Enregistrer", "Save"),
     ("notes.cancel", "Annuler", "Cancel"),
+    ("notes.close", "Fermer les notes", "Close notes"),
     ("notes.empty", "Aucune note dans ce salon pour l'instant.", "No notes in this room yet."),
     ("notes.edited", "Modifiées par {name}, {time}", "Edited by {name}, {time}"),
     ("notes.load_failed", "Impossible de lire les notes.", "Couldn't read the notes."),

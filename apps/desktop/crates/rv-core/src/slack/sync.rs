@@ -653,6 +653,7 @@ impl SlackSync {
                 markdown: canvas.markdown,
                 revision: canvas.revision,
                 editable: canvas.editable,
+                blocks_only: true,
                 updated_by: canvas.updated_by,
                 updated_at: canvas
                     .updated_ms

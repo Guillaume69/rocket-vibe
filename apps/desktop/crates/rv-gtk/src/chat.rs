@@ -60,6 +60,16 @@ impl OpenRoom {
 
 type Callback<T> = RefCell<Vec<Box<dyn Fn(T)>>>;
 
+/// A state back and forward return to: the account's key, the room, its notes open or not.
+type HistoryEntry = (String, String, bool);
+
+/// The open notes pane and the room it belongs to.
+pub(super) struct NotesPanel {
+    pub(super) page: Rc<crate::notes::Page>,
+    pub(super) account: String,
+    pub(super) rid: String,
+}
+
 /// A row of the room list: a section title, or a room.
 /// A Vibez room carries its peer's presence, read when its row is
 /// bound, so that a change of it replaces the row.
@@ -284,11 +294,21 @@ pub struct ChatPage {
     /// The Activity view was asked for: the window, which holds every account, opens it.
     on_activity: Callback<()>,
     forward_button: gtk::Button,
-    /// Rooms opened on any account (`supervisor::key`, rid), oldest first, and
-    /// the position of the open one: mouse back and forward walk it.
-    history: RefCell<Vec<(String, String)>>,
+    /// The notes pane beside the conversation, the room list hidden meanwhile.
+    pub(super) notes_split: adw::OverlaySplitView,
+    pub(super) notes_panel: RefCell<Option<NotesPanel>>,
+    /// Edits left unsaved in a closed pane, per (account, room), offered back when it reopens.
+    pub(super) notes_drafts: RefCell<HashMap<(String, String), crate::notes::Draft>>,
+    /// The window is too narrow for two panes, whatever the notes do.
+    narrow: Cell<bool>,
+    /// Rooms opened on any account (`supervisor::key`, rid), with their notes
+    /// open or not, oldest first, and the position of the open one: mouse back
+    /// and forward walk it.
+    history: RefCell<Vec<HistoryEntry>>,
     history_at: Cell<usize>,
     walking: Cell<bool>,
+    /// The room whose notes reopen once a walk to another account has opened it.
+    notes_after_walk: RefCell<Option<String>>,
     voice: Rc<voice::VoiceUi>,
     /// The ringing call's id and its prompt (`chat_call_ring.rs`).
     incoming_call: RefCell<Option<(String, adw::AlertDialog)>>,
@@ -590,7 +610,17 @@ impl ChatPage {
         room_nav.add(&adw::NavigationPage::builder().child(&room_view).title("room").tag("room").build());
         content_stack.add_named(&room_nav, Some("room"));
         content_stack.add_named(&voice_ui.page, Some("voice"));
-        let content_page = adw::NavigationPage::new(&content_stack, "rocket-vibe");
+        let notes_split = adw::OverlaySplitView::builder()
+            .content(&content_stack)
+            .sidebar_position(gtk::PackType::End)
+            .show_sidebar(false)
+            .enable_show_gesture(false)
+            .enable_hide_gesture(false)
+            .min_sidebar_width(320.0)
+            .max_sidebar_width(4096.0)
+            .sidebar_width_fraction(0.5)
+            .build();
+        let content_page = adw::NavigationPage::new(&notes_split, "rocket-vibe");
 
         let split = adw::NavigationSplitView::new();
         split.set_sidebar(Some(&sidebar_page));
@@ -656,6 +686,10 @@ impl ChatPage {
             suppress_selection: Cell::new(false),
             content_page,
             content_stack,
+            notes_split,
+            notes_panel: RefCell::default(),
+            notes_drafts: RefCell::default(),
+            narrow: Cell::new(false),
             room_nav,
             thread: RefCell::default(),
             on_toast: RefCell::default(),
@@ -684,6 +718,7 @@ impl ChatPage {
             history: RefCell::default(),
             history_at: Cell::new(0),
             walking: Cell::new(false),
+            notes_after_walk: RefCell::default(),
             voice: voice_ui,
             incoming_call: RefCell::default(),
         });
@@ -1146,8 +1181,27 @@ impl ChatPage {
         self.split.connect_show_content_notify(move |split| {
             let Some(this) = w.upgrade() else { return };
             this.update_forward();
+            // The room header's back button, while the notes hide the list.
+            if this.notes_panel.borrow().is_some() && !split.shows_content() {
+                split.set_show_content(true);
+                let weak = Rc::downgrade(&this);
+                glib::idle_add_local_once(move || {
+                    if let Some(this) = weak.upgrade() {
+                        this.navigate_back();
+                    }
+                });
+                return;
+            }
             if split.is_collapsed() && !split.shows_content() {
                 this.select_current(false);
+            }
+        });
+        // Narrow, the pane lies over the room and a tap beside it closes it.
+        let w = weak.clone();
+        self.notes_split.connect_show_sidebar_notify(move |split| {
+            let Some(this) = w.upgrade() else { return };
+            if !split.shows_sidebar() && this.notes_panel.borrow().is_some() {
+                this.close_notes();
             }
         });
         let w = weak;
@@ -1700,6 +1754,7 @@ impl ChatPage {
         self.collapsed.replace(session.as_ref().map(|s| folded_sections(&s.info)).unwrap_or_default());
         self.session.replace(session);
         self.current.replace(None);
+        self.hide_notes();
         self.update_forward();
         self.list.clear();
         self.content_stack.set_visible_child_name("empty");
@@ -1826,6 +1881,7 @@ impl ChatPage {
         self.call_button.set_visible(false);
         self.threads_button.set_visible(false);
         self.notes_button.set_visible(false);
+        self.hide_notes();
         self.content_stack.set_visible_child_name("empty");
         self.content_page.set_title("rocket-vibe");
         self.split.set_show_content(false);
@@ -3589,21 +3645,24 @@ impl ChatPage {
     }
 
     /// Mouse back: out of a thread, then from the room to the list when one
-    /// pane shows, then to the room opened before.
+    /// pane shows, then to the state before: the notes closed, the room opened before.
     pub fn navigate_back(self: &Rc<Self>) {
+        let notes = self.notes_panel.borrow().is_some();
         if self.room_nav.visible_page().and_then(|p| p.tag()).as_deref() == Some("thread") {
             self.room_nav.pop();
-        } else if self.split.is_collapsed() && self.split.shows_content() {
+        } else if notes && self.history_at.get() == 0 {
+            self.hide_notes();
+        } else if self.narrow.get() && !notes && self.split.shows_content() {
             self.split.set_show_content(false);
         } else if self.history_at.get() > 0 {
             self.walk_to(self.history_at.get() - 1);
         }
     }
 
-    /// Mouse forward: back into the open room from the list, then to the room
-    /// left by going back.
+    /// Mouse forward: back into the open room from the list, then to the state
+    /// left by going back: the notes reopened, the room left.
     pub fn navigate_forward(self: &Rc<Self>) {
-        if self.split.is_collapsed() && !self.split.shows_content() && self.current.borrow().is_some() {
+        if self.narrow.get() && !self.split.shows_content() && self.current.borrow().is_some() {
             self.split.set_show_content(true);
         } else if self.history_at.get() + 1 < self.history.borrow().len() {
             self.walk_to(self.history_at.get() + 1);
@@ -3611,7 +3670,7 @@ impl ChatPage {
     }
 
     fn walk_to(self: &Rc<Self>, at: usize) {
-        let Some((account, rid)) = self.history.borrow().get(at).cloned() else { return };
+        let Some((account, rid, notes)) = self.history.borrow().get(at).cloned() else { return };
         self.user_navigation();
         if self.account_key().as_deref() != Some(account.as_str()) {
             for f in self.on_walk_account.borrow().iter() {
@@ -3620,22 +3679,28 @@ impl ChatPage {
             return;
         }
         self.history_at.set(at);
-        self.walking.set(true);
-        self.open_room(&rid);
-        self.walking.set(false);
+        if self.current_rid().as_deref() != Some(rid.as_str()) {
+            self.walking.set(true);
+            self.open_room(&rid);
+            self.walking.set(false);
+        }
+        self.show_notes_state(notes);
     }
 
+    /// Back or forward arrived on another account; its room opens next, and
+    /// its notes with it when that state had them.
     pub fn walked(&self, at: usize) {
         self.history_at.set(at);
+        self.notes_after_walk.replace(self.history.borrow().get(at).filter(|e| e.2).map(|e| e.1.clone()));
     }
 
     /// An account signed out or gone: back and forward no longer reach it.
     pub fn forget_history(&self, account: &str) {
         let mut history = self.history.borrow_mut();
         let at = self.history_at.get();
-        let before = history.iter().take(at).filter(|(a, _)| a != account).count();
-        let kept = history.get(at).is_some_and(|(a, _)| a != account);
-        history.retain(|(a, _)| a != account);
+        let before = history.iter().take(at).filter(|(a, ..)| a != account).count();
+        let kept = history.get(at).is_some_and(|(a, ..)| a != account);
+        history.retain(|(a, ..)| a != account);
         self.history_at.set(if kept { before } else { before.saturating_sub(1) });
     }
 
@@ -3643,19 +3708,50 @@ impl ChatPage {
         self.chat().map(|c| rv_core::supervisor::key(c.info()))
     }
 
-    fn remember(&self, rid: &str) {
+    fn remember(self: &Rc<Self>, rid: &str) {
+        self.leave_notes_of_another_room(rid);
+        if self.notes_after_walk.borrow().as_deref() == Some(rid) {
+            self.notes_after_walk.replace(None);
+            let weak = Rc::downgrade(self);
+            glib::idle_add_local_once(move || {
+                if let Some(this) = weak.upgrade() {
+                    this.show_notes_state(true);
+                }
+            });
+        }
         if self.walking.get() {
             return;
         }
         let Some(account) = self.account_key() else { return };
-        let mut history = self.history.borrow_mut();
-        if history.get(self.history_at.get()).is_some_and(|(a, r)| *a == account && r == rid) {
+        if self.history.borrow().get(self.history_at.get()).is_some_and(|(a, r, _)| *a == account && r == rid) {
             return;
         }
+        self.push_history(account, rid.to_owned(), false);
+    }
+
+    pub(super) fn push_history(&self, account: String, rid: String, notes: bool) {
+        let mut history = self.history.borrow_mut();
         let keep = if history.is_empty() { 0 } else { self.history_at.get() + 1 };
         history.truncate(keep);
-        history.push((account, rid.to_owned()));
+        history.push((account, rid, notes));
         self.history_at.set(history.len() - 1);
+    }
+
+    /// The window crossed the width where two panes no longer fit.
+    pub fn set_narrow(&self, narrow: bool) {
+        self.narrow.set(narrow);
+        self.fit_panes();
+    }
+
+    /// One pane at a time on a narrow window, or while the notes take the list's place.
+    pub(super) fn fit_panes(&self) {
+        let notes = self.notes_panel.borrow().is_some();
+        if notes {
+            self.split.set_show_content(true);
+        }
+        self.split.set_collapsed(self.narrow.get() || notes);
+        self.notes_split.set_collapsed(self.narrow.get());
+        self.notes_split.set_show_sidebar(notes);
     }
 
     /// The way back to the open room, on the room list when it shows alone.

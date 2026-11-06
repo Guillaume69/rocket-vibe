@@ -28,8 +28,23 @@ const items: [Format, string, string?][] = [
   ["numbers", ""],
 ];
 
-/** GTK's toolbar edits the selection in place, including a selected link address. */
-export function formatDraft(editor: Composer, kind: Format): void {
+/** What the bar writes into: the composer, or the notes' plain text field. */
+type Field = Pick<
+  Composer,
+  | "value"
+  | "selectionStart"
+  | "selectionEnd"
+  | "setRangeText"
+  | "setSelectionRange"
+  | "focus"
+  | "dispatchEvent"
+>;
+
+/**
+ * GTK's toolbar edits the selection in place, including a selected link address.
+ * Notes are standard markdown (`**`, `~~`); messages the server's `*`, `~`.
+ */
+export function formatDraft(editor: Field, kind: Format, notes = false): void {
   const text = editor.value,
     a = editor.selectionStart,
     b = editor.selectionEnd;
@@ -39,9 +54,12 @@ export function formatDraft(editor: Composer, kind: Format): void {
     start = a,
     end = b;
   const selected = text.slice(a, b);
-  const marker = { bold: "*", italic: "_", strike: "~", code: "`" }[
-    kind as "bold" | "italic" | "strike" | "code"
-  ];
+  const marker = {
+    bold: notes ? "**" : "*",
+    italic: "_",
+    strike: notes ? "~~" : "~",
+    code: "`",
+  }[kind as "bold" | "italic" | "strike" | "code"];
   if (marker) {
     if (
       a < b &&
@@ -152,6 +170,27 @@ export function ComposerFormatBar({
   thread?: boolean;
 }) {
   return (
+    <FormatBar
+      disabled={disabled}
+      apply={(kind) =>
+        formatDraft(thread ? app.threadComposer : app.composer, kind)
+      }
+    />
+  );
+}
+
+export function NotesFormatBar({ editor }: { editor: HTMLTextAreaElement }) {
+  return <FormatBar apply={(kind) => formatDraft(editor, kind, true)} />;
+}
+
+function FormatBar({
+  apply,
+  disabled = false,
+}: {
+  apply: (kind: Format) => void;
+  disabled?: boolean;
+}) {
+  return (
     <div className="format-bar" hidden={disabled}>
       {items.map(([kind, label, style], index) => (
         <Fragment key={kind}>
@@ -163,9 +202,7 @@ export function ComposerFormatBar({
             title={nt("format." + kind)}
             aria-label={nt("format." + kind)}
             onMouseDown={(event) => event.preventDefault()}
-            action={() =>
-              formatDraft(thread ? app.threadComposer : app.composer, kind)
-            }
+            action={() => apply(kind)}
           >
             {kind === "link" ? (
               <Symbol name="link" />

@@ -22,6 +22,7 @@ pub use rv_provider::emoji;
 pub mod emoji_usage;
 pub mod i18n;
 pub mod info;
+pub mod keep_online;
 pub mod last_room;
 pub mod links;
 pub use rv_provider::live;

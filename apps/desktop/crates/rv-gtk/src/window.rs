@@ -171,6 +171,9 @@ fn start_chat(info: &SessionInfo) -> Result<Chat, String> {
         .map_err(|e| e.to_string());
     }
     let session = Session::start(info.clone(), &path).map_err(|e| e.to_string())?;
+    if info.teams.is_some() {
+        session.set_keep_online(rv_core::keep_online::kept(&crate::config_dir(), &crate::secrets::account_key(info)));
+    }
     let resumed = session.clone();
     tokio::spawn(async move {
         if let Some(jwk) = secrets::e2e_key(&resumed.info).await {
@@ -1665,6 +1668,23 @@ impl AppWindow {
                     );
                 }
             }
+        }
+        if info.teams.is_some() {
+            let key = crate::secrets::account_key(info);
+            let kept = rv_core::keep_online::kept(&crate::config_dir(), &key);
+            let (weak, running) = (Rc::downgrade(self), supervisor::key(info));
+            item(
+                t(if kept { "presence.stop_keeping" } else { "presence.keep" }),
+                &["rail-keep-online"],
+                Box::new(move || {
+                    rv_core::keep_online::set(&crate::config_dir(), &key, !kept);
+                    if let Some(this) = weak.upgrade()
+                        && let Some(Chat::Legacy(session)) = this.accounts.chat(&running)
+                    {
+                        session.set_keep_online(!kept);
+                    }
+                }),
+            );
         }
         list.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         let (weak, target) = (Rc::downgrade(self), info.clone());

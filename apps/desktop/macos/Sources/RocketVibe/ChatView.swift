@@ -153,6 +153,12 @@ struct ServerRail: View {
                 }
             }
         }
+        if account.genre == "teams" {
+            let kept = app.client.keepsStatusOnline(account: account.key)
+            Button(L(kept ? "presence.stop_keeping" : "presence.keep")) {
+                app.client.setKeepStatusOnline(account: account.key, on: !kept)
+            }
+        }
         Divider()
         Button(L("rail.logout"), role: .destructive) { leaving = account }
     }

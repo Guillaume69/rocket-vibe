@@ -2588,7 +2588,7 @@ impl ChatPage {
                     this.reload_rooms();
                     this.open_room(&rid);
                 }
-                Err(_) => this.toast(t("spotlight.open_failed").to_owned()),
+                Err(e) => this.toast(format!("{} ({})", t("spotlight.open_failed"), e.message)),
             }
         });
     }

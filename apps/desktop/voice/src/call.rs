@@ -14,6 +14,7 @@ use livekit::webrtc::peer_connection::{
 use livekit::webrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 use livekit::webrtc::peer_connection_factory::{IceServer, IceTransportsType, PeerConnectionFactory, RtcConfiguration};
 use livekit::webrtc::session_description::{SdpType, SessionDescription};
+use livekit::webrtc::stats::RtcStats;
 use rv_call::{CallSignaling, Candidate, Event as CallEvent, Member as CallMember};
 use rv_voice_protocol::{Command, ConnectionState as State, Event, Participant};
 use tokio::sync::mpsc;
@@ -198,6 +199,7 @@ async fn joined<S: CallSignaling>(
     let (peer_tx, mut peer_rx) = mpsc::unbounded_channel();
     let mut activity = tokio::time::interval(Duration::from_millis(100));
     activity.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut stats = tokio::time::interval(Duration::from_secs(5));
     loop {
         tokio::select! {
             command = commands.recv() => match command {
@@ -314,6 +316,11 @@ async fn joined<S: CallSignaling>(
                     }
                 }
             },
+            _ = stats.tick(), if debugging() => {
+                if let Some(pc) = &call.pc {
+                    print_stats(pc).await;
+                }
+            }
             _ = activity.tick() => {
                 if call
                     .offering
@@ -337,8 +344,32 @@ async fn send_offer<S: CallSignaling>(session: &mut S, call: &mut Call) -> Resul
 
 /// `RV_CALL_DEBUG=1` prints the peer connection's states, to stderr.
 fn debug(what: &str) {
-    if std::env::var("RV_CALL_DEBUG").as_deref() == Ok("1") {
+    if debugging() {
         eprintln!("rv-voice: {what}");
+    }
+}
+
+fn debugging() -> bool {
+    std::env::var("RV_CALL_DEBUG").as_deref() == Ok("1")
+}
+
+/// `RV_CALL_DEBUG=1`: what the media is doing, to tell a lossy path from a local stall.
+async fn print_stats(pc: &PeerConnection) {
+    let Ok(stats) = pc.get_stats().await else { return };
+    for stat in stats {
+        match stat {
+            RtcStats::OutboundRtp(s) => debug(&format!("stats sent {} packets", s.sent.packets_sent)),
+            RtcStats::RemoteInboundRtp(s) => debug(&format!(
+                "stats sent, seen by the far side: lost {}, jitter {:.3}, rtt {:.3}",
+                s.received.packets_lost, s.received.jitter, s.remote_inbound.round_trip_time,
+            )),
+            RtcStats::InboundRtp(s) => debug(&format!(
+                "stats received {} packets, lost {}, jitter {:.3}",
+                s.received.packets_received, s.received.packets_lost, s.received.jitter,
+            )),
+            RtcStats::LocalCandidate(s) => debug(&format!("stats local candidate {:?}", s.local_candidate)),
+            _ => {}
+        }
     }
 }
 

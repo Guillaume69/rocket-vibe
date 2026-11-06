@@ -170,10 +170,16 @@ impl Client {
         });
     }
 
-    /// Every signed-in account connected; those signed out elsewhere stop.
+    /// Every signed-in, enabled account connected; those signed out
+    /// elsewhere or disabled stop.
     pub async fn keep_accounts_connected(&self) {
         let dirs = self.dirs.clone();
-        let saved = blocking(move || accounts::load_all(&dirs)).await;
+        let saved = blocking(move || {
+            let all = accounts::load_all(&dirs);
+            rv_core::account_disable::retain(&dirs.config, &all);
+            rv_core::account_disable::enabled(&all, &rv_core::account_disable::disabled(&dirs.config))
+        })
+        .await;
         let supervisor = self.accounts.clone();
         on_tokio(async move { supervisor.sync(&saved) }).await;
     }

@@ -40,6 +40,15 @@ struct RocketVibeApp: App {
             if let larger = wheel.notch(event) { app.zoom(in: larger) }
             return nil
         }
+        // Shift+Up / Shift+Down: the previous or next room, unless a text
+        // field holding text has the focus (there they select text).
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [app] event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function, .capsLock])
+            guard modifiers == .shift, event.keyCode == 126 || event.keyCode == 125 else { return event }
+            if let text = event.window?.firstResponder as? NSTextView, text.isEditable, !text.string.isEmpty { return event }
+            guard app.signedIn, event.window?.attachedSheet == nil else { return event }
+            return app.stepRoom(forward: event.keyCode == 125) ? nil : event
+        }
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [app] event in
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.shift, .numericPad, .capsLock])
             guard modifiers == .command, event.charactersIgnoringModifiers == "+" else { return event }

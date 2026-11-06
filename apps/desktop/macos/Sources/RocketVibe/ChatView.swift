@@ -123,6 +123,14 @@ struct ServerRail: View {
         .background(Vibe.ink)
         .task { app.refreshMutes() }
         .confirmOverlay(
+            isPresented: Binding(get: { app.enabling != nil }, set: { if !$0 { app.enabling = nil } }),
+            title: app.enabling.map { L("rail.enable_title", ["server": Self.host($0)]) } ?? "",
+            message: L("rail.enable_body"),
+            actions: [ModalAction(title: L("rail.enable")) {
+                if let target = app.enabling { Task { await app.setDisabled(target, false) } }
+            }]
+        )
+        .confirmOverlay(
             isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }),
             title: leaving.map { L("rail.logout_title", ["server": Self.host($0)]) } ?? "",
             message: leaving.map { L("rail.logout_body", ["user": $0.username]) },
@@ -154,6 +162,11 @@ struct ServerRail: View {
             }
         }
         Divider()
+        if app.isDisabled(account.key) {
+            Button(L("rail.enable")) { Task { await app.setDisabled(account, false) } }
+        } else {
+            Button(L("rail.disable")) { Task { await app.setDisabled(account, true) } }
+        }
         Button(L("rail.logout"), role: .destructive) { leaving = account }
     }
 
@@ -175,9 +188,11 @@ struct ServerRail: View {
                 .frame(width: 44, height: 44)
                 .clipShape(RoundedRectangle(cornerRadius: 15))
                 .overlay(RoundedRectangle(cornerRadius: 15).strokeBorder(open ? Vibe.pink : .clear, lineWidth: 2))
-                .opacity(app.mutedAccounts.contains(account.key) ? 0.6 : 1)
+                .grayscale(app.isDisabled(account.key) ? 1 : 0)
+                .opacity(app.isDisabled(account.key) ? 0.35 : app.mutedAccounts.contains(account.key) ? 0.6 : 1)
                 .overlay(alignment: .topTrailing) {
-                    if !open && app.unreadAccounts.contains(account.key) && !app.mutedAccounts.contains(account.key) {
+                    if !open && app.unreadAccounts.contains(account.key) && !app.mutedAccounts.contains(account.key)
+                        && !app.isDisabled(account.key) {
                         Circle().fill(Vibe.sun).frame(width: 12, height: 12)
                             .overlay(Circle().strokeBorder(Vibe.ink, lineWidth: 2))
                             .offset(x: 3, y: -3)
@@ -195,7 +210,9 @@ struct ServerRail: View {
                 }
         }
         .buttonStyle(.plain)
-        .help("\(host) · @\(account.username)" + (Self.shortcut(slot).map { " (\($0))" } ?? ""))
+        .help(app.isDisabled(account.key)
+            ? L("rail.disabled_tooltip", ["server": host, "user": account.username])
+            : "\(host) · @\(account.username)" + (Self.shortcut(slot).map { " (\($0))" } ?? ""))
     }
 }
 

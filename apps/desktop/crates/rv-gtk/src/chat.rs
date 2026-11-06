@@ -3839,6 +3839,19 @@ impl ChatPage {
         self.current.borrow().as_ref().map(|o| o.rid.clone())
     }
 
+    /// Opens the room before or after the open one in the list (Shift+Up /
+    /// Shift+Down), folded sections skipped; false when there is none.
+    pub fn step_room(self: &Rc<Self>, forward: bool) -> bool {
+        let next = rv_core::rooms::step(&self.slots.borrow(), self.current_rid().as_deref(), forward);
+        match next {
+            Some(rid) => {
+                self.open_room(&rid);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn composer_rc(&self) -> Rc<Composer> {
         self.composer.clone()
     }

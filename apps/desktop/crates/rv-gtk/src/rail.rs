@@ -15,7 +15,7 @@ use gtk::prelude::*;
 use rv_core::server_icon::Icon;
 use rv_core::session::SessionInfo;
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::secrets::account_key;
 
 type Handler<T> = RefCell<Option<Rc<dyn Fn(T)>>>;
@@ -40,6 +40,8 @@ pub struct Rail {
     muted: RefCell<std::collections::HashSet<String>>,
     /// Each account's button and its muted mark, for the muted look.
     muted_looks: RefCell<HashMap<String, (gtk::Button, gtk::Widget)>>,
+    /// The disabled accounts (`rv_core::account_disable`): greyed, last, no dot.
+    disabled: RefCell<std::collections::HashSet<String>>,
     /// Bumped by each new account list: a late answer about a list that
     /// changed meanwhile is dropped.
     generation: Cell<u64>,
@@ -237,6 +239,7 @@ impl Rail {
             unread: RefCell::default(),
             muted: RefCell::default(),
             muted_looks: RefCell::default(),
+            disabled: RefCell::default(),
             generation: Cell::new(0),
             on_switch: RefCell::default(),
             on_add: RefCell::default(),
@@ -265,6 +268,15 @@ impl Rail {
         self.on_menu.replace(Some(Rc::new(f)));
     }
 
+    /// The disabled accounts, before `set_accounts` draws them.
+    pub fn set_disabled(&self, keys: std::collections::HashSet<String>) {
+        self.disabled.replace(keys);
+    }
+
+    pub fn is_disabled(&self, key: &str) -> bool {
+        self.disabled.borrow().contains(key)
+    }
+
     /// The signed-in accounts and the open one.
     pub fn set_accounts(self: &Rc<Self>, accounts: Vec<SessionInfo>, active: Option<&SessionInfo>) {
         self.generation.set(self.generation.get().wrapping_add(1));
@@ -280,13 +292,14 @@ impl Rail {
             let key = account_key(info);
             let open = active.as_deref() == Some(key.as_str());
             let muted = self.muted.borrow().contains(&key);
+            let disabled = self.disabled.borrow().contains(&key);
             let server = host(info);
             let tile = fallback_icon(info);
             let dot = gtk::Box::builder()
                 .css_classes(["rail-dot"])
                 .halign(gtk::Align::End)
                 .valign(gtk::Align::Start)
-                .visible(!open && !muted && self.unread.borrow().get(&key).copied().unwrap_or(false))
+                .visible(!open && !muted && !disabled && self.unread.borrow().get(&key).copied().unwrap_or(false))
                 .build();
             let mark = gtk::Image::builder()
                 .icon_name("notifications-disabled-symbolic")
@@ -318,7 +331,11 @@ impl Rail {
                 .unwrap_or_default();
             let button = gtk::Button::builder()
                 .child(&overlay)
-                .tooltip_text(format!("{} · @{}{shortcut}", server, info.username))
+                .tooltip_text(if disabled {
+                    tf("rail.disabled_tooltip", &[("server", &server), ("user", &info.username)])
+                } else {
+                    format!("{} · @{}{shortcut}", server, info.username)
+                })
                 .css_classes(["rail-button"])
                 .halign(gtk::Align::Center)
                 .build();
@@ -328,6 +345,9 @@ impl Rail {
             }
             if muted {
                 button.add_css_class("rail-muted");
+            }
+            if disabled {
+                button.add_css_class("rail-disabled");
             }
             self.muted_looks.borrow_mut().insert(key.clone(), (button.clone(), mark.upcast()));
             let (weak, target) = (Rc::downgrade(self), info.clone());
@@ -418,7 +438,7 @@ impl Rail {
     pub fn set_unread(&self, key: &str, unread: bool) {
         self.unread.borrow_mut().insert(key.to_owned(), unread);
         let open = self.active.borrow().as_deref() == Some(key);
-        let muted = self.muted.borrow().contains(key);
+        let muted = self.muted.borrow().contains(key) || self.disabled.borrow().contains(key);
         if let Some(dot) = self.dots.borrow().get(key) {
             dot.set_visible(unread && !open && !muted);
         }

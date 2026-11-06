@@ -6,7 +6,7 @@ import { shortcodeOfUnicode, unicodeOfShortcode } from '@rocket-vibe/provider-ap
 import { TEAMS_ORIGIN, discoverRoutes, idClaims, validTeamsSession } from './auth.ts';
 import {
   TeamsDirectory, channelLink, chatLink, isTeamsImage, meetupLink, objectId, chatRoom, channelRoom, conversationOf, deleted, fileAttachments, htmlToMarkdown, isGraphShare, messageId, profileFields, conversationTopic, rosterPage, searchHits, reacted, reactionCode,
-  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, unknownPeople, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
+  reactionKey, splitId, toMessage, toSubscription, lastId, readUpTo, withoutSubject, keepNewerLast, newerLast, listedChat, newOneOnOne, oneOnOneId, oneOnOneThread, unknownPeople, groupThread, newGroupChat, isGroupChat, people, peopleRequest,
   convert, permalink, qualifiedName, spellMentions, callAllowed, callLink, callPeople, actor, replyTarget, replyQuote,
 } from './translate.ts';
 
@@ -369,6 +369,7 @@ test('a one-to-one is named after both ids in order, and lists before its first 
   const id = '19:e91438dc-73eb-4dd2-9689-2d77b9bd5fcc_f1c9871e-4fe6-43b1-aa6f-5151f41cb073@unq.gbl.spaces';
   assert.equal(oneOnOneId(me, her), id);
   assert.equal(oneOnOneId(her, me), id);
+  assert.equal(oneOnOneId(me, her.toUpperCase().replace('8:ORGID:', '8:orgid:')), id);
   assert.equal(oneOnOneId(me, me), null);
   assert.equal(oneOnOneId(me, '28:bot'), null);
   const d = new TeamsDirectory();
@@ -571,3 +572,15 @@ test('the people a page names that the directory does not know, me left out', ()
   ];
   assert.deepEqual(unknownPeople(page, d, '8:orgid:me'), ['8:orgid:bbb', '8:orgid:ccc', '8:orgid:ddd']);
 });
+
+test('a lagging list never rewinds a last message', () => {
+  const held = { lastMessage: { id: '1793600000200', content: 'new' }, isRead: false };
+  const listed = { lastMessage: { id: '1793600000100', content: 'old' }, isRead: true, displayName: 'x' };
+  assert.equal(newerLast(held, listed), true);
+  const merged = keepNewerLast(held, listed);
+  assert.deepEqual([(merged.lastMessage as { content: string }).content, merged.isRead, merged.displayName], ['new', false, 'x']);
+  const fresher = { lastMessage: { id: '1793600000300', content: 'newest' } };
+  assert.equal((keepNewerLast(held, fresher).lastMessage as { content: string }).content, 'newest');
+  assert.equal(newerLast({}, { lastMessage: { composeTime: '2026-11-06T10:00:00Z' } }), false);
+});
+

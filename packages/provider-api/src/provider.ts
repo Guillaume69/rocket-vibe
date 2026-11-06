@@ -499,6 +499,9 @@ export interface Provider {
   searchPeople?(query: string): Promise<{ id: string; name: string; detail: string }[]>;
   /** The other members' read positions, where the provider has them. */
   readReceipts?: ReadReceiptSource;
+  /** "Keep my status online": a connection that holds my status online
+   *  while it runs (Teams; the other servers count a connected client online). */
+  keepOnline?: { get(): boolean; set(on: boolean): void };
   /** Says I am typing in a room (`active`) or stopped, where the protocol carries it outside the native runner (WhatsApp). */
   setTyping?(rid: string, active: boolean): void;
   /** Real-time transport (RC: DDP; MM: JSON WebSocket). */

@@ -111,6 +111,7 @@ import { notify } from './toast.tsx';
 import { mountEmojiUsage } from './emojiUsage.ts';
 import { mountReminders } from './reminders.ts';
 import { mountLocalSearch } from './localSearch.ts';
+import { applyKeptOnline } from '../lib/keepOnline.ts';
 
 /** The attachment kinds the engine names and `wa.kind.*` labels. */
 const WHATSAPP_KINDS: ReadonlySet<string> = new Set(['image', 'gif', 'video', 'audio', 'voice', 'document', 'sticker']);
@@ -396,6 +397,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     const provider = createProvider(session, client, () =>
       idFromBytes(Crypto.getRandomBytes(12)),
     );
+    void applyKeptOnline(provider, session.baseUrl);
     const unprofile=mountProviderProfiles(client,provider);
     const uncalls=mountProviderCalls(client,provider);
     const unnames=mountDisplayNames(provider.displayNames);

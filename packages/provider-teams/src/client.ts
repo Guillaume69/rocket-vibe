@@ -156,6 +156,19 @@ export class TeamsClient {
     await this.send(url, ['authorization', `Bearer ${bearer}`], 'POST', presenceSubscription(trouterUri, mris));
   }
 
+  /** Declares this connection as one of my presence endpoints, keyed by the
+   *  chat registration's id and kept alive by the socket, as Teams' web app
+   *  does: without it my status follows only my other clients. Away when not
+   *  kept online. Mirrors `Service::announce_endpoint`. */
+  async announceEndpoint(registration: string, online: boolean): Promise<void> {
+    const { routes } = await this.tokens.chat();
+    if (!routes.presence) return;
+    const bearer = await this.tokens.presence();
+    const state = online ? 'Available' : 'Away';
+    await this.send(`${routes.presence}/v1/me/endpoints/`, ['authorization', `Bearer ${bearer}`], 'PUT',
+      { id: registration, availability: state, activity: state, activityReporting: 'Transport', deviceType: 'Mobile' });
+  }
+
   async setPresence(availability: string): Promise<void> {
     const { routes } = await this.tokens.chat();
     if (!routes.presence) return;

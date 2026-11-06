@@ -249,7 +249,10 @@ export class TeamsOutbox implements Outbox {
         } catch (e) {
           const thread = row.threadId === null ? oneOnOneThread(row.rid) : null;
           if (!(e instanceof TeamsError) || e.status !== 404 || thread === null) throw e;
-          await this.client.createThread(thread);
+          // 409: the other person's first message created it meanwhile.
+          try { await this.client.createThread(thread); } catch (created) {
+            if (!(created instanceof TeamsError) || created.status !== 409) throw created;
+          }
           await this.client.chat('POST', url, message);
         }
       } catch (e) {

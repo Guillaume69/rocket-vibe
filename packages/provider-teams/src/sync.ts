@@ -14,7 +14,7 @@ import type { SyncEngine } from '@rocket-vibe/provider-api/sync';
 import { TeamsError } from './auth.ts';
 import type { TeamsClient } from './client.ts';
 import {
-  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, lastId, listedChat, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription, unknownPeople,
+  TeamsDirectory, chatRoom, channelRoom, conversationOf, deleted, int, keepNewerLast, lastId, listedChat, messageId, readUpTo, rootOf, splitId, str, subject, toMessage, toSubscription, unknownPeople,
 } from './translate.ts';
 
 type Doc = Record<string, unknown>;
@@ -220,19 +220,26 @@ export class TeamsSync {
     const snapshot = await this.client.snapshot();
     const listed = await this.client.conversations().catch(() => [] as Doc[]);
     const out: Doc[] = [];
+    const held = new Map(this.rooms.entries);
+    const fresh = (rid: string, listed: Doc): Doc => {
+      const before = held.get(rid);
+      return before ? keepNewerLast(before.entry, listed) : listed;
+    };
     this.rooms.entries.clear();
-    for (const chat of Array.isArray(snapshot.chats) ? (snapshot.chats as Doc[]) : []) {
-      const rid = str(chat, 'id');
+    for (const raw of Array.isArray(snapshot.chats) ? (snapshot.chats as Doc[]) : []) {
+      const rid = str(raw, 'id');
       if (!rid) continue;
+      const chat = fresh(rid, raw);
       this.rooms.entries.set(rid, { entry: chat, team: null });
       out.push({ ...chat, __team: null });
     }
     for (const team of Array.isArray(snapshot.teams) ? (snapshot.teams as Doc[]) : []) {
       const id = str(team, 'id'), name = str(team, 'displayName');
       if (!id || !name) continue;
-      for (const channel of Array.isArray(team.channels) ? (team.channels as Doc[]) : []) {
-        const rid = str(channel, 'id');
+      for (const raw of Array.isArray(team.channels) ? (team.channels as Doc[]) : []) {
+        const rid = str(raw, 'id');
         if (!rid) continue;
+        const channel = fresh(rid, raw);
         this.rooms.entries.set(rid, { entry: channel, team: { id, name } });
         out.push({ ...channel, __team: { id, name } });
       }

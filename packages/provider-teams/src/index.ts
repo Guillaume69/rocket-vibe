@@ -216,7 +216,9 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
   const listener = options.listener ?? new TeamsTrouter(tokens, expand, {
     fetch: options.fetch,
     refreshPresence: async () => presenceEvents(await loadPresence()),
+    announce: (registration, online) => client.announceEndpoint(registration, online),
   });
+  let keptOnline = true;
   let messageActions: TeamsMessageActions | null = null;
   const actionsFor = (ingest: (raw: Doc) => Promise<void>) => (messageActions ??= new TeamsMessageActions(client, ingest));
   let ingestLive: (raw: Doc) => Promise<void> = async () => {};
@@ -331,6 +333,13 @@ export function createTeamsProvider(session: Session, rest: TokenRejection, gene
       },
     },
     readReceipts: teamsReadReceipts(client, directory),
+    keepOnline: {
+      get: () => keptOnline,
+      set: (on: boolean) => {
+        keptOnline = on;
+        (listener as Partial<TeamsTrouter>).setKeepOnline?.(on);
+      },
+    },
     searchPeople: async (query) =>
       people(await client.searchPeople(query), session.userId).map((p) => {
         directory.remember(p.mri, p.name);

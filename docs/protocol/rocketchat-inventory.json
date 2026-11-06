@@ -3848,37 +3848,37 @@
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 155,
+      "line": 167,
       "kind": "call:GET",
       "surface": "'video-conference.capabilities'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 155,
+      "line": 167,
       "kind": "endpoint",
       "surface": "video-conference.capabilities"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 204,
+      "line": 216,
       "kind": "call:GET",
       "surface": "'video-conference.info'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 204,
+      "line": 216,
       "kind": "endpoint",
       "surface": "video-conference.info"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 228,
+      "line": 240,
       "kind": "call:POST",
       "surface": "'video-conference.cancel'"
     },
     {
       "file": "apps/mobile/lib/call.ts",
-      "line": 228,
+      "line": 240,
       "kind": "endpoint",
       "surface": "video-conference.cancel"
     },

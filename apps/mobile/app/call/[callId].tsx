@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 import { callAllowed as teamsCallAllowed } from '@rocket-vibe/provider-teams/translate';
-import { callContext, joinConference, nativeJitsi } from '../../lib/call.ts';
+import { callContext, callPersonName, joinConference, nativeChime, nativeJitsi } from '../../lib/call.ts';
 import { sameOrigin, originOf } from '../../lib/origin.ts';
 import { VoiceNative, type VoiceSnapshot } from '../../modules/voice/index.ts';
 import type { RestClient } from '../../lib/rest.ts';
@@ -41,6 +41,15 @@ import { type Colors, FONTS, useColors } from '../../ui/theme.ts';
  * them UPFRONT (below) so the prompt appears before the call screen, not in
  * the middle of it.
  */
+
+async function requestMicrophone(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+  } catch {
+    // A refusal shows as a call nobody hears: the system settings can still grant it.
+  }
+}
 
 async function requestCameraMic(): Promise<void> {
   if (Platform.OS !== 'android') return;
@@ -153,13 +162,18 @@ function Call({
     let alive = true;
     void (async () => {
       try {
-        // Slack's huddles run in Slack's app or the browser; Teams' calls stay
-        // here, on Teams' web app.
+        // A Slack huddle runs natively, else in Slack's app or the browser;
+        // Teams' calls stay here, on Teams' web app.
         const external = client.kind === 'slack';
         if (!external) await requestCameraMic();
         const u = await joinConference(client, callId,undefined,{room:rid,membership,alive:()=>alive});
         if (!alive) return;
         if (external) {
+          if (await joinedHuddle()) {
+            if (alive) setNative(true);
+            return;
+          }
+          if (!alive) return;
           await Linking.openURL(u);
           router.back();
         } else if (await joinedNatively(u)) {
@@ -174,6 +188,17 @@ function Call({
         if (alive) setError(t('call.joinFailed'));
       }
     })();
+    async function joinedHuddle(): Promise<boolean> {
+      if (pageOnly || VoiceNative === null) return false;
+      try {
+        await requestMicrophone();
+        const chime = await nativeChime(client, callId);
+        if (chime === null || !alive) return false;
+        return await VoiceNative.connectChime(callId, chime.signalingUrl, chime.audioHost, chime.attendeeId, chime.joinToken, chime.origin, title);
+      } catch {
+        return false;
+      }
+    }
     async function joinedNatively(u: string): Promise<boolean> {
       const jitsi = nativeJitsi(client.kind, u);
       if (pageOnly || jitsi === null || VoiceNative === null) return false;
@@ -262,7 +287,7 @@ function Call({
       </View>
 
       {native ? (
-        <NativeCall c={c} snapshot={snapshot ?? VoiceNative?.snapshot() ?? null} onClose={finish} />
+        <NativeCall c={c} client={client} snapshot={snapshot ?? VoiceNative?.snapshot() ?? null} onClose={finish} />
       ) : error !== null ? (
         <View style={styles.center}>
           <Text style={[styles.errorMessage, { color: c.errorText }]}>{error}</Text>
@@ -333,7 +358,22 @@ function endReason(t: T, reason: string | null | undefined): string {
  * call shows "Reconnecting…" while the engine joins again; one that ends stays
  * on screen with the reason.
  */
-function NativeCall({ c, snapshot, onClose }: { c: Colors; snapshot: VoiceSnapshot | null; onClose: () => void }) {
+function NativeCall({ c, client, snapshot, onClose }: { c: Colors; client: RestClient; snapshot: VoiceSnapshot | null; onClose: () => void }) {
+  // A provider that gives only ids (a Slack huddle): each name read once.
+  const [names, setNames] = useState<Readonly<Record<string, string>>>({});
+  const asked = useRef(new Set<string>());
+  const unnamed = (snapshot?.participants ?? []).filter((p) => !p.local && !p.name).map((p) => p.identity).join(' ');
+  useEffect(() => {
+    for (const identity of unnamed.split(' ').filter((id) => id !== '' && !asked.current.has(id))) {
+      asked.current.add(identity);
+      void callPersonName(client, identity).then(
+        (name) => {
+          if (name !== null) setNames((known) => ({ ...known, [identity]: name }));
+        },
+        () => {},
+      );
+    }
+  }, [client, unnamed]);
   const t = useT();
   const [area, setArea] = useState({ width: 0, height: 0 });
   if (snapshot === null || snapshot.state === 'connecting' || snapshot.state === 'idle') {
@@ -356,7 +396,7 @@ function NativeCall({ c, snapshot, onClose }: { c: Colors; snapshot: VoiceSnapsh
   }
   const muted = snapshot.microphone === false || snapshot.deafened === true;
   const cards: VoiceCard[] = snapshot.participants.map((p) => ({
-    uid: p.identity, name: p.local ? t('voice.you') : (p.name || p.identity), speaking: p.speaking, muted: p.muted,
+    uid: p.identity, name: p.local ? t('voice.you') : (p.name || names[p.identity] || p.identity), speaking: p.speaking, muted: p.muted,
     deafened: p.deafened === true, local: false, camera: false, screen: false, mutedHere: false,
   }));
   const layout = arrangeTiles(cards.length, area.width, area.height);

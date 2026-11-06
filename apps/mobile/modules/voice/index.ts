@@ -37,6 +37,8 @@ type Bridge={
    * kChat's kMeet with its `jwt`); false when this build cannot, so the meeting's page is kept.
    */
   connectJitsi(callId:string,meeting:string,displayName:string,token:string|null,title:string):Promise<boolean>;
+  /** Joins an Amazon Chime meeting natively, audio only (a Slack huddle); false when this build cannot, so the huddle's page is kept. */
+  connectChime(callId:string,signalingUrl:string,audioHost:string,attendeeId:string,joinToken:string,origin:string,title:string):Promise<boolean>;
   /** A Slack canvas's `load-data` answer (base64) as JSON `{markdown, version, thread, document, title}`; null when unreadable. */
   canvasRead(load:string):string|null;
   /** The `data_binary` (base64) saving `markdown` over that answer, as JSON `{data, changed}`. */

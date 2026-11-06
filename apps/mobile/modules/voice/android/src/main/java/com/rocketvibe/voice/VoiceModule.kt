@@ -58,6 +58,9 @@ class VoiceModule : Module() {
     AsyncFunction("connectJitsi") { callId: String, meeting: String, displayName: String, token: String?, title: String ->
       VoiceEngine.connectJitsi(callId, meeting, displayName, token, title)
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("connectChime") { callId: String, signalingUrl: String, audioHost: String, attendeeId: String, joinToken: String, origin: String, title: String ->
+      VoiceEngine.connectChime(callId, ChimeCredentials(signalingUrl, audioHost, attendeeId, joinToken, origin), title)
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("disconnect") { VoiceEngine.leave() }.runOnQueue(Queues.MAIN)
     AsyncFunction("setE2eeKey") { key: String -> VoiceEngine.setE2eeKey(key) }.runOnQueue(Queues.MAIN)
     AsyncFunction("setMicrophone") { enabled: Boolean -> VoiceEngine.setMicrophone(enabled) }.runOnQueue(Queues.MAIN)

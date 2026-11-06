@@ -26,7 +26,7 @@
 import type { CallCheck } from './callRing.ts';
 import { RestError, isTokenRejected } from './rest.ts';
 import type { RestClient } from './rest.ts';
-import type { CallScope, NativeCalls } from '@rocket-vibe/provider-api/calls';
+import type { CallScope, ChimeCredentials, NativeCalls } from '@rocket-vibe/provider-api/calls';
 export type { CallScope, NativeCalls } from '@rocket-vibe/provider-api/calls';
 
 type Binding={key:string;calls:NativeCalls|null};
@@ -124,6 +124,18 @@ export function nativeJitsi(kind: string, url: string): { meeting: string; token
   const query = url.split('#')[0]?.split('?')[1] ?? '';
   const token = new URLSearchParams(query).get('jwt');
   return { meeting: withoutToken(url), token: token === null || token === '' ? null : token };
+}
+
+/** The Chime credentials of a call the voice engine can carry that way (a Slack huddle); `null` for any other. */
+export async function nativeChime(client: RestClient, callId: string): Promise<ChimeCredentials | null> {
+  const chime = bindings.get(client)?.calls?.chime;
+  return chime === undefined ? null : chime(callId);
+}
+
+/** The name of someone in a native call whose provider gives only an id. */
+export async function callPersonName(client: RestClient, identity: string): Promise<string | null> {
+  const name = bindings.get(client)?.calls?.personName;
+  return name === undefined ? null : name(identity);
 }
 
 /** `url` cut before its query or fragment. */

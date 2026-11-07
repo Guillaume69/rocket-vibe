@@ -24,8 +24,12 @@ fn delay_ms(hundredths: u16) -> u32 {
     }
 }
 
-/// Every frame, or only the first once they would take more than `budget`
-/// bytes together. None when the bytes are not a GIF.
+const MAX_FRAMES: usize = 300;
+
+/// Every frame up to `MAX_FRAMES`, or only the first once they would take more
+/// than `budget` bytes together. None when the bytes are not a GIF, or when
+/// its declared size alone is over `budget`: it costs a GIF 43 bytes to ask
+/// for 17 GB.
 pub fn decode(bytes: &[u8], budget: usize) -> Option<Animation> {
     if !is_gif(bytes) {
         return None;
@@ -38,6 +42,9 @@ pub fn decode(bytes: &[u8], budget: usize) -> Option<Animation> {
         return None;
     }
     let size = width * height * 4;
+    if size > budget {
+        return None;
+    }
     let mut canvas = vec![0u8; size];
     let mut frames = Vec::new();
     while let Ok(Some(frame)) = decoder.read_next_frame() {
@@ -59,6 +66,9 @@ pub fn decode(bytes: &[u8], budget: usize) -> Option<Animation> {
         frames.push(Frame { rgba: canvas.clone(), delay_ms: delay_ms(frame.delay) });
         if (frames.len() + 1) * size > budget {
             frames.truncate(1);
+            break;
+        }
+        if frames.len() == MAX_FRAMES {
             break;
         }
         match frame.dispose {
@@ -129,6 +139,30 @@ mod tests {
     fn over_budget_only_the_first_frame_stays() {
         let animation = decode(&sample(gif::DisposalMethod::Keep), 8).unwrap();
         assert_eq!(animation.frames.len(), 1);
+    }
+
+    #[test]
+    fn a_declared_size_over_budget_is_refused_before_any_allocation() {
+        let mut out = Vec::new();
+        {
+            let palette = [255, 0, 0, 0, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut out, u16::MAX, u16::MAX, &palette).unwrap();
+            encoder.write_frame(&gif::Frame::from_indexed_pixels(1, 1, vec![0], None)).unwrap();
+        }
+        assert!(decode(&out, 48 << 20).is_none());
+    }
+
+    #[test]
+    fn frames_stop_at_the_cap_however_small() {
+        let mut out = Vec::new();
+        {
+            let palette = [255, 0, 0, 0, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut out, 1, 1, &palette).unwrap();
+            for _ in 0..MAX_FRAMES + 5 {
+                encoder.write_frame(&gif::Frame::from_indexed_pixels(1, 1, vec![0], None)).unwrap();
+            }
+        }
+        assert_eq!(decode(&out, usize::MAX).unwrap().frames.len(), MAX_FRAMES);
     }
 
     #[test]

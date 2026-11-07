@@ -567,3 +567,7 @@ window stays as the fallback until its adapter is proven.
 ## Animated custom emoji are GIF only (2026-11-03)
 
 Vibez takes animated custom emoji as GIF, kept byte for byte (at most 256 px a side, 1 MiB, frames and pixels bounded in `custom_emojis::decode`); a PNG or JPEG is re-encoded to PNG, an animated WebP is refused. GIF plays in every client as is: Android's Fresco (`expo.gif.enabled`), the web's `<img>`, GTK's frame cache, SwiftUI through ImageIO. Animated WebP would need `expo.webp.animated` on Android (about 3.4 MB more) and its own decoding on both desktops, for little gain on images this small. Every client stills an animated emoji when the system asks for less motion where it can tell (GTK animations off, macOS Reduce motion); Android and the web play it regardless.
+
+## Slack fetches outside images from Giphy and Tenor only (2026-11-07)
+
+A Slack message's `image_url` comes from anyone who can post an attachment, and Slack's own client hides the viewer's address behind its image proxy, which a session cannot use. The apps therefore fetch only `giphy.com` and `tenor.com` (and their subdomains) over https and without credentials (`is_gif_host`, `isGifHost`), the same bargain as Teams' Giphy images; any other outside image stays out. The attachment's `title_link` is the image itself, not the Giphy page, because Android draws `title_link` first.

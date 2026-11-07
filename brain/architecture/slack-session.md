@@ -220,7 +220,9 @@ auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 A message's `files` become attachments in the shape Rocket.Chat's files render
 (`files` in `slack/translate.rs`, `slackFiles` in `packages/provider-slack/src/translator.ts`): an
-image shows its largest thumbnail (`thumb_720`, `thumb_480`, `thumb_360`, else the file)
+image shows its largest thumbnail (`thumb_720`, `thumb_480`, `thumb_360`, else the file;
+for `image/gif`, whose plain thumbnails are static PNGs per Slack's file object docs,
+`thumb_480_gif`, `thumb_360_gif`, else the file, not yet probed on a real GIF)
 with `original_w`/`original_h`, a video or audio file plays from `url_private`, and
 every file opens or saves from `url_private_download`. Only `https://files.slack.com`
 links are kept; `tombstone`, `hidden_by_limit` and `external` files are left out. A

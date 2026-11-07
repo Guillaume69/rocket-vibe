@@ -48,7 +48,7 @@ enum Pictures {
 
     static let animations: NSCache<NSString, Animation> = {
         let cache = NSCache<NSString, Animation>()
-        cache.totalCostLimit = 48 * 1024 * 1024
+        cache.totalCostLimit = 2 * animationBudget
         return cache
     }()
 
@@ -78,35 +78,35 @@ enum Pictures {
         return images[0]
     }
 
-    /// Every frame of a small animated GIF (an emoji) with its delay, at most
-    /// `maxFrames`; anything else is its first frame.
+    /// Every frame of an animated GIF with its delay, at most `maxFrames` and
+    /// `maxAnimatedSide` pixels; anything else, or a GIF whose frames would
+    /// take more than `animationBudget` bytes, is its first frame.
     nonisolated static func decodeFrames(_ bytes: Data, pixels: Int) -> [(image: CGImage, delay: Double)]? {
         guard let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
-        let count = CGImageSourceGetCount(source)
-        guard count > 1, pixels > 0, pixels <= 256, CGImageSourceGetType(source) as String? == "com.compuserve.gif" else {
+        let count = min(CGImageSourceGetCount(source), maxFrames)
+        guard count > 1, pixels > 0, CGImageSourceGetType(source) as String? == "com.compuserve.gif" else {
             return decode(bytes, pixels: pixels).map { [($0, 0)] }
         }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: min(pixels, maxAnimatedSide),
+        ]
         var frames: [(image: CGImage, delay: Double)] = []
-        for index in 0..<min(count, maxFrames) {
-            let image: CGImage?
-            if pixels <= 0 {
-                image = CGImageSourceCreateImageAtIndex(source, index, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
-            } else {
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceThumbnailMaxPixelSize: pixels,
-                ]
-                image = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
+        for index in 0..<count {
+            guard let image = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary) else { break }
+            if index == 0, image.width * image.height * 4 * count > animationBudget {
+                return decode(bytes, pixels: pixels).map { [($0, 0)] }
             }
-            guard let image else { break }
             frames.append((image, delay(source, index)))
         }
         return frames.isEmpty ? nil : frames
     }
 
     nonisolated static let maxFrames = 300
+    nonisolated static let maxAnimatedSide = 480
+    nonisolated static let animationBudget = 48 * 1024 * 1024
 
     /// A GIF frame's delay as browsers play it: under 20 ms counts as 100 ms.
     nonisolated static func delay(_ source: CGImageSource, _ index: Int) -> Double {

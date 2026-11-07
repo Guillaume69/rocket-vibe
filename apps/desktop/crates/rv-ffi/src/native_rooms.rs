@@ -36,7 +36,6 @@ pub struct RoomNotes {
     pub revision: String,
     pub editable: bool,
     /// Inline marks would be stored literally: the toolbar offers blocks only.
-    pub blocks_only: bool,
     pub updated_by: Option<String>,
     /// Milliseconds since the epoch.
     pub updated_at_ms: Option<i64>,
@@ -50,7 +49,6 @@ impl RoomNotes {
             markdown: notes.markdown,
             revision: notes.revision,
             editable: notes.editable,
-            blocks_only: notes.blocks_only,
             updated_by: notes.updated_by,
         }
     }

@@ -94,7 +94,7 @@ test('with a canvas engine a canvas is read through Quip and saved over the vers
     },
   };
   const { actions, canvasCalls, TOKEN, COOKIE } = await canvasActions(engine);
-  assert.deepEqual(await actions.roomNotes('C001'), { markdown: '# Plan\n\n- ship\n', revision: '3000', editable: true, blocksOnly: true, updatedBy: 'Alice', updatedAt: 1780000500000 });
+  assert.deepEqual(await actions.roomNotes('C001'), { markdown: '# Plan\n\n- ship\n', revision: '3000', editable: true, updatedBy: 'Alice', updatedAt: 1780000500000 });
   const load = canvasCalls[0]!;
   assert.equal(load.path, 'load-data/editor/1');
   assert.equal(load.form.token, TOKEN);

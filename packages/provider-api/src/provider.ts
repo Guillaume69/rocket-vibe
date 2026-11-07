@@ -322,7 +322,6 @@ export type RoomNotes = {
   updatedBy: string | null;
   updatedAt: number | null;
   /** The provider keeps no inline marks: they would be stored as their literal characters. */
-  blocksOnly?: boolean;
 };
 /** The error code of a save over a revision someone else replaced. */
 export const NOTES_CONFLICT = 'revision_conflict';

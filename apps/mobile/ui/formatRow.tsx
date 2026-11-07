@@ -12,7 +12,7 @@ type Apply = (text: string, start: number, end: number) => Edited;
  * Which text the row writes: a message the servers' own `*bold*` and `~strike~`,
  * notes standard markdown, notes of a provider without inline marks blocks only.
  */
-export type Marks = 'message' | 'notes' | 'notesBlocks';
+export type Marks = 'message' | 'notes';
 
 type Format = {
   key: 'format.bold' | 'format.italic' | 'format.strike' | 'format.heading' | 'format.code' | 'format.link' | 'format.codeBlock' | 'format.quote' | 'format.bullets' | 'format.numbers';
@@ -26,12 +26,12 @@ type Format = {
 function formats(marks: Marks): readonly Format[] {
   const message = marks === 'message';
   const heading: Format[] = message ? [] : [{ key: 'format.heading', glyph: 'H', apply: (x, s, e) => toggleLines(x, s, e, 'heading') }];
-  const inline: Format[] = marks === 'notesBlocks' ? [] : [
+  const inline: Format[] = [
     { key: 'format.bold', glyph: 'B', style: { fontWeight: '700' }, apply: (x, s, e) => toggleWrap(x, s, e, message ? '*' : '**') },
     { key: 'format.italic', glyph: 'I', style: { fontStyle: 'italic' }, apply: (x, s, e) => toggleWrap(x, s, e, '_') },
     { key: 'format.strike', glyph: 'S', style: { textDecorationLine: 'line-through' }, apply: (x, s, e) => toggleWrap(x, s, e, message ? '~' : '~~') },
   ];
-  const inlineAfter: Format[] = marks === 'notesBlocks' ? [] : [
+  const inlineAfter: Format[] = [
     { key: 'format.link', glyph: { icon: 'link' }, apply: link },
     { key: 'format.code', glyph: '</>', apply: (x, s, e) => toggleWrap(x, s, e, '`') },
   ];

@@ -155,7 +155,7 @@ export class SlackActions implements ProviderActions {
     const updatedAt = typeof info.updated === 'number' ? info.updated * 1000 : null;
     if (this.canvasEngine !== null) {
       const { read } = await this.canvasDocument(file, this.canvasEngine);
-      return { markdown: read.markdown, revision: read.version, editable: info.editable !== false, blocksOnly: true, updatedBy, updatedAt };
+      return { markdown: read.markdown, revision: read.version, editable: info.editable !== false, updatedBy, updatedAt };
     }
     const url = typeof info.url_private === 'string' ? info.url_private : null;
     if (url === null) throw new SlackError('invalid_response');

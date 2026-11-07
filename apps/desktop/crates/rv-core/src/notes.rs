@@ -14,7 +14,6 @@ pub struct Notes {
     pub editable: bool,
     /// The provider keeps no inline marks: bold, italic, strike, code and links
     /// would be stored as their literal characters.
-    pub blocks_only: bool,
     /// Who saved last, as the provider names them.
     pub updated_by: Option<String>,
     /// RFC 3339.
@@ -35,7 +34,6 @@ impl From<rv_protocol::parity::RoomNotes> for Notes {
             markdown: notes.body,
             revision: notes.revision,
             editable: notes.editable,
-            blocks_only: false,
             updated_by: notes.updated_by,
             updated_at: notes.updated_at,
         }

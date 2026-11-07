@@ -29,7 +29,7 @@ struct NotesView: View {
                 .padding(12)
                 Divider()
                 if editing {
-                    NotesFormatBar(blocksOnly: notes?.blocksOnly == true) { apply($0) }
+                    NotesFormatBar { apply($0) }
                     Divider()
                     TextEditor(text: $draft, selection: $selection)
                         .font(.system(.body, design: .monospaced))
@@ -146,23 +146,18 @@ struct NotesView: View {
 /// The notes editor's bar, in the composer toolbars' order; a provider without
 /// inline marks offers blocks only.
 struct NotesFormatBar: View {
-    let blocksOnly: Bool
     let apply: (NotesFormat) -> Void
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
-                if !blocksOnly {
-                    item("format.bold", .bold, Text("B").bold())
-                    item("format.italic", .italic, Text("I").italic())
-                    item("format.strike", .strike, Text("S").strikethrough())
-                    Divider().frame(height: 16)
-                }
+                item("format.bold", .bold, Text("B").bold())
+                item("format.italic", .italic, Text("I").italic())
+                item("format.strike", .strike, Text("S").strikethrough())
+                Divider().frame(height: 16)
                 item("format.heading", .heading, Text("H"))
-                if !blocksOnly {
-                    item("format.link", .link, Text(Image(systemName: "link")))
-                    item("format.code", .code, Text("</>"))
-                }
+                item("format.link", .link, Text(Image(systemName: "link")))
+                item("format.code", .code, Text("</>"))
                 item("format.code_block", .codeBlock, Text("{ }"))
                 Divider().frame(height: 16)
                 item("format.quote", .quote, Text("“"))

@@ -91,9 +91,40 @@ fn gifs(raw: &Value) -> Vec<Value> {
     out
 }
 
+/// Legacy message attachments, in the card shape Rocket.Chat's attachments
+/// already render. One that shows a GIF keeps only what the image does not say.
+fn cards(raw: &Value) -> Vec<Value> {
+    let legacy = raw.get("attachments").and_then(Value::as_array).into_iter().flatten();
+    legacy
+        .filter(|a| a.is_object())
+        .filter_map(|a| {
+            let image = |source: &Value| str_of(source, "image_url").is_some_and(is_gif_host);
+            let nested = a.get("blocks").and_then(Value::as_array).into_iter().flatten();
+            let gif = image(a) || nested.filter(|b| str_of(b, "type") == Some("image")).any(image);
+            let keys: &[&str] =
+                if gif { &["author_name", "fields"] } else { &["author_name", "title", "color", "fields"] };
+            let mut card = serde_json::Map::new();
+            for key in keys {
+                if let Some(value) = a.get(*key) {
+                    card.insert((*key).to_owned(), value.clone());
+                }
+            }
+            if let Some(link) = str_of(a, "title_link").filter(|link| !gif && link.starts_with("https://")) {
+                card.insert("title_link".to_owned(), json!(link));
+            }
+            let fallback = || if gif { None } else { str_of(a, "fallback") };
+            if let Some(text) = str_of(a, "text").or_else(|| str_of(a, "pretext")).or_else(fallback) {
+                card.insert("text".to_owned(), json!(text));
+            }
+            (!card.is_empty()).then_some(Value::Object(card))
+        })
+        .collect()
+}
+
 fn attachments(raw: &Value) -> Option<String> {
     let mut out = files(raw.get("files"));
     out.extend(gifs(raw));
+    out.extend(cards(raw));
     (!out.is_empty()).then(|| Value::Array(out).to_string())
 }
 
@@ -144,7 +175,7 @@ fn files(raw: Option<&Value>) -> Vec<Value> {
 
 fn first_title(attachments: Option<&str>) -> Option<String> {
     let list: Vec<Value> = serde_json::from_str(attachments?).ok()?;
-    list.first().and_then(|a| str_of(a, "title")).map(str::to_owned)
+    list.first().and_then(|a| str_of(a, "title").or_else(|| str_of(a, "text"))).map(str::to_owned)
 }
 
 /// Slack's mrkdwn to the markdown the renderer reads. Outside code: people,

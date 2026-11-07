@@ -317,7 +317,7 @@ export class SlackTranslator implements Translator {
       threadShown: reply && subtype === 'thread_broadcast',
       editedAt,
       md: null,
-      attachments: joinAttachments(slackFiles(raw.files), gifs(raw), cards(raw.attachments)),
+      attachments: joinAttachments(slackFiles(raw.files), gifs(raw), cards(raw.attachments, (text) => mrkdwnToMarkdown(text, this.resolver))),
       reactions: this.reactions(raw.reactions),
       urls: null,
       callId: huddle?.callId ?? null,
@@ -490,20 +490,20 @@ export function slackFiles(raw: unknown): string | null {
   return out.length === 0 ? null : JSON.stringify(out);
 }
 
+const GIF_URL = /^https:\/\/([^/?#\\@:]+)(?::443)?(?:[/?#]|$)/i;
+
 /**
  * A GIF on Giphy's or Tenor's hosts, the only images from outside Slack that
  * are fetched: they go without the session's credentials. Mirrors `is_gif_host`
- * in `rv-slack`.
+ * in `rv-slack`. A regex, not `new URL`: React Native's polyfill reads
+ * `https://evil.example/@giphy.com` as host `giphy.com` (`provider-api/src/origin.ts`).
  */
 export function isGifHost(url: unknown): boolean {
   if (typeof url !== 'string') return false;
-  try {
-    const u = new URL(url);
-    const on = (domain: string) => u.hostname === domain || u.hostname.endsWith(`.${domain}`);
-    return u.protocol === 'https:' && (on('giphy.com') || on('tenor.com'));
-  } catch {
-    return false;
-  }
+  const host = GIF_URL.exec(url)?.[1]?.toLowerCase();
+  if (host === undefined) return false;
+  const on = (domain: string) => host === domain || host.endsWith(`.${domain}`);
+  return on('giphy.com') || on('tenor.com');
 }
 
 const imageBlocks = (message: Doc | null): Doc[] =>
@@ -523,6 +523,7 @@ function gifs(raw: Doc): string | null {
     const url = source.image_url;
     if (typeof url !== 'string' || !isGifHost(url) || out.has(url)) continue;
     const gif: Doc = { title: str(source.title) ?? str(record(source.title)?.text) ?? 'GIF', title_link: url, image_url: url };
+    if (/\.gif(?:[?#]|$)/i.test(url)) gif.image_type = 'image/gif';
     const alt = str(source.alt_text);
     if (alt !== null) gif.image_alt = alt;
     const width = num(source.image_width), height = num(source.image_height);
@@ -544,22 +545,43 @@ function firstTitle(attachments: string | null): string | null {
   return str(first?.title) ?? str(first?.text);
 }
 
+/** A card's colour as the clients read it: Slack also sends bare hex and three names. */
+function cardColor(raw: unknown): string | null {
+  const named: Doc = { good: '#2eb886', warning: '#daa038', danger: '#a30200' };
+  const color = typeof raw === 'string' ? named[raw] ?? raw : null;
+  const hex = typeof color === 'string' ? /^#?([0-9a-f]{6})$/i.exec(color)?.[1] : undefined;
+  return hex === undefined ? null : `#${hex}`;
+}
+
 /**
  * Legacy message attachments, in the card shape Rocket.Chat's attachments
- * already render. One that shows a GIF keeps only what the image does not say.
+ * already render. One that shows a GIF keeps only what the image does not
+ * say, and `fallback` stands in only for an attachment with nothing else to
+ * show: on an image it reads "370x208px image".
  */
-function cards(raw: unknown): string | null {
+function cards(raw: unknown, markdown: (text: string) => string): string | null {
   if (!Array.isArray(raw)) return null;
   const out = raw.flatMap((item) => {
     const a = record(item);
     if (a === null) return [];
-    const gif = isGifHost(a.image_url) || imageBlocks(a).some((block) => isGifHost(block.image_url));
+    const gif = isGifHost(a.image_url);
     const card: Doc = {};
-    for (const key of gif ? ['author_name', 'fields'] : ['author_name', 'title', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
+    if (a.author_name !== undefined) card.author_name = a.author_name;
+    if (Array.isArray(a.fields)) {
+      card.fields = a.fields.map((item: unknown) => {
+        const field = record(item);
+        return field !== null && typeof field.value === 'string' ? { ...field, value: markdown(field.value) } : item;
+      });
+    }
+    if (!gif && a.title !== undefined) card.title = a.title;
     if (!gif && typeof a.title_link === 'string' && a.title_link.startsWith('https://')) card.title_link = a.title_link;
-    const text = str(a.text) ?? str(a.pretext) ?? (gif ? null : str(a.fallback));
-    if (text !== null) card.text = text;
-    return Object.keys(card).length > 0 ? [card] : [];
+    const bare = str(a.title) === null && str(a.image_url) === null && imageBlocks(a).length === 0;
+    const text = str(a.text) ?? str(a.pretext) ?? (bare ? str(a.fallback) : null);
+    if (text !== null) card.text = markdown(text);
+    if (Object.keys(card).length === 0) return [];
+    const color = cardColor(a.color);
+    if (color !== null) card.color = color;
+    return [card];
   });
   return out.length === 0 ? null : JSON.stringify(out);
 }

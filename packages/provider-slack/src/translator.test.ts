@@ -186,13 +186,39 @@ test('Giphy and Tenor GIFs from attachments and image blocks become images, othe
   }), channel: 'C001' })!;
   const list = JSON.parse(row.attachments!) as Record<string, unknown>[];
   assert.deepEqual(list, [
-    { title: 'fight', title_link: giphy, image_url: giphy, image_dimensions: { width: 480, height: 270 } },
-    { title: 'Dance', title_link: tenor, image_url: tenor, image_alt: 'dance' },
+    { title: 'fight', title_link: giphy, image_url: giphy, image_type: 'image/gif', image_dimensions: { width: 480, height: 270 } },
+    { title: 'Dance', title_link: tenor, image_url: tenor, image_type: 'image/gif', image_alt: 'dance' },
     { title: 'A page' },
+  ]);
+});
+
+test('legacy attachments become cards, their text as markdown, their colours as the clients read them', () => {
+  const { translator } = setup();
+  const giphy = 'https://media1.giphy.com/media/a/giphy.gif';
+  const row = translator.toMessage({ ...message('1780000000.000001', { text: '', attachments: [
+    { author_name: 'CI', title: 'Build', title_link: 'https://ci.example/42', text: 'see <https://ci.example/42|Build 42> *now*', pretext: 'ignored', color: '36a64f', fields: [{ title: 'Branch', value: '*master*', short: true }, 'odd'] },
+    { title: 'unsafe link', title_link: 'javascript:alert(1)', fallback: 'same as the title', color: 'danger' },
+    { title: 'fight', title_link: 'https://giphy.com/gifs/fight', fallback: 'giphy: fight', image_url: giphy, color: 'good' },
+    { title: 'Failed', fallback: 'no', blocks: [{ type: 'image', image_url: giphy }] },
+    { from_url: 'https://example.com/a.png', image_url: 'https://example.com/a.png', fallback: '370x208px image' },
+    { pretext: 'before', fallback: 'no', color: '#ABCDEF' },
+    { fallback: 'alone', color: 'not a colour' },
+    { color: 'warning' },
+    {},
+    'not an attachment',
+  ] }), channel: 'C001' })!;
+  const list = JSON.parse(row.attachments!) as Record<string, unknown>[];
+  assert.deepEqual(list, [
+    { title: 'fight', title_link: giphy, image_url: giphy, image_type: 'image/gif' },
+    { author_name: 'CI', fields: [{ title: 'Branch', value: '**master**', short: true }, 'odd'], title: 'Build', title_link: 'https://ci.example/42', text: 'see [Build 42](https://ci.example/42) **now**', color: '#36a64f' },
+    { title: 'unsafe link', color: '#a30200' },
+    { title: 'Failed' },
+    { text: 'before', color: '#ABCDEF' },
+    { text: 'alone' },
   ]);
 });
 
 test('only Giphy and Tenor count as GIF hosts', () => {
   for (const url of ['https://giphy.com/a.gif', 'https://media4.giphy.com/a.gif', 'https://media.tenor.com/a.gif']) assert.equal(isGifHost(url), true, url);
-  for (const url of ['http://media.giphy.com/a.gif', 'https://giphy.com.evil.example/a.gif', 'https://evilgiphy.com/a.gif', 'https://evil.example/media.giphy.com/a.gif', 'not a url', null]) assert.equal(isGifHost(url), false, String(url));
+  for (const url of ['http://media.giphy.com/a.gif', 'https://giphy.com.evil.example/a.gif', 'https://evilgiphy.com/a.gif', 'https://evil.example/media.giphy.com/a.gif', 'https://evil.example/@giphy.com/a.gif', 'https://evil.example?u=@giphy.com', 'https://evil.example#@tenor.com', 'https://evil.example\\@giphy.com/a.gif', 'https://me:pw@media.giphy.com/a.gif', 'https://giphy.com:8443/a.gif', 'not a url', null]) assert.equal(isGifHost(url), false, String(url));
 });

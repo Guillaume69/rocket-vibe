@@ -5247,19 +5247,19 @@
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2308,
+      "line": 2319,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2316,
+      "line": 2327,
       "kind": "url",
       "surface": "/api/v1/suggestions"
     },
     {
       "file": "crates/rv-teams/src/auth.rs",
-      "line": 2474,
+      "line": 2485,
       "kind": "url",
       "surface": "/api/csa"
     },

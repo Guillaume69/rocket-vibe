@@ -119,6 +119,8 @@ struct NotesView: View {
             await load()
             if let revision = notes?.revision { base = revision }
             notice = L("notes.conflict")
+        } catch let RvError.Server(_, _, code, _, _, _) where code == "notes_structure" {
+            notice = L("notes.structure")
         } catch {
             notice = L("notes.save_failed")
         }

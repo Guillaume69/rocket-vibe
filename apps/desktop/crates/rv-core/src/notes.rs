@@ -3,6 +3,8 @@
 
 /// The server's answer to a save made on a revision someone else replaced.
 pub const CONFLICT: &str = "revision_conflict";
+/// A save the page's components cannot take: a task list keeps its tasks.
+pub const STRUCTURE: &str = "notes_structure";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Notes {

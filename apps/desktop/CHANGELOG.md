@@ -22,6 +22,7 @@ section here.
 ### Fixed
 
 - Slack (experimental): an uploaded GIF plays instead of showing a still picture, and a Giphy or Tenor GIF posted by an app or pasted as a link now shows and plays.
+- Slack (experimental): the cards bots and integrations attach to a message now show, as they do on Android.
 - macOS: a GIF attachment plays instead of showing its first frame, on every server.
 - Notes: saving after someone else changed them while you edited now always warns you and keeps your draft; a background refresh could let the save overwrite their change.
 - The mouse pointer turns into a hand over reactions (GTK, macOS), and on GTK also over the quick reactions and "more reactions" buttons, a thread's reply count, a failed message's retry, the edit buttons and the actions of file and integration cards.

@@ -310,10 +310,14 @@ mod tests {
     }
 
     #[test]
-    fn slack_reads_its_file_host_and_nothing_else_of_the_web() {
+    fn slack_reads_its_file_host_giphy_and_tenor_and_nothing_else_of_the_web() {
         let directory = crate::slack::directory::Directory::default();
         let file = "https://files.slack.com/files-tmb/T1-F1-x/a_360.png";
         assert_eq!(slack_path(&directory, file).unwrap(), file);
+        for gif in ["https://media1.giphy.com/media/a/giphy.gif", "https://media.tenor.com/a/b.gif"] {
+            assert_eq!(slack_path(&directory, gif).unwrap(), gif);
+        }
+        assert!(slack_path(&directory, "https://evil.example/a.gif").is_err());
         assert!(slack_path(&directory, "https://files.slack.com.evil.example/a.png").is_err());
         assert!(slack_path(&directory, "http://files.slack.com/a.png").is_err());
     }

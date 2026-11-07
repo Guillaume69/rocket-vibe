@@ -831,6 +831,60 @@ mod tests {
     }
 
     #[test]
+    fn gifs_come_from_their_animated_thumbnail_or_the_outside_hosts() {
+        let pri = "https://files.slack.com/files-pri/T000-F1/a.gif";
+        let tmb = |name: &str| format!("https://files.slack.com/files-tmb/T000-F1-x/{name}");
+        let list = files(Some(&json!([
+            {"name": "a.gif", "mimetype": "image/gif", "url_private": pri, "thumb_720": tmb("a_720.png"),
+             "thumb_480": tmb("a_480.png"), "thumb_480_gif": tmb("a_480.gif"), "thumb_360_gif": tmb("a_360.gif")},
+            {"name": "b.gif", "mimetype": "image/gif", "url_private": pri, "thumb_360_gif": tmb("b_360.gif"), "thumb_360": tmb("b_360.png")},
+            {"name": "c.gif", "mimetype": "image/gif", "url_private": pri, "thumb_360": tmb("c_360.png")},
+        ])));
+        assert_eq!(list[0]["image_url"], json!(tmb("a_480.gif")));
+        assert_eq!(list[1]["image_url"], json!(tmb("b_360.gif")));
+        assert_eq!(list[2]["image_url"], json!(pri));
+
+        let giphy = "https://media1.giphy.com/media/a/giphy.gif";
+        let tenor = "https://media.tenor.com/b/c.gif";
+        let found = gifs(&json!({
+            "blocks": [
+                {"type": "rich_text"},
+                {"type": "image", "image_url": tenor, "alt_text": "dance", "title": {"type": "plain_text", "text": "Dance"}},
+                {"type": "image", "image_url": "https://evil.example/x.gif"},
+            ],
+            "attachments": [
+                {"title": "fight", "image_url": giphy, "image_width": 480, "image_height": 270},
+                {"blocks": [{"type": "image", "image_url": giphy}]},
+                {"image_url": "https://example.com/page.png", "text": "a card"},
+            ],
+        }));
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0]["image_url"], json!(giphy));
+        assert_eq!(found[0]["title_link"], json!(giphy));
+        assert_eq!(found[0]["title"], json!("fight"));
+        assert_eq!(found[0]["image_dimensions"], json!({"width": 480, "height": 270}));
+        assert_eq!(found[1]["title"], json!("Dance"));
+        assert_eq!(found[1]["image_alt"], json!("dance"));
+        assert_eq!(attachments(&json!({"text": "plain"})), None);
+    }
+
+    #[test]
+    fn only_giphy_and_tenor_count_as_gif_hosts() {
+        for url in ["https://giphy.com/a.gif", "https://media4.giphy.com/a.gif", "https://media.tenor.com/a.gif"] {
+            assert!(is_gif_host(url), "{url}");
+        }
+        for url in [
+            "http://media.giphy.com/a.gif",
+            "https://giphy.com.evil.example/a.gif",
+            "https://evilgiphy.com/a.gif",
+            "https://evil.example/media.giphy.com/a.gif",
+            "not a url",
+        ] {
+            assert!(!is_gif_host(url), "{url}");
+        }
+    }
+
+    #[test]
     fn only_slacks_file_host_gets_the_session() {
         let host = |raw: &str| file_host(&url::Url::parse(raw).unwrap());
         assert!(host("https://files.slack.com/files-pri/T1-F1/a.png"));

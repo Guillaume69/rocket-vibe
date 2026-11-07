@@ -7,6 +7,8 @@
  * Mirrors `rv_teams::notes` in the desktop core.
  */
 
+import { NEW_TABLE, NEW_TASK_LIST } from './loopTemplates.ts';
+
 type Doc = Record<string, unknown>;
 type Props = Record<string, unknown>;
 
@@ -47,7 +49,10 @@ export function notesPage(uri: string): NotesPage | null {
 
 type Unit = { code: number; props: Props } | { marker: true; props: Props };
 
-function units(segment: unknown): Unit[] {
+function units(wrapped: unknown): Unit[] {
+  if (obj(wrapped).removedSeq !== undefined) return [];
+  // A segment newer than the collab window comes wrapped with its sequence.
+  const segment = obj(wrapped).json ?? wrapped;
   if (typeof segment === 'string') return Array.from({ length: segment.length }, (_, i) => ({ code: segment.charCodeAt(i), props: {} }));
   const s = obj(segment);
   const props = { ...obj(s.props) };
@@ -144,15 +149,19 @@ class Store {
     }
     return out;
   }
-  /** The component of a package holding `key` in its root: a task list's table sits one down. */
-  rootWith(key: string, pkg: string): string | null {
+  componentOfPackage(pkg: string): string | null {
     const found: string[] = [];
     for (const path of this.paths.keys()) {
       if (!path.endsWith('/.component')) continue;
       const c = path.replace(/^\.app\/\.channels\//, '').split('/')[0] ?? '';
-      if (this.package(c).includes(pkg) && this.root(c, key) !== undefined) found.push(c);
+      if (this.package(c).includes(pkg)) found.push(c);
     }
     return found.sort()[0] ?? null;
+  }
+  /** Who an inline mention names, as summarised. */
+  mention(component: string, key: string): unknown {
+    const channel = this.json(`.app/.channels/${component}/.channels/${MENTIONS}/header`);
+    return obj(obj(obj(channel?.content).storage)[key]).value;
   }
   units(component: string): { all: Unit[]; base: number } | null {
     const folder = `.app/.channels/${component}/.channels/text/content/`;
@@ -194,6 +203,9 @@ class Store {
   }
 }
 
+/** The channel of `atMentions` holding who each inline mention names. */
+const MENTIONS = 'instances';
+
 type Replayed = { stories: Map<string, Unit[]>; keys: Map<string, unknown>; channels: Map<string, Doc[]> };
 const channelKey = (component: string, channel: string) => `${component}\n${channel}`;
 
@@ -222,6 +234,15 @@ export function readNotes(snapshot: Doc, later: readonly unknown[] = []): NotesT
     const units = store.units(name);
     if (units !== null) { replayed.stories.set(name, units.all); bases.set(name, units.base); }
   }
+  // A summary keeps the operations since its text was written beside that text.
+  for (const name of names) {
+    const catchup = store.json(`.app/.channels/${name}/.channels/text/content/catchupOps`) as unknown;
+    for (const entry of arr(catchup).map(obj)) {
+      const seq = num(entry.sequenceNumber) ?? 0;
+      const all = replayed.stories.get(name);
+      if (all && seq > (bases.get(name) ?? 0)) { apply(all, obj(entry.contents), text); bases.set(name, seq); }
+    }
+  }
   const summary = num(obj(arr(snapshot.trees)[0]).sequenceNumber) ?? 0;
   const seen = new Set<number>();
   for (const entry of entriesOf.sort((a, b) => sequenceOf(a) - sequenceOf(b))) {
@@ -242,7 +263,7 @@ export function readNotes(snapshot: Doc, later: readonly unknown[] = []): NotesT
         if (seq <= (bases.get(address) ?? 0)) continue;
         const all = replayed.stories.get(address);
         if (all) changed = apply(all, inner, text) || changed;
-      } else if (channel === 'root' && inner.type === 'set' && typeof inner.key === 'string') {
+      } else if ((channel === 'root' || channel === MENTIONS) && inner.type === 'set' && typeof inner.key === 'string') {
         replayed.keys.set(channelKey(address, inner.key), obj(inner.value).value);
       }
     }
@@ -271,19 +292,27 @@ function channelName(value: unknown): string | null {
 
 /** A rich text cell: `id` the component owning its text, `null` for a value that cannot be edited. */
 type Cell = { id: string | null; runs: Run[]; end: number };
-type Task = { checkbox: string; configuration: Doc; done: boolean; title: Cell };
 type TableLine = { id: string; entry: string; position: number };
+type Task = { checkbox: string; configuration: Doc; done: boolean; title: Cell; row: TableLine; details: string[] };
+/** What separates a task's title from its assignees, due date and bucket. */
+const TASK_DETAILS = ' \u00b7 ';
+/** A checklist line's title, what follows it being a task's details. */
+const taskTitle = (typed: string) => typed.split(TASK_DETAILS)[0] ?? typed;
 type Table = {
   grid: Cell[][]; rows: TableLine[]; columns: TableLine[];
   data: string; view: string; matrix: string; rowSequence: string; columnSequence: string;
   viewBag: string | null; signal: string | null; counter: string | null;
   matrixRows: number; matrixColumns: number;
+  /** Each column's place in the matrix and its definition. */
+  definitions: { position: number; definition: Doc }[];
+  /** The component a label cell's list of labels lives in. */
+  labels: string | null;
 };
 /** What a `FluidComponent` paragraph holds, as far as the apps show it. */
 type Embedded =
   | { t: 'story'; id: string; kind: Kind; language: string | null; blocks: Block[] }
   | { t: 'table'; table: Table }
-  | { t: 'tasks'; tasks: Task[] }
+  | { t: 'tasks'; tasks: Task[]; table: Table }
   | { t: 'other' };
 
 function cellOf(id: string | null, replayed: Replayed, lists: Lists, fallback: string): Cell {
@@ -309,7 +338,9 @@ const cellKey = (row: number, column: number) => `${row},${column}`;
 
 function loadMatrix(store: Store, data: string, channel: string, later: readonly Doc[]): Matrix | null {
   const folder = `.app/.channels/${data}/.channels/${channel}`;
-  const vector = (name: string) => arr(store.json(`${folder}/${name}/segments/header`)?.segments).flatMap((s) => {
+  const vector = (name: string) => arr(store.json(`${folder}/${name}/segments/header`)?.segments).flatMap((wrapped) => {
+    if (obj(wrapped).removedSeq !== undefined) return [];
+    const s = obj(wrapped).json ?? wrapped;
     const [length, start] = [num(arr(s)[0]) ?? 0, num(arr(s)[1]) ?? 0];
     return Array.from({ length }, (_, i) => start + i);
   });
@@ -383,11 +414,40 @@ function embeddedOf(store: Store, replayed: Replayed, lists: Lists, id: string):
     const language = store.root(id, 'text:code!language');
     return story({ t: 'code' }, typeof language === 'string' ? language.toLowerCase() : null);
   }
-  if (pkg.includes('TasklistComponentType')) {
-    return tableOf(store, replayed, lists, store.rootWith('tableViewModelIdKey', 'TasklistComponentType') ?? id, true) ?? { t: 'other' };
-  }
+  if (pkg.includes('TasklistComponentType')) return tableOf(store, replayed, lists, taskTable(store, id), true) ?? { t: 'other' };
   if (pkg.includes('TableroComponentType')) return tableOf(store, replayed, lists, id, false) ?? { t: 'other' };
   return { t: 'other' };
+}
+
+/** The table a task list's component names, one component down. */
+function taskTable(store: Store, list: string): string {
+  return handle(store.root(list, 'tableComponentHandle'))?.replace(/^\//, '') ?? list;
+}
+
+/** A cell of a task's assignees, due date or bucket, as shown after its title. */
+function taskDetail(store: Store, replayed: Replayed, definition: Doc, cell: Doc): string | null {
+  const component = handle(obj(cell.value).componentHandle)?.replace(/^\//, '') ?? null;
+  if (definition.type === 'IRichTextData') {
+    const names: string[] = [];
+    for (const unit of (component === null ? undefined : replayed.stories.get(component)) ?? []) {
+      if (!('marker' in unit)) continue;
+      const url = handle(unit.props['component!url'])?.replace(/^\//, '');
+      const [owner, key] = url?.split('/') ?? [];
+      if (owner === undefined || key === undefined) continue;
+      const name = obj(replayed.keys.get(channelKey(owner, key)) ?? store.mention(owner, key)).displayName;
+      if (typeof name === 'string') names.push(`@${name}`);
+    }
+    return names.length > 0 ? names.join(', ') : null;
+  }
+  if (definition.type === 'IDateData' && component !== null) {
+    const date = obj(obj(replayed.keys.get(channelKey(component, 'DiasKey')) ?? store.root(component, 'DiasKey')).contentInfo).currentDate;
+    return typeof date === 'string' && date !== '' ? date.replace(/\//g, '-') : null;
+  }
+  if (definition.type === 'ILabelData') {
+    const shown = obj(cell.value).cellValue;
+    return typeof shown === 'string' && shown !== '' ? shown : null;
+  }
+  return null;
 }
 
 function tableOf(store: Store, replayed: Replayed, lists: Lists, root: string, tasks: boolean): Embedded | null {
@@ -426,6 +486,23 @@ function tableOf(store: Store, replayed: Replayed, lists: Lists, root: string, t
     return r === undefined || c === undefined ? undefined : matrix.cells.get(cellKey(r, c.handle));
   };
   const componentOf = (value: Doc | undefined) => bare(handle(obj(obj(value).value).componentHandle));
+  const labelColumn = columns.find((c) => columnsById.get(c.id)?.value.type === 'ILabelData');
+  let labels: string | null = null;
+  for (const row of rows) {
+    const cell = labelColumn ? componentOf(cellAt(row, labelColumn)) : null;
+    labels = cell === null ? null : bare(handle(store.root(cell, 'labelComponentHandleKey')));
+    if (labels !== null) break;
+  }
+  const shell: Table = {
+    grid: [], rows, columns, data, view, matrix: matrixChannel, rowSequence, columnSequence,
+    viewBag: channelName(store.root(view, 'viewDataPropertyBagKey')),
+    signal: channelName(store.root(view, 'sharedSignalKey')),
+    counter: channelName(store.root(data, 'columnCounterKey')),
+    matrixRows: matrix.rows.length,
+    matrixColumns: matrix.columns.length,
+    definitions: columns.map((c) => ({ position: c.position, definition: columnsById.get(c.id)!.value })),
+    labels: labels ?? store.componentOfPackage('LabelComponent'),
+  };
   if (tasks) {
     const titleColumn = columns.find((c) => columnsById.get(c.id)?.value.type === 'ICheckboxRichText');
     if (!titleColumn) return null;
@@ -435,9 +512,15 @@ function tableOf(store: Store, replayed: Replayed, lists: Lists, root: string, t
       if (checkbox === null) continue;
       const configuration = obj(replayed.keys.get(channelKey(checkbox, 'ConfigurationType')) ?? store.root(checkbox, 'ConfigurationType'));
       const title = cellOf(bare(handle(configuration.richTextComponentHandle)), replayed, lists, '');
-      if (title.runs.length > 0) out.push({ checkbox, configuration, done: configuration.checked === true, title });
+      if (title.runs.length === 0) continue;
+      const details = columns.flatMap((column) => {
+        const value = cellAt(row, column);
+        const shown = value === undefined ? null : taskDetail(store, replayed, columnsById.get(column.id)!.value, value);
+        return shown === null ? [] : [shown];
+      });
+      out.push({ checkbox, configuration, done: configuration.checked === true, title, row, details });
     }
-    return { t: 'tasks', tasks: out };
+    return { t: 'tasks', tasks: out, table: shell };
   }
   const grid: Cell[][] = [columns.map((c) => {
     const title = obj(columnsById.get(c.id)?.value.title);
@@ -450,13 +533,7 @@ function tableOf(store: Store, replayed: Replayed, lists: Lists, root: string, t
       return cellOf(componentOf(value), replayed, lists, typeof fallback === 'string' ? fallback : '');
     }));
   }
-  return { t: 'table', table: {
-    grid, rows, columns, data, view, matrix: matrixChannel, rowSequence, columnSequence,
-    viewBag: channelName(store.root(view, 'viewDataPropertyBagKey')),
-    signal: channelName(store.root(view, 'sharedSignalKey')),
-    counter: channelName(store.root(data, 'columnCounterKey')),
-    matrixRows: matrix.rows.length, matrixColumns: matrix.columns.length,
-  } };
+  return { t: 'table', table: { ...shell, grid } };
 }
 
 function flag(props: Props, keys: readonly string[]): boolean {
@@ -660,7 +737,7 @@ function linesOf(block: Block): { text: string; part: Part }[] {
   }
   if (e.t === 'other') return [];
   if (e.t === 'story') return e.blocks.map((b, at) => ({ text: line(b), part: { t: 'story', at } }));
-  if (e.t === 'tasks') return e.tasks.map((t, at) => ({ text: `- [${t.done ? 'x' : ' '}] ${inline(t.title.runs)}`, part: { t: 'task', at } }));
+  if (e.t === 'tasks') return e.tasks.map((t, at) => ({ text: `- [${t.done ? 'x' : ' '}] ${inline(t.title.runs)}${t.details.map((d) => `${TASK_DETAILS}${escaped(d)}`).join('')}`, part: { t: 'task', at } }));
   const out: { text: string; part: Part }[] = [];
   e.table.grid.forEach((row, at) => {
     out.push({ text: tableLine(row.map(cellMarkdown)), part: { t: 'row', at } });
@@ -916,7 +993,7 @@ function restyle(at: number, to: Kind, from: Kind): Doc {
   return { pos1: at, pos2: at + 1, props, type: 2 };
 }
 
-/** What a save asks that a component cannot do: a task list keeps its tasks, unless it goes whole. */
+/** What a save asks that a component cannot do, such as a value a table's column cannot take. */
 export const NOTES_STRUCTURE = 'notes_structure';
 
 const refused = () => new Error(NOTES_STRUCTURE);
@@ -988,6 +1065,49 @@ function attachStory(id: string, pkg: string, type: string, root: Doc, lines: re
   return { type: 'attach', contents: { id, snapshot, type } };
 }
 
+/** A component holding only directories and arrays, in the shape Loop attaches. */
+function attachStore(id: string, pkg: string, type: string, channels: Doc[]): Doc {
+  const snapshot = { entries: [
+    attachedFile('.component', JSON.stringify({ pkg, summaryFormatVersion: 2, isRootDataStore: false })),
+    attachedTree('.channels', channels),
+  ] };
+  return { type: 'attach', contents: { id, snapshot, type } };
+}
+
+const TASK_PACKAGE = '"TasklistComponentType","@ms/tablero"';
+
+/** Every id replaced, so each use of a template is a component of its own. */
+function withFreshIds(template: string): string {
+  const fresh = new Map<string, string>();
+  return template.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (id) => {
+    let next = fresh.get(id);
+    if (next === undefined) { next = uuid(); fresh.set(id, next); }
+    return next;
+  });
+}
+
+/** A template's components, and what reading them gives. */
+function fromTemplate(template: string, tasks: boolean): { root: string; attaches: Doc[]; embedded: Embedded } | null {
+  const document = obj(JSON.parse(withFreshIds(template)));
+  const root = document.root;
+  if (typeof root !== 'string') return null;
+  const attaches = arr(document.attaches).map(obj);
+  const store = new Store({});
+  for (const attach of attaches) store.attach(attach);
+  const replayed: Replayed = { stories: new Map(), keys: new Map(), channels: new Map() };
+  for (const name of store.stories()) {
+    const all = store.units(name);
+    if (all !== null) replayed.stories.set(name, all.all);
+  }
+  const embedded = tableOf(store, replayed, listsIn(store), tasks ? taskTable(store, root) : root, tasks);
+  return embedded === null ? null : { root, attaches, embedded };
+}
+
+const placeComponent = (at: number, id: string, author: Doc): Doc => ({ pos1: at, seg: { marker: { refType: 1 }, props: {
+  attribution: author, markerId: uuid(), nodeType: 'FluidComponent', 'component!display': 'block',
+  'content!locale': 'en-gb', 'component!url': fluidHandle(`/${id}`),
+} }, type: 0 });
+
 function attachQuote(id: string, lines: readonly (readonly Run[])[], author: Doc): Doc {
   const pkg = '["BlockQuoteComponentType"]';
   return attachStory(id, pkg, pkg, { defaultContentLocale: plainValue('en-gb') }, lines, author);
@@ -1037,6 +1157,9 @@ class Plan {
   readonly attached: Doc[] = [];
   readonly ops: Doc[] = [];
   registry: string | null;
+  /** Tasks to add to the list of a block, after an entry of its order. */
+  readonly tasksAdded: { block: number; after: string | null; lines: Wanted[] }[] = [];
+  readonly tasksRemoved: { block: number; line: TableLine }[] = [];
   readonly text: NotesText;
   readonly author: Doc;
   constructor(text: NotesText, author: Doc) {
@@ -1069,6 +1192,126 @@ class Plan {
     if (cell.id === null) throw refused();
     if (cell.end > 0) this.ops.push(channelOp(cell.id, 'text', { pos1: 0, pos2: cell.end, type: 1 }));
     for (const run of [...runs].reverse()) this.ops.push(channelOp(cell.id, 'text', insertText(0, run.text, run.marks, this.author)));
+  }
+
+  /** A task's row: the matrix, the order shown, then a cell per column in the
+   *  shape each kind of column takes. */
+  private taskRow(table: Table, position: number, after: string | null, wanted: Wanted): { entry: string; event: Doc } {
+    const row = uuid(), entry = uuid();
+    this.matrix(table, { pos1: position, seg: [1, -2147483648], type: 0, target: 'rows' });
+    this.matrix(table, { type: 2, row: position, col: 0, fwwMode: false, value: { metadataProperties: { persistentData: {} }, id: row } });
+    this.ops.push(channelOp(table.view, table.rowSequence, { type: 0, entryId: entry, value: row, ...(after === null ? {} : { insertAfterEntryId: after }) }));
+    const title = taskTitle(inline(wanted.runs));
+    const done = wanted.kind.t === 'check' && wanted.kind.done;
+    for (const { position: column, definition } of table.definitions) {
+      const kind = definition.type;
+      const config = obj(obj(definition.dataTypeProps).initialConfig);
+      const preset = obj(config.richTextServicesConfiguration).presetName;
+      const storyRoot = { configuration: plainValue({ presetName: preset }), isTextBoxMode: plainValue(true), defaultContentLocale: plainValue('en-us') };
+      let component: string | null = null;
+      let shown = '';
+      if (kind === 'ICheckboxRichText') {
+        const text = uuid();
+        component = uuid();
+        this.attached.push(attachStory(text, `[${TASK_PACKAGE},"ICheckboxRichText","RichText"]`, 'RichText', storyRoot, [parseInline(title)], this.author));
+        this.attached.push(attachStore(component, `[${TASK_PACKAGE},"ICheckboxRichText"]`, 'ICheckboxRichText', [attachedTree('root', [
+          attachedFile('header', directoryHeader({ ConfigurationType: plainValue({
+            checked: done, richTextUrl: '', type: 'CheckboxText', richTextComponentHandle: fluidHandle(`/${text}`),
+            richTextServicesConfiguration: { presetName: preset }, contentDirection: 'ltr',
+          }) })),
+          attachedFile('.attributes', attributes(DIRECTORY)),
+        ])]));
+      } else if (kind === 'IRichTextData') {
+        component = uuid();
+        this.attached.push(attachStory(component, `[${TASK_PACKAGE},"IRichTextData"]`, 'IRichTextData', storyRoot, [[]], this.author));
+      } else if (kind === 'ILabelData') {
+        component = uuid();
+        const selected = uuid();
+        const id = arr(config.selectedLabelIds)[0];
+        const name = obj(arr(config.values).find((v) => obj(v).id === id)).name;
+        shown = typeof name === 'string' ? name : '';
+        this.attached.push(attachStore(component, `[${TASK_PACKAGE},"ILabelData"]`, 'ILabelData', [
+          attachedTree('root', [
+            attachedFile('header', directoryHeader({
+              contentLocaleKey: plainValue('en-us'),
+              categoryIdKey: plainValue(config.categoryId),
+              selectedValuesKey: plainValue(fluidHandle(`/${component}/${selected}`)),
+              labelPresetsKey: plainValue({}),
+              ...(table.labels === null ? {} : { labelComponentHandleKey: plainValue(fluidHandle(`/${table.labels}`)) }),
+            })),
+            attachedFile('.attributes', attributes(DIRECTORY)),
+          ]),
+          attachedTree(selected, [
+            attachedFile('header', JSON.stringify({ dataArray: [{ entryId: uuid(), value: id, isDeleted: false }] })),
+            attachedFile('.attributes', attributes('https://graph.microsoft.com/types/SharedArray')),
+          ]),
+        ]));
+      }
+      this.matrix(table, { type: 2, row: position, col: column, fwwMode: false, value: {
+        value: { cellValue: shown, ...(component === null ? {} : { componentHandle: fluidHandle(`/${component}`) }) },
+        cellDataTypeProps: { type: kind, initialConfig: config },
+        attribution: this.author,
+      } });
+    }
+    return { entry, event: { rowId: row, tableEventType: 'RowInserted', viewLayerType: 'CoreViewModel' } };
+  }
+
+  private signal(table: Table, events: Doc[]): void {
+    if (events.length > 0 && table.signal !== null) {
+      this.ops.push(channelOp(table.view, table.signal, { type: 'signal', metadata: { consumerMetadata: { editMode: 'edit' }, tableEventMetadata: events } }));
+    }
+  }
+
+  /** Tasks added and removed, appended rows first: removing from the end moves none of them. */
+  taskChanges(): void {
+    const lists = new Set([...this.tasksAdded.map((a) => a.block), ...this.tasksRemoved.map((r) => r.block)]);
+    for (const b of lists) {
+      const e = this.text.blocks[b]!.embedded;
+      if (e?.t !== 'tasks') continue;
+      const events: Doc[] = [];
+      let position = e.table.matrixRows;
+      for (const added of this.tasksAdded.filter((a) => a.block === b)) {
+        let after = added.after;
+        for (const wanted of added.lines) {
+          const row = this.taskRow(e.table, position++, after, wanted);
+          after = row.entry;
+          events.push(row.event);
+        }
+      }
+      const gone = this.tasksRemoved.filter((r) => r.block === b).map((r) => r.line).sort((x, y) => y.position - x.position);
+      for (const line of gone) {
+        this.matrix(e.table, { pos1: line.position, pos2: line.position + 1, type: 1, target: 'rows' });
+        this.ops.push(channelOp(e.table.view, e.table.rowSequence, { type: 1, entryId: line.entry }));
+        events.push({ rowId: line.id, tableEventType: 'RowDeleted', viewLayerType: 'CoreViewModel' });
+      }
+      this.signal(e.table, events);
+    }
+  }
+
+  /** A new task list on the page, with its tasks. */
+  newTaskList(at: number, lines: readonly Wanted[]): void {
+    const made = fromTemplate(NEW_TASK_LIST, true);
+    if (made?.embedded.t !== 'tasks') throw refused();
+    this.attached.push(...made.attaches);
+    this.page(placeComponent(at, made.root, this.author));
+    const { table } = made.embedded;
+    let after: string | null = null;
+    const events: Doc[] = [];
+    lines.forEach((wanted, k) => {
+      const row = this.taskRow(table, table.matrixRows + k, after, wanted);
+      after = row.entry;
+      events.push(row.event);
+    });
+    this.signal(table, events);
+  }
+
+  /** A new table on the page, sized and filled from the rows typed. */
+  newTable(at: number, lines: readonly string[]): void {
+    const made = fromTemplate(NEW_TABLE, false);
+    if (made?.embedded.t !== 'table') throw refused();
+    this.attached.push(...made.attaches);
+    this.page(placeComponent(at, made.root, this.author));
+    this.table(made.embedded.table, lines);
   }
 
   private matrix(table: Table, op: Doc): void { this.ops.push(channelOp(table.data, table.matrix, op)); }
@@ -1154,9 +1397,7 @@ class Plan {
     };
     remove(rows.filter(([o, k]) => o !== null && k === null).map(([o]) => table.rows[o!]!), 'rows', table.rowSequence, { tableEventType: 'RowDeleted' });
     remove(columns.filter(([o, n]) => o !== null && n === null).map(([o]) => table.columns[o!]!), 'cols', table.columnSequence, { tableEventType: 'ColumnDeleted' });
-    if (events.length > 0 && table.signal !== null) {
-      this.ops.push(channelOp(table.view, table.signal, { type: 'signal', metadata: { consumerMetadata: { editMode: 'edit' }, tableEventMetadata: events } }));
-    }
+    this.signal(table, events);
   }
 }
 
@@ -1289,6 +1530,8 @@ export function notesEdit(text: NotesText, markdown: string, author: Doc): Doc[]
         } else if (part.t === 'story' && e?.t === 'story') {
           const inner = e.blocks[part.at]!;
           plan.ops.push(channelOp(e.id, 'text', { pos1: inner.start, pos2: inner.marker + 1, type: 1 }));
+        } else if (part.t === 'task' && e?.t === 'tasks') {
+          plan.tasksRemoved.push({ block: b, line: e.tasks[part.at]!.row });
         } else throw refused();
         continue;
       }
@@ -1303,13 +1546,14 @@ export function notesEdit(text: NotesText, markdown: string, author: Doc): Doc[]
         }
       } else if (part.t === 'task' && e?.t === 'tasks' && w.kind.t === 'check') {
         const task = e.tasks[part.at]!;
-        plan.cell(task.title, inline(w.runs));
+        plan.cell(task.title, task.details.length > 0 ? taskTitle(inline(w.runs)) : inline(w.runs));
         if (w.kind.done !== task.done) {
           plan.ops.push(channelOp(task.checkbox, 'root', { key: 'ConfigurationType', path: '/', type: 'set', value: plainValue({ ...task.configuration, checked: w.kind.done }) }));
         }
       } else throw refused();
     }
   }
+  plan.taskChanges();
   return [...plan.attached, ...plan.ops];
 }
 
@@ -1328,6 +1572,15 @@ function insertNew(plan: Plan, old: readonly OldLine[], wanted: readonly Wanted[
       plan.ops.push(channelOp(before.id, 'text', { pos1: at, seg: { marker: { refType: 1 }, props: { attribution: author, markerId: uuid(), nodeType: 'Paragraph' } }, type: 0 }));
       for (const run of [...w.runs].reverse()) plan.ops.push(channelOp(before.id, 'text', insertText(at, run.text, run.marks, author)));
     }
+    return;
+  }
+  const nextLine = old[i1];
+  const listBefore = previous !== null && before?.t === 'tasks' ? previous.block : null;
+  const listAfter = nextLine?.part.t === 'task' ? nextLine.block : null;
+  const listBlock = listBefore ?? listAfter;
+  if (listBlock !== null && added.every((w) => w.kind.t === 'check')) {
+    const after = before?.t === 'tasks' && previous?.part.t === 'task' ? before.tasks[previous.part.at]!.row.entry : null;
+    plan.tasksAdded.push({ block: listBlock, after, lines: added });
     return;
   }
   let at = pageEnd;
@@ -1356,17 +1609,32 @@ function insertNew(plan: Plan, old: readonly OldLine[], wanted: readonly Wanted[
       while (first > from && wanted[first - 1]!.kind.t === 'quote') first--;
       const id = uuid();
       plan.attached.push(attachQuote(id, wanted.slice(first, k + 1).map((q) => q.runs), author));
-      plan.page({ pos1: at, seg: { marker: { refType: 1 }, props: {
-        attribution: author, markerId: uuid(), nodeType: 'FluidComponent', 'component!display': 'block',
-        'content!locale': 'en-gb', 'component!url': fluidHandle(`/${id}`),
-      } }, type: 0 });
+      plan.page(placeComponent(at, id, author));
       k = first;
       continue;
     }
     if (w.kind.t === 'tableRow') {
+      let first = k;
+      while (first > from && wanted[first - 1]!.kind.t === 'tableRow') first--;
+      const lines = wanted.slice(first, k + 1).map((r) => r.runs[0]?.text ?? '');
+      const cells = lines[1] === undefined ? [] : tableCells(lines[1]);
+      if (cells.length > 0 && cells.every((c) => /^[-:]+$/.test(c))) {
+        plan.newTable(at, lines);
+        k = first;
+        continue;
+      }
       plan.page(insertMarker(at, { t: 'paragraph' }, null, author));
       plan.page(insertText(at, w.runs[0]?.text ?? '', plain, author));
       continue;
+    }
+    if (w.kind.t === 'check') {
+      let first = k;
+      while (first > from && wanted[first - 1]!.kind.t === 'check') first--;
+      if (inline(wanted[first]!.runs).includes(TASK_DETAILS)) {
+        plan.newTaskList(at, wanted.slice(first, k + 1));
+        k = first;
+        continue;
+      }
     }
     plan.page(insertMarker(at, w.kind, lists.get(k) ?? null, author));
     for (const run of [...w.runs].reverse()) plan.page(insertText(at, run.text, run.marks, author));

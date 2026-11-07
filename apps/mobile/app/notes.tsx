@@ -149,7 +149,7 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
       {state.phase === 'error' && <Text style={[styles.empty, { color: c.secondaryText }]}>{t('notes.loadFailed')}</Text>}
       {state.phase === 'ready' && editing && (
         <FormatRow
-          marks={notes?.blocksOnly === true ? 'notesBlocks' : 'notes'}
+          marks="notes"
           c={c}
           apply={(edit) => {
             if (draft === null) return;

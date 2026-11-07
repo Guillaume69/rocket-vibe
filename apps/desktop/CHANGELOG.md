@@ -9,6 +9,8 @@ section here.
 
 ### Added
 
+- Notes: Slack canvases keep bold, italic, strikethrough, code and links, and checklist items can be ticked; the whole formatting bar is available there.
+- Notes: Teams task lists show assignees, due dates and buckets; single tasks can be added and removed, and a save can create a new table or task list.
 - Slack (experimental): a huddle runs inside the app, audio only, in its own call window (who is there, who speaks, mute, deafen, hang up); its page stays the fallback when the join fails.
 - Notes open beside the conversation instead of in a dialog, the room list hidden meanwhile. Back returns to the conversation with the list restored, forward reopens the notes, and an unsaved edit comes back when they reopen.
 - Notes: the editor has a formatting bar (bold, italic, strikethrough, heading, link, code, quote, lists). Slack canvases offer the block formats only, since they keep no inline formatting.
@@ -21,6 +23,7 @@ section here.
 
 ### Fixed
 
+- Notes: a Slack canvas with formatting no longer shows raw HTML tags, and a Teams page just summarised by Teams no longer reads as an older version.
 - Slack (experimental): an uploaded GIF plays instead of showing a still picture, and a Giphy or Tenor GIF posted by an app or pasted as a link now shows and plays.
 - Slack (experimental): the cards bots and integrations attach to a message now show, as they do on Android, with their links, mentions and colours.
 - macOS: a GIF attachment plays instead of showing its first frame, in the message and the full-size viewer, on every server; one scrolled away and back no longer stays frozen.

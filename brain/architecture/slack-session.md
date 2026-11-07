@@ -325,7 +325,9 @@ descriptors read from the editor's bundle (`gantry-v2-async-quip-collab-webapp`,
   modified, `20` local sequence, `33` trace id (`<session>-<n>`), `38` the CRDT
   session (`syncer.CrdtSessionState`).
 - **The text of a block** is an Automerge document `{deleted: bool, text: Text}`, the
-  text ending with `U+FEFF`; no marks were seen (inline formatting not captured).
+  text ending with `U+FEFF`; inline formatting is Automerge marks on it (`b`, `i`, `u`,
+  `del`, `code`, `true`; `a`, `{"href": ...}`; `After` expansion), the same as the
+  section's HTML in field `12`. `16` holds `2: 1` on a ticked item (with `30: 5`).
   `CrdtSessionState`: `1` section id, `2` base sequence, `3` last saved sequence,
   `5` the whole document (`Automerge::save`, chunk magic `85 6F 4A 83`), `6`
   processed heads, `8` base head, `11` sequence heads `{1 head, 2 sequence}`, `12`

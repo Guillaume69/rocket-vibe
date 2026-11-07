@@ -1054,7 +1054,6 @@ fn notes_of(text: rv_teams::notes::Text) -> crate::notes::Notes {
         markdown: text.markdown,
         revision: text.sequence.to_string(),
         editable: true,
-        blocks_only: false,
         updated_by: text.updated_by,
         updated_at: text.updated_at.and_then(chrono::DateTime::from_timestamp_millis).map(|at| at.to_rfc3339()),
     }

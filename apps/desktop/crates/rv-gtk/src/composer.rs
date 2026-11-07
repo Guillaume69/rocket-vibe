@@ -1592,30 +1592,25 @@ pub enum Marks {
     Message,
     /// A notes document: standard markdown, which every notes provider reads.
     Notes,
-    /// Notes whose provider keeps no inline marks: block formats only.
-    NotesBlocks,
 }
 
 pub fn toolbar(view: &gtk::TextView, marks: Marks) -> gtk::Box {
     use rv_core::compose::LineKind;
     let bar = gtk::Box::builder().spacing(2).css_classes(["format-bar"]).build();
     let (bold, strike) = if marks == Marks::Message { ("*", "~") } else { ("**", "~~") };
-    let items: [(&str, Option<&str>, &str, Format, bool); 10] = [
-        ("format.bold", None, "<b>B</b>", Format::Wrap(bold), true),
-        ("format.italic", None, "<i>I</i>", Format::Wrap("_"), true),
-        ("format.strike", None, "<s>S</s>", Format::Wrap(strike), true),
-        ("format.heading", None, "H", Format::Lines(LineKind::Heading), false),
-        ("format.link", None, "", Format::Link, true),
-        ("format.code", None, "&lt;/&gt;", Format::Wrap("`"), true),
-        ("format.code_block", None, "{ }", Format::CodeBlock, false),
-        ("format.quote", None, "<span size=\"150%\">“</span>", Format::Lines(LineKind::Quote), false),
-        ("format.bullets", Some("view-list-bullet-symbolic"), "", Format::Lines(LineKind::Bullet), false),
-        ("format.numbers", Some("view-list-ordered-symbolic"), "", Format::Lines(LineKind::Numbered), false),
+    let items: [(&str, Option<&str>, &str, Format); 10] = [
+        ("format.bold", None, "<b>B</b>", Format::Wrap(bold)),
+        ("format.italic", None, "<i>I</i>", Format::Wrap("_")),
+        ("format.strike", None, "<s>S</s>", Format::Wrap(strike)),
+        ("format.heading", None, "H", Format::Lines(LineKind::Heading)),
+        ("format.link", None, "", Format::Link),
+        ("format.code", None, "&lt;/&gt;", Format::Wrap("`")),
+        ("format.code_block", None, "{ }", Format::CodeBlock),
+        ("format.quote", None, "<span size=\"150%\">“</span>", Format::Lines(LineKind::Quote)),
+        ("format.bullets", Some("view-list-bullet-symbolic"), "", Format::Lines(LineKind::Bullet)),
+        ("format.numbers", Some("view-list-ordered-symbolic"), "", Format::Lines(LineKind::Numbered)),
     ];
-    for (i, (tip, icon, text, action, inline)) in items.into_iter().enumerate() {
-        if inline && marks == Marks::NotesBlocks {
-            continue;
-        }
+    for (i, (tip, icon, text, action)) in items.into_iter().enumerate() {
         let button = gtk::Button::builder()
             .tooltip_text(t(tip))
             .css_classes(["flat", "format-button"])

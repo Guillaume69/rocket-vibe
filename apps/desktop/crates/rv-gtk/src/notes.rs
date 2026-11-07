@@ -51,7 +51,6 @@ pub struct Page {
     view: gtk::ScrolledWindow,
     editor: gtk::TextView,
     format: gtk::Revealer,
-    format_marks: Cell<Option<Marks>>,
     footer: gtk::Label,
     edit: gtk::Button,
     save: gtk::Button,
@@ -110,6 +109,7 @@ pub fn panel(room: &str, source: Source, draft: Option<Draft>, on_close: impl Fn
     let page = adw::ToolbarView::new();
     page.add_top_bar(&header);
     page.set_content(Some(&toasts));
+    format.set_child(Some(&toolbar(&editor, Marks::Notes)));
     let this = Rc::new(Page {
         root: page,
         stamp: RefCell::new((source.stamp)()),
@@ -122,7 +122,6 @@ pub fn panel(room: &str, source: Source, draft: Option<Draft>, on_close: impl Fn
         view,
         editor,
         format,
-        format_marks: Cell::new(None),
         footer,
         edit,
         save,
@@ -195,9 +194,7 @@ impl Page {
                     }
                     this.current.replace(notes);
                     // While editing, a newer version waits for the save, which says so.
-                    if this.editing.get() {
-                        this.fit_format_bar();
-                    } else {
+                    if !this.editing.get() {
                         this.show();
                     }
                 }
@@ -247,7 +244,6 @@ impl Page {
         self.editing.set(true);
         self.base.replace(revision);
         self.editor.buffer().set_text(text);
-        self.fit_format_bar();
         self.format.set_reveal_child(true);
         self.stack.set_visible_child_name("edit");
         self.edit.set_visible(false);
@@ -255,15 +251,6 @@ impl Page {
         self.save.set_sensitive(true);
         self.cancel.set_visible(true);
         self.editor.grab_focus();
-    }
-
-    /// The bar follows what the provider keeps, known once the notes are read.
-    fn fit_format_bar(&self) {
-        let marks = if self.current.borrow().blocks_only { Marks::NotesBlocks } else { Marks::Notes };
-        if self.format_marks.get() != Some(marks) {
-            self.format_marks.set(Some(marks));
-            self.format.set_child(Some(&toolbar(&self.editor, marks)));
-        }
     }
 
     fn commit(self: &Rc<Self>) {

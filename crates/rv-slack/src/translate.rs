@@ -900,6 +900,31 @@ mod tests {
     }
 
     #[test]
+    fn legacy_attachments_become_cards_and_a_gif_keeps_only_what_it_does_not_say() {
+        let giphy = "https://media1.giphy.com/media/a/giphy.gif";
+        let found = cards(&json!({"attachments": [
+            {"author_name": "CI", "title": "Build", "title_link": "https://ci.example/42", "text": "passed", "pretext": "ignored", "color": "36a64f",
+             "fields": [{"title": "Branch", "value": "master", "short": true}]},
+            {"title": "unsafe link", "title_link": "javascript:alert(1)", "fallback": "only a fallback"},
+            {"title": "fight", "title_link": "https://giphy.com/gifs/fight", "fallback": "giphy: fight", "image_url": giphy},
+            {"text": "caption", "fallback": "no", "blocks": [{"type": "image", "image_url": giphy}]},
+            {},
+            "not an attachment",
+        ]}));
+        assert_eq!(
+            found,
+            vec![
+                json!({"author_name": "CI", "title": "Build", "title_link": "https://ci.example/42", "text": "passed", "color": "36a64f",
+                   "fields": [{"title": "Branch", "value": "master", "short": true}]}),
+                json!({"title": "unsafe link", "text": "only a fallback"}),
+                json!({"text": "caption"}),
+            ]
+        );
+        let list = attachments(&json!({"attachments": [{"text": "only text"}]}));
+        assert_eq!(first_title(list.as_deref()).as_deref(), Some("only text"));
+    }
+
+    #[test]
     fn only_giphy_and_tenor_count_as_gif_hosts() {
         for url in ["https://giphy.com/a.gif", "https://media4.giphy.com/a.gif", "https://media.tenor.com/a.gif"] {
             assert!(is_gif_host(url), "{url}");

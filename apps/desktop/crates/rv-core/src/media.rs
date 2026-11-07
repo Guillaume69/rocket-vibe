@@ -323,6 +323,34 @@ mod tests {
     }
 
     #[test]
+    fn slack_gifs_and_cards_reach_the_renderers_from_what_slack_sends() {
+        let directory = crate::slack::directory::Directory::default();
+        let channels = std::collections::HashMap::new();
+        let translator = crate::slack::translate::Translator { directory: &directory, channels: &channels };
+        let giphy = "https://media.giphy.com/media/a/giphy.gif";
+        let row = translator
+            .message(
+                "C1",
+                &serde_json::json!({"ts": "1700000000.000100", "user": "U1", "text": "look", "attachments": [
+                    {"from_url": giphy, "image_url": giphy, "image_width": 370, "image_height": 208,
+                     "fallback": "370x208px image", "media_type": "external_link"},
+                    {"from_url": "https://example.com/a.png", "image_url": "https://example.com/a.png",
+                     "fallback": "370x208px image"},
+                    {"title": "Build", "title_link": "https://ci.example/42", "text": "passed", "color": "good"},
+                ]}),
+            )
+            .unwrap();
+        let images = image_attachments(row.attachments.as_deref());
+        assert_eq!(images.len(), 1);
+        assert_eq!((images[0].source.as_str(), images[0].width), (giphy, Some(370)));
+        assert_eq!(slack_path(&directory, &images[0].source).unwrap(), giphy);
+        let cards = crate::content::cards(row.attachments.as_deref());
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("Build"));
+        assert_eq!(cards[0].color.as_deref(), Some("#2eb886"));
+    }
+
+    #[test]
     fn protected_disk_cache_keys_separate_accounts_servers_and_punctuation() {
         assert_ne!(
             account_cache_key("https://chat.example", "alice"),

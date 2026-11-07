@@ -147,19 +147,6 @@ impl Store {
         }
     }
 
-    /// The component of a package holding `key` in its root: a task list's table sits one down.
-    fn stories_root_with(&self, key: &str, package: &str) -> Option<String> {
-        let mut found: Vec<String> = self
-            .paths
-            .keys()
-            .filter(|p| p.ends_with("/.component"))
-            .filter_map(|p| p.strip_prefix(".app/.channels/")?.split('/').next().map(str::to_owned))
-            .filter(|c| self.package(c).contains(package) && self.root(c, key).is_some())
-            .collect();
-        found.sort();
-        found.into_iter().next()
-    }
-
     fn new(snapshot: &Value) -> Option<Store> {
         let blobs = snapshot["blobs"]
             .as_array()?
@@ -196,6 +183,24 @@ impl Store {
         self.json(&format!(".app/.channels/{component}/.component"))
             .and_then(|c| c["pkg"].as_str().map(str::to_owned))
             .unwrap_or_default()
+    }
+
+    fn component_of_package(&self, package: &str) -> Option<String> {
+        let mut found: Vec<String> = self
+            .paths
+            .keys()
+            .filter(|p| p.ends_with("/.component"))
+            .filter_map(|p| p.strip_prefix(".app/.channels/")?.split('/').next().map(str::to_owned))
+            .filter(|c| self.package(c).contains(package))
+            .collect();
+        found.sort();
+        found.into_iter().next()
+    }
+
+    /// Who an inline mention names, as summarised.
+    fn mention(&self, component: &str, key: &str) -> Option<Value> {
+        let channel = self.json(&format!(".app/.channels/{component}/.channels/{MENTIONS}/header"))?;
+        Some(channel.pointer("/content/storage")?.get(key)?.get("value")?.clone())
     }
 
     /// A key of a component's root directory.
@@ -237,6 +242,9 @@ impl Store {
     }
 }
 
+/// The channel of `atMentions` holding who each inline mention names.
+const MENTIONS: &str = "instances";
+
 /// The text channels and root keys of a page, once every later operation is replayed.
 struct Replayed {
     stories: std::collections::HashMap<String, Vec<Unit>>,
@@ -274,6 +282,19 @@ pub fn read(snapshot: &Value, later: &[Value]) -> Option<Text> {
         }
     }
     replayed.stories.insert(component.clone(), page_units);
+    // A summary keeps the operations since its text was written beside that text.
+    for name in &names {
+        let later = store.json(&format!(".app/.channels/{name}/.channels/text/content/catchupOps"));
+        for entry in later.as_ref().and_then(Value::as_array).into_iter().flatten() {
+            let seq = entry["sequenceNumber"].as_i64().unwrap_or(0);
+            if let Some(units) = replayed.stories.get_mut(name)
+                && seq > bases.get(name).copied().unwrap_or(0)
+            {
+                apply(units, &entry["contents"], &mut text);
+                bases.insert(name.clone(), seq);
+            }
+        }
+    }
     let mut sequenced: Vec<&Value> = snapshot["ops"].as_array().into_iter().flatten().chain(later.iter()).collect();
     sequenced.sort_by_key(|o| sequence_of(o));
     let mut seen = std::collections::HashSet::new();
@@ -299,7 +320,7 @@ pub fn read(snapshot: &Value, later: &[Value]) -> Option<Text> {
                 if let Some(units) = replayed.stories.get_mut(&address) {
                     changed |= apply(units, &inner, &mut text);
                 }
-            } else if channel == "root"
+            } else if (channel == "root" || channel == MENTIONS)
                 && inner["type"].as_str() == Some("set")
                 && let Some(key) = inner["key"].as_str()
             {
@@ -345,7 +366,7 @@ enum Embedded {
         blocks: Vec<Block>,
     },
     Table(Box<Table>),
-    Tasks(Vec<Task>),
+    Tasks(Box<TaskList>),
     /// A component the apps do not read: left alone.
     Other,
 }
@@ -386,7 +407,21 @@ struct Table {
     counter: Option<String>,
     matrix_rows: usize,
     matrix_columns: usize,
+    /// Each column's place in the matrix and its definition.
+    definitions: Vec<(usize, Value)>,
+    /// The component a label cell's list of labels lives in.
+    labels: Option<String>,
 }
+
+/// A task list: a table whose rows are shown as tasks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TaskList {
+    tasks: Vec<Task>,
+    table: Table,
+}
+
+/// What separates a task's title from its assignees, due date and bucket.
+const TASK_DETAILS: &str = " \u{b7} ";
 
 /// A row of a task list.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -396,6 +431,25 @@ struct Task {
     configuration: Value,
     done: bool,
     title: Cell,
+    row: Line,
+    /// Assignees, due date, bucket: shown after the title, not edited.
+    details: Vec<String>,
+}
+
+impl Task {
+    fn line(&self) -> String {
+        let mut line = format!("- [{}] {}", if self.done { "x" } else { " " }, inline(&self.title.runs));
+        for detail in &self.details {
+            line.push_str(TASK_DETAILS);
+            line.push_str(&escaped(detail));
+        }
+        line
+    }
+}
+
+/// A checklist line's title, what follows it being a task's details.
+fn task_title(typed: &str) -> &str {
+    typed.split(TASK_DETAILS).next().unwrap_or(typed)
 }
 
 fn cell_of(id: Option<&str>, replayed: &Replayed, lists: &Lists, fallback: &str) -> Cell {
@@ -434,7 +488,10 @@ impl Matrix {
                 .and_then(|h| h["segments"].as_array().cloned())
                 .unwrap_or_default()
                 .iter()
+                .filter(|s| s.get("removedSeq").is_none())
                 .flat_map(|s| {
+                    // A segment newer than the collab window comes wrapped with its sequence.
+                    let s = s.get("json").unwrap_or(s);
                     let (length, start) = (s[0].as_u64().unwrap_or(0), s[1].as_u64().unwrap_or(0));
                     (0..length).map(move |i| (start + i) as u32)
                 })
@@ -562,14 +619,16 @@ fn embedded(store: &Store, replayed: &Replayed, lists: &Lists, id: &str) -> Embe
     }
     if package.contains("TableroComponentType") || package.contains("TasklistComponentType") {
         let tasks = package.contains("TasklistComponentType");
-        let root = if tasks {
-            store.stories_root_with("tableViewModelIdKey", "TasklistComponentType").or_else(|| Some(id.to_owned()))
-        } else {
-            Some(id.to_owned())
-        };
+        let root = if tasks { task_table(store, id) } else { Some(id.to_owned()) };
         return root.and_then(|root| table(store, replayed, lists, &root, tasks)).unwrap_or(Embedded::Other);
     }
     Embedded::Other
+}
+
+/// The table a task list's component names, one component down.
+fn task_table(store: &Store, list: &str) -> Option<String> {
+    let Some(table) = store.root(list, "tableComponentHandle") else { return Some(list.to_owned()) };
+    Some(handle(&table)?.trim_start_matches('/').to_owned())
 }
 
 fn story(replayed: &Replayed, lists: &Lists, id: &str, kind: Kind, language: Option<String>) -> Embedded {
@@ -619,6 +678,36 @@ fn table(store: &Store, replayed: &Replayed, lists: &Lists, root: &str, tasks: b
         let c = columns_by_id.get(&column.id)?.0;
         matrix.cells.get(&(*r, c))
     };
+    let labels = rows
+        .iter()
+        .find_map(|row| {
+            let column = columns
+                .iter()
+                .find(|c| columns_by_id.get(&c.id).is_some_and(|(_, v)| v["type"].as_str() == Some("ILabelData")))?;
+            let cell = cell_at(row, column).and_then(component_of)?;
+            handle(&store.root(cell.trim_start_matches('/'), "labelComponentHandleKey")?)
+        })
+        .map(|url| url.trim_start_matches('/').to_owned())
+        .or_else(|| store.component_of_package("LabelComponent"));
+    let definitions: Vec<(usize, Value)> =
+        columns.iter().filter_map(|c| Some((c.position, columns_by_id.get(&c.id)?.1.clone()))).collect();
+    let shell = Table {
+        grid: Vec::new(),
+        rows: rows.clone(),
+        columns: columns.clone(),
+        view_bag: channel_name(store.root(&view, "viewDataPropertyBagKey")),
+        signal: channel_name(store.root(&view, "sharedSignalKey")),
+        counter: channel_name(store.root(&data, "columnCounterKey")),
+        matrix_rows: matrix.rows.len(),
+        matrix_columns: matrix.columns.len(),
+        data: data.clone(),
+        view: view.clone(),
+        matrix: channel.clone(),
+        row_sequence: row_sequence.clone(),
+        column_sequence: column_sequence.clone(),
+        definitions,
+        labels,
+    };
     if tasks {
         let title_column = columns
             .iter()
@@ -637,9 +726,23 @@ fn table(store: &Store, replayed: &Replayed, lists: &Lists, root: &str, tasks: b
             if title.runs.is_empty() {
                 continue;
             }
-            out.push(Task { checkbox, done: configuration["checked"].as_bool() == Some(true), configuration, title });
+            let details = columns
+                .iter()
+                .filter_map(|column| {
+                    let definition = &columns_by_id.get(&column.id)?.1;
+                    task_detail(store, replayed, definition, cell_at(row, column)?)
+                })
+                .collect();
+            out.push(Task {
+                checkbox,
+                done: configuration["checked"].as_bool() == Some(true),
+                configuration,
+                title,
+                row: row.clone(),
+                details,
+            });
         }
-        return Some(Embedded::Tasks(out));
+        return Some(Embedded::Tasks(Box::new(TaskList { tasks: out, table: shell })));
     }
     let mut grid = vec![
         columns
@@ -667,21 +770,50 @@ fn table(store: &Store, replayed: &Replayed, lists: &Lists, root: &str, tasks: b
                 .collect(),
         );
     }
-    Some(Embedded::Table(Box::new(Table {
-        grid,
-        rows,
-        columns,
-        view_bag: channel_name(store.root(&view, "viewDataPropertyBagKey")),
-        signal: channel_name(store.root(&view, "sharedSignalKey")),
-        counter: channel_name(store.root(&data, "columnCounterKey")),
-        matrix_rows: matrix.rows.len(),
-        matrix_columns: matrix.columns.len(),
-        data,
-        view,
-        matrix: channel,
-        row_sequence,
-        column_sequence,
-    })))
+    Some(Embedded::Table(Box::new(Table { grid, ..shell })))
+}
+
+/// A cell of a task's assignees, due date or bucket, as shown after its title.
+fn task_detail(store: &Store, replayed: &Replayed, definition: &Value, cell: &Value) -> Option<String> {
+    let component = cell.pointer("/value/componentHandle").and_then(handle);
+    let component = component.as_deref().map(|c| c.trim_start_matches('/'));
+    let detail = match definition["type"].as_str()? {
+        "IRichTextData" => {
+            let units = replayed.stories.get(component?)?;
+            let mut names = Vec::new();
+            for unit in units {
+                match unit {
+                    Unit::Marker(props) => {
+                        if let Some(name) = props.get("component!url").and_then(handle).and_then(|url| {
+                            let (owner, key) = url.trim_start_matches('/').split_once('/')?;
+                            let person = replayed
+                                .keys
+                                .get(&(owner.to_owned(), key.to_owned()))
+                                .cloned()
+                                .or_else(|| store.mention(owner, key))?;
+                            person["displayName"].as_str().map(str::to_owned)
+                        }) {
+                            names.push(format!("@{name}"));
+                        }
+                    }
+                    Unit::Text(..) => {}
+                }
+            }
+            names.join(", ")
+        }
+        "IDateData" => {
+            let component = component?;
+            let date = replayed
+                .keys
+                .get(&(component.to_owned(), "DiasKey".to_owned()))
+                .cloned()
+                .or_else(|| store.root(component, "DiasKey"))?;
+            date.pointer("/contentInfo/currentDate")?.as_str()?.replace('/', "-")
+        }
+        "ILabelData" => cell.pointer("/value/cellValue")?.as_str()?.to_owned(),
+        _ => return None,
+    };
+    (!detail.is_empty()).then_some(detail)
 }
 
 fn sequence_of(entry: &Value) -> i64 {
@@ -696,6 +828,10 @@ fn props_of(segment: &Value) -> Map<String, Value> {
 }
 
 fn segment_units(segment: &Value) -> Vec<Unit> {
+    if segment.get("removedSeq").is_some() {
+        return Vec::new();
+    }
+    let segment = segment.get("json").unwrap_or(segment);
     if let Some(text) = segment.as_str() {
         return text.encode_utf16().map(|u| Unit::Text(u, Map::new())).collect();
     }
@@ -1065,13 +1201,9 @@ impl Block {
             Some(Embedded::Story { blocks, .. }) => {
                 blocks.iter().enumerate().map(|(i, b)| (b.line(), Part::Story(i))).collect()
             }
-            Some(Embedded::Tasks(tasks)) => tasks
-                .iter()
-                .enumerate()
-                .map(|(i, t)| {
-                    (format!("- [{}] {}", if t.done { "x" } else { " " }, inline(&t.title.runs)), Part::Task(i))
-                })
-                .collect(),
+            Some(Embedded::Tasks(list)) => {
+                list.tasks.iter().enumerate().map(|(i, t)| (t.line(), Part::Task(i))).collect()
+            }
             Some(Embedded::Table(table)) => {
                 let mut out = Vec::new();
                 for (i, row) in table.grid.iter().enumerate() {
@@ -1565,6 +1697,69 @@ fn attach_story(
     serde_json::json!({"type": "attach", "contents": {"id": id, "snapshot": snapshot, "type": kind}})
 }
 
+/// A component holding only directories and arrays, in the shape Loop attaches.
+fn attach_store(id: &str, package: &str, kind: &str, channels: Vec<Value>) -> Value {
+    let snapshot = serde_json::json!({"entries": [
+        attached_file(".component", serde_json::json!({"pkg": package, "summaryFormatVersion": 2, "isRootDataStore": false}).to_string()),
+        attached_tree(".channels", channels),
+    ]});
+    serde_json::json!({"type": "attach", "contents": {"id": id, "snapshot": snapshot, "type": kind}})
+}
+
+const TASK_PACKAGE: &str = "\"TasklistComponentType\",\"@ms/tablero\"";
+
+/// Loop's own new table and task list (captured, without who made them): every
+/// id replaced, so each use is a component of its own.
+const NEW_TABLE: &str = include_str!("../templates/loop-table.json");
+const NEW_TASK_LIST: &str = include_str!("../templates/loop-tasklist.json");
+
+fn with_fresh_ids(template: &str) -> String {
+    let bytes = template.as_bytes();
+    let shape = |at: usize| {
+        bytes.len() >= at + 36
+            && (0..36).all(|i| {
+                let c = bytes[at + i];
+                if matches!(i, 8 | 13 | 18 | 23) { c == b'-' } else { c.is_ascii_digit() || (b'a'..=b'f').contains(&c) }
+            })
+    };
+    let mut fresh: std::collections::HashMap<&str, String> = Default::default();
+    let mut out = String::with_capacity(template.len());
+    let mut at = 0;
+    let mut copied = 0;
+    while at < bytes.len() {
+        if shape(at) {
+            out.push_str(&template[copied..at]);
+            out.push_str(fresh.entry(&template[at..at + 36]).or_insert_with(uuid));
+            at += 36;
+            copied = at;
+        } else {
+            at += 1;
+        }
+    }
+    out.push_str(&template[copied..]);
+    out
+}
+
+/// A template's components, and what reading them gives.
+fn from_template(template: &str, tasks: bool) -> Option<(String, Vec<Value>, Embedded)> {
+    let document: Value = serde_json::from_str(&with_fresh_ids(template)).ok()?;
+    let root = document["root"].as_str()?.to_owned();
+    let attaches = document["attaches"].as_array()?.clone();
+    let mut store = Store { paths: Default::default(), blobs: Default::default() };
+    for attach in &attaches {
+        store.attach(attach);
+    }
+    let mut replayed = Replayed { stories: Default::default(), keys: Default::default(), channels: Default::default() };
+    for name in store.stories() {
+        if let Some((units, _)) = store.units(&name) {
+            replayed.stories.insert(name, units);
+        }
+    }
+    let holder = if tasks { task_table(&store, &root)? } else { root.clone() };
+    let embedded = table(&store, &replayed, &lists_in(&store), &holder, tasks)?;
+    Some((root, attaches, embedded))
+}
+
 /// A quote component with `lines`.
 fn attach_quote(id: &str, lines: &[Vec<(String, Marks)>], author: &Value) -> Value {
     let package = "[\"BlockQuoteComponentType\"]";
@@ -1656,9 +1851,223 @@ struct Plan<'a> {
     attached: Vec<Value>,
     ops: Vec<Value>,
     registry: Option<String>,
+    /// Tasks to add to the list of a block, after an entry of its order.
+    tasks_added: Vec<(usize, Option<String>, Vec<Wanted>)>,
+    tasks_removed: Vec<(usize, Line)>,
 }
 
 impl Plan<'_> {
+    /// A task's row: the matrix, the order shown, then a cell per column in the
+    /// shape each kind of column takes.
+    fn task_row(&mut self, table: &Table, position: usize, after: Option<&str>, wanted: &Wanted) -> (String, Value) {
+        let (row, entry) = (uuid(), uuid());
+        self.matrix(
+            table,
+            serde_json::json!({"pos1": position, "seg": [1, -2147483648i64], "type": 0, "target": "rows"}),
+        );
+        self.matrix(
+            table,
+            serde_json::json!({"type": 2, "row": position, "col": 0, "fwwMode": false,
+            "value": {"metadataProperties": {"persistentData": {}}, "id": row}}),
+        );
+        let mut order = serde_json::json!({"type": 0, "entryId": entry, "value": row});
+        if let Some(previous) = after {
+            order["insertAfterEntryId"] = Value::String(previous.to_owned());
+        }
+        self.ops.push(channel_op(&table.view, &table.row_sequence, order));
+        let (title, done) = (inline(&wanted.1), matches!(wanted.0, Kind::Check(_, true)));
+        let title = task_title(&title);
+        for (column, definition) in &table.definitions {
+            let kind = definition["type"].as_str().unwrap_or_default();
+            let config = definition.pointer("/dataTypeProps/initialConfig").cloned().unwrap_or(Value::Null);
+            let preset =
+                config.pointer("/richTextServicesConfiguration/presetName").and_then(Value::as_str).unwrap_or("");
+            let story_root = serde_json::json!({
+                "configuration": plain(serde_json::json!({"presetName": preset})),
+                "isTextBoxMode": plain(Value::Bool(true)),
+                "defaultContentLocale": plain(Value::String("en-us".into())),
+            });
+            let (component, shown) = match kind {
+                "ICheckboxRichText" => {
+                    let (text, checkbox) = (uuid(), uuid());
+                    self.attached.push(attach_story(
+                        &text,
+                        &format!("[{TASK_PACKAGE},\"ICheckboxRichText\",\"RichText\"]"),
+                        "RichText",
+                        story_root,
+                        &[parse_inline(title)],
+                        self.author,
+                    ));
+                    let root = directory_header(serde_json::json!({"ConfigurationType": plain(serde_json::json!({
+                        "checked": done, "richTextUrl": "", "type": "CheckboxText",
+                        "richTextComponentHandle": fluid_handle(format!("/{text}")),
+                        "richTextServicesConfiguration": {"presetName": preset}, "contentDirection": "ltr"}))}));
+                    self.attached.push(attach_store(
+                        &checkbox,
+                        &format!("[{TASK_PACKAGE},\"ICheckboxRichText\"]"),
+                        "ICheckboxRichText",
+                        vec![attached_tree(
+                            "root",
+                            vec![attached_file("header", root), attached_file(".attributes", attributes(DIRECTORY))],
+                        )],
+                    ));
+                    (Some(checkbox), String::new())
+                }
+                "IRichTextData" => {
+                    let text = uuid();
+                    self.attached.push(attach_story(
+                        &text,
+                        &format!("[{TASK_PACKAGE},\"IRichTextData\"]"),
+                        "IRichTextData",
+                        story_root,
+                        &[Vec::new()],
+                        self.author,
+                    ));
+                    (Some(text), String::new())
+                }
+                "ILabelData" => {
+                    let (label, selected) = (uuid(), uuid());
+                    let id = config.pointer("/selectedLabelIds/0").and_then(Value::as_str).unwrap_or_default();
+                    let name = config["values"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .find(|v| v["id"].as_str() == Some(id))
+                        .and_then(|v| v["name"].as_str())
+                        .unwrap_or_default()
+                        .to_owned();
+                    let mut storage = serde_json::json!({
+                        "contentLocaleKey": plain(Value::String("en-us".into())),
+                        "categoryIdKey": plain(config["categoryId"].clone()),
+                        "selectedValuesKey": plain(fluid_handle(format!("/{label}/{selected}"))),
+                        "labelPresetsKey": plain(serde_json::json!({})),
+                    });
+                    if let Some(labels) = &table.labels {
+                        storage["labelComponentHandleKey"] = plain(fluid_handle(format!("/{labels}")));
+                    }
+                    self.attached.push(attach_store(
+                        &label,
+                        &format!("[{TASK_PACKAGE},\"ILabelData\"]"),
+                        "ILabelData",
+                        vec![
+                            attached_tree(
+                                "root",
+                                vec![
+                                    attached_file("header", directory_header(storage)),
+                                    attached_file(".attributes", attributes(DIRECTORY)),
+                                ],
+                            ),
+                            attached_tree(
+                                &selected,
+                                vec![
+                                    attached_file(
+                                        "header",
+                                        serde_json::json!({"dataArray": [
+                                    {"entryId": uuid(), "value": id, "isDeleted": false}]})
+                                        .to_string(),
+                                    ),
+                                    attached_file(
+                                        ".attributes",
+                                        attributes("https://graph.microsoft.com/types/SharedArray"),
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ));
+                    (Some(label), name)
+                }
+                _ => (None, String::new()),
+            };
+            let mut value = serde_json::json!({"cellValue": shown});
+            if let Some(component) = component {
+                value["componentHandle"] = fluid_handle(format!("/{component}"));
+            }
+            self.matrix(table, serde_json::json!({"type": 2, "row": position, "col": column, "fwwMode": false, "value": {
+                "value": value, "cellDataTypeProps": {"type": kind, "initialConfig": config}, "attribution": self.author}}));
+        }
+        (entry, serde_json::json!({"rowId": row, "tableEventType": "RowInserted", "viewLayerType": "CoreViewModel"}))
+    }
+
+    fn signal(&mut self, table: &Table, events: Vec<Value>) {
+        if !events.is_empty()
+            && let Some(signal) = &table.signal
+        {
+            self.ops.push(channel_op(
+                &table.view,
+                signal,
+                serde_json::json!({"type": "signal", "metadata": {
+                "consumerMetadata": {"editMode": "edit"}, "tableEventMetadata": events}}),
+            ));
+        }
+    }
+
+    /// Tasks added and removed, appended rows first: removing from the end moves none of them.
+    fn task_changes(&mut self) {
+        let text = self.text;
+        let mut lists: Vec<usize> =
+            self.tasks_added.iter().map(|a| a.0).chain(self.tasks_removed.iter().map(|r| r.0)).collect();
+        lists.sort_unstable();
+        lists.dedup();
+        for b in lists {
+            let Some(Embedded::Tasks(list)) = text.blocks[b].embedded.as_deref() else { continue };
+            let mut events = Vec::new();
+            let mut position = list.table.matrix_rows;
+            let added: Vec<_> = self.tasks_added.iter().filter(|a| a.0 == b).cloned().collect();
+            for (_, after, lines) in added {
+                let mut after = after;
+                for wanted in &lines {
+                    let (entry, event) = self.task_row(&list.table, position, after.as_deref(), wanted);
+                    position += 1;
+                    after = Some(entry);
+                    events.push(event);
+                }
+            }
+            let mut gone: Vec<Line> = self.tasks_removed.iter().filter(|r| r.0 == b).map(|r| r.1.clone()).collect();
+            gone.sort_by_key(|l| std::cmp::Reverse(l.position));
+            for line in gone {
+                self.matrix(
+                    &list.table,
+                    serde_json::json!({"pos1": line.position, "pos2": line.position + 1, "type": 1, "target": "rows"}),
+                );
+                self.ops.push(channel_op(
+                    &list.table.view,
+                    &list.table.row_sequence,
+                    serde_json::json!({"type": 1, "entryId": line.entry}),
+                ));
+                events.push(serde_json::json!({"rowId": line.id, "tableEventType": "RowDeleted", "viewLayerType": "CoreViewModel"}));
+            }
+            self.signal(&list.table, events);
+        }
+    }
+
+    /// A new task list on the page, with its tasks.
+    fn new_task_list(&mut self, at: usize, lines: &[Wanted]) -> Result<(), RestError> {
+        let Some((root, attaches, Embedded::Tasks(list))) = from_template(NEW_TASK_LIST, true) else {
+            return Err(refused());
+        };
+        self.attached.extend(attaches);
+        self.page(insert_component(at, &root, self.author));
+        let mut after: Option<String> = None;
+        let mut events = Vec::new();
+        for (k, wanted) in lines.iter().enumerate() {
+            let (entry, event) = self.task_row(&list.table, list.table.matrix_rows + k, after.as_deref(), wanted);
+            after = Some(entry);
+            events.push(event);
+        }
+        self.signal(&list.table, events);
+        Ok(())
+    }
+
+    /// A new table on the page, sized and filled from the rows typed.
+    fn new_table(&mut self, at: usize, lines: &[String]) -> Result<(), RestError> {
+        let Some((root, attaches, Embedded::Table(table))) = from_template(NEW_TABLE, false) else {
+            return Err(refused());
+        };
+        self.attached.extend(attaches);
+        self.page(insert_component(at, &root, self.author));
+        self.table(&table, lines)
+    }
+
     fn page(&mut self, op: Value) {
         self.ops.push(channel_op(&self.text.component, "text", op));
     }
@@ -1891,16 +2300,7 @@ impl Plan<'_> {
             ));
             events.push(serde_json::json!({"columnId": line.id, "tableEventType": "ColumnDeleted", "viewLayerType": "CoreViewModel"}));
         }
-        if !events.is_empty()
-            && let Some(signal) = &table.signal
-        {
-            self.ops.push(channel_op(
-                &table.view,
-                signal,
-                serde_json::json!({"type": "signal", "metadata": {
-                "consumerMetadata": {"editMode": "edit"}, "tableEventMetadata": events}}),
-            ));
-        }
+        self.signal(table, events);
         Ok(())
     }
 
@@ -2083,7 +2483,15 @@ fn edit(text: &Text, markdown: &str, author: &Value) -> Result<Vec<Value>, RestE
     }
     let whole = |b: usize| blocks[b].embedded.is_some() && gone[b] == blocks[b].lines().len();
     let page_end = blocks.last().map(|b| b.marker + usize::from(b.props.is_some())).unwrap_or(0);
-    let mut plan = Plan { text, author, attached: Vec::new(), ops: Vec::new(), registry: text.list_registry.clone() };
+    let mut plan = Plan {
+        text,
+        author,
+        attached: Vec::new(),
+        ops: Vec::new(),
+        registry: text.list_registry.clone(),
+        tasks_added: Vec::new(),
+        tasks_removed: Vec::new(),
+    };
     let mut removed_whole = vec![false; blocks.len()];
     for (b, run) in &table_runs {
         if let Some(Embedded::Table(table)) = blocks[*b].embedded.as_deref() {
@@ -2119,6 +2527,9 @@ fn edit(text: &Text, markdown: &str, author: &Value) -> Result<Vec<Value>, RestE
                         let inner = &blocks[s];
                         plan.ops.push(channel_op(id, "text", json_remove(inner.start, inner.marker + 1)));
                     }
+                    (Part::Task(t), Some(Embedded::Tasks(list))) => {
+                        plan.tasks_removed.push((b, list.tasks[t].row.clone()));
+                    }
                     _ => return Err(refused()),
                 }
                 continue;
@@ -2140,10 +2551,11 @@ fn edit(text: &Text, markdown: &str, author: &Value) -> Result<Vec<Value>, RestE
                         }
                     }
                 }
-                (Part::Task(t), Some(Embedded::Tasks(tasks))) => {
+                (Part::Task(t), Some(Embedded::Tasks(list))) => {
                     let Kind::Check(_, done) = kind else { return Err(refused()) };
-                    let task = &tasks[t];
-                    plan.cell(&task.title, &inline(runs))?;
+                    let task = &list.tasks[t];
+                    let typed = inline(runs);
+                    plan.cell(&task.title, if task.details.is_empty() { &typed } else { task_title(&typed) })?;
                     if *done != task.done {
                         let mut configuration = task.configuration.clone();
                         configuration["checked"] = Value::Bool(*done);
@@ -2159,6 +2571,7 @@ fn edit(text: &Text, markdown: &str, author: &Value) -> Result<Vec<Value>, RestE
             }
         }
     }
+    plan.task_changes();
     let mut out = plan.attached;
     out.extend(plan.ops);
     Ok(out)
@@ -2199,6 +2612,17 @@ fn insert_new(
                 plan.ops.push(channel_op(id, "text", insert_text(at, t, marks, author)));
             }
         }
+        return Ok(());
+    }
+    let all_checks = wanted[added.clone()].iter().all(|(k, _)| matches!(k, Kind::Check(..)));
+    let list_before = before.filter(|b| matches!(blocks[*b].embedded.as_deref(), Some(Embedded::Tasks(_))));
+    let list_after = old.get(i1).filter(|l| matches!(l.2, Part::Task(_))).map(|l| l.1);
+    if all_checks && let Some(b) = list_before.or(list_after) {
+        let after = match (list_before, blocks[b].embedded.as_deref(), i1.checked_sub(1).map(|i| old[i].2)) {
+            (Some(_), Some(Embedded::Tasks(list)), Some(Part::Task(t))) => Some(list.tasks[t].row.entry.clone()),
+            _ => None,
+        };
+        plan.tasks_added.push((b, after, wanted[added].to_vec()));
         return Ok(());
     }
     let at = if i1 < old.len() {
@@ -2247,10 +2671,30 @@ fn insert_new(
             continue;
         }
         if *kind == Kind::TableRow {
+            let first = (start..=k).rev().take_while(|&e| wanted[e].0 == Kind::TableRow).last().unwrap_or(k);
+            let lines: Vec<String> =
+                wanted[first..=k].iter().map(|(_, r)| r.first().map(|(t, _)| t.clone()).unwrap_or_default()).collect();
+            let separated = lines.get(1).is_some_and(|l| {
+                let cells = table_cells(l);
+                !cells.is_empty() && cells.iter().all(|c| !c.is_empty() && c.chars().all(|x| matches!(x, '-' | ':')))
+            });
+            if separated {
+                plan.new_table(at, &lines)?;
+                k = first;
+                continue;
+            }
             plan.page(insert_marker(at, &Kind::Paragraph, None, author));
             let raw = runs.first().map(|(t, _)| t.clone()).unwrap_or_default();
             plan.page(insert_text(at, &raw, &Marks::default(), author));
             continue;
+        }
+        if matches!(kind, Kind::Check(..)) {
+            let first = (start..=k).rev().take_while(|&e| matches!(wanted[e].0, Kind::Check(..))).last().unwrap_or(k);
+            if inline(&wanted[first].1).contains(TASK_DETAILS) {
+                plan.new_task_list(at, &wanted[first..=k])?;
+                k = first;
+                continue;
+            }
         }
         plan.page(insert_marker(at, kind, list_ids.get(&k).map(String::as_str), author));
         for (t, marks) in runs.iter().rev() {
@@ -2910,6 +3354,7 @@ mod tests {
         file(at("CELL", ".channels/text/content/header"), text(json!(["aa", para()])));
         file(at("TL", ".component"), package("TasklistComponentType"));
         file(at("TT", ".component"), package("TasklistComponentType"));
+        file(at("TL", ".channels/root/header"), dir(json!({"tableComponentHandle": plain(url("/TT"))})));
         file(at("TT", ".channels/root/header"), dir(json!({"tableViewModelIdKey": plain(url("/LV"))})));
         file(
             at("LV", ".channels/root/header"),
@@ -3022,19 +3467,86 @@ mod tests {
     }
 
     #[test]
-    fn a_task_list_keeps_its_tasks_unless_it_goes_whole() {
-        let mut text = read(&blocks_snapshot(), &[]).unwrap();
-        for block in &mut text.blocks {
-            if let Some(Embedded::Tasks(tasks)) = block.embedded.as_deref_mut() {
-                let second = Task {
-                    title: Cell { runs: vec![("two".into(), Marks::default())], ..tasks[0].title.clone() },
-                    ..tasks[0].clone()
-                };
-                tasks.push(second);
-            }
+    fn the_templates_read_as_a_table_and_a_task_list() {
+        let (_, _, table) = from_template(NEW_TABLE, false).expect("a table");
+        assert!(matches!(table, Embedded::Table(_)));
+        let (_, _, list) = from_template(NEW_TASK_LIST, true).expect("a task list");
+        let Embedded::Tasks(list) = list else { panic!("not tasks") };
+        assert!(list.tasks.is_empty());
+        assert_eq!(list.table.definitions.len(), 5);
+        assert!(list.table.labels.is_some());
+    }
+
+    #[test]
+    fn tasks_are_added_and_removed_one_at_a_time() {
+        let snapshot = blocks_snapshot();
+        let text = read(&snapshot, &[]).unwrap();
+        let wanted = format!("{BLOCKS}\n- [x] next\n- [ ] last");
+        let ops = edit(&text, &wanted, &json!({})).unwrap();
+        assert_eq!(saved(&snapshot, &ops), wanted);
+
+        let later: Vec<Value> = ops
+            .iter()
+            .enumerate()
+            .map(|(n, c)| json!({"op": {"sequenceNumber": 6 + n, "timestamp": 1, "type": "op", "contents": c.to_string()}, "sequenceNumber": 6 + n}))
+            .collect();
+        let grown = read(&snapshot, &later).unwrap();
+        let shrunk = wanted.replace("- [x] next\n", "");
+        let ops = edit(&grown, &shrunk, &json!({})).unwrap();
+        let removal =
+            ops.iter().filter_map(|o| o.pointer("/contents/contents/content/contents")).find(|o| o["type"] == 1);
+        assert_eq!(removal.unwrap()["target"], "rows");
+    }
+
+    #[test]
+    fn a_task_edit_leaves_its_details_alone() {
+        let line = Task {
+            checkbox: "B".into(),
+            configuration: json!({}),
+            done: false,
+            title: Cell { id: None, runs: vec![("dur".into(), Marks::default())], end: 0 },
+            row: Line { id: "r".into(), entry: "e".into(), position: 1 },
+            details: vec!["@Me".into(), "2026-11-01".into(), "To do".into()],
         }
-        let refused = edit(&text, &format!("{BLOCKS}\n- [ ] two").replace("- [ ] ship\n", ""), &json!({})).unwrap_err();
-        assert_eq!(refused.error.as_deref(), Some(STRUCTURE));
+        .line();
+        assert_eq!(line, "- [ ] dur \u{b7} @Me \u{b7} 2026-11-01 \u{b7} To do");
+        assert_eq!(task_title("renamed \u{b7} @Me \u{b7} changed"), "renamed");
+    }
+
+    #[test]
+    fn a_new_table_and_task_list_read_back_as_typed() {
+        let snapshot = blocks_snapshot();
+        let text = read(&snapshot, &[]).unwrap();
+        let wanted = format!(
+            "{BLOCKS}\n\nbetween\n\n| A | B | C |\n| --- | --- | --- |\n| 1 | **2** | 3 |\n| 4 | 5 | 6 |\n\nmore\n\n- [ ] one \u{b7} To do\n- [x] two"
+        );
+        let ops = edit(&text, &wanted, &json!({})).unwrap();
+        let read_back = saved(&snapshot, &ops);
+        assert!(
+            read_back.contains("| A | B | C |\n| --- | --- | --- |\n| 1 | **2** | 3 |\n| 4 | 5 | 6 |"),
+            "{read_back}"
+        );
+        assert!(read_back.ends_with("- [ ] one \u{b7} To do\n- [x] two \u{b7} To do"), "{read_back}");
+    }
+
+    #[test]
+    fn a_template_uses_new_ids_each_time() {
+        let once = with_fresh_ids("/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/x/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+        let (first, second) = once[1..].split_once("/x/").unwrap();
+        assert_eq!(first, second);
+        assert_ne!(first, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
+    }
+
+    #[test]
+    fn a_summary_can_wrap_recent_segments_and_keep_text_operations_apart() {
+        assert_eq!(segment_units(&json!({"json": {"text": "ab"}, "seq": 9})).len(), 2);
+        assert!(segment_units(&json!({"json": {"text": "ab"}, "removedSeq": 9})).is_empty());
+        let mut snapshot = blocks_snapshot();
+        let catchup = json!([{"sequenceNumber": 9, "contents": {"pos1": 0, "seg": {"text": "new "}, "type": 0}}]);
+        let path = ".app/.channels/P/.channels/text/content/catchupOps";
+        snapshot["trees"][0]["entries"].as_array_mut().unwrap().push(json!({"path": path, "id": "catchup"}));
+        snapshot["blobs"].as_array_mut().unwrap().push(json!({"id": "catchup", "content": catchup.to_string()}));
+        assert!(read(&snapshot, &[]).unwrap().markdown.starts_with("new title"));
     }
 
     fn saved(snapshot: &Value, ops: &[Value]) -> String {

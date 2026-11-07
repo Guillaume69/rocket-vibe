@@ -218,6 +218,18 @@ auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 
 ## Files
 
+A message's attachments are its files, then its GIFs, then its cards. Android draws an
+image's `title_link` (`url_private_download`, the original), so its inline GIF is the
+whole file; the thumbnail choice below is what the desktop draws.
+
+A Giphy or Tenor image in a legacy attachment or an image block (`gifs`, the Tenor case
+not probed) is an image titled by its source, else "GIF"; `title_link` is the image, as
+Android expects. Legacy attachments are cards (`cards`): `text`, `pretext` and field
+values go through the mrkdwn conversion, `title_link` must be `https://`, `color` becomes
+`#rrggbb` (bare hex; `good`, `warning`, `danger`) or is dropped, and `fallback` shows only
+on an attachment with no title and no image, since on an image it reads "370x208px image".
+Other outside images stay out, so a pasted image link leaves only its URL in the text.
+
 A message's `files` become attachments in the shape Rocket.Chat's files render
 (`files` in `slack/translate.rs`, `slackFiles` in `packages/provider-slack/src/translator.ts`): an
 image shows its largest thumbnail (`thumb_720`, `thumb_480`, `thumb_360`, else the file;

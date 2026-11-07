@@ -221,8 +221,12 @@ auto-replies (`slackbot_response`) keep the Slackbot name, by choice.
 A message's `files` become attachments in the shape Rocket.Chat's files render
 (`files` in `slack/translate.rs`, `slackFiles` in `packages/provider-slack/src/translator.ts`): an
 image shows its largest thumbnail (`thumb_720`, `thumb_480`, `thumb_360`, else the file;
-for `image/gif`, whose plain thumbnails are static PNGs per Slack's file object docs,
-`thumb_480_gif`, `thumb_360_gif`, else the file, not yet probed on a real GIF)
+for `image/gif`, whose plain thumbnails are static PNGs, `thumb_480_gif`, `thumb_360_gif`,
+else the file; probed on 7 November 2026 with a 520x320 upload: no `thumb_720`, the `_gif`
+ones answer `200 image/gif` with no redirect but, unlike the PNGs, refuse a page's CORS
+fetch, which a native client does not meet. A pasted Giphy link unfurls into a legacy
+attachment with `image_url`, `image_width`, `image_height` and `fallback: "370x208px image"`,
+no title)
 with `original_w`/`original_h`, a video or audio file plays from `url_private`, and
 every file opens or saves from `url_private_download`. Only `https://files.slack.com`
 links are kept; `tombstone`, `hidden_by_limit` and `external` files are left out. A

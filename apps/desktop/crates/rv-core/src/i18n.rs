@@ -2211,7 +2211,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     (
         "notes.structure",
         "Ce bloc ne peut pas prendre cette modification. Votre texte est gardé.",
-        "This block can't take that change. Your text is kept.",
+        "This block cannot take that change. Your text is kept.",
     ),
     ("notes.empty", "Aucune note dans ce salon pour l'instant.", "No notes in this room yet."),
     ("notes.edited", "Modifiées par {name}, {time}", "Edited by {name}, {time}"),

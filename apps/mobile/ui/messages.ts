@@ -3210,7 +3210,7 @@ const en: Record<TranslationKey, string> = {
   'notes.edited': 'Edited by {name}, {time}',
   'notes.loadFailed': "Couldn't read the notes.",
   'notes.saveFailed': "Couldn't save the notes.",
-  'notes.structure': 'This block can't take that change. Your text is kept.',
+  'notes.structure': 'This block cannot take that change. Your text is kept.',
   'notes.conflict': 'Someone saved them in the meantime. Your text is kept: saving again replaces their version.',
 
   'threads.title': 'Threads',

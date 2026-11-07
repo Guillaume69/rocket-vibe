@@ -2196,7 +2196,7 @@
   "notes.close": ["Fermer les notes", "Close notes"],
   "notes.structure": [
     "Ce bloc ne peut pas prendre cette modification. Votre texte est gardé.",
-    "This block can't take that change. Your text is kept."
+    "This block cannot take that change. Your text is kept."
   ],
   "notes.empty": [
     "Aucune note dans ce salon pour l'instant.",

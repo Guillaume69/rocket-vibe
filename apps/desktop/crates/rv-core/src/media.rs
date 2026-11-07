@@ -202,10 +202,11 @@ impl MediaCache {
 }
 
 /// The profile image of the person a Rocket.Chat avatar path names, a custom
-/// emoji or a file on Slack's file host. A room has no photo there, and
-/// nothing else of the server's is read this way.
+/// emoji, a file on Slack's file host or a GIF on Giphy's or Tenor's. A room
+/// has no photo there, and nothing else of the server's is read this way.
 fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
     if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN)
+        || crate::slack::translate::is_gif_host(path_or_url)
         || url::Url::parse(path_or_url).is_ok_and(|url| crate::slack::translate::file_host(&url))
     {
         return Ok(path_or_url.to_owned());

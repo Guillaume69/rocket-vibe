@@ -214,8 +214,8 @@ markers at the time of generation. The JSON keeps the scope and all the files.
 | [apps/desktop/crates/rv-core/src/media.rs:189](../../apps/desktop/crates/rv-core/src/media.rs#L189) | resource | /avatar/ |
 | [apps/desktop/crates/rv-core/src/media.rs:198](../../apps/desktop/crates/rv-core/src/media.rs#L198) | url | /api/v4/users/{…}/image |
 | [apps/desktop/crates/rv-core/src/media.rs:199](../../apps/desktop/crates/rv-core/src/media.rs#L199) | url | /api/v4/users/{…}/image |
-| [apps/desktop/crates/rv-core/src/media.rs:219](../../apps/desktop/crates/rv-core/src/media.rs#L219) | resource | /avatar/ |
-| [apps/desktop/crates/rv-core/src/media.rs:281](../../apps/desktop/crates/rv-core/src/media.rs#L281) | call:FETCH_PROTECTED | &path).await?; |
+| [apps/desktop/crates/rv-core/src/media.rs:220](../../apps/desktop/crates/rv-core/src/media.rs#L220) | resource | /avatar/ |
+| [apps/desktop/crates/rv-core/src/media.rs:282](../../apps/desktop/crates/rv-core/src/media.rs#L282) | call:FETCH_PROTECTED | &path).await?; |
 | [apps/desktop/crates/rv-core/src/native/bots.rs:261](../../apps/desktop/crates/rv-core/src/native/bots.rs#L261) | url | /api/v1/rooms |
 | [apps/desktop/crates/rv-core/src/native/workflows.rs:324](../../apps/desktop/crates/rv-core/src/native/workflows.rs#L324) | url | /api/v1/hooks |
 | [apps/desktop/crates/rv-core/src/outbox.rs:163](../../apps/desktop/crates/rv-core/src/outbox.rs#L163) | call:POST | "chat.sendMessage" |

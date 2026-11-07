@@ -2210,8 +2210,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("notes.close", "Fermer les notes", "Close notes"),
     (
         "notes.structure",
-        "Une liste de tâches garde ses tâches : modifiez-les, ou supprimez la liste entière. Votre texte est gardé.",
-        "A task list keeps its tasks: edit them, or delete the whole list. Your text is kept.",
+        "Ce bloc ne peut pas prendre cette modification. Votre texte est gardé.",
+        "This block can't take that change. Your text is kept.",
     ),
     ("notes.empty", "Aucune note dans ce salon pour l'instant.", "No notes in this room yet."),
     ("notes.edited", "Modifiées par {name}, {time}", "Edited by {name}, {time}"),

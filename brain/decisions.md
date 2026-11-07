@@ -558,6 +558,14 @@ or Loop's bundle, and was confirmed in Teams' web app. Creating a table or a tas
 not done: each needs 20 to 30 linked components and a task list Planner's connector, so a
 wrong write could cost the page. See [notes](features/notes.md).
 
+## New Loop components replay Loop's own batch (2026-11-07)
+
+A table or task list is many data stores whose shapes nothing documents, and a task list
+carries Planner's connector and schedulers. Hand-writing them invites a component that
+reads fine here and breaks in Teams, so the save replays the batch Loop itself sent:
+captured, authorship stripped, ids renewed on use, sized by the existing row and column
+code. A Teams update may change what its client writes; old shapes stay readable to it.
+
 ## Calls go native on every provider, research first (2026-11-02)
 
 User decision, 2026-11-02: calls on Teams, Rocket.Chat (Jitsi), kChat (kMeet) and Slack

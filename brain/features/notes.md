@@ -68,11 +68,16 @@ through Quip's canvas service, the way Slack's web client does (the public
   (`providers/slackCanvas.ts`); a build without the library falls back to the
   canvas's HTML at `url_private`, read by `canvasMarkdown`
   (`packages/provider-slack/src/canvas.ts`), read-only.
-- **Not covered**: inline formatting (bold, italic, links) is neither read nor
-  written, so a rewritten block loses it; a checklist item reads unchecked and
-  cannot be ticked; a conversation without a canvas offers no first one (Quip's
-  `create-collab-document` is captured, not built); tables, images and embeds
-  are skipped.
+- **Inline formatting and ticks** (`crates/rv-canvas/src/inline.rs`; captured from
+  Slack's editor and written back live, 2026-11-07): a block keeps its HTML in the
+  section (`<b>`, `<i>`, `<u>`, `<del>`, `<code>`, `<a href>`) and the same marks in its
+  Automerge document (`After` expansion, `true`, a link `{"href": ...}`). They read as
+  standard markdown and write back as both. Markdown has no underline: it shows as plain
+  text and stays on the text an edit leaves alone. A tick is the item's attribute `2`.
+- **Not covered**: a conversation without a canvas offers no first one (Quip's
+  `create-collab-document` is captured, not built); tables, images and embeds are
+  skipped; a mention or emoji inside a block reads as its text, so rewriting that block
+  loses it.
 - Desktop: `Service::canvas` / `save_canvas` (`crates/rv-slack/src/service.rs`)
   over `RestClient::slack_canvas` (`crates/rv-provider/src/rest.rs`, paths
   `CANVAS_PATHS`), `SlackSync::notes` / `save_notes`, `Session::notes_available` /
@@ -160,25 +165,33 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
     type: 0, target}`), its definition and a new component per cell set by position,
     its order entry inserted, a removal `{pos1, pos2, type: 1, target}` plus the order
     entry's delete, then a `sharedSignal` for open editors. The first line is always
-    the titles, so it can be renamed, not removed. A pipe table with no table behind
-    it is kept as text; creating a table is not done.
+    the titles, so it can be renamed, not removed.
   - *Task list* (`TasklistComponentType`, about 30 data stores with Planner's
-    connector and sync schedulers): the same table one component down, shown as
-    `- [x] title`. A row's `ICheckboxRichText` cell holds a component whose root key
-    `ConfigurationType` carries `checked` and the title's handle. Titles and ticks are
-    edited, a whole list can go; removing one task, adding a task (a new line becomes
-    a checklist item below) and creating a list are not done, and a partial removal
-    answers `notes_structure`, the draft kept. Assignee, due date and bucket are not
-    shown. Teams' "Other people's changes … haven't been synced with Planner" banner
-    follows an edit from here, as it would any other person's. Whether such an edit then
-    reaches Planner is not verified: on the only page tried, Teams' own `CreateTaskList`
-    sync had failed with `errorCode: 500` since the list was created, about 1,600
-    operations before our first write (`keyAllSyncStatusDir`), so Sync now answers
-    "isn't ready to sync with Planner" whoever edited.
+    connector and sync schedulers): the root's `tableComponentHandle` names the same
+    kind of table one component down, shown as `- [x] title \u00b7 @assignee \u00b7 2026-11-07
+    \u00b7 bucket`. A row's `ICheckboxRichText` cell holds a component whose root key
+    `ConfigurationType` carries `checked` and the title's handle; assignees are inline
+    markers into `atMentions`' `instances`, a due date is `DiasKey.contentInfo.currentDate`
+    in a `DiasComponent`, a bucket the label cell's value. Titles and ticks are edited;
+    what follows ` \u00b7 ` on a task's line is shown, not edited (a change there is dropped).
+    A task is added and removed like a table's row: a check line next to a list joins it,
+    each column taking a cell of its kind (`Plan::task_row`).
+  - *New components*: a pipe table with its separator line creates a table; a run of
+    check lines whose first carries ` \u00b7 ` creates a task list (without it they are
+    the page's own checklist). Both replay Loop's own attach batch
+    (`crates/rv-teams/templates/`, `packages/provider-teams/src/loopTemplates.ts`, equal by
+    test): authorship removed, sequences zeroed, every id replaced on use. The result
+    then goes through the same row and column code. Both verified live in Teams.
+  - *Planner*: Teams' "Other people's changes ... haven't been synced" banner follows an
+    edit from here. Whether such an edit reaches Planner is not verified: on the only
+    tenant tried, Sync now answers "isn't ready to sync with Planner" on a list Teams made
+    itself (`CreateTaskList` `errorCode: 500`, long before our first write) as on one made
+    here.
   - Emoji and tab markers are inline (`inlineMarker`), not paragraph ends; a rewritten
     cell turns an emoji marker into plain text.
 - **Not covered**: compressed (`compressionLz4`) or chunked op batches, skipped on
-  reading; ops replayed without merge-tree's per-client reference views, so concurrent
+  reading (a summary's `content/catchupOps` and segments wrapped as `{json, seq}` are
+  read); ops replayed without merge-tree's per-client reference views, so concurrent
   edits may read a few characters off; a chat whose `FileAdd` event is older than its
   stored history (desktop) or its newest 200 messages (mobile) shows no notes; other
   Loop components are kept but not shown; a table with a non-text column cannot change
@@ -204,8 +217,7 @@ app runs; Cancel drops it.
 
 The editor carries a formatting bar in every app, the composers' buttons writing
 standard markdown (`**`, `_`, `~~`), since Teams' reader takes `*` for italic and
-ignores a single `~`. `Notes.blocks_only` / `RoomNotes.blocksOnly`, set for
-Slack, whose canvases keep no inline marks, leaves only the block buttons.
+ignores a single `~`.
 
 A save replaces the revision the edit started from, moved only after a refused save
 has told the person about the newer one: a read in the background can no longer
@@ -214,7 +226,7 @@ turn a stale draft into a silent overwrite.
 ## Desktop
 
 - `rv_core::notes::Notes` is the shape every provider's notes take (markdown,
-  revision, editable, `blocks_only`, editor, time); `NativeSession::notes_available`,
+  revision, editable, editor, time); `NativeSession::notes_available`,
   `room_notes`, `save_room_notes` serve Vibez rooms, never an encrypted one.
 - GTK: the header button (`text-x-generic-symbolic`) toggles `notes.rs`'s `Page`, the
   sidebar (at the end) of an `adw::OverlaySplitView` around the content stack, which
@@ -274,6 +286,6 @@ turn a stale draft into a silent overwrite.
 `apps/mobile/providers/vibez/index.ts`, `apps/mobile/ui/formatRow.tsx`,
 `apps/web/src/panels.ts`, `apps/web/src/ui/format.tsx`, `apps/desktop/crates/rv-gtk/src/composer.rs`,
 `apps/desktop/crates/rv-ffi/src/writing.rs`,
-`crates/rv-canvas/src/`, `crates/rv-slack/src/service.rs`,
+`crates/rv-canvas/src/`, `crates/rv-teams/templates/`, `crates/rv-slack/src/service.rs`,
 `crates/rv-voice-mobile/src/canvas.rs`, `packages/provider-slack/src/actions.ts`,
 `packages/provider-slack/src/canvasEngine.ts`, `apps/mobile/providers/slackCanvas.ts`.

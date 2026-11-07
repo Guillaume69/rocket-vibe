@@ -11,7 +11,7 @@ use std::rc::Rc;
 use adw::prelude::*;
 use gtk::glib;
 use rv_core::markdown;
-use rv_core::notes::{CONFLICT, Notes};
+use rv_core::notes::{CONFLICT, Notes, STRUCTURE};
 
 use crate::composer::{Marks, toolbar};
 use crate::i18n::{t, tf};
@@ -290,6 +290,7 @@ impl Page {
                     this.adopt_revision.set(true);
                     this.reload(false);
                 }
+                Err(code) if code == STRUCTURE => this.toast(t("notes.structure")),
                 Err(_) => this.toast(t("notes.save_failed")),
             }
         });

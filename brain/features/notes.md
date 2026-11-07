@@ -110,9 +110,9 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
   a list item's marker has `list!reference` = `list!list-<id>` pointing to a
   `List` map node (`list!id`, `list!itemFormat-<level>`: `%cb` a checkbox, a
   `cssClass` bullet, else numbered). The older `nodeType` names stay understood.
-- **Saving** (`rv_teams::notes::save` / `submit`, `saveTeamsNotes` / `notesSubmit`):
-  the page is read again and the save refused (`revision_conflict`) if its
-  sequence number moved; the edited markdown is compared paragraph by paragraph
+- **Saving** (`rv_teams::notes::save` / `edit` / `submit`, `saveTeamsNotes` / `notesEdit` /
+  `notesSubmit`): the page is read again and the save refused (`revision_conflict`) if its
+  sequence number moved; the edited markdown is compared line by line
   (a longest common subsequence of rendered lines) and only the paragraphs that
   differ are rewritten: remove the old text, insert the new runs with their
   `format!*` / `hyperlink!url` props and Loop's `attribution`, annotate the
@@ -133,18 +133,56 @@ create-or-get `POST …/files` is never sent, so a chat without notes stays with
   `revision_conflict`. Verified live on 2026-11-03 on a test chat, desktop and
   mobile code: the edits were sequenced, read back identical, and rendered
   formatted in Teams' web app.
-- **What cannot be written natively**, kept readable instead: a quote (a Loop
-  sub-component, `BlockQuoteComponentType`) is written as a paragraph starting
-  `> `; a list item with no list next to it to join (a list is a `List` map node)
-  as a paragraph starting with its markdown prefix (`- `, `1. `, `- [ ] `); such
-  paragraphs read back as the same markdown, so the next save leaves them alone.
-  Teams shows the `Code` style as plain text.
-- **Not covered**: toggling a native checkbox or creating a native list or quote;
-  compressed (`compressionLz4`) or chunked op batches, skipped on reading; ops
-  replayed without merge-tree's per-client reference views, so concurrent edits
-  may read a few characters off; a chat whose `FileAdd` event is older than its
-  stored history (desktop) or its newest 200 messages (mobile) shows no notes;
-  Loop components embedded in the page (tables, tasks, quotes) are not read.
+- **Blocks** (read and edited natively since 2026-11-07, shapes read from a real
+  page and its op history, each kind confirmed in Teams' web app):
+  - *Lists*: a marker's `list!reference` is `<level>;<list id>[;1 ticked]`. A list is a
+    directory channel of the page component (`nodeType: List`, `list!id`,
+    `list!itemFormat-<level>`: `%cb` a checkbox, a `cssClass` bullet, `%cd<n>` numbered),
+    registered in the page's `ListRegistry` channel (root key `text:list!registry`). A new
+    item joins the same kind of list right before it, else a new list is attached
+    (`attach` of the channel, then `set` in the registry). A tick annotates the
+    reference and Loop's `format!textDecoration`, which the apps do not show as a strike.
+  - *Quote, code block*: `BlockQuoteComponentType` / `CodeBlockComponentType`, placed by a
+    `FluidComponent` marker whose `component!url` is the component's handle; their
+    paragraphs are in its own `text` channel. New lines go in that channel; a new quote
+    attaches a data store (`.component`, `root`, `text`) then places its marker.
+  - *Table* (`TableroComponentType`, `richTextTablero`): root → view model
+    (`tableViewModelIdKey`) → data model (`tableroDocumentId`). The order shown is the
+    `rowSequence` / `colSequence` `SharedArray`s (`{type: 0 insert, 1 delete, 2 move}`);
+    the `SharedMatrix` (`matrixIdKey`) keeps a column's definition in its row 0 (id,
+    title's handle) and a row's id in its column 0, and each cell a handle to an
+    `IRichTextData` component with its own `text`. Its `cells` blob is a sparse tree
+    keyed by the two handles' interleaved bits (column even, row odd), `rows` / `cols`
+    `segments` `[length, first handle]`. Shown as a pipe table, the titles first.
+    A save changes titles and cells in their own channels and adds or removes rows and
+    columns as Loop's editor does: rows and columns aligned (columns by title, rows by
+    content), a new one inserted at the matrix's end (`{pos1, seg: [1, -2147483648],
+    type: 0, target}`), its definition and a new component per cell set by position,
+    its order entry inserted, a removal `{pos1, pos2, type: 1, target}` plus the order
+    entry's delete, then a `sharedSignal` for open editors. The first line is always
+    the titles, so it can be renamed, not removed. A pipe table with no table behind
+    it is kept as text; creating a table is not done.
+  - *Task list* (`TasklistComponentType`, about 30 data stores with Planner's
+    connector and sync schedulers): the same table one component down, shown as
+    `- [x] title`. A row's `ICheckboxRichText` cell holds a component whose root key
+    `ConfigurationType` carries `checked` and the title's handle. Titles and ticks are
+    edited, a whole list can go; removing one task, adding a task (a new line becomes
+    a checklist item below) and creating a list are not done, and a partial removal
+    answers `notes_structure`, the draft kept. Assignee, due date and bucket are not
+    shown. Teams' "Other people's changes … haven't been synced with Planner" banner
+    follows an edit from here, as it would any other person's. Whether such an edit then
+    reaches Planner is not verified: on the only page tried, Teams' own `CreateTaskList`
+    sync had failed with `errorCode: 500` since the list was created, about 1,600
+    operations before our first write (`keyAllSyncStatusDir`), so Sync now answers
+    "isn't ready to sync with Planner" whoever edited.
+  - Emoji and tab markers are inline (`inlineMarker`), not paragraph ends; a rewritten
+    cell turns an emoji marker into plain text.
+- **Not covered**: compressed (`compressionLz4`) or chunked op batches, skipped on
+  reading; ops replayed without merge-tree's per-client reference views, so concurrent
+  edits may read a few characters off; a chat whose `FileAdd` event is older than its
+  stored history (desktop) or its newest 200 messages (mobile) shows no notes; other
+  Loop components are kept but not shown; a table with a non-text column cannot change
+  that column's values.
 - **Where**: desktop `TeamsSync::notes_page` / `notes` / `save_notes` over
   `Store::latest_system_text`, `Service::notes` / `save_notes`, `Tokens::push`;
   GTK and SwiftUI through the same generic path as Slack, editable; mobile

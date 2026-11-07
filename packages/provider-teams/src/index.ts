@@ -88,7 +88,12 @@ export async function saveTeamsNotes(client: TeamsClient, directory: TeamsDirect
   const current = await notesRead(client, page);
   if (String(current.sequence) !== revision) throw new TeamsError(NOTES_CONFLICT);
   const author = { id: me, name: directory.shown(me), timestamp: Date.now(), dataSource: 0 };
-  const ops = notesEdit(current.blocks, markdown, author);
+  let ops: ReturnType<typeof notesEdit>;
+  try {
+    ops = notesEdit(current, markdown, author);
+  } catch (e) {
+    throw new TeamsError(e instanceof Error ? e.message : 'notes_save');
+  }
   if (ops.length === 0) return asNotes(current);
   const [session, push] = await Promise.all([client.notesJoin(page), client.notesPush()]);
   let sequenced: number;

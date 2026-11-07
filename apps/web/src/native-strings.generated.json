@@ -2194,6 +2194,10 @@
   "notes.save": ["Enregistrer", "Save"],
   "notes.cancel": ["Annuler", "Cancel"],
   "notes.close": ["Fermer les notes", "Close notes"],
+  "notes.structure": [
+    "Une liste de tâches garde ses tâches : modifiez-les, ou supprimez la liste entière. Votre texte est gardé.",
+    "A task list keeps its tasks: edit them, or delete the whole list. Your text is kept."
+  ],
   "notes.empty": [
     "Aucune note dans ce salon pour l'instant.",
     "No notes in this room yet."

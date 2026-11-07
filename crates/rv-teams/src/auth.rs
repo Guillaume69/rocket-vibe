@@ -2148,6 +2148,17 @@ impl Tokens {
         }
         if let Some(dir) = std::env::var_os("TEAMS_NOTES_DUMP") {
             let dir = std::path::PathBuf::from(dir);
+            if let Some(range) = std::env::var_os("TEAMS_NOTES_OPS").and_then(|v| v.into_string().ok())
+                && let Some((from, to)) = range.split_once('-')
+            {
+                let url =
+                    format!("{item}?ump=1&filter=sequenceNumber%20ge%20{from}%20and%20sequenceNumber%20le%20{to}");
+                if let Ok(r) = http().get(url).bearer_auth(token.as_str()).send().await
+                    && let Ok(v) = r.json::<Value>().await
+                {
+                    let _ = std::fs::write(dir.join("ops.json"), v.to_string());
+                }
+            }
             let get = |url: String| {
                 let token = token.clone();
                 async move {

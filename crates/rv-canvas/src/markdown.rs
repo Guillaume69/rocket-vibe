@@ -1,6 +1,7 @@
 //! A canvas's blocks as the markdown the apps render and edit, and back.
-//! One block per line: inline formatting is not carried (none was captured).
+//! One block per line, its inline formatting in `inline`.
 
+use crate::inline::{self, Run};
 use crate::model::*;
 
 /// What a block is, for writing and for comparing an edit with the canvas.
@@ -16,6 +17,30 @@ pub enum Kind {
 pub struct Line {
     pub kind: Kind,
     pub text: String,
+    pub checked: bool,
+}
+
+impl Line {
+    pub fn runs(&self) -> Vec<Run> {
+        match self.kind {
+            Kind::Text(STYLE_CODE) => inline::literal(&self.text),
+            _ => inline::from_markdown(&self.text),
+        }
+    }
+}
+
+/// The one way a text is written, so that comparing two says whether they differ.
+fn normal(text: &str) -> String {
+    inline::to_markdown(&inline::from_markdown(text))
+}
+
+fn text_of(section: &Section) -> String {
+    let runs = section.runs();
+    if section.style == STYLE_CODE {
+        inline::plain(&runs)
+    } else {
+        normal(&inline::to_markdown(&runs)).trim_end().to_owned()
+    }
 }
 
 pub fn lines_of(canvas: &Canvas) -> Vec<Line> {
@@ -23,8 +48,10 @@ pub fn lines_of(canvas: &Canvas) -> Vec<Line> {
         .blocks()
         .into_iter()
         .map(|block| match block {
-            Block::Text(s) => Line { kind: Kind::Text(s.style), text: s.text.trim_end().to_owned() },
-            Block::Item { list, item } => Line { kind: Kind::Item(list.style), text: item.text.trim_end().to_owned() },
+            Block::Text(s) => Line { kind: Kind::Text(s.style), text: text_of(s), checked: false },
+            Block::Item { list, item } => {
+                Line { kind: Kind::Item(list.style), text: text_of(item), checked: item.checked }
+            }
         })
         .collect()
 }
@@ -59,7 +86,9 @@ pub fn render(lines: &[Line]) -> String {
                 None => out.push_str(&line.text),
             },
             Kind::Item(STYLE_NUMBERED) => out.push_str(&format!("{number}. {}", line.text)),
-            Kind::Item(STYLE_CHECKLIST) => out.push_str(&format!("- [ ] {}", line.text)),
+            Kind::Item(STYLE_CHECKLIST) => {
+                out.push_str(&format!("- [{}] {}", if line.checked { 'x' } else { ' ' }, line.text))
+            }
             Kind::Item(_) => out.push_str(&format!("- {}", line.text)),
         }
         out.push('\n');
@@ -80,7 +109,7 @@ pub fn parse(markdown: &str) -> Vec<Line> {
             continue;
         }
         if in_code {
-            out.push(Line { kind: Kind::Text(STYLE_CODE), text: raw.to_owned() });
+            out.push(Line { kind: Kind::Text(STYLE_CODE), text: raw.to_owned(), checked: false });
             continue;
         }
         let line = raw.trim_end();
@@ -88,11 +117,13 @@ pub fn parse(markdown: &str) -> Vec<Line> {
             continue;
         }
         let trimmed = line.trim_start();
+        let mut checked = false;
         let (kind, text) = if let Some(rest) = heading(trimmed) {
             rest
         } else if let Some(rest) = trimmed.strip_prefix("> ").or_else(|| trimmed.strip_prefix('>')) {
             (Kind::Text(STYLE_QUOTE), rest.to_owned())
-        } else if let Some(rest) = checkbox(trimmed) {
+        } else if let Some((ticked, rest)) = checkbox(trimmed) {
+            checked = ticked;
             (Kind::Item(STYLE_CHECKLIST), rest.to_owned())
         } else if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
             (Kind::Item(STYLE_BULLET), rest.to_owned())
@@ -101,7 +132,8 @@ pub fn parse(markdown: &str) -> Vec<Line> {
         } else {
             (Kind::Text(STYLE_PLAIN), line.to_owned())
         };
-        out.push(Line { kind, text });
+        let text = normal(&text);
+        out.push(Line { kind, text, checked });
     }
     out
 }
@@ -112,8 +144,10 @@ fn heading(line: &str) -> Option<(Kind, String)> {
     (1..=6).contains(&hashes).then(|| (Kind::Text(STYLE_HEADINGS[hashes - 1]), rest.to_owned()))
 }
 
-fn checkbox(line: &str) -> Option<&str> {
-    ["- [ ] ", "- [x] ", "- [X] ", "* [ ] ", "* [x] "].iter().find_map(|p| line.strip_prefix(p))
+fn checkbox(line: &str) -> Option<(bool, &str)> {
+    [("- [ ] ", false), ("- [x] ", true), ("- [X] ", true), ("* [ ] ", false), ("* [x] ", true), ("* [X] ", true)]
+        .iter()
+        .find_map(|(prefix, ticked)| line.strip_prefix(prefix).map(|rest| (*ticked, rest)))
 }
 
 fn numbered(line: &str) -> Option<&str> {
@@ -127,12 +161,13 @@ mod tests {
 
     #[test]
     fn markdown_round_trips_through_lines() {
-        let md = "# Title\n\nA paragraph.\n\n- one\n- two\n\n1. first\n2. second\n\n- [ ] task\n\n> quoted\n\n```\nlet x = 1;\nlet y = 2;\n```\n";
+        let md = "# Title\n\nA paragraph.\n\n- one\n- two\n\n1. first\n2. second\n\n- [ ] task\n- [x] done\n\n> **quoted**\n\n```\nlet x = 1;\nlet y = 2;\n```\n";
         let lines = parse(md);
-        assert_eq!(lines.len(), 10);
-        assert_eq!(lines[0], Line { kind: Kind::Text(1), text: "Title".into() });
+        assert_eq!(lines.len(), 11);
+        assert_eq!(lines[0], Line { kind: Kind::Text(1), text: "Title".into(), checked: false });
         assert_eq!(lines[4].kind, Kind::Item(STYLE_NUMBERED));
         assert_eq!(lines[6].kind, Kind::Item(STYLE_CHECKLIST));
+        assert!(!lines[6].checked && lines[7].checked);
         assert_eq!(render(&lines), md);
     }
 }

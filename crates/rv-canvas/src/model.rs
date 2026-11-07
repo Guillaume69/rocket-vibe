@@ -1,6 +1,7 @@
 //! A canvas as Quip's `load-data` describes it: a thread, a document and its
 //! sections, each one block of text, a list container or the title.
 
+use crate::inline::{Run, from_html, literal, plain};
 use crate::wire::{Malformed, Message};
 
 pub const TYPE_TEXT: u64 = 0;
@@ -27,9 +28,15 @@ pub struct Section {
     pub text: String,
     pub parent: Option<String>,
     pub parent_style: Option<u64>,
+    pub checked: bool,
 }
 
 impl Section {
+    /// The block's text and formatting; a code block's text is taken as it is.
+    pub fn runs(&self) -> Vec<Run> {
+        if self.style == STYLE_CODE { literal(&plain(&from_html(&self.text))) } else { from_html(&self.text) }
+    }
+
     pub fn parse(message: &Message) -> Option<Section> {
         let id = message.string(1)?;
         let content = message.message(12);
@@ -50,6 +57,7 @@ impl Section {
             text,
             parent: parents.as_ref().and_then(|p| p.string(1)).filter(|p| !p.is_empty()),
             parent_style: parents.as_ref().and_then(|p| p.int(4)),
+            checked: message.message(16).and_then(|a| a.int(2)) == Some(1),
         })
     }
 }

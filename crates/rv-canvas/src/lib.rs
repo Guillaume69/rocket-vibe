@@ -3,6 +3,7 @@
 //! The wire format is in `brain/architecture/slack-session.md` (Canvases).
 
 pub mod edit;
+pub mod inline;
 pub mod markdown;
 pub mod model;
 pub mod wire;

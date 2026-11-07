@@ -550,6 +550,14 @@ is no second pane to show. The toolbar writes standard markdown rather than the
 composers' `*` and `~`, which Teams' notes reader takes for italic and for nothing.
 See [notes](features/notes.md).
 
+## Teams notes write Loop's own components (2026-11-07)
+
+User decision: real lists, quotes, checkboxes and tables, table structure included, not
+their markdown as text. Every write copies an operation seen in the page's op history
+or Loop's bundle, and was confirmed in Teams' web app. Creating a table or a task list is
+not done: each needs 20 to 30 linked components and a task list Planner's connector, so a
+wrong write could cost the page. See [notes](features/notes.md).
+
 ## Calls go native on every provider, research first (2026-11-02)
 
 User decision, 2026-11-02: calls on Teams, Rocket.Chat (Jitsi), kChat (kMeet) and Slack

@@ -14,7 +14,7 @@ release, and its notes are that version's section here.
 - Server rail: a server can be disabled with a long press on its tile: it stays on the rail, greyed and after the others, keeps its session and is no longer read in the background, until enabled again without signing in.
 - Teams (experimental): "Seen" / "Seen by" under your latest message, from how far the others read the chat (Teams' read positions), read when the room opens and refreshed while it stays open.
 - Teams (experimental): Reply quotes a message, as Teams does: the reply is sent with the quoted message's author, time and text.
-- Teams (experimental): a chat's notes can be edited in the app: the paragraphs you changed are rewritten in the Loop page itself, with their headings, bold, italic, strikethrough and links, and a change made meanwhile in Teams keeps your draft. Quotes and new list items are kept as text.
+- Teams (experimental): a chat's notes show and edit the page's real blocks: bullet and numbered lists, checklists with their ticks, quotes, code blocks, tables (cells, column titles, adding or removing rows and columns) and task lists (titles and ticks). A change made meanwhile in Teams keeps your draft. A new table or task list, or adding or removing a single task, is not done from here.
 - Slack (experimental): a conversation's canvas can be edited in the app's Notes: the blocks you changed are written into the canvas itself, headings, lists, quotes and code included, and a change made meanwhile in Slack keeps your draft. Bold, italic and links are not shown or kept in a block you edit, and a checklist cannot be ticked.
 
 ### Fixed

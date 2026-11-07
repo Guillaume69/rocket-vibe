@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
+import { NEW_TABLE, NEW_TASK_LIST } from './loopTemplates.ts';
 import { notesEdit, notesPage, parseInline, readNotes } from './notes.ts';
 
 type Doc = Record<string, unknown>;
@@ -208,6 +209,7 @@ function blocksSnapshot(): Doc {
   file(at('CELL', '.channels/text/content/header'), text(['aa', para]));
   file(at('TL', '.component'), pkg('TasklistComponentType'));
   file(at('TT', '.component'), pkg('TasklistComponentType'));
+  file(at('TL', '.channels/root/header'), dir({ tableComponentHandle: plain(url('/TT')) }));
   file(at('TT', '.channels/root/header'), dir({ tableViewModelIdKey: plain(url('/LV')) }));
   file(at('LV', '.channels/root/header'), dir({ tableroDocumentId: plain(url('/LD')), rowSequenceKey: plain(url('/LV/rowSequence-1')), colSequenceKey: plain(url('/LV/colSequence-1')) }));
   file(at('LD', '.channels/root/header'), dir({ matrixIdKey: plain(url('/LD/matrixId-1')) }));
@@ -289,14 +291,11 @@ test('a new row and a removed one follow the editor\'s operations', () => {
   assert.deepEqual(onChannel(removed, 'rowSequence-1')[0], { type: 1, entryId: 'E1' });
 });
 
-test('a whole component can go; a task list keeps its tasks otherwise', () => {
+test('a whole component can go', () => {
   const text = readNotes(blocksSnapshot())!;
   const block = text.blocks.find((b) => b.embedded?.t === 'table')!;
   const ops = notesEdit(text, BLOCKS.replace('| Col |\n| --- |\n| aa |\n\n', ''), {});
   assert.deepEqual(merges(ops, 'P'), [{ pos1: block.start, pos2: block.marker + 1, type: 1 }]);
-  const tasks = text.blocks.find((b) => b.embedded?.t === 'tasks')!.embedded as { tasks: { title: { runs: unknown[] } }[] };
-  tasks.tasks.push({ ...tasks.tasks[0]!, title: { ...tasks.tasks[0]!.title, runs: [{ text: 'two', marks: { bold: false, italic: false, struck: false, code: false, link: null } }] } });
-  assert.throws(() => notesEdit(text, `${BLOCKS}\n- [ ] two`.replace('- [ ] ship\n', ''), {}), /notes_structure/);
 });
 
 test('new quotes and lists are attached first and read back before the next summary', () => {
@@ -313,4 +312,35 @@ test('new quotes and lists are attached first and read back before the next summ
 test('inline markdown parses back into marks', () => {
   const shown = parseInline('a **b** *c* ~~d~~ [e](https://x.y/) \\*f').map((r) => `${r.text}:${+r.marks.bold}${+r.marks.italic}${+r.marks.struck}${r.marks.link ?? ''}`);
   assert.deepEqual(shown, ['a :000', 'b:100', ' :000', 'c:010', ' :000', 'd:001', ' :000', 'e:000https://x.y/', ' *f:000']);
+});
+
+test('tasks are added and removed one at a time', () => {
+  const snapshot = blocksSnapshot();
+  const text = readNotes(snapshot)!;
+  const wanted = `${BLOCKS}\n- [x] next\n- [ ] last`;
+  const ops = notesEdit(text, wanted, {});
+  assert.equal(readNotes(snapshot, sequenced(ops))!.markdown, wanted);
+});
+
+test('a new table and task list read back as typed', () => {
+  const snapshot = blocksSnapshot();
+  const text = readNotes(snapshot)!;
+  const wanted = `${BLOCKS}\n\nbetween\n\n| A | B | C |\n| --- | --- | --- |\n| 1 | **2** | 3 |\n| 4 | 5 | 6 |\n\nmore\n\n- [ ] one · To do\n- [x] two`;
+  const back = readNotes(snapshot, sequenced(notesEdit(text, wanted, {})))!.markdown;
+  assert.ok(back.includes('| A | B | C |\n| --- | --- | --- |\n| 1 | **2** | 3 |\n| 4 | 5 | 6 |'), back);
+  assert.ok(back.endsWith('- [ ] one · To do\n- [x] two · To do'), back);
+});
+
+test('a summary can wrap recent segments and keep text operations apart', () => {
+  const snapshot = blocksSnapshot();
+  const path = '.app/.channels/P/.channels/text/content/catchupOps';
+  (snapshot.trees as { entries: unknown[] }[])[0]!.entries.push({ path, id: 'catchup' });
+  (snapshot.blobs as unknown[]).push({ id: 'catchup', content: JSON.stringify([{ sequenceNumber: 9, contents: { pos1: 0, seg: { json: { text: 'new ' }, seq: 9 }, type: 0 } }]) });
+  assert.ok(readNotes(snapshot)!.markdown.startsWith('new title'));
+});
+
+test('the templates are the same as the desktop core', () => {
+  const read = (name: string) => readFileSync(new URL(`../../../crates/rv-teams/templates/${name}`, import.meta.url), 'utf8').trimEnd();
+  assert.equal(NEW_TABLE, read('loop-table.json'));
+  assert.equal(NEW_TASK_LIST, read('loop-tasklist.json'));
 });

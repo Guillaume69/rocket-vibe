@@ -19,7 +19,7 @@ release, and its notes are that version's section here.
 
 ### Fixed
 
-- Slack (experimental): a Giphy or Tenor GIF posted by an app or pasted as a link now shows and plays.
+- Slack (experimental): a Giphy or Tenor GIF posted by an app or pasted as a link now shows and plays; a pasted image's preview no longer leaves a card reading "370x208px image", and cards show their links, mentions and colours.
 - Native Jitsi and kMeet calls: being left alone in a call no longer ends it. The server ends a lone participant's media session after about 20 seconds; the app took that for the end of the call and the window closed. It now stays in the room and the sound comes back as soon as someone returns.
 - Notes: saving after someone else changed them while you edited now always warns you and keeps your draft; a background refresh could let the save overwrite their change.
 - Teams (experimental): a GIF sent from Teams' picker shows as an animated image with its link; the message was empty.

@@ -110,6 +110,8 @@ function Notes({ c, actions, rid }: { c: Colors; actions: ProviderActions; rid: 
           leftDrafts.set(draftKey, { text: draft, revision: newer.revision });
         }
         setNotice(t('notes.conflict'));
+      } else if ((e as { code?: string }).code === 'notes_structure') {
+        setNotice(t('notes.structure'));
       } else {
         setNotice(t('notes.saveFailed'));
       }

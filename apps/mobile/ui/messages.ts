@@ -1472,6 +1472,7 @@ const fr = {
   'notes.edited': 'Modifiées par {name}, {time}',
   'notes.loadFailed': 'Impossible de lire les notes.',
   'notes.saveFailed': "Impossible d'enregistrer les notes.",
+  'notes.structure': 'Une liste de tâches garde ses tâches : modifiez-les, ou supprimez la liste entière. Votre texte est gardé.',
   'notes.conflict': "Quelqu'un les a enregistrées entre-temps. Votre texte est gardé : enregistrer à nouveau remplacera sa version.",
 
   // ── Thread list (app/threads.tsx) and following (ui/threadFollow.tsx)
@@ -3209,6 +3210,7 @@ const en: Record<TranslationKey, string> = {
   'notes.edited': 'Edited by {name}, {time}',
   'notes.loadFailed': "Couldn't read the notes.",
   'notes.saveFailed': "Couldn't save the notes.",
+  'notes.structure': 'A task list keeps its tasks: edit them, or delete the whole list. Your text is kept.',
   'notes.conflict': 'Someone saved them in the meantime. Your text is kept: saving again replaces their version.',
 
   'threads.title': 'Threads',

@@ -1995,13 +1995,13 @@
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 219,
+      "line": 220,
       "kind": "resource",
       "surface": "/avatar/"
     },
     {
       "file": "apps/desktop/crates/rv-core/src/media.rs",
-      "line": 281,
+      "line": 282,
       "kind": "call:FETCH_PROTECTED",
       "surface": "&path).await?;"
     },

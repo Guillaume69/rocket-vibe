@@ -202,10 +202,11 @@ impl MediaCache {
 }
 
 /// The profile image of the person a Rocket.Chat avatar path names, a custom
-/// emoji or a file on Slack's file host. A room has no photo there, and
-/// nothing else of the server's is read this way.
+/// emoji, a file on Slack's file host or a GIF on Giphy's or Tenor's. A room
+/// has no photo there, and nothing else of the server's is read this way.
 fn slack_path(directory: &crate::slack::directory::Directory, path_or_url: &str) -> Result<String, RestError> {
     if path_or_url.starts_with(crate::slack::sync::CUSTOM_EMOJI_ORIGIN)
+        || crate::slack::translate::is_gif_host(path_or_url)
         || url::Url::parse(path_or_url).is_ok_and(|url| crate::slack::translate::file_host(&url))
     {
         return Ok(path_or_url.to_owned());
@@ -309,12 +310,44 @@ mod tests {
     }
 
     #[test]
-    fn slack_reads_its_file_host_and_nothing_else_of_the_web() {
+    fn slack_reads_its_file_host_giphy_and_tenor_and_nothing_else_of_the_web() {
         let directory = crate::slack::directory::Directory::default();
         let file = "https://files.slack.com/files-tmb/T1-F1-x/a_360.png";
         assert_eq!(slack_path(&directory, file).unwrap(), file);
+        for gif in ["https://media1.giphy.com/media/a/giphy.gif", "https://media.tenor.com/a/b.gif"] {
+            assert_eq!(slack_path(&directory, gif).unwrap(), gif);
+        }
+        assert!(slack_path(&directory, "https://evil.example/a.gif").is_err());
         assert!(slack_path(&directory, "https://files.slack.com.evil.example/a.png").is_err());
         assert!(slack_path(&directory, "http://files.slack.com/a.png").is_err());
+    }
+
+    #[test]
+    fn slack_gifs_and_cards_reach_the_renderers_from_what_slack_sends() {
+        let directory = crate::slack::directory::Directory::default();
+        let channels = std::collections::HashMap::new();
+        let translator = crate::slack::translate::Translator { directory: &directory, channels: &channels };
+        let giphy = "https://media.giphy.com/media/a/giphy.gif";
+        let row = translator
+            .message(
+                "C1",
+                &serde_json::json!({"ts": "1700000000.000100", "user": "U1", "text": "look", "attachments": [
+                    {"from_url": giphy, "image_url": giphy, "image_width": 370, "image_height": 208,
+                     "fallback": "370x208px image", "media_type": "external_link"},
+                    {"from_url": "https://example.com/a.png", "image_url": "https://example.com/a.png",
+                     "fallback": "370x208px image"},
+                    {"title": "Build", "title_link": "https://ci.example/42", "text": "passed", "color": "good"},
+                ]}),
+            )
+            .unwrap();
+        let images = image_attachments(row.attachments.as_deref());
+        assert_eq!(images.len(), 1);
+        assert_eq!((images[0].source.as_str(), images[0].width), (giphy, Some(370)));
+        assert_eq!(slack_path(&directory, &images[0].source).unwrap(), giphy);
+        let cards = crate::content::cards(row.attachments.as_deref());
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].title.as_deref(), Some("Build"));
+        assert_eq!(cards[0].color.as_deref(), Some("#2eb886"));
     }
 
     #[test]

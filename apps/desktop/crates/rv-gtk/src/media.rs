@@ -4,7 +4,7 @@
 //! keeps its frames too, for the pictures that play it.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -155,6 +155,8 @@ thread_local! {
     static PREVIEW_TEXTURES: RefCell<Vec<(String,gdk::Texture)>> = RefCell::default();
     static WAITING: RefCell<HashMap<String, Vec<Waiter>>> = RefCell::default();
     static ANIMATIONS: RefCell<Vec<(String, Frames)>> = RefCell::default();
+    /// Whose frames were kept once: a first frame without them is one to decode again.
+    static ANIMATED: RefCell<HashSet<String>> = RefCell::default();
 }
 
 fn texture(width: u32, height: u32, rgba: Vec<u8>) -> gdk::Texture {
@@ -192,7 +194,8 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
     } else if matches!(session, Provider::Vibez(_)) {
         None
     } else {
-        TEXTURES.with_borrow(|t| t.get(&cache_key).cloned())
+        let evicted = ANIMATED.with_borrow(|a| a.contains(&cache_key)) && frames(&cache_key).is_none();
+        if evicted { None } else { TEXTURES.with_borrow(|t| t.get(&cache_key).cloned()) }
     };
     match cached {
         Some(Some(texture)) => return ready(&texture),
@@ -222,6 +225,9 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
                     animation.frames.into_iter().map(|f| (texture(w, h, f.rgba), f.delay_ms)).collect();
                 return Some((frames[0].0.clone(), (frames.len() > 1).then_some(frames)));
             }
+            if rv_core::animation::is_gif(&media.bytes) {
+                return None;
+            }
             let still = gdk::Texture::from_bytes(&glib::Bytes::from(&media.bytes[..])).ok()?;
             Some((still, None))
         })
@@ -231,6 +237,7 @@ pub fn load_provider(session: Provider, path: &str, ready: impl FnOnce(&gdk::Tex
             None => (None, None),
         };
         if let Some(frames) = frames {
+            ANIMATED.with_borrow_mut(|a| a.insert(key.clone()));
             ANIMATIONS.with_borrow_mut(|a| {
                 if a.len() >= ANIMATIONS_KEPT {
                     a.remove(0);
@@ -295,6 +302,9 @@ pub fn play(picture: &gtk::Picture, frames: Frames) {
         glib::timeout_add_local_once(Duration::from_millis(u64::from(wait)), move || tick(picture, frames, next));
     }
     picture.set_paintable(Some(&frames[0].0));
+    if gtk::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations()) {
+        return;
+    }
     let wait = frames[0].1;
     let weak = picture.downgrade();
     glib::timeout_add_local_once(Duration::from_millis(u64::from(wait)), move || tick(weak, frames, 0));

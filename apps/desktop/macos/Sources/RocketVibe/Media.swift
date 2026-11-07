@@ -86,6 +86,7 @@ struct RemoteImage: View {
     @State var image: NSImage?
     @State var failed = false
     @State var authority:String?
+    @State var ownAnimation: Pictures.Animation?
 
     var pixels: Int {
         guard width != nil || height != nil else { return 0 }
@@ -95,7 +96,7 @@ struct RemoteImage: View {
     var body: some View {
         Group {
             if app.media?.current(path) != false,(!path.hasPrefix("rv-preview:")||authority==app.media?.scope(path)), let shown = image ?? Pictures.cached(path, pixels: pixels) {
-                if !reduceMotion, let animation = Pictures.animation(path, pixels: pixels) {
+                if !reduceMotion, let animation = ownAnimation ?? Pictures.animation(path, pixels: pixels) {
                     TimelineView(.animation(minimumInterval: 0.04)) { context in
                         Image(nsImage: animation.frame(at: context.date)).resizable().scaledToFill()
                     }
@@ -114,10 +115,11 @@ struct RemoteImage: View {
         .task(id: "\(path)#\(app.imagesVersion)#\(app.media?.scope(path) ?? "")") {
             guard let media = app.media else { return }
             let scope=media.scope(path)
-            if let loaded = await Pictures.load(path, pixels: pixels, media: media) {
+            if let loaded = await Pictures.loaded(path, pixels: pixels, media: media) {
                 guard scope==media.scope(path),!Task.isCancelled else{return}
                 authority=scope
-                image = loaded
+                image = loaded.still
+                ownAnimation = loaded.own
                 failed=false
             } else {
                 failed = true

@@ -89,3 +89,8 @@ for the Android app too and are fixed there as well.
 - [ ] The Slack pairing handoff authenticates nothing about the sender: anyone who sees the public pairing code within its window can push their own session into the app
 - [ ] Slack `saved.list` pagination is unprobed: `SlackSync::saved` follows `response_metadata.next_cursor` on the assumption that it pages like Slack's other list methods
 - [ ] A Markdown link whose URL contains `|` becomes a split Slack link (`<url|label>` in `markdown_to_mrkdwn` / `markdownToMrkdwn`)
+- [ ] `RestClient::fetch_protected` has no byte cap and `MediaCache` counts entries, not bytes: an image a message points at is held whole, limited only by the 15 s timeout (found reviewing Slack GIFs, 2026-11-07)
+- [ ] A Rocket.Chat card's `title_link` skips `safe_href`: `content::cards` and `image_attachments` pass any scheme to the link handlers on GTK and macOS; Slack's cards are already `https://` only (same review)
+- [ ] The `public` client follows redirects without rechecking the host, so an open redirect on an allowed GIF host could reach any address, without credentials (same review)
+- [ ] An animated GIF over the 48 MiB budget silently stays still on GTK and macOS, where decoding it smaller would play it; Android plays it (same review)
+- [ ] macOS: a GIF decoded for a row scrolled away is thrown away, and the same GIF shown twice decodes twice (`Pictures.loaded`) (same review)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SlackClient } from './client.ts';
 import { SlackDirectory } from './directory.ts';
-import { messageId, mrkdwnToMarkdown, parseMessageId, SLACK_STARRED, SlackTranslator } from './translator.ts';
+import { isGifHost, messageId, mrkdwnToMarkdown, parseMessageId, SLACK_STARRED, slackFiles, SlackTranslator } from './translator.ts';
 import { COOKIE, TOKEN, fakeSlack, message } from './testing.ts';
 
 function setup() {
@@ -154,4 +154,71 @@ test('pinned from pinned_to in its own channel; starred from my saves, live too'
   assert.equal(translator.toMessage({ ...message('1780000000.000200'), channel: 'C001' })!.starred, null);
   const off = translator.translateEvent({ collection: SLACK_STARRED, eventKey: 'x', args: [{ id: 'C001:1780000000.000100', on: false }] });
   assert.deepEqual(off, { kind: 'change', change: { type: 'message-starred', id: 'C001:1780000000.000100', starred: null } });
+});
+
+test('a GIF file shows its animated thumbnail or the original, never a static thumbnail', () => {
+  const pri = 'https://files.slack.com/files-pri/T000-F1/a.gif';
+  const tmb = (name: string) => `https://files.slack.com/files-tmb/T000-F1-x/${name}`;
+  const list = JSON.parse(slackFiles([
+    { name: 'a.gif', mimetype: 'image/gif', url_private: pri, thumb_720: tmb('a_720.png'), thumb_480: tmb('a_480.png'), thumb_480_gif: tmb('a_480.gif'), thumb_360_gif: tmb('a_360.gif') },
+    { name: 'b.gif', mimetype: 'image/gif', url_private: pri, thumb_360_gif: tmb('b_360.gif'), thumb_360: tmb('b_360.png') },
+    { name: 'c.gif', mimetype: 'image/gif', url_private: pri, thumb_360: tmb('c_360.png') },
+  ])!) as Record<string, unknown>[];
+  assert.deepEqual(list.map((a) => a.image_url), [tmb('a_480.gif'), tmb('b_360.gif'), pri]);
+});
+
+test('Giphy and Tenor GIFs from attachments and image blocks become images, other hosts stay out', () => {
+  const { translator } = setup();
+  const giphy = 'https://media1.giphy.com/media/a/giphy.gif';
+  const tenor = 'https://media.tenor.com/b/c.gif';
+  const row = translator.toMessage({ ...message('1780000000.000001', {
+    text: '',
+    blocks: [
+      { type: 'rich_text' },
+      { type: 'image', image_url: tenor, alt_text: 'dance', title: { type: 'plain_text', text: 'Dance' } },
+      { type: 'image', image_url: 'https://evil.example/x.gif' },
+    ],
+    attachments: [
+      { title: 'fight', title_link: 'https://giphy.com/gifs/fight', fallback: 'giphy: fight', image_url: giphy, image_width: 480, image_height: 270 },
+      { fallback: 'again', blocks: [{ type: 'image', image_url: giphy }] },
+      { title: 'A page', image_url: 'https://example.com/page.png' },
+    ],
+  }), channel: 'C001' })!;
+  const list = JSON.parse(row.attachments!) as Record<string, unknown>[];
+  assert.deepEqual(list, [
+    { title: 'fight', title_link: giphy, image_url: giphy, image_type: 'image/gif', image_dimensions: { width: 480, height: 270 } },
+    { title: 'Dance', title_link: tenor, image_url: tenor, image_type: 'image/gif', image_alt: 'dance' },
+    { title: 'A page' },
+  ]);
+});
+
+test('legacy attachments become cards, their text as markdown, their colours as the clients read them', () => {
+  const { translator } = setup();
+  const giphy = 'https://media1.giphy.com/media/a/giphy.gif';
+  const row = translator.toMessage({ ...message('1780000000.000001', { text: '', attachments: [
+    { author_name: 'CI', title: 'Build', title_link: 'https://ci.example/42', text: 'see <https://ci.example/42|Build 42> *now*', pretext: 'ignored', color: '36a64f', fields: [{ title: 'Branch', value: '*master*', short: true }, 'odd'] },
+    { title: 'unsafe link', title_link: 'javascript:alert(1)', fallback: 'same as the title', color: 'danger' },
+    { title: 'fight', title_link: 'https://giphy.com/gifs/fight', fallback: 'giphy: fight', image_url: giphy, color: 'good' },
+    { title: 'Failed', fallback: 'no', blocks: [{ type: 'image', image_url: giphy }] },
+    { from_url: 'https://example.com/a.png', image_url: 'https://example.com/a.png', fallback: '370x208px image' },
+    { pretext: 'before', fallback: 'no', color: '#ABCDEF' },
+    { fallback: 'alone', color: 'not a colour' },
+    { color: 'warning' },
+    {},
+    'not an attachment',
+  ] }), channel: 'C001' })!;
+  const list = JSON.parse(row.attachments!) as Record<string, unknown>[];
+  assert.deepEqual(list, [
+    { title: 'fight', title_link: giphy, image_url: giphy, image_type: 'image/gif' },
+    { author_name: 'CI', fields: [{ title: 'Branch', value: '**master**', short: true }, 'odd'], title: 'Build', title_link: 'https://ci.example/42', text: 'see [Build 42](https://ci.example/42) **now**', color: '#36a64f' },
+    { title: 'unsafe link', color: '#a30200' },
+    { title: 'Failed' },
+    { text: 'before', color: '#ABCDEF' },
+    { text: 'alone' },
+  ]);
+});
+
+test('only Giphy and Tenor count as GIF hosts', () => {
+  for (const url of ['https://giphy.com/a.gif', 'https://media4.giphy.com/a.gif', 'https://media.tenor.com/a.gif']) assert.equal(isGifHost(url), true, url);
+  for (const url of ['http://media.giphy.com/a.gif', 'https://giphy.com.evil.example/a.gif', 'https://evilgiphy.com/a.gif', 'https://evil.example/media.giphy.com/a.gif', 'https://evil.example/@giphy.com/a.gif', 'https://evil.example?u=@giphy.com', 'https://evil.example#@tenor.com', 'https://evil.example\\@giphy.com/a.gif', 'https://me:pw@media.giphy.com/a.gif', 'https://giphy.com:8443/a.gif', 'not a url', null]) assert.equal(isGifHost(url), false, String(url));
 });

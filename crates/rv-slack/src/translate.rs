@@ -52,12 +52,126 @@ fn file_link<'a>(file: &'a Value, key: &str) -> Option<&'a str> {
     str_of(file, key).filter(|link| link.starts_with(&format!("{FILES}/")))
 }
 
+/// A GIF on Giphy's or Tenor's hosts, the only images from outside Slack
+/// that are fetched: they go without the session's credentials.
+pub fn is_gif_host(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| {
+        let on =
+            |host: &str, domain: &str| host == domain || host.strip_suffix(domain).is_some_and(|h| h.ends_with('.'));
+        u.scheme() == "https"
+            && u.port().is_none()
+            && u.username().is_empty()
+            && u.password().is_none()
+            && u.host_str().is_some_and(|h| on(h, "giphy.com") || on(h, "tenor.com"))
+    })
+}
+
+fn image_blocks(message: &Value) -> impl Iterator<Item = &Value> {
+    message.get("blocks").and_then(Value::as_array).into_iter().flatten().filter(|b| str_of(b, "type") == Some("image"))
+}
+
+/// The GIFs a message's legacy attachments and image blocks show, in the
+/// attachment shape of an image from elsewhere.
+fn gifs(raw: &Value) -> Vec<Value> {
+    let legacy = || raw.get("attachments").and_then(Value::as_array).into_iter().flatten();
+    let blocks = std::iter::once(raw).chain(legacy()).flat_map(image_blocks);
+    let mut out: Vec<Value> = Vec::new();
+    for source in legacy().chain(blocks) {
+        let Some(url) = str_of(source, "image_url").filter(|url| is_gif_host(url)) else { continue };
+        if out.iter().any(|gif| gif["image_url"] == url) {
+            continue;
+        }
+        let title = str_of(source, "title").or_else(|| source.pointer("/title/text")?.as_str()).unwrap_or("GIF");
+        let mut gif = json!({"title": title, "title_link": url, "image_url": url});
+        if url::Url::parse(url).is_ok_and(|u| u.path().ends_with(".gif")) {
+            gif["image_type"] = json!("image/gif");
+        }
+        if let Some(alt) = str_of(source, "alt_text") {
+            gif["image_alt"] = json!(alt);
+        }
+        let side = |k: &str| source.get(k).and_then(Value::as_i64).unwrap_or(0);
+        if side("image_width") > 0 && side("image_height") > 0 {
+            gif["image_dimensions"] = json!({"width": side("image_width"), "height": side("image_height")});
+        }
+        out.push(gif);
+    }
+    out
+}
+
+/// A card's colour as the clients read it: Slack also sends bare hex and three names.
+fn card_color(raw: &str) -> Option<String> {
+    let color = match raw {
+        "good" => "#2eb886",
+        "warning" => "#daa038",
+        "danger" => "#a30200",
+        other => other,
+    };
+    let hex = color.strip_prefix('#').unwrap_or(color);
+    (hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| format!("#{hex}"))
+}
+
+/// Legacy message attachments, in the card shape Rocket.Chat's attachments
+/// already render. One that shows a GIF keeps only what the image does not
+/// say, and `fallback` stands in only for an attachment with nothing else to
+/// show: on an image it reads "370x208px image".
+fn cards(raw: &Value, text: &dyn Fn(&str) -> String) -> Vec<Value> {
+    let legacy = raw.get("attachments").and_then(Value::as_array).into_iter().flatten();
+    legacy
+        .filter_map(|a| {
+            let gif = str_of(a, "image_url").is_some_and(is_gif_host);
+            let mut card = serde_json::Map::new();
+            if let Some(author) = a.get("author_name") {
+                card.insert("author_name".to_owned(), author.clone());
+            }
+            if let Some(fields) = a.get("fields").and_then(Value::as_array) {
+                let converted = |field: &Value| {
+                    let mut field = field.clone();
+                    if let Some(value) = field.get("value").and_then(Value::as_str).map(text) {
+                        field["value"] = json!(value);
+                    }
+                    field
+                };
+                card.insert("fields".to_owned(), fields.iter().map(converted).collect());
+            }
+            if !gif {
+                if let Some(title) = a.get("title") {
+                    card.insert("title".to_owned(), title.clone());
+                }
+                if let Some(link) = str_of(a, "title_link").filter(|link| link.starts_with("https://")) {
+                    card.insert("title_link".to_owned(), json!(link));
+                }
+            }
+            let bare =
+                str_of(a, "title").is_none() && str_of(a, "image_url").is_none() && image_blocks(a).next().is_none();
+            let fallback = || if bare { str_of(a, "fallback") } else { None };
+            if let Some(body) = str_of(a, "text").or_else(|| str_of(a, "pretext")).or_else(fallback) {
+                card.insert("text".to_owned(), json!(text(body)));
+            }
+            if card.is_empty() {
+                return None;
+            }
+            if let Some(color) = str_of(a, "color").and_then(card_color) {
+                card.insert("color".to_owned(), json!(color));
+            }
+            Some(Value::Object(card))
+        })
+        .collect()
+}
+
+fn attachments(raw: &Value, text: &dyn Fn(&str) -> String) -> Option<String> {
+    let mut out = files(raw.get("files"));
+    out.extend(gifs(raw));
+    out.extend(cards(raw, text));
+    (!out.is_empty()).then(|| Value::Array(out).to_string())
+}
+
 /// A message's files, in the attachment shape Rocket.Chat's files already
-/// render: images from their largest thumbnail, video and audio played from
-/// the file itself. Deleted files and files of other services are left out.
-fn files(raw: Option<&Value>) -> Option<String> {
+/// render: images from their largest thumbnail (a GIF's static ones never),
+/// video and audio played from the file itself. Deleted files and files of
+/// other services are left out.
+fn files(raw: Option<&Value>) -> Vec<Value> {
     let mut out = Vec::new();
-    for file in raw?.as_array()? {
+    for file in raw.and_then(Value::as_array).into_iter().flatten() {
         let Some(link) = file_link(file, "url_private") else { continue };
         if matches!(str_of(file, "mode"), Some("tombstone" | "hidden_by_limit" | "external")) {
             continue;
@@ -69,7 +183,12 @@ fn files(raw: Option<&Value>) -> Option<String> {
         let download = file_link(file, "url_private_download").unwrap_or(link);
         let mut a = json!({"title": name, "title_link": download, "type": "file", "size": size});
         if mime.starts_with("image/") {
-            let thumb = ["thumb_720", "thumb_480", "thumb_360"].iter().find_map(|k| file_link(file, k));
+            let sizes: &[&str] = if mime == "image/gif" {
+                &["thumb_480_gif", "thumb_360_gif"]
+            } else {
+                &["thumb_720", "thumb_480", "thumb_360"]
+            };
+            let thumb = sizes.iter().find_map(|k| file_link(file, k));
             a["image_url"] = json!(thumb.unwrap_or(link));
             a["image_type"] = json!(mime);
             a["image_size"] = json!(size);
@@ -88,12 +207,12 @@ fn files(raw: Option<&Value>) -> Option<String> {
         }
         out.push(a);
     }
-    (!out.is_empty()).then(|| Value::Array(out).to_string())
+    out
 }
 
 fn first_title(attachments: Option<&str>) -> Option<String> {
     let list: Vec<Value> = serde_json::from_str(attachments?).ok()?;
-    list.first().and_then(|a| str_of(a, "title")).map(str::to_owned)
+    list.first().and_then(|a| str_of(a, "title").or_else(|| str_of(a, "text"))).map(str::to_owned)
 }
 
 /// Slack's mrkdwn to the markdown the renderer reads. Outside code: people,
@@ -605,7 +724,7 @@ impl Translator<'_> {
             thread_last: root.then(|| str_of(raw, "latest_reply").and_then(ts_ms)).flatten(),
             thread_shown: thread_ts.is_some() && subtype == Some("thread_broadcast"),
             edited_at,
-            attachments: files(raw.get("files")),
+            attachments: attachments(raw, &|body| self.text(body)),
             reactions: self.reactions(raw.get("reactions")),
             encrypted_raw: None,
             updated_at: edited_at.unwrap_or(at),
@@ -777,6 +896,124 @@ mod tests {
         assert_eq!(out("a < b & `<@x> **y**`"), "a &lt; b &amp; `&lt;@x&gt; **y**`", "code escaped too, kept as typed");
         assert_eq!(out("mail me@alice.test, thanks @alice."), "mail me@alice.test, thanks <@U001>.");
         assert_eq!(out("2*3*4 stays"), "2*3*4 stays");
+    }
+
+    #[test]
+    fn gifs_come_from_their_animated_thumbnail_or_the_outside_hosts() {
+        let pri = "https://files.slack.com/files-pri/T000-F1/a.gif";
+        let tmb = |name: &str| format!("https://files.slack.com/files-tmb/T000-F1-x/{name}");
+        let list = files(Some(&json!([
+            {"name": "a.gif", "mimetype": "image/gif", "url_private": pri, "thumb_720": tmb("a_720.png"),
+             "thumb_480": tmb("a_480.png"), "thumb_480_gif": tmb("a_480.gif"), "thumb_360_gif": tmb("a_360.gif")},
+            {"name": "b.gif", "mimetype": "image/gif", "url_private": pri, "thumb_360_gif": tmb("b_360.gif"), "thumb_360": tmb("b_360.png")},
+            {"name": "c.gif", "mimetype": "image/gif", "url_private": pri, "thumb_360": tmb("c_360.png")},
+        ])));
+        assert_eq!(list[0]["image_url"], json!(tmb("a_480.gif")));
+        assert_eq!(list[1]["image_url"], json!(tmb("b_360.gif")));
+        assert_eq!(list[2]["image_url"], json!(pri));
+
+        let giphy = "https://media1.giphy.com/media/a/giphy.gif";
+        let tenor = "https://media.tenor.com/b/c.gif";
+        let found = gifs(&json!({
+            "blocks": [
+                {"type": "rich_text"},
+                {"type": "image", "image_url": tenor, "alt_text": "dance", "title": {"type": "plain_text", "text": "Dance"}},
+                {"type": "image", "image_url": "https://evil.example/x.gif"},
+            ],
+            "attachments": [
+                {"title": "fight", "image_url": giphy, "image_width": 480, "image_height": 270},
+                {"blocks": [{"type": "image", "image_url": giphy}]},
+                {"image_url": "https://example.com/page.png", "text": "a card"},
+            ],
+        }));
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0]["image_url"], json!(giphy));
+        assert_eq!(found[0]["title_link"], json!(giphy));
+        assert_eq!(found[0]["title"], json!("fight"));
+        assert_eq!(found[0]["image_dimensions"], json!({"width": 480, "height": 270}));
+        assert_eq!(found[1]["title"], json!("Dance"));
+        assert_eq!(found[1]["image_alt"], json!("dance"));
+        assert_eq!(attachments(&json!({"text": "plain"}), &str::to_owned), None);
+    }
+
+    #[test]
+    fn legacy_attachments_become_cards_and_a_gif_keeps_only_what_it_does_not_say() {
+        let giphy = "https://media1.giphy.com/media/a/giphy.gif";
+        let upper = |text: &str| text.to_uppercase();
+        let found = cards(
+            &json!({"attachments": [
+                {"author_name": "CI", "title": "Build", "title_link": "https://ci.example/42", "text": "passed", "pretext": "ignored", "color": "36a64f",
+                 "fields": [{"title": "Branch", "value": "master", "short": true}, "odd"]},
+                {"title": "unsafe link", "title_link": "javascript:alert(1)", "fallback": "same as the title", "color": "danger"},
+                {"title": "fight", "title_link": "https://giphy.com/gifs/fight", "fallback": "giphy: fight", "image_url": giphy, "color": "good"},
+                {"title": "Failed", "fallback": "no", "blocks": [{"type": "image", "image_url": giphy}]},
+                {"from_url": "https://example.com/a.png", "image_url": "https://example.com/a.png", "fallback": "370x208px image"},
+                {"pretext": "before", "fallback": "no", "color": "#ABCDEF"},
+                {"fallback": "alone", "color": "not a colour"},
+                {"color": "warning"},
+                {},
+                "not an attachment",
+            ]}),
+            &upper,
+        );
+        assert_eq!(
+            found,
+            vec![
+                json!({"author_name": "CI", "title": "Build", "title_link": "https://ci.example/42", "text": "PASSED", "color": "#36a64f",
+                   "fields": [{"title": "Branch", "value": "MASTER", "short": true}, "odd"]}),
+                json!({"title": "unsafe link", "color": "#a30200"}),
+                json!({"title": "Failed"}),
+                json!({"text": "BEFORE", "color": "#ABCDEF"}),
+                json!({"text": "ALONE"}),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_message_lists_files_then_gifs_then_cards_and_cards_read_as_markdown() {
+        let d = directory();
+        let channels = HashMap::new();
+        let t = Translator { directory: &d, channels: &channels };
+        let giphy = "https://media.giphy.com/media/a/giphy.gif";
+        let row = t
+            .message(
+                "C001",
+                &json!({"ts": "1700000000.000100", "user": "U001", "text": "", "subtype": "bot_message",
+                    "files": [{"name": "a.png", "mimetype": "image/png", "url_private": "https://files.slack.com/files-pri/T-F/a.png"}],
+                    "attachments": [
+                        {"text": "see <https://ci.example/42|Build 42> *now*"},
+                        {"from_url": giphy, "image_url": giphy, "image_width": 370, "image_height": 208, "fallback": "370x208px image"},
+                    ]}),
+            )
+            .unwrap();
+        let list: Vec<Value> = serde_json::from_str(row.attachments.as_deref().unwrap()).unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0]["title"], json!("a.png"));
+        assert_eq!(list[1]["image_url"], json!(giphy));
+        assert_eq!(list[1]["image_type"], json!("image/gif"));
+        assert_eq!(list[2]["text"], json!("see [Build 42](https://ci.example/42) **now**"));
+        let card = attachments(&json!({"attachments": [{"text": "only text"}]}), &str::to_owned);
+        assert_eq!(first_title(card.as_deref()).as_deref(), Some("only text"));
+    }
+
+    #[test]
+    fn only_giphy_and_tenor_count_as_gif_hosts() {
+        for url in ["https://giphy.com/a.gif", "https://media4.giphy.com/a.gif", "https://media.tenor.com/a.gif"] {
+            assert!(is_gif_host(url), "{url}");
+        }
+        for url in [
+            "http://media.giphy.com/a.gif",
+            "https://giphy.com.evil.example/a.gif",
+            "https://evilgiphy.com/a.gif",
+            "https://evil.example/media.giphy.com/a.gif",
+            "https://evil.example/@giphy.com/a.gif",
+            "https://evil.example\\@giphy.com/a.gif",
+            "https://me:pw@media.giphy.com/a.gif",
+            "https://giphy.com:8443/a.gif",
+            "not a url",
+        ] {
+            assert!(!is_gif_host(url), "{url}");
+        }
     }
 
     #[test]

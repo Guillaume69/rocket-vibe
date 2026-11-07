@@ -317,7 +317,7 @@ export class SlackTranslator implements Translator {
       threadShown: reply && subtype === 'thread_broadcast',
       editedAt,
       md: null,
-      attachments: joinAttachments(slackFiles(raw.files), cards(raw.attachments)),
+      attachments: joinAttachments(slackFiles(raw.files), gifs(raw), cards(raw.attachments, (text) => mrkdwnToMarkdown(text, this.resolver))),
       reactions: this.reactions(raw.reactions),
       urls: null,
       callId: huddle?.callId ?? null,
@@ -454,8 +454,9 @@ const fileLink = (value: unknown): string | null => {
 
 /**
  * A message's files, in the attachment shape Rocket.Chat's files already
- * render: images from their largest thumbnail, video and audio played from
- * the file itself. Deleted files and files of other services are left out.
+ * render: images from their largest thumbnail (a GIF's static ones never),
+ * video and audio played from the file itself. Deleted files and files of
+ * other services are left out.
  */
 export function slackFiles(raw: unknown): string | null {
   if (!Array.isArray(raw)) return null;
@@ -467,7 +468,10 @@ export function slackFiles(raw: unknown): string | null {
     const size = num(file.size);
     const a: Doc = { title: str(file.name) ?? str(file.title) ?? str(file.id) ?? 'file', title_link: fileLink(file.url_private_download) ?? link, type: 'file', size };
     if (mime.startsWith('image/')) {
-      a.image_url = fileLink(file.thumb_720) ?? fileLink(file.thumb_480) ?? fileLink(file.thumb_360) ?? link;
+      const thumb = mime === 'image/gif'
+        ? fileLink(file.thumb_480_gif) ?? fileLink(file.thumb_360_gif)
+        : fileLink(file.thumb_720) ?? fileLink(file.thumb_480) ?? fileLink(file.thumb_360);
+      a.image_url = thumb ?? link;
       a.image_type = mime;
       a.image_size = size;
       const width = num(file.original_w), height = num(file.original_h);
@@ -486,9 +490,53 @@ export function slackFiles(raw: unknown): string | null {
   return out.length === 0 ? null : JSON.stringify(out);
 }
 
-function joinAttachments(files: string | null, legacy: string | null): string | null {
-  if (files === null || legacy === null) return files ?? legacy;
-  return JSON.stringify([...(JSON.parse(files) as unknown[]), ...(JSON.parse(legacy) as unknown[])]);
+const GIF_URL = /^https:\/\/([^/?#\\@:]+)(?::443)?(?:[/?#]|$)/i;
+
+/**
+ * A GIF on Giphy's or Tenor's hosts, the only images from outside Slack that
+ * are fetched: they go without the session's credentials. Mirrors `is_gif_host`
+ * in `rv-slack`. A regex, not `new URL`: React Native's polyfill reads
+ * `https://evil.example/@giphy.com` as host `giphy.com` (`provider-api/src/origin.ts`).
+ */
+export function isGifHost(url: unknown): boolean {
+  if (typeof url !== 'string') return false;
+  const host = GIF_URL.exec(url)?.[1]?.toLowerCase();
+  if (host === undefined) return false;
+  const on = (domain: string) => host === domain || host.endsWith(`.${domain}`);
+  return on('giphy.com') || on('tenor.com');
+}
+
+const imageBlocks = (message: Doc | null): Doc[] =>
+  (Array.isArray(message?.blocks) ? message.blocks : []).flatMap((b) => {
+    const block = record(b);
+    return block?.type === 'image' ? [block] : [];
+  });
+
+/** The GIFs a message's legacy attachments and image blocks show, in the attachment shape of an image from elsewhere. */
+function gifs(raw: Doc): string | null {
+  const legacy: Doc[] = (Array.isArray(raw.attachments) ? raw.attachments : []).flatMap((item: unknown) => {
+    const a = record(item);
+    return a === null ? [] : [a];
+  });
+  const out = new Map<string, Doc>();
+  for (const source of [...legacy, ...imageBlocks(raw), ...legacy.flatMap((a) => imageBlocks(a))]) {
+    const url = source.image_url;
+    if (typeof url !== 'string' || !isGifHost(url) || out.has(url)) continue;
+    const gif: Doc = { title: str(source.title) ?? str(record(source.title)?.text) ?? 'GIF', title_link: url, image_url: url };
+    if (/\.gif(?:[?#]|$)/i.test(url)) gif.image_type = 'image/gif';
+    const alt = str(source.alt_text);
+    if (alt !== null) gif.image_alt = alt;
+    const width = num(source.image_width), height = num(source.image_height);
+    if (width > 0 && height > 0) gif.image_dimensions = { width, height };
+    out.set(url, gif);
+  }
+  return out.size === 0 ? null : JSON.stringify([...out.values()]);
+}
+
+function joinAttachments(...parts: (string | null)[]): string | null {
+  const present = parts.filter((part) => part !== null);
+  if (present.length < 2) return present[0] ?? null;
+  return JSON.stringify(present.flatMap((part) => JSON.parse(part) as unknown[]));
 }
 
 function firstTitle(attachments: string | null): string | null {
@@ -497,18 +545,43 @@ function firstTitle(attachments: string | null): string | null {
   return str(first?.title) ?? str(first?.text);
 }
 
-/** Legacy message attachments, in the card shape Rocket.Chat's attachments already render. */
-function cards(raw: unknown): string | null {
+/** A card's colour as the clients read it: Slack also sends bare hex and three names. */
+function cardColor(raw: unknown): string | null {
+  const named: Doc = { good: '#2eb886', warning: '#daa038', danger: '#a30200' };
+  const color = typeof raw === 'string' ? named[raw] ?? raw : null;
+  const hex = typeof color === 'string' ? /^#?([0-9a-f]{6})$/i.exec(color)?.[1] : undefined;
+  return hex === undefined ? null : `#${hex}`;
+}
+
+/**
+ * Legacy message attachments, in the card shape Rocket.Chat's attachments
+ * already render. One that shows a GIF keeps only what the image does not
+ * say, and `fallback` stands in only for an attachment with nothing else to
+ * show: on an image it reads "370x208px image".
+ */
+function cards(raw: unknown, markdown: (text: string) => string): string | null {
   if (!Array.isArray(raw)) return null;
   const out = raw.flatMap((item) => {
     const a = record(item);
     if (a === null) return [];
+    const gif = isGifHost(a.image_url);
     const card: Doc = {};
-    for (const key of ['author_name', 'title', 'color', 'fields']) if (a[key] !== undefined) card[key] = a[key];
-    if (typeof a.title_link === 'string' && a.title_link.startsWith('https://')) card.title_link = a.title_link;
-    const text = str(a.text) ?? str(a.pretext) ?? str(a.fallback);
-    if (text !== null) card.text = text;
-    return Object.keys(card).length > 0 ? [card] : [];
+    if (a.author_name !== undefined) card.author_name = a.author_name;
+    if (Array.isArray(a.fields)) {
+      card.fields = a.fields.map((item: unknown) => {
+        const field = record(item);
+        return field !== null && typeof field.value === 'string' ? { ...field, value: markdown(field.value) } : item;
+      });
+    }
+    if (!gif && a.title !== undefined) card.title = a.title;
+    if (!gif && typeof a.title_link === 'string' && a.title_link.startsWith('https://')) card.title_link = a.title_link;
+    const bare = str(a.title) === null && str(a.image_url) === null && imageBlocks(a).length === 0;
+    const text = str(a.text) ?? str(a.pretext) ?? (bare ? str(a.fallback) : null);
+    if (text !== null) card.text = markdown(text);
+    if (Object.keys(card).length === 0) return [];
+    const color = cardColor(a.color);
+    if (color !== null) card.color = color;
+    return [card];
   });
   return out.length === 0 ? null : JSON.stringify(out);
 }
